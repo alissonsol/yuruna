@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // FidoLanguage is the -Lang value every host guest.windows.11 script passes.
@@ -308,11 +309,17 @@ func stripANSI(s string) string { return ansiEscape.ReplaceAllString(s, "") }
 // headOf keeps the first limit bytes on a rune boundary. The head, not the
 // tail: refusals and startup failures print before anything else.
 func headOf(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
 	if len(s) <= limit {
 		return s
 	}
-	r := []rune(s[:limit])
-	return string(r[:len(r)-1]) + "..."
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // firstHTTPSURL picks the download URL out of whatever the interpreter printed.

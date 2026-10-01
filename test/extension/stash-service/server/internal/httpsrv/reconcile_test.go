@@ -4,10 +4,12 @@
 package httpsrv
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"stash-service/internal/config"
 	"stash-service/internal/meta"
@@ -227,4 +229,28 @@ func segment(permalink string, n int) string {
 		return ""
 	}
 	return parts[n]
+}
+
+func TestReconcileBoundsOneLargeDirectory(t *testing.T) {
+	_, ui, _ := newTestUI(t)
+	dir := t.TempDir()
+	for i := 0; i < maxReconcilePerPass+7; i++ {
+		id := fmt.Sprintf("orphan-%04d", i)
+		if err := ui.meta().InsertPending(&meta.Record{ID: id, StoredPath: filepath.Join(dir, id+".txt"), CreatedAt: time.Now().UTC(), Status: meta.StatusComplete}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ui.reconcile()
+	rows, err := ui.meta().Search(&meta.SearchFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 7 {
+		t.Fatalf("one directory bypassed deletion cap: %d records remain, want 7", len(rows))
+	}
+	ui.reconcile()
+	rows, err = ui.meta().Search(&meta.SearchFilter{})
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("following pass did not converge: %d %v", len(rows), err)
+	}
 }

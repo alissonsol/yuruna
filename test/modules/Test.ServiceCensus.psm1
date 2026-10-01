@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 422e4da5-c4d3-416f-8529-84b6ec995443
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1770,45 +1770,7 @@ function Invoke-ServiceCensusTcpProbe {
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Target,
         [Parameter(Mandatory)][ValidateRange(0, 600000)][int]$TimeoutMilliseconds
     )
-    $outcome = @{}
-    $pending = [System.Collections.Generic.List[object]]::new()
-    try {
-        foreach ($t in @($Target)) {
-            $id = [string]$t.Id
-            $address = [string]$t.Address
-            $port = [int]$t.Port
-            if ([string]::IsNullOrWhiteSpace($address) -or $port -le 0 -or $port -gt 65535) { $outcome[$id] = 'no-address'; continue }
-            if ($TimeoutMilliseconds -le 0) { $outcome[$id] = 'timeout'; continue }
-            $client = [System.Net.Sockets.TcpClient]::new()
-            try {
-                $ip = $null
-                $task = if ([System.Net.IPAddress]::TryParse($address, [ref]$ip)) { $client.ConnectAsync($ip, $port) } else { $client.ConnectAsync($address, $port) }
-                $pending.Add([pscustomobject]@{ Id = $id; Client = $client; Task = $task })
-            } catch {
-                $outcome[$id] = 'refused'
-                $client.Dispose()
-            }
-        }
-        if ($pending.Count -gt 0) {
-            $tasks = [System.Threading.Tasks.Task[]]@($pending | ForEach-Object { $_.Task })
-            try { $null = [System.Threading.Tasks.Task]::WaitAll($tasks, $TimeoutMilliseconds) } catch { $null = $_ }
-            foreach ($entry in $pending) {
-                $status = $entry.Task.Status
-                $outcome[$entry.Id] = if ($status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $entry.Client.Connected) { 'answered' }
-                                      elseif ($entry.Task.IsCompleted) { 'refused' }
-                                      else { 'timeout' }
-            }
-        }
-    } finally {
-        foreach ($entry in $pending) {
-            try { $entry.Client.Dispose() } catch { $null = $_ }
-            # A connect still in flight faults once its socket is gone; the
-            # fault is observed here so it never surfaces as an unobserved
-            # task exception later.
-            try { $null = $entry.Task.Exception } catch { $null = $_ }
-        }
-    }
-    return $outcome
+    return Invoke-YurunaTcpProbeSet -Target $Target -TimeoutMilliseconds $TimeoutMilliseconds
 }
 
 function Get-ServiceCensusHostKind {

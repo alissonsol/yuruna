@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,8 +32,7 @@
     the FAILURES-block excerpt (including a block written to stderr and a
     block whose footer never arrives), the last-N-lines fallback when there
     is no FAILURES block, and a child that fails with no output at all.
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4
-    and Pester 5+. Run: Invoke-Pester -Path test/modules/Test.ConfigPreflight.Tests.ps1
+    Throw-based assertions so the file runs under Pester 5+. Run: Invoke-Pester -Path test/modules/Test.ConfigPreflight.Tests.ps1
 #>
 
 BeforeAll {

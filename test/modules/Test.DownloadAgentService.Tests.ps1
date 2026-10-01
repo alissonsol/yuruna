@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,8 +23,7 @@
     host publishes on UTM Shared NAT versus a bridged network) and for the
     host-side client host/modules/Yuruna.DownloadAgent.psm1.
 .DESCRIPTION
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4 and
-    Pester 5+. Uses an isolated $env:YURUNA_RUNTIME_DIR so the tests write into a
+    Throw-based assertions so the file runs under Pester 5+. Uses an isolated $env:YURUNA_RUNTIME_DIR so the tests write into a
     throwaway directory instead of a live runtime dir.
 
     The client half runs against a real in-process HTTP server on a loopback
@@ -496,17 +495,17 @@ Describe 'Test.DownloadAgentService marker' {
 
 Describe 'Test.DownloadAgentService published address' {
     It 'publishes the VM address on a directly routable network' {
-        Assert-StringEqual 'http://192.168.1.42/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.1.42' -NetworkMode 'Bridged' -HostAddress '10.0.0.9') -Because 'bridged peers reach the VM itself'
-        Assert-StringEqual 'http://192.168.1.42/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.1.42') -Because 'Hyper-V / KVM report no network mode at all'
+        Assert-StringEqual 'http://192.168.1.42' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.1.42' -NetworkMode 'Bridged' -HostAddress '10.0.0.9') -Because 'bridged peers reach the VM itself'
+        Assert-StringEqual 'http://192.168.1.42' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.1.42') -Because 'Hyper-V / KVM report no network mode at all'
     }
 
     It 'publishes the host forward on UTM Shared NAT, where the VM address is unroutable' {
-        Assert-StringEqual 'http://10.0.0.9:8082/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress '10.0.0.9') -Because 'peers reach the Mac, not the NAT segment'
+        Assert-StringEqual 'http://10.0.0.9:8082' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress '10.0.0.9') -Because 'peers reach the Mac, not the NAT segment'
         Assert-StringEqual 8082 (Get-DownloadAgentServiceForwardedPort) -Because 'the forwarded port is the one the start script maps'
     }
 
     It 'falls back to the VM address when a Shared-NAT host cannot name itself' {
-        Assert-StringEqual 'http://192.168.64.7/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress '') -Because 'locally usable beats publishing nothing'
+        Assert-StringEqual 'http://192.168.64.7' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress '') -Because 'locally usable beats publishing nothing'
     }
 
     It 'publishes nothing when no address resolved at all' {
@@ -515,8 +514,8 @@ Describe 'Test.DownloadAgentService published address' {
     }
 
     It 'brackets an IPv6 literal so the URL authority parses' {
-        Assert-StringEqual 'http://[fd00::1]/' (Resolve-DownloadAgentServiceBaseUrl -VMIp 'fd00::1')
-        Assert-StringEqual 'http://[fd00::5]:8082/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress 'fd00::5')
+        Assert-StringEqual 'http://[fd00::1]' (Resolve-DownloadAgentServiceBaseUrl -VMIp 'fd00::1')
+        Assert-StringEqual 'http://[fd00::5]:8082' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress 'fd00::5')
         Assert-StringEqual '[fd00::1]' (Format-DownloadAgentServiceUrlHost -Address 'fd00::1')
         Assert-StringEqual '[fd00::1]' (Format-DownloadAgentServiceUrlHost -Address '[fd00::1]') -Because 'an already-bracketed literal is left alone'
         Assert-StringEqual '192.168.1.42' (Format-DownloadAgentServiceUrlHost -Address '192.168.1.42') -Because 'an IPv4 literal is never bracketed'
@@ -708,7 +707,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
         $savedCache = $env:YURUNA_CACHING_PROXY_SERVICE_IP
         try {
             if ($null -eq $aggregator) {
-                Write-Warning 'Port 9400 is already in use on this machine; the pool rung of the ladder was not exercised.'
+                Set-ItResult -Skipped -Because 'port 9400 is already in use; the pool lookup fixture cannot bind'
                 return
             }
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = ''

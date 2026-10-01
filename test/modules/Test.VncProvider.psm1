@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c24ab4-c6de-46b2-84f3-6852dccf9a66
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,14 +114,18 @@ function Repair-VncConnection {
             # Structured failure signal so a remediator routes on
             # `event=vnc_reconnect_failed` (instead of regex-parsing a
             # Verbose line that gets stripped at log level Information).
-            Send-CycleEventSafely -EventRecord @{
-                timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-                event        = 'vnc_reconnect_failed'
-                vmName       = [string]$VMName
-                hostType     = [string]$HostType
-                error        = $vncErr.Exception.Message
-                failureClass = 'host_io_blocked'
-                severity     = 'soft'
+            # Best-effort: a caller that never loaded Test.Log must still get
+            # the $false below, not a command-not-found thrown from this catch.
+            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                    event        = 'vnc_reconnect_failed'
+                    vmName       = [string]$VMName
+                    hostType     = [string]$HostType
+                    error        = $vncErr.Exception.Message
+                    failureClass = 'host_io_blocked'
+                    severity     = 'soft'
+                }
             }
             return $false
         }

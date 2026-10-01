@@ -582,7 +582,7 @@ The VM runs these services alongside squid:
 | Grafana OSS     | 3000 | 0.0.0.0                  | Primary dashboard UI; anonymous Viewer. |
 | Prometheus      | 9090 | 127.0.0.1                | Metrics datastore. |
 | Loki            | 3100 | 127.0.0.1                | Log datastore -- backs the access-log panel. |
-| Promtail        | 9080 | 127.0.0.1                | Tails `/var/log/squid/yuruna_access.log` into Loki. |
+| Alloy        | 9080 | 127.0.0.1                | Tails `/var/log/squid/yuruna_access.log` into Loki. |
 | squid-exporter  | 9301 | 127.0.0.1                | Reads squid cachemgr over `:3128`. |
 | CA cert         | 80   | 0.0.0.0                  | `/yuruna-squid-ca.crt` via Apache. |
 | Squid HTTP      | 3128 | 0.0.0.0, RFC1918         | Plain HTTP + HTTPS CONNECT. |
@@ -619,8 +619,9 @@ Pre-provisioned "Yuruna caching-proxy service" dashboard:
   Size uses `%<st`; User-Agent from `%{User-Agent}>h`. The custom
   `logformat yuruna` writes to a *separate* file -- the stock `access.log`
   keeps its default format for cachemgr.cgi / manual `tail -f`. Empty
-  until Promtail ships its first line. Cardinality stays bounded: only
-  `job=squid` is a stream label.
+  until Alloy ships its first line. Cardinality stays bounded: the
+  configured source label is `job=squid`; client IPs and URLs are not
+  stream labels.
 
 No HTTPS-specific client counter -- Squid's `client_http.*` counters
 aggregate HTTP + HTTPS (CONNECT + ssl-bump), hence "HTTP(S)".
@@ -653,9 +654,12 @@ is the OSS build from `apt.grafana.com stable main`.
 Explore. Scrapes `:9090`, `:9301`, `:5000` (zot), `:80` (squid meta)
 and `:9400` (pool aggregator) every 15 s.
 
-**Loki + Promtail** -- loopback-only, same repo. Promtail tails
-`/var/log/squid/yuruna_access.log` and ships every line to Loki on
-`127.0.0.1:3100` with the single stream label `job=squid`. Retention is
+**Loki + Alloy** -- loopback-only, same repo. The seed pins Alloy 1.20.0
+(package `1.20.0-1`) and validates `/etc/alloy/config.alloy` before starting it.
+Alloy tails
+`/var/log/squid/yuruna_access.log`, the Squid loopback log and the zot log,
+and ships them to Loki on `127.0.0.1:3100` with configured `job` labels
+`squid`, `squid_loopback` and `zot`. Retention is
 30d by default (a 7d window applies to `{src="event"}` streams).
 Verify with
 `curl -G 'http://127.0.0.1:3100/loki/api/v1/query_range' --data-urlencode 'query={job="squid"}' --data-urlencode 'limit=5'`.
@@ -704,36 +708,48 @@ a `policies:` block to the same file -- nothing else has to change.
 
 <a id="42f6b05f-001d"></a>
 
-### Loki + Promtail boot-order traps
+### Loki + Alloy boot-order traps
 
-`runcmd` brings Loki and Promtail up explicitly (not just relying on
-the debs' enable-by-default postinst). Three traps to respect:
+`runcmd` brings Loki and Alloy up explicitly (not just relying on
+the debs' enable-by-default postinst). The migration follows [Grafana's Promtail migration guide](https://grafana.com/docs/alloy/latest/set-up/migrate/from-promtail/).
+Before starting Alloy, stop and disable any existing Promtail service. Copy
+`/var/lib/promtail/positions.yaml` once to
+`/var/lib/alloy/promtail-positions.yaml`, owned by `alloy:alloy`; each file source
+imports those legacy offsets on first startup. Subsequent restarts use Alloy's
+own storage under `/var/lib/alloy`. Keep that storage to avoid replay. The source
+jobs remain `squid`, `squid_loopback`, and `zot`; timestamps come from the log,
+`/metrics` self-scrapes are dropped, and Zot background records are retained.
+The loopback diagnostics port remains 9080. Existing guests require applying this
+migration or rebuilding from the updated seed; changing the repository alone
+does not replace their running collector.
 
-- **Restart after the `proxy` group exists.** The Promtail drop-in
+Three traps to respect:
+
+- **Restart after the `proxy` group exists.** The Alloy drop-in
   declares `SupplementaryGroups=proxy` so it can read
   `/var/log/squid/access.log` (which squid writes mode 0640
   `proxy:adm`). The `proxy` group lands with `squid-openssl`; if
-  Promtail was started by deb-postinst before squid landed, it
+  Alloy was started by deb-postinst before squid landed, it
   caches the old unit and logs `permission denied` on every poll
   forever. Solution: `daemon-reload` + explicit `restart` after
   packages settle.
 - **Pre-create per-service state dirs.** Neither postinst reliably
-  creates `/var/lib/promtail` (positions file) or `/var/lib/loki`
+  creates `/var/lib/alloy` (positions file) or `/var/lib/loki`
   (Loki's `path_prefix`). Loki crashes with
   `mkdir /var/lib/loki: permission denied` because `/var/lib` is
   `root:root` and the `loki` user can't create top-level entries.
   systemd retries 19x then gives up with "Start request repeated
-  too quickly"; Promtail then silently retries `POST
+  too quickly"; Alloy then silently retries `POST
   /loki/api/v1/push` forever and the Grafana panel stays empty.
-  `runcmd` runs `install -d -o promtail` / `install -d -o loki`
+  `runcmd` runs `install -d -o alloy` / `install -d -o loki`
   and `systemctl reset-failed` to clear the rate-limit.
-- **Create the `zot` user BEFORE Promtail starts.** Promtail's
+- **Create the `zot` user BEFORE Alloy starts.** Alloy's
   drop-in lists `SupplementaryGroups=proxy zot`; on modern systemd a
   missing group either silently drops the entry (OCI "Recent 100"
   panel stays empty even once zot starts logging) or the unit fails
   to start (which also takes down the squid "Recent 100" panel
   because nothing tails `yuruna_access.log`). The zot binary
-  install later in `runcmd` would create the user -- but Promtail is
+  install later in `runcmd` would create the user -- but Alloy is
   already enabled by then. Idempotent
   `id zot >/dev/null 2>&1 || useradd ...` up front.
 
@@ -864,19 +880,20 @@ its staleness as a cold cache during a provisioning run. A resolution outage
 falls back to the previously resolved set rather than to an empty one.
 
 The published reading, on `http://<cache>/cache-health` and as
-`yuruna_prewarm_*` gauges:
+`yuruna_prewarm_*` gauges, has this shape (versions and timings come from
+the live resolver and will differ by run):
 
 ```
-Warm sets, last warmed 2026-08-14T16:10:04Z (versions resolved via local host status service):
-  Kubernetes image set (v1.36.3, pinned minor 1.36):
+Warm sets, last warmed <UTC timestamp> (versions resolved via local host status service):
+  Kubernetes image set (<resolved Kubernetes version>, pinned minor <YURUNA_K8S_MINOR>):
     resident                 : 7 of 7 held
       answered from storage  : 3
       copied in by that run  : 4
-  CNI image set (flannel v0.28.1):
+  CNI image set (flannel <resolved tag>):
     resident                 : 2 of 2 held
       answered from storage  : 2
       copied in by that run  : 0
-  cold-sync watermark        : 611s (registry.k8s.io/kube-scheduler:v1.36.3)
+  cold-sync watermark        : 611s (registry.k8s.io/kube-scheduler:<resolved Kubernetes version>)
 ```
 
 The held count includes both images answered from storage and images whose
@@ -920,7 +937,7 @@ served.
 
 The cost is real and not reducible in the registry's configuration: sync copies
 every platform in the index, so the lab stores roughly five architectures to run
-one. Pre-warming does not remove that; it moves it off the path a guest is
+one. Prewarming does not remove that; it moves it off the path a guest is
 waiting on.
 
 <a id="42f6b05f-0021"></a>
@@ -1002,7 +1019,7 @@ claims the repository. Every `onDemand` entry but one is scoped to the
 namespaces that upstream really serves; `registry-1.docker.io` sits
 last among them with `prefix: **`, answering for anything nothing else
 claimed. (The two `pollInterval` entries follow it in the file, but
-they pre-warm on a schedule and never serve the on-demand path, so they
+they prewarm on a schedule and never serve the on-demand path, so they
 do not affect the ordering.) That ordering keeps a namespace-less pull
 of a `dotnet/`, `flannel-io/`, `library/` or k8s image off Hub, whose
 anonymous budget is metered per **egress IP** and shared by every guest
@@ -1033,7 +1050,7 @@ takes no login.
 
 Two upstreams are declared twice in the zot `registries[]` block, and both
 do it for the same structural reason: an `onDemand` entry serves the
-client-blocking path, and a separate `pollInterval` entry pre-warms the
+client-blocking path, and a separate `pollInterval` entry prewarms the
 handful of tags a cold pull would otherwise stall on. The two entry kinds
 carry different retry budgets and cannot be collapsed into one.
 
@@ -1049,7 +1066,7 @@ carry different retry budgets and cannot be collapsed into one.
    takes ~30 s end-to-end (skopeo walks the index, per-arch
    manifests, config blobs, disk commit) and trips the workload
    acquisition gate running `curl --max-time 30` right at the
-   boundary. The scheduled pre-warm keeps the two manifests
+   boundary. The scheduled prewarm keeps the two manifests
    resident so the gate returns in 0 ms and the subsequent pull
    starts streaming immediately.
 
@@ -1728,7 +1745,7 @@ What the two pairings hold constant is the headroom above that resident set,
 not a proportion of the VM: both leave **4 GB** -- 2 GB for zot, which handles
 the Docker Hub manifest HEADs Squid cannot and peaks at ~500 MB during heavy
 parallel pulls, and ~2 GB for the rest of the stack (apache, grafana,
-prometheus, loki, promtail, squid-exporter, caching-proxy-parser-service,
+prometheus, loki, alloy, squid-exporter, caching-proxy-parser-service,
 kernel, page cache). 3 GB in 8 GB and 7 GB in 12 GB are 37 % and 58 % of their
 VMs, so a third pairing has to satisfy the headroom arithmetic rather than
 carry a percentage across.
@@ -1794,7 +1811,7 @@ into the seed, resolved on the host at VM-creation time:
 - **config service mTLS materials** -- a per-VM client leaf minted by
   THIS host's Config CA, baked with the CA cert + service port so the
   cache VM can fetch ystash-nas (and ypool-nas) credentials at boot AND
-  hourly over mutual TLS, so a rotated NAS password reaches the running
+  hourly over mTLS, so a rotated NAS password reaches the running
   VM without a rebuild. The client leaf chains to this host's CA, so the
   service serves ONLY this host's VMs.
   PEMs are baked base64 so they survive the cloud-init `write_files`
@@ -2438,6 +2455,14 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)
+
+The recent-request parser recovers from same-inode copytruncate rotation when
+it observes a file shorter than its consumed offset; it discards any unfinished
+old line. Rename rotation and partial appends remain supported. Numeric parse
+overflow and timestamps outside the supported four-digit-year range fall back to
+zero and increment the field-error diagnostic. Invalid values cannot poison the
+entire JSON response. A truncate-and-regrow that completes beyond the old offset
+between polls cannot be distinguished from an append by this size check.

@@ -37,7 +37,24 @@ func Verify(token, wire string, now time.Time, maxTTL time.Duration) bool {
 	if err != nil {
 		return false
 	}
+	return hmac.Equal(proofMAC(token, expiry), given)
+}
+
+func proofMAC(token string, expiry int64) []byte {
 	mac := hmac.New(sha256.New, []byte(token))
 	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
-	return hmac.Equal(mac.Sum(nil), given)
+	return mac.Sum(nil)
+}
+
+// Proof returns the canonical shared proof, or an empty string without a usable key.
+func Proof(token string, expiry int64) string {
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	return strconv.FormatInt(expiry, 10) + "." + base64.StdEncoding.EncodeToString(proofMAC(token, expiry))
+}
+
+// Mint creates a proof expiring ttl from now using the same empty-key rule as Verify.
+func Mint(token string, ttl time.Duration) string {
+	return Proof(token, time.Now().Add(ttl).Unix())
 }

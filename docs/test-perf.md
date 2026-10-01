@@ -441,7 +441,7 @@ queries remain future work. JSONL remains the canonical per-step record.
 - **Not** extending `status.json` -- rewritten on every step write, so piling history on it makes that cost worse.
 - **Not** Prometheus / Loki for the canonical store. Prometheus is for
   high-frequency gauges; perf-step durations are sparse rich events.
-  (Promtail still tails `outer.log` for human debugging -- orthogonal.)
+  (Alloy ships Squid and zot logs to Loki; it does not tail `outer.log`.)
 - **No daemon or DB process.** Append-only files only.
 
 ---
@@ -450,6 +450,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

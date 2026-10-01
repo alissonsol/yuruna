@@ -7,11 +7,15 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
 
 func TestEveryMetadataConnectionHasBusyTimeoutAndWAL(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the database file name carries a question mark, which Windows file names cannot hold")
+	}
 	m, err := Open(filepath.Join(t.TempDir(), "stash #?.sqlite"))
 	if err != nil {
 		t.Fatal(err)

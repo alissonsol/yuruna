@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421ff7ed-6fcc-4816-b558-d052d6a39c1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,8 +65,9 @@
 
 .PARAMETER CacheAddress
     The caching-proxy machine's address. Defaults to
-    $env:YURUNA_CACHING_PROXY_SERVICE_IP. Empty means no pool directory in
-    this lab, and the beacon reduces to keeping the local records honest.
+    $env:YURUNA_CACHING_PROXY_SERVICE_IP. Empty makes the beacon look for an
+    aggregator that answers (Resolve-HostAddressBeaconDirectory); until one
+    does, the beacon reduces to keeping the local records honest.
 
 .PARAMETER StatusPort
     The port this host's status service listens on.
@@ -196,8 +197,9 @@ try {
         try {
             $current = [string](Get-BestHostIp)
             if ($current) {
+                $directory = Resolve-HostAddressBeaconDirectory -Pinned $CacheAddress
                 $null = Invoke-HostAddressBeaconTick -RuntimeDir $RuntimeDir -CurrentAddress $current `
-                    -CacheAddress $CacheAddress -StatusPort $StatusPort
+                    -CacheAddress $directory -StatusPort $StatusPort
             }
         } catch {
             # A tick must never end the beacon: the next one may well succeed,

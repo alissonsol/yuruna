@@ -247,14 +247,15 @@ The consumer's chain planner and `loadDiskSnapshot` both validate source
 identity and age. A matching baseline skips prerequisites; an absent snapshot
 runs them. With `rebuildOnMismatch: true`, a stale baseline is stopped and
 removed through the host contract before rebuilding. Removal requires a
-managed manifest matching the VM name, snapshot ID, host name and platform.
+managed manifest matching the VM name, snapshot ID, hostname and platform.
 Missing, malformed or foreign manifests fail closed. Without this policy,
 legacy snapshot behavior is unchanged.
 
-Use an orchestration `InvokeTestSequence` entry for a continuous-runner warm
-test set, or call `Debug-TestSequence.ps1` directly. Those paths invoke the
-snapshot-aware chain planner. A direct guest test-set entry follows the ordinary
-VM startup path and does not perform this prerequisite skip.
+Use an orchestration `InvokeTestSequence` entry (such as the project's
+`website.ubuntu26.warm`) for a continuous-runner warm run, or call
+`Debug-TestSequence.ps1` directly. Those paths invoke the snapshot-aware chain
+planner. A guest sequence listed directly in `test.runner.yml` follows the
+ordinary VM startup path and does not perform this prerequisite skip.
 
 ---
 
@@ -661,8 +662,8 @@ may nest.
 | `restartVmBeforeRetry` | string | Optional. `arm64HyperVColdPowerCycle` cold-restarts only on native ARM64 Hyper-V, only after a `waitForTextWithNudge` timeout, and only when another attempt remains. Other hosts retain ordinary retry behavior. `arm64HyperVInstallerBoot` provides the separately gated initial-installer recovery described below. |
 | `stepsAfterVmRestart` | array | Optional recursive steps run only after that cold restart succeeds. Use this to restore or settle boot state (for example, re-answering an installer confirmation or waiting for an installed guest's console) before the next attempt. |
 
-The cold-restart mode is intentionally narrower than a portable “restart on
-failure” switch. It does not run for a matched `failurePatterns` entry, a
+The cold-restart mode is intentionally narrower than a portable "restart on
+failure" switch. It does not run for a matched `failurePatterns` entry, a
 console flood, or a password-prompt failure. Keep credential-changing steps
 outside such a retry block so a partially completed password transaction is
 never replayed after a power cut.
@@ -671,9 +672,14 @@ never replayed after a power cut.
 `waitForAndEnter` step answering `yes` to `Continue with autoinstall?`.
 It requires a timed-out wait, at least 120 seconds of currently unchanged
 console content, an independent Hyper-V framebuffer verdict of `guest-static`,
-and a live-ISO boot marker in the OCR tail (`/scripts/casper-` or
-`Setting up console keyboard`). Missing evidence, explicit failure patterns,
-and console floods end the retry without restarting. Sensitive input and
+and pre-installer evidence in the OCR tail: `/scripts/casper-` or
+`Setting up console keyboard`. The code does not recognize storage-stall
+stack frames or reject login and installation-complete text independently.
+Missing boot markers, explicit failure patterns (including the installer
+error patterns added for this mode), and console floods end the retry without
+restarting.
+This is a bounded recovery from a confirmed boot stall, not a fix for the
+underlying Hyper-V fault. Sensitive input and
 post-restart steps are forbidden in this mode. AMD64 Hyper-V and other
 providers execute the original prompt wait once, with no cold restart.
 
@@ -681,7 +687,7 @@ Ubuntu 26 opts into this mode for its first installer confirmation, retaining
 the 1800-second timeout and blind-answer fallback. Attempt evidence is saved
 before recovery. The retry refreshes the step watchdog heartbeat between
 attempts; each attempt, including capture-repair grace, must fit within the
-configured watchdog budget. With the default 3600-second watchdog, the
+configured watchdog budget. With the shipped 3600-second watchdog, the
 1800-second wait leaves room for diagnostics and the bounded stop/start.
 
 <a id="428e4df6-0039"></a>
@@ -1331,6 +1337,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.27
+  Version: 2026.09.30
 
   Framework-free checks for the host-refresh, start-cycle and diagnostics
   flows in test/status/yuruna.common.js. Run: node host-refresh.test.js

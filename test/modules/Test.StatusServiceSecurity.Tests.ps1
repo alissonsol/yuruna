@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427642c0-6914-46fa-a327-c4a7e4ddc547
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,21 +64,22 @@ BeforeAll {
     $end = $script:ServerText.IndexOf('                $origLocal = $req.Url.LocalPath', $start, [StringComparison]::Ordinal)
     Assert-True ($start -ge 0 -and $end -gt $start) 'the file authorization block must exist'
     $dispatch = $script:ServerText.Substring($start, $end - $start) + "`n}`n"
+    $messageWriter = (Get-YurunaTestFunctionAst -Ast $ast -Name 'Send-StatusMessage').Extent.Text
     $script:FileHarness = [scriptblock]::Create(@'
-param([hashtable]$Roots, [string]$RequestPath)
+param([hashtable]$Roots, [string]$RequestPath, [string]$Method = 'GET')
 $repoRoot = $Roots.Repo; $statusDir = $Roots.Status; $runtimeDir = $Roots.Runtime; $logDir = $Roots.Log
-$res = [pscustomobject]@{ StatusCode = 200; OutputStream = [IO.MemoryStream]::new() }
-$req = [pscustomobject]@{ Url = [pscustomobject]@{ LocalPath = $RequestPath } }
+$res = [pscustomobject]@{ StatusCode = 200; ContentLength64 = 0; OutputStream = [IO.MemoryStream]::new() }
+$req = [pscustomobject]@{ HttpMethod = $Method; Url = [pscustomobject]@{ LocalPath = $RequestPath } }
 function Get-StatusMessageBytes { return [Text.Encoding]::UTF8.GetBytes('denied') }
 function Resolve-ArchivedLogPath { return $null }
 $allowed = $false
-'@ + "`n" + $script:ShapeText + "`nforeach (`$one in 0) {`n" + @'
+'@ + "`n" + $messageWriter + "`n" + $script:ShapeText + "`nforeach (`$one in 0) {`n" + @'
 $path = [Uri]::UnescapeDataString($RequestPath).TrimStart('/') -replace '^status[/\\]', ''
 '@ + "`n" + $dispatch + @'
 $allowed = $true
 }
 $res.OutputStream.Dispose()
-[pscustomobject]@{ Allowed = $allowed; Status = $res.StatusCode; File = $file }
+[pscustomobject]@{ Allowed = $allowed; Status = $res.StatusCode; File = $file; Length = $res.ContentLength64; BodyLength = $res.OutputStream.ToArray().Length }
 '@)
 
     $getStart = $script:ServerText.IndexOf('$doc  = Read-TestConfig -Path $testConfigFile -ThrowOnError', [StringComparison]::Ordinal)
@@ -100,6 +101,16 @@ AfterAll {
 }
 
 Describe 'status file authorization uses the resolved path' {
+    It 'keeps error headers on HEAD without writing response bytes' {
+        $get = & $script:FileHarness $script:Roots '/runtime/client.p12' 'GET'
+        $head = & $script:FileHarness $script:Roots '/runtime/client.p12' 'HEAD'
+        $get.Status | Should -Be 403
+        $get.BodyLength | Should -Be 6
+        $head.Status | Should -Be $get.Status
+        $head.Length | Should -Be $get.Length
+        $head.BodyLength | Should -Be 0
+    }
+
     It 'denies secret aliases before their bytes can be read' -TestCases @(
         @{ Path = '/yuruna-repo/test/test.config.yml' }
         @{ Path = '/yuruna-repo/test//test.config.yml' }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421c8f6e-9b0a-4c1d-8e2f-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,7 +183,7 @@ exit 0
         $capturedArgv = Get-Content -Raw -LiteralPath $captureFile
         $capturedArgv | Should -Match '-NoConfigGate' -Because 'the option travels outer dispatch -> cycle process $PSBoundParameters -> New-InnerRunnerArgList unbroken'
         $capturedArgv | Should -Match '-CycleDelaySeconds'
-        $capturedArgv | Should -Match '9'
+        $capturedArgv | Should -Match '(?m)(?:^|\s)-CycleDelaySeconds(?:\r?\n|\s+)9(?:\r?\n|\s|$)'
         $env:YURUNA_RUNTIME_DIR = $priorRuntimeDir
     }
 }

@@ -12,20 +12,17 @@ package hostctl
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
+	"yuruna.com/test/extension/extension-sdk/controlproof"
 	"yuruna.com/test/extension/extension-sdk/hostrefresh"
 )
 
@@ -81,19 +78,14 @@ var ErrNoProof = errors.New("no control proof")
 // "<expiry>.<base64 HMAC>" a host accepts on its mutating /control/* routes,
 // where HMAC = HMAC-SHA256(internal authentication key, "yuruna-control|proof|<expiry>").
 func Proof(token string, expiry int64) string {
-	mac := hmac.New(sha256.New, []byte(token))
-	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
-	return strconv.FormatInt(expiry, 10) + "." + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	return controlproof.Proof(token, expiry)
 }
 
 // Mint returns a proof valid for ttl from now, or "" when no token is held --
 // the caller then has no local way to prove control and must obtain one from
 // the aggregator.
 func Mint(token string, ttl time.Duration) string {
-	if strings.TrimSpace(token) == "" {
-		return ""
-	}
-	return Proof(token, time.Now().Add(ttl).Unix())
+	return controlproof.Mint(token, ttl)
 }
 
 // KnownAction reports whether action is one this package can apply.

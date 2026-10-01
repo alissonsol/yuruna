@@ -85,7 +85,10 @@ Describe 'Ubuntu 26 ARM64 Hyper-V processor phases' {
         Assert-True ($body -match 'Get-VMState') 'startVm must observe the shutdown boundary'
         Assert-True ($body -match "HostType\s+-eq\s+'host\.windows\.hyper-v'") 'the resize must stay Hyper-V-specific'
         Assert-True ($body -match 'Set-HyperVArm64LinuxGuestProcessorCount') 'startVm must invoke the ARM64 helper'
-        Assert-True ($body.IndexOf('Set-HyperVArm64LinuxGuestProcessorCount -VMName') -lt $body.IndexOf('$startResult = Start-VM')) `
+        $resizeIndex = $body.IndexOf('Set-HyperVArm64LinuxGuestProcessorCount -VMName')
+        $startIndex = $body.IndexOf('$startResult = Start-VM')
+        Assert-True ($resizeIndex -ge 0 -and $startIndex -ge 0) 'both ordered call sites must be present'
+        Assert-True ($resizeIndex -lt $startIndex) `
             'the offline resize must happen before the VM is started'
         Assert-True ($body -match 'startRecord\.success') 'a start request alone is not proof that the VM started'
     }

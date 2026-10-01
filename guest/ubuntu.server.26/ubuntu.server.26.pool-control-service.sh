@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/42e220c4-0005
@@ -44,6 +44,17 @@ else
   SERVICE_USER="${SERVICE_USER:-$(id -un)}"
 fi
 echo "Service user: $SERVICE_USER"
+# Load from the framework checkout even when this entry script was fetched to /tmp.
+SERVICE_LIB=''
+for candidate in "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" /home/*/yuruna; do
+  if [ -r "$candidate/automation/yuruna-service-bringup.sh" ]; then
+    SERVICE_LIB="$candidate/automation/yuruna-service-bringup.sh"; break
+  fi
+done
+[ -n "$SERVICE_LIB" ] || { echo "Missing framework automation/yuruna-service-bringup.sh" >&2; exit 1; }
+# shellcheck source=../../automation/yuruna-service-bringup.sh
+. "$SERVICE_LIB"
+
 
 # --- REGION: Service tunables
 # See https://yuruna.link/42fffc2c-000d
@@ -80,18 +91,25 @@ STATE_DIR="$MOUNT/pool-control-service"
 # --- REGION: https://yuruna.link/429f3d06-0040
 INTENT_STORE="$MOUNT/pool-intent.git"
 
+# Locate the checkout before using its current shared bootstrap helpers.
+locate_repo_dir() {
+  yuruna_service_find_repo test/extension/pool-control-service/server
+}
+REPO_DIR="$(locate_repo_dir)" || {
+  echo "pool-control-service: could not locate test/extension/pool-control-service/server/go.mod under any /home/*/yuruna." >&2
+  echo "Ensure the yuruna framework is cloned on this VM before running this script." >&2
+  exit 1
+}
+if [ -r "$REPO_DIR/automation/yuruna-retry.sh" ]; then
+  . "$REPO_DIR/automation/yuruna-retry.sh"
+fi
+
 # --- REGION: Package dependencies
 echo ""
 echo -e "\e[1;36m==== Package dependencies ====\e[0m"
 # libcap2-bin supplies setcap for the DIRECT (non-systemd) launch path; under
 # systemd the load-bearing grant is AmbientCapabilities (see the unit below).
-if command -v apt_retry >/dev/null 2>&1; then
-  apt_retry sudo apt-get update -y
-  apt_retry sudo apt-get install -y golang-go git cifs-utils wget ca-certificates libcap2-bin
-else
-  sudo apt-get update -y
-  sudo apt-get install -y golang-go git cifs-utils wget ca-certificates libcap2-bin
-fi
+yuruna_service_packages golang-go git cifs-utils wget ca-certificates libcap2-bin
 go version
 # --- REGION: https://yuruna.link/42d69dfa-0036
 # Resolute has no PowerShell package; use the cross-version release tarball.
@@ -103,7 +121,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
   if command -v apt_retry >/dev/null 2>&1; then
     apt_retry sudo apt-get install -y curl tar gzip
   else
-    sudo apt-get install -y curl tar gzip
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y curl tar gzip
   fi
   # curl_retry comes from the shared retry lib when the image has it; plain curl
   # with its own retry budget otherwise, so a first boot that predates the lib
@@ -112,6 +130,9 @@ if ! command -v pwsh >/dev/null 2>&1; then
     curl_retry() { curl --retry 5 --retry-delay 5 --retry-connrefused "$@"; }
   fi
 
+  if command -v yuruna_install_pwsh_tarball >/dev/null 2>&1; then
+    yuruna_install_pwsh_tarball "$ARCH"
+  else
   # Resolve the latest-stable release tag via HEAD-follow of /releases/latest.
   # Avoids the 60/hr unauthenticated GitHub API rate limit.
   PS_TAG=$(curl_retry -fsSLI -o /dev/null -w '%{url_effective}' \
@@ -157,6 +178,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
   sudo chmod +x /opt/microsoft/powershell/7/pwsh
   sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
   rm -f /tmp/powershell.tar.gz
+  fi
 fi
 # Hard gate: the daemon's every read and write shells out to pwsh, so a missing
 # interpreter is not a degraded mode -- it is a service that answers every UI
@@ -168,34 +190,20 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 PWSH_BIN="$(command -v pwsh)"
 pwsh --version
-# powershell-yaml is a hard dependency of the pool-admin CLIs; warn loudly (but
-# do not abort) so the diagnostics page can report it rather than a bare parse error.
-sudo pwsh -NoProfile -NonInteractive -Command "if (-not (Get-Module -ListAvailable powershell-yaml)) { Install-Module powershell-yaml -Scope AllUsers -Force -AcceptLicense }" \
-  || echo "pool-control-service: powershell-yaml install failed; the pool-admin CLIs will fail to parse intent. See /diagnostics." >&2
+# The daemon cannot administer intent until the YAML module installs and imports.
+for attempt in 1 2 3; do
+  if sudo pwsh -NoProfile -NonInteractive -Command "if (-not (Get-Module -ListAvailable powershell-yaml)) { Install-Module powershell-yaml -Scope AllUsers -Force -AcceptLicense -ErrorAction Stop }; Import-Module powershell-yaml -ErrorAction Stop"; then
+    break
+  fi
+  if [ "$attempt" -eq 3 ]; then
+    echo 'pool-control-service: powershell-yaml is unavailable after three attempts; aborting.' >&2
+    exit 1
+  fi
+  sleep 5
+done
 
 # --- REGION: Locate the daemon source
-# Avoid find|head: under pipefail the expected producer SIGPIPE aborts lookup.
-locate_repo_dir() {
-  local candidates=( "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" )
-  local home
-  for home in /home/*; do
-    [ -d "$home/yuruna" ] || continue
-    candidates+=("$home/yuruna")
-  done
-  local enlistment
-  for enlistment in "${candidates[@]}"; do
-    if [ -f "$enlistment/test/extension/pool-control-service/server/go.mod" ]; then
-      printf '%s' "$enlistment"
-      return 0
-    fi
-  done
-  return 1
-}
-REPO_DIR="$(locate_repo_dir)" || {
-  echo "pool-control-service: could not locate test/extension/pool-control-service/server/go.mod under any /home/*/yuruna." >&2
-  echo "Ensure the yuruna framework is cloned on this VM before running this script." >&2
-  exit 1
-}
+# The checkout was resolved once above; build from that same source tree.
 SERVER_DIR="$REPO_DIR/test/extension/pool-control-service/server"
 VERSION_STR=$(cat "$REPO_DIR/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)
 [ -n "$VERSION_STR" ] || VERSION_STR=dev
@@ -204,36 +212,12 @@ VERSION_STR=$(cat "$REPO_DIR/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
 # See https://yuruna.link/42e220c4-000f
 echo ""
 echo -e "\e[1;36m==== Building pool-control-service ($VERSION_STR) from $SERVER_DIR ====\e[0m"
-BUILD="$(mktemp -d /tmp/pool-control-service-build.XXXXXXXX)"
+BUILD="$(yuruna_service_stage "$SERVER_DIR" 'pool-control-service')"
 trap 'rm -rf -- "$BUILD"' EXIT
-cp -r "$SERVER_DIR" "$BUILD/server"
-SDK_DIR="$(cd "$SERVER_DIR/../.." && pwd)/extension-sdk"
-[ -f "$SDK_DIR/go.mod" ] || { echo "Could not find the extension SDK at $SDK_DIR." >&2; exit 1; }
-cp -r "$SDK_DIR" "$BUILD/extension-sdk"
-# This module has no external graph; do not run networked go mod tidy here.
-# Retry the build because a fresh module cache can still need the proxy.
-attempts=3
-delay=10
-for try in $(seq 1 "$attempts"); do
-  if ( cd "$BUILD/server" && go build -ldflags "-X main.version=$VERSION_STR" -o pool-control-service . ); then
-    break
-  fi
-  if [ "$try" -ge "$attempts" ]; then
-    echo "go build failed after $attempts attempts" >&2
-    exit 1
-  fi
-  echo "go build attempt $try/$attempts failed; retrying in ${delay}s..." >&2
-  sleep "$delay"
-  delay=$((delay * 2))
-done
+yuruna_service_build "$BUILD" 'pool-control-service' "$VERSION_STR"
 
 # --- REGION: Install the binary
-sudo install -m 0755 -o root -g root "$BUILD/server/pool-control-service" /usr/local/bin/pool-control-service
-# Fallback for a DIRECT (non-systemd) launch only: under the unit's
-# NoNewPrivileges=true the grant that reaches the daemon is AmbientCapabilities,
-# so a failure here is not fatal.
-# --- REGION: https://yuruna.link/42d69dfa-0025
-sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/pool-control-service || true
+yuruna_service_install "$BUILD/server/pool-control-service" /usr/local/bin/pool-control-service
 
 # --- REGION: Storage directories
 # Mount the pool NAS for the state dir (best-effort; the daemon degrades to no
@@ -275,7 +259,7 @@ fi
 # Seeding matches the caching-proxy-service's own bootstrap byte for byte -- an empty,
 # schema-valid pools.yml on 'main' -- so a store created here and one created
 # there are interchangeable.
-if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* && ! -d "$INTENT_GIT_URL/refs" ]]; then
+if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* ]] && ! sudo -u "$SERVICE_USER" git -C "$INTENT_GIT_URL" show-ref --verify --quiet refs/heads/main; then
   # Never materialize a store on the local disk underneath an unmounted NAS
   # mountpoint: the NAS mounting later would shadow it, silently stranding
   # whatever intent had been written in the meantime.
@@ -295,11 +279,11 @@ if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* && ! -d "$INTENT_GIT_UR
       SEED_TMP="$(sudo -u "$SERVICE_USER" mktemp -d)"
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" init -q --initial-branch=main
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" config core.fileMode false
-      # schemaVersion 2, matching pools.schema.yml's `const: 2` and the fresh-doc
-      # default in Read-YurunaPoolsDoc. A store seeded at 1 READS fine -- nothing
-      # validates on read -- and then fails every write at schema validation, so
-      # the UI looks healthy right up until the operator creates a pool.
-      printf 'schemaVersion: 2\npools: []\n' | sudo -u "$SERVICE_USER" tee "$SEED_TMP/pools.yml" >/dev/null
+      # schemaVersion 3, matching pools.schema.yml's `const: 3` and the fresh-doc
+      # default in Read-YurunaPoolsDoc. A store seeded at an older version READS
+      # fine -- nothing validates on read -- and then fails every write at schema
+      # validation, so the UI looks healthy right up until the operator creates a pool.
+      printf 'schemaVersion: 3\npools: []\n' | sudo -u "$SERVICE_USER" tee "$SEED_TMP/pools.yml" >/dev/null
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" add -A
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" \
         -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool intent'
@@ -382,16 +366,7 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now pool-control-service.service
 
-# Wait for the unit to settle: the Go runtime adds a few hundred ms before the
-# first listen, and a single sleep races that on a loaded first boot.
-for _ in 1 2 3 4 5 6; do
-  if sudo systemctl is-active --quiet pool-control-service.service; then
-    break
-  fi
-  sleep 1
-done
-
-if sudo systemctl is-active --quiet pool-control-service.service; then
+if yuruna_service_wait_active pool-control-service.service 30 "http://127.0.0.1:${HTTP_ADDR##*:}/healthz"; then
   ss -ltnp '( sport = :80 )' 2>/dev/null | sed -n '1,4p' || true
   echo "FETCHED AND EXECUTED: pool-control-service.service active on $HTTP_ADDR (state=${STATE_DIR:-off})"
 else

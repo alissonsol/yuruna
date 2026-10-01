@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c500e1-53a2-2a0c-075b-981a925571bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -774,7 +774,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_287506e0d1314af9' = 'Until (1) is written, the ''target pool carries no test-set'' guard is not armed for'
+    'automation.operator_287506e0d1314af9' = 'Until (1) is written, the ''target pool carries no repositories'' guard is not armed for'
     'automation.operator_29759c8a58f5d70a' = @(
         'Get-PSRepository ERROR: '
         @{

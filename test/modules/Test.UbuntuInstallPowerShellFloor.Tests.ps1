@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b7c9d4-3f1a-4e8c-9d52-7c4a1b6e8f30
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,13 +63,7 @@ $installerText = Get-Content -LiteralPath $installer -Raw
 # out of it by name; each is defined at column 0 and closed by a lone '}'.
 function Get-ShellFunctionBody {
     param([Parameter(Mandatory)][string]$Text, [Parameter(Mandatory)][string[]]$Name)
-    $parts = [System.Collections.Generic.List[string]]::new()
-    foreach ($n in $Name) {
-        $m = [regex]::Match($Text, "(?ms)^$([regex]::Escape($n))\(\)\s*\{.*?^\}")
-        if (-not $m.Success) { throw "Shell function '$n' not found in the installer." }
-        $parts.Add($m.Value)
-    }
-    return ($parts -join "`n")
+    return Get-YurunaTestShellFunction -Text $Text -Name $Name
 }
 
 $script:Lifted = Get-ShellFunctionBody -Text $installerText -Name @(
@@ -148,21 +142,7 @@ function New-RequirementFile {
 # interpreter must never be what a test measures.
 function Invoke-InstallerShell {
     param([Parameter(Mandatory)][string]$Body, [hashtable]$Environment = @{})
-    $script = @($script:Prelude, $script:Lifted, $Body) -join "`n"
-    $file = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-pwshfloor-{0}.sh" -f [guid]::NewGuid().ToString('N'))
-    Set-Content -LiteralPath $file -Value $script
-    $saved = @{}
-    foreach ($k in $Environment.Keys) {
-        $saved[$k] = [Environment]::GetEnvironmentVariable($k)
-        [Environment]::SetEnvironmentVariable($k, $Environment[$k])
-    }
-    try {
-        $out = & bash $file 2>&1
-        return @{ Output = (@($out) -join "`n"); ExitCode = $LASTEXITCODE }
-    } finally {
-        foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
-        Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
-    }
+    return Invoke-YurunaTestShell -Body (@($script:Prelude, $script:Lifted, $Body) -join "`n") -Environment $Environment
 }
 
 $script:SampleRequirements = @'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -208,27 +208,20 @@ if ($hostCores -lt 4) {
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 
-$PlistContent = (Get-Content -Raw $TemplatePath) `
-    -replace '__VM_NAME__',             $VMName `
-    -replace '__VM_UUID__',             $VmUuid `
-    -replace '__MAC_ADDRESS__',         $MacAddress `
-    -replace '__DISK_IDENTIFIER__',     $DiskId `
-    -replace '__DISK_IMAGE_NAME__',     'disk.qcow2' `
-    -replace '__SEED_IDENTIFIER__',     $SeedId `
-    -replace '__SEED_IMAGE_NAME__',     'seed.iso' `
-    -replace '__VNC_DISPLAY__',         "$VncDisplay" `
-    -replace '__CPU_COUNT__',           "$vmCores" `
-    -replace '__MEMORY_SIZE__',         '12288'
-
-Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
-
-$lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$lintOutput" })
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e25e0303ffb73b' -Arguments @{ utmDir = "$UtmDir" })
-    exit 1
+$plistValues = @{
+    '__VM_NAME__' = $VMName
+    '__VM_UUID__' = $VmUuid
+    '__MAC_ADDRESS__' = $MacAddress
+    '__DISK_IDENTIFIER__' = $DiskId
+    '__DISK_IMAGE_NAME__' = 'disk.qcow2'
+    '__SEED_IDENTIFIER__' = $SeedId
+    '__SEED_IMAGE_NAME__' = 'seed.iso'
+    '__VNC_DISPLAY__' = "$VncDisplay"
+    '__CPU_COUNT__' = "$vmCores"
+    '__MEMORY_SIZE__' = '12288'
 }
-Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
+Write-UtmBundleConfiguration -TemplatePath $TemplatePath -BundlePath $UtmDir -Replacement $plistValues -Confirm:$false
+
 
 # --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue

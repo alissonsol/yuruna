@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42dba0ee-ceaf-a7ec-5c0b-f7f0ef9d34c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,19 +32,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”，测试集`“"
-        @{
-            'arg' = 'testSet'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
         "`”`n  git："
         @{
             'arg' = 'detail'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`n  解决方法（二选一）：授予此宿主机的GH_TOKEN访问该仓库的权限，`n                或将池重新分配给所有成员都能读取的项目。"
+        "`n  解决方法（二选一）：授予此宿主机的GH_TOKEN访问该仓库的权限，`n                或将池的项目 URL 设置为所有成员都能读取的仓库。"
     )
     'runner.boot_recovery_preserved_controls' = @(
         '启动恢复（刷新保留模式）保留了'
@@ -2060,15 +2054,6 @@
         }
         '）。'
     )
-    'runner.operator_05b0d534849b3a19' = @(
-        "池：测试集`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”没有序列；正在跳过。"
-    )
     'runner.operator_05c7282e24926d99' = @(
         "无法从参考宿主机获取`“"
         @{
@@ -2251,14 +2236,6 @@
             'trust' = 'external'
         }
         '）；将保留原有收集器。'
-    )
-    'runner.operator_09419d31a82de2e4' = @(
-        '池：找不到测试集清单：'
-        @{
-            'arg' = 'path'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
     )
     'runner.operator_097d3c2b155e207c' = '没有失效的SMB驱动器映射（所有已映射的服务器名称仍可解析）。'
     'runner.operator_09864de73849237f' = '访问被拒绝，请以提升的权限运行测试工具'
@@ -3875,21 +3852,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_1d0a3ac35890db97' = @(
-        "池：测试集`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”的provisioning.betweenSets='"
-        @{
-            'arg' = 'between'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '''尚未实现；按''none''处理。'
-    )
     'runner.operator_1d0efcf0a84c0f0f' = @(
         '池：意图存储可访问（'
         @{
@@ -3988,7 +3950,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_1ee49d169ec618ee' = 'test.runner.yml：正在跳过缺少''name''的testSets条目。'
     'runner.operator_1eeace18e9071c6f' = @(
         "虚拟机`“"
         @{
@@ -4146,7 +4107,6 @@
         }
         '］池desiredState=paused——正在等待（未启动周期）。'
     )
-    'runner.operator_217d530848e4cda8' = 'test.runner.yml：正在跳过非映射类型的testSets条目。'
     'runner.operator_218ebb2c80a76597' = @(
         '［外层周期'
         @{
@@ -4994,14 +4954,6 @@
     )
     'runner.operator_2b0da17830e5ba59' = '周期暂停期间收到关闭请求。正在退出周期循环。'
     'runner.operator_2b35fd3a941850be' = ' App Nap会冻结UTM的用户界面线程，导致其窗口从中移除'
-    'runner.operator_2b6254c83f085a18' = @(
-        'test-sets.yml验证或写入（validation/write）失败：'
-        @{
-            'arg' = 'error'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'runner.operator_2b64497fe1d6bed5' = @(
         '已删除账户，但无法移除SID为'
         @{
@@ -5598,13 +5550,19 @@
     )
     'runner.operator_33144fc4aa1c041f' = '顶层设置'
     'runner.operator_331c67920b1a4f01' = @(
-        '失败  target-pool-no-testset：'''
+        '失败  target-pool-no-repositories：'''
         @{
             'arg' = 'targetPoolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''是自动注册的目标池，不能包含testSet（它会改变所有自动注册宿主机的指向）。请移除该设置，或将autoEnrollment.targetPoolId指向其他池。'
+        '''是自动注册的目标池，不能包含仓库（它们会改变所有自动注册宿主机的指向）。请使用 Set-PoolRepository.ps1 -PoolId '
+        @{
+            'arg' = 'targetPoolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -Clear 清除，或将autoEnrollment.targetPoolId指向其他池。'
     )
     'runner.operator_3355f84da8763f39' = 'transports.yml为空或不是映射'
     'runner.operator_3387f09b836c51cc' = @(
@@ -6003,15 +5961,6 @@
         '）。此密钥无法用于此宿主机上的控制证明。'
     )
     'runner.operator_37c6d3d1e44ac68b' = '初始化池意图存储'
-    'runner.operator_37e7a76a3661cead' = @(
-        '测试集名称'''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '''无效（须以小写字母或数字开头；可包含字母、数字、''.''、''_''、''-''）。'
-    )
     'runner.operator_37ec87c9e9d924bd' = @(
         'networkStorage池：无法映射users.yml中的vaultKey（'
         @{
@@ -6726,19 +6675,13 @@
     'runner.operator_41856668e101e1fc' = '       执行：winget uninstall --id Microsoft.PowerShell'
     'runner.operator_419f7edb1d5f67bd' = "      loadDiskSnapshot：缺少必需的`“id`”字段。"
     'runner.operator_41a636e6dabd5864' = @(
-        '  测试集testSet: '
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '  框架framework='
+        '  仓库：framework='
         @{
             'arg' = 'frameworkUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '  项目project='
+        '  project='
         @{
             'arg' = 'projectUrl'
             'type' = 'detail'
@@ -7153,30 +7096,6 @@
     'runner.operator_46cf3f3b25c7b1d5' = '-WhatIf：实际运行时会要求确认此删除操作；-Force会提前确认。'
     'runner.operator_46e3cbe0614b1d51' = 'poolStorage设置：networkPath/networkUser不得包含单引号（否则会破坏客户机初始化数据）。未写入任何内容。'
     'runner.operator_46f30de3d812ddd8' = '系统设置 > 隐私与安全性 > 自动化'
-    'runner.operator_4708bb65c7b75b63' = @(
-        "库中的测试集`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”："
-        @{
-            'arg' = 'action'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '。'
-    )
-    'runner.operator_4727d0d8d58200e7' = @(
-        "test.runner.yml：testSet`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”重复；保留第一个。"
-    )
     'runner.operator_47371277eaeea492' = @(
         '无法启动状态服务器的重启操作：'
         @{
@@ -8815,21 +8734,6 @@
         }
         '并将主显示器置于(0,0)；排列其他显示器'
     )
-    'runner.operator_5a53c6c93a317e74' = @(
-        "test.runner.yml：跳过testSet`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”——名称必须匹配"
-        @{
-            'arg' = 'namePattern'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '（小写）。'
-    )
     'runner.operator_5a564e98a029d970' = @(
         "未找到宿主机操作`“"
         @{
@@ -10186,7 +10090,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”是自动注册的目标池，不得包含testSet；将忽略该设置并保留此宿主机自身的仓库。请修正意图存储（Test-PoolIntent.ps1会报告此问题）。"
+        "`”是自动注册的目标池，不得包含仓库；将忽略这些仓库并保留此宿主机自身的仓库。请修正意图存储（Test-PoolIntent.ps1会报告此问题）。"
     )
     'runner.operator_69026426aeb39009' = ' 在此Mac上检测到配置描述文件。如果任何描述文件'
     'runner.operator_69313d3714ef798c' = '写入实验室健康状况记录'
@@ -11061,21 +10965,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_764eb138496adb9a' = @(
-        "池：测试集`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”的cycleStrategy='"
-        @{
-            'arg' = 'strategy'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '''尚未实现；正在运行''all''。'
     )
     'runner.operator_767a42e435b5f2c7' = @(
         '聚合器加密封装的回复无法由此客户端解开。验证码已被接受，因此重新读取磁贴无济于事。请将上方的PowerShell和操作系统信息行与交换成功的宿主机进行比较；此处出现CryptographicException表示派生密钥不同，即双方的验证码、迭代次数（'
@@ -12681,7 +12570,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_8a6b8847ccce49ac' = 'test.runner.yml：''all''保留用于隐式的整个项目集合；跳过声明的名为''all''的集合。'
     'runner.operator_8a85c0a98b2cb1af' = @(
         '[外层周期'
         @{
@@ -13508,15 +13396,6 @@
     )
     'runner.operator_92f3da73bdbf3747' = '解除实验室的暂缓状态'
     'runner.operator_92fcfd32f2581e9f' = '未配置订阅者'
-    'runner.operator_93083a11a290abbd' = @(
-        "池：测试集`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”的schemaVersion不是1；正在跳过。"
-    )
     'runner.operator_933b194d28de8e2c' = @(
         'poolStorage：'
         @{
@@ -15780,7 +15659,6 @@
         "如果实验室有意持续更改此宿主机的地址，请保持现状：每个周期内发生的更改次数都记录在其cycle_end事件中。参阅docs/network.md中的`“宿主机地址稳定性`”。"
     )
     'runner.operator_b0a52e9a95b6e986' = '最低分辨率要求：主显示器没有>= 1920x1080的可用显示模式；OCR可能失败。请检查虚拟显示器的EDID模式。'
-    'runner.operator_b0bf86c31da327e2' = '更新或插入需要-FrameworkUrl和-ProjectUrl（或传入-Delete以删除）。'
     'runner.operator_b0f17a6c92efa2d7' = @(
         '     使用以下命令设置：  sudo passwd '
         @{
@@ -16463,12 +16341,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”的testSet`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
         "`”：已覆盖仓库设置（framework="
         @{
             'arg' = 'frameworkUrl'
@@ -16917,27 +16789,6 @@
         }
         '。'
     )
-    'runner.operator_c02c29bdd61105ce' = @(
-        "池测试集`“"
-        @{
-            'arg' = 'setName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”：正在运行项目中的"
-        @{
-            'arg' = 'count'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '个序列（'
-        @{
-            'arg' = 'join'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '）。'
-    )
     'runner.operator_c03297466bf30bf9' = @(
         '      '
         @{
@@ -16965,13 +16816,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”上设置测试集`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”（frameworkUrl="
+        "`”上设置仓库（frameworkUrl="
         @{
             'arg' = 'frameworkUrl'
             'type' = 'detail'
@@ -17576,21 +17421,6 @@
             'trust' = 'external'
         }
         '：正在启用SMB-NT哈希类型（pwpolicy）……'
-    )
-    'runner.operator_c83a08264595d72a' = @(
-        "池：测试集`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”解析失败（"
-        @{
-            'arg' = 'message'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '）；正在跳过。'
     )
     'runner.operator_c83f88602397b5a8' = @(
         '  退避上限：'
@@ -18335,21 +18165,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_d164f2ba2a2136ac' = @(
-        '池：此宿主机（'
-        @{
-            'arg' = 'hostType'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "）上没有可运行测试集`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”的客户机；正在跳过该测试集。"
     )
     'runner.operator_d168a5486eb59de2' = '  WinINet（HKCU Internet Settings，Internet设置）：'
     'runner.operator_d18200873cd315db' = '    已跳过：powershell.exe不可用（非Windows平台或未安装）。'
@@ -19406,15 +19221,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_df1608b653f0dd73' = @(
-        "test.runner.yml：跳过testSet`“"
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”——其中未列出任何序列。"
     )
     'runner.operator_df5b48ab664f3b9b' = '此账户无法使用winget，因此无法在此获取导出器软件包'
     'runner.operator_df7ed91aac9f4403' = @(
@@ -21016,13 +20822,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”是自动注册的目标池，不能配置测试集。`n  宿主机会自动加入该池，并继续运行各自的projectUrl；在此分配测试集`n  会在无提示的情况下将实验室中每台自动注册的宿主机指向其他项目。`n  要为这些宿主机指定项目，请创建另一个池并将宿主机分配到该池：`n    ./New-Pool.ps1 -PoolId <name>`n    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>`n    test/pool/Set-PoolTestSet.ps1 -PoolId <name> -Name "
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' -FrameworkUrl '
+        "`”是自动注册的目标池，不能包含仓库。`n  宿主机会自动加入该池，并继续运行各自的projectUrl；在此设置`n  框架和项目会在无提示的情况下将实验室中每台自动注册的宿主机指向其他项目。`n  要为这些宿主机指定项目，请创建另一个池并将宿主机分配到该池：`n    ./New-Pool.ps1 -PoolId <name>`n    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>`n    ./Set-PoolRepository.ps1 -PoolId <name> -FrameworkUrl "
         @{
             'arg' = 'frameworkUrl'
             'type' = 'detail'
@@ -21321,13 +21121,13 @@
         }
     )
     'runner.operator_f4ce3623f58ca8ac' = @(
-        "通过  target-pool-no-testset：`“"
+        "通过  target-pool-no-repositories：`“"
         @{
             'arg' = 'targetPoolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”未配置testSet。"
+        "`”不包含仓库。"
     )
     'runner.operator_f4faadbd7e5c2c6a' = "显示器关闭超时（交流电源）已设为`“从不`”。"
     'runner.operator_f5182563134ccc5d' = '免密码sudo配置片段仅适用于Linux（macOS/Windows挂载无需sudo）。'
@@ -22192,6 +21992,80 @@
             'trust' = 'external'
         }
     )
+    'runner.pool_intent_library_removed' = '已从意图存储中移除 test-sets.yml；没有任何内容读取它。'
+    'runner.pool_intent_schema_already_current' = @(
+        '池意图已是 schemaVersion '
+        @{
+            'arg' = 'version'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '；无需迁移。'
+    )
+    'runner.pool_intent_schema_migrated' = @(
+        '池意图已从 schemaVersion '
+        @{
+            'arg' = 'from'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 迁移到 '
+        @{
+            'arg' = 'to'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '，并已提交和推送。'
+    )
+    'runner.pool_intent_schema_outdated' = @(
+        '失败  schema-version：pools.yml 为 schemaVersion '
+        @{
+            'arg' = 'found'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，但此检出版本读取的是 schemaVersion '
+        @{
+            'arg' = 'expected'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '。请运行一次 test/pool/Update-PoolIntentSchema.ps1 以迁移意图存储。'
+    )
+    'runner.pool_intent_schema_unsupported' = @(
+        'pools.yml 为 schemaVersion '
+        @{
+            'arg' = 'version'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '，比此检出版本可读取的版本（'
+        @{
+            'arg' = 'expected'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '）更新。请先更新此检出版本，再更改池意图。'
+    )
+    'runner.pool_repositories_cleared' = @(
+        "已清除池`“"
+        @{
+            'arg' = 'poolId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        "`”上的仓库；其成员将从下一个周期起运行各自配置的仓库。"
+    )
+    'runner.pool_repositories_url_invalid' = @(
+        '-'
+        @{
+            'arg' = 'parameter'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        " 必须是不含空白字符或控制字符的非空 URL，且不得以`“-`”开头。"
+    )
+    'runner.pool_status_repositories_none' = '  仓库：（无）'
     'runner.prior_runner_cleanup_action' = "  操作：  停止它，并在启动前运行`n           Remove-TestVMFiles.ps1"
     'runner.process_start_record_write_action' = '写入进程启动时间记录'
     'runner.readiness_ack_remove_action' = '删除过期的刷新就绪确认'

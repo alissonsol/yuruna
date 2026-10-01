@@ -18,7 +18,7 @@ additionalProperties: false
 properties:
   strict:
     type: boolean
-    default: false
+    default: true
     description: >
       When true, every logical username referenced by an
       active sequence must be declared in users.yml AND any populated

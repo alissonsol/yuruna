@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b4865f-6a1d-415a-a630-1e2183bca862
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     per-host pool identity persisted in runtime/host.uuid (Phase 0 of the
     multi-host pool harness, docs/opportunities.md).
 .DESCRIPTION
-    Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+). Each case points
+    Throw-based assertions (Pester 5+). Each case points
     $env:YURUNA_RUNTIME_DIR at a fresh temp dir (an env var, not a $global:, so
     no cross-module channel is touched) and restores it after.
 #>

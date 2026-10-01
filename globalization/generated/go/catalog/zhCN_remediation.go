@@ -71,7 +71,7 @@ const DatazhCNremediation = `{
       "type": "detail",
       "trust": "external"
     },
-    "发生project_access_denied：池为此宿主机分配的projectUrl无法由其git凭据读取（私有仓库，或令牌无访问权限）。重试不可能成功，因为凭据位于宿主机本地，而分配在别处完成，因此此故障从不进入退避重试。它不同于bootstrap_sync，后者是宿主机自身的项目克隆失败；此处应由分配池测试集的人员修复。"
+    "发生project_access_denied：池为此宿主机分配的projectUrl无法由其git凭据读取（私有仓库，或令牌无访问权限）。重试不可能成功，因为凭据位于宿主机本地，而分配在别处完成，因此此故障从不进入退避重试。它不同于bootstrap_sync，后者是宿主机自身的项目克隆失败；此处应由设置池项目 URL 的人员修复。"
   ],
   "remediation.operator_2be2a7b55fde9058": "使仓库恢复一致，然后重新运行周期",
   "remediation.operator_2d28084c0bea1d81": "修复底层脚本",
@@ -538,7 +538,7 @@ const DatazhCNremediation = `{
   "remediation.operator_f0a29d5f6e38b4ec": "如需在缺少该服务的情况下运行，请使用$env:YURUNA_EXTENSION_HOST_<AREA>固定地址，或将testCycle.labHealth.enabled设为false以停止等待任何服务",
   "remediation.operator_f0fd4b357ed63f38": "确认上一个周期已释放宿主机的CPU和内存（没有孤立虚拟机占用资源）",
   "remediation.operator_f170c655d3aa9ec7": "如果再次失败，请将屏幕截图和OCR产物保存到周期文件夹下，并暂停以供检查",
-  "remediation.operator_f279084b2eb96f2c": "或者将池重新分配给其项目可供所有成员读取的测试集",
+  "remediation.operator_f279084b2eb96f2c": "或者将池的项目 URL 设置为所有成员都能读取的仓库",
   "remediation.operator_f4ded9a21116febc": "确认每个计划使用的客户机都有对应的host/<host>/<guest>文件夹",
   "remediation.operator_f65f2f5b0c183dc5": "为虚拟机还原最近一个已知正常的快照",
   "remediation.operator_f9f5cd6dabda9dc0": "检查驱动程序读取的宿主机侧租约或邻居信息源中是否有过期或缺失的条目",

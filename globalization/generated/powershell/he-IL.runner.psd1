@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a07001-0b1b-e8af-74b4-0c25e481f7c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,19 +32,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''', ערכת בדיקות '''
-        @{
-            'arg' = 'testSet'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
         "'`n  git: "
         @{
             'arg' = 'detail'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`n  לפתרון (אחת מהאפשרויות): העניקו ל־GH_TOKEN של מארח זה גישה למאגר הקוד,`n                או הקצו מחדש את המאגר לפרויקט שכל חבריו יכולים לקרוא."
+        "`n  לפתרון (אחת מהאפשרויות): העניקו ל־GH_TOKEN של מארח זה גישה למאגר הקוד,`n                או הגדירו לפרויקט של המאגר כתובת URL של מאגר קוד שכל החברים יכולים לקרוא."
     )
     'runner.boot_recovery_preserved_controls' = @(
         'השחזור באתחול (שימור בעת רענון) שמר על '
@@ -2053,15 +2047,6 @@
         }
         ').'
     )
-    'runner.operator_05b0d534849b3a19' = @(
-        'מאגר: בערכת הבדיקות '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' אין רצפים; מדלג.'
-    )
     'runner.operator_05c7282e24926d99' = @(
         'לא ניתן לאחזר את פרטי הכניסה של '''
         @{
@@ -2244,14 +2229,6 @@
             'trust' = 'external'
         }
         '); אוספי הנתונים הקיימים שלו נשארים.'
-    )
-    'runner.operator_09419d31a82de2e4' = @(
-        'מאגר: קובץ המניפסט של ערכת הבדיקות לא נמצא: '
-        @{
-            'arg' = 'path'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
     )
     'runner.operator_097d3c2b155e207c' = 'אין מיפויי כונני SMB מיושנים (כל שמות השרתים הממופים עדיין נפתרים).'
     'runner.operator_09864de73849237f' = 'הגישה נדחתה -- הריצו את מערך הבדיקות בהרשאות מוגברות'
@@ -3868,21 +3845,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_1d0a3ac35890db97' = @(
-        'מאגר: בקבוצת הבדיקות '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''', ⁦provisioning.betweenSets⁩='''
-        @{
-            'arg' = 'between'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' עדיין לא מומש; מטופל בתור ''none''.'
-    )
     'runner.operator_1d0efcf0a84c0f0f' = @(
         'מאגר: מאגר הכוונות נגיש ('
         @{
@@ -3981,7 +3943,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_1ee49d169ec618ee' = '⁦test.runner.yml⁩: מדלג על רשומה ב-testSets ללא ''name''.'
     'runner.operator_1eeace18e9071c6f' = @(
         'המכונה הווירטואלית '''
         @{
@@ -4138,7 +4099,6 @@
         }
         '] מאגר desiredState=paused -- ממתין (לא נוצר מחזור).'
     )
-    'runner.operator_217d530848e4cda8' = '⁦test.runner.yml⁩: מדלג על רשומה ב-testSets שאינה מיפוי.'
     'runner.operator_218ebb2c80a76597' = @(
         '[מחזור חיצוני '
         @{
@@ -4985,14 +4945,6 @@
     )
     'runner.operator_2b0da17830e5ba59' = 'התבקש כיבוי במהלך השהיית המחזור. מתבצעת יציאה מלולאת המחזורים.'
     'runner.operator_2b35fd3a941850be' = ' App Nap מקפיא את תהליכון ממשק המשתמש של UTM, דבר שמסיר את החלון שלו מתוך'
-    'runner.operator_2b6254c83f085a18' = @(
-        'האימות או הכתיבה (validation⁦/write⁩) של ⁦test-sets.yml⁩ נכשלו: '
-        @{
-            'arg' = 'error'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'runner.operator_2b64497fe1d6bed5' = @(
         'החשבון נמחק אך לא ניתן להסיר את מופע הפרופיל שלו עבור SID '
         @{
@@ -5588,13 +5540,19 @@
     )
     'runner.operator_33144fc4aa1c041f' = 'הגדרות ברמה העליונה'
     'runner.operator_331c67920b1a4f01' = @(
-        'FAIL  target-pool-no-testset: '''
+        'FAIL  target-pool-no-repositories: '''
         @{
             'arg' = 'targetPoolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' הוא מאגר היעד לרישום האוטומטי ואסור שיכלול testSet (הדבר יפנה מחדש כל מארח שנרשם אוטומטית). הסירו אותו, או הפנו את ⁦autoEnrollment.targetPoolId⁩ למאגר אחר.'
+        ''' הוא מאגר היעד לרישום האוטומטי ואסור שיכלול מאגרי קוד (הדבר יפנה מחדש כל מארח שנרשם אוטומטית). נקו אותם באמצעות ⁦Set-PoolRepository.ps1⁩ ⁦-PoolId⁩ '
+        @{
+            'arg' = 'targetPoolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ⁦-Clear⁩, או הפנו את ⁦autoEnrollment.targetPoolId⁩ למאגר אחר.'
     )
     'runner.operator_3355f84da8763f39' = '⁦transports.yml⁩ ריק או אינו מיפוי'
     'runner.operator_3387f09b836c51cc' = @(
@@ -5995,15 +5953,6 @@
         '). לא ניתן להשתמש במפתח להוכחות שליטה במארח זה.'
     )
     'runner.operator_37c6d3d1e44ac68b' = 'אתחלו את מאגר הנתונים של pool-intent'
-    'runner.operator_37e7a76a3661cead' = @(
-        'שם ערכת הבדיקות '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' אינו תקין (יש להתחיל באות קטנה או בספרה; מותרים אותיות, ספרות, ''.'', ''_'', ''-'').'
-    )
     'runner.operator_37ec87c9e9d924bd' = @(
         'מאגר networkStorage: לא ניתן למפות את vaultKey בקובץ ⁦users.yml⁩ ('
         @{
@@ -6719,13 +6668,7 @@
     'runner.operator_41856668e101e1fc' = '       פקודת הסרה: winget uninstall --id ⁦Microsoft.PowerShell⁩'
     'runner.operator_419f7edb1d5f67bd' = '      loadDiskSnapshot: שדה החובה ''id'' חסר.'
     'runner.operator_41a636e6dabd5864' = @(
-        '  ערכת בדיקות testSet: '
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '  framework='
+        '  מאגרי קוד: framework='
         @{
             'arg' = 'frameworkUrl'
             'type' = 'detail'
@@ -7144,30 +7087,6 @@
     'runner.operator_46cf3f3b25c7b1d5' = '⁦-WhatIf⁩: הפעלה בפועל תבקש אישור למחיקה זו; ⁦-Force⁩ מאשר אותה מראש.'
     'runner.operator_46e3cbe0614b1d51' = 'הגדרת poolStorage: אסור ש-networkPath⁦/networkUser⁩ יכילו גרש יחיד (הוא ישבש את נתוני האתחול של האורח). דבר לא נכתב.'
     'runner.operator_46f30de3d812ddd8' = 'הגדרות המערכת > פרטיות ואבטחה > אוטומציה'
-    'runner.operator_4708bb65c7b75b63' = @(
-        'ערכת הבדיקות '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' '
-        @{
-            'arg' = 'action'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' בספרייה.'
-    )
-    'runner.operator_4727d0d8d58200e7' = @(
-        '⁦test.runner.yml⁩: ערך testSet כפול בשם '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '''; הראשון נשמר.'
-    )
     'runner.operator_47371277eaeea492' = @(
         'לא ניתן להתחיל בהפעלה מחדש של שרת המצב: '
         @{
@@ -8801,21 +8720,6 @@
         }
         ' + צג ראשי ב-(0,0); סדרו את שאר הצגים'
     )
-    'runner.operator_5a53c6c93a317e74' = @(
-        '⁦test.runner.yml⁩: מדלגים על testSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -- השמות חייבים להתאים ל-'
-        @{
-            'arg' = 'namePattern'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' (אותיות קטנות).'
-    )
     'runner.operator_5a564e98a029d970' = @(
         'הסקריפט לפעולת המארח '''
         @{
@@ -10170,7 +10074,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' הוא מאגר היעד לרישום אוטומטי ואסור שיוגדר בו testSet; מתעלמים ממנו ושומרים על מאגרי הקוד של מארח זה. תקנו את מאגר הכוונות (⁦Test-PoolIntent.ps1⁩ מדווח על כך).'
+        ''' הוא מאגר היעד לרישום אוטומטי ואסור שיכלול מאגרי קוד; מתעלמים מהם ושומרים על מאגרי הקוד של מארח זה. תקנו את מאגר הכוונות (⁦Test-PoolIntent.ps1⁩ מדווח על כך).'
     )
     'runner.operator_69026426aeb39009' = ' זוהו פרופילי תצורה במחשב Mac זה. אם פרופיל כלשהו'
     'runner.operator_69313d3714ef798c' = 'כתבו את רשומת תקינות המעבדה'
@@ -11044,21 +10948,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_764eb138496adb9a' = @(
-        'מאגר: בערכת הבדיקות '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''', האפשרות cycleStrategy='''
-        @{
-            'arg' = 'strategy'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' טרם מומשה; הפעלת ''all''.'
     )
     'runner.operator_767a42e435b5f2c7' = @(
         'המרכז הצפין תשובה שלקוח זה אינו יכול לפענח. הקוד התקבל, ולכן קריאה חוזרת של האריח לא תעזור. השוו את שורת PowerShell ומערכת ההפעלה שלעיל לזו של מארח שבו חילופי הנתונים מצליחים; CryptographicException כאן מציינת שהמפתח הנגזר שונה, כלומר יש אי־התאמה בין הצדדים בקוד, במספר האיטרציות ('
@@ -12664,7 +12553,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_8a6b8847ccce49ac' = '⁦test.runner.yml⁩: השם ''all'' שמור לקבוצה המשתמעת של הפרויקט כולו; מתבצע דילוג על הקבוצה המוצהרת בשם ''all''.'
     'runner.operator_8a85c0a98b2cb1af' = @(
         '[מחזור חיצוני '
         @{
@@ -13490,15 +13378,6 @@
     )
     'runner.operator_92f3da73bdbf3747' = 'בטלו את עצירת המעבדה'
     'runner.operator_92fcfd32f2581e9f' = 'לא הוגדרו מנויים'
-    'runner.operator_93083a11a290abbd' = @(
-        'מאגר: schemaVersion של ערכת הבדיקות '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' אינו 1; מתבצע דילוג עליה.'
-    )
     'runner.operator_933b194d28de8e2c' = @(
         'poolStorage: הנתיב '
         @{
@@ -15764,7 +15643,6 @@
         ' אם המעבדה משנה את כתובת המארח הזה במכוון, השאירו אותו כפי שהוא: מספר השינויים שהתרחשו בכל מחזור מתועד באירוע cycle_end שלו. עיינו ב-docs⁦/network.md⁩, בסעיף ''יציבות כתובת המארח''.'
     )
     'runner.operator_b0a52e9a95b6e986' = 'רזולוציה מזערית: אין מצב תצוגה >= 1920x1080 זמין בצג הראשי; זיהוי תווים אופטי עלול להיכשל. בדקו את מצבי EDID של הצג הווירטואלי.'
-    'runner.operator_b0bf86c31da327e2' = 'הוספה או עדכון מחייבים ⁦-FrameworkUrl⁩ ו-⁦-ProjectUrl⁩ (או העבירו ⁦-Delete⁩ להסרה).'
     'runner.operator_b0f17a6c92efa2d7' = @(
         '     הגדירו אותה באמצעות:  sudo passwd '
         @{
@@ -16447,12 +16325,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''', testSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
         ''': מאגרי הקוד הוחלפו (framework='
         @{
             'arg' = 'frameworkUrl'
@@ -16899,27 +16771,6 @@
         }
         ' לא נמצא.'
     )
-    'runner.operator_c02c29bdd61105ce' = @(
-        'ערכת בדיקות המאגר '''
-        @{
-            'arg' = 'setName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''': מתבצעת הרצת '
-        @{
-            'arg' = 'count'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' מרצפי הפרויקט ('
-        @{
-            'arg' = 'join'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ').'
-    )
     'runner.operator_c03297466bf30bf9' = @(
         '      '
         @{
@@ -16941,13 +16792,7 @@
     )
     'runner.operator_c0875435d41486ec' = 'הפסיקו את הרישום ביומן'
     'runner.operator_c11b4fa818b922ab' = @(
-        'ערכת הבדיקות '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' הוגדרה במאגר '''
+        'מאגרי הקוד הוגדרו במאגר '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
@@ -17560,21 +17405,6 @@
             'trust' = 'external'
         }
         ': סוג הגיבוב SMB-NT מופעל (pwpolicy)...'
-    )
-    'runner.operator_c83a08264595d72a' = @(
-        'מאגר: פענוח ערכת הבדיקות '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' נכשל ('
-        @{
-            'arg' = 'message'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '); הערכה מדולגת.'
     )
     'runner.operator_c83f88602397b5a8' = @(
         '  תקרת ההמתנה בין ניסיונות:  '
@@ -18319,21 +18149,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_d164f2ba2a2136ac' = @(
-        'מאגר: אין אורח שניתן להריץ עבור ערכת הבדיקות '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' במארח זה ('
-        @{
-            'arg' = 'hostType'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '); מדלג עליה.'
     )
     'runner.operator_d168a5486eb59de2' = '  WinINet (הגדרות אינטרנט: HKCU Internet Settings):'
     'runner.operator_d18200873cd315db' = '    דולג: ⁦powershell.exe⁩ אינו זמין (המערכת אינה Windows או שהתוכנה אינה מותקנת).'
@@ -19390,15 +19205,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_df1608b653f0dd73' = @(
-        '⁦test.runner.yml⁩: מתבצע דילוג על testSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -- לא רשומים בו רצפים.'
     )
     'runner.operator_df5b48ab664f3b9b' = 'winget אינו זמין לחשבון זה, ולכן אי אפשר להשיג מכאן את חבילת רכיב הייצוא'
     'runner.operator_df7ed91aac9f4403' = @(
@@ -20994,13 +20800,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "' הוא מאגר היעד לרישום אוטומטי ולא ניתן לשייך אליו ערכת בדיקות.`n  מארחים מצטרפים אליו אוטומטית וממשיכים להריץ את projectUrl שלהם; שיוך ערכה`n  כאן יפנה ללא הודעה כל מארח שנרשם אוטומטית במעבדה לפרויקט אחר.`n  כדי להקצות פרויקט למארחים אלה, צרו מאגר אחר ושייכו אליו את המארחים:`n    .⁦/New-Pool.ps1⁩ ⁦-PoolId⁩ ⁦<name>⁩`n    .⁦/Add-HostToPool.ps1⁩ ⁦-PoolId⁩ ⁦<name>⁩ ⁦-HostId⁩ ⁦<hostId>⁩`n    test⁦/pool/Set-PoolTestSet.ps1⁩ ⁦-PoolId⁩ ⁦<name>⁩ ⁦-Name⁩ "
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' ⁦-FrameworkUrl⁩ '
+        "' הוא מאגר היעד לרישום אוטומטי ולא ניתן לשייך אליו מאגרי קוד.`n  מארחים מצטרפים אליו אוטומטית וממשיכים להריץ את projectUrl שלהם; הגדרת`n  framework ופרויקט כאן תפנה ללא הודעה כל מארח שנרשם אוטומטית במעבדה.`n  כדי להקצות פרויקט למארחים אלה, צרו מאגר אחר ושייכו אליו את המארחים:`n    .⁦/New-Pool.ps1⁩ ⁦-PoolId⁩ ⁦<name>⁩`n    .⁦/Add-HostToPool.ps1⁩ ⁦-PoolId⁩ ⁦<name>⁩ ⁦-HostId⁩ ⁦<hostId>⁩`n    .⁦/Set-PoolRepository.ps1⁩ ⁦-PoolId⁩ ⁦<name>⁩ ⁦-FrameworkUrl⁩ "
         @{
             'arg' = 'frameworkUrl'
             'type' = 'detail'
@@ -21298,13 +21098,13 @@
         }
     )
     'runner.operator_f4ce3623f58ca8ac' = @(
-        'PASS  target-pool-no-testset: למאגר '''
+        'PASS  target-pool-no-repositories: במאגר '''
         @{
             'arg' = 'targetPoolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' לא משויך testSet.'
+        ''' אין מאגרי קוד.'
     )
     'runner.operator_f4faadbd7e5c2c6a' = 'זמן ההמתנה לכיבוי התצוגה (AC) כבר מוגדר ל''לעולם לא''.'
     'runner.operator_f5182563134ccc5d' = 'קובץ ההגדרות המשלים ל-sudo ללא סיסמה חל על Linux בלבד (עיגונים ב-macOS⁦/Windows⁩ אינם דורשים sudo).'
@@ -22170,6 +21970,80 @@
             'trust' = 'external'
         }
     )
+    'runner.pool_intent_library_removed' = '⁦test-sets.yml⁩ הוסר ממאגר הכוונות; אין מי שקורא אותו.'
+    'runner.pool_intent_schema_already_current' = @(
+        'כוונת המאגר כבר בגרסת schemaVersion '
+        @{
+            'arg' = 'version'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '; אין מה להעביר.'
+    )
+    'runner.pool_intent_schema_migrated' = @(
+        'כוונת המאגר הועברה מ-schemaVersion '
+        @{
+            'arg' = 'from'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ל-'
+        @{
+            'arg' = 'to'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ', נשמרה ב-commit ונדחפה.'
+    )
+    'runner.pool_intent_schema_outdated' = @(
+        'FAIL  schema-version: הקובץ ⁦pools.yml⁩ הוא בגרסת schemaVersion '
+        @{
+            'arg' = 'found'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', אך גרסת checkout זו קוראת schemaVersion '
+        @{
+            'arg' = 'expected'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '. הריצו פעם אחת את test⁦/pool/Update-PoolIntentSchema.ps1⁩ כדי להעביר את מאגר הכוונות.'
+    )
+    'runner.pool_intent_schema_unsupported' = @(
+        'הקובץ ⁦pools.yml⁩ הוא בגרסת schemaVersion '
+        @{
+            'arg' = 'version'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ', חדשה יותר ממה ש-checkout זה קורא ('
+        @{
+            'arg' = 'expected'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '). עדכנו את ה-checkout לפני שינוי כוונת המאגר.'
+    )
+    'runner.pool_repositories_cleared' = @(
+        'מאגרי הקוד נוקו במאגר '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''; חבריו יריצו את מאגרי הקוד המוגדרים שלהם מהמחזור הבא.'
+    )
+    'runner.pool_repositories_url_invalid' = @(
+        '‏-'
+        @{
+            'arg' = 'parameter'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' חייב להיות כתובת URL לא ריקה, ללא רווחים או תווי בקרה, ואסור שתתחיל ב-''-''.'
+    )
+    'runner.pool_status_repositories_none' = '  מאגרי קוד: (אין)'
     'runner.prior_runner_cleanup_action' = "  פעולה:  עצירתו והרצת`n           ⁦Remove-TestVMFiles.ps1⁩ לפני ההפעלה"
     'runner.process_start_record_write_action' = 'כתבו רשומה של זמן תחילת התהליך'
     'runner.readiness_ack_remove_action' = 'הסירו אישור מוכנות לרענון שאינו תקף עוד'

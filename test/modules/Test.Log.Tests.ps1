@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4246d32b-8525-4736-8ed7-b3883787ca97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     Test.Log.psm1: New-YurunaDegradationRecord (the pure event-record
     builder) and its schema validity against Test.EventSchema.
 .DESCRIPTION
-    Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+). The builder
+    Throw-based assertions (Pester 5+). The builder
     is pure, so no cycle event stream / disk is involved; a fixed -Timestamp
     keeps the assertions deterministic. The schema-validity case proves a
     `degradation` event passes Test-CycleEventSchema with zero violations.
@@ -375,53 +375,6 @@ Describe 'Copy-CycleFailureRecord' {
             Assert-True (-not (Test-Path (Join-Path $fx.Final 'vm-a/last_failure.json'))) 'nor may the guest folder still hold the first attempt'
         } finally { Restore-ArchiveFixture -Fixture $fx }
     }
-}
-
-Describe 'Copy-CycleFailureRecord' {
-
-    It 'mirrors the log root record into the cycle folder' {
-        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"guestKey":"guest.a","failureClass":"provisioning_failure"}'
-        try {
-            Assert-True (Copy-CycleFailureRecord) 'a record at the log root with a cycle folder open must be mirrored'
-            $mirror = Join-Path $fx.Cycle 'last_failure.json'
-            Assert-True (Test-Path $mirror) 'the mirror must land in the cycle folder'
-            Assert-Match 'guest.a' (Get-Content -Raw $mirror) 'the mirror must carry the record, not an empty file'
-        } finally { Restore-ArchiveFixture -Fixture $fx }
-    }
-
-    # A root copy older than the mirror is a record nothing wiped -- an earlier
-    # run's -- while the mirror is this cycle's own. Copying it over would hand
-    # the cycle a failure it never had, and name another run's guest as the cause.
-    It 'refuses to replace the mirror with an older record left at the log root' {
-        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"guestKey":"guest.from.previous.run"}'
-        try {
-            $mirror = Join-Path $fx.Cycle 'last_failure.json'
-            [System.IO.File]::WriteAllText($mirror, '{"schemaVersion":2,"guestKey":"guest.this.cycle"}', [System.Text.UTF8Encoding]::new($false))
-            $root = Get-Item -LiteralPath (Join-Path $fx.Tmp 'last_failure.json')
-            $root.LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(-10)
-            Assert-False (Copy-CycleFailureRecord) 'an older root record must not be mirrored'
-            Assert-Match 'guest.this.cycle' (Get-Content -Raw $mirror) 'the mirror must be left exactly as this cycle wrote it'
-        } finally { Restore-ArchiveFixture -Fixture $fx }
-    }
-
-    # Bootstrap stages run before the log root is established and write the
-    # record straight into the cycle folder, so source and destination are one
-    # file -- which Copy-Item treats as an error.
-    It 'reports no copy, and does not throw, when the log root IS the cycle folder' {
-        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"guestKey":"guest.bootstrap"}'
-        try {
-            Assert-False (Copy-CycleFailureRecord -LogDir $fx.Tmp -CycleFolder $fx.Tmp) 'a file cannot be copied onto itself'
-            Assert-True (Test-Path (Join-Path $fx.Tmp 'last_failure.json')) 'the record must still be there afterwards'
-        } finally { Restore-ArchiveFixture -Fixture $fx }
-    }
-
-    It 'reports no copy when there is no record to mirror' {
-        $fx = New-ArchiveFixture
-        try {
-            Assert-False (Copy-CycleFailureRecord) 'nothing to mirror is not a failure, and not a copy either'
-            Assert-True (-not (Test-Path (Join-Path $fx.Cycle 'last_failure.json'))) 'no record may be invented in the cycle folder'
-        } finally { Restore-ArchiveFixture -Fixture $fx }
-    }
 
     It 'reports no copy when no cycle folder is open' {
         $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"guestKey":"guest.a"}'
@@ -431,6 +384,7 @@ Describe 'Copy-CycleFailureRecord' {
         } finally { Restore-ArchiveFixture -Fixture $fx }
     }
 }
+
 
 Describe 'Format-CycleFolderBaseName (hostname-free cycle folder)' {
 

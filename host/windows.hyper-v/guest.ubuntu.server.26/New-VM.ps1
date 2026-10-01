@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 424987be-221a-49fe-a0ac-06e90a13e1b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,6 +64,8 @@ param(
     [string]$ExposeVirtualizationExtensions = ''
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
     exit 1
@@ -80,7 +82,6 @@ $ProgressPreference = 'SilentlyContinue'
 # Stop on failed VM configuration; the child process exit is the caller's failure signal.
 $ErrorActionPreference = 'Stop'
 
-Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
@@ -94,6 +95,12 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
+
+$hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
+if ($hostCores -lt 4) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
+    exit 1
+}
 
 # --- REGION: Environment checks
 Write-Verbose "This script requires elevation (Run as Administrator)."
@@ -171,28 +178,7 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
-$existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-if ($existingVM) {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" })
-    Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    try {
-        Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
-    } catch {
-        # A half-removed VM (locked vhdx, permission, etc.) would trip
-        # the next New-VM call with "already exists" and the outer loop
-        # has no signal to recover. Dump live Hyper-V state so the
-        # operator can clean orphan disks before retrying.
-        $diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
-            Format-List Name, State, Status, Generation, Path | Out-String
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1c714189825ec0e2' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)"; diag = "$diag" })
-    }
-    # Hyper-V can return Remove-VM success while leaving a ghost entry;
-    # a second Get-VM is the only reliable post-condition.
-    if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_634b857addaa8df5' -Arguments @{ vMName = "$VMName" })
-    }
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_86f314067f7955de' -Arguments @{ vMName = "$VMName" })
-}
+Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
 $vmDir = Join-Path $downloadDir $VMName
@@ -326,22 +312,7 @@ $AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceU
 # --- REGION: Select the guest network
 # See https://yuruna.link/42e220c4-0004
 # Select the switch before resolving the host address reachable through it.
-$switchName = Get-OrCreateYurunaExternalSwitch
-if (-not $switchName) {
-    $switchName = 'Default Switch'
-    if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
-        # --- REGION: https://yuruna.link/42e220c4-0004
-        # Verify the fallback exists; prefer non-External switches when bridging is unavailable.
-        $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
-            Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
-            Select-Object -First 1
-        if ($substituteSwitch) {
-            $switchName = $substituteSwitch.Name
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_38edbb4cc8da6eb6' -Arguments @{ switchName = "$switchName" })
-        }
-    }
-    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_6ec7fa5a08a2eb27' -Arguments @{ switchName = "$switchName" })
-}
+$switchName = Resolve-HyperVGuestSwitch
 
 # --- REGION: Yuruna host coordinates
 # Yuruna host (status service) IP+port baked into the seed for the dev
@@ -362,8 +333,8 @@ $CaCertBase64 = ""
 if ($CachingProxyServiceUrl) {
     Import-Module -Name (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking
     $uri = [System.Uri]$CachingProxyServiceUrl
-    $cacheHost = if ($uri.Host -match ':') { "[$($uri.Host)]" } else { $uri.Host }
-    $ca = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.Host
+    $cacheHost = Format-IpUrlHost $uri.IdnHost
+    $ca = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.IdnHost
     $CaCertBase64 = $ca.CaCertBase64
     if ($ca.Exhausted) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f2bb24df290cd0c1')
@@ -435,10 +406,9 @@ Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
 # --- REGION: https://yuruna.link/42dc5bb9-0005
-# No-op on AMD64. On ARM64 the heartbeat channel drives this guest into
-# repeated soft lockups; the 24.04 sibling does not boot past it at all.
-# Set before the DVDs are attached so the guest's first boot is already
-# free of it.
+# No-op on AMD64. Disabling Heartbeat helped affected ARM64 boots pass early
+# stalls and soft lockups. The observed VMBus stack does not isolate Heartbeat
+# as the cause. Set this before the first guest boot.
 $null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
 
 # --- REGION: https://yuruna.link/42e220c4-0004
@@ -458,11 +428,6 @@ $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseIma
 Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 
 # --- REGION: https://yuruna.link/42fa6f45-0015
-$hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
-if ($hostCores -lt 4) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
-    exit 1
-}
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 # Cascaded variables.cores overrules the default calculation; clamp to the
 # host's physical cores so an over-ask can't fail Set-VMProcessor.

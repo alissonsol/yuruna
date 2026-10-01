@@ -479,9 +479,9 @@
       "message": "最后一次联系后经过此时长，将宿主机从池视图中移除；其每周期去重状态额外保留一小时，以免再次出现的宿主机被重复计数，且仪表板深层链接始终至少在24h内可解析。累计通过/失败（pass/fail）计数不会因此过期，请使用POST /api/v1/forget-host"
     },
     "aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952": {
-      "sourceHash": "761d35e199dac245785466dbbad8e6d25d910951676b184444226cd4a25fc73e",
+      "sourceHash": "c204d36924d98ba6967bf24ed50ca648eccbfc69c6924bb5a4036d56bdc7db50",
       "origin": "machine",
-      "message": "存放共享持有者令牌的文件，用于控制POST /ingest的访问；值为空/文件不存在/文件为空（empty/absent/empty-file）-> 禁用 /ingest（绝不提供未经身份验证的写入路由）"
+      "message": "保存共享 Bearer 令牌的文件；POST /ingest、POST /api/v1/forget-host、POST /api/v1/handover-host 和 GET /api/v1/host-history 均需要此令牌。未指定文件、文件不存在或文件为空时，这些操作不可用（不会开放未经身份验证的控制路由）"
     },
     "aggregator.help_poll_discover_interval_a9ec46cd": {
       "sourceHash": "91ab59dccbe0d2867d4535fdab30a4437ad23b1674ac80195650583ffd08c533",

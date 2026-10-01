@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4220d762-3e46-4f5b-808c-166adb4d8b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -220,13 +220,7 @@ Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Locale.psm1') -Glob
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRootForExt
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
-$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
-$serviceLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
-    'auto'
-} else {
-    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
-}
-if (-not $serviceLanguage) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = "$languageRaw" }) }
+$serviceLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 
 # --- REGION: Pool storage replication
@@ -428,97 +422,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
-$TemplatePath = Join-Path $ScriptDir "config.plist.template"
-if (-not (Test-Path $TemplatePath)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
-    exit 1
-}
-
-$VmUuid  = [guid]::NewGuid().ToString().ToUpper()
-$DiskId  = [guid]::NewGuid().ToString().ToUpper()
-$SeedId  = [guid]::NewGuid().ToString().ToUpper()
-
-# An operator-supplied -MacAddress (already normalized to colon form
-# above) wins; it lets a DHCP reservation pin the cache IP across
-# rebuilds. Otherwise generate a fresh random per-bundle MAC.
-if (-not $MacAddress) {
-# --- REGION: https://yuruna.link/4220a755-000a
-$MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
-}
-
-# Per-VM VNC display number (Get-VncDisplayForVm hashes the name into
-# 10..89). Get-VncPortForVm in the harness derives the same value from
-# $VMName, so the producer (this plist) and the consumers (capture,
-# keystrokes) agree without a sidecar file.
-Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
+New-UtmServiceBundleConfiguration -TemplatePath (Join-Path $ScriptDir 'config.plist.template') -BundlePath $UtmDir -VMName $VMName -NetworkMode $NetworkMode -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false
 $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 
-# --- REGION: https://yuruna.link/42e220c4-0004
-# Use the default-route interface so the bridge and host address share an uplink.
-$BridgeInterface = $null
-try {
-    $routeOut = & '/sbin/route' -n get default 2>$null
-    foreach ($line in $routeOut) {
-        if ($line -match 'interface:\s*(\S+)') { $BridgeInterface = $matches[1]; break }
-    }
-} catch {
-    Write-Verbose "route -n get default failed: $($_.Exception.Message)"
-}
-if (-not $BridgeInterface) {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_15685f8ad1d8fea6')
-    $BridgeInterface = 'en0'
-}
-
-# --- REGION: Report the resolved network mode
-# See https://yuruna.link/42e220c4-0004
-# Wi-Fi uses Shared NAT and host forwarding; Ethernet retains direct bridging.
-if ($NetworkMode -eq 'Shared') {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_719fe58daf1eaf0e' -Arguments @{ bridgeInterface = "$BridgeInterface" })
-} else {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_8e8627820f248e51' -Arguments @{ bridgeInterface = "$BridgeInterface" })
-}
-
-# --- REGION: https://yuruna.link/42f6b05f-0040
-# Keep RAM paired with Squid's cache_mem; swap is disabled, so undersizing causes OOM.
-# --- REGION: https://yuruna.link/42fa6f45-0015
-$hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
-if ($hostCores -lt 4) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
-    exit 1
-}
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-
-$PlistContent = (Get-Content -Raw $TemplatePath) `
-    -replace '__VM_NAME__',            $VMName `
-    -replace '__VM_UUID__',            $VmUuid `
-    -replace '__MAC_ADDRESS__',        $MacAddress `
-    -replace '__NETWORK_MODE__',       $NetworkMode `
-    -replace '__DISK_IDENTIFIER__',    $DiskId `
-    -replace '__DISK_IMAGE_NAME__',    'disk.qcow2' `
-    -replace '__SEED_IDENTIFIER__',    $SeedId `
-    -replace '__SEED_IMAGE_NAME__',    'seed.iso' `
-    -replace '__VNC_DISPLAY__',        "$VncDisplay" `
-    -replace '__CPU_COUNT__',          "$vmCores" `
-    -replace '__MEMORY_SIZE__',        "$MemoryMb"
-
-# Bridged mode needs the physical NIC name; Shared NAT carries no
-# BridgedInterface key (matches the sibling Shared templates, e.g.
-# guest.amazon.linux.2023), so drop the key/value entirely in that mode.
-if ($NetworkMode -eq 'Shared') {
-    $PlistContent = $PlistContent -replace "(?m)^[ \t]*<key>BridgedInterface</key>\r?\n[ \t]*<string>__BRIDGE_INTERFACE__</string>\r?\n", ''
-} else {
-    $PlistContent = $PlistContent -replace '__BRIDGE_INTERFACE__', $BridgeInterface
-}
-
-Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
-
-$lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$lintOutput" })
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e25e0303ffb73b' -Arguments @{ utmDir = "$UtmDir" })
-    exit 1
-}
-Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
 # --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue

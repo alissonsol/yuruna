@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d3bc19-cf65-4604-a69f-39ddfab7231d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,16 +120,22 @@ windows_exporter_build_info{version="0.31.8"} 1
 }
 Describe 'service VM processor policy' {
     It 'applies the shared ARM64 clamp before configuring <_>' -ForEach @('caching-proxy','pool-control','stash','download-agent') {
-        $path=Join-Path $PSScriptRoot "../../host/windows.hyper-v/guest.$_-service/New-VM.ps1"
+        # The builder hands its host core count to the shared service-guest function, which owns the clamp.
+        $builder=Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "../../host/windows.hyper-v/guest.$_-service/New-VM.ps1")
+        $builder | Should -Match 'New-HyperVServiceGuest\b[^\r\n]*-HostCores \$hostCores'
+        $path=Join-Path $PSScriptRoot '../../host/windows.hyper-v/modules/Yuruna.Host.psm1'
         $parseErrors=$null
         $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$null,[ref]$parseErrors)
         $parseErrors | Should -BeNullOrEmpty
-        $assignments=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$vmCores'},$true))
-        $set=$ast.Find({param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Set-VMProcessor'},$true)
+        $function=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'New-HyperVServiceGuest'},$true)
+        $assignments=@($function.Body.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$cores'},$true))
+        $set=$function.Body.Find({param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Set-VMProcessor'},$true)
         $script:RequestedCount=0; $script:AppliedCount=0
         function Limit-HyperVLinuxGuestCoreCount { param($RequestedCores) $script:RequestedCount=$RequestedCores; return 2 }
         function Set-VMProcessor { [CmdletBinding(SupportsShouldProcess)] param($VMName,$Count) if ($PSCmdlet.ShouldProcess($VMName, 'Record fake processor count')) { $script:AppliedCount=$Count } }
-        $fixtureText='param($hostCores,$VMName)' + "`n" + ((@($assignments | ForEach-Object { $_.Extent.Text }) + $set.Extent.Text) -join "`n")
+        $fixtureText='param($HostCores,$VMName)' + "`
+" + ((@($assignments | ForEach-Object { $_.Extent.Text }) + $set.Extent.Text) -join "`
+")
         & ([scriptblock]::Create($fixtureText)) 16 'fixture'
         $script:RequestedCount | Should -Be 8
         $script:AppliedCount | Should -Be 2
@@ -156,8 +162,8 @@ Describe 'VM resource configuration evidence' {
     }
     BeforeEach {
         Mock -ModuleName Test.HostSampling -CommandName 'Hyper-V\Get-VM' { [pscustomobject]@{Name='fixture'; Id='vm-id'; State='Running'; ProcessorCount=2; MemoryAssigned=4GB; MemoryStartup=4GB; DynamicMemoryEnabled=$true} }
-        Mock -ModuleName Test.HostSampling -CommandName 'Hyper-V\Get-VMProcessor' { [pscustomobject]@{Count=2; Reserve=0; Maximum=100; RelativeWeight=100; ExposeVirtualizationExtensions=$false; HwThreadCountPerCore=1; CompatibilityForMigrationEnabled=$false} }
-        Mock -ModuleName Test.HostSampling -CommandName 'Hyper-V\Get-VMMemory' { [pscustomobject]@{DynamicMemoryEnabled=$true; Minimum=2GB; Maximum=8GB; Startup=4GB; Buffer=20; Priority=50} }
+        Mock -ModuleName Test.HostSampling -CommandName 'Hyper-V\Get-VMProcessor' -RemoveParameterType 'VM' { [pscustomobject]@{Count=2; Reserve=0; Maximum=100; RelativeWeight=100; ExposeVirtualizationExtensions=$false; HwThreadCountPerCore=1; CompatibilityForMigrationEnabled=$false} }
+        Mock -ModuleName Test.HostSampling -CommandName 'Hyper-V\Get-VMMemory' -RemoveParameterType 'VM' { [pscustomobject]@{DynamicMemoryEnabled=$true; Minimum=2GB; Maximum=8GB; Startup=4GB; Buffer=20; Priority=50} }
     }
     AfterAll { if ($script:HyperVSamplingStub) { Remove-Module $script:HyperVSamplingStub -Force } }
     It 'retains processor policy and dynamic-memory bounds including valid zero and false values' {
@@ -171,7 +177,7 @@ Describe 'VM resource configuration evidence' {
         $result.VMs[0].Memory.Values.Buffer | Should -Be 20
     }
     It 'preserves the VM census and independent memory evidence when processor querying fails' {
-        Mock -ModuleName Test.HostSampling -CommandName 'Hyper-V\Get-VMProcessor' { throw 'access denied' }
+        Mock -ModuleName Test.HostSampling -CommandName 'Hyper-V\Get-VMProcessor' -RemoveParameterType 'VM' { throw 'access denied' }
         $result=Get-YurunaHostVmSnapshot
         $result.RunningCount | Should -Be 1
         $result.VMs[0].Processor.Status | Should -Be 'absent'
@@ -179,7 +185,7 @@ Describe 'VM resource configuration evidence' {
         $result.VMs[0].Memory.Status | Should -Be 'present'
     }
     It 'names unsupported configuration properties instead of reporting them as zero' {
-        Mock -ModuleName Test.HostSampling -CommandName 'Hyper-V\Get-VMMemory' { [pscustomobject]@{DynamicMemoryEnabled=$false; Startup=4GB} }
+        Mock -ModuleName Test.HostSampling -CommandName 'Hyper-V\Get-VMMemory' -RemoveParameterType 'VM' { [pscustomobject]@{DynamicMemoryEnabled=$false; Startup=4GB} }
         $result=Get-YurunaHostVmSnapshot
         $result.VMs[0].Memory.Status | Should -Be 'partial'
         $result.VMs[0].Memory.UnavailableProperties | Should -Contain 'Buffer'

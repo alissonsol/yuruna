@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 424f9ac4-a8c5-484f-9b6f-760e69d94781
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,7 +80,7 @@ $script:HostRefreshAutoEvidenceKind = 'host-refresh-evidence'
 $script:HostRefreshAutoStreakKind = 'host-refresh-auto-streak'
 $script:HostRefreshAutoGenerationPattern = '^[0-9a-f]{32}:[1-9][0-9]{0,8}$'
 $script:HostRefreshAutoRequestIdPattern = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-$script:HostRefreshAutoTokenPattern = '^[a-z0-9][a-z0-9._-]{0,63}$'
+$script:HostRefreshAutoTokenPattern = '^[a-z0-9][a-z0-9._:-]{0,191}$'
 # The evidence and streak files are a few hundred bytes; anything far larger
 # is not one of them and is refused rather than parsed.
 $script:HostRefreshAutoMaxFileBytes = 65536
@@ -105,6 +105,7 @@ $script:HostRefreshAutoDependency = @{
     'Get-YurunaLockRank'                     = 'Test.SingleFlightLock'
     'Read-YurunaCriticalRecord'              = 'Test.CriticalRecord'
     'Write-YurunaCriticalRecord'             = 'Test.CriticalRecord'
+    'Get-YurunaProcessIdentityLiveness'      = 'Yuruna.Common'
     'Get-YurunaPrivateStatePath'             = 'Yuruna.Common'
     'Read-TestConfig'                        = 'Test.Config'
     'Get-TestConfigValue'                    = 'Test.Config'
@@ -489,23 +490,8 @@ function Get-HostRefreshAutoProcessLiveness {
     [CmdletBinding()]
     [OutputType([string])]
     param([AllowNull()]$ProcessId, [AllowNull()]$StartTimeUnixMs)
-    $number = 0
-    if (-not [int]::TryParse("$ProcessId", [ref]$number) -or $number -le 0) { return 'unknown' }
-    $recorded = [long]0
-    if (-not [long]::TryParse("$StartTimeUnixMs", [ref]$recorded) -or $recorded -le 0) { return 'unknown' }
-    $process = $null
-    try {
-        $process = [System.Diagnostics.Process]::GetProcessById($number)
-    } catch [System.ArgumentException] {
-        return 'dead'
-    } catch {
-        return 'unknown'
-    }
-    $live = $null
-    try { $live = [System.DateTimeOffset]::new($process.StartTime).ToUnixTimeMilliseconds() } catch { $live = $null }
-    if ($null -eq $live) { return 'unknown' }
-    if ([Math]::Abs([long]$live - $recorded) -le $script:HostRefreshAutoIdentityToleranceMs) { return 'alive' }
-    return 'dead'
+    if (-not (Resolve-HostRefreshAutoCommand -Name 'Get-YurunaProcessIdentityLiveness').Resolved) { return 'unknown' }
+    return Get-YurunaProcessIdentityLiveness -ProcessId $ProcessId -StartTimeUnixMs $StartTimeUnixMs
 }
 
 function Get-HostRefreshAutoResumeCandidate {
@@ -560,9 +546,11 @@ function Get-HostRefreshAutoResumeCandidate {
     if ($null -ne $callerPid -and "$callerPid" -ne '') {
         $callerNumber = 0
         $callerStart = [long]0
+        $currentStart = Get-HostRefreshAutoProcessStartTime
         $sameProcess = [int]::TryParse("$callerPid", [ref]$callerNumber) -and $callerNumber -eq $PID -and
             [long]::TryParse("$(Get-HostRefreshAutoField -InputObject $caller -Name 'startTimeUnixMs')", [ref]$callerStart) -and
-            [Math]::Abs($callerStart - (Get-HostRefreshAutoProcessStartTime)) -le $script:HostRefreshAutoIdentityToleranceMs
+            $callerStart -gt 0 -and $currentStart -gt 0 -and
+            [Math]::Abs([decimal]$callerStart - [decimal]$currentStart) -le $script:HostRefreshAutoIdentityToleranceMs
         if (-not $sameProcess) { $record.Reason = 'caller-changed'; return [pscustomobject]$record }
     }
     $attempts = @(Get-HostRefreshAutoField -InputObject $request -Name 'attempts' | Where-Object { $null -ne $_ })
@@ -627,8 +615,8 @@ function Get-HostRefreshAutoVerdict {
     if ($null -eq $result -or -not [bool](Get-HostRefreshAutoField -InputObject $result -Name 'Found')) { return [pscustomobject]$record }
     if ([string](Get-HostRefreshAutoField -InputObject $result -Name 'RequestId') -cne $RequestId) { $record.Reason = 'request-mismatch'; return [pscustomobject]$record }
     if ([string](Get-HostRefreshAutoField -InputObject $result -Name 'Channel') -cne 'automatic') { $record.Reason = 'channel-mismatch'; return [pscustomobject]$record }
-    # The handoff is taken before any other check and passed through whatever
-    # the verdict: a gate the worker left in handoff must be completed by this
+    # After matching the request and channel, carry the handoff through the
+    # freshness and verdict checks: a gate the worker left must be completed by this
     # outer, or every spawn stays held. A stale token is harmless: the outer
     # validates it before any preflight and otherwise follows the gate.
     # The journal keeps a handoff as {tokenId, purpose}; the outer that

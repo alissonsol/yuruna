@@ -269,9 +269,9 @@
       "message": "无法验证“{vMName}”是否已移除：virsh list失败：{join}"
     },
     "exceptions.host_dd6d74db4a58cc9d": {
-      "sourceHash": "6abcfec211648a1869e7a2d51448357284d6a8a19aa1580f170e3ff9efa1df27",
+      "sourceHash": "74545753fcd3a4a6118ef85ec230bc816833886dbd887643a7be8722573c0a49",
       "origin": "machine",
-      "message": "Fido.ps1哈希值不匹配（固定版本v1.70）：预期为{fidoSha256}，实际为{fidoActual}"
+      "message": "Fido.ps1哈希值不匹配（固定版本v1.71）：预期为{fidoSha256}，实际为{fidoActual}"
     },
     "exceptions.host_de8cc2205b118bfb": {
       "sourceHash": "8ecf9e8eb267a1c7a4ee79d92538e7659d39ceaefc70c4eb9d413e9ad8405df6",

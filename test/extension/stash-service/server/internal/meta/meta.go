@@ -133,7 +133,76 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
-	return nil
+	return migrateTimestamps(db)
+}
+
+// Fixed-width UTC text has the same ordering as the represented instant,
+// including exact seconds beside fractional seconds. Keep nanosecond precision.
+const databaseTimeLayout = "2006-01-02T15:04:05.000000000Z"
+
+// migrateTimestamps upgrades old variable-width RFC3339 values once, atomically.
+// Invalid legacy timestamps stop the upgrade without changing any rows.
+func migrateTimestamps(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var version int
+	if err := tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	if version >= 1 {
+		return tx.Commit()
+	}
+	rows, err := tx.Query("SELECT id, createdAt, receivedAt FROM uploads")
+	if err != nil {
+		return err
+	}
+	type update struct {
+		id, created string
+		received    any
+	}
+	var updates []update
+	for rows.Next() {
+		var id, created string
+		var received sql.NullString
+		if err := rows.Scan(&id, &created, &received); err != nil {
+			rows.Close()
+			return err
+		}
+		ct, err := time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			rows.Close()
+			return fmt.Errorf("timestamp migration %s createdAt: %w", id, err)
+		}
+		u := update{id: id, created: ct.UTC().Format(databaseTimeLayout)}
+		if received.Valid {
+			rt, err := time.Parse(time.RFC3339Nano, received.String)
+			if err != nil {
+				rows.Close()
+				return fmt.Errorf("timestamp migration %s receivedAt: %w", id, err)
+			}
+			u.received = rt.UTC().Format(databaseTimeLayout)
+		}
+		updates = append(updates, u)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, u := range updates {
+		if _, err := tx.Exec("UPDATE uploads SET createdAt = ?, receivedAt = ? WHERE id = ?", u.created, u.received, u.id); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec("PRAGMA user_version = 1"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // tableColumns returns the set of column names on table via PRAGMA table_info.
@@ -257,7 +326,7 @@ INSERT INTO uploads
 VALUES (?,  ?,         ?,                ?,         ?,        ?,            ?,             ?,         ?,      ?,         ?,               ?)`,
 		r.ID, r.StoredPath, r.OriginalFilename, boolInt(r.IsArchive),
 		r.Username, r.PathMetadata, r.ClientAddress,
-		r.CreatedAt.UTC().Format(time.RFC3339Nano), r.Status, r.SizeBytes, boolInt(r.LocallyBuffered), r.Source,
+		r.CreatedAt.UTC().Format(databaseTimeLayout), r.Status, r.SizeBytes, boolInt(r.LocallyBuffered), r.Source,
 	)
 	return classifyInsert(err)
 }
@@ -288,7 +357,7 @@ UPDATE uploads
        status     = ?, sizeBytes = ?, receivedAt = ?
  WHERE id = ?`,
 		storedPath, originalFilename, boolInt(isArchive),
-		status, sizeBytes, receivedAt.UTC().Format(time.RFC3339Nano),
+		status, sizeBytes, receivedAt.UTC().Format(databaseTimeLayout),
 		id,
 	)
 	return err
@@ -302,7 +371,7 @@ func (s *Store) UpdateOnPartial(id string, sizeBytes int64, receivedAt time.Time
 UPDATE uploads
    SET status = ?, sizeBytes = ?, receivedAt = ?
  WHERE id = ?`,
-		StatusPartial, sizeBytes, receivedAt.UTC().Format(time.RFC3339Nano), id,
+		StatusPartial, sizeBytes, receivedAt.UTC().Format(databaseTimeLayout), id,
 	)
 	return err
 }
@@ -419,16 +488,16 @@ func (s *Store) Search(f *SearchFilter) ([]*Record, error) {
 		add("status = ?", f.StatusExact)
 	}
 	if f.CreatedAtFrom != nil {
-		add("createdAt >= ?", f.CreatedAtFrom.UTC().Format(time.RFC3339Nano))
+		add("createdAt >= ?", f.CreatedAtFrom.UTC().Format(databaseTimeLayout))
 	}
 	if f.CreatedAtTo != nil {
-		add("createdAt <= ?", f.CreatedAtTo.UTC().Format(time.RFC3339Nano))
+		add("createdAt <= ?", f.CreatedAtTo.UTC().Format(databaseTimeLayout))
 	}
 	if f.ReceivedAtFrom != nil {
-		add("receivedAt >= ?", f.ReceivedAtFrom.UTC().Format(time.RFC3339Nano))
+		add("receivedAt >= ?", f.ReceivedAtFrom.UTC().Format(databaseTimeLayout))
 	}
 	if f.ReceivedAtTo != nil {
-		add("receivedAt <= ?", f.ReceivedAtTo.UTC().Format(time.RFC3339Nano))
+		add("receivedAt <= ?", f.ReceivedAtTo.UTC().Format(databaseTimeLayout))
 	}
 	q := `
 SELECT ` + uploadColumns + `
@@ -691,7 +760,7 @@ INSERT OR REPLACE INTO uploads
 VALUES (?,  ?,         ?,                ?,         ?,        ?,            ?,             ?,         ?,          ?,      ?,         ?,               ?,        ?,            ?,      ?,         ?,         ?)`,
 		r.ID, r.StoredPath, r.OriginalFilename, boolInt(r.IsArchive),
 		r.Username, r.PathMetadata, r.ClientAddress,
-		r.CreatedAt.UTC().Format(time.RFC3339Nano), nullableTime(r.ReceivedAt),
+		r.CreatedAt.UTC().Format(databaseTimeLayout), nullableTime(r.ReceivedAt),
 		r.Status, r.SizeBytes, boolInt(r.LocallyBuffered),
 		r.MimeType, r.ContentClass, boolInt(r.IsText), r.TypeLabel, r.TypeScore, r.Source,
 	)
@@ -702,7 +771,7 @@ func nullableTime(t *time.Time) any {
 	if t == nil {
 		return nil
 	}
-	return t.UTC().Format(time.RFC3339Nano)
+	return t.UTC().Format(databaseTimeLayout)
 }
 
 // atomicWriteFile writes data to dst via a temp file in the same directory

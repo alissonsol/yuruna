@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42218fa5-018e-4ea0-a6fe-a80cc7202613
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.HostAddressBeacon.psm1') -Force -DisableNameChecking
 
     function New-ChurnTempDir {
@@ -62,7 +63,7 @@ BeforeAll {
     function Add-ChurnRow {
         param([string]$Dir, [datetime]$AtUtc, [string]$To = '192.168.7.9')
         Write-HostAddressChangeRecord -RuntimeDir $Dir -Previous '192.168.7.1' -Current $To `
-            -ChangedAtUtc $AtUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            -ChangedAtUtc $AtUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
 }
 
@@ -110,7 +111,7 @@ Describe 'Get-HostAddressChangeCount' {
         $d = New-ChurnTempDir
         try {
             Write-HostAddressBaselineRecord -RuntimeDir $d -Current '192.168.7.115' `
-                -ObservedAtUtc ([datetime]::UtcNow.AddMinutes(-10).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) -Confirm:$false
+                -ObservedAtUtc ([datetime]::UtcNow.AddMinutes(-10).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)) -Confirm:$false
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow) |
                 Should -Be 0
         } finally { Remove-Item -Recurse -Force $d }
@@ -185,7 +186,7 @@ Describe 'Write-HostAddressChangeRecord' {
             $row.current      | Should -Be '192.168.7.53'
             # ConvertFrom-Json hydrates an ISO-8601 field into a DateTime, so
             # the round-trip is asserted as an instant rather than as text.
-            ([datetime]$row.changedAtUtc).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") |
+            ([datetime]$row.changedAtUtc).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) |
                 Should -Be '2026-08-12T15:08:55Z'
         } finally { Remove-Item -Recurse -Force $d }
     }
@@ -195,7 +196,7 @@ Describe 'Write-HostAddressChangeRecord' {
         try {
             foreach ($n in 1..5) {
                 Write-HostAddressChangeRecord -RuntimeDir $d -Previous '' -Current "192.168.7.$n" `
-                    -ChangedAtUtc ([datetime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
+                    -ChangedAtUtc ([datetime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture))
             }
             @(Get-Content (Join-Path $d 'hostaddress.changes.ndjson')).Count | Should -Be 5
         } finally { Remove-Item -Recurse -Force $d }
@@ -223,20 +224,36 @@ Describe 'The counter is reachable from the session that actually records it' {
     # runner asks: starting from Test.Log alone, can the count be taken?
 
     It 'resolves from a session that has only imported Test.Log' {
-        $probe = {
-            param($RepoRoot)
-            Import-Module (Join-Path $RepoRoot 'test/modules/Test.Log.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
-            # Stop-LogFile imports the beacon module on demand rather than
-            # merely probing for it with Get-Command and giving up; mirror
-            # that on-demand import here.
-            if (-not (Get-Command Get-HostAddressChangeCount -ErrorAction SilentlyContinue)) {
-                Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAddressBeacon.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
-            }
-            [bool](Get-Command Get-HostAddressChangeCount -ErrorAction SilentlyContinue)
-        }
         $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-        $result = & $probe $repoRoot
-        $result | Should -BeTrue -Because 'Stop-LogFile must be able to reach the counter from its own session state, not only from a test that pre-loaded it'
+        $cycle = Join-Path $TestDrive 'isolated-cycle'
+        $runtime = Join-Path $TestDrive 'isolated-runtime'
+        [void][IO.Directory]::CreateDirectory($cycle)
+        [void][IO.Directory]::CreateDirectory($runtime)
+        $savedRuntime = [Environment]::GetEnvironmentVariable('YURUNA_RUNTIME_DIR', 'Process')
+        $shell = [PowerShell]::Create()
+        try {
+            $result = $shell.AddScript({
+                param($RepoRoot, $Cycle, $Runtime)
+                $env:YURUNA_RUNTIME_DIR = $Runtime
+                Import-Module (Join-Path $RepoRoot 'test/modules/Test.Log.psm1') -DisableNameChecking
+                $before = [bool](Get-Command Get-HostAddressChangeCount -ErrorAction SilentlyContinue)
+                Set-Variable -Name __YurunaCycleFolder -Scope Global -Value $Cycle
+                Set-Variable -Name __YurunaCycleStartUtc -Scope Global -Value ([datetime]::UtcNow.AddMinutes(-5).ToString('o'))
+                Set-Variable -Name __YurunaHostId -Scope Global -Value '42cafe0000000000000000000000dead'
+                [IO.File]::WriteAllText((Join-Path $Runtime 'hostaddress.changes.ndjson'),
+                    (@{ event = 'host_address_change'; changedAtUtc = [datetime]::UtcNow.AddMinutes(-1).ToString('o'); previous = '192.0.2.1'; current = '192.0.2.2' } | ConvertTo-Json -Compress) + "`n")
+                Stop-LogFile -Outcome pass -Confirm:$false *> $null
+                $events = @(Get-Content -LiteralPath (Join-Path $Cycle 'cycle.events.ndjson') | ConvertFrom-Json)
+                $end = $events | Where-Object event -eq 'cycle_end' | Select-Object -Last 1
+                [pscustomobject]@{ Before = $before; Count = $end.hostAddressChangesDuringCycle }
+            }).AddArgument($repoRoot).AddArgument($cycle).AddArgument($runtime).Invoke()
+            Assert-Equal 0 $shell.Streams.Error.Count ($shell.Streams.Error | Out-String)
+            Assert-False $result[-1].Before 'the fresh session does not preload the beacon'
+            Assert-Equal 1 $result[-1].Count 'Stop-LogFile itself loads and uses the counter'
+        } finally {
+            $shell.Dispose()
+            [Environment]::SetEnvironmentVariable('YURUNA_RUNTIME_DIR', $savedRuntime, 'Process')
+        }
     }
 
     It 'still names the on-demand import in Stop-LogFile' {
@@ -273,7 +290,7 @@ Describe 'Get-HostAddressChurnVerdict -- periodic, or merely frequent?' {
         try {
             foreach ($ago in 300, 200, 100) {
                 Write-HostAddressBaselineRecord -RuntimeDir $d -Current '192.168.7.115' `
-                    -ObservedAtUtc ([datetime]::UtcNow.AddMinutes(-$ago).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) -Confirm:$false
+                    -ObservedAtUtc ([datetime]::UtcNow.AddMinutes(-$ago).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)) -Confirm:$false
             }
             $v = Get-HostAddressChurnVerdict -RuntimeDir $d
             $v.verdict | Should -Be 'stable'

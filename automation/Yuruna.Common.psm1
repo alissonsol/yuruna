@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -661,6 +661,38 @@ function Test-Ipv6Address {
         if (-not [System.Net.IPAddress]::TryParse($candidate, [ref]$ip)) { return $false }
         return $ip.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6
     }
+}
+
+function Test-YurunaServiceHealth {
+    <#
+    .SYNOPSIS
+        Probes a service health endpoint with bounded retries and no proxy.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Address,
+        [int]$DefaultPort = 80,
+        [int]$Attempts = 3,
+        [int]$TimeoutSeconds = 10,
+        [int]$BackoffMs = 500,
+        [scriptblock]$Request = { param($Uri, $Timeout) Invoke-WebRequest -Uri $Uri -NoProxy -TimeoutSec $Timeout -ErrorAction Stop }
+    )
+    $target = $Address.Trim()
+    if (-not $target) { return $false }
+    $target = Format-IpUrlHost -Address $target
+    if ($DefaultPort -ne 80 -and ($target -notmatch ':' -or $target -match '^\[[^\]]+\]$')) { $target = "${target}:$DefaultPort" }
+    $url = "http://$target/healthz"
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        if ($attempt -gt 1 -and $BackoffMs -gt 0) { Start-Sleep -Milliseconds $BackoffMs }
+        try {
+            Write-Verbose "Health probe $url attempt $attempt."
+            $response = & $Request $url $TimeoutSeconds
+            if ([int]$response.StatusCode -eq 200) { return $true }
+            Write-Verbose "Health probe $url attempt $attempt returned HTTP $($response.StatusCode)."
+        } catch { Write-Verbose "Health probe $url attempt $attempt failed: $($_.Exception.Message)" }
+    }
+    return $false
 }
 
 function Format-IpUrlHost {
@@ -1863,6 +1895,10 @@ function Get-GuestBuilderMemoryMb {
     foreach ($m in [regex]::Matches($Text, '\[int\]\$MemoryMb\s*=\s*(\d+)')) {
         [void]$sizes.Add([int64]$m.Groups[1].Value)
     }
+    # A builder that hands the size to the shared UTM bundle helper names it as -MemoryMb <MiB>.
+    foreach ($m in [regex]::Matches($Text, '(?<![\w$])-MemoryMb\s+(\d+)\b')) {
+        [void]$sizes.Add([int64]$m.Groups[1].Value)
+    }
     foreach ($m in [regex]::Matches($Text, "'--memory'\s*,\s*'(\d+)'")) {
         [void]$sizes.Add([int64]$m.Groups[1].Value)
     }
@@ -2520,7 +2556,7 @@ function Invoke-BoundedNativeCommand {
     or the child was not observed to exit before the cap. OutputTruncated
     means a stream was cut at MaxCapturedChars. DeadlineExhausted means
     nothing was launched because the shared deadline had under one second
-    left. ProcessId is the direct child's PID, 0 when nothing started. Gate
+    left. ProcessId is the direct child's PID, 0 when nothing started.
     StartError retains the launch exception detail. CleanupPending reports
     asynchronous resource disposal still in progress; it does not invalidate
     fully drained output from a process that exited normally. Gate
@@ -3617,6 +3653,81 @@ function Test-YurunaCallerWhatIf {
     }
 }
 
+function Confirm-YurunaPrivateDirectory {
+    <# .SYNOPSIS
+    Creates and verifies a plain owned directory, optionally securing owner-only access.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Private protocol helper; caller passes its resolved create/preview policy.')]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Platform,
+        [Parameter(Mandatory)]$CurrentOwner, [bool]$CreateAllowed, [bool]$SecurePermissions = $true)
+    $result = [ordered]@{ Resolved = $false; Reason = 'resolve-failed'; IoKind = $null }
+    $ownerOnly = [IO.UnixFileMode]'UserRead, UserWrite, UserExecute'
+    if ([IO.FileInfo]::new($Path).LinkTarget) { $result.Reason = 'reparse-point'; return [pscustomobject]$result }
+    if (-not [IO.Directory]::Exists($Path)) {
+        if ([IO.File]::Exists($Path)) { return [pscustomobject]$result }
+        if (-not $CreateAllowed) { $result.Reason = 'absent'; return [pscustomobject]$result }
+        try {
+            if ($Platform -eq 'windows') { $null = [IO.Directory]::CreateDirectory($Path) }
+            else {
+                # Set Unix owner-only permissions in the create call, with no
+                # interval in which group or other users can enter.
+                $null = [IO.Directory]::CreateDirectory($Path, $ownerOnly)
+            }
+        } catch { $result.Reason = 'create-failed'; $result.IoKind = Get-YurunaIoFailureKind $_.Exception; return [pscustomobject]$result }
+    }
+    # A new DirectoryInfo sees provider state afresh. A short visibility lag
+    # after creation can make an immediate Exists check say false.
+    $info = $null
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        $candidate = [IO.DirectoryInfo]::new($Path)
+        if ($candidate.Exists) { $info = $candidate; break }
+        Start-Sleep -Milliseconds 20
+    }
+    if (-not $info) { return [pscustomobject]$result }
+    if ($info.LinkTarget -or ($info.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $result.Reason = 'reparse-point'; return [pscustomobject]$result }
+    $owner = Get-YurunaPathOwnerId -Path $Path -Platform $Platform
+    if (-not $CurrentOwner.Resolved -or -not $owner.Resolved) { $result.Reason = 'owner-unverified'; return [pscustomobject]$result }
+    if (-not (Test-YurunaPrivateOwnerMatch -OwnerId $owner.OwnerId -CurrentOwner $CurrentOwner -Platform $Platform)) { $result.Reason = 'owner-mismatch'; return [pscustomobject]$result }
+    if ($SecurePermissions) {
+        try {
+            if ($Platform -eq 'windows') {
+                $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User
+                $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+                $isPrivate = {
+                    param($Value)
+                    $foreign = @($Value.Access | Where-Object {
+                        $sid = $null
+                        try { $sid = $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { $sid = $null }
+                        $sid -ne $identity.Value
+                    })
+                    return ($Value.AreAccessRulesProtected -and $foreign.Count -eq 0)
+                }
+                if (-not (& $isPrivate $acl)) {
+                    if (-not $CreateAllowed) { $result.Reason = 'permission-loose'; return [pscustomobject]$result }
+                    $acl.SetAccessRuleProtection($true, $false)
+                    foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRule($rule) }
+                    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+                    Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
+                    $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+                }
+                if (-not (& $isPrivate $acl)) { $result.Reason = 'permission-failed'; return [pscustomobject]$result }
+            } else {
+                $mode = [IO.File]::GetUnixFileMode($Path)
+                if ($mode -ne $ownerOnly) {
+                    if (-not $CreateAllowed) { $result.Reason = 'permission-loose'; return [pscustomobject]$result }
+                    [IO.File]::SetUnixFileMode($Path, $ownerOnly)
+                    $mode = [IO.File]::GetUnixFileMode($Path)
+                }
+                if ($mode -ne $ownerOnly) { $result.Reason = 'permission-failed'; return [pscustomobject]$result }
+            }
+        } catch { $result.Reason = 'permission-failed'; $result.IoKind = Get-YurunaIoFailureKind $_.Exception; return [pscustomobject]$result }
+    }
+    $result.Resolved = $true; $result.Reason = 'ok'
+    return [pscustomobject]$result
+}
+
 function Get-YurunaPrivateStateRoot {
 <#
 .SYNOPSIS
@@ -3776,67 +3887,11 @@ function Get-YurunaPrivateStateRoot {
         return [pscustomobject]$record
     }
 
-    $ownerOnly = [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute'
-    foreach ($component in @($stateDir, $root)) {
-        if ([System.IO.Directory]::Exists($component)) { continue }
-        if ([System.IO.File]::Exists($component)) {
-            $record.Reason = 'resolve-failed'
-            return [pscustomobject]$record
-        }
-        if (-not $createAllowed) {
-            $record.Reason = 'absent'
-            return [pscustomobject]$record
-        }
-        try {
-            if ($platform -eq 'windows') {
-                $null = [System.IO.Directory]::CreateDirectory($component)
-            } else {
-                # Created owner-only in one call, so no window exists in which
-                # the new directory is reachable by the group or others.
-                $null = [System.IO.Directory]::CreateDirectory($component, $ownerOnly)
-            }
-        } catch {
-            $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
-            Write-Verbose "Get-YurunaPrivateStateRoot: could not create '$component': $($_.Exception.Message)"
-            $record.Reason = 'create-failed'
-            return [pscustomobject]$record
-        }
-    }
-
-    # Every component must now be a plain directory. Raw DirectoryInfo with a
-    # short retry rather than Get-Item/Test-Path: the provider layer can miss
-    # a directory this process just created for a few milliseconds
-    # (feedback_sandbox-filesystem-provider-visibility-lag.md).
-    foreach ($component in @($stateDir, $root)) {
-        $info = $null
-        for ($attempt = 0; $attempt -lt 5; $attempt++) {
-            $candidate = [System.IO.DirectoryInfo]::new($component)
-            if ($candidate.Exists) { $info = $candidate; break }
-            Start-Sleep -Milliseconds 20
-        }
-        if (-not $info) {
-            $record.Reason = 'resolve-failed'
-            return [pscustomobject]$record
-        }
-        if ($info.LinkTarget -or ($info.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-            $record.Reason = 'reparse-point'
-            return [pscustomobject]$record
-        }
-    }
-
     $currentOwner = Get-YurunaCurrentOwnerId
-    if (-not $currentOwner.Resolved) {
-        $record.Reason = 'owner-unverified'
-        return [pscustomobject]$record
-    }
     foreach ($component in @($stateDir, $root)) {
-        $owner = Get-YurunaPathOwnerId -Path $component -Platform $platform
-        if (-not $owner.Resolved) {
-            $record.Reason = 'owner-unverified'
-            return [pscustomobject]$record
-        }
-        if (-not (Test-YurunaPrivateOwnerMatch -OwnerId $owner.OwnerId -CurrentOwner $currentOwner -Platform $platform)) {
-            $record.Reason = 'owner-mismatch'
+        $checked = Confirm-YurunaPrivateDirectory -Path $component -Platform $platform -CurrentOwner $currentOwner -CreateAllowed $createAllowed -SecurePermissions $false
+        if (-not $checked.Resolved) {
+            $record.Reason = $checked.Reason; $record.IoKind = $checked.IoKind
             return [pscustomobject]$record
         }
     }
@@ -3863,54 +3918,11 @@ function Get-YurunaPrivateStateRoot {
                 return [pscustomobject]$record
             }
         }
-        try {
-            $mode = [System.IO.File]::GetUnixFileMode($root)
-            if ($mode -ne $ownerOnly) {
-                if (-not $createAllowed) {
-                    $record.Reason = 'permission-loose'
-                    return [pscustomobject]$record
-                }
-                [System.IO.File]::SetUnixFileMode($root, $ownerOnly)
-                $mode = [System.IO.File]::GetUnixFileMode($root)
-            }
-            if ($mode -ne $ownerOnly) {
-                $record.Reason = 'permission-failed'
-                return [pscustomobject]$record
-            }
-        } catch {
-            $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
-            Write-Verbose "Get-YurunaPrivateStateRoot: could not secure '$root': $($_.Exception.Message)"
-            $record.Reason = 'permission-failed'
-            return [pscustomobject]$record
-        }
-    } else {
-        try {
-            $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-            $acl = Get-Acl -LiteralPath $root -ErrorAction Stop
-            $foreign = @($acl.Access | Where-Object {
-                    $sid = $null
-                    try { $sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } catch { $sid = $null }
-                    $sid -ne $identity.Value
-                })
-            $ownerOnlyAcl = $acl.AreAccessRulesProtected -and $foreign.Count -eq 0
-            if (-not $ownerOnlyAcl) {
-                if (-not $createAllowed) {
-                    $record.Reason = 'permission-loose'
-                    return [pscustomobject]$record
-                }
-                $acl.SetAccessRuleProtection($true, $false)
-                foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRule($rule) }
-                $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
-                    $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-                $acl.AddAccessRule($rule)
-                Set-Acl -LiteralPath $root -AclObject $acl -ErrorAction Stop
-            }
-        } catch {
-            $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
-            Write-Verbose "Get-YurunaPrivateStateRoot: ACL hardening failed for '$root': $($_.Exception.Message)"
-            $record.Reason = 'permission-failed'
-            return [pscustomobject]$record
-        }
+    }
+    $secured = Confirm-YurunaPrivateDirectory -Path $root -Platform $platform -CurrentOwner $currentOwner -CreateAllowed $createAllowed
+    if (-not $secured.Resolved) {
+        $record.Reason = $secured.Reason; $record.IoKind = $secured.IoKind
+        return [pscustomobject]$record
     }
 
     $record.Resolved = $true
@@ -3993,50 +4005,8 @@ function Get-YurunaPrivateStatePath {
     if ($PSBoundParameters.ContainsKey('Subdirectory')) {
         $directory = Join-Path $root.Path $Subdirectory
         $canonicalDirectory = Join-Path $root.CanonicalPath $Subdirectory
-        if ([System.IO.FileInfo]::new($directory).LinkTarget) { return (& $fail 'reparse-point') }
-        if (-not [System.IO.Directory]::Exists($directory)) {
-            if ([System.IO.File]::Exists($directory)) { return (& $fail 'resolve-failed') }
-            if (-not $createAllowed) { return (& $fail 'absent') }
-            try {
-                if ($platform -eq 'windows') {
-                    $null = [System.IO.Directory]::CreateDirectory($directory)
-                } else {
-                    $null = [System.IO.Directory]::CreateDirectory($directory, [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
-                }
-            } catch {
-                $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
-                return (& $fail 'create-failed')
-            }
-        }
-        $info = $null
-        for ($attempt = 0; $attempt -lt 5; $attempt++) {
-            $candidate = [System.IO.DirectoryInfo]::new($directory)
-            if ($candidate.Exists) { $info = $candidate; break }
-            Start-Sleep -Milliseconds 20
-        }
-        if (-not $info) { return (& $fail 'resolve-failed') }
-        if ($info.LinkTarget -or ($info.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { return (& $fail 'reparse-point') }
-        $currentOwner = Get-YurunaCurrentOwnerId
-        $owner = Get-YurunaPathOwnerId -Path $directory -Platform $platform
-        if (-not $currentOwner.Resolved -or -not $owner.Resolved) { return (& $fail 'owner-unverified') }
-        if (-not (Test-YurunaPrivateOwnerMatch -OwnerId $owner.OwnerId -CurrentOwner $currentOwner -Platform $platform)) {
-            return (& $fail 'owner-mismatch')
-        }
-        if ($platform -ne 'windows') {
-            $ownerOnly = [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute'
-            try {
-                $mode = [System.IO.File]::GetUnixFileMode($directory)
-                if ($mode -ne $ownerOnly) {
-                    if (-not $createAllowed) { return (& $fail 'permission-loose') }
-                    [System.IO.File]::SetUnixFileMode($directory, $ownerOnly)
-                    $mode = [System.IO.File]::GetUnixFileMode($directory)
-                }
-                if ($mode -ne $ownerOnly) { return (& $fail 'permission-failed') }
-            } catch {
-                $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
-                return (& $fail 'permission-failed')
-            }
-        }
+        $checked = Confirm-YurunaPrivateDirectory -Path $directory -Platform $platform -CurrentOwner (Get-YurunaCurrentOwnerId) -CreateAllowed $createAllowed
+        if (-not $checked.Resolved) { $record.IoKind = $checked.IoKind; return (& $fail $checked.Reason) }
     }
 
     $leaf = Join-Path $directory $Name
@@ -4095,4 +4065,323 @@ function Get-BoundedNativeOutputLine {
     return [string[]]$lines.ToArray()
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, Test-BoundedNativeResultComplete, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Wait-YurunaDeadlineInterval, Get-YurunaIoFailureKind, Resolve-YurunaCanonicalPath, Get-YurunaPathDriveInfo, Get-YurunaPathOwnerId, Get-YurunaCurrentOwnerId, Get-YurunaPrivateStateRoot, Get-YurunaPrivateStatePath
+function Invoke-YurunaTcpProbeSet {
+    <#
+    .SYNOPSIS
+        Parallel TCP connects to a set of endpoints within one bounded wait.
+    .DESCRIPTION
+        Every connect starts at once and one wait covers them all, so the
+        cost of a set is the slowest answer or the cap, never the sum. Every
+        socket is disposed before returning; a connect still pending at the
+        cap is 'timeout'.
+    .OUTPUTS
+        [hashtable] Id -> answered|refused|timeout|no-address
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Target,
+        [Parameter(Mandatory)][ValidateRange(0, 600000)][int]$TimeoutMilliseconds
+    )
+    $outcome = @{}
+    $pending = [System.Collections.Generic.List[object]]::new()
+    try {
+        foreach ($t in @($Target)) {
+            $id = [string]$t.Id
+            $address = [string]$t.Address
+            $port = [int]$t.Port
+            if ([string]::IsNullOrWhiteSpace($address) -or $port -le 0 -or $port -gt 65535) { $outcome[$id] = 'no-address'; continue }
+            if ($TimeoutMilliseconds -le 0) { $outcome[$id] = 'timeout'; continue }
+            $client = [System.Net.Sockets.TcpClient]::new()
+            try {
+                $ip = $null
+                $task = if ([System.Net.IPAddress]::TryParse($address, [ref]$ip)) { $client.ConnectAsync($ip, $port) } else { $client.ConnectAsync($address, $port) }
+                $pending.Add([pscustomobject]@{ Id = $id; Client = $client; Task = $task })
+            } catch {
+                $outcome[$id] = 'refused'
+                $client.Dispose()
+            }
+        }
+        if ($pending.Count -gt 0) {
+            $tasks = [System.Threading.Tasks.Task[]]@($pending | ForEach-Object { $_.Task })
+            try { $null = [System.Threading.Tasks.Task]::WaitAll($tasks, $TimeoutMilliseconds) } catch { $null = $_ }
+            foreach ($entry in $pending) {
+                $status = $entry.Task.Status
+                $outcome[$entry.Id] = if ($status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $entry.Client.Connected) { 'answered' }
+                                      elseif ($entry.Task.IsCompleted) { 'refused' }
+                                      else { 'timeout' }
+            }
+        }
+    } finally {
+        foreach ($entry in $pending) {
+            try { $entry.Client.Dispose() } catch { $null = $_ }
+            # A connect still in flight faults once its socket is gone; the
+            # fault is observed here so it never surfaces as an unobserved
+            # task exception later.
+            try { $null = $entry.Task.Exception } catch { $null = $_ }
+        }
+    }
+    return $outcome
+}
+
+function Get-YurunaProcessIdentityLiveness {
+    <#
+    .SYNOPSIS
+        alive, dead or unknown for a recorded process identity, without
+        launching anything.
+    .DESCRIPTION
+        A pid alone is never identity: a live process whose start time differs
+        from the record by more than the tolerance is a recycled pid, so the
+        recorded process is dead. A live pid whose start time cannot be read,
+        or a record without a start time, is unknown -- and callers treat
+        unknown as alive.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [AllowNull()]$ProcessId,
+        [AllowNull()]$StartTimeUnixMs,
+        [ValidateRange(0, 60000)][long]$ToleranceMs = 2000
+    )
+    $processNumber = 0
+    if ($null -eq $ProcessId -or -not [int]::TryParse("$ProcessId", [ref]$processNumber) -or $processNumber -le 0) { return 'unknown' }
+    $process = $null
+    try {
+        $process = [System.Diagnostics.Process]::GetProcessById($processNumber)
+    } catch [System.ArgumentException] {
+        return 'dead'
+    } catch {
+        return 'unknown'
+    }
+    $live = $null
+    try { $live = [long][DateTimeOffset]::new($process.StartTime).ToUnixTimeMilliseconds() } catch { $live = $null }
+    $recorded = [long]0
+    if ($null -eq $StartTimeUnixMs -or -not [long]::TryParse("$StartTimeUnixMs", [ref]$recorded) -or $recorded -le 0) { return 'unknown' }
+    if ($null -eq $live) { return 'unknown' }
+    if ([Math]::Abs($live - $recorded) -le $ToleranceMs) { return 'alive' }
+    return 'dead'
+}
+
+function Format-YurunaVirtualizationProbeDiagnostic {
+    <# .SYNOPSIS
+        Shared host virtualization record/diagnostic factory. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return '' }
+    $clean = [regex]::Replace($Text, '\x1B\[[0-9;?]*[ -/]*[@-~]', '')
+    $clean = [regex]::Replace($clean, '\x1B[@-Z\\-_]', '')
+    $clean = [regex]::Replace($clean, '[\x00-\x1F\x7F-\x9F]+', ' ')
+    $clean = [regex]::Replace($clean, ' {2,}', ' ').Trim()
+    if ($clean.Length -gt 1024) { $clean = $clean.Substring(0, 1024) }
+    return $clean
+}
+
+function New-YurunaVirtualizationStartAction {
+    <# .SYNOPSIS
+        Shared host virtualization record/diagnostic factory. #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Target,
+        [Parameter(Mandatory)][ValidateSet('unit-start', 'service-start', 'network-start', 'wait', 'app-launch')][string]$Kind,
+        [AllowEmptyString()][string]$Before = '',
+        [AllowEmptyString()][string]$After = '',
+        [Parameter(Mandatory)][ValidateSet('started', 'already-running', 'socket-live', 'refused', 'failed', 'unknown', 'skipped', 'preview')][string]$Result,
+        [Parameter(Mandatory)][string]$Reason,
+        [AllowEmptyCollection()][string[]]$Command = @(),
+        [AllowNull()][Nullable[int]]$ExitCode = $null,
+        [bool]$TimedOut = $false,
+        [long]$ElapsedMs = 0
+    )
+    return [pscustomobject]@{
+        target    = $Target
+        kind      = $Kind
+        before    = $Before
+        after     = $After
+        result    = $Result
+        reason    = $Reason
+        command   = [string[]]@($Command)
+        exitCode  = $ExitCode
+        timedOut  = $TimedOut
+        elapsedMs = $ElapsedMs
+    }
+}
+
+function New-YurunaVirtualizationStartResult {
+    <# .SYNOPSIS
+        Shared host virtualization record/diagnostic factory. #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$HostType,
+        [ValidateSet('started', 'already-running', 'refused', 'failed', 'unknown', 'unavailable', 'preview', '')][string]$Outcome = '',
+        [AllowEmptyString()][string]$Reason = '',
+        [Parameter(Mandatory)][string]$Layout,
+        [AllowEmptyCollection()][object[]]$Action = @(),
+        [Parameter(Mandatory)][string]$ObservedUtc,
+        [long]$ElapsedMs
+    )
+    $rows = @($Action | Where-Object { $null -ne $_ })
+    if (-not $Outcome) {
+        $Outcome = 'already-running'
+        foreach ($candidate in 'failed', 'unknown', 'started', 'preview') {
+            $first = @($rows | Where-Object { $_.result -eq $candidate }) | Select-Object -First 1
+            if ($first) { $Outcome = $candidate; $Reason = [string]$first.reason; break }
+        }
+        if ($Outcome -eq 'already-running') {
+            $Reason = if (@($rows | Where-Object { $_.result -eq 'socket-live' }).Count -gt 0) { 'socket-live' } else { 'already-running' }
+        }
+    }
+    return [pscustomobject]@{
+        PSTypeName    = 'Yuruna.VirtualizationStartResult'
+        schemaVersion = 1
+        hostType      = $HostType
+        outcome       = $Outcome
+        reason        = $Reason
+        layout        = $Layout
+        actions       = [object[]]$rows
+        observedUtc   = $ObservedUtc
+        elapsedMs     = $ElapsedMs
+    }
+}
+
+function Test-Utf8TextByte {
+    <#
+    .SYNOPSIS
+        Returns encoding, normalization, control, and bidi-balance problems.
+    .PARAMETER Bytes
+        The exact bytes to validate without repairing or normalizing them.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Bytes)
+    $problems = [Collections.Generic.List[string]]::new()
+    if ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xEF -and $Bytes[1] -eq 0xBB -and $Bytes[2] -eq 0xBF) { $problems.Add('starts with a UTF-8 BOM') }
+    try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes) }
+    catch { $problems.Add("is not valid UTF-8: $($_.Exception.Message)"); return $problems.ToArray() }
+    $replacement = $text.IndexOf([char]0xFFFD)
+    if ($replacement -ge 0) { $problems.Add("carries U+FFFD at index $replacement, so it was decoded wrong before it was written") }
+    # IsNormalized tests the actual Unicode form; a culture-aware string
+    # comparison could report equal for bytes that produce different digests.
+    if (-not $text.IsNormalized([Text.NormalizationForm]::FormC)) { $problems.Add('is not NFC-normalized, so equal-looking text would compare unequal') }
+    $runs = [Collections.Generic.Stack[int]]::new()
+    $invalidBidi = $false
+    # Bidirectional controls must be paired: an unmatched control can change
+    # the direction of text rendered after the catalog message ends.
+    foreach ($match in [regex]::Matches($text, '[\u0000-\u0008\u000B\u000C\u000E-\u001F\u202A-\u202E\u2066-\u2069]')) {
+        $code = [int]$match.Value[0]
+        if ($code -lt 0x20) { $problems.Add(("carries control character U+{0:X4} at index {1}" -f $code, $match.Index)); continue }
+        if ($code -in @(0x202A, 0x202B, 0x202D, 0x202E)) { $runs.Push(0x202C); continue }
+        if ($code -in @(0x2066, 0x2067, 0x2068)) { $runs.Push(0x2069); continue }
+        if ($runs.Count -eq 0) { $invalidBidi = $true; continue }
+        if ($runs.Pop() -ne $code) { $invalidBidi = $true }
+    }
+    if ($invalidBidi -or $runs.Count -ne 0) { $problems.Add('leaves a bidi run unclosed or incorrectly paired, so direction can leak into whatever renders next') }
+    return $problems.ToArray()
+}
+
+function ConvertFrom-YurunaPemCertificate {
+    <#
+    .SYNOPSIS
+        Decodes exactly one PEM certificate through the portable DER constructor.
+    .PARAMETER Pem
+        The certificate text; bundles and extra payload are refused.
+    #>
+    [CmdletBinding()]
+    [OutputType([Security.Cryptography.X509Certificates.X509Certificate2])]
+    param([Parameter(Mandatory)][string]$Pem)
+    $match = [regex]::Match($Pem.Trim().TrimStart([char]0xFEFF), '\A-----BEGIN CERTIFICATE-----\s*(?<payload>[A-Za-z0-9+/=\s]+)\s*-----END CERTIFICATE-----\z')
+    if (-not $match.Success) { throw [FormatException]::new('Expected exactly one PEM certificate.') }
+    $der = [Convert]::FromBase64String(($match.Groups['payload'].Value -replace '\s', ''))
+    return [Security.Cryptography.X509Certificates.X509Certificate2]::new($der)
+}
+
+function Save-YurunaHostProxyBackup {
+    <#
+    .SYNOPSIS
+        Preserve the host proxy state before its first promotion.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][scriptblock]$ReadState,
+        [Parameter(Mandatory)][string]$PromotedTo)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        $state = & $ReadState
+        $state['timestamp'] = [DateTime]::UtcNow.ToString('o')
+        $state['promotedTo'] = $PromotedTo
+        $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Path -Encoding UTF8 -ErrorAction Stop
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_e7819cb03343b1e1' -Arguments @{ backupPath = "$Path" })
+    } else {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_d8f19d509742ffe8' -Arguments @{ backupPath = "$Path" })
+    }
+}
+
+function Read-YurunaHostProxyBackup {
+    <#
+    .SYNOPSIS
+        Read saved platform proxy state or report a malformed backup.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    try { return Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
+    catch { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bea0e70f89d3d54c' -Arguments @{ backupPath = "$Path"; message = "$($_.Exception.Message)" }); return $null }
+}
+
+function Remove-YurunaHostProxyBackup {
+    <#
+    .SYNOPSIS
+        Remove the saved proxy state after restoring or disabling the proxy.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$Path)
+    if ((Test-Path -LiteralPath $Path) -and $PSCmdlet.ShouldProcess($Path, 'Remove proxy backup')) {
+        Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+    }
+}
+
+function New-YurunaVirtualizationProbeRecord {
+    <# .SYNOPSIS
+        Build the common probe schema from driver evidence and a sanitized diagnostic.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][string]$State,
+        [Parameter(Mandatory)][string]$Reason,
+        [bool]$Started,
+        [bool]$TimedOut,
+        [bool]$DeadlineExhausted,
+        [Parameter(Mandatory)][string]$ObservedUtc,
+        [long]$ObservedTick,
+        [long]$ElapsedMs,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Evidence,
+        [AllowEmptyString()][string]$Diagnostic = ''
+    )
+    return [pscustomobject]@{
+        PSTypeName        = 'Yuruna.VirtualizationProbe'
+        schemaVersion     = 1
+        hostType          = $HostType
+        state             = $State
+        reason            = $Reason
+        started           = $Started
+        timedOut          = $TimedOut
+        deadlineExhausted = $DeadlineExhausted
+        corroborated      = $false
+        observedUtc       = $ObservedUtc
+        observedTick      = $ObservedTick
+        elapsedMs         = $ElapsedMs
+        evidence          = [pscustomobject]$Evidence
+        diagnostic        = $Diagnostic
+    }
+}
+
+Export-ModuleMember -Function New-YurunaVirtualizationProbeRecord, Save-YurunaHostProxyBackup, Read-YurunaHostProxyBackup, Remove-YurunaHostProxyBackup, ConvertFrom-YurunaPemCertificate, Test-Utf8TextByte, Test-YurunaServiceHealth, Invoke-YurunaTcpProbeSet, Get-YurunaProcessIdentityLiveness, Format-YurunaVirtualizationProbeDiagnostic, New-YurunaVirtualizationStartAction, New-YurunaVirtualizationStartResult, New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, Test-BoundedNativeResultComplete, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Wait-YurunaDeadlineInterval, Get-YurunaIoFailureKind, Resolve-YurunaCanonicalPath, Get-YurunaPathDriveInfo, Get-YurunaPathOwnerId, Get-YurunaCurrentOwnerId, Get-YurunaPrivateStateRoot, Get-YurunaPrivateStatePath

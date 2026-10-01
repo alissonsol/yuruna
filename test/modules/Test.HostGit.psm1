@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1032,6 +1032,9 @@ function Resolve-GitRepositoryWebUrl {
         # Local clone path: follow its origin one hop and re-classify. A file:
         # URL is a location, not a link base a /commit/<sha> route can be built
         # on, so it takes this branch too rather than being returned.
+        if ($current -match '^file:') {
+            try { $current = ([uri]$current).LocalPath } catch { return $null }
+        }
         if (-not (Test-Path -LiteralPath $current)) { return $null }
         $originUrl = $null
         try {

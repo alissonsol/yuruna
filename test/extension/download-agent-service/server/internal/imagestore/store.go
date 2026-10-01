@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -355,13 +356,19 @@ func (s *Store) PromoteStaging(id ImageID, stagedPath, generation string) error 
 	dst := filepath.Join(s.Dir(id), generation)
 	err := os.Link(stagedPath, dst)
 	if err == nil || errors.Is(err, os.ErrExist) {
-		return os.Remove(stagedPath)
+		if cleanupErr := os.Remove(stagedPath); cleanupErr != nil {
+			log.Printf("image promoted; staging cleanup pending for %s: %v", stagedPath, cleanupErr)
+		}
+		return nil
 	}
 	// Not every SMB server implements hard links. Where one is refused, the
 	// promote still has to complete, so fall back to the check-then-rename that
 	// cannot be EEXIST-safe.
 	if _, serr := os.Stat(dst); serr == nil {
-		return os.Remove(stagedPath)
+		if cleanupErr := os.Remove(stagedPath); cleanupErr != nil {
+			log.Printf("image already promoted; staging cleanup pending for %s: %v", stagedPath, cleanupErr)
+		}
+		return nil
 	}
 	return os.Rename(stagedPath, dst)
 }
@@ -376,6 +383,10 @@ func (s *Store) Generations(id ImageID) ([]GenerationInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	return generationsFromEntries(ents), nil
+}
+
+func generationsFromEntries(ents []os.DirEntry) []GenerationInfo {
 	var out []GenerationInfo
 	for _, e := range ents {
 		if e.IsDir() || !ValidGenerationName(e.Name()) {
@@ -388,7 +399,7 @@ func (s *Store) Generations(id ImageID) ([]GenerationInfo, error) {
 		out = append(out, GenerationInfo{Name: e.Name(), Bytes: fi.Size(), ModTime: fi.ModTime()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ModTime.After(out[j].ModTime) })
-	return out, nil
+	return out
 }
 
 // Entry assembles the on-disk view of one identity.
@@ -401,6 +412,14 @@ func (s *Store) Generations(id ImageID) ([]GenerationInfo, error) {
 // current generation. The sidecar's arch/variant then attributes the generations
 // no pointer names, which is how the retained previous copy is found.
 func (s *Store) Entry(id ImageID) (Entry, error) {
+	files, err := os.ReadDir(s.Dir(id))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Entry{ID: id}, err
+	}
+	return s.entryFromEntries(id, files)
+}
+
+func (s *Store) entryFromEntries(id ImageID, files []os.DirEntry) (Entry, error) {
 	e := Entry{ID: id}
 	p, ok, err := s.ReadPointer(id)
 	if err != nil {
@@ -412,11 +431,8 @@ func (s *Store) Entry(id ImageID) (Entry, error) {
 			e.Sidecar = sc
 		}
 	}
-	gens, err := s.Generations(id)
-	if err != nil {
-		return e, err
-	}
-	claimed := s.referencedGenerations(id)
+	gens := generationsFromEntries(files)
+	claimed := s.referencedGenerationsFromEntries(id, files)
 	for _, g := range gens {
 		g.Current = e.Pointer != nil && e.Pointer.GenerationFile == g.Name
 		if !g.Current {
@@ -484,7 +500,7 @@ func (s *Store) List() ([]Entry, error) {
 				if id.Validate() != nil {
 					continue
 				}
-				e, err := s.Entry(id)
+				e, err := s.entryFromEntries(id, files)
 				if err != nil {
 					continue
 				}
@@ -550,6 +566,11 @@ func (s *Store) Delete(id ImageID) ([]string, error) {
 		if err == nil && (sc.Arch != id.Arch || sc.Variant != id.Variant) {
 			continue
 		}
+		// Promotion lands the artifact before its metadata. A concurrent
+		// identity must leave that window alone; old orphans remain sweepable.
+		if err != nil && time.Since(g.ModTime) < 2*time.Minute {
+			continue
+		}
 		if err := removeWithDeadline(filepath.Join(s.Dir(id), g.Name)); err != nil {
 			return removed, err
 		}
@@ -613,6 +634,11 @@ func (s *Store) retainOnly(id ImageID, keep map[string]bool) (int, error) {
 		if err == nil && (sc.Arch != id.Arch || sc.Variant != id.Variant) {
 			continue
 		}
+		// Promotion lands the artifact before its metadata. A concurrent
+		// identity must leave that window alone; old orphans remain sweepable.
+		if err != nil && time.Since(g.ModTime) < 2*time.Minute {
+			continue
+		}
 		if err := removeWithDeadline(filepath.Join(s.Dir(id), g.Name)); err != nil {
 			return n, err
 		}
@@ -634,6 +660,11 @@ func (s *Store) referencedGenerations(exclude ImageID) map[string]bool {
 	if err != nil {
 		return out
 	}
+	return s.referencedGenerationsFromEntries(exclude, ents)
+}
+
+func (s *Store) referencedGenerationsFromEntries(exclude ImageID, ents []os.DirEntry) map[string]bool {
+	out := map[string]bool{}
 	for _, e := range ents {
 		arch, variant, ok := parsePointerName(e.Name())
 		if !ok {

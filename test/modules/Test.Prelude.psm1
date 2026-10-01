@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -254,10 +254,10 @@ function Initialize-YurunaEntryPointModuleSet {
             # time, so loading it here (before Initialize-YurunaHost) is correct.
             'Test.ServiceVm.psm1',
             'Test.HostIO.psm1', 'Test.Capability.psm1',
-            # Test.PoolPlanner: resolve a pool's test-sets into this
-            # host's runnable cycle plan. After Test.SequencePlanner + Test.Capability
-            # (it calls Resolve-TestSetCyclePlan + Test-CyclePlanCapabilityFromPlan at
-            # runtime); leaf at load time.
+            # Test.PoolPlanner: reads runtime/pool.manifest.json (the pool's
+            # framework and project repositories) for the inner runner. After
+            # Test.SequencePlanner (Get-PoolProjectTestDir uses Get-CycleConfigPath
+            # when it is loaded); leaf at load time.
             'Test.PoolPlanner.psm1',
             'Test.KeyCodeRegistry.psm1', 'Test.Transport.psm1',
             # Paired registry + bounded recovery primitives: Repair-VncConnection
@@ -448,17 +448,16 @@ function Wait-WithProgress {
     if ($TotalSeconds -le 0) { return $null }
     if ($PollSeconds  -le 0) { $PollSeconds = 1 }
 
-    $start    = Get-Date
-    $deadline = $start.AddSeconds($TotalSeconds)
+    $clock = [Diagnostics.Stopwatch]::StartNew()
     $result   = $null
     try {
-        while ((Get-Date) -lt $deadline) {
+        while ($clock.Elapsed.TotalSeconds -lt $TotalSeconds) {
             if ($Test) {
                 $r = $null
                 try { $r = & $Test } catch { $r = $null }
                 if ($r) { $result = $r; break }
             }
-            $elapsedSeconds   = [int]((Get-Date) - $start).TotalSeconds
+            $elapsedSeconds   = [int]$clock.Elapsed.TotalSeconds
             $remainingSeconds = [math]::Max(0, $TotalSeconds - $elapsedSeconds)
             $pct          = [math]::Min(100, [math]::Max(0, [int](($elapsedSeconds * 100) / $TotalSeconds)))
             try {
@@ -466,7 +465,8 @@ function Wait-WithProgress {
                     -Status (Format-YurunaOperatorMessage -Key 'runner.operator_c28443177bbd5207' -FormatValues ($remainingSeconds, $TotalSeconds) -FormatBindings @{ remainingSeconds = '0'; totalSeconds = '1' }) `
                     -PercentComplete $pct -SecondsRemaining $remainingSeconds
             } catch { $null = $_ }
-            Start-Sleep -Seconds $PollSeconds
+            $sleepMs = [int][math]::Max(0, [math]::Min($PollSeconds * 1000, ($TotalSeconds - $clock.Elapsed.TotalSeconds) * 1000))
+            if ($sleepMs -gt 0) { Start-Sleep -Milliseconds $sleepMs }
         }
     } finally {
         try { Write-Progress -Id $Id -Activity $Activity -Completed } catch { $null = $_ }
@@ -696,8 +696,8 @@ function Start-YurunaStatusServiceIfEnabled {
     $decision = Resolve-StatusServiceStart -Config $Config -NoStatusService:$NoStatusService
     if ($decision.ShouldStart) {
         try {
-            if ($Restart) { & $StartScript -Port $decision.Port -Restart }
-            else          { & $StartScript -Port $decision.Port }
+            if ($Restart) { & $StartScript -Port $decision.Port -Restart | ForEach-Object { Write-Information $_ -InformationAction Continue } }
+            else          { & $StartScript -Port $decision.Port | ForEach-Object { Write-Information $_ -InformationAction Continue } }
         } catch {
             # Start-StatusService.ps1 tags an unrecoverable status-port conflict
             # (port owned by another user / another checkout) so the cycle can
@@ -772,8 +772,8 @@ function Start-YurunaConfigServiceIfEnabled {
     if ($decision.ShouldStart) {
         if (Test-Path -LiteralPath $StartScript) {
             try {
-                if ($Restart) { & $StartScript -Port $decision.Port -Restart }
-                else          { & $StartScript -Port $decision.Port }
+                if ($Restart) { & $StartScript -Port $decision.Port -Restart | ForEach-Object { Write-Information $_ -InformationAction Continue } }
+                else          { & $StartScript -Port $decision.Port | ForEach-Object { Write-Information $_ -InformationAction Continue } }
             } catch {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_81ca660efffe92cc' -Arguments @{ message = "$($_.Exception.Message)" })
             }
@@ -784,4 +784,19 @@ function Start-YurunaConfigServiceIfEnabled {
     return $decision
 }
 
-Export-ModuleMember -Function Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress, Initialize-SequenceEngineRegistry, Assert-NoOtherRunner, Register-EntryPointCancelHandler, Unregister-EntryPointCancelHandler, Resolve-StatusServiceStart, Start-YurunaStatusServiceIfEnabled, Resolve-ConfigServiceStart, Start-YurunaConfigServiceIfEnabled
+function Get-GitHubHeadingSlug {
+    <# .SYNOPSIS
+        Create a GitHub-compatible slug from Markdown heading text. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Heading)
+    $t = $Heading -replace '^#{1,6}\s+', ''
+    $t = [regex]::Replace($t, '`([^`]*)`', '$1')
+    $t = [regex]::Replace($t, '\*\*?([^*]*)\*\*?', '$1')
+    $t = [regex]::Replace($t, '\[([^\]]*)\]\([^)]*\)', '$1')
+    $t = $t.ToLowerInvariant()
+    $t = [regex]::Replace($t, '[^\p{L}\p{Nd}_ -]', '')
+    return $t.Replace(' ', '-')
+}
+
+Export-ModuleMember -Function Get-GitHubHeadingSlug, Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress, Initialize-SequenceEngineRegistry, Assert-NoOtherRunner, Register-EntryPointCancelHandler, Unregister-EntryPointCancelHandler, Resolve-StatusServiceStart, Start-YurunaStatusServiceIfEnabled, Resolve-ConfigServiceStart, Start-YurunaConfigServiceIfEnabled

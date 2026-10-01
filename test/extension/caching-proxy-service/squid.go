@@ -45,9 +45,9 @@ type SquidSummary struct {
 // manager ACL plus cachemgr_passwd on that VM is what decides whether the
 // second one is allowed to answer at all.
 type squidClient struct {
-	addr     string // host:port of the squid HTTP port
-	password string // cachemgr_passwd for the privileged pages; empty for none
-	http     *http.Client
+	addr       string // host:port of the squid HTTP port
+	password   string // cachemgr_passwd for the privileged pages; empty for none
+	httpClient *http.Client
 }
 
 func newSquidClient(addr, password string, timeout time.Duration) *squidClient {
@@ -57,7 +57,7 @@ func newSquidClient(addr, password string, timeout time.Duration) *squidClient {
 		// No proxy from the environment: this daemon frequently runs INSIDE the
 		// proxy VM, where inheriting http_proxy would send a request for squid's
 		// own manager page back through squid.
-		http: &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil}},
+		httpClient: &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil}},
 	}
 }
 
@@ -82,7 +82,7 @@ func (c *squidClient) page(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 429d2507-81f3-45bf-89aa-1a0471f4641c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -349,11 +349,11 @@ if ($SetHostProxy) {
     try {
         $removeParams = @{}
         if ($NetworkService) { $removeParams.NetworkService = $NetworkService }
-        Remove-HostProxy @removeParams
+        $null = Remove-HostProxy @removeParams
         $resolvedHost = Format-IpUrlHost $resolvedIp
         $setParams = @{ ProxyUrl = "http://${resolvedHost}:${httpPort}" }
         if ($NetworkService) { $setParams.NetworkService = $NetworkService }
-        Set-HostProxy @setParams
+        if (-not (Set-HostProxy @setParams)) { throw 'The host proxy could not be applied.' }
         Write-Output ""
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_56e751c4c8b4a591' -Arguments @{ resolvedHost = "${resolvedHost}"; httpPort = "${httpPort}" })
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_70961e1633f5b455')

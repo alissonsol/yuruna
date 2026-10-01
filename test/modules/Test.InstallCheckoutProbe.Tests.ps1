@@ -39,8 +39,7 @@
 
     Recovery from a probe an interrupted run left behind is covered in both
     shapes: the whole tree under the probe name, and the tree split across both
-    names. Throw-based assertions so the file runs under the OS-bundled
-    Pester 3.4 and Pester 5+.
+    names. Assertions use throw-based helpers and run under Pester 5+.
     Run: Invoke-Pester -Path test/modules/Test.InstallCheckoutProbe.Tests.ps1
 #>
 

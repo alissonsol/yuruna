@@ -108,7 +108,8 @@ func TestGoBaseURL(t *testing.T) {
 // embedded in another module and reaches the browser only if this service hands
 // it over.
 func TestEveryPageServesChrome(t *testing.T) {
-	srv := httptest.NewServer(New(&fakeIntent{}, Options{Version: "test"}).Handler())
+	s := New(&fakeIntent{}, Options{Version: "test"})
+	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
 	want := []string{
@@ -118,7 +119,18 @@ func TestEveryPageServesChrome(t *testing.T) {
 	// One list for both loops below. Stated twice, the two drift: a page added
 	// to one is checked for its markup and not for its runtime, or the reverse,
 	// and either way the gap reads as coverage.
-	pages := []string{"/", "/assign", "/pools", "/test-sets", "/scan", "/hosts", "/diagnostics"}
+	pages := []string{"/", "/pools", "/scan", "/hosts", "/diagnostics"}
+
+	// The list above has to cover every page the binary embeds. A page file
+	// whose route is gone is unreachable dead weight, and a route whose file is
+	// gone answers 500 at request time rather than failing at startup.
+	embedded := map[string]bool{}
+	for variant := range s.assets.pages {
+		embedded[variant.name] = true
+	}
+	if len(embedded) != len(pages) {
+		t.Errorf("the binary embeds %d pages but this test serves %d; a page and its route must come and go together", len(embedded), len(pages))
+	}
 
 	for _, path := range pages {
 		body := getText(t, srv.URL+path)
@@ -137,6 +149,23 @@ func TestEveryPageServesChrome(t *testing.T) {
 				resp.Body.Close()
 				if resp.StatusCode != http.StatusOK {
 					t.Errorf("page %s references %s, which is not served (status %d)", path, asset, resp.StatusCode)
+				}
+			}
+		}
+		// Every menu and in-page link to another page of this service has to
+		// answer. A link to a route this binary does not serve is a dead end
+		// that none of the markup assertions above would notice.
+		links := pageLinks(body)
+		if len(links) == 0 {
+			t.Errorf("page %s carries no links to other pages, so its menu is missing", path)
+		}
+		for _, link := range links {
+			if resp, err := http.Get(srv.URL + link); err != nil {
+				t.Errorf("page %s links to %s: %v", path, link, err)
+			} else {
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					t.Errorf("page %s links to %s, which is not served (status %d)", path, link, resp.StatusCode)
 				}
 			}
 		}
@@ -179,6 +208,34 @@ func assetRefs(page string) []string {
 		}
 	}
 	return out
+}
+
+// pageLinks pulls every same-origin page link a page carries: each href="/..."
+// that is neither an /assets/ file nor a protocol-relative "//host" URL, with
+// any query or fragment dropped.
+func pageLinks(page string) []string {
+	var out []string
+	rest := page
+	for {
+		i := strings.Index(rest, `href="/`)
+		if i < 0 {
+			return out
+		}
+		rest = rest[i+len(`href="`):]
+		end := strings.IndexByte(rest, '"')
+		if end < 0 {
+			return out
+		}
+		v := rest[:end]
+		rest = rest[end:]
+		if strings.HasPrefix(v, "//") || strings.HasPrefix(v, "/assets/") {
+			continue
+		}
+		if cut := strings.IndexAny(v, "?#"); cut >= 0 {
+			v = v[:cut]
+		}
+		out = append(out, v)
+	}
 }
 
 func getText(t *testing.T, url string) string {

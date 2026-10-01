@@ -57,7 +57,7 @@
     },
     "aggregator.forget_host_disabled_no_auth_token_configured": {
       "sourceHash": "9d3b514c1b9c3cdafddc4b1625b83c2d1b81e03c3c17e403276e02965ddf0894",
-      "message": "esquecido- máquina desactivado (sem auth token configurado)"
+      "message": "Operação forget-host desativada (nenhum token de autenticação configurado)"
     },
     "aggregator.help_address_to_listen_on_59add3f5": {
       "sourceHash": "d42b244f92bad708e0b5b4f7ce1360ae2bf2230864ab2a5af9cd41f3eb443453",
@@ -65,7 +65,7 @@
     },
     "aggregator.help_allow_pseudo": {
       "sourceHash": "822fc793f0cdba09d6ec641497b446502dd593063a5c55a9deea98f16ad9a139",
-      "message": "Activar as pseudo- localizações de diagnóstico"
+      "message": "Activar as pseudo-localizações de diagnóstico"
     },
     "aggregator.help_display_language": {
       "sourceHash": "276a7679eaa09c945a2910ec76759d6ebcc9654717cc82f0f8c40bc7a0a6feb6",
@@ -73,15 +73,15 @@
     },
     "aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083": {
       "sourceHash": "9c87789af529e72ad1306dc52948be793c93b1cbf9b953c713f96adb3b3c44f3",
-      "message": "hospedeiros distintos que devem falhar dentro de -cross-host-janela para abrir um incidente em toda a piscina"
+      "message": "número de hosts distintos que precisam falhar durante -cross-host-window para abrir um incidente em todo o grupo"
     },
     "aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1": {
       "sourceHash": "7ea3d6028d8d0edc11b62ac5bb85cdc2e26d923dd80152a9ad2a3ec30b04aa1c",
-      "message": "soltar um host da vista da piscina este tempo após o último contacto; o seu estado de desdup por ciclo é mantido uma hora a mais para que um host que reaparece não possa contar duas vezes e as ligações profundas do painel resolvam pelo menos 24h, independentemente. Os contadores cúmulos de passe/falha não expiram por este -- use POST /api/v1/forget-host"
+      "message": "tempo para remover um host da visualização do grupo após o último contato; seu estado de eliminação de duplicatas por ciclo é mantido por mais uma hora para evitar contagem dupla se ele reaparecer. Os links do painel continuam resolvendo por pelo menos 24 h. Os contadores acumulados de aprovações e falhas não expiram por este parâmetro; use POST /api/v1/forget-host"
     },
     "aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952": {
-      "sourceHash": "761d35e199dac245785466dbbad8e6d25d910951676b184444226cd4a25fc73e",
-      "message": "arquivo segurando o token ao portador compartilhado que gates POST /ingest; vazio/ausente/arquivo vazio -> /ingest desabilitado (nunca uma rota de escrita não autenticada)"
+      "sourceHash": "c204d36924d98ba6967bf24ed50ca648eccbfc69c6924bb5a4036d56bdc7db50",
+      "message": "arquivo com o token Bearer compartilhado exigido por POST /ingest, POST /api/v1/forget-host, POST /api/v1/handover-host e GET /api/v1/host-history; caminho vazio, arquivo ausente ou arquivo vazio desativa essas operações (sem rota de controle sem autenticação)"
     },
     "aggregator.help_loki_push_api_url_c89d9321": {
       "sourceHash": "e9b9a6d503a6b6dc1029077c0d274c882f47b699f50955664baf499b985ea446",
@@ -109,7 +109,7 @@
     },
     "aggregator.help_reap_a_self_announced_extension_post_announce_not_refr_56b49fce": {
       "sourceHash": "e4573d144295671a74f9537d06c415383f353d341280f6879b5a90043b84b01d",
-      "message": "colhe uma extensão auto- anunciada (POST/announce) não atualizada nesta janela; 0 desabilita a rota anunciada"
+      "message": "remove uma extensão anunciada automaticamente (POST /announce) que não foi atualizada durante este intervalo; 0 desativa a rota de anúncios"
     },
     "aggregator.help_rotate_the_dashboard_lab_connection_token_this_often_0_f9f6d959": {
       "sourceHash": "b5a0a4590e5808aa9f3f812cf9a540a7aa523d4f5a0713691cbf9d1a6525f1b7",
@@ -117,7 +117,7 @@
     },
     "aggregator.help_squid_access_log_to_discover_pool_client_ips_from_93473aba": {
       "sourceHash": "b2de0ae45193d99d71945e23a865ca1a0280edca3e264ac0f404e8eed2faccd0",
-      "message": "log de acesso da lula para descobrir IPs do cliente da piscina"
+      "message": "log de acesso do Squid para descobrir os IPs dos clientes do grupo"
     },
     "aggregator.help_status_service_port_to_probe_on_each_discovered_ip_e5073cc7": {
       "sourceHash": "3f793895d000f6c1c6548ba1cae05ee302f9b2faf31a09506021f759860559e5",
@@ -125,7 +125,7 @@
     },
     "aggregator.help_the_pool_share_s_hosts_directory_on_this_machine_e_g_m_bd4bd40e": {
       "sourceHash": "70bba51f00e692f2c67b7a757aaf6540e6e49a7c6159ab6b187c382dcfdbe8d0",
-      "message": "o diretório hosts/ pool share nesta máquina (por exemplo, /mnt/ypool-nas/hosts); serve resultados de ciclo arquivados em /archive/<hostId>/test-cycles/... e permite /go/cycle resolvê- los. Vazio desactiva ambos -- a rota é não registado em tudo"
+      "message": "diretório hosts/ do compartilhamento do grupo nesta máquina (por exemplo, /mnt/ypool-nas/hosts); disponibiliza os resultados arquivados dos ciclos em /archive/<hostId>/test-cycles/... e permite que /go/cycle os encontre. Um valor vazio desativa ambas as funções; a rota nem chega a ser registrada"
     },
     "aggregator.help_tls_certificate_file_pem_when_both_tls_cert_and_tls_ke_643d7a8e": {
       "sourceHash": "dd1351cb275480e134b9d5a6ebff6f2370bdd3c94f20119dd958e4637e57b17d",
@@ -133,7 +133,7 @@
     },
     "aggregator.help_tls_private_key_file_pem_see_tls_cert_28be9018": {
       "sourceHash": "57a9118c454a89ef129ada480510766ede1d11c4f740c7e9907c82a9334a6417",
-      "message": "Arquivo de chave privada TLS (PEM); veja - tls- cert"
+      "message": "Arquivo de chave privada TLS (PEM); veja -tls-cert"
     },
     "aggregator.help_trailing_window_for_the_n_failures_in_m_minutes_incide_60aa9aa2": {
       "sourceHash": "0c6f4b9085d1c7a126c8dd64a0cb4630449fc939d8d77c6e822201befda69aa8",
@@ -145,7 +145,7 @@
     },
     "aggregator.host_not_known_to_the_pool": {
       "sourceHash": "4a81a4f15427c8406b282249b81f9169b64f4f49f641ba73e387f7850ebcc7cd",
-      "message": "hospedeiro desconhecido da piscina"
+      "message": "hospedeiro desconhecido do grupo"
     },
     "aggregator.hostid_must_be_a_42_prefixed_32_hex_id": {
       "sourceHash": "e04457006f731e87d057eb65e4f5eb00c2d1f435e383a366ade573420e5979bd",
@@ -153,7 +153,7 @@
     },
     "aggregator.ingest_disabled": {
       "sourceHash": "37536a81fc4cf8561946c6fa99571e63efcaaf58d1061b961d418541532b187e",
-      "message": "ingerir desactivado"
+      "message": "ingerir desativado"
     },
     "aggregator.invalid_hostid": {
       "sourceHash": "c680d8cc75d5f962a3e7a385e84e34ccb536944050895a29d1ab6c58b79ab318",
@@ -205,7 +205,7 @@
     },
     "aggregator.log_ingest_disabled_no_token_3a819fb4": {
       "sourceHash": "40d57651922b23352ccc831f0e488a6af123f1c5ccfdd4e6c5681f6a24ffb814",
-      "message": "ingerir desactivado (sem token)"
+      "message": "ingerir desativado (sem token)"
     },
     "aggregator.log_ingest_enabled_bearer_89578b00": {
       "sourceHash": "da7eef28e6e6beac9af397eb8af02335183a784d717996e98b9bcd4a100f3f5e",
@@ -213,7 +213,7 @@
     },
     "aggregator.log_internal_auth_key_read_from_value1_rebuild_this_proxy__c326800d": {
       "sourceHash": "63605df585d58fa8be87e8b762bfc680341816d48b1ef76c1a69b9c92df18c47",
-      "message": "chave de autenticação interna lida do {value1}; reconstrua este proxy para movê- lo para {value2}"
+      "message": "chave de autenticação interna lida do {value1}; reconstrua este proxy para movê-lo para {value2}"
     },
     "aggregator.log_lab_token_exchange_disabled_no_auth_token_configured_a47d49b1": {
       "sourceHash": "9a52fc71879a71ebf5d7f839857a5bb4283d1e1dccc967ce337275da4c07d32e",
@@ -237,7 +237,7 @@
     },
     "aggregator.log_lab_token_rotation_failed_value1_keeping_previous_code_e2670350": {
       "sourceHash": "d038f2833b6364d117492a0609ab16fc185a97a4c6b2137a833c504c1141dc13",
-      "message": "Falha na rotação da token de laboratório ({value1}); manter os códigos anteriores"
+      "message": "Falha na rotação da token do laboratório ({value1}); manter os códigos anteriores"
     },
     "aggregator.log_pool_aggregator_service_listening_on_value1_value2_poo_b30f8764": {
       "sourceHash": "66a7711516efef5cb63844c23b9abb4712bcd108721bf753e11bfa74afd787f4",
@@ -365,7 +365,7 @@
     },
     "aggregator.stash_target_not_known_to_the_pool": {
       "sourceHash": "00d1239c0765ae0ce775860a2673f1af6a5785a9aa861fb564435cd0d683aefb",
-      "message": "alvo do stash desconhecido da piscina"
+      "message": "alvo do stash desconhecido do grupo"
     },
     "aggregator.target_host_must_be_the_announcing_address": {
       "sourceHash": "87a0d494719a8da7ee43c92dbee7594ae588b8c8ab919116148df3c45e43095d",
@@ -393,7 +393,7 @@
     },
     "aggregator.unknown_or_expired_lab_token": {
       "sourceHash": "392773c444f25dfe7225e526089328018f126e380713b4b3a6263d80f4f6d71a",
-      "message": "token de laboratório desconhecido ou expirado"
+      "message": "token do laboratório desconhecido ou expirado"
     },
     "aggregator.unsupported_range_use_1h_24h_7d_or_30d": {
       "sourceHash": "7defa866921ec655c312ea36bb59f1da615f6a9d4b28b9cbd206622e47923679",

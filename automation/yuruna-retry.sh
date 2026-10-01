@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -223,7 +223,8 @@ _yuruna_http_status_class() {
     local url="$1"
     [ -z "$url" ] && return 0
     local code
-    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$url" 2>/dev/null || echo 000)"
+    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$url" 2>/dev/null)" || true
+    [ -n "$code" ] || code=000
     echo "  yuruna-retry: re-probed HTTP status for ${url} = ${code}" >&2
     case "$code" in
         429|5[0-9][0-9]|000) return 0 ;;               # rate-limit / server error / no-answer -> transient
@@ -443,6 +444,189 @@ _yuruna_pwsh_attempt() {
     rm -f "$script"
     return "$rc"
 }
+
+
+# Guest update bootstrap shared by Ubuntu and Amazon Linux.
+yuruna_host_env() {
+    [ -r /etc/yuruna/host.env ] || return 1
+    # shellcheck disable=SC1091
+    . /etc/yuruna/host.env
+    [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]
+}
+
+# Force one refresh after a failed fetch instead of retrying stale coordinates.
+yuruna_host_relocate() {
+    [ -x /usr/local/lib/yuruna/yuruna-host-locate.sh ] || return 1
+    # --- REGION: https://yuruna.link/42e220c4-0005
+    /usr/local/lib/yuruna/yuruna-host-locate.sh >/dev/null || return 1
+    yuruna_host_env
+}
+
+yuruna_materialize_repositories() {
+    local REAL_HOME="$1" REAL_USER="$2" FRAMEWORK_URL="$3" PROJECT_URL="$4"
+if [ ! -d "$REAL_HOME/yuruna" ]; then
+  HOST_OK=false
+  for host_attempt in 1 2; do
+    if [ "$host_attempt" -eq 2 ]; then
+      if ! yuruna_host_relocate; then
+        echo "yuruna: host coordinates could not be refreshed - the pool directory has no live address for this host."
+        break
+      fi
+      echo "yuruna: host coordinates refreshed; retrying the tarball fetch."
+    else
+      yuruna_host_env || break
+    fi
+    LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
+    TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
+    if wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
+      echo "yuruna: fetching committed tarball from $TARBALL_URL"
+      mkdir -p "$REAL_HOME/yuruna"
+      if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
+        HOST_OK=true
+        break
+      else
+        echo "yuruna: tarball fetch/extract failed - falling back to git clone"
+        rm -rf "$REAL_HOME/yuruna"
+      fi
+    fi
+  done
+  if [ "$HOST_OK" = "false" ]; then
+    if [ -z "$FRAMEWORK_URL" ]; then
+      echo "yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework" >&2
+      exit 1
+    fi
+    for attempt in 1 2 3; do
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
+      echo "git clone attempt $attempt failed"
+      rm -rf "$REAL_HOME/yuruna"
+      [ $attempt -lt 3 ] && sleep 60
+    done
+    if [ ! -d "$REAL_HOME/yuruna" ]; then
+      echo "git clone failed after 3 attempts" >&2
+      exit 1
+    fi
+  fi
+fi
+
+if [ ! -d "$REAL_HOME/yuruna/project" ]; then
+  PROJECT_HOST_OK=false
+  # --- REGION: https://yuruna.link/42e220c4-0005
+  for project_attempt in 1 2; do
+    if [ "$project_attempt" -eq 2 ]; then
+      if ! yuruna_host_relocate; then
+        echo "yuruna: host coordinates could not be refreshed - the pool directory has no live address for this host."
+        break
+      fi
+      echo "yuruna: host coordinates refreshed; retrying the project tarball fetch."
+    else
+      yuruna_host_env || break
+    fi
+    PROJECT_LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
+    PROJECT_TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-project-archive.tar.gz"
+    if ! wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$PROJECT_LIVECHECK_URL" 2>/dev/null; then
+      echo "yuruna: host status service did not answer at ${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}"
+      continue
+    fi
+    echo "yuruna: trying project tarball at $PROJECT_TARBALL_URL"
+    mkdir -p "$REAL_HOME/yuruna/project"
+    if wget --no-proxy --timeout=30 --tries=2 -qO- "$PROJECT_TARBALL_URL" \
+         | tar -xz -C "$REAL_HOME/yuruna/project" 2>/dev/null \
+         && [ -n "$(ls -A "$REAL_HOME/yuruna/project" 2>/dev/null)" ]; then
+      PROJECT_HOST_OK=true
+      break
+    else
+      echo "yuruna: project tarball not served (or empty) - falling back to git clone"
+      rm -rf "$REAL_HOME/yuruna/project"
+    fi
+  done
+  if [ "$PROJECT_HOST_OK" = "false" ] && [ -n "$PROJECT_URL" ]; then
+    for attempt in 1 2 3; do
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$PROJECT_URL" "$REAL_HOME/yuruna/project" && break
+      echo "project git clone attempt $attempt failed"
+      rm -rf "$REAL_HOME/yuruna/project"
+      [ $attempt -lt 3 ] && sleep 60
+    done
+    if [ ! -d "$REAL_HOME/yuruna/project" ]; then
+      echo "project git clone failed after 3 attempts" >&2
+      exit 1
+    fi
+  fi
+fi
+
+# Tarball extraction and any sudo'd cleanup may have left root-owned files.
+sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
+
+}
+
+yuruna_wait_network() {
+if systemctl is-active --quiet NetworkManager && command -v nm-online >/dev/null 2>&1; then
+  nm-online -q -t 30 || echo "WARNING: nm-online did not report 'online' within 30s; continuing."
+elif systemctl is-active --quiet systemd-networkd; then
+  # systemd-networkd-wait-online lives outside PATH; resolve it explicitly.
+  # --any: succeed once at least one link is online (single-NIC guests have
+  # no second link to wait on).
+  networkd_wait=""
+  for cand in /usr/lib/systemd/systemd-networkd-wait-online /lib/systemd/systemd-networkd-wait-online; do
+    if [ -x "$cand" ]; then
+      networkd_wait="$cand"
+      break
+    fi
+  done
+  if [ -n "$networkd_wait" ]; then
+    "$networkd_wait" --any --timeout=30 || echo "WARNING: systemd-networkd-wait-online did not report 'online' within 30s; continuing."
+  else
+    echo "WARNING: systemd-networkd active but systemd-networkd-wait-online not found; continuing."
+  fi
+else
+  echo "WARNING: no active NetworkManager/systemd-networkd to wait on; continuing."
+fi
+
+}
+
+_yuruna_verify_key_fpr() {
+    local keyfile="$1"; shift
+    local required="${1^^}" allowed=("$@") present a fpr ok found=0
+    present="$(gpg --show-keys --with-colons "$keyfile" 2>/dev/null \
+              | awk -F: '/^pub:/{p=1} /^fpr:/{if(p){print toupper($10); p=0}}')"
+    [ -n "$present" ] || { echo "!! key verify: no primary key fingerprints in $keyfile (is gpg installed?)" >&2; return 1; }
+    while IFS= read -r fpr; do
+        fpr="${fpr//[$'\r\n\t ']/}"; [ -z "$fpr" ] && continue
+        ok=0; for a in "${allowed[@]}"; do [ "${a^^}" = "$fpr" ] && { ok=1; break; }; done
+        [ "$ok" = 1 ] || { echo "!! key verify: unexpected fingerprint $fpr in $keyfile (not in the pinned allow-set)" >&2; return 1; }
+        [ "$fpr" = "$required" ] && found=1
+    done <<< "$present"
+    [ "$found" = 1 ] || { echo "!! key verify: required fingerprint $required missing from $keyfile" >&2; return 1; }
+    echo "  key verify: OK ($keyfile)"
+}
+
+# Install the same verified tarball on every Linux guest. Dependencies are caller-owned.
+yuruna_install_pwsh_tarball() (
+    local arch="$1" ps_arch tag version package url want got
+    case "$arch" in x86_64) ps_arch=x64;; aarch64) ps_arch=arm64;; *) return 1;; esac
+    local work
+    work="$(mktemp -d /tmp/yuruna-pwsh.XXXXXX)" || return 1
+    trap 'rm -rf "$work"' EXIT
+    tag="$(curl_retry -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/PowerShell/PowerShell/releases/latest)" || return 1
+    tag="${tag##*/}"
+    [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid PowerShell release tag" >&2; return 1; }
+    version="${tag#v}"; package="powershell-${version}-linux-${ps_arch}.tar.gz"
+    url="https://github.com/PowerShell/PowerShell/releases/download/${tag}/${package}${YurunaCacheContent:+?nocache=${YurunaCacheContent}}"
+    curl_retry -fsSL -o "$work/package.tar.gz" "$url" || return 1
+    curl_retry -fsSL -o "$work/hashes.sha256" "https://github.com/PowerShell/PowerShell/releases/download/${tag}/hashes.sha256" || return 1
+    local bom
+    bom="$(od -An -tx1 -N2 "$work/hashes.sha256" | tr -d ' \n')"
+    if [ "$bom" = fffe ] || [ "$bom" = feff ]; then
+        iconv -f UTF-16 -t UTF-8 "$work/hashes.sha256" | tr -d '\r' > "$work/hashes.norm" || return 1
+    else tr -d '\r' < "$work/hashes.sha256" > "$work/hashes.norm"; fi
+    want="$(LC_ALL=C awk -v p="$package" '$2==p || $2=="*"p {print $1;exit}' "$work/hashes.norm")"
+    got="$(sha256sum "$work/package.tar.gz" | awk '{print $1}')"
+    [[ "$want" =~ ^[0-9a-fA-F]{64}$ ]] && [ "${want,,}" = "$got" ] || { echo "PowerShell checksum missing or mismatched" >&2; return 1; }
+    sudo mkdir -p /opt/microsoft/powershell/7 || return 1
+    sudo tar zxf "$work/package.tar.gz" -C /opt/microsoft/powershell/7 || return 1
+    sudo chmod +x /opt/microsoft/powershell/7/pwsh || return 1
+    sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
+)
+export -f yuruna_host_env yuruna_host_relocate yuruna_materialize_repositories yuruna_wait_network _yuruna_verify_key_fpr yuruna_install_pwsh_tarball
 
 # --- REGION: https://yuruna.link/4220a755-0003
 # Child Bash payloads need the wrappers and every helper they call.

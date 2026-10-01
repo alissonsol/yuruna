@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d51fa5-ad15-451c-8e70-d870a6c34b99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,7 +102,10 @@ Describe 'Resolve-YurunaPoolDesiredState (fail-safe)' {
 
 Describe 'ConvertTo-PoolGatingRecord (gating normalization)' {
     It 'returns an empty record for a null or empty gating block (alert-with-defaults signal)' {
-        Assert-Equal -Expected 0 -Actual (ConvertTo-PoolGatingRecord -Gating $null).Count -Because 'null -> empty record'
+        $empty = ConvertTo-PoolGatingRecord -Gating $null
+        Assert-NotNull $empty 'null input must produce a record'
+        Assert-True ($empty -is [Collections.IDictionary]) 'empty result must remain a dictionary'
+        Assert-Equal -Expected 0 -Actual $empty.Count -Because 'null -> empty record'
         Assert-Equal -Expected 0 -Actual (ConvertTo-PoolGatingRecord -Gating ([ordered]@{})).Count -Because 'empty -> empty record'
     }
     It 'copies only the known knobs from a full block' {

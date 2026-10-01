@@ -10,9 +10,9 @@ const DataptBRparser = `{
   "parser.bytes": "bytes",
   "parser.client": "cliente",
   "parser.method": "método",
-  "parser.pause_auto_refresh": "Pausar a actualização automática",
+  "parser.pause_auto_refresh": "Pausar a atualização automática",
   "parser.refresh_failed": "(refresh falhou)",
-  "parser.refresh_failed_the_rows_below_are_from_the_last_successful_read": "A atualização falhou. As linhas abaixo são da última leitura bem- sucedida.",
+  "parser.refresh_failed_the_rows_below_are_from_the_last_successful_read": "A atualização falhou. As linhas abaixo são da última leitura bem-sucedida.",
   "parser.refreshed_rows": {
     "kind": "plural",
     "selector": "count",
@@ -69,6 +69,6 @@ const DataptBRparser = `{
   "parser.status": "status",
   "parser.time": "tempo",
   "parser.url": "url",
-  "parser.user_agent": "utilizador- agente"
+  "parser.user_agent": "usuário do agente"
 }
 `

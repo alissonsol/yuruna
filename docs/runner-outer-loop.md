@@ -378,7 +378,7 @@ The automatic host-refresh decision runs after every dispatch, through
 [test-config.md](test-config.md) describes `testCycle.autoRefreshAfterStalls`).
 Every outcome first consumes the cycle's evidence file,
 `runner.refresh-evidence.json`; only a completed cycle counts. The decision then
-has two call sites in the loop. A passing cycle asks it on the success branch
+has three call sites in the loop. A passing cycle asks it on the success branch
 before looping. A failing cycle asks it on the failure branch after the streak
 and crash-gating accounting and before the pause: when the repair reports the
 host `repaired`, the pause is skipped (the state machine goes `fault -> idle`
@@ -977,6 +977,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     block, sequenceName, classificationSource, reason, and the inner-cause /
     replay-boundary fields on crash records.
 .DESCRIPTION
-    Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+). Get-SequenceAction
+    Throw-based assertions (Pester 5+). Get-SequenceAction
     is stubbed globally so the builder resolves deterministic classifications
     independent of the live verb registry; the stub is removed at file end.
 #>
@@ -41,7 +41,7 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 # Dot-sourced into the module under test rather than defined globally: the
 # builder resolves the name from its own session state first, and the stub dies
 # with the module instead of outliving the file. A global function cannot be
-# taken back -- Remove-Item on function:global: from inside a Pester block
+# taken back -- Remove-Item on function: from inside a Pester block
 # reports success and leaves the command in place -- so a global stub would
 # shadow the real registry for every later file in the shared runspace.
 . (Get-Module Test.SequenceFailureState) {

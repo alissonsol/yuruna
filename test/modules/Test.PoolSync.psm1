@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4238dc49-0c94-4ba6-a7be-b24343a6ca42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,7 @@
 # of a tiny intent repo finishes well under a second; these only cap a wedged or
 # unreachable remote. The clone (first run) gets the larger cap.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
 $script:PoolSyncCloneTimeoutSeconds = 60
 $script:PoolSyncFetchTimeoutSeconds = 30
 
@@ -51,44 +52,8 @@ function Invoke-PoolSyncGitCapture {
         [Parameter(Mandatory)][string[]]$ArgumentList,
         [Parameter()][int]$TimeoutSeconds = 30
     )
-    $git = (Get-Command -CommandType Application -Name 'git' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-    if (-not $git) { Write-Verbose 'Invoke-PoolSyncGitCapture: git not found on PATH.'; return @{ ExitCode = -1; StdOut = ''; StdErr = '' } }
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName = $git
-    foreach ($a in $ArgumentList) { [void]$psi.ArgumentList.Add([string]$a) }
-    $psi.UseShellExecute        = $false
-    $psi.CreateNoWindow         = $true
-    $psi.RedirectStandardInput  = $true
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError  = $true
-    # Neutralize every interactive credential path for the child only.
-    $psi.Environment['GIT_TERMINAL_PROMPT'] = '0'
-    $psi.Environment['LC_ALL'] = 'C'
-    $psi.Environment['LANG'] = 'C'
-    $psi.Environment['LANGUAGE'] = 'C'
-    $psi.Environment['GIT_ASKPASS']         = ''
-    $psi.Environment['SSH_ASKPASS']         = ''
-    $psi.Environment['GCM_INTERACTIVE']     = 'never'
-    $proc = $null
-    try {
-        $proc = [System.Diagnostics.Process]::Start($psi)
-    } catch {
-        Write-Verbose "Invoke-PoolSyncGitCapture: failed to start git: $($_.Exception.Message)"
-        return @{ ExitCode = -1; StdOut = ''; StdErr = '' }
-    }
-    try { $proc.StandardInput.Close() } catch { $null = $_ }
-    $outTask = $proc.StandardOutput.ReadToEndAsync()
-    $errTask = $proc.StandardError.ReadToEndAsync()
-    if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2b99c7b8c33db974' -Arguments @{ join = "$($ArgumentList -join ' ')"; timeoutSeconds = "${TimeoutSeconds}" })
-        try { $proc.Kill($true) } catch { $null = $_ }
-        try { $null = $proc.WaitForExit(5000) } catch { $null = $_ }
-        try { $proc.Dispose() } catch { $null = $_ }
-        return @{ ExitCode = 124; StdOut = ''; StdErr = '' }
-    }
-    try { $null = [System.Threading.Tasks.Task]::WaitAll(@($outTask, $errTask), 2000) } catch { $null = $_ }
-    $result = @{ ExitCode = [int]$proc.ExitCode; StdOut = [string]$outTask.Result; StdErr = [string]$errTask.Result }
-    try { $proc.Dispose() } catch { $null = $_ }
+    $result = Invoke-BoundedNativeCommand -FilePath 'git' -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds -Environment @{ LC_ALL = 'C'; LANG = 'C'; LANGUAGE = 'C'; GIT_TERMINAL_PROMPT = '0'; GIT_ASKPASS = ''; SSH_ASKPASS = ''; GCM_INTERACTIVE = 'never' } -MaxCapturedChars 262144
+    if ($result.Started -and -not (Test-BoundedNativeResultComplete -Result $result)) { $result.ExitCode = 124 }
     return $result
 }
 
@@ -108,22 +73,43 @@ function Invoke-PoolSyncGit {
     return (Invoke-PoolSyncGitCapture -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds).ExitCode
 }
 
-# Get-YurunaPoolConfig returns a normalized pool config object, or $null when the
-# feature is OFF (no `pool` block, enabled:false unless -IgnoreEnabled, or an empty
-# intentGitUrl). Mirrors Get-YurunaPoolStorageConfig: accepts an already-parsed
-# config (IDictionary); when none is supplied it reads test.config.yml via
-# Read-TestConfig USING A RESOLVED PATH ($env:YURUNA_CONFIG_PATH) -- never by-name
-# with the Mandatory $Path omitted (that stalls forever on the interactive
-# "Supply values for the following parameters:" prompt under the headless runner).
-# NOTE: the pool config carries NO poolId -- membership lives only in pools.yml
-# members[] (the single source of truth); the runner derives its pool from there.
+function Test-PoolIntentCloneOrigin {
+    <#
+    .SYNOPSIS
+        Returns $false only when the clone at -Path provably has an `origin` that differs
+        from -Url. An unreadable origin (not a repository, git unrunnable, timeout) returns
+        $true: the caller's own git step then reports the real failure. Without this check a
+        clone left over from an earlier intentGitUrl keeps being fetched and pushed while
+        the operator's current URL is silently ignored.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Url
+    )
+    $r = Invoke-PoolSyncGitCapture -ArgumentList @('-C', $Path, 'remote', 'get-url', 'origin') -TimeoutSeconds 15
+    if ($r.ExitCode -ne 0) { return $true }
+    $normalize = {
+        param([string]$Value)
+        $v = ($Value.Trim() -replace '\\', '/').TrimEnd('/')
+        if ($v.EndsWith('.git', [StringComparison]::OrdinalIgnoreCase)) { $v = $v.Substring(0, $v.Length - 4) }
+        return $v.TrimEnd('/').ToLowerInvariant()
+    }
+    return ((& $normalize ([string]$r.StdOut)) -ceq (& $normalize $Url))
+}
+
 function Get-YurunaPoolConfig {
     <#
     .SYNOPSIS
         Returns a normalized pool config object, or $null when the feature is off (no pool
-        block, enabled:false unless -IgnoreEnabled, or an empty intentGitUrl). Accepts an
-        already-parsed config; otherwise reads test.config.yml via the resolved
-        YURUNA_CONFIG_PATH. Carries no poolId -- membership lives only in pools.yml.
+        block, enabled:false unless -IgnoreEnabled, or an empty intentGitUrl).
+    .DESCRIPTION
+        Accepts an already-parsed config; otherwise reads test.config.yml via
+        the resolved YURUNA_CONFIG_PATH.
+        When no parsed config is supplied, Read-TestConfig receives a resolved path;
+        omitting its mandatory Path would prompt indefinitely in a headless runner.
+        The pool config carries no poolId: membership lives in pools.yml members[].
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -336,20 +322,20 @@ function Write-YurunaPoolState {
     } catch { Write-Verbose "Write-YurunaPoolState failed: $($_.Exception.Message)"; return $false }
 }
 
-# Write-YurunaPoolManifest persists the resolved pool's TEST-SET (the framework/
-# project repo pair) to runtime/pool.manifest.json so the FRESH inner-runner
-# process can override its repositories.frameworkUrl / repositories.projectUrl
-# for the cycle. Atomic write, same cross-process channel as pool.state.json.
-# When the pool is $null OR has no testSet, any stale manifest is DELETED so the
-# inner falls back to the host's own repositories config. Best-effort.
+# Write-YurunaPoolManifest persists the resolved pool's framework and project
+# repositories to runtime/pool.manifest.json so the FRESH inner-runner process
+# can override its repositories.frameworkUrl / repositories.projectUrl for the
+# cycle. Atomic write, same cross-process channel as pool.state.json. When the
+# pool is $null or does not carry both URLs, any stale manifest is DELETED so
+# the inner falls back to the host's own repositories config. Best-effort.
 function Write-YurunaPoolManifest {
     <#
     .SYNOPSIS
-        Persists the resolved pool's testSet (name + frameworkUrl + projectUrl) to
+        Persists the resolved pool's repositories (frameworkUrl + projectUrl) to
         runtime/pool.manifest.json so the fresh inner-runner overrides its repo URLs for
-        the cycle. When the pool is $null or has no testSet, any stale manifest is deleted
-        so the inner falls back to the host's own repositories config. Best-effort; returns
-        $true only when a manifest was written.
+        the cycle. When the pool is $null or does not carry both URLs, any stale manifest
+        is deleted so the inner falls back to the host's own repositories config.
+        Best-effort; returns $true only when a manifest was written.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -364,47 +350,47 @@ function Write-YurunaPoolManifest {
     $runtimeDir = $env:YURUNA_RUNTIME_DIR
     if ([string]::IsNullOrWhiteSpace($runtimeDir)) { return $false }
     $path = Join-Path $runtimeDir 'pool.manifest.json'
-    $testSet = if ($Pool -is [System.Collections.IDictionary]) { $Pool['testSet'] } else { $null }
+    $repositories = if ($Pool -is [System.Collections.IDictionary]) { $Pool['repositories'] } else { $null }
     # Defense in depth for the target-pool rule. Test-PoolIntent and
-    # Set-PoolTestSet both refuse a testSet on the auto-enrollment target pool,
-    # but neither runs on this host: a hand-edited store, or one written before
-    # the rule existed, would otherwise reach here and repoint the host. Ignore
-    # it loudly rather than obey it -- a host that lands in the target pool
-    # automatically must keep running its own project.
-    if ($testSet -and $AutoEnrollTargetPoolId -and ([string]$Pool['poolId'] -eq $AutoEnrollTargetPoolId)) {
+    # Set-PoolRepository.ps1 both refuse repositories on the auto-enrollment
+    # target pool, but neither runs on this host: a hand-edited store would
+    # otherwise reach here and repoint the host. Ignore them loudly rather than
+    # obey them -- a host that lands in the target pool automatically must keep
+    # running its own project.
+    if ($repositories -and $AutoEnrollTargetPoolId -and ([string]$Pool['poolId'] -eq $AutoEnrollTargetPoolId)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_68f76316350291c3' -Arguments @{ poolId = "$($Pool['poolId'])" })
-        $testSet = $null
+        $repositories = $null
     }
-    $hasTriple = ($testSet -is [System.Collections.IDictionary]) -and $testSet.Contains('frameworkUrl') -and $testSet.Contains('projectUrl')
-    if (-not $hasTriple) {
+    # Both URLs must be non-blank. The runner never validates the store against
+    # its schema, and a manifest without a usable pair would still mark the
+    # cycle as pooled (host-scoped VM names) while the inner runner kept the
+    # host's own repositories.
+    $frameworkUrl = ''
+    $projectUrl   = ''
+    if ($repositories -is [System.Collections.IDictionary]) {
+        $frameworkUrl = "$($repositories['frameworkUrl'])".Trim()
+        $projectUrl   = "$($repositories['projectUrl'])".Trim()
+    }
+    if (-not $frameworkUrl -or -not $projectUrl) {
         if ((Test-Path -LiteralPath $path) -and $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_8c18f9a4318c42b8'))) {
             Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
         }
         return $false
     }
     if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_6fc9e3d7a9f00bc4'))) { return $false }
+    # The fresh inner-runner process reads this object and nothing else from
+    # the intent, so these key names are a contract with the "Pooled repos
+    # override" region of Test.RunnerInnerLoop.psm1.
     $manifest = [ordered]@{
-        poolId      = [string]$Pool['poolId']
-        poolGuid    = [string]$Pool['poolGuid']
-        testSet     = [ordered]@{
-            name         = [string]$testSet['name']
-            frameworkUrl = [string]$testSet['frameworkUrl']
-            projectUrl   = [string]$testSet['projectUrl']
+        poolId       = [string]$Pool['poolId']
+        poolGuid     = [string]$Pool['poolGuid']
+        repositories = [ordered]@{
+            frameworkUrl = $frameworkUrl
+            projectUrl   = $projectUrl
         }
-        # `sequences` is the optional subset of the assigned project's top-level
-        # sequences. It is carried ONLY when non-empty: the inner runner treats an
-        # absent/empty key as "run the whole test.runner.yml", which is what every
-        # store relies on, and an omitted key keeps this manifest byte-identical to
-        # what older runners already parse.
-        #
-        # The manifest is the ONLY channel into the fresh inner-runner process,
-        # so a field missing here can never reach the planner no matter what the
-        # intent says.
-        config      = if ($Pool['config'] -is [System.Collections.IDictionary]) { $Pool['config'] } else { @{} }
+        config       = if ($Pool['config'] -is [System.Collections.IDictionary]) { $Pool['config'] } else { @{} }
         writtenAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
-    $subset = @(@($testSet['sequences']) | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
-    if ($subset.Count -gt 0) { $manifest.testSet['sequences'] = $subset }
     if (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue) {
         return [bool](Write-YurunaStateFileJson -Path $path -InputObject $manifest -Depth 8 -Confirm:$false)
     }
@@ -456,6 +442,11 @@ function Sync-YurunaPoolIntent {
     $rc      = 0
     try {
         if (Test-Path -LiteralPath $gitDir) {
+            # The clone is a disposable read-only cache: follow the configured URL when an
+            # earlier intentGitUrl left a different origin behind.
+            if (-not (Test-PoolIntentCloneOrigin -Path $clone -Url $pcfg.IntentGitUrl)) {
+                $null = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'remote', 'set-url', 'origin', $pcfg.IntentGitUrl) -TimeoutSeconds 15
+            }
             # One wall-clock budget for the whole fetch+reset pull: derive each call's
             # timeout from a single deadline so a slow fetch cannot hand the reset a fresh
             # full PullTimeoutSeconds and let the pair run to ~2x the intended bound.
@@ -513,18 +504,18 @@ function Sync-YurunaPoolIntent {
         ConvertTo-PoolGatingRecord -Gating $pool['gating']
     } else { $null }
     $null = Write-YurunaPoolState -PoolId $poolId -PoolGuid $poolGuid -DesiredState $state -IntentOk:$pullOk -Gating $gating -Confirm:$false
-    # Publish (or clear, when this host is unpooled / the pool has no
-    # test-sets) the resolved test-set assignment for the inner runner.
-    # The target-pool id is read from the same parsed document so the manifest
-    # writer can refuse a testSet on it (defense in depth -- neither the admin
-    # CLI nor Test-PoolIntent runs on this host).
+    # Publish (or clear, when this host is unpooled or its pool carries no
+    # repositories) the pool's framework and project repositories for the
+    # inner runner. The target-pool id is read from the same parsed document so
+    # the manifest writer can refuse repositories on it (defense in depth --
+    # neither the admin CLI nor Test-PoolIntent runs on this host).
     $autoTarget = if (($intent -is [System.Collections.IDictionary]) -and $intent['autoEnrollment']) { [string]$intent['autoEnrollment']['targetPoolId'] } else { '' }
     $null = Write-YurunaPoolManifest -Pool $pool -AutoEnrollTargetPoolId $autoTarget -Confirm:$false
     return $pool
 }
 
 Export-ModuleMember -Function `
-    Get-YurunaPoolConfig, Sync-YurunaPoolIntent, `
+    Get-YurunaPoolConfig, Sync-YurunaPoolIntent, Test-PoolIntentCloneOrigin, `
     Resolve-YurunaPoolForHost, Resolve-YurunaPoolDesiredState, `
     Test-PoolIntentHasMember, `
     Write-YurunaPoolState, Write-YurunaPoolManifest, Invoke-PoolSyncGit, Invoke-PoolSyncGitCapture, `

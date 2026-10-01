@@ -67,3 +67,19 @@ func TestVerifyWireAndTokenCompatibility(t *testing.T) {
 		})
 	}
 }
+
+func TestSharedMintGoldenAndBlankKey(t *testing.T) {
+	const want = "1900000000.0l+y7qrGppfHhBxHwLiLx702JdmA5KuxcFOmENJnZDs="
+	if got := Proof("yuruna-net1-golden-token", 1900000000); got != want {
+		t.Fatalf("Proof = %q", got)
+	}
+	for _, token := range []string{"", " \t\r\n"} {
+		if Proof(token, 1900000000) != "" || Mint(token, time.Minute) != "" {
+			t.Fatal("blank key minted a proof")
+		}
+	}
+	now := time.Now()
+	if wire := Mint("key", time.Minute); !Verify("key", wire, now, 2*time.Minute) {
+		t.Fatal("minted proof did not verify")
+	}
+}

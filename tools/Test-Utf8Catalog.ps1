@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c7e015-6b28-4d3f-9a47-1e6c8b02df95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,27 +91,21 @@ if (-not $Path -or $Path.Count -eq 0) {
     $Path = @('globalization', 'docs', 'README.md', 'install/README.md')
 }
 
-# The bidi formatting set. These are legitimate content: the mirrored
-# pseudo-locale forces direction with them, and a right-to-left translation
-# isolates an embedded machine token the same way.
-$BidiControl = @(
-    0x200E, 0x200F,                         # LRM, RLM
-    0x202A, 0x202B, 0x202C, 0x202D, 0x202E, # embeddings and overrides
-    0x2066, 0x2067, 0x2068, 0x2069          # isolates
-)
-# The two that open a run needing an explicit close, paired with their closer.
-$BidiOpen  = @(0x202A, 0x202B, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068)
-$BidiClose = @(0x202C, 0x2069)
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1') -Global -Force
 
-$textLike = @('*.json', '*.js', '*.psd1', '*.psm1', '*.ps1', '*.go', '*.md', '*.yml', '*.yaml', '*.txt')
-
+$textLike = @('*.json', '*.md', '*.txt', '*.yml', '*.yaml', '*.xml', '*.html', '*.csv', '*.tsv', '*.ps1', '*.psm1', '*.psd1', '*.js', '*.css')
 $targets = [System.Collections.Generic.List[string]]::new()
 foreach ($p in $Path) {
     $full = if ([IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $RepoRoot $p }
     if (Test-Path -LiteralPath $full -PathType Container) {
+        $beforeCount = $targets.Count
         foreach ($f in (Get-ChildItem -LiteralPath $full -Recurse -File | Sort-Object FullName)) {
             $name = $f.Name
             if (@($textLike | Where-Object { $name -like $_ })) { $targets.Add($f.FullName) }
+        }
+        if ($targets.Count -eq $beforeCount) {
+            Write-Error "Test-Utf8Catalog: no text files matched in '$p'" -ErrorAction Continue
+            exit 2
         }
     } elseif (Test-Path -LiteralPath $full -PathType Leaf) {
         $targets.Add($full)
@@ -128,53 +122,14 @@ if ($targets.Count -eq 0) {
     exit 2
 }
 
-# Throwing decoders, so an invalid sequence surfaces instead of turning into
-# a replacement character we would then report as a different defect.
-$strict = [Text.UTF8Encoding]::new($false, $true)
+# Test-Utf8TextByte in Yuruna.Common uses a throwing decoder, so an invalid
+# sequence surfaces instead of becoming a replacement character.
 $failures = [System.Collections.Generic.List[string]]::new()
 
 foreach ($file in $targets) {
     $rel = ([IO.Path]::GetRelativePath($RepoRoot, $file)) -replace '\\', '/'
     $bytes = [IO.File]::ReadAllBytes($file)
-    $problems = [System.Collections.Generic.List[string]]::new()
-
-    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
-        $problems.Add('starts with a UTF-8 BOM')
-    }
-
-    $text = $null
-    try { $text = $strict.GetString($bytes) }
-    catch { $problems.Add("is not valid UTF-8: $($_.Exception.Message)") }
-
-    if ($null -ne $text) {
-        $fffd = $text.IndexOf([char]0xFFFD)
-        if ($fffd -ge 0) { $problems.Add("carries U+FFFD at index $fffd, so it was decoded wrong before it was written") }
-
-        # IsNormalized, not a comparison against the normalized string:
-        # PowerShell's -eq / -ne on strings compare through the invariant
-        # CULTURE, which treats a decomposed sequence and its composed form as
-        # equal. Written that way this check silently never fires, which is
-        # the same class of defect it exists to catch.
-        if (-not $text.IsNormalized([Text.NormalizationForm]::FormC)) {
-            $problems.Add('is not NFC-normalized, so equal-looking text would compare unequal')
-        }
-
-        $depth = 0
-        foreach ($match in [regex]::Matches($text, '[\u0000-\u0008\u000B\u000C\u000E-\u001F\u200E\u200F\u202A-\u202E\u2066-\u2069]')) {
-            $i = $match.Index
-            $code = [int]$match.Value[0]
-            if ($BidiOpen -contains $code) { $depth++; continue }
-            if ($BidiClose -contains $code) { $depth--; continue }
-            if ($BidiControl -contains $code) { continue }
-            if ($code -lt 0x20 -and $code -ne 9 -and $code -ne 10 -and $code -ne 13) {
-                $problems.Add(("carries control character U+{0:X4} at index {1}" -f $code, $i))
-                break
-            }
-        }
-        if ($depth -ne 0) {
-            $problems.Add('leaves a bidi run unclosed, so direction leaks into whatever renders next')
-        }
-    }
+    $problems = @(Test-Utf8TextByte -Bytes $bytes)
 
     if ($problems.Count -eq 0) {
         if (-not $Quiet) { Write-Output "PASS  $rel" }

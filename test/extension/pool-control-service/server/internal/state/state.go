@@ -33,6 +33,7 @@ type Store struct {
 
 // AuditEntry is one line of the append-only audit log.
 type AuditEntry struct {
+	Publish bool   `json:"-"` // true only for an intent mutation
 	TimeUTC string `json:"timeUtc"`
 	Action  string `json:"action"`
 	Target  string `json:"target,omitempty"`
@@ -75,11 +76,13 @@ func (s *Store) Enabled() bool { return s.dir != "" }
 func (s *Store) Record(now time.Time, e AuditEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.writes++
-	s.last.Writes = s.writes
-	s.last.LastWriteUTC = e.TimeUTC
-	s.last.LastAction = e.Action
-	s.last.LastPublishOK = e.OK
+	if e.Publish {
+		s.writes++
+		s.last.Writes = s.writes
+		s.last.LastWriteUTC = e.TimeUTC
+		s.last.LastAction = e.Action
+		s.last.LastPublishOK = e.OK
+	}
 	s.appendAudit(e)
 	s.writeStatusLocked(now)
 }

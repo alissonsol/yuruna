@@ -335,6 +335,13 @@ in `Yuruna.Requirement.yml`, however that requirement is bumped. Passing
 `DESIRED_VERSION=v<x>` both pins the release (the installer verifies the tarball
 checksum) and keeps the guest off the same unauthenticated "latest" lookup.
 
+`YURUNA_NVM_VERSION` pins the installer script URL fetched by the Ubuntu n8n
+and OpenClaw guests. A moving script could change provisioning behavior between
+otherwise identical guest builds. `YURUNA_NODE_MAJOR` keeps their Node.js
+runtime on one tested major across Ubuntu (nvm) and Amazon Linux (NodeSource),
+while allowing security and patch releases within that major. Review the
+workloads and both installation paths before advancing either pin.
+
 **Format is load-bearing.** Keep the file POSIX-simple -- one `export KEY=value`
 per line, value unquoted and free of spaces -- so
 [automation/Check-DependencyVersion.ps1](../automation/Check-DependencyVersion.ps1)
@@ -578,7 +585,7 @@ the DHCP pool has run dry -- is the one thing the guest **cannot** see.
 
 Read it in this order:
 
-1. **The lease may simply not have landed yet.** A lost `DISCOVER` puts the
+1. **The lease may not have landed yet.** A lost `DISCOVER` puts the
    client into exponential backoff, so minutes can pass before the next
    attempt. IPv6 being up proves nothing here and is not a control: SLAAC rides
    unsolicited router advertisements that keep repeating, so it succeeds on its
@@ -665,7 +672,7 @@ network could cause the outage it was run to explain.
 **The guest returns its own lease.** `yuruna-dhcp-release.service`, installed by
 the `ubuntu.server` and `amazon.linux.2023` seeds, calls `network_release`
 (below) on the way down. Four lines carry it, and each fails silently if it is
-wrong -- the unit stays enabled, the shutdown stays clean, and the address simply
+wrong -- the unit stays enabled, the shutdown stays clean, and the address
 never comes back:
 
 | Line | Why |
@@ -1447,7 +1454,7 @@ identity/ownership pins so it behaves the same on every host:
 A host that renumbers under DHCP strands every guest it provisioned. Guests
 are seeded with the host's status-service address at `New-VM` time, and
 nothing in the guest image can notice that the address has moved: the
-status service is simply unreachable, and the GitHub fallback cannot stand
+status service is unreachable, and the GitHub fallback cannot stand
 in for it when the framework repository is private.
 
 Two independent things address this. Pin the address where the lab allows
@@ -1940,7 +1947,7 @@ directory already claimed, holding a pid it cannot trust: dead, and the
 attach declares the run vanished; reused by an unrelated process, and it
 streams a file that will never grow again until the step's budget is spent.
 Either way the payload never runs. Scoping on the boot makes the restored
-corpse simply invisible -- the token/boot pair has no directory, so the
+corpse invisible -- the token/boot pair has no directory, so the
 caller wins the claim and starts a clean run. `noboot` is the fallback when
 the file is unreadable, which degrades to token-only scoping rather than
 failing.
@@ -2319,7 +2326,7 @@ out a candidate that was never printed.
 
 ### Why churn is injected rather than waited for
 
-A canary host proves nothing on a quiet network. If the harness simply
+A canary host proves nothing on a quiet network. If the harness
 waits for the site router to renumber it, the evidence becomes a matter
 of luck -- the lease is what it is, the changes fall where they fall, and
 a green cycle may only mean the run happened to sit inside a calm half

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421d8999-cae4-4164-90cd-fd5cc6a6e28f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,7 @@ $script:Runner   = Join-Path $script:RepoRoot 'tools' | Join-Path -ChildPath 'In
 # Every tracked JavaScript self-test, spelled out. Deriving this list the way
 # the runner derives it would make the check agree with a broken pathspec.
 $script:Expected = @(
+    'test/extension/extension-sdk/webui/tests/api.test.js',
     'test/extension/pool-control-ui.test.js',
     'test/extension/stash-service/server/internal/httpsrv/web/assets/common.test.js',
     'test/extension/stash-service/server/internal/httpsrv/web/assets/index.test.js',
@@ -133,7 +134,7 @@ Describe 'Invoke-JsTest with node absent' {
         }
 
         foreach ($file in $script:Expected) {
-            Assert-Match -Pattern "(?m)^SKIPPED $([regex]::Escape($file))$" -Actual $script:Output `
+            Assert-Match -Pattern "(?m)^SKIPPED $([regex]::Escape($file))\r?$" -Actual $script:Output `
                 -Because "$file was discovered but not run, and has to say so per file"
         }
     }

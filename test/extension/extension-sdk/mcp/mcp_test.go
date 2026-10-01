@@ -44,7 +44,7 @@ func newTestServer(t *testing.T, gate Gate) *httptest.Server {
 			return map[string]any{"ok": true, "on": in.On}, nil
 		},
 	})
-	srv := httptest.NewServer(NewServer("test-service", "2026.09.27", reg, gate).Handler())
+	srv := httptest.NewServer(NewServer("test-service", "2026.09.30", reg, gate).Handler())
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -96,7 +96,7 @@ func TestInitializeAnswersThePinnedProtocol(t *testing.T) {
 		}
 	}
 	info, _ := res["serverInfo"].(map[string]any)
-	if info["name"] != "test-service" || info["version"] != "2026.09.27" {
+	if info["name"] != "test-service" || info["version"] != "2026.09.30" {
 		t.Errorf("serverInfo = %v", info)
 	}
 }
@@ -535,5 +535,30 @@ func TestRegistryRejectsAGatedReadOnlyTool(t *testing.T) {
 	}
 	if _, ok := reg.Get("odd"); ok {
 		t.Fatal("the rejected tool was registered anyway")
+	}
+}
+
+func TestWholeBodyLimit(t *testing.T) {
+	calls := 0
+	reg := NewRegistry()
+	reg.MustAdd(Tool{Name: "count", Description: "fixture", ReadOnly: true, InputSchema: json.RawMessage(`{"type":"object"}`), Handler: func(context.Context, json.RawMessage) (any, error) { calls++; return nil, nil }})
+	handler := NewServer("fixture", "test", reg, OpenGate).Handler()
+	prefix := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"count","arguments":{}}}`
+	exact := prefix + strings.Repeat(" ", MaxRequestBytes-len(prefix))
+	for _, body := range []string{exact + "x", prefix + "{}", prefix + " junk", "", "{"} {
+		w := httptest.NewRecorder()
+		handler(w, httptest.NewRequest("POST", "/mcp", strings.NewReader(body)))
+		var response rpcResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || response.Error == nil || response.Error.Code != CodeParse {
+			t.Fatalf("not refused: %s", w.Body.String())
+		}
+	}
+	if calls != 0 {
+		t.Fatal("handler executed invalid input")
+	}
+	w := httptest.NewRecorder()
+	handler(w, httptest.NewRequest("POST", "/mcp", strings.NewReader(exact)))
+	if calls != 1 {
+		t.Fatal(w.Body.String())
 	}
 }

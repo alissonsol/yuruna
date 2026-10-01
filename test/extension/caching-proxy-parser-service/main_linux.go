@@ -39,9 +39,11 @@ func follow(path string, r *ring, s *stats) {
 		rd        *bufio.Reader
 		seenInode uint64
 		firstOpen = true
+		pending   string
 	)
 	for {
 		if f == nil {
+			pending = ""
 			fh, err := os.Open(path)
 			if err != nil {
 				s.lastOpenErr.Store(fmt.Sprintf("open %s: %v", path, err))
@@ -80,7 +82,7 @@ func follow(path string, r *ring, s *stats) {
 			}
 			f = fh
 		}
-		line, err := rd.ReadString('\n')
+		line, err := readLogLine(rd, &pending)
 		if err == nil {
 			s.lastReadUnixMs.Store(time.Now().UnixMilli())
 			line = strings.TrimRight(line, "\n")
@@ -108,8 +110,36 @@ func follow(path string, r *ring, s *stats) {
 			f, rd = nil, nil
 			continue
 		}
+		if statErr == nil {
+			offset, seekErr := f.Seek(0, io.SeekCurrent)
+			if seekErr == nil && st.Size() < offset-int64(rd.Buffered()) {
+				if _, err := f.Seek(0, io.SeekStart); err == nil {
+					rd.Reset(f)
+					pending = ""
+					continue
+				}
+				_ = f.Close()
+				f, rd = nil, nil
+				continue
+			}
+		}
 		time.Sleep(pollInterval)
 	}
+}
+
+// readLogLine retains an unfinished append until its terminating newline arrives.
+func readLogLine(rd *bufio.Reader, pending *string) (string, error) {
+	line, err := rd.ReadString('\n')
+	if err == io.EOF {
+		*pending += line
+		return "", err
+	}
+	if err != nil {
+		return "", err
+	}
+	line = *pending + line
+	*pending = ""
+	return line, nil
 }
 
 func main() {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42059317-b175-4928-938e-8776d088f5e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -268,7 +268,9 @@ Describe 'Invoke-YurunaHostScript' {
                 '-WhatIf'))
             $code = $LASTEXITCODE
 
-            $expectedCwd = (Resolve-Path -LiteralPath (Join-Path $fx.Root (Get-HostFolder (Get-HostType)))).Path
+            # The child reports its physical directory; macOS reaches the temp
+            # root through /var -> /private/var, which Resolve-Path leaves alone.
+            $expectedCwd = (Resolve-YurunaCanonicalPath -Path (Join-Path $fx.Root (Get-HostFolder (Get-HostType)))).Path
             Assert-Equal -Expected 7 -Actual $code -Because 'the child exit code is the result, not an error'
             Assert-True  ($out -contains "CWD=$expectedCwd")        "child ran in the host folder; saw: $($out -join ' / ')"
             Assert-True  ($out -contains 'REFHOST=[alius202607a1]') 'named argument crossed the process boundary'
@@ -311,7 +313,7 @@ Describe 'Invoke-YurunaHostScript' {
 
     It 'refuses an Administrator-only target instead of letting the child die on its #requires' {
         if (-not ($IsWindows -and -not (Test-IsAdministrator))) {
-            Write-Warning 'Skipped: this case needs a non-elevated Windows session.'
+            Set-ItResult -Skipped -Because 'requires a non-elevated Windows session'
             return
         }
         $fx = New-RedirectFixture

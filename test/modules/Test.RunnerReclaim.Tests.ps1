@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fec9c0-cd2a-40fb-b30b-bf873044d79b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -589,7 +589,7 @@ Describe 'Reclamation source gates' {
     It 'the refresh entry point and its module never name a tree kill or taskkill /T' {
         foreach ($relative in @('test/lab/Invoke-HostRefresh.ps1', 'test/modules/Test.HostRefresh.psm1')) {
             $path = Join-Path $script:RepoRoot $relative
-            if (-not (Test-Path -LiteralPath $path)) { continue }
+            Assert-True (Test-Path -LiteralPath $path) "the guarded refresh source must exist: $relative"
             $ast = Get-YurunaTestFileAst -Path $path
             $bad = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | Where-Object {
                 $name = $_.GetCommandName()
@@ -613,6 +613,6 @@ Describe 'Get-YurunaRunnerProtocolCapability' {
             }
         }
         $mac = Get-YurunaRunnerProtocolCapability -Platform macos
-        Assert-Equal -Expected 'MacOS' -Actual $mac.Platform -Because 'the platform name is normalized'
+        Assert-True ([string]::Equals('MacOS', [string]$mac.Platform, [StringComparison]::Ordinal)) 'the platform name must preserve canonical case'
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,7 @@
 
 # --- REGION: Path
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking -Verbose:$false
 function Get-CachingProxyServiceStatePath {
     <#
     .SYNOPSIS
@@ -387,21 +388,17 @@ function Invoke-CachingProxyServiceProbe {
     # existing host proxy (stale or fresh) would loop or fail the call.
     $caUrl = "http://$(Format-IpUrlHost $CacheIp)/yuruna-squid-ca.crt"
     try {
-        $resp = Invoke-WebRequest -Uri $caUrl -UseBasicParsing -NoProxy -TimeoutSec 5 -ErrorAction Stop
+        $resp = $null
+        $raw = Get-CachingProxyServiceCaPem -Url $caUrl -TimeoutSec 5 -Response ([ref]$resp)
         if ($resp.StatusCode -eq 200 -and $resp.RawContentLength -gt 0) {
-            $raw = if ($resp.Content -is [byte[]]) {
-                [System.Text.Encoding]::UTF8.GetString($resp.Content)
-            } else {
-                [string]$resp.Content
-            }
             if ($raw -match '-----BEGIN CERTIFICATE-----' -and $raw -match '-----END CERTIFICATE-----') {
                 try {
                     # Decode the PEM to DER first: [X509Certificate2]::new(PEM bytes)
                     # works on Windows but FAILS on macOS (DER-expecting backend).
-                    $caDerB64 = (($raw -split "`r?`n") | Where-Object { $_ -and ($_ -notmatch '-----') }) -join ''
-                    $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($caDerB64))
+                    $cert = ConvertFrom-YurunaPemCertificate -Pem $raw
                     $lines.Add("  [PASS] CA cert $caUrl -> $($cert.Subject) (expires $($cert.NotAfter.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)))")
                     $passCount++
+                    $cert.Dispose()
                 } catch {
                     $lines.Add("  [WARN] CA cert $caUrl returned PEM-looking bytes but X509 parse failed: $($_.Exception.Message)")
                     $warnCount++
@@ -429,6 +426,52 @@ function Invoke-CachingProxyServiceProbe {
         HttpsPort          = $httpsPort
         Lines              = $lines.ToArray()
     }
+}
+
+function Wait-PortConsecutiveSuccess {
+    <#
+    .SYNOPSIS
+        Waits for consecutive successful bounded probes under a shared deadline.
+    .PARAMETER Address
+        The target address.
+    .PARAMETER Port
+        The target port.
+    .PARAMETER Deadline
+        The wall-clock deadline for this leg.
+    .PARAMETER Required
+        Required consecutive successes.
+    .PARAMETER IntervalSeconds
+        Delay between attempts.
+    .PARAMETER Classify
+        Optional TCP outcome command used for diagnostics.
+    .PARAMETER OnFirstMiss
+        Callback for the leg's once-only waiting announcement.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$Address, [int]$Port, [datetime]$Deadline, [int]$Required, [int]$IntervalSeconds, $Classify, [scriptblock]$OnFirstMiss)
+    $probes = 0; $consecutive = 0; $reason = ''; $announced = $false
+    while ($true) {
+        if ($probes -gt 0) { Start-Sleep -Seconds $IntervalSeconds }
+        $probes++
+        if ($Classify) {
+            $outcome = & $Classify -IpAddress $Address -Port $Port -TimeoutMs 3000
+            $ok = [bool]$outcome.Reachable
+            if (-not $ok) { $reason = "$($outcome.Outcome) after $($outcome.ElapsedMs) ms" }
+        } else {
+            $ok = Test-TcpPortReachable -TargetHost $Address -Port $Port -Attempts 1 -TimeoutMs 3000
+            if (-not $ok) { $reason = 'no connect' }
+        }
+        if ($ok) {
+            $consecutive++
+            if ($consecutive -ge $Required) { break }
+        } else {
+            $consecutive = 0
+            if (-not $announced) { & $OnFirstMiss $reason; $announced = $true }
+        }
+        if ((Get-Date) -ge $Deadline) { break }
+    }
+    return @{ Settled = $consecutive -ge $Required; Probes = $probes; Consecutive = $consecutive; Reason = $reason; Announced = $announced }
 }
 
 function Wait-CachingProxyServiceSettled {
@@ -500,32 +543,11 @@ function Wait-CachingProxyServiceSettled {
     # latency on top of the interval (feedback_iter_counter_wallclock_trap).
     $deadline = (Get-Date).AddSeconds([Math]::Max(0, $TimeoutSeconds))
     $classify = Get-Command Test-TcpConnectOutcome -ErrorAction SilentlyContinue
-    while ($true) {
-        if ($probes -gt 0) { Start-Sleep -Seconds $IntervalSeconds }
-        $probes++
-        if ($classify) {
-            $outcome = & $classify -IpAddress $CacheIp -Port $Port -TimeoutMs 3000
-            $ok = [bool]$outcome.Reachable
-            if (-not $ok) { $lastReason = "$($outcome.Outcome) after $($outcome.ElapsedMs) ms" }
-        } else {
-            $ok = Test-TcpPortReachable -TargetHost $CacheIp -Port $Port -Attempts 1 -TimeoutMs 3000
-            if (-not $ok) { $lastReason = 'no connect' }
-        }
-        if ($ok) {
-            $consecutive++
-            if ($consecutive -ge $RequiredConsecutive) { break }
-        } else {
-            $consecutive = 0
-            if (-not $announced) {
-                # Said once, on the first miss: the operator needs to know the
-                # cycle is deliberately paused here, not stalled.
-                $lines.Add("  Cache at ${CacheIp}:${Port} is not settled yet ($lastReason) -- waiting up to ${TimeoutSeconds}s for it to stay up. A cache rebuilt just before this cycle restarts squid once while provisioning finishes.")
-                $announced = $true
-            }
-        }
-        if ((Get-Date) -ge $deadline) { break }
+    $result = Wait-PortConsecutiveSuccess -Address $CacheIp -Port $Port -Deadline $deadline -Required $RequiredConsecutive -IntervalSeconds $IntervalSeconds -Classify $classify -OnFirstMiss {
+        param($reason)
+        $lines.Add("  Cache at ${CacheIp}:${Port} is not settled yet ($reason) -- waiting up to ${TimeoutSeconds}s for it to stay up. A cache rebuilt just before this cycle restarts squid once while provisioning finishes.")
     }
-    $settled = ($consecutive -ge $RequiredConsecutive)
+    $settled = $result.Settled; $consecutive = $result.Consecutive; $probes = $result.Probes; $lastReason = $result.Reason; $announced = $result.Announced
     if ($settled -and $announced) {
         $lines.Add("  Cache settled after $probes probe(s); continuing.")
     } elseif (-not $settled) {
@@ -538,31 +560,11 @@ function Wait-CachingProxyServiceSettled {
     $registrySettled = $null
     if ($settled -and $RegistryPort -gt 0 -and $RegistryTimeoutSeconds -gt 0) {
         $regDeadline = (Get-Date).AddSeconds($RegistryTimeoutSeconds)
-        $regConsec = 0; $regProbes = 0; $regReason = ''; $regAnnounced = $false
-        while ($true) {
-            if ($regProbes -gt 0) { Start-Sleep -Seconds $IntervalSeconds }
-            $regProbes++
-            if ($classify) {
-                $o = & $classify -IpAddress $CacheIp -Port $RegistryPort -TimeoutMs 3000
-                $regOk = [bool]$o.Reachable
-                if (-not $regOk) { $regReason = "$($o.Outcome) after $($o.ElapsedMs) ms" }
-            } else {
-                $regOk = Test-TcpPortReachable -TargetHost $CacheIp -Port $RegistryPort -Attempts 1 -TimeoutMs 3000
-                if (-not $regOk) { $regReason = 'no connect' }
-            }
-            if ($regOk) {
-                $regConsec++
-                if ($regConsec -ge $RequiredConsecutive) { break }
-            } else {
-                $regConsec = 0
-                if (-not $regAnnounced) {
-                    $lines.Add("  Cache registry at ${CacheIp}:${RegistryPort} is not up yet ($regReason) -- waiting up to ${RegistryTimeoutSeconds}s. A guest that starts before it is ready spends its whole step budget discovering that and then fails the cycle.")
-                    $regAnnounced = $true
-                }
-            }
-            if ((Get-Date) -ge $regDeadline) { break }
+        $result = Wait-PortConsecutiveSuccess -Address $CacheIp -Port $RegistryPort -Deadline $regDeadline -Required $RequiredConsecutive -IntervalSeconds $IntervalSeconds -Classify $classify -OnFirstMiss {
+            param($reason)
+            $lines.Add("  Cache registry at ${CacheIp}:${RegistryPort} is not up yet ($reason) -- waiting up to ${RegistryTimeoutSeconds}s. A guest that starts before it is ready spends its whole step budget discovering that and then fails the cycle.")
         }
-        $registrySettled = ($regConsec -ge $RequiredConsecutive)
+        $registrySettled = $result.Settled; $regProbes = $result.Probes; $regReason = $result.Reason; $regAnnounced = $result.Announced
         if ($registrySettled -and $regAnnounced) {
             $lines.Add("  Cache registry settled after $regProbes probe(s); continuing.")
         } elseif (-not $registrySettled) {
@@ -685,11 +687,7 @@ function Get-PoolAggregatorServiceClaim {
     [OutputType([System.Collections.Generic.List[hashtable]])]
     param()
 
-    $stateIp = ''
-    try {
-        $state = Read-CachingProxyServiceState
-        if ($state -and $state.ipAddress) { $stateIp = [string]$state.ipAddress }
-    } catch { $null = $_ }
+    $stateIp = Get-CachingProxyServiceStateIp
 
     $configIp = ''
     try {
@@ -849,11 +847,7 @@ function Get-PoolAggregatorServiceSeedUrl {
     # what a repair turns on is the state key's own value. The read is off
     # the hot path -- a winner exists, so the probes above already ran, and
     # the resolution is memoized below.
-    $stateIp = ''
-    try {
-        $state = Read-CachingProxyServiceState
-        if ($state -and $state.ipAddress) { $stateIp = [string]$state.ipAddress }
-    } catch { $null = $_ }
+    $stateIp = Get-CachingProxyServiceStateIp
 
     # Repair a stored address that lost to a live one, so the next call pays
     # no probe to disprove it again. Only an address this host already
@@ -972,7 +966,7 @@ function Wait-YurunaAggregatorReady {
         param([string]$BaseUrl)
         foreach ($candidate in @($BaseUrl, ($BaseUrl -replace '^https://', 'http://')) | Select-Object -Unique) {
             try {
-                $response = Invoke-WebRequest -Uri "$($candidate.TrimEnd('/'))/healthz" -TimeoutSec 5 `
+                $response = Invoke-WebRequest -Uri "$($candidate.TrimEnd('/'))/healthz" -TimeoutSec 5 -NoProxy `
                     -SkipCertificateCheck -SkipHttpErrorCheck -ErrorAction Stop
                 if ([int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 300) { return $true }
                 Write-Verbose "Wait-YurunaAggregatorReady: $candidate/healthz answered $($response.StatusCode)."
@@ -994,7 +988,7 @@ function Wait-YurunaAggregatorReady {
         # Only a SUCCESSFUL resolution is memoized, so re-asking is not defeated
         # by a cached failure.
         $baseUrl = if ($ProxyAddress) {
-            $urlHost = if (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue) { Format-IpUrlHost $ProxyAddress } else { $ProxyAddress }
+            $urlHost = ConvertTo-CachingProxyUrlHost -Address $ProxyAddress
             "https://${urlHost}:${aggregatorPort}"
         } else {
             Get-PoolAggregatorServiceSeedUrl
@@ -1108,11 +1102,7 @@ function Get-PoolIntentSeedUrl {
         return ("{0}/pool-intent.git" -f $GuestPoolMount.TrimEnd('/'))
     }
     # Last resort: the proxy's pull-only route, so the UI at least reads.
-    $ip = ''
-    try {
-        $state = Read-CachingProxyServiceState
-        if ($state -and $state.ipAddress) { $ip = [string]$state.ipAddress }
-    } catch { Write-Verbose "caching-proxy-service state: $($_.Exception.Message)" }
+    $ip = Get-CachingProxyServiceStateIp
     if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) {
         $ip = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
     }
@@ -1120,7 +1110,7 @@ function Get-PoolIntentSeedUrl {
     # The value lands in an unquoted seed env line the guest sed-extracts, so a
     # quote or whitespace would corrupt it.
     if ($ip -match "['\s]") { return '' }
-    $urlHost = if (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue) { Format-IpUrlHost $ip } else { $ip }
+    $urlHost = ConvertTo-CachingProxyUrlHost -Address $ip
     return "http://${urlHost}/pool-intent.git"
 }
 
@@ -1172,10 +1162,7 @@ function Sync-PoolIntentAliasOnProxy {
         [int]$TimeoutSeconds = 60
     )
     if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
-        try {
-            $state = Read-CachingProxyServiceState
-            if ($state -and $state.ipAddress) { $ProxyAddress = [string]$state.ipAddress }
-        } catch { Write-Verbose "caching-proxy-service state: $($_.Exception.Message)" }
+        $ProxyAddress = Get-CachingProxyServiceStateIp
         if ([string]::IsNullOrWhiteSpace($ProxyAddress) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) {
             $ProxyAddress = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
         }
@@ -1230,6 +1217,53 @@ fi
 }
 
 # --- REGION: CA cert
+function Get-CachingProxyServiceCaPem {
+    <#
+    .SYNOPSIS
+        Fetches the proxy CA directly and decodes UTF-8 response bytes consistently.
+    .PARAMETER Url
+        The CA endpoint.
+    .PARAMETER TimeoutSec
+        The bounded request timeout.
+    .PARAMETER Response
+        Optional response reference for diagnostic status reporting.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Url, [int]$TimeoutSec = 5, [ref]$Response)
+    $reply = Invoke-WebRequest -Uri $Url -UseBasicParsing -NoProxy -TimeoutSec $TimeoutSec -ErrorAction Stop
+    if ($Response) { $Response.Value = $reply }
+    if ($reply.StatusCode -ne 200 -or $reply.RawContentLength -le 0) { return '' }
+    if ($reply.Content -is [byte[]]) { return [Text.UTF8Encoding]::new($false, $true).GetString($reply.Content) }
+    return [string]$reply.Content
+}
+
+function Get-CachingProxyServiceStateIp {
+    <# .SYNOPSIS
+        Reads and trims the persisted address without throwing on bad state.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    try { return ([string](Read-CachingProxyServiceState).ipAddress).Trim() }
+    catch { Write-Verbose "caching-proxy-service state: $($_.Exception.Message)"; return '' }
+}
+
+function ConvertTo-CachingProxyUrlHost {
+    <# .SYNOPSIS
+        Formats validated IPv4 and IPv6 addresses using the shared URL authority.
+    .PARAMETER Address
+        The address to format.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Address)
+    if (-not (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -Force
+    }
+    return Format-IpUrlHost $Address.Trim()
+}
+
 function Test-CachingProxyServiceCaPem {
     <#
     .SYNOPSIS
@@ -1250,8 +1284,8 @@ function Test-CachingProxyServiceCaPem {
     if ([string]::IsNullOrWhiteSpace($Pem)) { return $false }
     if ($Pem -notmatch '-----BEGIN CERTIFICATE-----' -or $Pem -notmatch '-----END CERTIFICATE-----') { return $false }
     try {
-        $der = (($Pem -split "`r?`n") | Where-Object { $_ -and ($_ -notmatch '-----') }) -join ''
-        $null = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($der))
+        $certificate = ConvertFrom-YurunaPemCertificate -Pem $Pem
+        $certificate.Dispose()
         return $true
     } catch {
         Write-Verbose "Test-CachingProxyServiceCaPem: X509 parse failed: $($_.Exception.Message)"
@@ -1296,11 +1330,11 @@ function Get-CachingProxyServiceCaCertBase64 {
     # Capture into a local so the retry scriptblock closes over it explicitly.
     $caUrl = $CacheCaUrl
     $caFetch = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'runner.operator_27791792c952ec05') -MaxAttempts $MaxAttempts -InitialDelaySeconds 3 -MaxDelaySeconds 20 -ScriptBlock {
-        $caResp = Invoke-WebRequest -Uri $caUrl -UseBasicParsing -NoProxy -TimeoutSec 10 -ErrorAction Stop
-        if ($caResp.StatusCode -ne 200 -or $caResp.RawContentLength -le 0) {
+        $caResp = $null
+        $caPem = Get-CachingProxyServiceCaPem -Url $caUrl -TimeoutSec 10 -Response ([ref]$caResp)
+        if (-not $caPem) {
             throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_2b1a4abe77bcd371' -Arguments @{ statusCode = "$($caResp.StatusCode)"; rawContentLength = "$($caResp.RawContentLength)" })
         }
-        $caPem = if ($caResp.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($caResp.Content) } else { [string]$caResp.Content }
         if (-not (Test-CachingProxyServiceCaPem -Pem $caPem)) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_6305b986d1a90039') }
         [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($caPem))
     }
@@ -1350,16 +1384,14 @@ function Resolve-CachingProxyServiceCaCertPem {
     $state = Read-CachingProxyServiceState
     $cacheHost = if ($env:YURUNA_CACHING_PROXY_SERVICE_IP) { $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() } else { [string]$state.ipAddress }
     if ($cacheHost) {
-        $urlHost = if (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue) { Format-IpUrlHost $cacheHost } else { $cacheHost }
+        $urlHost = ConvertTo-CachingProxyUrlHost -Address $cacheHost
         try {
-            $resp = Invoke-WebRequest -Uri "http://$urlHost/yuruna-squid-ca.crt" -UseBasicParsing -NoProxy -TimeoutSec $LiveTimeoutSeconds -ErrorAction Stop
-            if ($resp.StatusCode -eq 200 -and $resp.RawContentLength -gt 0) {
-                $pem = if ($resp.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($resp.Content) } else { [string]$resp.Content }
-                if (Test-CachingProxyServiceCaPem -Pem $pem) { return @{ Pem = $pem; Source = 'live' } }
-            }
+            $pem = Get-CachingProxyServiceCaPem -Url "http://$urlHost/yuruna-squid-ca.crt" -TimeoutSec $LiveTimeoutSeconds
+            if ($pem -and (Test-CachingProxyServiceCaPem -Pem $pem)) { return @{ Pem = $pem; Source = 'live' } }
         } catch { Write-Verbose "Resolve-CachingProxyServiceCaCertPem: live read of $urlHost failed: $($_.Exception.Message)" }
     }
-    if ($state.caCert) {
+    $persistedHost = [string]$state.caCertSourceHost
+    if ($state.caCert -and $cacheHost -and $persistedHost -and $cacheHost -eq $persistedHost) {
         try {
             $pem = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$state.caCert))
             if (Test-CachingProxyServiceCaPem -Pem $pem) { return @{ Pem = $pem; Source = 'persisted' } }

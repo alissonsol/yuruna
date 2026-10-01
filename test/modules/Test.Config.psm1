@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c1e552-e3c2-4c54-b73a-ac2577a100fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -349,10 +349,16 @@ function Read-TestConfigOrSnapshot {
             if (Test-Path -LiteralPath $snapshotPath) {
                 $raw      = Get-Content -Raw -LiteralPath $snapshotPath -ErrorAction Stop
                 $envelope = $raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                $sourceMtime = if ($envelope.sourceMtime -is [datetime]) {
+                    $envelope.sourceMtime.ToUniversalTime()
+                } else {
+                    [datetime]::Parse($envelope.sourceMtime, [cultureinfo]::InvariantCulture,
+                        [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+                }
                 if ($envelope -is [System.Collections.IDictionary] `
                     -and $envelope.Contains('sourcePath')  -and ($envelope.sourcePath  -ieq $resolved) `
                     -and $envelope.Contains('sourceHash')  -and ($envelope.sourceHash  -ieq $hash) `
-                    -and $envelope.Contains('sourceMtime') -and ([datetime]::Parse($envelope.sourceMtime).ToUniversalTime() -eq $mtime) `
+                    -and $envelope.Contains('sourceMtime') -and ($sourceMtime -eq $mtime) `
                     -and $envelope.Contains('config')      -and ($envelope.config -is [System.Collections.IDictionary])) {
                     return $envelope.config
                 }

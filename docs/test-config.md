@@ -109,7 +109,7 @@ template -- not the previous file -- is the skeleton.
 `configService.enabled` / `configService.port` (default `8443`) control the
 per-host **config service** -- the mTLS endpoint that serves NAS credentials to
 the VMs this host provisions so they don't have to ship in each seed. When
-enabled, the runner ensures it per cycle (given a Config CA exists); VMs fetch
+enabled, `Start-CachingProxyServiceVM.ps1` ensures it (given a Config CA exists); VMs fetch
 over the `yuruna-config-fetch.sh` mTLS path and fall back to baked creds only
 if it is unreachable.
 
@@ -132,8 +132,8 @@ because the lock exists to make the lab's output uniform.
 Only a tag with a reviewed catalog behind it is served. A tag without one is
 refused rather than obeyed, so a typo does not quietly ship a language that does
 not exist: the run falls back to English and reports the configuration as what
-decided it, which distinguishes a mistyped lock from a reader who simply asked
-for English. Today `en-US` is the only such tag; `pt-BR` is planned.
+decided it, which distinguishes a mistyped lock from a reader who asked
+for English. Today `en-US`, `pt-BR`, `zh-CN`, and `he-IL` are such tags.
 
 Deleting the key means the same thing as `auto`, but leave it in place. It is
 the seed reconciliation copies into a new host's file, and the status-page
@@ -416,8 +416,9 @@ intent store's `pools.yml` `members[]` (the operator assigns this host's stable
 `hostId` there. An unreachable intent store degrades gracefully: the host keeps
 cycling as a single host (it never blocks on the pull). `desiredState`
 (`run`/`paused`/`drain`) gates the cycle -- `paused` holds after the in-flight
-cycle, `drain` stops after the current one -- and any **test-sets** the pool
-assigns drive what this host runs.
+cycle, `drain` stops after the current one -- and the pool's **repositories**,
+when it carries them, decide which framework and project this host runs for
+the cycle.
 
 <a id="42b11c32-000d"></a>
 
@@ -643,6 +644,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

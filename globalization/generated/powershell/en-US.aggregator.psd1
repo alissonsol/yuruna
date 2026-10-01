@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a18897-339a-0499-216e-65f73137ab64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
     'aggregator.help_display_language' = 'Display language: auto or a supported locale'
     'aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083' = 'distinct hosts that must fail within -cross-host-window to open a pool-wide incident'
     'aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1' = 'drop a host from the pool view this long after last contact; its per-cycle dedup state is kept an hour longer so a re-appearing host cannot double-count, and dashboard deep links resolve over at least 24h regardless. Cumulative pass/fail counters are not expired by this -- use POST /api/v1/forget-host'
-    'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = 'file holding the shared bearer token that gates POST /ingest; empty/absent/empty-file -> /ingest disabled (never an unauthenticated write route)'
+    'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = 'file containing the shared bearer token required for POST /ingest, POST /api/v1/forget-host, POST /api/v1/handover-host, and GET /api/v1/host-history; an empty path, absent file, or empty file disables these operations (no unauthenticated control route)'
     'aggregator.help_loki_push_api_url_c89d9321' = 'Loki push API URL'
     'aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f' = 'on startup, restore cycle counts from Loki over this trailing window (0 to disable)'
     'aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc' = 'open an incident after this many failed cycles within -incident-window'

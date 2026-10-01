@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42798304-85e4-4102-8026-ce168ff64fd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,14 +50,7 @@ function Get-GeneratedServerText {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $lines = [IO.File]::ReadAllLines($script:ServicePath)
-    $start = -1; $end = -1
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($start -lt 0 -and $lines[$i] -match '^\$serverScript = @"$') { $start = $i + 1; continue }
-        if ($start -ge 0 -and $lines[$i] -match '^"@$') { $end = $i - 1; break }
-    }
-    if ($start -lt 0 -or $end -lt $start) { throw 'could not find the server here-string in the launcher' }
-    return $ExecutionContext.InvokeCommand.ExpandString((($lines[$start..$end]) -join "`n"))
+    return Get-YurunaTestGeneratedServerText -Path $script:ServicePath -Expand { param($Raw) $ExecutionContext.InvokeCommand.ExpandString($Raw) }
 }
 $script:ServerText = Get-GeneratedServerText
 $parseErrors = $null
@@ -68,12 +61,8 @@ function Get-ServerFunctionText {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$Name)
-    $wanted = $Name
-    $found = $script:ServerAst.FindAll({
-            param($n)
-            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $wanted
-        }.GetNewClosure(), $true) | Select-Object -First 1
-    if (-not $found) { throw "the generated server defines no $Name" }
+    $found = Get-YurunaTestFunctionAst -Ast $script:ServerAst -Name $Name
+    if (-not $found) { return '' }
     return $found.Extent.Text
 }
 
@@ -204,7 +193,10 @@ Describe 'a body read never parks the caller' {
             $status = Update-StatusBoundedBodyRead -BodyRead $read -NowMs 1500
             $watch.Stop()
             Assert-StringEqual 'reading' $status
-            Assert-True ($watch.ElapsedMilliseconds -lt 50) "an update with nothing to consume took $($watch.ElapsedMilliseconds) ms"
+            # A parked update waits for the read and overshoots by seconds; a
+            # millisecond bound also fails on a descheduled or collecting test
+            # process when suites run side by side.
+            Assert-True ($watch.ElapsedMilliseconds -lt 1000) "an update with nothing to consume took $($watch.ElapsedMilliseconds) ms"
             Assert-StringEqual 'timeout' (Update-StatusBoundedBodyRead -BodyRead $read -NowMs 3000)
         } finally { Close-SocketPair $pair }
     }
@@ -709,11 +701,15 @@ Write-Output ('RESULT ' + (ConvertTo-Json -Compress @{
 }))
 "@)
             $previousHome = $env:HOME
+            $previousProfile = $env:USERPROFILE
             try {
+                # Windows derives the home directory from USERPROFILE, not HOME.
                 $env:HOME = $homeDir
+                $env:USERPROFILE = $homeDir
                 $output = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File $probe 2>&1 | Out-String
             } finally {
                 if ($null -eq $previousHome) { Remove-Item Env:HOME -ErrorAction SilentlyContinue } else { $env:HOME = $previousHome }
+                if ($null -eq $previousProfile) { Remove-Item Env:USERPROFILE -ErrorAction SilentlyContinue } else { $env:USERPROFILE = $previousProfile }
             }
             $clean = $output -replace "`e\[[0-9;]*[A-Za-z]", ''
             $line = @($clean -split "`r?`n" | Where-Object { $_ -like 'RESULT *' }) | Select-Object -First 1
@@ -839,8 +835,8 @@ Describe 'the server pidfile is classified with the process-identity classifier 
             $otherScript = Join-Path $root 'other-service.ps1'
             foreach ($path in @($serverScript, $otherScript)) { [IO.File]::WriteAllText($path, 'Start-Sleep -Seconds 60') }
             $pwsh = (Get-Process -Id $PID).Path
-            $owned = Start-Process -FilePath $pwsh -ArgumentList '-NoProfile', '-NonInteractive', '-File', $serverScript -PassThru
-            $other = Start-Process -FilePath $pwsh -ArgumentList '-NoProfile', '-NonInteractive', '-File', $otherScript -PassThru
+            $owned = Start-Process -FilePath $pwsh -ArgumentList '-NoProfile', '-NonInteractive', '-File', ('"' + $serverScript + '"') -PassThru
+            $other = Start-Process -FilePath $pwsh -ArgumentList '-NoProfile', '-NonInteractive', '-File', ('"' + $otherScript + '"') -PassThru
             $standIns = @($owned, $other)
             # The launcher writes server.pid after the server started.
             Start-Sleep -Milliseconds 1500

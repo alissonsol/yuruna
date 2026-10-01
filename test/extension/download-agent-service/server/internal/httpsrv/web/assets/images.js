@@ -373,39 +373,16 @@
 
   // --- REGION: Session
   function loadSession() {
-    // Awaited, not raced: a proof carried in from the dashboard has to be spent
-    // before the gate is read, or this would render the lab-token prompt for a
-    // device that was about to be unlocked anyway.
-    return Y.proofUnlock.then(function () {
-      return Y.api('/api/session');
-    }).then(function (s) {
-      gateConfigured = !!s.configured;
-      labTokenGate = !!s.labToken;
-      canMutate = !!s.authed;
-      document.getElementById('login').hidden = !(labTokenGate && !s.authed);
-      document.getElementById('gate-unconfigured').hidden = gateConfigured;
-    }, function () {
-      // A gate this page cannot vouch for offers no control it cannot back.
-      gateConfigured = false;
-      labTokenGate = false;
-      canMutate = false;
+    return Y.initUnlock(function () { return loadSession().then(load); }).then(function (s) {
+      // A failed gate read returns a locked session, so no action is enabled
+      // when this page cannot establish authorization.
+      gateConfigured = s.configured;
+      labTokenGate = s.labToken;
+      canMutate = s.authed;
     });
   }
 
-  document.getElementById('login-form').addEventListener('submit', function (ev) {
-    ev.preventDefault();
-    var field = document.getElementById('lab-token');
-    var err = document.getElementById('login-error');
-    err.textContent = '';
-    // Normalized here as well as at the daemon, so a code read off the tile in
-    // capitals is not a round trip that comes back "incorrect".
-    Y.api('/api/login', { method: 'POST', body: { labToken: field.value.trim().toLowerCase() } }).then(function () {
-      field.value = '';
-      return loadSession().then(load);
-    }, function (e) {
-      err.textContent = e.message;
-    });
-  });
+
 
   // --- REGION: Polling
   // Header version + host id and the footer bar. The countdown drives load()
@@ -415,11 +392,12 @@
   // refreshOnVisible is off -- the poll below already reloads on that event.
   var chrome = Y.initChrome({ intervalSeconds: 60, refresh: load, refreshOnVisible: false });
 
+  var loadPending = null;
   function load() {
+    if (loadPending) { return loadPending; }
     window.YurunaFirstUsable.hold('primary');
-    return Promise.all([Y.api('/api/v1/status'), Y.api('/api/v1/images')]).then(function (both) {
-      var cat = both[1];
-      renderStatus(both[0]);
+    loadPending = Y.api('/api/v1/images').then(function (cat) {
+      renderStatus(cat);
       lastImages = cat.images || [];
       primaryLoaded = true;
       renderRows();
@@ -436,7 +414,9 @@
       window.YurunaFirstUsable.mark('test/extension/download-agent-service/server/internal/httpsrv/web/index.html', 'error');
     }).then(function () {
       window.YurunaFirstUsable.release('primary');
+      loadPending = null;
     });
+    return loadPending;
   }
 
   // Wrapped rather than passed straight to the listener: load takes no
@@ -447,6 +427,7 @@
   // reloading; stop while the tab is hidden so a background tab does not keep
   // walking the share every few seconds.
   function startPolling() {
+    if (document.hidden) { return; }
     if (timer) { window.clearInterval(timer); }
     timer = window.setInterval(function () { load(); }, POLL_MS);
   }
@@ -459,6 +440,8 @@
     sort = loadSort();
     wireHeaders();
     paintHeaders();
+    // Await the proof exchange before the first catalog render; a fast read
+    // must not paint locked actions for an already authorized dashboard visit.
     loadSession().then(load).then(startPolling, startPolling);
   }());
 })();

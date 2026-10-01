@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42741ee4-f795-4b5e-ab28-a68625394829
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,9 +119,9 @@ Describe 'resource state survives failed provisioning and teardown' {
             $result = Publish-ResourceListHelper -project_root $root -config_subfolder lab -isInitialization $initializing
             Assert-True $result.success
             Assert-StringEqual $env:stateSafetySecret $env:adminPassword
-            $vars = Get-Content -Raw -LiteralPath "$work/terraform.tfvars"
-            Assert-True ($vars.Contains($env:stateSafetySecret)) 'resolved dollars must be stored verbatim'
-            Assert-True ($vars.Contains('localLabel = "local-value"')) 'resource-level expressions still expand'
+            $vars = Get-Content -Raw -LiteralPath "$work/terraform.tfvars.json" | ConvertFrom-Json
+            Assert-StringEqual $env:stateSafetySecret ([string]$vars.adminPassword) 'resolved dollars must be stored verbatim'
+            Assert-StringEqual 'local-value' ([string]$vars.localLabel) 'resource-level expressions still expand'
         }
     }
 

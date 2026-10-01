@@ -489,7 +489,7 @@ const DataenUSexceptions = `{
     }
   ],
   "exceptions.host_dd6d74db4a58cc9d": [
-    "Fido.ps1 hash mismatch (pinned v1.70): expected ",
+    "Fido.ps1 hash mismatch (pinned v1.71): expected ",
     {
       "arg": "fidoSha256",
       "type": "detail",

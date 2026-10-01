@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     Debug-TestSequence needs no temp-YAML step files) and Get-SequenceFinishedVMName
     (the shared mid-chain rename surface both chain paths read).
 .DESCRIPTION
-    Throw-based assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
+    Throw-based assertions for Pester 5+.
     The window helper is pure and fully covered here; the rename surface's value
     is set by a live Invoke-Sequence run (host I/O), so only its default + type
     contract are unit-checked -- the propagation itself is an operator live-cycle

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -168,6 +168,28 @@ function Resolve-SequenceCharDelay {
     return [int]$Context.DefaultCharDelayMs
 }
 
+function Expand-SequencePatternList {
+    <#
+    .SYNOPSIS
+        Expands a scalar or collection into a stable nonempty pattern array.
+    .PARAMETER Raw
+        The unexpanded pattern value or collection.
+    .PARAMETER Vars
+        Variables for the current sequence step.
+    .PARAMETER ExpandVariable
+        The sequence variable expansion callback.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]], [object[]])]
+    param($Raw, [Parameter(Mandatory)]$Vars, [Parameter(Mandatory)][scriptblock]$ExpandVariable)
+    $patterns = [Collections.Generic.List[string]]::new()
+    foreach ($item in @($Raw)) {
+        $expanded = [string](& $ExpandVariable $item $Vars)
+        if (-not [string]::IsNullOrWhiteSpace($expanded)) { $patterns.Add($expanded) }
+    }
+    return ,([string[]]$patterns.ToArray())
+}
+
 function Format-SequencePatternLabel {
     # Shared helper for the four pattern-bearing actions (waitForText,
     # waitForAndEnter, passwdPrompt). $Step's `pattern` may be a single
@@ -176,11 +198,7 @@ function Format-SequencePatternLabel {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)]$Step, [Parameter(Mandatory)]$Vars, [Parameter(Mandatory)]$ExpandVariable)
-    $raw = $Step.pattern
-    if ($raw -is [System.Collections.IEnumerable] -and $raw -isnot [string]) {
-        return (($raw | ForEach-Object { & $ExpandVariable $_ $Vars }) -join "' | '")
-    }
-    return (& $ExpandVariable $raw $Vars)
+    return ((Expand-SequencePatternList -Raw $Step.pattern -Vars $Vars -ExpandVariable $ExpandVariable) -join "' | '")
 }
 
 function Resolve-WaitForTextStepParam {
@@ -192,15 +210,11 @@ function Resolve-WaitForTextStepParam {
     param([Parameter(Mandatory)][hashtable]$Context, [switch]$DefaultNoSegmentMatch)
     $step = $Context.Step
     $raw = $step.pattern
-    [string[]]$patterns = if ($raw -is [System.Collections.IEnumerable] -and $raw -isnot [string]) {
-        $raw | ForEach-Object { & $Context.ExpandVariable $_ $Context.Vars }
-    } else { @(& $Context.ExpandVariable $raw $Context.Vars) }
+    [string[]]$patterns = Expand-SequencePatternList -Raw $raw -Vars $Context.Vars -ExpandVariable $Context.ExpandVariable
     $rawF = $step.failurePatterns
     [string[]]$fp = @()
     if ($null -ne $rawF) {
-        $fp = if ($rawF -is [System.Collections.IEnumerable] -and $rawF -isnot [string]) {
-            @($rawF | ForEach-Object { & $Context.ExpandVariable $_ $Context.Vars })
-        } else { @(& $Context.ExpandVariable $rawF $Context.Vars) }
+        $fp = Expand-SequencePatternList -Raw $rawF -Vars $Context.Vars -ExpandVariable $Context.ExpandVariable
     }
     @{
         patterns        = $patterns
@@ -400,9 +414,7 @@ function Invoke-BlindAnswer {
     # across an unrelated screen.
     $rawSkip = $Context.Step.blindSkipPattern
     if ($null -ne $rawSkip) {
-        $skipPatterns = if ($rawSkip -is [System.Collections.IEnumerable] -and $rawSkip -isnot [string]) {
-            @($rawSkip | ForEach-Object { & $Context.ExpandVariable $_ $Context.Vars })
-        } else { @(& $Context.ExpandVariable $rawSkip $Context.Vars) }
+        $skipPatterns = Expand-SequencePatternList -Raw $rawSkip -Vars $Context.Vars -ExpandVariable $Context.ExpandVariable
         foreach ($skip in $skipPatterns) {
             if (-not $skip) { continue }
             if (Test-OCRMatch -Text ([string]$verdict.ConsoleText) -Pattern $skip -NoSegmentMatch) {
@@ -426,7 +438,7 @@ function Invoke-BlindAnswer {
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e14f9f746130d056' -Arguments @{ patternDisplay = "$patternDisplay"; staticSecs = "${staticSecs}"; elapsed = "${elapsed}"; masked = "$masked" })
     $baselineText = [string]$verdict.ConsoleText
     Send-TabNavigation -Context $Context
-    $delaySeconds = $Context.Step.delaySeconds ? [double]$Context.Step.delaySeconds : 2
+    $delaySeconds = ($null -ne $Context.Step.delaySeconds) ? [double]$Context.Step.delaySeconds : 2
     $charDelay    = (Resolve-SequenceCharDelay -Context $Context)
     if (-not (Invoke-TypeDrainEnter -Context $Context -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'waitForAndEnter' -ShellEscape)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_99bfd6c66d50c714')
@@ -436,9 +448,7 @@ function Invoke-BlindAnswer {
     $rawConfirm = $Context.Step.confirmPattern
     [string[]]$confirmPatterns = @()
     if ($null -ne $rawConfirm) {
-        $confirmPatterns = if ($rawConfirm -is [System.Collections.IEnumerable] -and $rawConfirm -isnot [string]) {
-            @($rawConfirm | ForEach-Object { & $Context.ExpandVariable $_ $Context.Vars })
-        } else { @(& $Context.ExpandVariable $rawConfirm $Context.Vars) }
+        $confirmPatterns = Expand-SequencePatternList -Raw $rawConfirm -Vars $Context.Vars -ExpandVariable $Context.ExpandVariable
     }
     $confirmed = if ($confirmPatterns.Count -gt 0) {
         [bool](Wait-ForText -HostType $Context.HostType -VMName $Context.VMName -Pattern $confirmPatterns `
@@ -603,44 +613,19 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
         $breakActivePath   = Join-Path $c.RuntimeDir 'break-active.json'
         $breakContinueFlag = Join-Path $c.RuntimeDir 'control.break-continue'
         Remove-Item -LiteralPath $breakContinueFlag -Force -ErrorAction SilentlyContinue
-        $breakAttempts = 0
-        $breakLastErr  = $null
-        while ($breakAttempts -lt 3) {
-            $breakAttempts++
-            try {
-                $breakDoc = [ordered]@{
-                    guestKey   = $c.GuestKey
-                    vmName     = $c.VMName
-                    hostType   = $c.HostType
-                    stepNum    = [int]$c.StepNum
-                    stepCount  = [int]$c.StepCount
-                    snapshotId = $breakSnapshotId
-                    restoreOnContinue = [bool]$restoreOnContinue
-                    reason     = if ($reason) { [string]$reason } else { '' }
-                    markerPath = [string]$markerPath
-                    startedAt  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-                }
-                $tmp = "$breakActivePath.tmp"
-                $breakDoc | ConvertTo-Json -Compress | Set-Content -Path $tmp -Encoding utf8NoBOM
-                Move-Item -Path $tmp -Destination $breakActivePath -Force
-                $breakLastErr = $null
-                break
-            } catch {
-                $breakLastErr = $_
-                Start-Sleep -Milliseconds (50 * $breakAttempts)
-            }
+        $breakDoc = [ordered]@{
+            guestKey   = $c.GuestKey
+            vmName     = $c.VMName
+            hostType   = $c.HostType
+            stepNum    = [int]$c.StepNum
+            stepCount  = [int]$c.StepCount
+            snapshotId = $breakSnapshotId
+            restoreOnContinue = [bool]$restoreOnContinue
+            reason     = if ($reason) { [string]$reason } else { '' }
+            markerPath = [string]$markerPath
+            startedAt  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         }
-        if ($breakLastErr) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7c7b00a26a30f926' -Arguments @{ breakAttempts = "$breakAttempts"; message = "$($breakLastErr.Exception.Message)"; breakActivePath = "$breakActivePath" })
-            Send-CycleEventSafely -EventRecord @{
-                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-                event     = 'sidecar_write_failed'
-                file      = 'break-active.json'
-                path      = [string]$breakActivePath
-                attempts  = $breakAttempts
-                error     = $breakLastErr.Exception.Message
-            }
-        }
+        $null = Write-YurunaSidecarWithRetry -Path $breakActivePath -InputObject $breakDoc -FileLabel 'break-active.json'
         # Compose a clickable status-service URL so the operator can find
         # the Continue button without hunting for the UI. Port comes from
         # test.config.yml's statusService.port (default 8080). Localhost
@@ -735,33 +720,7 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
                         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_92f1247570b3216b' -Arguments @{ breakSnapshotId = "$breakSnapshotId"; vMName = "$($c.VMName)" }) -InformationAction Continue
                     } else {
                         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_62b042de6133ae7f' -Arguments @{ breakSnapshotId = "$breakSnapshotId"; vMName = "$($c.VMName)" }) -InformationAction Continue
-                        try {
-                            $restored = [bool](Restore-VMDiskSnapshot -VMName $c.VMName -Id $breakSnapshotId -Confirm:$false)
-                            if (-not $restored) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_eef349268384cc8a') }
-                        } catch {
-                            # YurunaCycleRestart is a control-flow marker; re-throw before the
-                            # generic handler turns it into "continuing anyway", which would
-                            # leave control.cycle-restart unconsumed by the cycle-level catch.
-                            if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
-                            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_13f62b2ffa686ec3' -Arguments @{ message = "$($_.Exception.Message)" })
-                        }
-                        # Restore-VMDiskSnapshot stops the VM to swap the disk, so
-                        # bring it back up. Only needed on this path -- a plain
-                        # breakpoint leaves the VM running and must not restart it.
-                        if (Get-Command Start-VM -ErrorAction SilentlyContinue) {
-                            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_68341a9ddbe34650' -Arguments @{ vMName = "$($c.VMName)" }) -InformationAction Continue
-                            try {
-                                $startRes = Start-VM -VMName $c.VMName -Confirm:$false
-                                if ($startRes -is [hashtable] -and -not $startRes.success) {
-                                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_65723f23878cc607' -Arguments @{ errorMessage = "$($startRes.errorMessage)" })
-                                }
-                            } catch {
-                                if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
-                                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_10efec7f4ca6c612' -Arguments @{ message = "$($_.Exception.Message)" })
-                            }
-                        } else {
-                            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a6463045311dbeb6')
-                        }
+                        if (-not (Restore-SequenceSnapshot -c $c -snapId $breakSnapshotId -HandlerName 'break')) { return $false }
                     }
                 }
             }
@@ -835,14 +794,32 @@ Register-SequenceAction -Name 'saveDiskSnapshot' -HostIORequirement @() -OcrRequ
         return $ok
     }
 
-Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequired $false `
-    -FailureClass 'snapshot_restore_failed' -Severity 'hard' -SuggestedRecoveries @('operator_intervention_required') `
-    -Description (Format-YurunaOperatorMessage -Key 'runner.operator_7fd5db2fdbbc0cc5') `
-    -FailureLabel { param($c) "loadDiskSnapshot: `"$(& $c.ExpandVariable $c.Step.id $c.Vars)`"" } `
-    -Handler {
-        param([hashtable]$c)
-        $snapId = & $c.ExpandVariable $c.Step.id $c.Vars
-        if (-not $snapId) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_419f7edb1d5f67bd'); return $false }
+function Write-YurunaSidecarWithRetry {
+    <# .SYNOPSIS
+    Publishes an atomic sidecar with bounded retries and an explicit failure event.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Internal diagnostic publication; caller owns confirmation.')]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$InputObject, [Parameter(Mandatory)][string]$FileLabel)
+    $message = 'atomic sidecar publication failed'
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            if (Write-YurunaStateFileJson -Path $Path -InputObject $InputObject -Confirm:$false) { return $true }
+        } catch { $message = $_.Exception.Message }
+        if ($attempt -lt 3) { Start-Sleep -Milliseconds (50 * $attempt) }
+    }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7c7b00a26a30f926' -Arguments @{ breakAttempts = '3'; message = $message; breakActivePath = $Path })
+    Send-CycleEventSafely -EventRecord @{ timestamp = [datetime]::UtcNow.ToString('o'); event = 'sidecar_write_failed'; file = $FileLabel; path = $Path; attempts = 3; error = $message }
+    return $false
+}
+
+function Restore-SequenceSnapshot {
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Shared action implementation; the VM driver owns confirmation for restore and start.')]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][hashtable]$c, [Parameter(Mandatory)][string]$snapId, [string]$HandlerName = 'loadDiskSnapshot')
         if ($c.SnapshotPolicy) {
             try {
                 Import-Module (Join-Path $PSScriptRoot 'Test.SnapshotManifest.psm1') -DisableNameChecking -Global
@@ -886,7 +863,7 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
                     event        = 'snapshot_missing'
                     vmName       = [string]$c.VMName
                     snapshotId   = [string]$snapId
-                    handler      = 'loadDiskSnapshot'
+                    handler      = $HandlerName
                     failureClass = 'snapshot_restore_failed'
                     severity     = 'hard'
                 }
@@ -909,7 +886,7 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
                     event        = 'snapshot_manifest_mismatch'
                     vmName       = [string]$c.VMName
                     snapshotId   = [string]$snapId
-                    handler      = 'loadDiskSnapshot'
+                    handler      = $HandlerName
                     violations   = @($check.Violations)
                     failureClass = 'snapshot_restore_failed'
                     severity     = 'hard'
@@ -922,7 +899,7 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
                     event      = 'snapshot_manifest_missing'
                     vmName     = [string]$c.VMName
                     snapshotId = [string]$snapId
-                    handler    = 'loadDiskSnapshot'
+                    handler    = $HandlerName
                 }
             }
         }
@@ -964,6 +941,17 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ea69002928c6384f' -Arguments @{ message = "$($_.Exception.Message)" }); return $false
         }
         return $true
+}
+
+Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequired $false `
+    -FailureClass 'snapshot_restore_failed' -Severity 'hard' -SuggestedRecoveries @('operator_intervention_required') `
+    -Description (Format-YurunaOperatorMessage -Key 'runner.operator_7fd5db2fdbbc0cc5') `
+    -FailureLabel { param($c) "loadDiskSnapshot: `"$(& $c.ExpandVariable $c.Step.id $c.Vars)`"" } `
+    -Handler {
+        param([hashtable]$c)
+        $snapId = & $c.ExpandVariable $c.Step.id $c.Vars
+        if (-not $snapId) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_419f7edb1d5f67bd'); return $false }
+        return (Restore-SequenceSnapshot -c $c -snapId $snapId)
     }
 
 Register-SequenceAction -Name 'saveSystemDiagnostic' -HostIORequirement @() -OcrRequired $false `
@@ -1049,7 +1037,7 @@ Register-SequenceAction -Name 'callExtension' -HostIORequirement @() -OcrRequire
         [void](Import-Extension -Area $callArea)
         $cmd = Resolve-ExtensionMethod -Area $callArea -ExtensionName $extName -Method $callMethod
         Write-Debug "      callExtension: $callArea/$extName.$callMethod ($($resolvedArgs.Keys -join ', '))"
-        try { & $cmd @resolvedArgs; return $true }
+        try { $null = & $cmd @resolvedArgs; return $true }
         catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_784ff212589ae772' -Arguments @{ callArea = "$callArea"; callMethod = "$callMethod"; message = "$($_.Exception.Message)" }); return $false }
     }
 
@@ -1074,7 +1062,7 @@ Register-SequenceAction -Name 'inputTextAndEnter' -HostIORequirement @('Send-Tex
         param([hashtable]$c)
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $masked = ($c.Step.sensitive -and -not $c.ShowSensitive) ? '***' : $text
-        $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
+        $delaySeconds = ($null -ne $c.Step.delaySeconds) ? [double]$c.Step.delaySeconds : 2
         $charDelay = (Resolve-SequenceCharDelay -Context $c)
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
         return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'inputTextAndEnter' -ShellEscape)
@@ -1218,9 +1206,7 @@ Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text'
         # succeed without typing into it (notably, never type "yes" at login).
         $rawSkipInput = $c.Step.skipInputPattern
         if ($null -ne $rawSkipInput) {
-            [string[]]$skipInputPatterns = if ($rawSkipInput -is [System.Collections.IEnumerable] -and $rawSkipInput -isnot [string]) {
-                @($rawSkipInput | ForEach-Object { & $c.ExpandVariable $_ $c.Vars })
-            } else { @(& $c.ExpandVariable $rawSkipInput $c.Vars) }
+            [string[]]$skipInputPatterns = Expand-SequencePatternList -Raw $rawSkipInput -Vars $c.Vars -ExpandVariable $c.ExpandVariable
             $waitVerdict = Test.SequenceEngine\Get-LastWaitVerdict
             foreach ($skipInputPattern in $skipInputPatterns) {
                 if ($waitVerdict.ConsoleText -and (Test-OCRMatch -Text ([string]$waitVerdict.ConsoleText) -Pattern $skipInputPattern -NoSegmentMatch:$p.noSegmentMatch)) {
@@ -1232,7 +1218,7 @@ Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text'
         Send-TabNavigation -Context $c
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $masked = ($c.Step.sensitive -and -not $c.ShowSensitive) ? '***' : $text
-        $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
+        $delaySeconds = ($null -ne $c.Step.delaySeconds) ? [double]$c.Step.delaySeconds : 2
         $charDelay = (Resolve-SequenceCharDelay -Context $c)
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
         return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'waitForAndEnter' -ShellEscape)
@@ -1259,7 +1245,7 @@ Register-SequenceAction -Name 'passwdPrompt' -HostIORequirement @('Send-Text', '
         Send-TabNavigation -Context $c
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $masked = $c.ShowSensitive ? $text : '***'
-        $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
+        $delaySeconds = ($null -ne $c.Step.delaySeconds) ? [double]$c.Step.delaySeconds : 2
         $charDelay = (Resolve-SequenceCharDelay -Context $c)
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
         return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'passwdPrompt')
@@ -1271,9 +1257,7 @@ Register-SequenceAction -Name 'tapOn' -HostIORequirement @('Send-Click') -OcrReq
     -Handler {
         param([hashtable]$c)
         $rawLabels = $c.Step.label
-        [string[]]$labels = if ($rawLabels -is [System.Collections.IEnumerable] -and $rawLabels -isnot [string]) {
-            $rawLabels | ForEach-Object { & $c.ExpandVariable $_ $c.Vars }
-        } else { @(& $c.ExpandVariable $rawLabels $c.Vars) }
+        [string[]]$labels = Expand-SequencePatternList -Raw $rawLabels -Vars $c.Vars -ExpandVariable $c.ExpandVariable
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         $poll    = $c.Step.pollSeconds    ? [int]$c.Step.pollSeconds    : $c.DefaultPollSeconds
         $offX    = $c.Step.offsetX        ? [int]$c.Step.offsetX        : 0
@@ -1523,7 +1507,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
         if ($typedCommands.Count -gt 1) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0ed289c55b84fcb5' -Arguments @{ length = "$($text.Length)"; count = "$($typedCommands.Count)" })
         }
-        $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
+        $delaySeconds = ($null -ne $c.Step.delaySeconds) ? [double]$c.Step.delaySeconds : 2
         $charDelay = (Resolve-SequenceCharDelay -Context $c)
         if (-not $c.Step.sensitive) { Write-Debug "      fetchAndExecute: command '$($fetchContext.Launch)'" }
         foreach ($typedCommand in $typedCommands) {
@@ -1553,11 +1537,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
             # Same string-or-array shape every other pattern-bearing verb
             # accepts, so `failurePatterns` means one thing across the schema
             # rather than one thing here and another everywhere else.
-            $failPatterns = if ($rawFail -is [System.Collections.IEnumerable] -and $rawFail -isnot [string]) {
-                @($rawFail | ForEach-Object { & $c.ExpandVariable $_ $c.Vars })
-            } else {
-                @(& $c.ExpandVariable $rawFail $c.Vars)
-            }
+            $failPatterns = Expand-SequencePatternList -Raw $rawFail -Vars $c.Vars -ExpandVariable $c.ExpandVariable
         } else {
             # This IS the fetchAndExecute action, so its fetch-and-execute
             # contract (automation/fetch-and-execute.sh) always applies: the
@@ -1678,6 +1658,9 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
 
         $logDir     = Initialize-YurunaLogDir
         $screensDir = Get-CycleScreenDir -VMName $c.VMName -WhatIf:$false
+        $rawQueue = [Collections.Generic.Queue[string]]::new()
+        Get-ChildItem -LiteralPath $screensDir -Filter 'raw_*.png' -File -ErrorAction SilentlyContinue |
+            Sort-Object Name | ForEach-Object { $rawQueue.Enqueue($_.FullName) }
 
         # Chunk size balances detection lag (smaller = faster fail) against
         # OCR cost (~50-200 ms per scan on a typical host). 15 s gives
@@ -1701,17 +1684,10 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
             $captured = Get-VMScreenshot -VMName $c.VMName -OutFile $rawScreenPath
             if (-not $captured -or -not (Test-Path $rawScreenPath)) { continue }
 
+            Add-OcrHistoryFrame -Queue $rawQueue -Path $rawScreenPath -Limit (Test.SequenceEngine\Get-ScreenHistorySize)
             $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $installerFailPatterns
             if ($result.AnyText) {
-                $ocrSections = [System.Collections.Generic.List[string]]::new()
-                foreach ($eName in $result.EngineResults.Keys) {
-                    $er = $result.EngineResults[$eName]
-                    $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
-                    $ocrSections.Add("== $eName ($status) ==")
-                    $ocrSections.Add($er.Text)
-                    $ocrSections.Add('')
-                }
-                Save-OcrSidecar -ScreenshotPath $rawScreenPath -Sections $ocrSections
+                Test.SequenceEngine\Save-EngineOcrSidecar -ScreenshotPath $rawScreenPath -EngineResults $result.EngineResults
             }
             if (-not $result.Match) { continue }
 
@@ -1956,6 +1932,11 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
             }
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0dfd5c6b86f1046f' -FormatValues ($c.StepNum, $c.StepCount, $attempt, $maxAttempts, $c.Description) -FormatBindings @{ stepNum = '0'; stepCount = '1'; attempt = '2'; maxAttempts = '3'; description = '4' })
             $attemptOk = & $c.InvokeStepBlock -Steps $innerSteps -ParentOrdinal $c.StepNum -ParentAction 'retry' -ParentAttempt $attempt
+            $finishedVm = if (Get-Command Get-SequenceFinishedVMName -ErrorAction SilentlyContinue) { Get-SequenceFinishedVMName } else { $c.VMName }
+            if ($finishedVm -and $finishedVm -ne $c.VMName) {
+                $c.VMName = $finishedVm
+                $c.NewVMName = $finishedVm
+            }
             if ($attemptOk) {
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b59032415dc73ae4' -FormatValues ($c.StepNum, $c.StepCount, $attempt, $maxAttempts) -FormatBindings @{ stepNum = '0'; stepCount = '1'; attempt = '2'; maxAttempts = '3' })
                 break
@@ -2127,78 +2108,8 @@ Register-SequenceAction -Name 'recoverFromSnapshot' -HostIORequirement @() -OcrR
         }
         $snapId = & $c.ExpandVariable $c.Step.id $c.Vars
         if (-not $snapId) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d93099009c5a7d59'); return $false }
-        if (-not (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue) -or `
-            -not (Get-Command Start-VM -ErrorAction SilentlyContinue)) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c1dfab35d5d580a4')
-            return $false
-        }
-        # Pre-validation: confirm the snapshot exists before any restore.
-        # Restore-VMDiskSnapshot on a missing snapshot can leave the VM
-        # in an ambiguous state on some hypervisors (Hyper-V silently
-        # no-ops; KVM virsh returns non-zero late, AFTER it has stopped
-        # the domain). Fail-loud here so the operator sees the missing
-        # snapshot, not a stopped VM with no explanation.
-        if (Get-Command Test-VMDiskSnapshot -ErrorAction SilentlyContinue) {
-            $snapExists = $false
-            try { $snapExists = [bool](Test-VMDiskSnapshot -VMName $c.VMName -Id $snapId) }
-            catch {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a52dca22e2a172d7' -Arguments @{ message = "$($_.Exception.Message)" })
-                $snapExists = $true
-            }
-            if (-not $snapExists) {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_df7ed91aac9f4403' -Arguments @{ snapId = "$snapId"; vMName = "$($c.VMName)" })
-                Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-                    event        = 'snapshot_missing'
-                    vmName       = [string]$c.VMName
-                    snapshotId   = [string]$snapId
-                    handler      = 'recoverFromSnapshot'
-                    failureClass = 'snapshot_restore_failed'
-                    severity     = 'hard'
-                }
-                return $false
-            }
-        }
-        # Manifest identity check; same contract as loadDiskSnapshot.
-        # Missing manifest is warn-only (older snapshots may not have
-        # one); mismatch is a hard refuse.
-        if (Get-Command Test-SnapshotManifestMatch -ErrorAction SilentlyContinue) {
-            $check = Test-SnapshotManifestMatch -VMName $c.VMName -SnapshotId $snapId -HostType $c.HostType
-            if ($check.Status -eq 'mismatch') {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a8da3c2cf2b9b4d2' -Arguments @{ snapId = "$snapId"; vMName = "$($c.VMName)"; join = "$($check.Violations -join '; ')" })
-                Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-                    event        = 'snapshot_manifest_mismatch'
-                    vmName       = [string]$c.VMName
-                    snapshotId   = [string]$snapId
-                    handler      = 'recoverFromSnapshot'
-                    violations   = @($check.Violations)
-                    failureClass = 'snapshot_restore_failed'
-                    severity     = 'hard'
-                }
-                return $false
-            } elseif ($check.Status -eq 'missing') {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e788536aac40e0f6' -Arguments @{ snapId = "$snapId"; vMName = "$($c.VMName)" })
-                Send-CycleEventSafely -EventRecord @{
-                    timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-                    event      = 'snapshot_manifest_missing'
-                    vmName     = [string]$c.VMName
-                    snapshotId = [string]$snapId
-                    handler    = 'recoverFromSnapshot'
-                }
-            }
-        }
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_daae4716ca62f521' -Arguments @{ lastFailedStepNumber = "$($script:Fail.LastFailedStepNumber)"; snapId = "$snapId"; vMName = "$($c.VMName)" })
-        try { $restored = [bool](Restore-VMDiskSnapshot -VMName $c.VMName -Id $snapId -Confirm:$false) }
-        catch { Write-Warning "      recoverFromSnapshot: $($_.Exception.Message)"; return $false }
-        if (-not $restored) { return $false }
-        try {
-            $startRes = Start-VM -VMName $c.VMName -Confirm:$false
-            if ($startRes -is [hashtable] -and -not $startRes.success) {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_190bc05bcd0421f2' -Arguments @{ errorMessage = "$($startRes.errorMessage)" })
-                return $false
-            }
-        } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a7a00252a7d2e710' -Arguments @{ message = "$($_.Exception.Message)" }); return $false }
+        if (-not (Restore-SequenceSnapshot -c $c -snapId $snapId -HandlerName 'recoverFromSnapshot')) { return $false }
         # Clear the failed-step marker so downstream steps see a clean state.
         $script:Fail.LastFailedStepNumber = 0
         $script:Fail.LastFailureLabel     = $null

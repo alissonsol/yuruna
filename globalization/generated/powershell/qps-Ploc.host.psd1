@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42270c23-bc4d-b72a-aa6d-221c47193049
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -6551,7 +6551,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '/  (Áššíğñ / Ƥóóļš / Ţéšţ šéţš) ~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '/  (Ƀóářď / Ħóšţš / Ƥóóļš) ~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'host.operator_bba21c5cbbc83755' = @(
         '[ṽířţ-íñšţáļļ --ƥříñţ-ẋɱļ ƒáíļéď (éẋíţ '

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a27240-9228-4384-9324-f2bcf259469f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,9 +65,8 @@ function New-InnerRunnerArgList {
         Bool / int / double values are emitted as PowerShell literals so
         the binder preserves the type.
     .PARAMETER ExcludeParameter
-        Names that exist in $Parameters but must NOT be forwarded -- e.g.
-        outer-only switches like -NoConfigGate that the inner does not
-        accept.
+        Names that exist in $Parameters but must not be forwarded, such as
+        the outer runner's -RefreshResume and -RefreshHandoffToken switches.
     .PARAMETER NonInteractive
         Insert -NonInteractive after -NoProfile, so a child that shares the
         launching terminal refuses any prompt instead of blocking on it.
@@ -84,7 +83,7 @@ function New-InnerRunnerArgList {
         [string[]]$ExcludeParameter = @(),
         [switch]$NonInteractive
     )
-    $escapedScript = $ScriptPath -replace "'", "''"
+    $escapedScript = $ScriptPath -replace "['\u2018\u2019]", '$0$0'
     $cmdParts = @("& '$escapedScript'")
     foreach ($k in $Parameters.Keys) {
         if ($ExcludeParameter -contains $k) { continue }
@@ -98,7 +97,7 @@ function New-InnerRunnerArgList {
             $cmdParts += "-$k"
             $cmdParts += "$v"
         } else {
-            $escaped = ("$v") -replace "'", "''"
+            $escaped = ("$v") -replace "['\u2018\u2019]", '$0$0'
             $cmdParts += "-$k"
             $cmdParts += "'$escaped'"
         }
@@ -624,7 +623,9 @@ function Invoke-YurunaDetachedHop {
         return $Code
     }
     $spec = $null
-    try { $spec = [System.IO.File]::ReadAllText($SpecPath) | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch {
+    $jsonOptions = @{}
+    if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOptions.DateKind = 'String' }
+    try { $spec = [System.IO.File]::ReadAllText($SpecPath) | ConvertFrom-Json -AsHashtable @jsonOptions -ErrorAction Stop } catch {
         $ack.error = 'spec-unreadable'
         return (& $finish 1)
     }

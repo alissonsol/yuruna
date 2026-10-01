@@ -255,10 +255,10 @@ dashboard at `http://<host>:8080/`
 A machine that belongs to no pool still cycles on its own configuration
 and reports to the lab dashboards, but takes no assignment. Add it to a
 pool from the pool-control service UI at
-`http://<pool-control-service-vm-ip>/` and give that pool a test-set
+`http://<pool-control-service-vm-ip>/` (its Hosts page) and set that
+pool's Framework URL and Project URL on its Pools page
 ([pool-admin.md](pool-admin.md)). Each runner pulls intent at the start
-of a cycle, so the assignment takes effect on the next one with no
-restart.
+of a cycle, so the change takes effect on the next one with no restart.
 
 ---
 
@@ -266,6 +266,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

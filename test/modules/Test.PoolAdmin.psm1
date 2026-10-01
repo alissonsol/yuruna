@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42771d17-19c8-478e-adde-9418cf0f9f10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,7 +119,7 @@ Validates one pool-intent file against its schema, returning $true when the file
 A -Required file that is absent FAILS (returns $false): pools.yml is the pool's identity and the
 runners pull whatever is committed, so a missing pools.yml would silently leave the pool
 unconfigured -- it must not read as success. A non-required file that is absent is a SKIP
-(returns $true) -- guests.compatibility.yml and the test-sets are genuinely optional. A present
+(returns $true) -- guests.compatibility.yml is genuinely optional. A present
 file is parsed and schema-checked via Test-YurunaPoolDocValid. Emits PASS/FAIL/SKIP breadcrumbs.
 #>
 function Test-YurunaPoolIntentFile {
@@ -150,12 +150,107 @@ function Test-YurunaPoolIntentFile {
     return $false
 }
 
+# One admin command at a time may work in a given admin clone. Every admin CLI is its own process
+# and they all share <runtime>/pool-intent-admin, so without this the clone is opened by several
+# processes at once: two first uses both find no .git and clone into the same directory (one
+# wins, the rest fail), and a read's reset --hard can land between a writer's edit and its
+# commit, so the writer finds nothing to stage and reports success for a change that never
+# happened. The lock therefore covers the whole command: it is taken when the clone is opened and
+# kept until the process exits (the operating system frees it even after a crash) or
+# Unlock-YurunaPoolIntentClone runs. Admins on other hosts work in their own clones and still meet
+# at the remote, where Publish-YurunaPoolIntent rebases a lost push race.
+$script:PoolAdminLockWaitSeconds = 120
+$script:PoolAdminHeldLocks = [System.Collections.Generic.Dictionary[string, System.IO.FileStream]]::new(
+    $(if ($IsLinux) { [StringComparer]::Ordinal } else { [StringComparer]::OrdinalIgnoreCase }))
+
+<#
+.SYNOPSIS
+Takes the cross-process lock for an admin clone, waiting up to $WaitSeconds for another command.
+.DESCRIPTION
+The lock is an exclusively opened file NEXT TO the clone (<IntentDir>.lock), never inside it, so
+`git add -A` cannot stage it and a clone that does not exist yet can still be locked. Re-entrant
+within a process: a second call for the same clone returns at once. Returns @{ Ok; Error }; Ok=$false
+only when another command still holds the clone after the wait. A lock that cannot be created for
+any other reason (an unwritable directory, a filesystem without file locking) is skipped, not
+fatal: the caller's own clone or fetch reports the real problem, and this guard must not become a
+new way for an admin command to fail.
+.PARAMETER IntentDir
+The clone directory. A PowerShell path (a drive such as TestDrive:, a relative path) is resolved,
+because other processes must land on the same file.
+.PARAMETER WaitSeconds
+How long to wait for a command that holds the clone.
+#>
+function Lock-YurunaPoolIntentClone {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$IntentDir,
+        [int]$WaitSeconds = $script:PoolAdminLockWaitSeconds
+    )
+    $cloneFull = [System.IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($IntentDir))
+    $lockPath = $cloneFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + '.lock'
+    if ($script:PoolAdminHeldLocks.ContainsKey($lockPath)) { return @{ Ok = $true; Error = '' } }
+    $deadlineUtc = [DateTime]::UtcNow.AddSeconds([Math]::Max(0, $WaitSeconds))
+    while ($true) {
+        try {
+            [void][System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($lockPath))
+            $script:PoolAdminHeldLocks[$lockPath] = [System.IO.FileStream]::new($lockPath, [System.IO.FileMode]::OpenOrCreate,
+                [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+            return @{ Ok = $true; Error = '' }
+        } catch {
+            # A held lock is an IOException (a sharing violation). Only PowerShell's own method-call
+            # wrapper is unwrapped: an UnauthorizedAccessException also carries an IOException
+            # inside it, and that one is a permissions problem, not another command.
+            $cause = $_.Exception
+            if ($cause -is [System.Management.Automation.RuntimeException] -and $cause.InnerException) { $cause = $cause.InnerException }
+            if ($cause -isnot [System.IO.IOException]) {
+                Write-Verbose "admin clone lock skipped: $($cause.Message)"
+                return @{ Ok = $true; Error = '' }
+            }
+            if ([DateTime]::UtcNow -ge $deadlineUtc) {
+                return @{ Ok = $false; Error = "another pool admin command is still using the admin clone at $IntentDir (waited $WaitSeconds s for $lockPath); run this command again when it finishes." }
+            }
+            Start-Sleep -Milliseconds 250
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+Releases the lock Lock-YurunaPoolIntentClone took for one admin clone, or for every clone with -All.
+.DESCRIPTION
+An admin command need not call this: it holds the clone for its whole run and the operating system
+frees the lock when the process ends. It exists for a long-lived caller and for tests that delete
+the clone's directory, which Windows refuses while the lock file is open.
+#>
+function Unlock-YurunaPoolIntentClone {
+    [CmdletBinding(DefaultParameterSetName = 'One')]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'One')][string]$IntentDir,
+        [Parameter(Mandatory, ParameterSetName = 'All')][switch]$All
+    )
+    $held = if ($All) { @($script:PoolAdminHeldLocks.Keys) } else {
+        $cloneFull = [System.IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($IntentDir))
+        @($cloneFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + '.lock')
+    }
+    foreach ($lockPath in $held) {
+        $stream = $null
+        if ($script:PoolAdminHeldLocks.TryGetValue($lockPath, [ref]$stream)) {
+            [void]$script:PoolAdminHeldLocks.Remove($lockPath)
+            $stream.Dispose()
+        }
+    }
+}
+
 <#
 .SYNOPSIS
 Ensures a working clone of the WRITABLE intent repo at $IntentDir.
 .DESCRIPTION
 Clones when absent, else fetches + reset --hard origin/HEAD so the edit is based on the latest
-remote state. Bounded + prompt-proof. Returns @{ Ok; Error }.
+remote state. Bounded + prompt-proof. Returns @{ Ok; Error }. Takes the clone's cross-process lock
+first (see Lock-YurunaPoolIntentClone) and keeps it until the process exits, so no other admin
+command can clone, reset or commit in the clone while this one edits it.
 #>
 function Open-YurunaPoolIntent {
     [CmdletBinding(SupportsShouldProcess)]
@@ -168,8 +263,15 @@ function Open-YurunaPoolIntent {
         return @{ Ok = $false; Error = 'Test.PoolSync (Invoke-PoolSyncGit) not loaded.' }
     }
     if (-not $PSCmdlet.ShouldProcess($IntentDir, (Format-YurunaOperatorMessage -Key 'runner.operator_811a9975fa1a2df7' -Arguments @{ intentGitUrl = "$IntentGitUrl" }))) { return @{ Ok = $true; Error = '' } }
+    $locked = Lock-YurunaPoolIntentClone -IntentDir $IntentDir -WaitSeconds $script:PoolAdminLockWaitSeconds
+    if (-not $locked.Ok) { return @{ Ok = $false; Error = $locked.Error } }
     $gitDir = Join-Path $IntentDir '.git'
     if (Test-Path -LiteralPath $gitDir) {
+        # The clone is the operator's write path and may hold unpushed intent, so a
+        # different origin is refused rather than rewritten or re-cloned over it.
+        if ((Get-Command Test-PoolIntentCloneOrigin -ErrorAction SilentlyContinue) -and -not (Test-PoolIntentCloneOrigin -Path $IntentDir -Url $IntentGitUrl)) {
+            return @{ Ok = $false; Error = "the admin clone at $IntentDir has a different origin than the requested $IntentGitUrl; refusing to fetch or push it. Use another -IntentDir, or delete $IntentDir to re-clone from $IntentGitUrl." }
+        }
         $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'fetch', '--quiet', 'origin') -Label 'git fetch'
         if ($rc -ne 0) { return @{ Ok = $false; Error = "git fetch failed (exit $rc) from $IntentGitUrl" } }
         # A clone left mid-rebase (an interrupted Publish rebase-retry) holds an
@@ -213,20 +315,77 @@ function Open-YurunaPoolIntent {
 
 <#
 .SYNOPSIS
-Parses <IntentDir>/pools.yml into an ordered dictionary, or returns a fresh empty doc
-({schemaVersion:2, pools:[]}) when the file is absent.
+Upgrades an in-memory pools.yml document to schemaVersion 3, in place, and returns it.
+.DESCRIPTION
+Schema v3 carries a pool's framework and project URLs as `repositories`
+({ frameworkUrl, projectUrl }). A document below v3 -- or one with no schemaVersion at all,
+which the v2 admin tooling read as 2 -- is upgraded: a pool whose `testSet` holds a non-empty
+frameworkUrl AND projectUrl gets them as `repositories`, in the same key position; the
+`testSet` object (with its `name` and `sequences`) and any `testSets` list are dropped; and
+schemaVersion becomes 3.
+
+A document already at 3 is returned unchanged, and so is one at a higher or a non-integer
+version: this checkout cannot know that shape, so it leaves the document for the writer's
+schema validation to refuse instead of guessing. Idempotent. Every admin read goes through
+Read-YurunaPoolsDoc, which calls this, so the next admin write persists the upgrade.
+.PARAMETER Doc
+The parsed pools.yml document.
+.OUTPUTS
+System.Collections.IDictionary -- the same $Doc instance.
+#>
+function ConvertTo-PoolIntentSchemaV3 {
+    [CmdletBinding()]
+    [OutputType([System.Collections.IDictionary])]
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Doc)
+    $version = if ($Doc.Contains('schemaVersion')) { $Doc['schemaVersion'] } else { 2 }
+    if (-not (($version -is [int]) -or ($version -is [long]))) { return $Doc }
+    if ($version -ge 3) { return $Doc }
+    foreach ($pool in @($Doc['pools'])) {
+        if ($pool -isnot [System.Collections.IDictionary]) { continue }
+        $legacy = $pool['testSet']
+        if (($legacy -is [System.Collections.IDictionary]) -and -not $pool.Contains('repositories')) {
+            $frameworkUrl = ([string]$legacy['frameworkUrl']).Trim()
+            $projectUrl   = ([string]$legacy['projectUrl']).Trim()
+            if ($frameworkUrl -and $projectUrl) {
+                $pair = [ordered]@{ frameworkUrl = $frameworkUrl; projectUrl = $projectUrl }
+                if ($pool -is [System.Collections.Specialized.OrderedDictionary]) {
+                    $pool.Insert(@($pool.Keys).IndexOf('testSet'), 'repositories', $pair)
+                } else {
+                    $pool['repositories'] = $pair
+                }
+            }
+        }
+        if ($pool.Contains('testSet'))  { $pool.Remove('testSet') }
+        if ($pool.Contains('testSets')) { $pool.Remove('testSets') }
+    }
+    # schemaVersion leads the file when it has to be added, as every writer emits it.
+    if (($Doc -is [System.Collections.Specialized.OrderedDictionary]) -and -not $Doc.Contains('schemaVersion')) {
+        $Doc.Insert(0, 'schemaVersion', 3)
+    } else {
+        $Doc['schemaVersion'] = 3
+    }
+    return $Doc
+}
+
+<#
+.SYNOPSIS
+Parses <IntentDir>/pools.yml into an ordered dictionary upgraded to schemaVersion 3, or returns a
+fresh empty doc ({schemaVersion:3, pools:[]}) when the file is absent or not a mapping.
+.DESCRIPTION
+Every pool-admin CLI reads through here, so ConvertTo-PoolIntentSchemaV3 runs on every admin
+read and the next admin write persists the upgrade. Test-PoolIntent.ps1 and
+Update-PoolIntentSchema.ps1 read pools.yml raw instead: they must see the version as stored.
 #>
 function Read-YurunaPoolsDoc {
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
     param([Parameter(Mandatory)][string]$IntentDir)
     $path = Join-Path $IntentDir 'pools.yml'
-    if (-not (Test-Path -LiteralPath $path)) { return ([ordered]@{ schemaVersion = 2; pools = @() }) }
-    $doc = Get-Content -Raw -LiteralPath $path | ConvertFrom-Yaml -Ordered
-    if (-not ($doc -is [System.Collections.IDictionary])) { return ([ordered]@{ schemaVersion = 2; pools = @() }) }
-    if (-not $doc.Contains('schemaVersion')) { $doc['schemaVersion'] = 2 }
+    $doc = $null
+    if (Test-Path -LiteralPath $path) { $doc = Get-Content -Raw -LiteralPath $path | ConvertFrom-Yaml -Ordered }
+    if ($doc -isnot [System.Collections.IDictionary]) { $doc = [ordered]@{ schemaVersion = 3; pools = @() } }
     if (-not $doc.Contains('pools') -or $null -eq $doc['pools']) { $doc['pools'] = @() }
-    return $doc
+    return (ConvertTo-PoolIntentSchemaV3 -Doc $doc)
 }
 
 <#
@@ -403,9 +562,9 @@ function ConvertTo-YurunaHostId {
         each push. The usual post-update hook never becomes executable on a CIFS
         mount, so info/refs would go stale the moment intent was written and readers
         would keep being served the old refs.
-      * `schemaVersion: 2` -- a store seeded at 1 READS fine, because nothing
-        validates on read, and then fails every write at schema validation. The
-        store looks healthy right up until someone creates a pool.
+      * `schemaVersion: 3` -- a store seeded at an older version READS fine,
+        because nothing validates on read, and then fails every write at schema
+        validation. The store looks healthy right up until someone creates a pool.
 
     Idempotent: an existing repository is left untouched.
 .PARAMETER Path
@@ -443,7 +602,7 @@ function New-YurunaPoolIntentStore {
         & git -C $seed init -q --initial-branch=main 2>&1 | Out-Null
         & git -C $seed config core.fileMode false 2>&1 | Out-Null
         # LF, no BOM: the file is read by git and by ConvertFrom-Yaml on three platforms.
-        [IO.File]::WriteAllText((Join-Path $seed 'pools.yml'), "schemaVersion: 2`npools: []`n",
+        [IO.File]::WriteAllText((Join-Path $seed 'pools.yml'), "schemaVersion: 3`npools: []`n",
             (New-Object System.Text.UTF8Encoding($false)))
         & git -C $seed add -A 2>&1 | Out-Null
         # Identity supplied inline so this works on a host with no git user configured.
@@ -496,9 +655,7 @@ function Initialize-YurunaPoolIntentStorePath {
     # a local path, so it is unwrapped rather than skipped -- an operator writing
     # the writable target as a file:// url means the same store as the bare path.
     if ($target -match '^file://(?<rest>.+)$') {
-        $rest = $Matches['rest']
-        # file:///srv/x -> /srv/x ; file://server/share -> \\server\share
-        $target = if ($rest -match '^/') { $rest } else { '\\' + ($rest -replace '/', '\') }
+        $target = ([uri]$target).LocalPath
     } elseif ($target -match '^[A-Za-z][A-Za-z0-9+.-]*://') {
         return @{ Ok = $true; Created = $false; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_e314b5fed409feed') }
     } elseif ($target -match '^[^@/\\]+@[^:/\\]+:') {
@@ -525,8 +682,50 @@ function Initialize-YurunaPoolIntentStorePath {
     }
 }
 
-Export-ModuleMember -Function `
+function Open-YurunaPoolAdminStore {
+    <#
+    .SYNOPSIS
+        Resolve and open the pool intent store with one consistent error contract.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([string]$IntentGitUrl, [string]$IntentDir)
+    $target = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
+    if ([string]::IsNullOrWhiteSpace($target.IntentGitUrl)) {
+        return @{ Ok = $false; Target = $target; Error = (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') }
+    }
+    if (-not $PSCmdlet.ShouldProcess($target.IntentDir, 'Open pool intent store')) { return @{ Ok = $false; Target = $target; Error = 'Open declined.' } }
+    $opened = Open-YurunaPoolIntent -IntentGitUrl $target.IntentGitUrl -IntentDir $target.IntentDir -Confirm:$false
+    $errorText = if ($opened.Ok) { '' } else { Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($target.IntentGitUrl)"; error = "$($opened.Error)" } }
+    return @{ Ok = [bool]$opened.Ok; Target = $target; Error = $errorText }
+}
+
+function Publish-YurunaPoolDocChange {
+    <#
+    .SYNOPSIS
+        Save a validated document and require successful intent publication.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$IntentDir, [Parameter(Mandatory)][string]$RelPath,
+        [Parameter(Mandatory)]$Doc, [Parameter(Mandatory)][string]$SchemaName,
+        [Parameter(Mandatory)][string]$Message)
+    if (-not $PSCmdlet.ShouldProcess($IntentDir, $Message)) { return @{ Ok = $false; Pushed = $false; Error = 'Publication declined.' } }
+    $saved = Save-YurunaPoolDoc -IntentDir $IntentDir -RelPath $RelPath -Doc $Doc -SchemaName $SchemaName -Confirm:$false
+    if (-not $saved.Ok) { return @{ Ok = $false; Pushed = $false; Error = (Format-YurunaOperatorMessage -Key 'runner.operator_9c27a25b6843707d' -Arguments @{ error = "$($saved.Error)" }) } }
+    $published = Publish-YurunaPoolIntent -IntentDir $IntentDir -Message $Message -Confirm:$false
+    $key = if (-not $published.Ok) { 'runner.operator_493d8875345272bb' } else { 'runner.operator_d7dcddaba0a5b0ef' }
+    $errorText = if ($published.Ok -and $published.Pushed) { '' } else { Format-YurunaOperatorMessage -Key $key -Arguments @{ error = "$($published.Error)" } }
+    return @{ Ok = [bool]($published.Ok -and $published.Pushed); Pushed = [bool]$published.Pushed; Error = $errorText }
+}
+
+# A re-import (Import-Module -Force) drops this table, and a lock whose stream was dropped with it
+# would stay held by this process and block the next Open of the same clone until the process ends.
+$ExecutionContext.SessionState.Module.OnRemove = { Unlock-YurunaPoolIntentClone -All }
+
+Export-ModuleMember -Function Open-YurunaPoolAdminStore, Publish-YurunaPoolDocChange, `
     Resolve-YurunaPoolSchemaPath, Test-YurunaPoolDocValid, Test-YurunaPoolIntentFile, `
-    Open-YurunaPoolIntent, Read-YurunaPoolsDoc, Save-YurunaPoolDoc, Publish-YurunaPoolIntent, `
+    Lock-YurunaPoolIntentClone, Unlock-YurunaPoolIntentClone, `
+    Open-YurunaPoolIntent, ConvertTo-PoolIntentSchemaV3, Read-YurunaPoolsDoc, Save-YurunaPoolDoc, Publish-YurunaPoolIntent, `
     Get-YurunaPoolFromDoc, Resolve-YurunaPoolAdminTarget, ConvertTo-YurunaHostId, `
     New-YurunaPoolIntentStore, Initialize-YurunaPoolIntentStorePath

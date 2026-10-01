@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42838e67-6737-f31a-bcd5-9af7d0d12cfc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -501,7 +501,7 @@
         }
     )
     'exceptions.host_dd6d74db4a58cc9d' = @(
-        'Fido.ps1 hash mismatch (pinned v1.70): expected '
+        'Fido.ps1 hash mismatch (pinned v1.71): expected '
         @{
             'arg' = 'fidoSha256'
             'type' = 'detail'

@@ -2,7 +2,7 @@ exit: 0
 ok     yuruna/README.md (pt-BR, accepted)
 ok     yuruna/install/README.md (pt-BR, accepted)
 ok     yuruna/docs/operator.md (pt-BR, accepted)
-ok     yuruna/docs/lab-operator.md (pt-BR, accepted)
+ok     yuruna/docs/lab-operator.md (pt-BR, machine draft)
 ok     yuruna/docs/install.md (pt-BR, accepted)
 ok     yuruna/docs/kubernetes.md (pt-BR, accepted)
 ok     yuruna/docs/authentication.md (pt-BR, accepted)
@@ -11,6 +11,8 @@ ok     yuruna-project/README.md (pt-BR, accepted)
 ok     yuruna-project/template/README.md (pt-BR, accepted)
 ok     yuruna-project/example/README.md (pt-BR, accepted)
 ok     yuruna-project/example/website/README.md (pt-BR, accepted)
-ok     yuruna-project/example/text-to-sql/README.md (pt-BR, accepted)
+ok     yuruna-project/example/text-to-sql/README.md (pt-BR, machine draft)
+  yuruna/docs/lab-operator.md is a machine draft, not yet replaced by a professional translation
+  yuruna-project/example/text-to-sql/README.md is a machine draft, not yet replaced by a professional translation
 
-Test-DocTranslation [pt-BR]: 13 document(s), 0 problem(s), 0 machine draft(s).
+Test-DocTranslation [pt-BR]: 13 document(s), 0 problem(s), 2 machine draft(s).

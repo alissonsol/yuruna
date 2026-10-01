@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 424533be-1c51-4584-9728-27ea5064d2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,14 +131,14 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
         @{ Name = 'Stop-CachingProxyServiceVM.ps1'; FirstMutation = @('Clear-CachingProxyServiceLock') }
         @{ Name = 'Stop-StashServiceVM.ps1'; FirstMutation = @('Remove-ExtensionServiceMarker') }
         @{ Name = 'Stop-PoolControlServiceVM.ps1'; FirstMutation = @('Stop-Process', 'Remove-ExtensionServiceMarker') }
-        @{ Name = 'Stop-DownloadAgentServiceVM.ps1'; FirstMutation = @('Remove-DownloadAgentServiceMarker') }
+        @{ Name = 'Stop-DownloadAgentServiceVM.ps1'; FirstMutation = @('Remove-ExtensionServiceMarker') }
         @{ Name = 'Start-CachingProxyServiceVM.ps1'; FirstMutation = @('Enter-CachingProxyServiceLock') }
-        @{ Name = 'Start-StashServiceVM.ps1'; FirstMutation = @('pwsh') }
-        @{ Name = 'Start-PoolControlServiceVM.ps1'; FirstMutation = @('pwsh') }
-        @{ Name = 'Start-DownloadAgentServiceVM.ps1'; FirstMutation = @('pwsh') }
+        @{ Name = 'Start-StashServiceVM.ps1'; FirstMutation = @('Invoke-YurunaServiceVmBuild') }
+        @{ Name = 'Start-PoolControlServiceVM.ps1'; FirstMutation = @('Invoke-YurunaServiceVmBuild') }
+        @{ Name = 'Start-DownloadAgentServiceVM.ps1'; FirstMutation = @('Invoke-YurunaServiceVmBuild') }
     ) {
-        $path = Join-Path $script:serviceDir $Name
-        $ast = Get-ScriptAst $path
+        $target = Resolve-LifecycleScript $Name
+        $ast = Get-ScriptAst $target.Path
         $enter = @(Get-CommandCallAst -Ast $ast -Name 'Enter-YurunaServiceOperation')
         Assert-True ($enter.Count -ge 1) "$Name records its intent"
         $relaunch = @(Get-CommandCallAst -Ast $ast -Name 'Invoke-LibvirtGroupReExecIfNeeded')
@@ -148,12 +148,19 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
         Assert-True ($null -ne $first) "$Name still performs its first mutation ($($FirstMutation -join ', '))"
         Assert-True ($enter[0].Extent.EndOffset -lt $first.Extent.StartOffset) "$Name records the intent before '$($first.GetCommandName())'"
         $expectedKey = $script:ScriptKey[$Name]
+        if ($target.Shared) {
+            $wrapperText = Get-Content -Raw -LiteralPath $target.Wrapper
+            Assert-True ($wrapperText.Contains("-ServiceKey '$expectedKey'") -and $wrapperText.Contains('-CallerScript $PSCommandPath')) `
+                "$Name hands the shared stop script its '$expectedKey' roster key and its own name"
+        }
         foreach ($call in $enter) {
-            Assert-StringEqual -Expected "'$expectedKey'" -Actual (Get-NamedArgumentText -CommandAst $call -ParameterName 'Key') `
+            $wantedKey = if ($target.Shared) { '$ServiceKey' } else { "'$expectedKey'" }
+            Assert-StringEqual -Expected $wantedKey -Actual (Get-NamedArgumentText -CommandAst $call -ParameterName 'Key') `
                 -Because "$Name is listed by the '$expectedKey' manifest"
             $operation = if ($Name -like 'Stop-*') { 'Stop' } else { 'Start' }
             Assert-StringEqual -Expected $operation -Actual (Get-NamedArgumentText -CommandAst $call -ParameterName 'Operation')
-            Assert-StringEqual -Expected "'$Name'" -Actual (Get-NamedArgumentText -CommandAst $call -ParameterName 'Script')
+            $wantedScript = if ($target.Shared) { '(Split-Path -Leaf $CallerScript)' } else { "'$Name'" }
+            Assert-StringEqual -Expected $wantedScript -Actual (Get-NamedArgumentText -CommandAst $call -ParameterName 'Script')
         }
     }
 
@@ -162,7 +169,7 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
         @{ Name = 'Stop-DownloadAgentServiceVM.ps1' }, @{ Name = 'Start-CachingProxyServiceVM.ps1' }, @{ Name = 'Start-StashServiceVM.ps1' }
         @{ Name = 'Start-PoolControlServiceVM.ps1' }, @{ Name = 'Start-DownloadAgentServiceVM.ps1' }
     ) {
-        $ast = Get-ScriptAst (Join-Path $script:serviceDir $Name)
+        $ast = Get-ScriptAst (Resolve-LifecycleScript $Name).Path
         $enter = @(Get-CommandCallAst -Ast $ast -Name 'Enter-YurunaServiceOperation') | Sort-Object { $_.Extent.StartOffset }
         $guards = @($ast.FindAll({ param($n)
                     $n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Finally -and
@@ -191,24 +198,32 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
     }
 
     It '<Name> rechecks its intent before it builds the VM' -ForEach @(
-        @{ Name = 'Start-StashServiceVM.ps1'; Mutation = 'pwsh' }, @{ Name = 'Start-PoolControlServiceVM.ps1'; Mutation = 'pwsh' }
-        @{ Name = 'Start-DownloadAgentServiceVM.ps1'; Mutation = 'pwsh' }, @{ Name = 'Start-CachingProxyServiceVM.ps1'; Mutation = 'Initialize-YurunaHost' }
+        @{ Name = 'Start-StashServiceVM.ps1'; Mutation = 'Invoke-YurunaServiceVmBuild' }, @{ Name = 'Start-PoolControlServiceVM.ps1'; Mutation = 'Invoke-YurunaServiceVmBuild' }
+        @{ Name = 'Start-DownloadAgentServiceVM.ps1'; Mutation = 'Invoke-YurunaServiceVmBuild' }, @{ Name = 'Start-CachingProxyServiceVM.ps1'; Mutation = 'Initialize-YurunaHost' }
     ) {
         $ast = Get-ScriptAst (Join-Path $script:serviceDir $Name)
-        $recheck = @(Get-CommandCallAst -Ast $ast -Name 'Test-YurunaServiceOperationCurrent')
-        Assert-True ($recheck.Count -ge 1) "$Name rechecks the intent generation"
-        $build = if ($Mutation -eq 'pwsh') {
-            @(Get-CommandCallAst -Ast $ast -Name 'pwsh')[0]
+        $enter = @(Get-CommandCallAst -Ast $ast -Name 'Enter-YurunaServiceOperation')[0]
+        if ($Mutation -eq 'Invoke-YurunaServiceVmBuild') {
+            # The shared builder invocation owns the recheck: it is handed the operation context and asks
+            # whether the intent is still current before it launches the builder.
+            $build = @(Get-CommandCallAst -Ast $ast -Name 'Invoke-YurunaServiceVmBuild')[0]
+            Assert-True ($null -ne $build -and $build.Extent.Text -match '-OperationContext \$serviceOp') "$Name hands the shared builder its operation context"
+            Assert-True ($enter.Extent.EndOffset -lt $build.Extent.StartOffset) 'the builder is invoked after the intent it checks'
+            $vmModule = Get-ScriptAst (Join-Path (Split-Path -Parent $script:serviceDir) 'modules/Test.ServiceVm.psm1')
+            $builder = $vmModule.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-YurunaServiceVmBuild' }, $true)
+            $inner = @(Get-CommandCallAst -Ast $builder -Name 'Test-YurunaServiceOperationCurrent')
+            $launch = @($builder.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.Extent.Text -match '@arguments' }, $true))
+            Assert-True ($inner.Count -ge 1) "$Name's shared builder rechecks the intent generation"
+            Assert-True ($launch.Count -ge 1 -and $inner[0].Extent.StartOffset -lt $launch[0].Extent.StartOffset) "$Name rechecks before the VM is built"
         } else {
+            $recheck = @(Get-CommandCallAst -Ast $ast -Name 'Test-YurunaServiceOperationCurrent')
+            Assert-True ($recheck.Count -ge 1) "$Name rechecks the intent generation"
             # The caching proxy tears the old VM down first; the recheck guards
             # the 'Remove existing VM' region.
-            $text = $ast.Extent.Text
-            $offset = $text.IndexOf('# --- REGION: Remove existing VM', [StringComparison]::Ordinal)
-            [pscustomobject]@{ Extent = [pscustomobject]@{ StartOffset = $offset } }
+            $offset = $ast.Extent.Text.IndexOf('# --- REGION: Remove existing VM', [StringComparison]::Ordinal)
+            Assert-True ($recheck[0].Extent.StartOffset -lt $offset) "$Name rechecks before the VM is torn down"
+            Assert-True ($enter.Extent.EndOffset -lt $recheck[0].Extent.StartOffset) 'the recheck follows the intent it checks'
         }
-        Assert-True ($recheck[0].Extent.StartOffset -lt $build.Extent.StartOffset) "$Name rechecks before the VM is torn down or built"
-        $enter = @(Get-CommandCallAst -Ast $ast -Name 'Enter-YurunaServiceOperation')[0]
-        Assert-True ($enter.Extent.EndOffset -lt $recheck[0].Extent.StartOffset) 'the recheck follows the intent it checks'
     }
 
     It 'Start-CachingProxyServiceVM.ps1 makes no bare utmctl call' {
@@ -267,7 +282,7 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
     It 'Stop-PoolControlServiceVM.ps1 keeps the marker, and records a failed stop, when a live host process could not be verified' {
         $result = Invoke-PoolControlStopFixture -HostProcess 'unverified'
         Assert-Equal -Expected 0 -Actual $result.Errors
-        Assert-StringEqual -Expected 'enter,remove-vm' -Actual ($result.Order -join ',') -Because 'the process is left running and its marker kept, so a later stop can still find it'
+        Assert-StringEqual -Expected 'enter' -Actual ($result.Order -join ',') -Because 'the process is left running and its marker kept, and the stop halts before the VM is touched, so a later stop can still find both'
         Assert-StringEqual -Expected 'failed|host-process-running' -Actual $result.ExitCall -Because 'an absent VM does not make the stop complete while the process runs'
         Assert-Equal -Expected 1 -Actual $result.ExitCode
         Assert-True ($result.Warnings -contains 'runner.service_poolcontrol_pid_unverified') 'the unverified pid is named'
@@ -524,10 +539,22 @@ function Invoke-PoolControlStopFixture {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                 Justification = 'Records fixture state without touching a process.')]
             [CmdletBinding()]
-            param([int]$Id, [switch]$Force)
+            param($InputObject, [switch]$Force)
             $null = $Force
-            $fixture.StoppedPid = $Id
+            $fixture.StoppedPid = $InputObject.Id
             $fixture.Order.Add('stop-process')
+        }
+        function Get-Process {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '',
+                Justification = 'The isolated test must never open a real process handle.')]
+            param([int]$Id)
+            $process = [pscustomobject]@{
+                Id = $Id; SafeHandle = $null; HasExited = $false
+                StartTime = [DateTimeOffset]::FromUnixTimeMilliseconds(1790000000000).LocalDateTime
+            }
+            Add-Member -InputObject $process -MemberType ScriptMethod -Name WaitForExit -Value { param($Milliseconds) $null = $Milliseconds; $true }
+            Add-Member -InputObject $process -MemberType ScriptMethod -Name Dispose -Value { }
+            $process
         }
         function Remove-ExtensionServiceMarker {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -546,7 +573,7 @@ function Invoke-PoolControlStopFixture {
             $fixture.Order.Add('remove-vm')
         }
         $warned = $null
-        & $Path -Confirm:$false -WarningVariable warned -WarningAction SilentlyContinue 1>$null 4>$null 5>$null 6>$null
+        & $Path -VMName 'fixture-vm' -ServiceKey 'pool-control' -Area 'pool-control-service' -ServiceName 'PoolControl' -CallerScript 'Stop-PoolControlServiceVM.ps1' -Confirm:$false -WarningVariable warned -WarningAction SilentlyContinue 1>$null 4>$null 5>$null 6>$null
         $code = $LASTEXITCODE
         [pscustomobject]@{
             Order = [string[]]$fixture.Order.ToArray()
@@ -558,7 +585,7 @@ function Invoke-PoolControlStopFixture {
     }
     $shell = [PowerShell]::Create()
     try {
-        [void]$shell.AddScript($driver.ToString()).AddArgument((Join-Path $script:serviceDir 'Stop-PoolControlServiceVM.ps1')).AddArgument($HostProcess)
+        [void]$shell.AddScript($driver.ToString()).AddArgument((Join-Path $script:serviceDir 'Stop-ExtensionService.ps1')).AddArgument($HostProcess)
         $out = @($shell.Invoke())
         $row = $out | Select-Object -Last 1
         [pscustomobject]@{
@@ -567,6 +594,20 @@ function Invoke-PoolControlStopFixture {
         }
     } finally {
         $shell.Dispose()
+    }
+}
+
+# The three extension-service stop scripts are wrappers that name their service and run the shared
+# Stop-ExtensionService.ps1; the lifecycle contract is judged on the shared script, and the wrapper is
+# checked for the service key it hands over.
+function Resolve-LifecycleScript {
+    param([string]$Name)
+    $path = Join-Path $script:serviceDir $Name
+    $shared = $Name -in @('Stop-StashServiceVM.ps1', 'Stop-PoolControlServiceVM.ps1', 'Stop-DownloadAgentServiceVM.ps1')
+    [pscustomobject]@{
+        Wrapper = $path
+        Path = if ($shared) { Join-Path $script:serviceDir 'Stop-ExtensionService.ps1' } else { $path }
+        Shared = $shared
     }
 }
 

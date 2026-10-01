@@ -19,7 +19,7 @@ func TestRecordWritesAuditAndStatus(t *testing.T) {
 	if !s.Enabled() {
 		t.Fatal("store with a dir must be Enabled")
 	}
-	s.Record(now, AuditEntry{TimeUTC: now.Format(time.RFC3339), Action: "new-pool", Target: "lab", OK: true})
+	s.Record(now, AuditEntry{Publish: true, TimeUTC: now.Format(time.RFC3339), Action: "new-pool", Target: "lab", OK: true})
 
 	audit, err := os.ReadFile(filepath.Join(dir, "pool-control-service", "audit.jsonl"))
 	if err != nil || !strings.Contains(string(audit), `"action":"new-pool"`) {
@@ -38,13 +38,13 @@ func TestAuditSurvivesRestart(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "pc")
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
 	s1 := New(dir, now)
-	s1.Record(now, AuditEntry{TimeUTC: now.Format(time.RFC3339), Action: "new-pool", Target: "lab", OK: true})
+	s1.Record(now, AuditEntry{Publish: true, TimeUTC: now.Format(time.RFC3339), Action: "new-pool", Target: "lab", OK: true})
 	// A fresh Store (a service restart) appends to the same audit log; prior lines survive.
 	s2 := New(dir, now.Add(time.Minute))
-	s2.Record(now.Add(time.Minute), AuditEntry{TimeUTC: now.Add(time.Minute).Format(time.RFC3339), Action: "assign-testset", Target: "lab", OK: true})
+	s2.Record(now.Add(time.Minute), AuditEntry{Publish: true, TimeUTC: now.Add(time.Minute).Format(time.RFC3339), Action: "set-repositories", Target: "lab", OK: true})
 	audit, _ := os.ReadFile(filepath.Join(dir, "audit.jsonl"))
 	lines := strings.Count(strings.TrimSpace(string(audit)), "\n") + 1
-	if lines != 2 || !strings.Contains(string(audit), "new-pool") || !strings.Contains(string(audit), "assign-testset") {
+	if lines != 2 || !strings.Contains(string(audit), "new-pool") || !strings.Contains(string(audit), "set-repositories") {
 		t.Fatalf("audit log must accumulate across restarts; got %d line(s):\n%s", lines, string(audit))
 	}
 }
@@ -54,7 +54,7 @@ func TestDisabledStoreIsNoOp(t *testing.T) {
 	if s.Enabled() {
 		t.Fatal("empty dir must be disabled")
 	}
-	s.Record(time.Now(), AuditEntry{Action: "x", OK: true}) // must not panic / touch disk
+	s.Record(time.Now(), AuditEntry{Publish: true, Action: "x", OK: true}) // must not panic / touch disk
 	if !s.Health().Healthy {
 		t.Fatal("disabled store reports healthy")
 	}
@@ -78,7 +78,7 @@ func TestAuditFailureSurvivesStatusWritesAndRecoversOnlyAfterAuditWrite(t *testi
 	if err := os.Mkdir(audit, 0700); err != nil {
 		t.Fatal(err)
 	}
-	s.Record(time.Now(), AuditEntry{Action: "assign", OK: true})
+	s.Record(time.Now(), AuditEntry{Publish: true, Action: "assign", OK: true})
 	s.Beat(time.Now(), true)
 	if st := s.Health(); st.Healthy || !strings.Contains(st.LastError, "audit write:") {
 		t.Fatalf("audit failure was erased: %+v", st)
@@ -97,7 +97,7 @@ func TestAuditFailureSurvivesStatusWritesAndRecoversOnlyAfterAuditWrite(t *testi
 	if err = os.Remove(audit); err != nil {
 		t.Fatal(err)
 	}
-	s.Record(time.Now(), AuditEntry{Action: "assign", OK: true})
+	s.Record(time.Now(), AuditEntry{Publish: true, Action: "assign", OK: true})
 	if st := s.Health(); !st.Healthy || st.LastError != "" {
 		t.Fatalf("successful audit did not recover: %+v", st)
 	}
@@ -110,5 +110,18 @@ func TestAuditFailureSurvivesStatusWritesAndRecoversOnlyAfterAuditWrite(t *testi
 	}
 	if !persisted.Healthy {
 		t.Fatalf("recovery was not persisted: %+v", persisted)
+	}
+}
+
+func TestAuditEventsCannotReplacePublishStatus(t *testing.T) {
+	now := time.Now()
+	s := New(t.TempDir(), now)
+	s.Record(now, AuditEntry{Publish: true, TimeUTC: now.UTC().Format(time.RFC3339), Action: "new-pool", OK: true})
+	for _, action := range []string{"unlock", "refresh-credential", "scan"} {
+		s.Record(now.Add(time.Minute), AuditEntry{TimeUTC: now.Add(time.Minute).UTC().Format(time.RFC3339), Action: action, OK: false})
+	}
+	got := s.Health()
+	if got.LastAction != "new-pool" || !got.LastPublishOK || got.Writes != 1 || got.LastWriteUTC != now.UTC().Format(time.RFC3339) {
+		t.Fatalf("audit event changed publish status: %+v", got)
 	}
 }

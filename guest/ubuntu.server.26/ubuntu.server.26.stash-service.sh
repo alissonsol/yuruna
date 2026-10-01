@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/42e220c4-0005
@@ -44,6 +44,17 @@ else
   SERVICE_USER="${SERVICE_USER:-$(id -un)}"
 fi
 echo "Service user: $SERVICE_USER"
+# Load from the framework checkout even when this entry script was fetched to /tmp.
+SERVICE_LIB=''
+for candidate in "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" /home/*/yuruna; do
+  if [ -r "$candidate/automation/yuruna-service-bringup.sh" ]; then
+    SERVICE_LIB="$candidate/automation/yuruna-service-bringup.sh"; break
+  fi
+done
+[ -n "$SERVICE_LIB" ] || { echo "Missing framework automation/yuruna-service-bringup.sh" >&2; exit 1; }
+# shellcheck source=../../automation/yuruna-service-bringup.sh
+. "$SERVICE_LIB"
+
 
 # --- REGION: Service tunables
 # See https://yuruna.link/42fffc2c-000d
@@ -102,32 +113,14 @@ fi
 # --- REGION: Package dependencies
 echo ""
 echo -e "\e[1;36m==== Package dependencies ====\e[0m"
-if command -v apt_retry >/dev/null 2>&1; then
-  apt_retry sudo apt-get update -y
-  apt_retry sudo apt-get install -y golang-go libcap2-bin cifs-utils
-else
-  sudo apt-get update -y
-  sudo apt-get install -y golang-go libcap2-bin cifs-utils
-fi
+yuruna_service_packages golang-go libcap2-bin cifs-utils
 go version
 
 # --- REGION: Locate the daemon source
 # Avoid find|head: under pipefail the expected producer SIGPIPE aborts lookup.
 locate_server_dir() {
-  local candidates=( "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" )
-  local home
-  for home in /home/*; do
-    [ -d "$home/yuruna" ] || continue
-    candidates+=("$home/yuruna")
-  done
-  local enlistment
-  for enlistment in "${candidates[@]}"; do
-    if [ -f "$enlistment/test/extension/stash-service/server/go.mod" ]; then
-      printf '%s' "$enlistment/test/extension/stash-service/server"
-      return 0
-    fi
-  done
-  return 1
+  local repo; repo="$(yuruna_service_find_repo test/extension/stash-service/server)" || return 1
+  printf '%s' "$repo/test/extension/stash-service/server"
 }
 SERVER_DIR=$(locate_server_dir) || {
   echo "Could not find test/extension/stash-service/server/go.mod under any /home/*/yuruna." >&2
@@ -153,38 +146,14 @@ echo "Framework version: $VERSION_STR"
 # --- REGION: Build
 # See https://yuruna.link/42e220c4-000f
 # Keep the committed go.sum authoritative; provisioning must not rewrite it.
-BUILD=/tmp/stash-build
-echo ""
-echo -e "\e[1;36m==== Staging source to $BUILD ====\e[0m"
-sudo rm -rf "$BUILD"
-sudo mkdir -p "$BUILD"
-sudo cp -r "$SERVER_DIR" "$BUILD/server"
-sudo cp -r "$SDK_DIR" "$BUILD/extension-sdk"
-sudo chown -R "$(id -un):$(id -gn)" "$BUILD"
-echo ""
-echo -e "\e[1;36m==== stash-service ====\e[0m"
-cd "$BUILD/server"
-attempts=3
-delay=10
-for try in $(seq 1 "$attempts"); do
-  if go build ${BUILD_TAGS:+-tags "$BUILD_TAGS"} -ldflags "-X main.version=$VERSION_STR" -o stash-service .; then
-    break
-  fi
-  if [ "$try" -ge "$attempts" ]; then
-    echo "go build failed after $attempts attempts" >&2
-    exit 1
-  fi
-  echo "go build attempt $try/$attempts failed; retrying in ${delay}s..." >&2
-  sleep "$delay"
-  delay=$((delay * 2))
-done
+BUILD="$(yuruna_service_stage "$SERVER_DIR" 'stash-service')"
+trap 'rm -rf -- "$BUILD"' EXIT
+yuruna_service_build "$BUILD" 'stash-service' "$VERSION_STR" "${BUILD_TAGS:-}"
 
 # --- REGION: Install the binary
 echo ""
 echo -e "\e[1;36m==== /usr/local/bin/stash-service ====\e[0m"
-sudo install -m 0755 -o root -g root "$BUILD/server/stash-service" /usr/local/bin/stash-service
-# --- REGION: https://yuruna.link/42d69dfa-0025
-sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-service || true
+yuruna_service_install "$BUILD/server/stash-service" /usr/local/bin/stash-service
 
 # --- REGION: Mask the OS sshd to free port 22
 # See https://yuruna.link/42d69dfa-0026
@@ -264,16 +233,7 @@ echo -e "\e[1;36m==== stash-service.service start and enable ====\e[0m"
 sudo systemctl daemon-reload
 sudo systemctl enable --now stash-service.service
 
-# Wait briefly for the unit to settle (binding :22 is fast, but the Go
-# runtime adds a couple hundred ms before the first listen).
-for _ in 1 2 3 4 5 6; do
-  if sudo systemctl is-active --quiet stash-service.service; then
-    break
-  fi
-  sleep 1
-done
-
-if ! sudo systemctl is-active --quiet stash-service.service; then
+if ! yuruna_service_wait_active stash-service.service 6; then
   echo "stash-service.service did not reach active state. journalctl tail:" >&2
   sudo journalctl -u stash-service.service -n 50 --no-pager >&2 || true
   exit 1

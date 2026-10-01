@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fe2557-d61c-421d-b8c0-e41640d44f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,9 +57,9 @@ Describe 'pool-control locale deployment wiring' {
         $text = [IO.File]::ReadAllText($path)
         Assert-True ($text.Contains('[switch]$AllowPseudoLocale')) `
             "$_ has no explicit pseudo reference-run switch"
-        Assert-True ($text.Contains("Get-TestConfigValue -Config `$tc -Path 'language'")) `
+        Assert-True ($text.Contains('Resolve-SeedLanguageTag -Config $tc')) `
             "$_ does not read language from the validated config"
-        Assert-True ($text.Contains('ConvertTo-CanonicalLocaleTag -Tag $languageRaw')) `
+        Assert-True ($text -notmatch 'YURUNA_LANGUAGE_PLACEHOLDER\s*=\s*\$languageRaw') `
             "$_ passes an unvalidated config value to the seed"
         Assert-True ($text.Contains('YURUNA_LANGUAGE_PLACEHOLDER       = $poolControlLanguage')) `
             "$_ does not replace the seed language"
@@ -76,13 +76,13 @@ Describe 'pool-control locale deployment wiring' {
             $script:StartPath, [ref]$null, [ref]$errors)
         Assert-Equal -Expected 0 -Actual @($errors).Count -Because 'the host launcher must parse'
         $text = [IO.File]::ReadAllText($script:StartPath)
-        Assert-True ($text.Contains("Get-TestConfigValue -Config `$hostStatusSeed.Config -Path 'language'")) `
+        Assert-True ($text.Contains('Resolve-SeedLanguageTag -Config $hostStatusSeed.Config')) `
             'the host-side proof does not read the validated lab-wide language'
         Assert-True ($text.Contains("'--language', `$poolControlLanguage")) `
             'the host-side proof never passes --language to the daemon'
         Assert-True ($text.Contains("if (`$AllowPseudoLocale) { `$goArgs += '--allow-pseudo-locale' }")) `
             'the host-side proof has no explicit pseudo switch'
-        Assert-True ($text.Contains("if (`$AllowPseudoLocale) { `$newVmArgs += '-AllowPseudoLocale' }")) `
+        Assert-True ($text.Contains('Invoke-YurunaServiceVmBuild') -and $text.Contains('-AllowPseudoLocale:$AllowPseudoLocale')) `
             'the VM launcher does not propagate the operator pseudo switch'
     }
 

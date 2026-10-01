@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c1f2a7-5d3e-4b8a-9e61-7a4f0b2c9d13
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,14 @@
 #>
 
 BeforeAll {
+    $script:NativeCommandStubs = @()
+    foreach ($nativeName in @('systemctl', 'virsh')) {
+        if (-not (Get-Command $nativeName -ErrorAction SilentlyContinue)) {
+            Set-Item -LiteralPath "Function:global:$nativeName" -Value { $global:LASTEXITCODE = 1 }
+            $script:NativeCommandStubs += $nativeName
+        }
+    }
+
     $here     = Split-Path -Parent $PSCommandPath
     $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
@@ -150,6 +158,8 @@ BeforeAll {
 }
 
 AfterAll {
+    foreach ($nativeName in $script:NativeCommandStubs) { Remove-Item -LiteralPath "Function:global:$nativeName" -ErrorAction SilentlyContinue }
+
     Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 

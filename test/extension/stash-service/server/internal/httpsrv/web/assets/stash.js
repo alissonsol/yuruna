@@ -139,7 +139,8 @@
   }
 
   function renderText(wrap, raw) {
-    return window.fetch(raw).then(function (res) {
+    var cap = state.inlineTextCap || TEXT_PREVIEW_CAP;
+    return window.fetch(raw, { headers: { Range: 'bytes=0-' + (cap - 1) } }).then(function (res) {
       if (!res.ok) {
         wrap.yurunaReadyState = 'error';
         Y.append(wrap, Y.el('div', { class: 'notice error', text: window.YurunaI18n.t("stash.could_not_load_text_http_value1", {value1: (res.status)}) }));
@@ -147,8 +148,9 @@
       }
       return res.text().then(function (buf) {
         var body = buf;
-        var truncated = false;
-        var cap = state.inlineTextCap || TEXT_PREVIEW_CAP;
+        var range = res.headers ? res.headers.get('Content-Range') || '' : '';
+        var total = /\/(\d+)$/.exec(range);
+        var truncated = !!(total && Number(total[1]) > cap);
         if (body.length > cap) { body = body.slice(0, cap); truncated = true; }
         var pre = Y.el('pre', { class: 'viewer wrap', tabindex: '0', role: 'region', 'aria-label': window.YurunaI18n.t("stash.stash_text_preview") });
         pre.textContent = body; // textContent: never interpret as HTML (section 7.4)

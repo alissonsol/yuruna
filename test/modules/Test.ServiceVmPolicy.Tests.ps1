@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 429a9b8e-d547-4b8a-8e37-5d6306ea49b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,7 +105,8 @@ BeforeDiscovery {
     )
 }
 
-Describe 'Preserve parity with the installer''s service gate (install/macos.utm.sh)' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'Preserve parity with the installer''s service gate (install/macos.utm.sh)' -Skip:$IsWindows {
     BeforeAll {
         $script:Bash = (Get-Command -Name bash -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
         $installerText = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'install/macos.utm.sh')

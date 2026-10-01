@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42117e6a-8e6c-4f6c-9d1a-2b8f9a0c7d3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,6 +121,20 @@ BeforeAll {
         $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
         $probe.Start()
         try { return ([System.Net.IPEndPoint]$probe.LocalEndpoint).Port } finally { $probe.Stop() }
+    }
+
+    function Test-LoopbackAddressReachable {
+        # Linux and Windows answer for all of 127.0.0.0/8; macOS configures only
+        # 127.0.0.1 on lo0, so a guest address such as 127.0.0.2 never connects.
+        param([Parameter(Mandatory)][string]$Address)
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, 0)
+        $listener.Start()
+        try {
+            $client = [System.Net.Sockets.TcpClient]::new()
+            try { return ($client.ConnectAsync($Address, ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port).Wait(2000) -and $client.Connected) }
+            catch { return $false }
+            finally { $client.Dispose() }
+        } finally { $listener.Stop() }
     }
 }
 
@@ -540,6 +554,7 @@ Describe 'Restore-YurunaServiceVM -ObserveOnly -- never starts anything' {
     }
 
     It 'flags a stale advertisement even while the old forwarder still accepts connections' {
+        if (-not (Test-LoopbackAddressReachable -Address '127.0.0.2')) { Set-ItResult -Skipped -Because 'this host does not answer 127.0.0.2 (macOS configures only 127.0.0.1 on lo0)'; return }
         $port = Get-FreeLoopbackPort
         $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $port)
         $listener.Start()
@@ -566,6 +581,7 @@ Describe 'Restore-YurunaServiceVM -ObserveOnly -- never starts anything' {
     }
 
     It 'leaves a forwarder it cannot tie to an owner unchecked, never stale' {
+        if (-not (Test-LoopbackAddressReachable -Address '127.0.0.2')) { Set-ItResult -Skipped -Because 'this host does not answer 127.0.0.2 (macOS configures only 127.0.0.1 on lo0)'; return }
         $port = Get-FreeLoopbackPort
         $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $port)
         $listener.Start()

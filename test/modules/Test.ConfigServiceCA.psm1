@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4233151b-e2c8-4ea3-ba1b-6cdcb3e630f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,7 @@
 #requires -version 7
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
 
 
 # Per-host Config CA backing the config service (mTLS): one SERVER leaf
@@ -352,7 +353,11 @@ function Get-YurunaConfigCaPublicCertificate {
     param()
     $dir   = Get-YurunaConfigCaDir
     $caCrt = Join-Path $dir 'ca.crt'
-    if (-not (Test-Path -LiteralPath $caCrt)) { [void](Initialize-YurunaConfigCA -Confirm:$false) }
+    if (-not (Test-Path -LiteralPath $caCrt)) {
+        $ca = Initialize-YurunaConfigCA -Confirm:$false
+        try { return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($ca.RawData) }
+        finally { $ca.Dispose() }
+    }
     # Load from the DER bytes parsed out of the PEM, NOT the X509Certificate2 file
     # constructor: that constructor auto-detects the file format via the platform
     # crypto backend, which reads PEM on Windows but NOT on macOS -- there it throws,
@@ -363,8 +368,7 @@ function Get-YurunaConfigCaPublicCertificate {
     # versions -- see Test.ConfigServiceCA.Tests.ps1; the .Tests file uses the same
     # strip-headers -> base64 -> DER reconstruction.)
     $pem = [System.IO.File]::ReadAllText($caCrt)
-    $b64 = (($pem -split "`r?`n") | Where-Object { $_ -and ($_ -notmatch 'CERTIFICATE') }) -join ''
-    return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($b64))
+    return ConvertFrom-YurunaPemCertificate -Pem $pem
 }
 
 <#

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42305b75-dbdd-448e-8c59-ffaf93235629
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -586,7 +586,7 @@ Describe 'Invoke-RunnerOuterLoop refresh outcomes and automatic-refresh call sit
         if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
         if ($null -eq $script:SavedLog) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLog }
         Remove-Item -LiteralPath $script:LoopDir -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-Item function:global:Set-RunnerState, function:global:Update-HostRefreshAutoEvidence, function:global:Invoke-HostRefreshAutoDecision, `
+        Remove-Item function:Set-RunnerState, function:global:Update-HostRefreshAutoEvidence, function:global:Invoke-HostRefreshAutoDecision, `
             function:global:Stop-HostRefreshAutoQueuedRequest, function:global:Set-HostRefreshCallerAck, function:global:Resolve-StatusServiceStart -ErrorAction SilentlyContinue
         Remove-Variable __loopStates, __trigger -Scope Global -ErrorAction SilentlyContinue
     }

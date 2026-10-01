@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 420e9e53-94d9-42df-aca1-6b21310676a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,7 +112,7 @@ function Get-LabHealthConfig {
     $lh = if ($tc -is [System.Collections.IDictionary] -and $tc.Contains('labHealth')) { $tc['labHealth'] } else { $null }
     $isMap = ($lh -is [System.Collections.IDictionary])
 
-    $maxHold = if ($isMap -and $lh['maxHoldAttempts']) { [int]$lh['maxHoldAttempts'] } else { $script:MaxHoldAttemptsCeiling }
+    $maxHold = if ($isMap -and $lh.Contains('maxHoldAttempts') -and $null -ne $lh['maxHoldAttempts']) { [int]$lh['maxHoldAttempts'] } else { $script:MaxHoldAttemptsCeiling }
     if ($maxHold -gt $script:MaxHoldAttemptsCeiling) { $maxHold = $script:MaxHoldAttemptsCeiling }
     if ($maxHold -lt 1) { $maxHold = 1 }
 

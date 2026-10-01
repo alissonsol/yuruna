@@ -27,9 +27,6 @@
 
   var Y = window.Y;
 
-  // Guards the one-time submit wiring in Y.initUnlock below.
-  var unlockWired = false;
-
   // pathTail derives /<yyyy>/<mm>/<dd>/<id> from a view's permalink, which is
   // the authoritative /s/<host>/<yyyy>/<mm>/<dd>/<id> the server built.
   //
@@ -99,60 +96,6 @@
   // the fragment it hands over.
   Y.startProofUnlock({ decode: true });
 
-  // Y.session reports what this browser may do. The proof is awaited rather
-  // than raced: reading the gate first would render the lab-token prompt for a
-  // device that was about to be unlocked anyway, and the prompt would then be
-  // answered by an operator who never needed to see it. A failed read reports a
-  // locked, unconfigured gate -- a page must offer no control it cannot vouch
-  // for.
-  Y.session = function () {
-    return Y.proofUnlock.then(function () {
-      return Y.api('/api/session');
-    }).then(function (s) {
-      return { authed: !!s.authed, labToken: !!s.labToken, configured: !!s.configured };
-    }, function () {
-      return { authed: false, labToken: false, configured: false };
-    });
-  };
-
-  // Y.initUnlock wires the shared lab-token prompt: it shows the form only when
-  // the gate is on and this device is not through it, names the case where no
-  // gate is configured at all, and re-runs the page's own render after a
-  // successful unlock so the controls appear without a reload. Resolves with
-  // the session it read, so a caller gets the answer and the wiring from one
-  // call.
-  Y.initUnlock = function (onUnlocked) {
-    return Y.session().then(function (sess) {
-      var login = document.getElementById('login');
-      var unconfigured = document.getElementById('gate-unconfigured');
-      if (login) { login.hidden = !(sess.labToken && !sess.authed); }
-      if (unconfigured) { unconfigured.hidden = sess.configured; }
-      // The form is wired once for the page's life: initUnlock is called again
-      // after every unlock and every reload, and a second listener on the same
-      // form would submit the code twice.
-      var form = document.getElementById('login-form');
-      if (form && !unlockWired) {
-        unlockWired = true;
-        form.addEventListener('submit', function (ev) {
-          ev.preventDefault();
-          var field = document.getElementById('lab-token');
-          var err = document.getElementById('login-error');
-          if (err) { err.textContent = ''; }
-          // Normalized here as well as at the daemon, so a code read off the
-          // tile in capitals is not a round trip that comes back "incorrect".
-          Y.api('/api/login', { method: 'POST', body: { labToken: field.value.trim().toLowerCase() } })
-            .then(function () {
-              field.value = '';
-              if (typeof onUnlocked === 'function') { return onUnlocked(); }
-              return null;
-            }, function (e) {
-              if (err) { err.textContent = e.message; }
-            });
-        });
-      }
-      return sess;
-    });
-  };
 }(window, document));
 
 (function (window) {

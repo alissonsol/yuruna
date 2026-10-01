@@ -69,7 +69,7 @@
         "/api/board"
       ],
       "preconditions": [
-        "The live pool board contains the identified host, pool, test-set, and cycle-history dataset."
+        "The live pool board contains the identified host, pool, and cycle-history dataset."
       ]
     },
     {
@@ -101,19 +101,6 @@
       ]
     },
     {
-      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/index.html",
-      "service": "pool",
-      "routeTemplate": "/assign",
-      "expectedState": "data",
-      "fixtureFields": [],
-      "readOnlyProbePaths": [
-        "/api/state"
-      ],
-      "preconditions": [
-        "Use the live assignment route, not the board at the service root; preserve the identified assignments."
-      ]
-    },
-    {
       "path": "test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html",
       "service": "pool",
       "routeTemplate": "/diagnostics",
@@ -137,19 +124,6 @@
       ],
       "preconditions": [
         "The scanner is idle with the identified cached results; do not start a network scan or forget hosts."
-      ]
-    },
-    {
-      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html",
-      "service": "pool",
-      "routeTemplate": "/test-sets",
-      "expectedState": "data",
-      "fixtureFields": [],
-      "readOnlyProbePaths": [
-        "/api/state"
-      ],
-      "preconditions": [
-        "The identified nonempty test-set registry is readable; do not add or delete test sets."
       ]
     },
     {

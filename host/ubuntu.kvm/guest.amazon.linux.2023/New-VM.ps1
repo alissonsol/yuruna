@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,21 +101,9 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
+Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 $virshUri = 'qemu:///system'
-$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
-Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
-# --- REGION: https://yuruna.link/42d69dfa-001e
-$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
-    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
-Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
-$domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
-if ($LASTEXITCODE -ne 0) {
-    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d43d0cab95add9be' -Arguments @{ vMName = "$VMName"; join = "$($domainNames -join '; ')" })
-}
-if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
-    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9174df31c5ee6350' -Arguments @{ vMName = "$VMName"; dominfo = "$dominfo" })
-}
+Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
@@ -213,21 +201,7 @@ if ($baseVirtualBytes -gt $overlayBytes) { $overlayBytes = $baseVirtualBytes }
 if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_919e5b9a9a611298'); exit 1 }
 
 # --- REGION: https://yuruna.link/42d69dfa-0008
-$osVariant = 'linux2022'
-$osList = & virt-install --osinfo list 2>$null
-if ($LASTEXITCODE -eq 0) {
-    $canonicalIds = @($osList | ForEach-Object {
-        $first = ("$_".Trim() -split '[\s,]', 2)[0]
-        ($first -replace ',$', '').Trim()
-    } | Where-Object { $_ })
-    if ($canonicalIds -contains 'amazonlinux2023') {
-        $osVariant = 'amazonlinux2023'
-    } else {
-        # Verbose, not Warning: the fallback variant works fine on every
-        # host we've seen the message on, so it's noise at Info level.
-        Write-Verbose "osinfo-db has no 'amazonlinux2023' entry; using 'linux2022' generic variant."
-    }
-}
+$osVariant = Resolve-KvmOsVariant -Candidates @('amazonlinux2023')
 
 # --- REGION: https://yuruna.link/42e220c4-0004
 # Keep guest reboots inside QEMU so the domain and console connection survive.

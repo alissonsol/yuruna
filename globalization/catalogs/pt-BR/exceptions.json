@@ -9,7 +9,7 @@
     },
     "exceptions.host_1c714189825ec0e2": {
       "sourceHash": "01e28a898344e8b19777b2650c099fbc63195c3eb0e77d7f65de11ff7391d5d7",
-      "message": "Hiper- V\\ Remove- VM falhou para '{vMName}': {message}\nEstado de hiper- V vivo:\n{diag}"
+      "message": "Hyper-V\\Remove-VM falhou para '{vMName}': {message}\nEstado de Hyper-V vivo:\n{diag}"
     },
     "exceptions.host_29df6c21ee80406c": {
       "sourceHash": "48e7179d992250366b3858a5c9d80896237ea4e5f2428f3392b63f4568a1f430",
@@ -29,7 +29,7 @@
     },
     "exceptions.host_35a1dbbdd2006dae": {
       "sourceHash": "6acc39e10a0f23afa03759087b0091011ceb04e51f76e18fada16cbb86d61a17",
-      "message": "sysadminctl - screenLock {target} falhou: {output}"
+      "message": "sysadminctl -screenLock {target} falhou: {output}"
     },
     "exceptions.host_37d35a4c65c7d70a": {
       "sourceHash": "8655486be69efd84eb847b04343d35d49ac3a95ab33916dc077e5d4a53fe9911",
@@ -45,11 +45,11 @@
     },
     "exceptions.host_4ff2b596d293bb78": {
       "sourceHash": "7ed8335dcd48565115cb661b9989d9df479ddff8d7008d8e51ea236e22a16c08",
-      "message": "systemsetup - set usingnetworktime {onOff} falhou: {output}"
+      "message": "systemsetup -setusingnetworktime {onOff} falhou: {output}"
     },
     "exceptions.host_56dd0a83b1740c20": {
       "sourceHash": "972b7943130f10d82ca775d62edef184fd9d38e9d52b1c3eb1970ef00138a3a6",
-      "message": "Desactivar-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux."
+      "message": "Disable-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux."
     },
     "exceptions.host_5e82d7a32d22a269": {
       "sourceHash": "b5b9f51b2447d4bfce7e9c3432b413bd8ae208c30b2b913c7016787334290c04",
@@ -69,15 +69,15 @@
     },
     "exceptions.host_674dd7c6c0448e92": {
       "sourceHash": "ba18e9178ab79d7096a160c87338336822e1470987d97bb4eb3acde509f947fe",
-      "message": "o sudo - v falhou -- não é possível obter o root para o networksetup. Verifique a sua configuração do sudo."
+      "message": "o sudo -v falhou -- não é possível obter o root para o networksetup. Verifique a sua configuração do sudo."
     },
     "exceptions.host_6a438f8f59faef03": {
       "sourceHash": "fa645130ebe786f57d29f08b06d124920986ba5bc8c6beeda1f3982a631e40c7",
-      "message": "A pasta VHDX padrão do Hyper- V não existe: {dir}"
+      "message": "A pasta VHDX padrão do Hyper-V não existe: {dir}"
     },
     "exceptions.host_6ac6dfe19b3c2194": {
       "sourceHash": "56e4b8c27c0cc2a8847b1082f7c81b9ad842f0de564c270afb20ff0aa2a6b830",
-      "message": "Inválido -ExposiçãoVirtualizaçãoExtensões '{exposeVirtualizationExtensions}': esperado 'verdadeiro' ou 'falso'."
+      "message": "Inválido -ExposeVirtualizationExtensions '{exposeVirtualizationExtensions}': esperado 'verdadeiro' ou 'falso'."
     },
     "exceptions.host_6ce33651bd210b55": {
       "sourceHash": "98dc905fafbd9214dde90a66634c38eb07a6fecb2e5a74843072e1aa0711434c",
@@ -113,11 +113,11 @@
     },
     "exceptions.host_870df3a8573355af": {
       "sourceHash": "1498fd52e40f3ec72bac544bc1dd435496948e9cff9d359d092d1d225ef2d3f2",
-      "message": "A transferência falhou: o ficheiro não foi encontrado."
+      "message": "A transferência falhou: o arquivo não foi encontrado."
     },
     "exceptions.host_8829c3d9ffaef2dd": {
       "sourceHash": "dcdcb050491e6a15aa8b6ff613735697e9d05b12320d14fc70d34f7719f1af8a",
-      "message": "Active-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux."
+      "message": "Enable-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux."
     },
     "exceptions.host_88d0b2dc03ee17c2": {
       "sourceHash": "dad9bd673ce16db1d387242f79a1b7bb8289dd466cf8c1cb9c6f9f8a9b65aff0",
@@ -125,11 +125,11 @@
     },
     "exceptions.host_88e5a12c10f16189": {
       "sourceHash": "04d850c148b0307eb3b542ff2fc047dedbf145df509a50b9c72dc065353c50f3",
-      "message": "O ficheiro transferido é suspeitomente pequeno (< 1 GB). Pode não ser uma ISO válida."
+      "message": "O arquivo transferido é suspeitomente pequeno (< 1 GB). Pode não ser uma ISO válida."
     },
     "exceptions.host_8c0479442a041d98": {
       "sourceHash": "5248a43530cb75b174acad5341a03ef15702b5ef9905f8ff93f55c386c955ea8",
-      "message": "Desactivar-TestAutomation.ps1 (host/windows.hyper-v) só é executado no Windows."
+      "message": "Disable-TestAutomation.ps1 (host/windows.hyper-v) só é executado no Windows."
     },
     "exceptions.host_8d770e16b147abe9": {
       "sourceHash": "9680a39856b3baa5c5e36a6631a5147cdc8516322b4f6f539d1599e129375485",
@@ -161,11 +161,11 @@
     },
     "exceptions.host_9e5168a03fb971f1": {
       "sourceHash": "69f8008dc40f0d1cc54b3b252b4227bc0392658d6359fbf1f3f4bdcbe62381d8",
-      "message": "pmset - a {key} {absentValue} falhou (saída {exitCode}): {output}"
+      "message": "pmset -a {key} {absentValue} falhou (saída {exitCode}): {output}"
     },
     "exceptions.host_9e776665909b3868": {
       "sourceHash": "95cf873f3e4775e0297e0914a24b75b182f32d256dc36192071ec44cbc45fe12",
-      "message": "Não foi possível ler o Hyper- V VirtualHardDiskPath: O Get- VMHost falhou. O Hyper- V pode não estar instalado ou esta sessão não está elevada."
+      "message": "Não foi possível ler o Hyper-V VirtualHardDiskPath: O Get-VMHost falhou. O Hyper-V pode não estar instalado ou esta sessão não está elevada."
     },
     "exceptions.host_a64eb0bfe41b92f6": {
       "sourceHash": "474b2d67a09497fd6f8d85a138cd3633ea7f5bb545b0b8994be0c79b1d2d57b2",
@@ -173,7 +173,7 @@
     },
     "exceptions.host_a6a18006853361cb": {
       "sourceHash": "6f1a1ae9b0a1ba6a37e9aac5b964cc56ae4a103132651e0d9d65226bead56825",
-      "message": "Get- VMName: o virsh não conseguiu enumerar os domínios (a libvirtd está em execução e esta shell no grupo libvirt?): {join}"
+      "message": "Get-VMName: o virsh não conseguiu enumerar os domínios (a libvirtd está em execução e esta shell no grupo libvirt?): {join}"
     },
     "exceptions.host_a937232a82280ebc": {
       "sourceHash": "a6e38d4160ab17900569d11252aa0ddc0ff1466831dec46a8c9a91e5f8f0797a",
@@ -189,7 +189,7 @@
     },
     "exceptions.host_b719fe2e9aee1899": {
       "sourceHash": "2acbac1c28ad9b6c3ce8d716cbde63729c39e08df889c340a9f62698428351cb",
-      "message": "sysadminctl - telaLock {target} precisa da senha da conta: {output}. Execute-a manualmente: {target2}"
+      "message": "sysadminctl -screenLock {target} requer a senha da conta: {output}. Execute manualmente: {target2}"
     },
     "exceptions.host_ba52b7b4134e8e12": {
       "sourceHash": "78523365cca2a38ce6ea64982177a44e3c058717e55e618fd66d2382d4a52a62",
@@ -197,11 +197,11 @@
     },
     "exceptions.host_bf69280290368131": {
       "sourceHash": "445df8edb37cd0411a60ba3a5fda9a9d0bd5e860e7b0c903df69c59fe0d6b03d",
-      "message": "Desactivar- TesteAutomation.ps1 (host/macos.utm) só é executado no macOS."
+      "message": "Disable-TestAutomation.ps1 (host/macos.utm) só é executado no macOS."
     },
     "exceptions.host_c3577106b0f799eb": {
       "sourceHash": "7ec81f093fcf97ebb3cb110a32f882e1565a603fde41b0325a368b20a895cee4",
-      "message": "pmset - a {key} {v} falhou (saída {exitCode}): {output}"
+      "message": "pmset -a {key} {v} falhou (saída {exitCode}): {output}"
     },
     "exceptions.host_c499e6600386ccd3": {
       "sourceHash": "c798fd763a69430194fe1067f8be0ce8c5f4b285d7ea172caa5343f1fab2fa8a",
@@ -213,15 +213,15 @@
     },
     "exceptions.host_d35eaa0aac5124a8": {
       "sourceHash": "10d673909c618241ca4ff75b605784cbc1e47fb90cef6137ab6bf6b0dff80287",
-      "message": "O ficheiro transferido é demasiado pequeno (bytes {spiceSize}). Pode não ser uma ISO válida."
+      "message": "O arquivo transferido é demasiado pequeno (bytes {spiceSize}). Pode não ser uma ISO válida."
     },
     "exceptions.host_d43d0cab95add9be": {
       "sourceHash": "2591189b53e2330c8bb14fef4dcd18c7bdaa75a0e1888970157d644bfdd59172",
       "message": "Não foi possível verificar a remoção do '{vMName}': a lista de virsh falhou: {join}"
     },
     "exceptions.host_dd6d74db4a58cc9d": {
-      "sourceHash": "6abcfec211648a1869e7a2d51448357284d6a8a19aa1580f170e3ff9efa1df27",
-      "message": "Fido.ps1 hash mismatch (v1.70 marcado): esperado {fidoSha256}, obteve {fidoActual}"
+      "sourceHash": "74545753fcd3a4a6118ef85ec230bc816833886dbd887643a7be8722573c0a49",
+      "message": "Hash de Fido.ps1 diferente do esperado (versão fixa v1.71): esperado {fidoSha256}, obtido {fidoActual}"
     },
     "exceptions.host_de8cc2205b118bfb": {
       "sourceHash": "8ecf9e8eb267a1c7a4ee79d92538e7659d39ceaefc70c4eb9d413e9ad8405df6",
@@ -233,11 +233,11 @@
     },
     "exceptions.host_e9ae1d4da44d99f5": {
       "sourceHash": "26bbcc1ff408e9556084d266b7266b82e92524d4fa382732aba8f62ef0a817d9",
-      "message": "systemctl desabilitar -- agora {unit} falhou: {output}"
+      "message": "systemctl disable --now {unit} falhou: {output}"
     },
     "exceptions.host_ede3d2a333ea0452": {
       "sourceHash": "f3057a817b0371ac5530cdfd237bccf4fd9ef3f54e8957914974d4dab6cc1d8b",
-      "message": "Test- UtmVMRegistered: o estado de registro para '{vMName}' não pôde ser determinado (cliente ausente, sonda negada, tempo limite ou resposta não reconhecida). Chame Get- UtmVMRegistrationState diretamente para lidar com 'Desconhecido' explicitamente em vez de ler isso como ausência."
+      "message": "Test-UtmVMRegistered: o estado de registro para '{vMName}' não pôde ser determinado (cliente ausente, sonda negada, tempo limite ou resposta não reconhecida). Chame Get-UtmVMRegistrationState diretamente para lidar com 'Desconhecido' explicitamente em vez de ler isso como ausência."
     },
     "exceptions.host_ee375a40b48f886b": {
       "sourceHash": "548d40acf1dd7c2f167b357ad6dd9c92a34530bfb2220f30c65578d3b1d101cb",
@@ -281,11 +281,11 @@
     },
     "exceptions.runner_140e410616042231": {
       "sourceHash": "523bea10e70bca6986de401a9ec7e5e3927bdd4e92b289ccf86df8b1fc11d53b",
-      "message": "Write- YurunaStateFileJson retornou false para {currentActionFile}"
+      "message": "Write-YurunaStateFileJson retornou false para {currentActionFile}"
     },
     "exceptions.runner_171dd62b87249d01": {
       "sourceHash": "204f101fe2a375673c884581b1267c69b50639e43284926b14bf77d1caaf0826",
-      "message": "Não foi possível gravar o apelido do ficheiro '{n}' (sudo pwsh terminado {exitCode}): {output}\nSe isso nomear um tempo de execução .NET em falta, o PowerShell desta máquina é a compilação de fórmulas Homebrew e não pode começar com um ambiente despojado. Corrija-o uma vez, em toda a máquina:\n{command}\nentão re-execute este script -- é idempotente e irá convergir."
+      "message": "Não foi possível gravar o apelido do arquivo '{n}' (sudo pwsh terminado {exitCode}): {output}\nSe isso nomear um tempo de execução .NET em falta, o PowerShell desta máquina é a compilação de fórmulas Homebrew e não pode começar com um ambiente despojado. Corrija-o uma vez, em toda a máquina:\n{command}\nentão re-execute este script -- é idempotente e irá convergir."
     },
     "exceptions.runner_187b34999bcb56f2": {
       "sourceHash": "3d08607029b31ec293b7bcf773f2e46295d96cd5d8e198c8aa099f962329c925",
@@ -345,7 +345,7 @@
     },
     "exceptions.runner_3f7582b4c254198f": {
       "sourceHash": "06bdedff1eb773d98c246e6d8ca464951df503ae3b75a8d2602efff5237ed0e3",
-      "message": "Sistema operacional não suportado. Novo-LocalLabStorage suporta Windows, macOS e Ubuntu."
+      "message": "Sistema operacional não suportado. New-LocalLabStorage suporta Windows, macOS e Ubuntu."
     },
     "exceptions.runner_3f7ce7bf346e3755": {
       "sourceHash": "9817709c3a81641770834fe374c0a398c721755f55dedd4983e5f1890f8cc00c",
@@ -373,7 +373,7 @@
     },
     "exceptions.runner_4ebab78c20241f2d": {
       "sourceHash": "add4b222fb8b04f21b414b8ec2385d714a1efca682a8882e3afc2d7926e03275",
-      "message": "powershell- yaml é necessário para ler arquivos de sequência. Instalar com: {command}"
+      "message": "powershell-yaml é necessário para ler arquivos de sequência. Instalar com: {command}"
     },
     "exceptions.runner_4fc4598b71d43c23": {
       "sourceHash": "6b2119ac4069754dfdf84652e56376a54fff621b4446b3870ed899ce7a7cb287",
@@ -385,7 +385,7 @@
     },
     "exceptions.runner_58320111b08e6feb": {
       "sourceHash": "7b58b7475a3db852a3347e19865adfffe9c966d25ca7e7312ea59aeaebcd060b",
-      "message": "Inicialize-YurunaConfigCA: -WhatIf recusou a cunhagem e ainda não existe CA."
+      "message": "Initialize-YurunaConfigCA: -WhatIf recusou a cunhagem e ainda não existe CA."
     },
     "exceptions.runner_62eaa799b46f377c": {
       "sourceHash": "cc279e97d445af6e2881649f0282175ef7ec7cce0dc1c8113dfb7cec27e43a18",
@@ -397,7 +397,7 @@
     },
     "exceptions.runner_636858bd74711c9e": {
       "sourceHash": "eb5c999dd262022f15597f8768c4e0f0e0aee7adb8cef7b6a5a83d0bd85c5a33",
-      "message": "Chave recém- gerada não é carregável com frase- senha vazia. ssh- keygen output: {string}"
+      "message": "Chave recém-gerada não é carregável com frase-senha vazia. ssh-keygen output: {string}"
     },
     "exceptions.runner_6b875a73f815e66a": {
       "sourceHash": "1f4191f977b7989f2b3d89e42e3e982965647cbd4d5f87d54298aa29493d0bcc",
@@ -413,7 +413,7 @@
     },
     "exceptions.runner_7387b2930b7001c9": {
       "sourceHash": "cdffac6b896e0e056b9fbea77d4d621d051db243180368047ce3159e4af42e39",
-      "message": "chmod 600 no ficheiro de credenciais falhou (rc={lASTEXITCODE})"
+      "message": "chmod 600 no arquivo de credenciais falhou (rc={lASTEXITCODE})"
     },
     "exceptions.runner_7b768110a092cc93": {
       "sourceHash": "41cd05a94d79183d8cef20ede8cccbf5592a4ce27d7ee207a26e9f3ae401ce8d",
@@ -421,11 +421,11 @@
     },
     "exceptions.runner_7f5f244997a1c718": {
       "sourceHash": "f98e1d5cce36aee476ca3a5ac08722975cbccca2b6cefabf19b28228c17b86d6",
-      "message": "Get-GuestRunWrapperCommand: Token '{token}' deve corresponder ^[A-Za-z0-9. -]+$ -- é interpolado em uma linha de comando shell."
+      "message": "Get-GuestRunWrapperCommand: Token '{token}' deve corresponder ^[A-Za-z0-9._-]+$ -- é interpolado em uma linha de comando shell."
     },
     "exceptions.runner_86e81d4c81406275": {
       "sourceHash": "1feaf26bdf9e1b5d6f1d35995dd3edff97fa804e0a6cf45c78d705ebccc124b5",
-      "message": "mount smbfs rc={exitCode}{stdErr}"
+      "message": "mount_smbfs rc={exitCode}{stdErr}"
     },
     "exceptions.runner_870490a8a4454890": {
       "sourceHash": "7a4f3f984c83a456f4fc44b4b5a19f713b9a3751fd55be3a1adede149defeacc",
@@ -433,7 +433,7 @@
     },
     "exceptions.runner_88fa927a70dd9984": {
       "sourceHash": "598b8ee8f446c58ed9ed91fa776d375bbaf5dda2332f09bc806c72383e7ddc5c",
-      "message": "sudo mount - t cifs rc={exitCode}{hint}{detail}"
+      "message": "sudo mount -t cifs rc={exitCode}{hint}{detail}"
     },
     "exceptions.runner_8ab33e8dd3c14ea8": {
       "sourceHash": "e10547defdc7e90adbcf8116c2758a6f3cb86e0787d9f0c8f09055a7efd0a42b",
@@ -441,7 +441,7 @@
     },
     "exceptions.runner_92362a2623a29d74": {
       "sourceHash": "28937743cf5b77e06309dbda95a87d76ac0fde57b834f4356742b7e7abba5299",
-      "message": "O ssh- keygen não foi encontrado no PATH. Instale o cliente OpenSSH."
+      "message": "O ssh-keygen não foi encontrado no PATH. Instale o cliente OpenSSH."
     },
     "exceptions.runner_956bc257626cca2e": {
       "sourceHash": "3d132b748ce3fb5dff74a3154287aaa2ceca7aaa206caac7cf602b9bcc59cf58",
@@ -461,7 +461,7 @@
     },
     "exceptions.runner_9fe3c4a46ba0668d": {
       "sourceHash": "e999b5db76cd6de7df2a28c754a693bc90b60221c54efb6675583d2b2c38c0f2",
-      "message": "git pull --ff-somente falhou (saída {exitCode}): {output}"
+      "message": "git pull --ff-only falhou (saída {exitCode}): {output}"
     },
     "exceptions.runner_a01e6215c9b21e74": {
       "sourceHash": "2b065d287ed03608a81f29c19e59f5f3c7a4cd79dc450a60dd791f87e5a028ba",
@@ -473,7 +473,7 @@
     },
     "exceptions.runner_a36f9aee4f868c72": {
       "sourceHash": "31b32682d68fba539bf1e83923028b0210a668511d87c37e12745f9c220c60c0",
-      "message": "O directório da área de extensão não foi encontrado: {dir}"
+      "message": "O diretório da área de extensão não foi encontrado: {dir}"
     },
     "exceptions.runner_a4fb11bebe1b1114": {
       "sourceHash": "06c10548af1f9c0ff807f13fcda3bd01003b06f50d79fc1828f9b14d1320d1b7",
@@ -497,7 +497,7 @@
     },
     "exceptions.runner_b8accd7ac3900ef3": {
       "sourceHash": "ce537a8b87a896bca9fae49f7e4571be33333f0b3e98ead86775cc98bacb17a5",
-      "message": "Não foi possível habilitar o servidor MacOS SMB. Ativar o Compartilhamento de Arquivos em Configurações do Sistema > Geral > Compartilhamento e re- execução. (ativar launchctl: {output}; iniciar: {output2})"
+      "message": "Não foi possível habilitar o servidor MacOS SMB. Ativar o Compartilhamento de Arquivos em Configurações do Sistema > Geral > Compartilhamento e re-execução. (ativar launchctl: {output}; iniciar: {output2})"
     },
     "exceptions.runner_bcfafa04e60d24c8": {
       "sourceHash": "016c7c322496c4a01ca482207d536d246ff0bccc42033582f4374ee5a0095da3",
@@ -509,15 +509,15 @@
     },
     "exceptions.runner_c959d88998b87c80": {
       "sourceHash": "64e134362efc67ce04eab35f151e6ca65295c076276ad926986668050da0745d",
-      "message": "powershell- yaml é necessário para expandir trechos de sequência. Instalar com: {command}"
+      "message": "powershell-yaml é necessário para expandir trechos de sequência. Instalar com: {command}"
     },
     "exceptions.runner_d0e5e81b3dcaf9c7": {
       "sourceHash": "17b4bc262c1a21a0105547a39cc8e15018c2b40932c31f90a9e1482b03e27440",
-      "message": "O ssh- keygen falhou ao criar a chave no {sshKeyPath}"
+      "message": "O ssh-keygen falhou ao criar a chave no {sshKeyPath}"
     },
     "exceptions.runner_d3b174912efd30ac": {
       "sourceHash": "bc43a01ccaef13027db2296e656f07a925669f6c837491f4cbdc62930ddbbd53",
-      "message": "git init -- bare falhou para '{path}' (saída {lASTEXITCODE})."
+      "message": "git init --bare falhou para '{path}' (saída {lASTEXITCODE})."
     },
     "exceptions.runner_d4288d81f5c5acb3": {
       "sourceHash": "f7bb33aa4ac75c76cf05c1eee0686c70b0bcb0f14c32200bd6422eff795648eb",
@@ -545,7 +545,7 @@
     },
     "exceptions.runner_e80a19e94ca9be85": {
       "sourceHash": "af6d840384e68f4a4da9ed07cfd9273fc934ac0f622115788512dfa55c95dbad",
-      "message": "Nome VM composto '{vmName}' tem caracteres fora [A-Za-z0-9. -]; corrigir vmStart.testVmNamePrefix ('{prefix}') -- Os nomes VM devem ser seguros."
+      "message": "Nome VM composto '{vmName}' tem caracteres fora [A-Za-z0-9._-]; corrigir vmStart.testVmNamePrefix ('{prefix}') -- Os nomes VM devem ser seguros."
     },
     "exceptions.runner_ea88e75707522b67": {
       "sourceHash": "f0a39d2849ee3f352c581be720e7732fccbbabb523293f697b322149e9fadbce",
@@ -553,7 +553,7 @@
     },
     "exceptions.runner_f1bde95b1f050137": {
       "sourceHash": "def62edfb7c2d0d80c3d8eaa1d6de798db83e9e4144dd977b6a29a8bf1334964",
-      "message": "sequência prereq não encontrada: {sequenceName} (referenciado por uma entrada em projeto/teste/teste.runner.yml)\nPesquisado (sem correspondência):\n{list}"
+      "message": "pré-requisito da sequência não encontrado: {sequenceName} (referenciado por uma entrada em project/test/test.runner.yml)\nLocais pesquisados (sem correspondência):\n{list}"
     },
     "exceptions.runner_f3da34207d2a8685": {
       "sourceHash": "9cecd8704084dd3fa2a6cb0d9f09ad35c0915e9d49c9e72855fda17e686b2357",

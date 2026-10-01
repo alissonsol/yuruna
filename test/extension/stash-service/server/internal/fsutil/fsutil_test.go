@@ -4,6 +4,8 @@ package fsutil
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -30,5 +32,39 @@ func TestSyncCloseReportsWritebackFailures(t *testing.T) {
 		if pair[0] == nil && pair[1] == nil && got != nil {
 			t.Fatal(got)
 		}
+	}
+}
+
+func TestUploadNameCrossPlatform(t *testing.T) {
+	for _, raw := range []string{"report.txt", `C:\folder\report.txt`, "/folder/report.txt"} {
+		if name := UploadName(raw); name != "report.txt" {
+			t.Fatalf("%q sanitized to %q", raw, name)
+		}
+	}
+	for _, raw := range []string{"", "..", "/", "\x00"} {
+		if name := UploadName(raw); name != "" {
+			t.Fatalf("unsafe name %q survived", name)
+		}
+	}
+}
+func TestUniqueUploadPathPreservesExistingFiles(t *testing.T) {
+	dir := t.TempDir()
+	original := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(original, []byte("first"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := UniqueUploadPath(dir, "report.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("second"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	third, err := UniqueUploadPath(dir, "report.txt")
+	if err != nil || third == original || third == second {
+		t.Fatalf("duplicate path: %s %v", third, err)
+	}
+	if b, err := os.ReadFile(original); err != nil || string(b) != "first" {
+		t.Fatalf("original overwritten: %q %v", b, err)
 	}
 }

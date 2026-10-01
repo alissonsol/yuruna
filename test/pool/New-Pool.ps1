@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42509e7a-733b-48f3-a663-0952f4326255
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,11 +21,12 @@
     Create or update a pool in the LAN pool-intent store (pools.yml).
 .DESCRIPTION
     Pool admin CLI. Clones/pulls the WRITABLE intent repo, upserts a pool entry
-    (poolId + poolGuid + displayName + desiredState; members/testSet preserved on
-    update), schema-validates pools.yml, then commits + pushes. Assign the pool's
-    framework/project repo pair with Set-PoolTestSet. Runners PULL this intent
-    read-only over HTTP and never write it. Run on the proxy (or with a writable
-    -IntentGitUrl) so the push succeeds. See docs/pool-storage.md.
+    (poolId + poolGuid + displayName + desiredState; members and repositories are
+    preserved on update), schema-validates pools.yml, then commits + pushes. Set
+    the pool's framework and project repositories with Set-PoolRepository.ps1.
+    Runners PULL this intent read-only over HTTP and never write it. Run on the
+    proxy (or with a writable -IntentGitUrl) so the push succeeds. See
+    docs/pool-storage.md.
 .PARAMETER PoolId
     DNS-label-safe pool id (the immutable Loki/Prometheus label).
 .PARAMETER IntentGitUrl
@@ -86,26 +87,9 @@ if ($PoolId -notmatch '^[a-z0-9][a-z0-9-]{0,62}$') {
 }
 
 # --- REGION: Open the intent store
-$t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
-if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') -ErrorAction Continue
-    exit $ExitFailure
-}
-# Creating a pool is the one command that may also create the store it writes
-# into. Without this, a writable path that was never seeded -- a NAS pool tier
-# mounted straight into networkStorage, a share rebuilt under a new root, any
-# route to a fresh pool folder that did not run New-Lab -- fails here with a
-# bare `git clone failed (exit 128)` naming nothing that is actually wrong.
-# Read-only pool commands deliberately do NOT do this; see the function's notes.
-$seed = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $t.IntentGitUrl -Confirm:$false
-if (-not $seed.Ok) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5e931217fd513630' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; reason = "$($seed.Reason)" }) -ErrorAction Continue
-    exit $ExitFailure
-}
-if ($seed.Created) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b8e126357db609a2' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)" }) -InformationAction Continue }
-
-$open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" }) -ErrorAction Continue; exit $ExitFailure }
+$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+$t = $open.Target
+if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
@@ -116,13 +100,13 @@ if ($pool -and $IfMissing) {
 }
 if ($pool) {
     # Only overwrite displayName when the caller actually passed -DisplayName; re-running
-    # New-Pool just to change desiredState must not wipe an existing name (members/testSets
-    # are already preserved on update).
+    # New-Pool just to change desiredState must not wipe an existing name (members and
+    # repositories are already preserved on update).
     if ($PSBoundParameters.ContainsKey('DisplayName')) { $pool['displayName'] = $DisplayName }
     $pool['desiredState'] = $DesiredState
     $action = 'update'
 } else {
-    # Mint a stable 42-prefixed GUID (the dashboard "Pool ID") once, at creation.
+    # Mint a stable 42-prefixed pool GUID once, at creation.
     $poolGuid = '42' + ([guid]::NewGuid().ToString()).Substring(2)
     $doc['pools'] = @(@($doc['pools']) + ([ordered]@{
         poolId       = $PoolId
@@ -135,14 +119,8 @@ if ($pool) {
 }
 
 # --- REGION: Save, commit and push
-$save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
-if (-not $save.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_9c27a25b6843707d' -Arguments @{ error = "$($save.Error)" }) -ErrorAction Continue; exit $ExitFailure }
-$pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: $action $PoolId" -Confirm:$false
-if (-not $pub.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_493d8875345272bb' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue; exit $ExitFailure }
-if (-not $pub.Pushed) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_d7dcddaba0a5b0ef' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue
-    exit $ExitFailure
-}
+$pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: $action $PoolId" -Confirm:$false
+if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
 
 Write-Information "Pool '$PoolId' ${action}d (desiredState=$DesiredState)." -InformationAction Continue
 exit $ExitOk

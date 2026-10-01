@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.16
+.VERSION 2026.09.30
 .GUID 42c53656-cbe7-4882-9a43-998f29ec9609
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -107,19 +107,22 @@ $script:skipProjectClone = (-not (Test-Path -LiteralPath (Join-Path $projectClon
 }
 
 Describe 'Tracked *.sh files are recorded executable in the git index' {
-    It 'has no *.sh index entry at mode 100644' -Skip:$script:skipRepo {
+    It 'has no *.sh index entry at mode 100644' {
+        if ($script:skipRepo) { Set-ItResult -Skipped -Because 'framework checkout is not a git work tree'; return }
         $offenders = @(Get-NonExecutableShellScript -Root $repoRoot)
         Assert-True ($offenders.Count -eq 0) "fix with: git update-index --chmod=+x -- $($offenders -join ' ')"
     }
 
-    It 'has no *.sh index entry at mode 100644 in the project/ clone (yuruna-project)' -Skip:$script:skipProjectClone {
+    It 'has no *.sh index entry at mode 100644 in the project/ clone (yuruna-project)' {
+        if ($script:skipProjectClone) { Set-ItResult -Skipped -Because 'project clone is not a git work tree'; return }
         $offenders = @(Get-NonExecutableShellScript -Root $projectClone)
         Assert-True ($offenders.Count -eq 0) "fix in the yuruna-project repository and push (the clone is disposable): git update-index --chmod=+x -- $($offenders -join ' ')"
     }
 }
 
 Describe 'Tracked shebang scripts outside *.sh are recorded executable' {
-    It 'has no non-.sh tracked file that opens with #! at mode 100644' -Skip:$script:skipRepo {
+    It 'has no non-.sh tracked file that opens with #! at mode 100644' {
+        if ($script:skipRepo) { Set-ItResult -Skipped -Because 'framework checkout is not a git work tree'; return }
         $offenders = @()
         foreach ($entry in @(Get-GitIndexEntry -Root $repoRoot)) {
             if ($entry.Mode -ne '100644') { continue }

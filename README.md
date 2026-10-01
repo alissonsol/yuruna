@@ -2,9 +2,9 @@
 
 # Yuruna
 
- A cross-platform framework for instant lab provisioning and reliable user scenario verification.
+A cross-platform framework for instant lab provisioning and reliable user scenario verification.
 
-**Yuruna asserts resources are configured to verify components against anticipated workloads.** Designed to bridge the gap between fragile prototypes and hardened enterprise deployments, Yuruna automates the complex infrastructure required for deterministic testing. It enables organizations to rapidly provision isolated host environments across diverse architectures, instantly solving the bottlenecks of manual setup and dependency management. With a clean baseline established, teams can continuously execute automated workflows to guarantee that high-stakes user scenarios perform reliably under actual operational stress
+**Yuruna asserts resources are configured to verify components against anticipated workloads.** Designed to bridge the gap between fragile prototypes and hardened enterprise deployments, Yuruna automates the complex infrastructure required for deterministic testing. It enables organizations to rapidly provision isolated host environments across diverse architectures, instantly solving the bottlenecks of manual setup and dependency management. With a clean baseline established, teams can continuously execute automated workflows to guarantee that high-stakes user scenarios perform reliably under actual operational stress.
 
 Three main capabilities: reproducible host/guest VM setups for development
 workspaces, Kubernetes deployment across multiple clouds, and a VM-based
@@ -111,4 +111,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30

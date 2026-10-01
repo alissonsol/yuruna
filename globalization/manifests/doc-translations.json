@@ -27,7 +27,8 @@
       "source": "docs/lab-operator.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/lab-operator.md",
-      "sourceHash": "1ff7976924fdcdc9bb7017c6722a0957801e28f2999e66f5dc16d47fbca51d9f"
+      "sourceHash": "28b7c3361f4f25401df96dcbfe75217f64349351a77cb75ba4b682eb3e0fbd4f",
+      "origin": "machine"
     },
     {
       "repo": "yuruna",
@@ -48,14 +49,14 @@
       "source": "install/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install/README.md",
-      "sourceHash": "ed49c503107ba06f92c6317d9c27982cf598bff2fb36a21ffdcead15f3cbd3b1"
+      "sourceHash": "a7b8990c100752a313235d5562db9ce20363fe37ccb2259f989ae6fa74c15aed"
     },
     {
       "repo": "yuruna",
       "source": "README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/README.md",
-      "sourceHash": "c856cc779468a2a5e0adff398e056b0de36eca9e07c3eb9d700cc0ab62404e5d"
+      "sourceHash": "634fe3d89902ac9addef29b8252faac00a63b6acb60aae98fa4ada6204c944ef"
     },
     {
       "repo": "yuruna-project",
@@ -69,7 +70,8 @@
       "source": "example/text-to-sql/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/example/text-to-sql/README.md",
-      "sourceHash": "8f5d19cd375227d4be508ed74808423d3187bc10708ca0685470fe44c874e21b"
+      "sourceHash": "c60489505e755483c6e6902ce93c33515110eabba4e2032fc59428738a8b6d4c",
+      "origin": "machine"
     },
     {
       "repo": "yuruna-project",

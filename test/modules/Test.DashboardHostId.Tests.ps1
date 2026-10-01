@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d2490f-e2d9-4303-a287-fa13182fb811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -203,8 +203,8 @@ Describe 'the dashboard the proxy is seeded with' {
         # cloud-init writes the inline copy once, at build time; the repo file is
         # what Sync-PoolDashboardOnProxy pushes to a running proxy. A correction
         # in one of the two leaves a rebuilt VM disagreeing with every other.
-        Assert-Equal -Expected $script:DashboardText -Actual (Get-SeededDashboard) `
-            -Because 'the seed''s inline pool.json must match grafana-pool-dashboard.json exactly'
+        Assert-True ([string]::Equals($script:DashboardText, (Get-SeededDashboard), [StringComparison]::Ordinal)) `
+            'the seeded dashboard must match the canonical file byte for byte'
     }
 
     It 'still carries the placeholder cloud-init rewrites into an aggregator URL' {

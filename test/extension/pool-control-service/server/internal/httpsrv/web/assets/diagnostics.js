@@ -3,16 +3,11 @@
 // Diagnostics view. Renders the report even when checks fail -- this is the one
 // page that has to work while the service is broken.
 (function () {
-  // Deliberately NOT Y.api: that helper treats {ok:false} as a thrown error,
-  // which is the normal payload here (a report of failing checks). Fetch the
-  // JSON directly and let the table show the failures.
+  // A failing check is report data even though its envelope says ok:false.
+  // Bound the request while preserving that report for the table.
   function load() {
     Y.clearNotice();
-    return window.fetch('/api/diagnostics', { headers: { 'Accept': 'application/json' } })
-      .then(function (res) {
-        if (!res.ok) { throw new Error('HTTP ' + res.status); }
-        return res.json();
-      });
+    return Y.api('/api/diagnostics', { timeoutMs: 60000, allowFailureReport: true });
   }
 
   function summary(d) {
@@ -111,14 +106,7 @@
   // Every other run replaces it and says so: each check is a live probe of a
   // dependency, and the ones worth waiting for are the ones timing out.
   function refresh(opts) {
-    window.YurunaFirstUsable.hold('primary');
-    var quiet = !!(opts && opts.quiet);
-    var done = quiet ? function () { } : Y.busy(document.getElementById('check-rows'), window.YurunaI18n.t("pool.running_checks"));
-    chrome.busy(true);
-    // Run on the failure path too: an indicator left turning over a probe that
-    // already failed claims progress that is not happening -- on the one page
-    // that has to stay readable during an outage.
-    var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
+    var finish = Y.beginPageLoad(chrome, { quiet: !!(opts && opts.quiet), target: document.getElementById('check-rows'), label: window.YurunaI18n.t("pool.running_checks") });
     return load().then(function (d) {
       render(d);
       chrome.markLoaded();

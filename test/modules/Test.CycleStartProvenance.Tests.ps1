@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 422b8d9d-ee36-4c20-b920-5d584af0ebff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     cycle-opening NDJSON event, and for that field's typing in
     Test.EventSchema.
 .DESCRIPTION
-    Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+). The record is
+    Throw-based assertions (Pester 5+). The record is
     proved end-to-end -- a temp TestRoot, a real cycle folder, the line
     Start-LogFile actually appended -- because the event is assembled inline at
     the emit site, so a test that stopped short of the file would not be

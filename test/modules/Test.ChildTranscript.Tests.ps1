@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427f1267-e087-42e4-ad77-aab3e3216101
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,13 +20,10 @@
 # its end and exits 0 -- so a harness that shells this out records a PASS for a
 # suite that executed no assertion at all. A test that cannot run must say so in
 # its exit code; silence that reads as success is worse than no test.
+if (-not (Get-Command -Name BeforeAll -ErrorAction SilentlyContinue)) { throw 'This suite requires Pester; run it with Invoke-Pester or Invoke-TestSuite.ps1.' }
+
 BeforeAll {
-if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
-    Write-Error ("Pester is not available, so this suite cannot run. Install it with " +
-                 "'Install-Module Pester -Scope CurrentUser', then re-run with " +
-                 "Invoke-Pester -Path '$PSCommandPath'.")
-    exit 1
-}
+
 
 <#
 .SYNOPSIS

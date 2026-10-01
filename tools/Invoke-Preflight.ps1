@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e5c0b7-3a91-4d68-b2f4-8c07d15e9a36
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,6 +150,20 @@ foreach ($row in $Rows) {
                     $detail = $candidate
                     $version = Get-FirstVersionNumber -Text (Get-CommandVersion -Name $candidate)
                     break
+                }
+            }
+            # Windows installs Chrome under the program directories, off PATH, and
+            # its executable prints no version: the file's own metadata has it.
+            if (-not $found -and $IsWindows -and $row.Name -eq 'chrome') {
+                foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
+                    if (-not $base) { continue }
+                    $exe = Join-Path $base 'Google/Chrome/Application/chrome.exe'
+                    if (Test-Path -LiteralPath $exe) {
+                        $found = $true
+                        $detail = $exe
+                        $version = Get-FirstVersionNumber -Text ([string](Get-Item -LiteralPath $exe).VersionInfo.ProductVersion)
+                        break
+                    }
                 }
             }
         }

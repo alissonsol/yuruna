@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42cb87f4-7e53-4a64-bea3-4c874894dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,21 +88,9 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
+Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 $virshUri = 'qemu:///system'
-$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
-Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
-# --- REGION: https://yuruna.link/42d69dfa-001e
-$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
-    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
-Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
-$domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
-if ($LASTEXITCODE -ne 0) {
-    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d43d0cab95add9be' -Arguments @{ vMName = "$VMName"; join = "$($domainNames -join '; ')" })
-}
-if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
-    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9174df31c5ee6350' -Arguments @{ vMName = "$VMName"; dominfo = "$dominfo" })
-}
+Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
@@ -203,13 +191,7 @@ if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
-$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
-$poolControlLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
-    'auto'
-} else {
-    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
-}
-if (-not $poolControlLanguage) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = "$languageRaw" }) }
+$poolControlLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # --- REGION: https://yuruna.link/42e220c4-0004
@@ -274,67 +256,8 @@ Write-Output "    virt-viewer --connect $virshUri $VMName"
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_095582e0ec3b9dc8')
 Write-Output ""
 
-# --- REGION: Create and configure the libvirt domain (virt-install)
-$arch = (& uname -m).Trim()
-$osVariant = 'linux2022'
-$osList = & virt-install --osinfo list 2>$null
-if ($LASTEXITCODE -eq 0) {
-    $canonicalIds = @($osList | ForEach-Object {
-        $first = ("$_".Trim() -split '[\s,]', 2)[0]
-        ($first -replace ',$', '').Trim()
-    } | Where-Object { $_ })
-    # Ubuntu 26.04 may not be in the host's osinfo-db yet; fall back through
-    # ubuntu24.04 -> ubuntu22.04 -> linux2022 generic.
-    foreach ($candidate in @('ubuntu26.04', 'ubuntu24.04', 'ubuntu22.04')) {
-        if ($canonicalIds -contains $candidate) { $osVariant = $candidate; break }
-    }
-    if ($osVariant -eq 'linux2022') {
-        Write-Verbose "osinfo-db has no 'ubuntu26.04'/'ubuntu24.04'/'ubuntu22.04' entry; using 'linux2022' generic variant."
-    }
-}
-
-# --- REGION: https://yuruna.link/42fa6f45-0015
-# See https://yuruna.link/42fa6f45-0016
-$hostCores = [int](& nproc --all)
-if ($hostCores -lt 4) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
-    exit 1
-}
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-
-# --- REGION: https://yuruna.link/4220a755-000a
-$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
-Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
-
-$installArgs = @(
-    '--connect',    $virshUri,
-    '--name',       $VMName,
-    '--memory',     '2048',
-    '--vcpus',      "$vmCores",
-    '--cpu',        'host-passthrough',
-    '--os-variant', $osVariant,
-    '--disk',       "path=$diskImg,format=qcow2,bus=virtio",
-    '--disk',       "path=$seedImg,device=cdrom",
-    '--network',    "network=$networkName,model=virtio,mac=$YurunaGuestMac",
-    '--graphics',   'vnc,listen=127.0.0.1',
-    '--channel',    'unix,target_type=virtio,name=org.qemu.guest_agent.0',
-    '--events',     'on_reboot=restart',
-    '--noautoconsole',
-    '--import'
-)
-if ($arch -eq 'aarch64') {
-    $installArgs += @('--machine', 'virt', '--boot', 'uefi')
-}
-
-Write-Verbose "virt-install $($installArgs -join ' ')"
-$virtInstallOutput = & virt-install @installArgs 2>&1
-$virtInstallExit = $LASTEXITCODE
-$virtInstallOutput | ForEach-Object { Write-Verbose "$_" }
-if ($virtInstallExit -ne 0) {
-    $virtInstallOutput | ForEach-Object { Write-Output "$_" }
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d74692e9db12304f' -Arguments @{ virtInstallExit = "$virtInstallExit" })
-    exit 1
-}
+# --- REGION: Create and configure the libvirt domain
+if (-not (New-KvmServiceDomain -VMName $VMName -DiskPath $diskImg -SeedPath $seedImg -NetworkName $networkName -MemoryMb 2048 -Confirm:$false)) { exit 1 }
 
 # --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -343,29 +266,7 @@ Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b93b853caa0a1c89')
 
-$dockIp = $null
-$maxIterations = 120  # 120 * 5s = 10 minutes
-$startTime = Get-Date
-$baselineSizeMB = [math]::Round((Get-Item $diskImg).Length / 1MB, 0)
-# Plain Write-Output progress -- see feedback_pwsh_linux_write_progress_setcursor.md
-# for why we don't use Write-Progress on pwsh-on-Linux.
-
-for ($i = 0; $i -lt $maxIterations; $i++) {
-    $dockIp = Get-VMIp -VMName $VMName
-    if ($dockIp) { break }
-    Start-Sleep -Seconds 5
-
-    if (($i % 6) -eq 5) {
-        $elapsed = [int]((Get-Date) - $startTime).TotalSeconds
-        $sizeMB  = [math]::Round((Get-Item $diskImg).Length / 1MB, 0)
-        $deltaMB = $sizeMB - $baselineSizeMB
-        $min     = [int][math]::Floor($elapsed / 60)
-        $sec     = [int]($elapsed % 60)
-        $totalMinutes = [int][math]::Floor($maxIterations * 5 / 60)
-        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ab6af692ee9143e8' -FormatValues ($min, $sec, $totalMinutes, $sizeMB, $deltaMB) -FormatBindings @{ min = '0:D2'; sec = '1:D2'; totalMinutes = '2'; sizeMB = '3'; deltaMB = '4' })
-    }
-}
-
+$dockIp = Wait-KvmGuestIp -VMName $VMName -DiskPath $diskImg -TimeoutSeconds 1200
 if (-not $dockIp) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_95e05e441841ef8e' -Arguments @{ vMName = "$VMName"; virshUri = "$virshUri" })
     exit 1

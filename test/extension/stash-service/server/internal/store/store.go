@@ -34,8 +34,9 @@ type Store struct {
 // the share-side layout (hostkey/, files/). Pre-creation failure is NOT
 // fatal: at startup the share may be offline/unmounted (section 8.4), in which case
 // folder is the unmounted, root-owned mountpoint and these mkdirs fail with
-// EACCES -- the daemon must still come up and buffer locally, creating the
-// share dirs lazily (DayDir / the flush worker) once the share is writable.
+// EACCES. Store construction still succeeds; SSH startup separately requires
+// a usable host identity, including an existing local key when share-key state
+// is uncertain. Share dirs are created lazily once the share is writable.
 // metadata/ is intentionally NOT created here -- the SQLite index lives on the
 // VM's local disk (section 6.1, section 8).
 func New(folder string) (*Store, error) {
@@ -48,7 +49,7 @@ func New(folder string) (*Store, error) {
 // NewFilesOnly returns a Store rooted at folder with only files/ created --
 // used for the VM-local NAS-offline buffer (section 8.4), which mirrors the
 // share's files/yyyy/mm/dd layout (so a flush is a same-relative-path
-// copy) but has no hostkey/ of its own.
+// copy). SSH startup may also persist a fallback hostkey/ under this folder.
 func NewFilesOnly(folder string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(folder, config.FilesDirName), 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", config.FilesDirName, err)

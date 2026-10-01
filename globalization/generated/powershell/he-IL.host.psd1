@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4241a322-99ef-c7cf-96e0-a7d07ed683f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -6387,7 +6387,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '/⁩  (הקצאה / מאגרים / ערכות בדיקה)'
+        '/⁩  (לוח / מארחים / מאגרים)'
     )
     'host.operator_bba21c5cbbc83755' = @(
         'virt-install --print-xml נכשל (קוד יציאה '

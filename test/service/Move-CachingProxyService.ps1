@@ -788,7 +788,7 @@ try {
         # end-to-end miss-through-parent on both the plain and ssl-bump paths, and
         # a failure there is fatal; the probe below is informational and warn-only.
         if ($script:NewAclIp) {
-            $logProbe = Invoke-VmRoot -Vm $old -Command "tail -n 400 /var/log/squid/access.log 2>/dev/null | grep -Fc '$script:NewAclIp' || true" -TimeoutSeconds 45
+            $logProbe = Invoke-VmRoot -Vm $old -Command "tail -n 400 /var/log/squid/access.log 2>/dev/null | awk -v ip='$script:NewAclIp' '`$3 == ip {n++} END {print n+0}'" -TimeoutSeconds 45
             $hits = 0
             [void][int]::TryParse($logProbe.output.Trim(), [ref]$hits)
             if ($hits -gt 0) {

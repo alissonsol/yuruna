@@ -6378,7 +6378,7 @@ const DatazhCNhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "/  （分配 / 池 / 测试集）"
+    "/  （看板 / 宿主机 / 池）"
   ],
   "host.operator_bba21c5cbbc83755": [
     "virt-install --print-xml失败（退出码",

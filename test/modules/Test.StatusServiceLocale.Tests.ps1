@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d1c86a-7fb3-4e59-90a2-63b4e0d7185f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,23 +57,7 @@ function Get-GeneratedServerText {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-
-    $lines = [IO.File]::ReadAllLines($script:ServicePath)
-    $start = -1; $end = -1
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($start -lt 0 -and $lines[$i] -match '^\$serverScript = @"$') { $start = $i + 1; continue }
-        if ($start -ge 0 -and $lines[$i] -match '^"@$') { $end = $i - 1; break }
-    }
-    if ($start -lt 0 -or $end -lt $start) { throw 'could not find the server here-string in the launcher' }
-    $raw = ($lines[$start..$end]) -join "`n"
-    # Expanded, not merely read. The template writes every runtime variable
-    # with a leading backtick so it survives generation; reading the template
-    # would leave those backticks in place and parse as something the host
-    # never runs. ExpandString performs exactly the interpolation the
-    # here-string performs, which is what turns the template into the artifact
-    # -- and is why a variable that LOST its backtick shows up here as the
-    # constant it became rather than as the name it looks like.
-    return $ExecutionContext.InvokeCommand.ExpandString($raw)
+    return Get-YurunaTestGeneratedServerText -Path $script:ServicePath -Expand { param($Raw) $ExecutionContext.InvokeCommand.ExpandString($Raw) }
 }
 
 $script:ServerText = Get-GeneratedServerText
@@ -88,12 +72,7 @@ function Get-FunctionFromServer {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$Name)
-
-    $ast = [System.Management.Automation.Language.Parser]::ParseInput($script:ServerText, [ref]$null, [ref]$null)
-    $found = $ast.FindAll({
-            param($n)
-            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
-        }, $true) | Select-Object -First 1
+    $found = Get-YurunaTestFunctionAst -Ast $script:ServerAst -Name $Name
     if (-not $found) { return '' }
     return $found.Extent.Text
 }

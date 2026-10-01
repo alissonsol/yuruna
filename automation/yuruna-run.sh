@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -24,6 +24,13 @@ YR_CMD_B64=''
 YR_CANCEL=0
 
 while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --token|--from-line|--budget|--cmd-b64)
+            if [ "$#" -lt 2 ]; then
+                echo "yuruna-run: $1 needs a value" >&2
+                exit 64
+            fi ;;
+    esac
     case "$1" in
         --token)     YR_TOKEN="${2:-}"; shift 2 ;;
         --from-line) YR_FROM_LINE="${2:-0}"; shift 2 ;;

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f41a3a-96b8-4ab6-ac90-5f5f7b020de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -620,7 +620,7 @@ Describe 'dispatcher command resolution' {
             # The extension itself defines the verb; the dispatcher's own module
             # names it when resolving each extension's command through its module
             # object. Test files are exercise, not product code.
-            $_.FullName -notmatch '\\extension\\' -and
+            $_.FullName -notmatch '[\\/]extension[\\/]' -and
             $_.Name -ne 'Test.Notify.psm1' -and
             $_.Name -notlike '*.Tests.ps1'
         }

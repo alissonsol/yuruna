@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4263c64f-234d-45a4-b9c8-83aed05f27d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,25 @@
 # a service answering two readers at once must not have one.
 
 $script:LocaleManifest = $null
+
+function Resolve-SeedLanguageTag {
+    <#
+    .SYNOPSIS
+        Resolves the lab seed language to auto or one validated canonical tag.
+    .PARAMETER Config
+        The configuration containing the lab-wide language value.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)]$Config)
+    $raw = [string](Get-TestConfigValue -Config $Config -Path 'language')
+    if ([string]::IsNullOrWhiteSpace($raw) -or $raw -ieq 'auto') { return 'auto' }
+    $tag = ConvertTo-CanonicalLocaleTag -Tag $raw
+    if (-not $tag) {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = $raw })
+    }
+    return $tag
+}
 
 function Get-LocaleManifest {
     <#
@@ -447,5 +466,5 @@ function New-LocaleContext {
     return [Collections.ObjectModel.ReadOnlyDictionary[string, object]]::new($fields)
 }
 
-Export-ModuleMember -Function Get-LocaleManifest, Get-CatalogProvenance, ConvertTo-CanonicalLocaleTag,
+Export-ModuleMember -Function Resolve-SeedLanguageTag, Get-LocaleManifest, Get-CatalogProvenance, ConvertTo-CanonicalLocaleTag,
     Resolve-SupportedLocale, Select-LocaleDecisionFromHeader, Select-LocaleFromHeader, New-LocaleContext

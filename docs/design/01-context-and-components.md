@@ -62,9 +62,9 @@ The harness boundary includes the implemented host-refresh control path:
 [Test.HostRefresh](../../test/modules/Test.HostRefresh.psm1), and
 [Test.HostRefreshIntent](../../test/modules/Test.HostRefreshIntent.psm1).
 Refresh coordinates the existing runner and provider within the harness boundary.
-The Hyper-V and KVM providers implement the bounded virtualization probe and
-start-if-stopped operations in the host contract. The manual refresh path
-and automatic trigger have separate admission rules;
+All three providers implement the bounded virtualization probe in the host
+contract; Hyper-V and KVM also enable start-if-stopped repair. The manual
+refresh path and automatic trigger have separate admission rules;
 [Lifecycle](04-lifecycle-state.md) identifies the enabled repair rungs and
 the automatic policy qualification.
 

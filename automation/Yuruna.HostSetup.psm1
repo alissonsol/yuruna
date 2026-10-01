@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f9c804-966c-4de0-8a8d-1919e7a84b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableName
     resolve their dependencies. This module collapses that bootstrap into a single
     call, so a new prerequisite is one edit instead of three identical ones.
 
-    Linux callers also need to prime sudo BEFORE the long
+    Unix callers also need to prime sudo BEFORE the long
     `Install-PowerShellYamlIfMissing` step so the password prompt fires
     early (with reason banner) instead of after a silent 30-second wait
     -- the `-SudoCacheReason` parameter wires that in without forcing
@@ -95,8 +95,8 @@ function Initialize-HostSetupModule {
         When set, Initialize-SudoCache runs after the contract import and
         before the install pair. The reasons list shows in the prompt
         banner so the operator sees WHAT will need sudo before they
-        consent. Linux only; pass on the others and Initialize-SudoCache
-        becomes a no-op anyway, but the explicit guard documents intent.
+        consent. Linux and macOS callers pass this before installing modules;
+        a platform without Initialize-SudoCache skips the call.
     .PARAMETER SkipModuleInstall
         Install nothing from PSGallery: each of the two modules that is
         missing gets a warning naming the command that installs it, and

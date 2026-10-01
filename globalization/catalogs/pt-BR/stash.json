@@ -85,7 +85,7 @@
     },
     "stash.api_too_many_files_in_one_upload": {
       "sourceHash": "a05d4343b036a8243f849adaaca3c93e64f1fbe30085227766a1a82de78428a4",
-      "message": "demasiados ficheiros num só envio"
+      "message": "demasiados arquivos num só envio"
     },
     "stash.api_too_many_stashes_in_one_request": {
       "sourceHash": "1d9b1e0530054c24f61c9601213cdf2d9dce2e7eabbce14fc231ffbf67488b2a",
@@ -165,7 +165,7 @@
     },
     "stash.delete_is_unavailable_this_service_has_no_pool_aggregator_configu": {
       "sourceHash": "0c29d6450da293ddaa45952723504c6085b9f3e1bf9f4beb2e9bae5a1bddec67",
-      "message": "Excluir está indisponível: este serviço não tem agregador de piscina configurado, então nenhum token de laboratório ou link do painel pode ser verificado."
+      "message": "Excluir está indisponível: este serviço não tem agregador de grupo configurado, então nenhum token do laboratório ou link do painel pode ser verificado."
     },
     "stash.delete_is_unavailable_this_service_has_no_pool_aggregator_configu_9d79c432": {
       "sourceHash": "e6dba5256f58e9265646ca8ece830d816bdf635068911259735954f046f7c012",
@@ -241,7 +241,7 @@
     },
     "stash.lab_token": {
       "sourceHash": "0df9f6938a1d27647283d8c3e52c8462c9ffbafd46d0657c04372d2b19f8098b",
-      "message": "Token de laboratório"
+      "message": "Token do laboratório"
     },
     "stash.listed_count": {
       "sourceHash": "31419789686b12fc51ed89d6bcd5943a4e7e3c389efa0ae0c928ab68046a5087",
@@ -295,7 +295,7 @@
     },
     "stash.no_pool_aggregator_is_configured_so_no_lab_token_can_be_checked_a": {
       "sourceHash": "3ed5794d62fa996996dde880def5d0dfbeee6c2d244d284276ddae10941256fb",
-      "message": "Nenhum agregador de pool está configurado, então nenhum token do Lab pode ser selecionado e nada aqui pode ser excluído. Defina {command1} no servidor para habilitá- lo."
+      "message": "Nenhum agregador de pool está configurado, então nenhum token do Lab pode ser selecionado e nada aqui pode ser excluído. Defina {command1} no servidor para habilitá-lo."
     },
     "stash.notes_txt": {
       "sourceHash": "b12df6a12b650a19320ab8ca68cfe5035f10841bbbe731236c22e8abfbe65d41",
@@ -375,7 +375,7 @@
     },
     "stash.search_id_filename_user_path": {
       "sourceHash": "81ea106b29495fed7e53409af3c58b54ca85927c61d0e2d16751ce6b0eb535ae",
-      "message": "Procurar o ID, nome do ficheiro, utilizador, localização..."
+      "message": "Procurar o ID, nome do arquivo, usuário, localização..."
     },
     "stash.select_stash_value1": {
       "sourceHash": "f7c6b4eccd2e8c31d0cfd9aee2f4fc509cc905470c593584522ee8b3ea992ebc",
@@ -397,7 +397,7 @@
     },
     "stash.six_character_lab_token_from_the_dashboard": {
       "sourceHash": "d6cff4ea81c3a19cdd4b0fa3a4250b2db51a3b8e4d8710b5e04f1e2d3568a176",
-      "message": "Token de laboratório de seis caracteres do painel"
+      "message": "Token do laboratório de seis caracteres do painel"
     },
     "stash.size": {
       "sourceHash": "28395a5dd4b7b8cc518e2cbd803fd231103c83396aed05365cecc167647e205b",
@@ -521,7 +521,7 @@
     },
     "stash.upload_file_s": {
       "sourceHash": "848d40894349e2d25c5c8ff58b728fb93619cbb2425fb4d99b37c6b16f6d6e67",
-      "message": "Enviar os ficheiros"
+      "message": "Enviar os arquivos"
     },
     "stash.upload_stash": {
       "sourceHash": "bb9526087e20363a8af0a4617e10428a698d86063bbf9a3d6dd3712bc300652b",
@@ -529,7 +529,7 @@
     },
     "stash.user": {
       "sourceHash": "1e774d1ad32e977737623234b6be466a98e29a52b59afdf62bb4bf6f9a5509b8",
-      "message": "Utilizador"
+      "message": "Usuário"
     },
     "stash.value1_malformed_permalink": {
       "sourceHash": "18433b1a6d010d008122991ee473fdb661a5337d4d794733c8471a16ad60f2c7",

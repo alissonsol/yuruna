@@ -20,31 +20,30 @@ hosts directly: each runner **pulls** the intent every cycle and acts on it.
 Intent has three parts:
 
 - **members** -- which hosts belong to the pool (by their stable host id).
-- **test-set** -- which framework/project repo pair the pool runs; the assigned
-  project's own `test.runner.yml` is the work.
+- **repositories** -- the framework and project repositories the pool runs (its
+  **Framework URL** and **Project URL**); that project's own `test.runner.yml` is
+  the work. A pool without them leaves each member on its own configured
+  repositories.
 - **desiredState** -- whether the pool is running, paused, or draining.
 
 ```
   you --run--> admin CLI --writes--> pools.yml  (intent git repo on the caching-proxy-service)
                                           |
-  every host --pulls read-only each cycle-+--> runs the assigned test-set, reports under <poolId>
+  every host --pulls read-only each cycle-+--> runs the pool's project, reports under <poolId>
 ```
 
-The intent repo holds **only non-secret** files (`pools.yml`, the `test-sets.yml`
-library, `guests.compatibility.yml`). No credential is ever routed through it.
+The intent repo holds **only non-secret** files (`pools.yml`,
+`guests.compatibility.yml`). No credential is ever routed through it.
 
-**Planning is decentralized -- there is no central dispatch.** Each runner
-turns the pool's assigned test-set into a cycle plan for itself, and that
-planning is autonomous: a host keeps only the guests it can actually run
-(the guest's folder is present, the host's capability matrix supports it,
-and the guest is compatible with this host's hypervisor per
-`guests.compatibility.yml`) and skips the rest, trusting another pool member
-to cover them. It is also strictly additive and best-effort -- any missing or
-malformed input degrades to no plan at all, so the runner falls back to its
-own single-host `test.runner.yml` rather than throwing or halting the loop.
-`cycleStrategy: all` and `provisioning.betweenSets: none` are the only
-runtime-active values today; other enum values validate but then run as
-`all`/`none` with a warning, pending implementation.
+**Planning is decentralized -- there is no central dispatch.** A member of a
+pool that carries repositories switches to the pool's framework and project for
+the cycle and resolves that project's own `test.runner.yml` plan itself, exactly
+as a standalone host resolves its own. Members do not coordinate or split the
+work: each one runs the whole plan. `guests.compatibility.yml` does not narrow
+it either -- `Test-PoolIntent.ps1` validates that file, and no runner reads it.
+The switch is strictly additive and best-effort -- a pool without repositories,
+or a pool manifest the runner cannot read, leaves the host on its own
+configured repositories rather than throwing or halting the loop.
 
 **The pull itself** is a small git spine, optional and default-off: a host
 with `pool.enabled: false`, or one whose intent store is unreachable, just
@@ -64,7 +63,7 @@ interactive one.
 ## Before you start
 
 1. **The intent store exists.** The caching-proxy-service VM seeds a bare git repo at
-   `/var/lib/yuruna/pool-intent.git` and serves it **read-only over HTTP** at
+   `/mnt/ypool-nas/pool-intent.git` and serves it **read-only over HTTP** at
    `http://<proxy>/pool-intent.git`. Set up automatically when the caching-proxy-service is
    provisioned.
 2. **Each host has opted in.** In each host's `test/test.config.yml`, set the `pool` block:
@@ -81,14 +80,17 @@ interactive one.
    GUID-dashed (`42abcdef-0123-4567-89ab-cdef01234567`); the stores hold the bare hex.
 4. **You can write the intent repo.** The HTTP URL above is read-only. The admin commands
    need a **writable** path/URL, so run them **on the caching-proxy-service** against the local repo
-   (`/var/lib/yuruna/pool-intent.git`), or against any pre-authenticated writable remote.
+   (`/mnt/ypool-nas/pool-intent.git`), or against any pre-authenticated writable remote.
    Pass it with `-IntentGitUrl <writable-url>`, or set `pool.intentGitUrl` to a writable
    value in the `test.config.yml` you run the admin CLI from (then you can omit the flag).
    The admin CLIs reuse `Test.PoolSync`'s same bounded, prompt-proof git wrapper the
    runner's pull path uses, and every change is schema-validated **before** commit,
    so a malformed intent can never reach the store the whole pool pulls from.
 
-Run the commands below from the repo root.
+Run the commands below from the repo root. Steps 1, 2 and 4 also name the
+pool-control service page (`http://<pool-control>/`) that makes the same change
+by running the same command; a change made there unlocks with the Lab token
+([Unlocking the actions](#4207d71a-0012)) instead of taking `-IntentGitUrl`.
 
 <a id="4207d71a-0004"></a>
 
@@ -101,7 +103,9 @@ pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <w
 - `-PoolId` is a short, lowercase, DNS-safe name (`a-z 0-9 -`). It becomes the **permanent
   label** for this pool's telemetry on the dashboard, so pick it deliberately -- renaming it
   later forks the history.
-- The pool starts empty (`desiredState: run`, no members, no test-set).
+- The pool starts empty (`desiredState: run`, no members, no repositories).
+- On the pool-control service: the Pools page (`/pools`) takes the **Pool id**
+  and an optional **Display name**, then **Create pool**.
 
 <a id="4207d71a-0005"></a>
 
@@ -118,42 +122,61 @@ pwsh test/pool/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01
   from the cell's own menu; every pool-admin command accepts that form, so a value
   copied off the panel works as pasted, and each command echoes it back the same way.
   Membership is the single source of truth; re-adding a host is a no-op.
+- On the pool-control service: choose the pool in the host's **Pool** picker on
+  the Hosts page (`/hosts`).
 - To remove a host later, see **Step 6** below (drain it first if it is running).
 
 <a id="4207d71a-0006"></a>
 
-## Step 3 -- Define the test-set (a framework/project repo pair)
+## Step 3 -- Choose the framework and project repositories
 
-A **test-set** is `{name, frameworkUrl, projectUrl}`. Assigning one to a pool makes every member
-override its own `repositories.frameworkUrl` / `repositories.projectUrl` with the
-pair for the cycle and run the assigned project's own `test.runner.yml` plan.
-`GH_TOKEN` is never stored in pool intent; it stays host-local.
+A pool runs one pair of repositories: a **Framework URL** (the Yuruna framework
+repository) and a **Project URL** (the project whose own `test.runner.yml` is
+the work). When a pool carries both, every member overrides its own
+`repositories.frameworkUrl` / `repositories.projectUrl` with them for the cycle
+and runs that project's `test.runner.yml` plan. A pool that carries none leaves
+each member on its own configured repositories.
 
-Register the pair in the intent store's test-set library (`test-sets.yml`, the
-store behind the pool-control service "Test sets" page):
-
-```powershell
-pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name smoke -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
-```
-
-- The library keeps the UI and CLI views consistent; for CLI-only use it is
-  optional -- Step 4's `Set-PoolTestSet.ps1` takes the URLs directly.
-- Full field reference: [`test/schemas/pool-test-sets.schema.yml`](../test/schemas/pool-test-sets.schema.yml).
+`GH_TOKEN` is never stored in pool intent; it stays host-local, so each member's
+own credential must be able to read both repositories (see
+[Project access](#4207d71a-000f)). Nothing is registered up front: Step 4
+records both URLs directly on the pool.
 
 <a id="4207d71a-0007"></a>
 
-## Step 4 -- Assign the test-set to the pool
+## Step 4 -- Set the repositories on the pool
 
 ```powershell
-pwsh test/pool/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -Clear -IntentGitUrl <writable-url>   # back to each member's own repositories
 ```
 
-- A pool holds **exactly one** `testSet`; assigning replaces the previous one (a
-  legacy `testSets[]` array is dropped on write).
-- The URLs are recorded inline in `pools.yml`, so the assignment is
-  self-contained -- no file in the project repo is involved.
-- Nothing probes the URLs at assignment time: a typo first surfaces when a
+- A pool holds **exactly one** pair; setting it replaces the previous one, and
+  `-Clear` removes it.
+- `-FrameworkUrl` and `-ProjectUrl` go together. Each is trimmed, and a value
+  that is empty, contains whitespace or a control character, or starts with `-`
+  is refused.
+- The URLs are recorded inline in `pools.yml`, so the setting is
+  self-contained -- no file in the project repo is involved:
+
+  ```yaml
+  schemaVersion: 3
+  pools:
+    - poolId: lab
+      # ...poolGuid, displayName, members, desiredState...
+      repositories:
+        frameworkUrl: <framework-url>
+        projectUrl: <project-url>
+  ```
+
+  Full field reference: [`test/schemas/pools.schema.yml`](../test/schemas/pools.schema.yml);
+  a complete example: [`test/pool/examples/pools.yml`](../test/pool/examples/pools.yml).
+- The auto-enrollment target pool never carries repositories: setting them
+  there is refused, and `-Clear` is allowed ([Auto-enrollment](#4207d71a-0014)).
+- Nothing probes the URLs when they are set: a typo first surfaces when a
   member's next cycle tries to clone.
+- On the pool-control service: the pool's **Framework / Project** cell on the
+  Pools page ([Framework / Project](#4207d71a-0024)).
 
 <a id="4207d71a-0008"></a>
 
@@ -161,13 +184,38 @@ pwsh test/pool/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framew
 
 ```powershell
 pwsh test/pool/Test-PoolIntent.ps1             # schema-validates pools.yml (+ guests.compatibility.yml); host-in-one-pool invariant
-pwsh test/pool/Get-PoolStatus.ps1 -PoolId lab  # shows members, desiredState, and the assigned test-set
+pwsh test/pool/Get-PoolStatus.ps1 -PoolId lab  # shows members, desiredState, and repositories
 ```
 
 There is nothing to "deploy": each runner picks up the new intent at the start of its
 **next cycle**, so no host restart is needed. Once a pooled host completes a cycle,
 confirm it took effect on the **Yuruna hosts** Grafana dashboard (it groups every host under
 your `poolId`), or directly: `curl -sk https://<proxy>:9400/api/v1/pool-status`.
+
+`Test-PoolIntent.ps1` reads `pools.yml` as stored, and its `schema-version`
+check fails on a store below `schemaVersion: 3`. The other admin commands
+already read such a store as `schemaVersion: 3` and store it that way on their
+next write; to migrate it at once, run this one time:
+
+```powershell
+pwsh test/pool/Update-PoolIntentSchema.ps1 -IntentGitUrl <writable-url>
+```
+
+It rewrites `pools.yml` at `schemaVersion: 3`, moving each pool's framework and
+project URLs into `repositories`, deletes intent files that nothing reads,
+validates the result, and commits and pushes it; run again, it reports the
+store already current. Update the pool-control service VM and every admin
+checkout first: a checkout that expects an older `schemaVersion` refuses to
+write the migrated store.
+
+Members do not switch shapes at the same moment, and each side of the change
+falls back to the member's own configured project. A member whose framework
+checkout still expects `schemaVersion` 2 ignores `repositories` and runs its
+own project until its framework updates. A member already on the current
+framework takes the URLs only from `repositories`, so while the store is still
+below `schemaVersion: 3` it also runs its own project. Run the migration right
+after updating the service VM and the admin checkouts to keep that window
+short.
 
 <a id="4207d71a-0009"></a>
 
@@ -211,9 +259,10 @@ history link on `/hosts` to inspect individual cycles across both IDs.
 
 The collector needs `-handover-state-file` on durable storage. The provisioned
 systemd unit supplies `/var/lib/pool-aggregator-service/handovers.json` through
-`StateDirectory=pool-aggregator-service`. An absent or corrupt ledger prevents a
-handover from being reported as successful or a retired ID from reappearing
-after a restart.
+`StateDirectory=pool-aggregator-service`. A missing ledger loads as empty; a
+corrupt or unsupported ledger prevents the aggregator from starting. A
+successful handover is persisted before it is reported as successful, so its
+alias survives a restart and the retired ID stays retired.
 
 <a id="4207d71a-000a"></a>
 
@@ -257,12 +306,12 @@ Every command below lives in `test/pool/`.
 | `Remove-HostFromPool.ps1` | remove a host from ONE pool's members | `-PoolId` (req), `-HostId` (req) |
 | `Move-PoolHostIdentity.ps1` | replace a re-keyed host ID in one intent-store commit | `-OldHostId` (req), `-NewHostId` (req) |
 | `Remove-PoolHost.ps1` | **purge** a stale host: delete its NAS records + strip ALL memberships | `-HostId` (req), `-Force`, `-ConfigPath` |
-| `Set-PoolTestSet.ps1` | assign the pool's one test-set (replaces) | `-PoolId` (req), `-Name` (req), `-FrameworkUrl` (req), `-ProjectUrl` (req) |
-| `Set-PoolTestSetDefinition.ps1` | upsert/delete a library test-set | `-Name` (req), `-FrameworkUrl`, `-ProjectUrl`, `-Delete` |
+| `Set-PoolRepository.ps1` | set the pool's framework and project URLs (replaces), or clear them | `-PoolId` (req), then `-FrameworkUrl` + `-ProjectUrl` (req together) or `-Clear` |
 | `Set-PoolDesiredState.ps1` | run / pause / drain | `-PoolId` (req), `-State` (req) |
-| `Get-PoolStatus.ps1` | read members + the assigned test-set (intent) | `-PoolId` |
+| `Get-PoolStatus.ps1` | read members + the pool's repositories (intent) | `-PoolId` |
 | `Get-PoolIntent.ps1` | dump the whole intent store as JSON (what the dashboard reads) | -- |
 | `Test-PoolIntent.ps1` | validate the intent files | -- |
+| `Update-PoolIntentSchema.ps1` | migrate `pools.yml` to `schemaVersion: 3` once (a re-run changes nothing) | -- |
 | `Convert-ToPoolWorker.ps1` | turn a standalone machine into a worker of an existing lab | `-ReferenceHost` (req), `-InternalAuthKey`, `-KeepCachingProxy` |
 
 All mutating commands support `-WhatIf` (preview) and `-Confirm`, validate against the
@@ -271,7 +320,7 @@ schemas **before** writing, and `git commit` + `push` for you. `-IntentGitUrl` d
 (non-zero exit): a change committed locally but not pushed is not durable, and a later admin
 command discards it -- recover by re-running from a writable location (on the proxy: a `file://`
 or local path to the bare repo), or delete the admin clone dir to discard the local change and
-re-clone from the remote. Every command has full help: e.g. `Get-Help test/pool/Set-PoolTestSet.ps1 -Full`.
+re-clone from the remote. Every command has full help: e.g. `Get-Help test/pool/Set-PoolRepository.ps1 -Full`.
 
 <a id="4207d71a-000c"></a>
 
@@ -286,11 +335,15 @@ so the UI and the command line cannot diverge.
 
 ### What it does
 
-- **Assign** (`/assign`) &mdash; assign a test-set to each pool; show members
-  and the copy-config-from-a-peer command.
-- **Pools** (`/pools`) &mdash; create a pool (mints its stable `poolGuid`, the
-  dashboard "Pool ID"), drive every member's **Pool Status** (below), add/remove
-  hosts (a host belongs to at most one pool), delete an empty pool.
+- **Board** (`/`) &mdash; one card per pool for the chosen period (1h, 24h, 7d
+  or 30d): how many of its hosts report, its success rate, its cycle and
+  failure counts, and the project it runs &mdash; its Project URL, or *the
+  hosts' own projects* when its members run their own. A card also flags hosts
+  that cannot read the pool's project (below). The board changes nothing.
+- **Pools** (`/pools`) &mdash; create a pool (mints its stable `poolGuid`), drive
+  every member's **Pool Status** (below), set the pool's **Framework / Project**
+  repositories (below), add/remove hosts (a host
+  belongs to at most one pool), delete an empty pool.
 - **Hosts** (`/hosts`) &mdash; every host the aggregator knows *and* every host
   the network scan found, not just pool members, so a host that was never
   auto-enrolled &mdash; or never registered at all &mdash; is visible along with
@@ -313,19 +366,21 @@ so the UI and the command line cannot diverge.
   the dashboard link unlocks the page on its own.
 - **Scan** (`/scan`) &mdash; sweep a network for Yuruna hosts and add the ones
   that answer to the monitored list, pool member or not (below).
-- **Test sets** (`/test-sets`) &mdash; CRUD the named-triple library
-  (`test-sets.yml`). GH_TOKEN is **never** stored here.
+- **Diagnostics** (`/diagnostics`) &mdash; every dependency a UI request
+  touches, probed in the order a request touches it; a failing check names what
+  to fix in the guest.
 
-Assign, Hosts, Pools and Test sets sort on any column header &mdash; clicking the
-sorted one reverses it, and the columns that hold a control sort on the value
-that control shows now (**Assign test set** on the set the pool holds, **Members**
-on how many there are). The order survives the page's own minute-by-minute
-re-read, so a table left sorted stays that way. Each of those tables opens with a
-counter column that numbers the rows *as shown*: it reads 1&hellip;n down the page
-whatever the sort, which is how many pools, hosts or test-sets there are.
+Hosts and Pools sort on any column header &mdash; clicking the sorted one
+reverses it, and the columns that hold a control sort on the value that
+control stands for (**Framework / Project** on the saved URLs, not on text typed
+but not yet saved; **Members** on how many there are). The order survives the
+page's own minute-by-minute re-read, so a table left sorted stays that way. Each
+of those tables opens with a counter column that numbers the rows *as shown*: it
+reads 1&hellip;n down the page whatever the sort, which is how many pools or
+hosts there are.
 
-Assigning copies the chosen library triple into the pool's inline `testSet`;
-members then behave exactly as on the CLI path in Steps 3-4 above.
+Saving a pool's **Framework / Project** runs the same `Set-PoolRepository.ps1`
+as Step 4, so members behave exactly as on the CLI path in Steps 3-4 above.
 
 <a id="4207d71a-000e"></a>
 
@@ -355,8 +410,8 @@ the url is served. A cell whose host reported no url at all stays plain text.
 | `--` | the host has no such clone *and* none configured (the in-tree project layout), or it has not answered yet | nothing |
 
 The clone answers before the network does: it is what the machine actually
-tracks -- which is not always the configured url, since a pool assignment
-overrides that for a cycle -- and it costs no round trip. Only a host with no
+tracks -- which is not always the configured url, since a pool's repositories
+override it for a cycle -- and it costs no round trip. Only a host with no
 readable clone probes the url it was configured with, which is what separates
 "cannot read it" from "has not cloned it yet"; that probe runs *after* the
 answer is sent, so it can never make a host's other columns time out with it,
@@ -385,9 +440,9 @@ and as a tooltip on the host's **Project** cell.
 | Value | What it means | What to do |
 | --- | --- | --- |
 | `ok` | the probe read the assigned project | nothing |
-| `denied` | this host's git credential cannot read the assigned project -- a private repo, or a token without access to it | grant that host's `GH_TOKEN` access to the repo, **or** reassign the pool to a project every member can read |
+| `denied` | this host's git credential cannot read the assigned project -- a private repo, or a token without access to it | grant that host's `GH_TOKEN` access to the repo, **or** set the pool's Project URL to a project every member can read |
 | `unreachable` | the repo did not answer -- network or DNS, not permission | nothing; it is transient, and the cycle's clone retries through the normal backoff |
-| absent | no probe ran: the host is in no pool, its pool assigned no test-set, the host did not answer, or the aggregator is unavailable | nothing |
+| absent | no probe ran: the host is in no pool, its pool carries no repositories, the host did not answer, or the aggregator is unavailable | nothing |
 
 `denied` **fails that host's cycle**, and the host does *not* fall back to its
 own project: a green cycle running something the pool never assigned would
@@ -400,8 +455,8 @@ state.
 
 One timing caveat: a host publishes `host.registration.json` before the pool's
 repositories override it, so this answer describes the *previous* cycle's view.
-Immediately after an assignment, expect one cycle in which it has not caught up
-yet.
+Immediately after a pool's repositories change, expect one cycle in which it
+has not caught up yet.
 
 <a id="4207d71a-0010"></a>
 
@@ -459,6 +514,58 @@ powered off, or holds a different Lab token fails on its own without costing the
 others their change. Every fan-out is written to the audit log with how much of
 it landed.
 
+<a id="4207d71a-0024"></a>
+
+### Framework / Project -- which repositories each pool runs
+
+The **Framework / Project** column on `/pools`, right after **Pool Status**, is
+where a pool's framework and project repositories are set. Saving it runs the
+same `Set-PoolRepository.ps1` as [Step 4](#4207d71a-0007), so each member picks
+the change up at the start of its next cycle, with no restart. A new pool
+starts with both boxes empty: create it first, then fill in its row.
+
+Each cell holds two stacked text boxes with no visible labels, each as wide as
+the column: the **Framework URL** on top and the **Project URL** below. An
+empty box shows its name as placeholder text, and a screen reader announces
+which pool each box belongs to. A URL longer than its box scrolls sideways as
+the caret moves (arrow keys, Home and End, or a selection); the box never shows
+a scrollbar.
+
+- **Saving.** The row's **Save** button, in the Actions column, is enabled
+  while either box differs from what the pool carries. **Save**, or Enter in
+  either box, writes the change; the first change of a session prompts for the
+  Lab token ([Unlocking the actions](#4207d71a-0012)).
+- **Both or neither.** Fill both boxes to set the pool's repositories; empty
+  both to clear them, so each member goes back to its own configured
+  repositories. With only one box filled, the page says so and sends nothing.
+- **Confirmation.** When the pool has members, the page asks first, naming how
+  many hosts will switch to the new project -- or, for a clear, go back to
+  their own projects.
+- **Unsaved text.** What you type survives the page's minute-by-minute re-read
+  until you save it, and sorting the column uses the saved URLs, not the text
+  in the boxes.
+- **The auto-enrollment target pool.** Its boxes are disabled, with the note
+  that hosts land there automatically and keep running their own project
+  ([Auto-enrollment](#4207d71a-0014)). If the store nevertheless carries
+  repositories for it, the boxes show them, still disabled, and **Clear**
+  replaces **Save**.
+- **Checks.** Both URLs are trimmed, and one that contains whitespace or a
+  control character, or starts with `-`, is refused. Nothing probes the URLs
+  when they are saved: a wrong one first surfaces when a member's next cycle
+  tries to clone, or on the board when a member's credential cannot read the
+  project ([Project access](#4207d71a-000f)).
+
+This column is what the pool tells its members to run. The **Framework** and
+**Project** columns on `/hosts` ([Framework and Project](#4207d71a-000e)) are
+what each host holds.
+
+Automation makes the same change with `POST /api/pool/repositories` and the
+body `{"poolId": "...", "frameworkUrl": "...", "projectUrl": "..."}` -- both
+URLs empty clears them -- or with the MCP tool
+`pool_control_set_pool_repositories`, which also clears when both URLs are
+omitted. Both take the write credential described in
+[Unlocking the actions](#4207d71a-0012).
+
 <a id="4207d71a-0011"></a>
 
 ### Architecture
@@ -472,7 +579,7 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
   |---|---|
   | open (GET) | `/healthz`, `/api/hostinfo`, `/api/session`, `/api/board`, `/api/hosts`, `/api/hosts/facts`, `/api/state`, `/api/scan`, `/api/diagnostics`, `/api/pool/host-control` |
   | open (POST) | `/api/login`, `/api/unlock-proof` -- the two ways INTO the gate |
-  | lab-token | `/api/pool` (POST, DELETE), `/api/pool/desired-state`, `/api/pool/host`  (POST, DELETE), `/api/pool/move-host`, `/api/pool/testset`, `/api/pool/host-control`, `/api/scan`, `/api/scan/forget`, `/api/testset` (POST, DELETE) |
+  | lab-token | `/api/pool` (POST, DELETE), `/api/pool/desired-state`, `/api/pool/host`  (POST, DELETE), `/api/pool/move-host`, `/api/pool/adopt-rekey`, `/api/pool/repositories`, `/api/pool/host-control`, `/api/scan`, `/api/scan/forget`, `/api/hosts/history` (GET) |
   | lab-token **and** refresh credential | `/api/host/refresh` (POST) -- see [Remote host refresh](#remote-host-refresh) |
 
   Reads are open on the trusted LAN so a wall display needs no credential;
@@ -486,9 +593,10 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
   split is what lets the board render a card for a pool whose hosts are all
   silent (`0` reporting) instead of that pool vanishing because no Loki stream
   happened to mention it. Read-only and open, like `pool-status`.
-- **Shells out to the PowerShell pool-admin CLIs** in `test/pool/` (`New-Pool.ps1`,
-  `Set-PoolTestSet.ps1`, `Add-HostToPool.ps1`, `Remove-Pool.ps1`,
-  `Set-PoolTestSetDefinition.ps1`, `Get-PoolIntent.ps1`) rather than reimplementing
+- **Shells out to the PowerShell pool-admin CLIs** in `test/pool/` (`Get-PoolIntent.ps1`,
+  `New-Pool.ps1`, `Remove-Pool.ps1`, `Set-PoolDesiredState.ps1`,
+  `Add-HostToPool.ps1`, `Remove-HostFromPool.ps1`, `Move-PoolHostIdentity.ps1`,
+  `Set-PoolRepository.ps1`) rather than reimplementing
   git + YAML + schema validation + commit/push in Go &mdash; one authoritative
   implementation. A failed push surfaces to the UI as an error.
 - **Drives the members' own control routes** for Pool Status
@@ -540,7 +648,8 @@ when nothing else on the host does.
 ### Unlocking the actions
 
 Everything this service changes **is** pool configuration &mdash; which pools
-exist, which hosts belong to them, which test-set each one runs &mdash; so every
+exist, which hosts belong to them, which framework and project repositories
+each one runs &mdash; so every
 mutating route takes the write gate that
 [docs/extensions-api.md](extensions-api.md#the-lab-token-rule) applies to every
 extension service:
@@ -778,6 +887,14 @@ Failure is **bounded, not atomic**. Each host is its own CLI run, commit and
 push, so a failure partway through leaves the earlier hosts enrolled. Enrollment
 is idempotent and resumable, so the next tick finishes the job.
 
+**The target pool never carries repositories.** Its members keep running their
+own configured projects: `Set-PoolRepository.ps1` refuses to set repositories
+there, `Test-PoolIntent.ps1` fails a store that carries them, the Pools page
+shows the pool's **Framework / Project** boxes disabled, and a runner that still
+finds them ignores them with a warning. To remove repositories a hand edit left
+there, use **Clear** on the Pools page or
+`Set-PoolRepository.ps1 -PoolId <target-pool> -Clear`.
+
 <a id="4207d71a-0015"></a>
 
 ### Network scan -- finding hosts nobody registered
@@ -951,10 +1068,11 @@ fails setup on it. Config keys:
 
 ## Design choices
 
-- **One test-set per pool** -- split hosts into two pools to run two bodies of
-  tests side by side.
-- **Assignment is not probed** -- `Set-PoolTestSet` records the repo URLs without
-  cloning them, and `Test-PoolIntent.ps1` checks shape, not reachability.
+- **One framework and project pair per pool** -- split hosts into two pools to
+  run two bodies of tests side by side.
+- **Repository URLs are not probed** -- `Set-PoolRepository.ps1` and the Pools
+  page record the repo URLs without cloning them, and `Test-PoolIntent.ps1`
+  checks shape, not reachability.
 - **Members do not split the work** -- every member runs the assigned project's
   full `test.runner.yml` plan; there is no per-guest scheduling across members.
 
@@ -976,7 +1094,7 @@ These have no dedicated command yet -- author them directly in `pools.yml` (vali
 ## Default-off + safety
 
 The pool layer is entirely opt-in: a host with no `pool` block, or a pool with no
-members or no assigned test-set, runs its local `test.runner.yml` exactly as a
+members or no repositories, runs its local `test.runner.yml` exactly as a
 standalone host. An unreachable intent store falls back to the last good copy,
 then to standalone -- a pool never stops a host from testing.
 
@@ -998,6 +1116,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

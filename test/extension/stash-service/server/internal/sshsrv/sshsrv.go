@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -268,20 +269,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 			// section 8.2 step 2: pending record up front. storedPath and
 			// originalFilename are placeholder until FinalizeStaging produces
 			// the real values.
-			return &meta.Record{
-				ID:               drawn,
-				StoredPath:       "",
-				OriginalFilename: "",
-				IsArchive:        false,
-				Username:         username,
-				PathMetadata:     parsed.DestPath,
-				ClientAddress:    clientIP,
-				CreatedAt:        now,
-				Status:           meta.StatusPending,
-				SizeBytes:        0,
-				LocallyBuffered:  buffered,
-				Source:           config.SourceSCP,
-			}
+			return pendingRecord(drawn, buffered, username, clientIP, parsed.DestPath, config.SourceSCP, now)
 		})
 	if err != nil {
 		log.Printf("begin upload (user=%s): %v", username, err)
@@ -613,34 +601,50 @@ func writeExit(ch ssh.Channel, code int) {
 
 // loadOrGenerateHostKey returns the persistent SSH signer (section 4.4).
 //
-//   - If the durable SHARE key (primary) is PRESENT it must be usable: a
-//     transient/corrupt read must NOT silently rotate the durable key, so
-//     fail loud and let systemd retry (the daemon's original contract).
-//   - If the share key is absent or the share is offline/unreachable (section 8.4),
-//     prefer an existing VM-local fallback key and PROMOTE it to the share as
-//     soon as the share is back (so an offline-first key becomes durable and
-//     a later reimage doesn't mint a new one, breaking client trust).
-//   - Only when no key exists anywhere is a new ed25519 key generated and
-//     persisted to the share when reachable, else to the VM-local fallback.
+//   - A present durable key must be a readable, valid regular file. An invalid
+//     key must never be replaced or hidden by a local fallback.
+//   - If the share's state is uncertain, only an existing valid VM-local key
+//     permits offline startup; neither key path is written.
+//   - A missing key or an ancestor that is not a directory permits first-start
+//     local provisioning. A local key is promoted only to an absent share key.
 func loadOrGenerateHostKey(primary, fallback string) (ssh.Signer, error) {
-	if fi, serr := os.Stat(primary); serr == nil && !fi.IsDir() {
-		data, rerr := os.ReadFile(primary)
-		if rerr != nil {
-			return nil, fmt.Errorf("read share host key %s: %w", primary, rerr)
-		}
-		signer, perr := ssh.ParsePrivateKey(data)
-		if perr != nil {
-			return nil, fmt.Errorf("parse share host key %s (refusing to overwrite a present key): %w", primary, perr)
-		}
-		return signer, nil
+	return loadOrGenerateHostKeyWithStat(primary, fallback, os.Stat)
+}
+
+func loadOrGenerateHostKeyWithStat(primary, fallback string, stat func(string) (os.FileInfo, error)) (ssh.Signer, error) {
+	fi, statErr := stat(primary)
+	if statErr == nil {
+		return readShareHostKey(primary, fi)
 	}
-	// Primary absent or unreachable -- try the VM-local fallback.
-	if data, rerr := os.ReadFile(fallback); rerr == nil {
-		if signer, perr := ssh.ParsePrivateKey(data); perr == nil {
-			promoteHostKey(primary, data)
+	if errors.Is(statErr, os.ErrNotExist) {
+		// Stat follows symlinks. A dangling link is an existing, unusable
+		// identity path, not permission to create a different local identity.
+		if entry, err := os.Lstat(primary); err == nil {
+			if entry.Mode()&os.ModeSymlink != 0 {
+				return readPublishedHostKey(primary)
+			}
+			// A peer may have published a key after our first Stat.
+			return readShareHostKey(primary, entry)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			statErr = err
+		}
+	}
+	primaryAbsent := errors.Is(statErr, os.ErrNotExist)
+	primaryBlocked := errors.Is(statErr, syscall.ENOTDIR)
+	if data, err := os.ReadFile(fallback); err == nil {
+		if signer, err := ssh.ParsePrivateKey(data); err == nil {
+			if primaryAbsent {
+				if winner, err := promoteHostKey(primary, data); winner != nil || err != nil {
+					return winner, err
+				}
+			} else {
+				log.Printf("host key: share unavailable (%v); using existing VM-local key %s", statErr, fallback)
+			}
 			return signer, nil
 		}
-		// A corrupt local fallback is ephemeral; regenerate below.
+	}
+	if !primaryAbsent && !primaryBlocked {
+		return nil, fmt.Errorf("stat share host key %s (no usable local key; refusing replacement): %w", primary, statErr)
 	}
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -651,28 +655,85 @@ func loadOrGenerateHostKey(primary, fallback string) (ssh.Signer, error) {
 		return nil, fmt.Errorf("MarshalPrivateKey: %w", err)
 	}
 	pemBytes := pem.EncodeToMemory(block)
-	if werr := writeHostKey(primary, pemBytes); werr != nil {
-		log.Printf("host key: share unavailable (%v); using VM-local key %s", werr, fallback)
-		if ferr := writeHostKey(fallback, pemBytes); ferr != nil {
-			return nil, fmt.Errorf("write host key (share: %v; local: %v)", werr, ferr)
+	writeErr := statErr
+	if primaryAbsent {
+		writeErr = writeHostKeyExclusive(primary, pemBytes)
+	}
+	if writeErr != nil {
+		if errors.Is(writeErr, os.ErrExist) {
+			// A concurrent publisher owns the path. Read it once; retrying
+			// creation recursively can loop forever on an unusable entry.
+			return readPublishedHostKey(primary)
+		}
+		log.Printf("host key: share unavailable (%v); using VM-local key %s", writeErr, fallback)
+		if err := writeHostKey(fallback, pemBytes); err != nil {
+			return nil, fmt.Errorf("write host key (share: %v; local: %v)", writeErr, err)
 		}
 	}
 	return ssh.NewSignerFromKey(priv)
 }
 
-// promoteHostKey best-effort writes the VM-local key to the durable share path
-// once the share is reachable AND still keyless, so an offline-first key
-// becomes durable on the first restart with the share back (section 4.4). It never
-// overwrites an existing share key, and is a silent no-op while the share is
-// still offline (retried on the next restart).
-func promoteHostKey(primary string, pemBytes []byte) {
-	if _, err := os.Stat(primary); !errors.Is(err, os.ErrNotExist) {
-		return
+func readShareHostKey(primary string, fi os.FileInfo) (ssh.Signer, error) {
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("share host key %s is not a regular file (refusing replacement)", primary)
 	}
-	if err := writeHostKey(primary, pemBytes); err != nil {
-		return
+	data, err := os.ReadFile(primary)
+	if err != nil {
+		return nil, fmt.Errorf("read share host key %s: %w", primary, err)
+	}
+	signer, err := ssh.ParsePrivateKey(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse share host key %s (refusing to overwrite a present key): %w", primary, err)
+	}
+	return signer, nil
+}
+
+// readPublishedHostKey loads a path a concurrent publisher now owns. Failure
+// is final for this startup; it must not trigger generation of another identity.
+func readPublishedHostKey(primary string) (ssh.Signer, error) {
+	fi, err := os.Stat(primary)
+	if err != nil {
+		return nil, fmt.Errorf("stat published share host key %s (refusing replacement): %w", primary, err)
+	}
+	return readShareHostKey(primary, fi)
+}
+
+// promoteHostKey best-effort writes the local key to an absent durable path.
+// A concurrent publisher's usable signer wins; an unusable published key fails
+// closed. A nil signer and nil error means the caller can keep its local identity,
+// either because promotion succeeded or because the share is still unavailable.
+func promoteHostKey(primary string, pemBytes []byte) (ssh.Signer, error) {
+	if fi, err := os.Stat(primary); err == nil {
+		return readShareHostKey(primary, fi)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err := writeHostKeyExclusive(primary, pemBytes); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return readPublishedHostKey(primary)
+		}
+		return nil, nil
 	}
 	log.Printf("host key: promoted VM-local key to the durable share %s", primary)
+	return nil, nil
+}
+
+// writeHostKeyExclusive never replaces a durable key published by a peer.
+func writeHostKeyExclusive(path string, pemBytes []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.Write(pemBytes)
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = os.Remove(path)
+		return errors.Join(writeErr, closeErr)
+	}
+	return nil
 }
 
 // writeHostKey creates the parent dir and writes the PEM key 0600.

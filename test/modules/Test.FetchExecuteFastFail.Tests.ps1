@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42746513-f859-4478-b773-07a4c13848b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -286,8 +286,15 @@ Describe 'failurePatterns on fetchAndExecute' {
     It 'accepts a bare string as well as an array' {
         # patternOrArray is what every other verb accepts; a verb that took
         # only one of the two shapes would make the schema mean two things.
-        Assert-True ($script:handlerText -match '(?s)\$rawFail -is \[System\.Collections\.IEnumerable\] -and \$rawFail -isnot \[string\]') `
-            'Both the string and the array shape are expanded.'
+        Assert-True ($script:handlerText -match 'Expand-SequencePatternList -Raw \$rawFail') 'The verb delegates pattern expansion.'
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($script:handlerText, [ref]$null, [ref]$null)
+        $function = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Expand-SequencePatternList' }, $true)
+        . ([scriptblock]::Create($function.Extent.Text))
+        $scalar = Expand-SequencePatternList -Raw 'failure' -Vars @{} -ExpandVariable { param($value) $value }
+        $array = Expand-SequencePatternList -Raw @('failure', 'second', '') -Vars @{} -ExpandVariable { param($value) $value }
+        Assert-True ($scalar.Count -eq 1 -and $scalar[0] -eq 'failure') 'Scalar pattern retained.'
+        Assert-True ($array.Count -eq 2 -and $array[0] -eq 'failure' -and $array[1] -eq 'second') 'Array expanded without empty patterns.'
+
     }
 
     It 'is declared on the fetchAndExecute schema branch' {

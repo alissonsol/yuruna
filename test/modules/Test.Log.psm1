@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -631,7 +631,7 @@ function Get-CycleScreenDir {
         $folder = Join-Path $global:__YurunaCycleFolder "screens_${VMName}"
     } else {
         if (-not $env:YURUNA_LOG_DIR) {
-            Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -Force -ErrorAction SilentlyContinue
+            Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -Global -DisableNameChecking -ErrorAction SilentlyContinue
             if (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue) {
                 Initialize-YurunaLogDir | Out-Null
             }
@@ -1445,4 +1445,25 @@ function Send-YurunaDegradation {
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_240763f964a4eefb' -Arguments @{ dependency = "${Dependency}"; primary = "${Primary}"; fallback = "${Fallback}"; suffix = "${suffix}" })
 }
 
-Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Copy-CycleFailureRecord, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation
+function Add-OcrHistoryFrame {
+    <# .SYNOPSIS
+    Adds a capture to the bounded OCR ring and removes evicted image/text sidecars.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Internal bounded diagnostic ring retention; callers own capture confirmation.')]
+    param(
+        [Parameter(Mandatory)][Collections.Generic.Queue[string]]$Queue,
+        [Parameter(Mandatory)][string]$Path,
+        [int]$Limit = 20
+    )
+    $Limit = [Math]::Clamp($Limit, 1, 240)
+    $Queue.Enqueue($Path)
+    while ($Queue.Count -gt $Limit) {
+        $evict = $Queue.Dequeue()
+        Remove-Item -LiteralPath $evict -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath ([IO.Path]::ChangeExtension($evict, '.txt')) -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Export-ModuleMember -Function Add-OcrHistoryFrame, Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Copy-CycleFailureRecord, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation

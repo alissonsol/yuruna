@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42040d67-5b20-4d5c-a82c-4a95c2371f44
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,11 +134,17 @@ try {
 }
 if ($networkName) {
     $netXml = (& virsh --connect qemu:///system net-dumpxml $networkName 2>&1) -join "`n"
-    $isNat  = ($netXml -match '<dhcp>')
+    $netExitCode = $LASTEXITCODE
+    $isNat = $null
+    if ($netExitCode -eq 0) {
+        $isNat = ($netXml -match '<dhcp>')
+    } else {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_99da1a0d2e9fb034' -Arguments @{ message = "virsh net-dumpxml failed (exit $netExitCode): $netXml" })
+    }
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4551eef5e24cf289' -Arguments @{ networkName = "$networkName" })
     if ($isNat) {
         Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_448cdaf2e660e77c')
-    } else {
+    } elseif ($isNat -eq $false) {
         Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_56ba8d186d33f488')
     }
     $seed = Join-Path $RepoRoot 'host/vmconfig/ubuntu.server.kvm.overlay.yml'

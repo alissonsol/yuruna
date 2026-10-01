@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42ab6d19-74c3-4f80-9e25-3d0c81af57b6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,6 +88,8 @@ param(
     [string]$Manifest,
     [switch]$Quiet
 )
+
+Import-Module (Join-Path $PSScriptRoot '../test/modules/Test.Prelude.psm1') -DisableNameChecking
 
 $ErrorActionPreference = 'Stop'
 
@@ -201,13 +203,7 @@ function Get-Sha256Text {
 # like. Nothing resolves through it.
 function Get-HeadingSlug {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Heading)
-    $t = $Heading -replace '^#{1,6}\s+', ''
-    $t = [regex]::Replace($t, '`([^`]*)`', '$1')
-    $t = [regex]::Replace($t, '\*\*?([^*]*)\*\*?', '$1')
-    $t = [regex]::Replace($t, '\[([^\]]*)\]\([^)]*\)', '$1')
-    $t = $t.ToLowerInvariant()
-    $t = [regex]::Replace($t, '[^\p{L}\p{Nd}_ -]', '')
-    return $t.Replace(' ', '-')
+    return (Get-GitHubHeadingSlug -Heading $Heading)
 }
 
 # Inject the given ids above the headings that lack one, leaving every other

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e7a0f2-fce5-47f4-aa02-059ecae18abf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     enum, Test.SequenceAction Register-SequenceAction ValidateSet) must stay
     identical, so a future class can never silently drift between them.
 .DESCRIPTION
-    Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+).
+    Throw-based assertions (Pester 5+).
 #>
 
 BeforeAll {

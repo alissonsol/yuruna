@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,12 @@
     saveSystemDiagnostic sequence step. The dashboard tile links
     straight into the cycleGuestDataFolder so every capture in the
     cycle is visible to the operator with one click.
+
+    A rung that fails after capturing output keeps it beside the main
+    file, in <...>.system.diagnostic.<Id>.<rung>.txt, and the console
+    rung's upload lands in <...>.<Id>.console.txt until it is promoted
+    to the main name. No rung writes another rung's file, so a later
+    fallback cannot erase the record of why an earlier one failed.
 
     Authentication strategy (intentional, ordered, cross-platform):
       1. The harness's per-host ed25519 key, available on every host.
@@ -143,6 +149,12 @@ function Get-RemoteDiagnosticsCommand {
 $script:SaveGuestDiagnosticTotalTimeoutSeconds = 300
 $script:SaveGuestDiagnosticPerCommandTimeoutSeconds = 60
 $script:GuestDiagnosticWorkerPath = Join-Path $PSScriptRoot '../Invoke-GuestDiagnosticWorker.ps1'
+
+# Characters each SSH rung retains per stream. A capture that outgrows the cap
+# is reported as truncated and the rung as failed, which hands the capture to
+# the next rung, so the cap must sit well above any real report: a guest
+# running Kubernetes with a deployed project already produces about 600 KB.
+$script:GuestDiagnosticMaxCapturedChars = 16777216
 
 function Get-DiagnosticsFileName {
 <#
@@ -273,6 +285,7 @@ function Invoke-RemoteDiagnosticsPasswordSsh {
         $target, $command)
     $r = Invoke-BoundedNativeCommand -FilePath $SshpassPath -ArgumentList $nativeArgs `
         -Environment @{ SSHPASS = $Password } -TimeoutSeconds $TimeoutSeconds `
+        -MaxCapturedChars $script:GuestDiagnosticMaxCapturedChars `
         -StreamEncoding ([System.Text.UTF8Encoding]::new($false))
     return @{
         success   = ($r.Started -and $r.ExitCode -eq 0 -and (Test-BoundedNativeResultComplete -Result $r))
@@ -311,7 +324,8 @@ function Invoke-RemoteDiagnosticsKeySsh {
     # global session through the console rung -- the module-qualified call
     # below resolves without a per-call re-assert.
     $r = Test.Ssh\Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey `
-            -Command $command -TimeoutSeconds $TimeoutSeconds -PreservePartialOutputOnTimeout
+            -Command $command -TimeoutSeconds $TimeoutSeconds -PreservePartialOutputOnTimeout `
+            -MaxCapturedChars $script:GuestDiagnosticMaxCapturedChars
     return @{
         success   = [bool]$r.success
         output    = [string]$r.output
@@ -1475,20 +1489,65 @@ function Update-GuestDiagnosticCheckpoint {
     [System.IO.File]::Move($tempPath, $script:GuestDiagnosticCheckpointPath, $true)
 }
 
-function Save-GuestDiagnosticRungEvidence {
+function Get-GuestDiagnosticRungEvidencePath {
     <# .SYNOPSIS
-        Retains partial SSH evidence even if a later fallback stops responding.
+        The file that holds one rung's own capture, beside the main capture.
+    .DESCRIPTION
+        Every rung writes to a file no other rung writes to, so a later rung
+        cannot replace what an earlier one recorded. A failed SSH rung's output
+        is often the only record of why that rung failed, and a shared file
+        would put the console fallback's upload on top of it. The name keeps the
+        *.system.diagnostic.*.txt shape the status service accepts for uploads.
     #>
     [CmdletBinding()]
-    param($Result, [string[]]$Attempted, [string]$OutPath)
-    $values = @{ attempted=$Attempted }
-    if ($Result -and $Result.output) {
-        [System.IO.File]::WriteAllText($OutPath, [string]$Result.output)
-        $values.outPath = $OutPath
-        $values.bytes = ([System.IO.FileInfo]::new($OutPath)).Length
-        $values.mechanism = [string]$Result.mechanism
-        $values.exitCode = [int]$Result.exitCode
-        $values.timedOut = [bool]$Result.timedOut
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$OutPath,
+        [Parameter(Mandatory)][ValidateSet('key-ssh', 'password-ssh', 'console')][string]$Rung
+    )
+    return ($OutPath -replace '\.txt$', '') + ".$Rung.txt"
+}
+
+function Save-GuestDiagnosticRungEvidence {
+    <# .SYNOPSIS
+        Keeps a failed SSH rung's output in that rung's own file.
+    .DESCRIPTION
+        Written before the next rung starts, so the output survives a later rung
+        that stops responding, and never to the main capture file, so a later
+        rung's capture cannot replace it. The checkpoint names the file of the
+        most informative failed rung: a worker killed mid-ladder still reports
+        that output as its capture.
+    .PARAMETER Selected
+        The failed rung result the informativeness picker currently prefers.
+    .PARAMETER Evidence
+        The capture's evidence list; a record for this rung is appended to it.
+    #>
+    [CmdletBinding()]
+    param(
+        $Result,
+        [Parameter(Mandatory)][ValidateSet('key-ssh', 'password-ssh')][string]$Rung,
+        [string[]]$Attempted,
+        [Parameter(Mandatory)][string]$OutPath,
+        $Selected,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[hashtable]]$Evidence
+    )
+    if ($Result -and -not $Result.success -and $Result.output) {
+        $path = Get-GuestDiagnosticRungEvidencePath -OutPath $OutPath -Rung $Rung
+        [System.IO.File]::WriteAllText($path, [string]$Result.output)
+        $Result.evidencePath = $path
+        $Evidence.Add(@{
+            rung = $Rung; path = $path; bytes = ([System.IO.FileInfo]::new($path)).Length
+            exitCode = [int]$Result.exitCode; timedOut = [bool]$Result.timedOut
+            drainTimedOut = [bool]$Result.drainTimedOut; outputTruncated = [bool]$Result.outputTruncated
+        })
+    }
+    $values = @{ attempted=$Attempted; rungEvidence=@($Evidence) }
+    if ($Selected -and $Selected.evidencePath) {
+        $values.outPath = [string]$Selected.evidencePath
+        $values.bytes = ([System.IO.FileInfo]::new([string]$Selected.evidencePath)).Length
+        $values.mechanism = [string]$Selected.mechanism
+        $values.exitCode = [int]$Selected.exitCode
+        $values.timedOut = [bool]$Selected.timedOut
     }
     Update-GuestDiagnosticCheckpoint -Values $values
 }
@@ -1613,6 +1672,9 @@ function Invoke-GuestDiagnosticCapture {
         bytes       [long]   size of the diagnostic file (0 if not written)
         skipped     [bool]   $true if a precondition aborted before any rung ran
         reason      [string] short reason on skip / failure (or $null)
+        rungEvidence [hashtable[]] one record per failed SSH rung that left
+                     output: rung, path of its own evidence file, bytes,
+                     exitCode, timedOut, drainTimedOut, outputTruncated
     Boolean-coercible: callers that did `if ($result)` continue to work
     because PowerShell coerces a non-empty hashtable to $true. Use
     $result.success for explicit pass/fail.
@@ -1659,8 +1721,8 @@ function Invoke-GuestDiagnosticCapture {
     }
 
     # Stage gate. Each rung below clamps its own timeout to what is left, but
-    # nothing stopped a stage from being ENTERED after the budget was already
-    # gone -- and the pre-flight stages reach into the host driver and the
+    # the gate also prevents ENTERING a stage after the budget is already
+    # gone -- preflight stages reach into the host driver and the
     # vault, neither of which promises to return. Checking between stages is
     # what stops a spent budget from buying another unbounded wait.
     #
@@ -1792,8 +1854,12 @@ function Invoke-GuestDiagnosticCapture {
     # fallback keeps the SSH rung with the fuller captured error text; the
     # console rung POSTs its capture to disk and adds no manifest text:
     # https://yuruna.link/42d38664
+    # Only this function writes the main capture file. Each rung writes to its
+    # own sibling file, so no rung can replace the evidence another one left.
     $fileName = if ($script:GuestDiagnosticFileName) { $script:GuestDiagnosticFileName } else { Get-DiagnosticsFileName -Id $Id }
     $outPath  = Join-Path $FailureFolderPath $fileName
+    $consoleUploadName = Split-Path -Leaf (Get-GuestDiagnosticRungEvidencePath -OutPath $outPath -Rung 'console')
+    $rungEvidence = [System.Collections.Generic.List[hashtable]]::new()
 
     $result      = $null
     $lastResult  = $null
@@ -1815,7 +1881,8 @@ function Invoke-GuestDiagnosticCapture {
         Test-DiagSshTimeoutHit -Result $keyResult -Rung 'key-ssh' -TimeoutSeconds $keyBudget
         $captureTimedOut = $captureTimedOut -or $keyResult.timedOut -or $keyResult.drainTimedOut
         $lastResult = Select-MoreInformativeDiagResult -Current $lastResult -Candidate $keyResult
-        Save-GuestDiagnosticRungEvidence -Result $lastResult -Attempted $attempted -OutPath $outPath
+        Save-GuestDiagnosticRungEvidence -Result $keyResult -Rung 'key-ssh' -Attempted $attempted `
+            -OutPath $outPath -Selected $lastResult -Evidence $rungEvidence
         if ($keyResult.success) {
             $result = $keyResult
         } else {
@@ -1842,7 +1909,8 @@ function Invoke-GuestDiagnosticCapture {
             Test-DiagSshTimeoutHit -Result $passwordResult -Rung 'password-ssh' -TimeoutSeconds $pwBudget
             $captureTimedOut = $captureTimedOut -or $passwordResult.timedOut -or $passwordResult.drainTimedOut
             $lastResult = Select-MoreInformativeDiagResult -Current $lastResult -Candidate $passwordResult
-            Save-GuestDiagnosticRungEvidence -Result $lastResult -Attempted $attempted -OutPath $outPath
+            Save-GuestDiagnosticRungEvidence -Result $passwordResult -Rung 'password-ssh' -Attempted $attempted `
+                -OutPath $outPath -Selected $lastResult -Evidence $rungEvidence
             if ($passwordResult.success) {
                 $result = $passwordResult
             } else {
@@ -1865,12 +1933,12 @@ function Invoke-GuestDiagnosticCapture {
         }
     }
 
-    # Emergency fallback: console keystroke path. Writes directly to
-    # disk via POST, so on success we return early and skip the local
-    # Set-Content below (otherwise we'd clobber the upload with a
-    # header-only body). Used when sshd is unreachable (half-up sshd,
-    # auth misconfigured, network partition) -- the only case where
-    # typing into tty1 still has a chance.
+    # Emergency fallback: console keystroke path. The guest POSTs its capture
+    # to the console rung's own file, so an upload that arrives after this
+    # rung gave up cannot replace the main file or an SSH rung's evidence.
+    # A capture that arrives in time is promoted to the main name. Used when
+    # sshd is unreachable (half-up sshd, auth misconfigured, network
+    # partition) -- the only case where typing into tty1 still has a chance.
     if (-not $result) {
         $consoleBudget = Get-PerCmdBudget
         if ($consoleBudget -le 0) {
@@ -1881,14 +1949,22 @@ function Invoke-GuestDiagnosticCapture {
             Update-GuestDiagnosticCheckpoint -Values @{ attempted=$attempted }
             $consoleResult = Invoke-RemoteDiagnosticsConsole `
                 -VMName $VMName -FailureFolderPath $FailureFolderPath `
-                -DiagnosticsFileName $fileName -TimeoutSeconds $consoleBudget
+                -DiagnosticsFileName $consoleUploadName -TimeoutSeconds $consoleBudget
             Test-DiagSshTimeoutHit -Result $consoleResult -Rung 'console' -TimeoutSeconds $consoleBudget
             $captureTimedOut = $captureTimedOut -or $consoleResult.timedOut -or $consoleResult.drainTimedOut
             if ($consoleResult.success) {
-                Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=console, attempts=$($attempted -join ','))"
+                $consolePath = Join-Path $FailureFolderPath $consoleUploadName
+                $capturePath = $outPath
+                try {
+                    [System.IO.File]::Move($consolePath, $outPath, $true)
+                } catch {
+                    Write-Verbose "Save-GuestDiagnostic: console capture kept at its upload name: $($_.Exception.Message)"
+                    $capturePath = $consolePath
+                }
+                Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$(Split-Path -Leaf $capturePath) (mechanism=console, attempts=$($attempted -join ','))"
                 $consoleBytes = 0L
-                try { if (Test-Path -LiteralPath $outPath) { $consoleBytes = [long](Get-Item -LiteralPath $outPath).Length } } catch { Write-Verbose "Save-GuestDiagnostic: outPath size probe failed: $($_.Exception.Message)" }
-                return @{ success=$true; outPath=$outPath; mechanism='console'; attempted=$attempted; exitCode=[int]$consoleResult.exitCode; bytes=$consoleBytes; skipped=$false; reason=$null }
+                try { if (Test-Path -LiteralPath $capturePath) { $consoleBytes = [long](Get-Item -LiteralPath $capturePath).Length } } catch { Write-Verbose "Save-GuestDiagnostic: outPath size probe failed: $($_.Exception.Message)" }
+                return @{ success=$true; outPath=$capturePath; mechanism='console'; attempted=$attempted; exitCode=[int]$consoleResult.exitCode; bytes=$consoleBytes; skipped=$false; reason=$null; rungEvidence=@($rungEvidence) }
             }
             $lastResult = Select-MoreInformativeDiagResult -Current $lastResult -Candidate $consoleResult
             Write-Verbose "  Diagnostics: console failed (exit=$($consoleResult.exitCode))."
@@ -1904,7 +1980,7 @@ function Invoke-GuestDiagnosticCapture {
             # but holds no guest state; an empty per-guest folder is the
             # clearer signal, so skip the write and return nothing on disk.
             Write-Verbose "  Diagnostics: no rung produced output for VM '$VMName'; leaving folder empty rather than writing a header-only stub."
-            return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=-1; bytes=0L; skipped=$false; timedOut=$captureTimedOut; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_e09e27604e13c08b') }
+            return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=-1; bytes=0L; skipped=$false; timedOut=$captureTimedOut; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_e09e27604e13c08b'); rungEvidence=@($rungEvidence) }
         }
         $result = $lastResult
     }
@@ -1930,7 +2006,7 @@ function Invoke-GuestDiagnosticCapture {
         Set-Content -LiteralPath $outPath -Value $body.ToString() -Encoding utf8 -NoNewline
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_128d310098239f76' -Arguments @{ outPath = "$outPath"; message = "$($_.Exception.Message)" })
-        return @{ success=$false; outPath=$outPath; mechanism=[string]$result.mechanism; attempted=$attempted; exitCode=[int]$result.exitCode; bytes=0L; skipped=$false; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_bc30bb4fb49d53bf' -Arguments @{ message = "$($_.Exception.Message)" }) }
+        return @{ success=$false; outPath=$outPath; mechanism=[string]$result.mechanism; attempted=$attempted; exitCode=[int]$result.exitCode; bytes=0L; skipped=$false; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_bc30bb4fb49d53bf' -Arguments @{ message = "$($_.Exception.Message)" }); rungEvidence=@($rungEvidence) }
     }
 
     # The cap warning itself is raised by Save-GuestDiagnostic, which is the
@@ -1951,6 +2027,7 @@ function Invoke-GuestDiagnosticCapture {
         outputTruncated = [bool]$result.outputTruncated
         skipped   = $false
         reason    = if ($result.success) { $null } else { (Format-YurunaOperatorMessage -Key 'runner.operator_ed0c49bb24ec78e3') }
+        rungEvidence = @($rungEvidence)
     }
 }
 

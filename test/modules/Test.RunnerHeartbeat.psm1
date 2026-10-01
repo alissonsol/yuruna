@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42bf60de-1efd-47a3-9c1c-7472978c1c6d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,10 +141,8 @@ function Stop-RunnerHeartbeat {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Disposes a process-local timer; there is no externally observable state to gate with -WhatIf, and it runs unconditionally in the inner runner exit path.')]
     param()
-    if ($script:HeartbeatStarted) {
-        try { [Yuruna.HeartbeatWriter]::Stop() } catch { $null = $_ }
-        $script:HeartbeatStarted = $false
-    }
+    try { [Yuruna.HeartbeatWriter]::Stop() } catch { $null = $_ }
+    $script:HeartbeatStarted = $false
 }
 
 function Get-RunnerHeartbeatError {

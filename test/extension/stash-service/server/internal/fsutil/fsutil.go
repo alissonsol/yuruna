@@ -7,9 +7,12 @@ package fsutil
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 )
 
 // SyncDir fsyncs a directory so a rename/create within it survives a crash
@@ -69,4 +72,32 @@ func SyncClose(file interface {
 	syncErr := file.Sync()
 	closeErr := file.Close()
 	return errors.Join(syncErr, closeErr)
+}
+
+// UploadName uses one cross-platform basename policy for SCP, SFTP and HTTP.
+func UploadName(raw string) string {
+	clean := path.Base(strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/"))
+	if clean == "." || clean == ".." || clean == "/" || strings.ContainsRune(clean, 0) {
+		return ""
+	}
+	return clean
+}
+
+// UniqueUploadPath preserves every file in a grouped upload, including repeated
+// basenames, without truncating the earlier staged file.
+func UniqueUploadPath(dir, name string) (string, error) {
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	for n := 1; ; n++ {
+		candidate := name
+		if n > 1 {
+			candidate = fmt.Sprintf("%s (%d)%s", stem, n, ext)
+		}
+		target := filepath.Join(dir, candidate)
+		if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
+			return target, nil
+		} else if err != nil {
+			return "", err
+		}
+	}
 }

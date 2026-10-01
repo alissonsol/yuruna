@@ -68,6 +68,10 @@ properties:
     type: string
     description: One-line summary shown in cycle logs and the dashboard.
 
+  descriptionLocalized:
+    type: object
+    additionalProperties: { type: string }
+
   resource:
     type: object
     description: >
@@ -207,6 +211,7 @@ $defs:
           - inputText
           - inputTextAndEnter
           - loadDiskSnapshot
+          - recoverFromSnapshot
           - networkRelease
           - passwdPrompt
           - pressKey
@@ -255,7 +260,7 @@ $defs:
             charDelayMs:            { type: integer, minimum: 0 }
             delaySeconds:           { type: number,  minimum: 0 }
             timeoutSeconds:         { type: integer, minimum: 0 }
-            pollSeconds:            { type: number,  minimum: 0 }
+            pollSeconds:            { type: integer, minimum: 1 }
             freshMatchTailLines:    { type: integer, minimum: 0 }
             noSegmentMatch:         { type: boolean, default: false }
             failurePatterns:
@@ -320,7 +325,7 @@ $defs:
             pattern:             { $ref: "#/$defs/patternOrArray" }
             text:                { type: string }
             timeoutSeconds:      { type: integer, minimum: 0 }
-            pollSeconds:         { type: number,  minimum: 0 }
+            pollSeconds:         { type: integer, minimum: 1 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
             noSegmentMatch:      { type: boolean, default: true }
@@ -433,7 +438,7 @@ $defs:
         then:
           properties:
             timeoutSeconds:           { type: integer, minimum: 0 }
-            pollSeconds:              { type: number,  minimum: 0 }
+            pollSeconds:              { type: integer, minimum: 1 }
             installerFailurePatterns: { $ref: "#/$defs/patternOrArray" }
 
       - if: { properties: { action: { const: startVm } } }
@@ -448,7 +453,7 @@ $defs:
           properties:
             label:          { $ref: "#/$defs/patternOrArray" }
             timeoutSeconds: { type: integer, minimum: 0 }
-            pollSeconds:    { type: number,  minimum: 0 }
+            pollSeconds:    { type: integer, minimum: 1 }
             offsetX:        { type: integer }
             offsetY:        { type: integer }
 
@@ -459,7 +464,7 @@ $defs:
             pattern:             { $ref: "#/$defs/patternOrArray" }
             text:                { type: string }
             timeoutSeconds:      { type: integer, minimum: 0 }
-            pollSeconds:         { type: number,  minimum: 0 }
+            pollSeconds:         { type: integer, minimum: 1 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
             noSegmentMatch:      { type: boolean, default: false }
@@ -479,7 +484,7 @@ $defs:
         then:
           required: [seconds]
           properties:
-            seconds: { type: number, minimum: 0 }
+            seconds: { type: integer, minimum: 0 }
 
       - if: { properties: { action: { const: waitForText } } }
         then:
@@ -487,7 +492,7 @@ $defs:
           properties:
             pattern:             { $ref: "#/$defs/patternOrArray" }
             timeoutSeconds:      { type: integer, minimum: 0 }
-            pollSeconds:         { type: number,  minimum: 0 }
+            pollSeconds:         { type: integer, minimum: 1 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
             noSegmentMatch:      { type: boolean, default: false }
@@ -500,7 +505,7 @@ $defs:
           properties:
             pattern:             { $ref: "#/$defs/patternOrArray" }
             timeoutSeconds:      { type: integer, minimum: 0 }
-            pollSeconds:         { type: number,  minimum: 0 }
+            pollSeconds:         { type: integer, minimum: 1 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
             noSegmentMatch:      { type: boolean, default: false }

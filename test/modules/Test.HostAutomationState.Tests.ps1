@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e5dbd9-8c32-496e-ab48-855a0584ae9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,7 +74,7 @@ Describe 'the pre-automation capture covers every setter write' {
             # alone would leave a Mac unable to sleep, because these three are
             # written directly.
             foreach ($key in @('displaysleep', 'sleep', 'disksleep')) {
-                $CaptureSrc | Should -Match "pmset/\`$scope/\`$key|'$key'" -Because "pmset $key is written inline by the setter"
+                $CaptureSrc | Should -Match ("\x27" + [regex]::Escape($key) + "\x27") -Because "pmset $key is written inline by the setter"
             }
         }
 
@@ -137,13 +137,16 @@ Describe 'the pre-automation capture covers every setter write' {
 
     Context 'Ubuntu' {
         It 'captures every gsettings key the Enable script writes' {
-            $block = [regex]::Match($LinuxEnable, '\$tweaks\s*=\s*@\((?<body>[\s\S]*?)\n\s*\)')
-            $block.Success | Should -BeTrue -Because 'the gsettings tweak list should be findable in host/ubuntu.kvm/Enable-TestAutomation.ps1'
-            $written = [regex]::Matches($block.Groups['body'].Value, "'([a-z0-9-]+)'\s*,\s*'([^']+)'\s*\)") |
-                ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
-            $written | Should -Not -BeNullOrEmpty
-            foreach ($key in $written) {
-                $CaptureSrc | Should -Match ([regex]::Escape($key)) -Because "Enable-TestAutomation sets gsettings '$key', so the capture must record it"
+            $LinuxEnable | Should -Match '\$tweaks\s*=\s*Get-LinuxAutomationGsetting'
+            $CaptureSrc | Should -Match 'foreach \(\$t in \(Get-LinuxAutomationGsetting\)\)'
+            Import-Module (Join-Path $PSScriptRoot 'Test.HostAutomationState.psm1') -DisableNameChecking
+            $written = @(Get-LinuxAutomationGsetting)
+            $written.Count | Should -Be 5
+            foreach ($entry in $written) {
+                $entry.Count | Should -Be 3 -Because 'capture and restore identify the same schema/key used by apply'
+                $entry[0] | Should -Match '^org\.gnome\.'
+                $entry[1] | Should -Not -BeNullOrEmpty
+                $entry[2] | Should -Not -BeNullOrEmpty
             }
         }
 

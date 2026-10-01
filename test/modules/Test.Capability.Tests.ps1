@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b063c4-f3bc-4a1f-885e-8a2c257e7130
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     runtime/host.registration.json the pool-aggregator service reads (Phase 0 of the
     multi-host pool harness, docs/opportunities.md).
 .DESCRIPTION
-    Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+). The fixture points
+    Throw-based assertions (Pester 5+). The fixture points
     $env:YURUNA_RUNTIME_DIR at a temp dir and seeds the $global:__Yuruna* identity
     channels the writer reads; all $global: access is confined to suppressed
     helpers (matching the production Copy-FailureArtifactsToStatusLog pattern).
@@ -123,40 +123,43 @@ Describe 'Write-HostRegistrationRecord' {
         } finally { Remove-RegFixture -Fixture $fx }
     }
 
-    It 'carries project locale maps intact for request-boundary resolution' {
+    It 'publishes the project facts and the access marker, and no other project data' {
         $fx = New-RegFixture
         try {
-            Import-Module (Join-Path $here 'Test.SequencePlanner.psm1') -Global -Force -DisableNameChecking
             $root = Join-Path $fx.Tmp 'checkout'
             $runtimeDir = Join-Path $root 'runtime/host'
-            $projectTestDir = Join-Path $root 'project/test'
+            $projectDir = Join-Path $root 'runtime/project'
             New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
-            New-Item -ItemType Directory -Path $projectTestDir -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $projectDir 'test') -Force | Out-Null
             $env:YURUNA_RUNTIME_DIR = $runtimeDir
-            $runner = @'
-sequences: [workload.example]
-testSets:
-  - name: smoke
-    displayName: Quick smoke test
-    displayNameLocalized:
-      pt-BR: Teste rapido
-    description: Fast signal
-    descriptionLocalized:
-      pt-BR: Sinal rapido
-    sequences: [workload.example]
-'@
-            [IO.File]::WriteAllText((Join-Path $projectTestDir 'test.runner.yml'), $runner,
+            [IO.File]::WriteAllText((Join-Path $projectDir 'test/test.runner.yml'), "sequences: [workload.example]`n",
+                [Text.UTF8Encoding]::new($false))
+            & git -C $projectDir init --quiet
+            & git -C $projectDir remote add origin 'https://example.invalid/owner/project.git'
+            & git -C $projectDir -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false `
+                commit --allow-empty --quiet --no-verify -m fixture
+            $expectedCommit = "$(& git -C $projectDir rev-parse --short HEAD)".Trim()
+            $access = [ordered]@{ url = 'https://example.invalid/owner/project'; status = 'denied'
+                assignedBy = [ordered]@{ poolId = 'lab' }; checkedAt = '2026-01-01T00:00:00Z'; detail = 'fixture' }
+            [IO.File]::WriteAllText((Join-Path $runtimeDir 'project.access.json'), ($access | ConvertTo-Json -Depth 4),
                 [Text.UTF8Encoding]::new($false))
 
             [void](Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp)
             $rec = Get-Content -Raw (Join-Path $runtimeDir 'host.registration.json') | ConvertFrom-Json
-            $smoke = @($rec.testSets | Where-Object name -EQ 'smoke')[0]
-            Assert-StringEqual -Expected 'Quick smoke test' -Actual $smoke.displayName `
-                'the background registration resolved a reader-facing scalar'
-            Assert-StringEqual -Expected 'Teste rapido' -Actual $smoke.displayNameLocalized.'pt-BR' `
-                'the registration dropped the localized display name'
-            Assert-StringEqual -Expected 'Sinal rapido' -Actual $smoke.descriptionLocalized.'pt-BR' `
-                'the registration dropped the localized description'
+            Assert-StringEqual -Expected 'https://example.invalid/owner/project' -Actual $rec.projectUrl `
+                'the registration lost the project origin'
+            Assert-StringEqual -Expected $expectedCommit -Actual $rec.projectCommit `
+                'the registration lost the project commit'
+            Assert-StringEqual -Expected 'denied' -Actual $rec.projectAccess.status `
+                'the registration lost the access probe result'
+            Assert-StringEqual -Expected 'poolId' -Actual (@($rec.projectAccess.assignedBy.PSObject.Properties.Name) -join ',') `
+                'assignedBy names the pool and nothing else'
+            $names = [string[]]@($rec.PSObject.Properties.Name)
+            [Array]::Sort($names, [StringComparer]::Ordinal)
+            Assert-StringEqual -Expected ('activeExtensions,capabilities,capacity,disk,extensionTargets,gating,hostId,hostType,' +
+                    'hostname,hypervisor,ipPool,network,pid,poolGuid,poolId,projectAccess,projectCommit,projectUrl,' +
+                    'runId,schemaVersion,statusPort,supportedGuests,writtenAtUtc') `
+                -Actual ($names -join ',') 'the registration record gained or lost a top-level field'
         } finally { Remove-RegFixture -Fixture $fx }
     }
 

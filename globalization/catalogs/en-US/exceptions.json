@@ -660,7 +660,7 @@
       }
     },
     "exceptions.host_dd6d74db4a58cc9d": {
-      "message": "Fido.ps1 hash mismatch (pinned v1.70): expected {fidoSha256}, got {fidoActual}",
+      "message": "Fido.ps1 hash mismatch (pinned v1.71): expected {fidoSha256}, got {fidoActual}",
       "description": "Whole operator-visible throw failure in host/macos.utm/guest.windows.11/Get-Image.ps1; preserve command names, error identity, paths, and external details.",
       "lifecycle": "active",
       "placeholders": {

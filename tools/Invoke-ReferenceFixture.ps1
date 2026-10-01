@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4213717a-c9d8-4963-a773-bbe6c4201235
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,6 +127,13 @@ function ConvertTo-NormalizedFixtureText {
         if (-not $literal) { continue }
         $value = $value.Replace([string]$literal, [string]$Root[$literal])
     }
+
+    # What follows a root token is a path: Windows spells its separators with a
+    # backslash, and the recorded captures spell them with a slash.
+    $value = [regex]::Replace($value, '(<(?:work|root|project|temp|home)>)([^\s"''<>]*)', {
+        param($match)
+        $match.Groups[1].Value + $match.Groups[2].Value.Replace([char]92, [char]47)
+    })
 
     $value = [regex]::Replace($value, '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?', '<timestamp>')
     $value = [regex]::Replace($value, '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', '<datetime>')
@@ -339,6 +346,9 @@ try {
     $rootToken[([IO.Path]::GetTempPath().TrimEnd([IO.Path]::DirectorySeparatorChar))] = '<temp>'
     $rootToken[[Environment]::GetFolderPath('UserProfile')] = '<home>'
     $rootToken[[Environment]::MachineName] = '<host>'
+    # The generated notification page names a fixed lab host, which is the
+    # recording machine's own name only where the capture was made.
+    $rootToken['syzor202607a'] = '<host>'
 
     if ($Update) { $null = New-Item -ItemType Directory -Path $captureRoot -Force }
 

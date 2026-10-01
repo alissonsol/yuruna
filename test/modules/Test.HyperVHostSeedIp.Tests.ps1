@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4250adff-0991-409e-81bf-56dfdf1149db
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,7 +102,7 @@ Describe 'hyper-v-guest-seed-host-ip' {
         $fn = Get-FunctionAst -Name 'Wait-ExternalSwitchHostIpv4'
         Assert-True ($null -ne $fn) 'the settle helper must exist'
         Assert-True ($fn.Extent.Text -match 'vEthernet \(') 'must look up the address on the switch''s own vEthernet'
-        Assert-True ($fn.Extent.Text -match "DestinationPrefix '0\.0\.0\.0/0'") 'must also accept the default-route address'
+        Assert-True ($fn.Extent.Text -match 'Get-WindowsDefaultIPv4Route') 'must also accept the default-route address'
         Assert-True ($null -ne (Get-CallLine -FunctionAst $fn -CommandName 'Start-Sleep')) 'must retry rather than answer from a single sample'
     }
 
@@ -223,12 +223,14 @@ Describe 'hyper-v-guest-new-vm-switch-fallback' {
             $path = Get-GuestNewVmScriptPath -GuestName $guest
             if (-not (Test-Path -LiteralPath $path)) { $missing += "$guest (script not found)"; continue }
             $src = Get-Content -Raw -LiteralPath $path
-            # Presence and relative order only -- reformatting must stay free.
-            if ($src -notmatch '(?s)\$switchName\s*=\s*Get-OrCreateYurunaExternalSwitch.*?if\s*\(\s*-not\s+\$switchName\s*\).*?\$switchName\s*=\s*''Default Switch''') {
-                $missing += $guest
-            }
+            # Every guest script asks the shared resolver; the resolver owns the substitution.
+            if ($src -notmatch '\$switchName\s*=\s*Resolve-HyperVGuestSwitch\b') { $missing += $guest }
         }
-        Assert-True ($missing.Count -eq 0) "these scripts no longer fall back to the Default Switch: $($missing -join ', ')"
+        $resolver = Get-FunctionAst -Name 'Resolve-HyperVGuestSwitch'
+        Assert-True ($null -ne $resolver) 'the shared switch resolver must exist'
+        Assert-True ($resolver.Extent.Text -match '(?s)\$name\s*=\s*Get-OrCreateYurunaExternalSwitch.*?if\s*\(\s*\$name\s*\).*?\$name\s*=\s*''Default Switch''') `
+            'the resolver must prefer the External switch and then substitute the Default Switch'
+        Assert-True ($missing.Count -eq 0) "these scripts do not use the shared switch resolver: $($missing -join ', ')"
     }
 
     It 'every guest New-VM script checks that the substituted switch exists' {
@@ -240,8 +242,11 @@ Describe 'hyper-v-guest-new-vm-switch-fallback' {
         $missing = @()
         foreach ($guest in $guestScript) {
             $src = Get-Content -Raw -LiteralPath (Get-GuestNewVmScriptPath -GuestName $guest)
-            if ($src -notmatch '(?s)\$switchName\s*=\s*''Default Switch''.{0,800}Get-VMSwitch') { $missing += $guest }
+            if ($src -notmatch '\$switchName\s*=\s*Resolve-HyperVGuestSwitch\b') { $missing += $guest }
         }
+        $resolver = Get-FunctionAst -Name 'Resolve-HyperVGuestSwitch'
+        Assert-True ($resolver.Extent.Text -match '(?s)\$name\s*=\s*''Default Switch''.{0,200}Get-VMSwitch -Name \$name') `
+            'the resolver must confirm the substituted switch exists'
         Assert-True ($guestScript.Count -eq 8) 'the guest-driver list must not go empty'
         Assert-True ($missing.Count -eq 0) "these scripts substitute a switch name without confirming it resolves: $($missing -join ', ')"
     }

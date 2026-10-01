@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e65ede-af28-4c1f-8f0d-b5461e23110d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -652,16 +652,22 @@ function Invoke-PoolNotifierCycle {
                 try { $st = Read-CachingProxyServiceState; if ($st -and $st.ipAddress) { $ip = [string]$st.ipAddress } } catch { $null = $_ }
             }
             if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) { $ip = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() }
-            if ([string]::IsNullOrWhiteSpace($ip)) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_f67e91959f7d5ea3'); return $summary }
-            $metricsUrl = "http://${ip}:$MetricsPort/metrics"
-
-            $gauge = Get-PoolAlertGaugeState -MetricsUrl $metricsUrl -TimeoutSec $HttpTimeoutSeconds
-            if ($null -eq $gauge) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_fa10410dc0050ce8' -Arguments @{ metricsUrl = "$metricsUrl" }); return $summary }
-
-            $statePath = Join-Path $runtimeDir 'pool.notifier.state.json'
-            $state = Read-PoolNotifierState -StatePath $statePath
-            $summary.enqueued = Add-PoolAlertSpoolEntry -GaugeState $gauge -State $state -SpoolRoot $spoolRoot
-            $null = Write-PoolNotifierState -StatePath $statePath -State $state -Confirm:$false
+            $gauge = $null
+            if ([string]::IsNullOrWhiteSpace($ip)) {
+                $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_f67e91959f7d5ea3')
+            } else {
+                $metricsUrl = "http://${ip}:$MetricsPort/metrics"
+                $gauge = Get-PoolAlertGaugeState -MetricsUrl $metricsUrl -TimeoutSec $HttpTimeoutSeconds
+                if ($null -eq $gauge) {
+                    $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_fa10410dc0050ce8' -Arguments @{ metricsUrl = "$metricsUrl" })
+                }
+            }
+            if ($null -ne $gauge) {
+                $statePath = Join-Path $runtimeDir 'pool.notifier.state.json'
+                $state = Read-PoolNotifierState -StatePath $statePath
+                $summary.enqueued = Add-PoolAlertSpoolEntry -GaugeState $gauge -State $state -SpoolRoot $spoolRoot
+                $null = Write-PoolNotifierState -StatePath $statePath -State $state -Confirm:$false
+            }
         }
 
         $workDir = Join-Path $runtimeDir 'pool.notifier'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,13 +96,7 @@ if (-not $WhatIfPreference) {
 }
 
 # --- REGION: GNOME idle / lock / dim
-foreach ($t in @(
-    @('org.gnome.settings-daemon.plugins.power', 'sleep-inactive-ac-type'),
-    @('org.gnome.settings-daemon.plugins.power', 'sleep-inactive-battery-type'),
-    @('org.gnome.desktop.session',               'idle-delay'),
-    @('org.gnome.desktop.screensaver',           'lock-enabled'),
-    @('org.gnome.settings-daemon.plugins.power', 'idle-dim')
-)) {
+foreach ($t in (Get-LinuxAutomationGsetting)) {
     $schema = $t[0]; $key = $t[1]
     Restore-Knob -Name "gsettings/$schema/$key" -Description "gsettings $schema $key" -Apply {
         param($v)

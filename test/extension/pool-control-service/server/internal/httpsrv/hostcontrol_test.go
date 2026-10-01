@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -119,7 +120,7 @@ func ctlIntent(members ...string) *fakeIntent {
 		quoted = append(quoted, `"`+m+`"`)
 	}
 	doc := `{"ok":true,"pools":[{"poolId":"lab","poolGuid":"42l","members":[` + strings.Join(quoted, ",") + `]},
-	         {"poolId":"empty","poolGuid":"42e","members":[]}],"testSets":[]}`
+	         {"poolId":"empty","poolGuid":"42e","members":[]}]}`
 	return &fakeIntent{stateRes: intent.Result{OK: true, Stdout: doc}}
 }
 
@@ -428,16 +429,41 @@ func TestApplyIsAudited(t *testing.T) {
 	refusing.status = http.StatusForbidden
 	refusing.body = `{"ok":false,"reason":"proof-invalid"}`
 	agg := ctlAggregator(t, map[string]string{"42aa": ok.srv.URL, "42bb": refusing.srv.URL}, "")
-	store := state.New(filepath.Join(t.TempDir(), "pc"), time.Now())
+	dir := filepath.Join(t.TempDir(), "pc")
+	store := state.New(dir, time.Now())
+	publishedAt := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	store.Record(time.Now(), state.AuditEntry{
+		Publish: true, TimeUTC: publishedAt, Action: "new-pool", Target: "lab", OK: true,
+	})
 	srv := httptest.NewServer(New(ctlIntent("42aa", "42bb"), Options{AggregatorURL: agg.URL, AuthToken: testBearer, Store: store}).Handler())
 	defer srv.Close()
 
-	if _, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"pause-after-cycle"}`); m["ok"] != true {
-		t.Fatalf("apply: %v", m)
+	resp, result := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"pause-after-cycle"}`)
+	if resp.StatusCode != http.StatusOK || result["ok"] != true || result["applied"] != float64(1) || result["failed"] != float64(1) {
+		t.Fatalf("apply: HTTP %d %v", resp.StatusCode, result)
 	}
-	_, health := do(t, "GET", srv.URL+"/healthz", "")
-	if health["lastAction"] != "host-control" {
-		t.Fatalf("lastAction = %v, want host-control", health["lastAction"])
+	audit, err := os.ReadFile(filepath.Join(dir, "audit.jsonl"))
+	if err != nil {
+		t.Fatalf("read audit: %v", err)
+	}
+	rows := strings.Split(strings.TrimSpace(string(audit)), "\n")
+	if len(rows) != 2 {
+		t.Fatalf("audit rows = %d, want publish and host-control: %s", len(rows), audit)
+	}
+	var entry state.AuditEntry
+	if err := json.Unmarshal([]byte(rows[1]), &entry); err != nil {
+		t.Fatalf("decode host-control audit: %v", err)
+	}
+	if entry.Action != "host-control" || entry.Target != "lab" || entry.OK || entry.Detail != "pause-after-cycle: 1 applied, 1 failed" {
+		t.Fatalf("host-control audit = %+v", entry)
+	}
+	if _, err := time.Parse(time.RFC3339, entry.TimeUTC); err != nil {
+		t.Fatalf("audit timestamp = %q: %v", entry.TimeUTC, err)
+	}
+	resp, health := do(t, "GET", srv.URL+"/healthz", "")
+	if resp.StatusCode != http.StatusOK || health["lastAction"] != "new-pool" || health["lastWriteUtc"] != publishedAt ||
+		health["lastPublishOk"] != true || health["writes"] != float64(1) {
+		t.Fatalf("host-control changed intent-publish health: HTTP %d %v", resp.StatusCode, health)
 	}
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427dc7e5-42e7-4d34-bef6-83be459c7402
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,16 @@ BeforeAll {
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errors)
         if ($errors) { throw "$Path does not parse: $($errors[0].Message)" }
         return $ast
+    }
+
+    function Get-EffectiveGuestBuilderSource {
+        param([string]$Path)
+        $source = Get-Content -LiteralPath $Path -Raw
+        if ($source -match 'modules/New-UbuntuServerVM.ps1') {
+            $shared = Join-Path (Split-Path (Split-Path $Path -Parent) -Parent) 'modules/New-UbuntuServerVM.ps1'
+            return Get-Content -LiteralPath $shared -Raw
+        }
+        return $source
     }
 
     $script:ServiceBuilders = @(Get-ChildItem (Join-Path $script:RepoRoot 'host/*/guest.*-service/New-VM.ps1'))
@@ -128,8 +138,8 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 '@
         foreach ($builder in $script:GuestBuilders) {
-            $text = (Get-Content -LiteralPath $builder.FullName -Raw) -replace "`r`n", "`n"
-            Assert-True $text.Contains($canonicalBlock) "$($builder.FullName) must reuse the loaded log module without -Force"
+            $text = (Get-EffectiveGuestBuilderSource -Path $builder.FullName) -replace "`r`n", "`n"
+            Assert-True ($text.Replace('$GuestScriptRoot', '$PSScriptRoot').Contains($canonicalBlock)) "$($builder.FullName) must reuse the loaded log module without -Force"
         }
     }
 }
@@ -143,7 +153,7 @@ Describe 'Per-guest builder phase order' {
             '# --- REGION: Create copies and files for VM'
         )
         foreach ($builder in $script:GuestBuilders) {
-            $text = Get-Content -LiteralPath $builder.FullName -Raw
+            $text = Get-EffectiveGuestBuilderSource -Path $builder.FullName
             $previous = -1
             foreach ($marker in $markers) {
                 $current = $text.IndexOf($marker, [StringComparison]::Ordinal)
@@ -160,7 +170,7 @@ Describe 'Per-guest builder phase order' {
             'host/ubuntu.kvm/guest.ubuntu.server.26/New-VM.ps1'  = '# --- REGION: Create empty install target'
         }
         foreach ($relativePath in $kvmDiskPhases.Keys) {
-            $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot $relativePath) -Raw
+            $text = Get-EffectiveGuestBuilderSource -Path (Join-Path $script:RepoRoot $relativePath)
             $seedPhase = $text.IndexOf('# --- REGION: Generate cloud-init seed ISO', [StringComparison]::Ordinal)
             $diskPhase = $text.IndexOf($kvmDiskPhases[$relativePath], [StringComparison]::Ordinal)
             Assert-True ($seedPhase -ge 0 -and $diskPhase -gt $seedPhase) "$relativePath must preserve the prior disk until the seed preflight succeeds"
@@ -176,13 +186,13 @@ Describe 'Amazon Linux origin-listing boundary' {
             'host/ubuntu.kvm/guest.amazon.linux.2023/Get-Image.ps1'
         )
         foreach ($relativePath in $imageScripts) {
-            $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot $relativePath) -Raw
+            $text = Get-EffectiveGuestBuilderSource -Path (Join-Path $script:RepoRoot $relativePath)
             Assert-Match '\$html\s*=\s*Invoke-WebRequest\s+-Uri\s+\$sourceUrl\s+-ErrorAction\s+Stop\b' $text "$relativePath must terminate when its origin listing request fails"
         }
 
         foreach ($hostName in @('macos.utm', 'ubuntu.kvm')) {
             $relativePath = "host/$hostName/guest.amazon.linux.2023/Get-Image.ps1"
-            $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot $relativePath) -Raw
+            $text = Get-EffectiveGuestBuilderSource -Path (Join-Path $script:RepoRoot $relativePath)
             $ast = Get-ProvisionAst (Join-Path $script:RepoRoot $relativePath)
             $missing = $ast.Find({ param($node)
                     $node -is [Management.Automation.Language.IfStatementAst] -and
@@ -198,6 +208,82 @@ Describe 'Amazon Linux origin-listing boundary' {
     }
 }
 
+Describe 'Download-agent artifact pattern' {
+    BeforeAll {
+        # One record per -ExpectedFilenamePattern argument that a Get-Image script
+        # hands a download-agent call: the argument's AST and, when that is a
+        # variable, the assignment that precedes the call in the script ($null
+        # when there is none). An unassigned variable binds as an empty pattern,
+        # which the agent reads as "no expectation" and accepts any artifact.
+        function Get-AgentPatternArgument {
+            param([string]$Path)
+            $ast = Get-ProvisionAst $Path
+            $calls = $ast.FindAll({ param($n)
+                    $n -is [Management.Automation.Language.CommandAst] -and
+                    $n.GetCommandName() -in @('Invoke-DownloadAgentFirst', 'Request-DownloadAgentImage')
+                }, $true)
+            foreach ($call in $calls) {
+                $elements = $call.CommandElements
+                for ($i = 0; $i -lt $elements.Count; $i++) {
+                    $parameter = $elements[$i]
+                    if ($parameter -isnot [Management.Automation.Language.CommandParameterAst] -or
+                        $parameter.ParameterName -ne 'ExpectedFilenamePattern') { continue }
+                    $value = if ($parameter.Argument) { $parameter.Argument } else { $elements[$i + 1] }
+                    $assignment = $null
+                    if ($value -is [Management.Automation.Language.VariableExpressionAst]) {
+                        $name = $value.VariablePath.UserPath
+                        $assignment = $ast.FindAll({ param($n)
+                                $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+                                $n.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+                                $n.Left.VariablePath.UserPath -eq $name -and
+                                $n.Extent.StartOffset -lt $call.Extent.StartOffset
+                            }, $true) | Select-Object -First 1
+                    }
+                    [pscustomobject]@{ Command = $call.GetCommandName(); Value = $value; Assignment = $assignment }
+                }
+            }
+        }
+    }
+
+    It 'assigns the variable a Get-Image script hands the agent as its artifact pattern before the call' {
+        $checked = 0
+        foreach ($file in Get-ChildItem (Join-Path $script:RepoRoot 'host/*/guest.*/Get-Image.ps1')) {
+            foreach ($argument in @(Get-AgentPatternArgument $file.FullName)) {
+                $checked++
+                if ($argument.Value -isnot [Management.Automation.Language.VariableExpressionAst]) { continue }
+                $name = $argument.Value.VariablePath.UserPath
+                Assert-NotNull $argument.Assignment "$($file.FullName) hands $($argument.Command) `$$name but assigns it nowhere before the call, which switches the agent's artifact check off"
+            }
+        }
+        Assert-True ($checked -ge 6) "each Amazon Linux 2023 and Windows 11 Get-Image script must state an artifact pattern; found $checked"
+    }
+
+    It 'gives every Amazon Linux 2023 host a pattern that accepts only the artifact it stages' {
+        $cases = @(
+            @{ Script = 'host/macos.utm/guest.amazon.linux.2023/Get-Image.ps1';       Extension = 'qcow2'; Refused = @('zip', 'vhdx') }
+            @{ Script = 'host/ubuntu.kvm/guest.amazon.linux.2023/Get-Image.ps1';      Extension = 'qcow2'; Refused = @('zip', 'vhdx') }
+            @{ Script = 'host/windows.hyper-v/guest.amazon.linux.2023/Get-Image.ps1'; Extension = 'zip';   Refused = @('qcow2') }
+            @{ Script = 'host/windows.hyper-v/guest.amazon.linux.2023/Get-Image.ps1'; Extension = 'qcow2'; Refused = @('zip') }
+        )
+        foreach ($case in $cases) {
+            $argument = @(Get-AgentPatternArgument (Join-Path $script:RepoRoot $case.Script) |
+                    Where-Object Command -eq 'Invoke-DownloadAgentFirst')
+            Assert-True ($argument.Count -eq 1) "$($case.Script) must hand Invoke-DownloadAgentFirst exactly one artifact pattern"
+            $expression = if ($argument[0].Assignment) { $argument[0].Assignment.Right.Extent.Text } else { $argument[0].Value.Extent.Text }
+            # The Hyper-V pattern is built from the extension its architecture
+            # branch picks; the macOS and KVM patterns ignore the parameter.
+            $pattern = & ([scriptblock]::Create('param($downloadExtension)' + "`n" + $expression)) $case.Extension
+            Assert-True (-not [string]::IsNullOrWhiteSpace($pattern)) "$($case.Script) must hand the agent a non-empty pattern; an empty one accepts any artifact"
+            $stem = 'al2023-kvm-2023.9.20260101.0-kernel-6.1-x86_64'
+            Assert-True ("$stem.$($case.Extension)" -match $pattern) "$($case.Script) must accept a .$($case.Extension) artifact (pattern '$pattern')"
+            Assert-False ("$stem.$($case.Extension).sha256" -match $pattern) "$($case.Script) must refuse the checksum sidecar (pattern '$pattern')"
+            foreach ($other in $case.Refused) {
+                Assert-False ("$stem.$other" -match $pattern) "$($case.Script) must refuse a .$other artifact (pattern '$pattern')"
+            }
+        }
+    }
+}
+
 Describe 'Service VM disk-capacity boundary' {
     It 'fails the child build before any later phase when expansion fails on every host' {
         Assert-True ($script:ServiceBuilders.Count -eq 12) 'all four service families on all three hosts must be covered'
@@ -206,7 +292,8 @@ Describe 'Service VM disk-capacity boundary' {
             $call = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Expand-ExtensionVmDisk' }, $true)
             Assert-NotNull $call "missing disk-capacity gate: $($builder.FullName)"
             $gate = $call
-            while ($gate -isnot [System.Management.Automation.Language.IfStatementAst]) { $gate = $gate.Parent }
+            while ($gate -and $gate -isnot [System.Management.Automation.Language.IfStatementAst]) { $gate = $gate.Parent }
+            Assert-NotNull $gate "disk resize is not guarded by an if: $($builder.FullName)"
             $body = @'
 $ErrorActionPreference = 'Continue'
 $diskImg = $DiskImage = $vhdxFile = 'fixture-disk'
@@ -223,7 +310,8 @@ function Expand-ExtensionVmDisk { param($Path, $SizeBytes, $Format) return $fals
         foreach ($builder in $script:ServiceBuilders) {
             $ast = Get-ProvisionAst $builder.FullName
             $gate = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Expand-ExtensionVmDisk' }, $true)
-            while ($gate -isnot [System.Management.Automation.Language.IfStatementAst]) { $gate = $gate.Parent }
+            while ($gate -and $gate -isnot [System.Management.Automation.Language.IfStatementAst]) { $gate = $gate.Parent }
+            Assert-NotNull $gate "disk resize is not guarded by an if: $($builder.FullName)"
             $body = @'
 $ErrorActionPreference = 'Stop'
 $diskImg = $DiskImage = $vhdxFile = 'fixture-disk'

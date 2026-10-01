@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d9c4d7-98cf-45ca-b32b-026a805da91a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,8 +45,8 @@
     pwsh tools/Invoke-ProjectLocaleMap.ps1 -ProjectRoot ../yuruna-project -Quiet
 .EXAMPLE
     pwsh tools/Invoke-ProjectLocaleMap.ps1 -ProjectRoot ../yuruna-project
-      -AcceptTranslation -ProjectPath test/test.runner.yml
-      -FieldPath /testSets/name=smoke/displayName -Locale pt-BR
+      -AcceptTranslation -ProjectPath example/website/test/website.ubuntu26.warm.yml
+      -FieldPath /description -Locale pt-BR
 #>
 
 [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'Check')]

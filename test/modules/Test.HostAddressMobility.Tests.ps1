@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f363d0-c7d5-4dcc-941a-c4422523b7e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -245,6 +245,25 @@ printf '%s' "`$(cat '$fx/pool.json')" | tr '{' '\n' | grep -F '"hostId":"42aaaaa
     }
 }
 
+Describe 'Windows guest resolver origin validation' {
+    BeforeAll { . $script:LocatePs }
+
+    It 'accepts only literal, reachable IPv4 origins with valid ports' {
+        foreach ($good in @('http://10.99.99.5:8080', 'https://192.0.2.10/', 'http://192.0.2.10')) {
+            Test-YhlPlausibleBaseUrl -BaseUrl $good | Should -BeTrue -Because "'$good' is a valid origin"
+        }
+        foreach ($bad in @(
+            'http://example.com:8080', 'http://127.0.0.1:8080', 'http://169.254.9.9:8080',
+            'http://224.0.0.1:8080', 'http://999.0.2.10:8080', 'http://10.99.99.5:0',
+            'http://10.99.99.5:65536', 'http://10.99.99.5:8080/path',
+            'http://10.99.99.5:8080?query', 'http://user@10.99.99.5:8080',
+            'ftp://10.99.99.5:8080'
+        )) {
+            Test-YhlPlausibleBaseUrl -BaseUrl $bad | Should -BeFalse -Because "'$bad' must never become a guest coordinate"
+        }
+    }
+}
+
 Describe 'host beacon (Test.HostAddressBeacon.psm1)' {
 
     BeforeEach {
@@ -287,6 +306,74 @@ Describe 'host beacon (Test.HostAddressBeacon.psm1)' {
 
     It 'ignores an empty address rather than publishing one' {
         Invoke-HostAddressBeaconTick -RuntimeDir ([System.IO.Path]::GetTempPath()) -CurrentAddress '' -Confirm:$false | Should -BeFalse
+    }
+}
+
+Describe 'host beacon directory lookup (Resolve-HostAddressBeaconDirectory)' {
+
+    BeforeAll {
+        # The real resolver lives in Test.CachingProxyService, which a beacon
+        # gets from its host driver. A stand-in is enough to mock: these cases
+        # are about when the beacon asks and what it keeps, not how it probes.
+        $script:StubbedSeedUrl = -not (Get-Command -Name 'Get-PoolAggregatorServiceSeedUrl' -ErrorAction SilentlyContinue)
+        if ($script:StubbedSeedUrl) {
+            function global:Get-PoolAggregatorServiceSeedUrl { '' }
+        }
+    }
+
+    AfterAll {
+        if ($script:StubbedSeedUrl) {
+            Remove-Item -LiteralPath 'Function:\Get-PoolAggregatorServiceSeedUrl' -ErrorAction SilentlyContinue
+        }
+    }
+
+    BeforeEach {
+        Import-Module $script:BeaconPsm -Force -DisableNameChecking
+        Reset-HostAddressBeaconState -Confirm:$false
+    }
+
+    It 'announces to the address it was started with and never looks one up' {
+        Mock -ModuleName Test.HostAddressBeacon Get-PoolAggregatorServiceSeedUrl { 'https://10.1.2.3:9400' }
+        Resolve-HostAddressBeaconDirectory -Pinned ' 10.9.9.9 ' | Should -Be '10.9.9.9'
+        Should -Invoke -ModuleName Test.HostAddressBeacon Get-PoolAggregatorServiceSeedUrl -Times 0 -Exactly
+    }
+
+    It 'adopts the first aggregator that answers when started without one, and keeps it' {
+        # The regression: a beacon spawned while the proxy VM was still being
+        # built started with no directory and never announced the host.
+        Mock -ModuleName Test.HostAddressBeacon Get-PoolAggregatorServiceSeedUrl { 'https://10.1.2.3:9400' }
+        Resolve-HostAddressBeaconDirectory -Pinned '' | Should -Be '10.1.2.3'
+        # Expire the lookup interval, so only the adoption can explain a
+        # second call that does not ask again.
+        InModuleScope Test.HostAddressBeacon { $script:LastDirectoryLookupUtc = [datetime]::MinValue }
+        Resolve-HostAddressBeaconDirectory -Pinned '' | Should -Be '10.1.2.3' -Because 'an adopted directory is kept, as a pinned one is'
+        Should -Invoke -ModuleName Test.HostAddressBeacon Get-PoolAggregatorServiceSeedUrl -Times 1 -Exactly
+    }
+
+    It 'asks at most once per interval while no aggregator answers' {
+        Mock -ModuleName Test.HostAddressBeacon Get-PoolAggregatorServiceSeedUrl { '' }
+        Resolve-HostAddressBeaconDirectory -Pinned '' | Should -Be ''
+        Resolve-HostAddressBeaconDirectory -Pinned '' | Should -Be ''
+        Should -Invoke -ModuleName Test.HostAddressBeacon Get-PoolAggregatorServiceSeedUrl -Times 1 -Exactly
+    }
+
+    It 'announces on the tick right after adopting, not a beacon period later' {
+        $rt = Join-Path ([System.IO.Path]::GetTempPath()) ("yhb_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Force -Path $rt | Out-Null
+        try {
+            # With no directory the tick marks the address as announced, which
+            # would otherwise hold the first real announce back a whole period.
+            $null = Invoke-HostAddressBeaconTick -RuntimeDir $rt -CurrentAddress '10.0.0.9' -CacheAddress '' -Confirm:$false
+            (Get-HostAddressBeaconState).LastAnnouncedAddress | Should -Be '10.0.0.9'
+            Mock -ModuleName Test.HostAddressBeacon Get-PoolAggregatorServiceSeedUrl { 'https://10.1.2.3:9400' }
+            Resolve-HostAddressBeaconDirectory -Pinned '' | Should -Be '10.1.2.3'
+            (Get-HostAddressBeaconState).LastAnnouncedAddress | Should -Be ''
+        } finally { Remove-Item -LiteralPath $rt -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'treats a failing lookup as no directory yet' {
+        Mock -ModuleName Test.HostAddressBeacon Get-PoolAggregatorServiceSeedUrl { throw 'probe exploded' }
+        Resolve-HostAddressBeaconDirectory -Pinned '' | Should -Be ''
     }
 }
 

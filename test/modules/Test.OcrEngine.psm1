@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -295,7 +295,7 @@ Register-OcrProvider -Name 'tesseract' `
 # overhead. The persistent path also means a new release of this module
 # (different script text -> different hash -> different path) coexists with
 # any older binary still cached from a prior cycle.
-$script:WinRtOcrScript = @'
+$script:WinRtOcrInterop = @'
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
 $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
@@ -313,6 +313,9 @@ function Await($WinRtTask, $ResultType) {
 [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
 [Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
 
+'@
+
+$script:WinRtOcrScript = $script:WinRtOcrInterop + "`n" + @'
 $imagePath = $args[0]
 $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imagePath)) ([Windows.Storage.StorageFile])
 $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
@@ -375,6 +378,17 @@ function Resolve-CachedHashedScriptPath {
     return $scriptFile
 }
 
+function Get-WinRtOcrScriptSource {
+    <#
+    .SYNOPSIS
+        Returns the Windows PowerShell OCR helper used by the runtime provider.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return $script:WinRtOcrScript
+}
+
 function Get-WinRtOcrScriptPath {
     $script:WinRtOcrScriptPath = Resolve-CachedHashedScriptPath -Cached $script:WinRtOcrScriptPath -Source $script:WinRtOcrScript -FilePrefix 'yuruna-winrt-ocr-'
     return $script:WinRtOcrScriptPath
@@ -386,22 +400,8 @@ $script:WinRtOcrWorkerScript = @'
 [Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-
-$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
-    Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
-                   $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
-
-function Await($WinRtTask, $ResultType) {
-    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
-    $netTask = $asTask.Invoke($null, @($WinRtTask))
-    $netTask.Wait(-1) | Out-Null
-    $netTask.Result
-}
-
-[Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
-[Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
+'@
+$script:WinRtOcrWorkerScript += "`n" + $script:WinRtOcrInterop + "`n" + @'
 [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
 
 $ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
@@ -416,6 +416,7 @@ if (-not $ocrEngine) {
 
 while ($null -ne ($imagePath = [Console]::In.ReadLine())) {
     if ($imagePath -eq '') { continue }
+    $stream = $rawBitmap = $bitmap = $null
     try {
         $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imagePath)) ([Windows.Storage.StorageFile])
         $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
@@ -433,6 +434,10 @@ while ($null -ne ($imagePath = [Console]::In.ReadLine())) {
     } catch {
         $msg = $_.Exception.Message -replace "[\r\n]+", ' '
         [Console]::Out.WriteLine("__YURUNA_EOR_ERR__ $msg")
+    } finally {
+        foreach ($resource in @($bitmap, $rawBitmap, $stream)) {
+            if ($resource) { try { $resource.Dispose() } catch { $null = $_ } }
+        }
     }
     [Console]::Out.Flush()
 }
@@ -1173,7 +1178,7 @@ function Get-VisionOcrBinaryPath {
     # that subsequent calls would execute. -O is the standard optimization
     # level; the Vision OCR work itself is the bulk of the runtime so a
     # heavier -O level would not materially help.
-    $swiftFile = [System.IO.Path]::GetTempFileName() + '.swift'
+    $swiftFile = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-vision-' + [guid]::NewGuid().ToString('N') + '.swift')
     $tmpBin    = "$binPath.tmp.$PID"
     # Pin the native-command EAP so a non-zero swiftc exit reaches the explicit
     # branch below (and latches the negative cache with a precise reason) rather
@@ -1240,7 +1245,7 @@ function Invoke-MacVisionOcr {
 
     # Fallback: swiftc unavailable or compile failed -- invoke the script
     # directly via `swift`.
-    $swiftFile = [System.IO.Path]::GetTempFileName() + '.swift'
+    $swiftFile = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-vision-' + [guid]::NewGuid().ToString('N') + '.swift')
     try {
         $script:VisionOcrSwift | Set-Content -Path $swiftFile -Encoding UTF8
         $output = & swift $swiftFile $ImagePath 2>&1
@@ -1265,6 +1270,7 @@ Register-OcrProvider -Name 'macos-vision' `
 
 # --- REGION: Exports
 Export-ModuleMember -Function @(
+    'Get-WinRtOcrScriptSource',
     'Register-OcrProvider'
     'Get-OcrProviderName'
     'Test-OcrProviderAvailable'

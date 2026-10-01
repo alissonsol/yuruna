@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.27
+.VERSION 2026.09.30
 .GUID 42078042-0ea1-4de8-bb69-d88309b26736
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,7 +122,7 @@ Describe 'pool-extension-lookup' {
             # The bare host, not the URL: callers compose an http probe, an scp
             # target, a guest env value.
             Assert-True ($resolved -eq '192.168.7.227') "expected 192.168.7.227, got '$resolved'"
-        } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
     }
 
     It 'returns nothing when the pool serves no host for the area' {
@@ -131,7 +131,7 @@ Describe 'pool-extension-lookup' {
         try {
             $resolved = Get-PoolExtensionHostFrom -BaseUrl $bound.BaseUrl -Area 'stash-service' -TimeoutSeconds 5
             Assert-True ($resolved -eq '') "expected '' for a 404, got '$resolved'"
-        } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
     }
 
     It 'returns nothing against a collector too old to know the route' {
@@ -143,7 +143,7 @@ Describe 'pool-extension-lookup' {
         try {
             $resolved = Get-PoolExtensionHostFrom -BaseUrl $bound.BaseUrl -Area 'stash-service' -TimeoutSeconds 5
             Assert-True ($resolved -eq '') "expected '' from an old collector, got '$resolved'"
-        } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
     }
 
     It 'returns nothing, without throwing, when the aggregator is not there' {
@@ -162,7 +162,7 @@ Describe 'pool-extension-lookup' {
         try {
             $resolved = Get-PoolExtensionHostFrom -BaseUrl $bound.BaseUrl -Area 'stash-service' -TimeoutSeconds 5
             Assert-True ($resolved -eq '') "expected '' for an empty host field, got '$resolved'"
-        } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
     }
 
     It 'asks for the area it was given' {
@@ -193,7 +193,7 @@ Describe 'extension-host address list' {
                 -AggregatorBaseUrl $bound.BaseUrl -TimeoutSeconds 5)
             Assert-True ($addresses.Count -eq 1) "expected one address, got $($addresses.Count)"
             Assert-True ($addresses[0] -eq '192.168.7.227') "expected 192.168.7.227, got '$($addresses[0])'"
-        } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
     }
 
     It 'answers with an empty list, not $null, when nothing knows the area' {
@@ -222,7 +222,7 @@ Describe 'extension-host address list' {
             Assert-True ($addresses[1] -eq '192.168.7.227') "the pool's answer must follow, got '$($addresses[1])'"
         } finally {
             Remove-Item Env:\YURUNA_EXTENSION_HOST_STASH_SERVICE -ErrorAction SilentlyContinue
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -239,7 +239,7 @@ Describe 'extension-host address list' {
             Assert-True ($addresses.Count -eq 1) "expected the duplicate collapsed, got $($addresses -join ', ')"
         } finally {
             Remove-Item Env:\YURUNA_EXTENSION_HOST_STASH_SERVICE -ErrorAction SilentlyContinue
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -326,25 +326,22 @@ Describe 'pool-extension-lookup wiring' {
         Assert-True ($fn.Extent.Text -match "-VMName ''") 'the wrapper must switch off the local VM source'
     }
 
-    It 'resolves the stash by discovery in the pre-flight gate, not from a literal' {
-        # The gate runs before any sequence and hard-stops the cycle, so it has
-        # to reach the same answer the sequences would. A gate that resolved a
-        # stash address the resolver does not agree with fails every pass on a
+    It 'resolves the stash by discovery and carries no hard-coded stash address' {
+        # Every consumer that needs the stash, the pre-flight checks included,
+        # goes through Resolve-Host. A resolver holding an address literal is
+        # correct only until the stash moves, and then fails every pass on a
         # lab whose stash has simply moved.
-        $setResource = Join-Path (Split-Path -Parent $testRoot) 'project' -AdditionalChildPath 'test', 'Set-Resource.ps1'
-        if (-not (Test-Path -LiteralPath $setResource)) { return }   # the project clone is optional
-        $fn = Get-FunctionAst -Path $setResource -Name 'Resolve-StashService'
-        Assert-True ($null -ne $fn) 'the pre-flight resolver must exist'
+        $fn = Get-FunctionAst -Path $script:stashPsm -Name 'Resolve-Host'
+        Assert-True ($null -ne $fn) 'the stash resolver must exist'
         $calls = @($fn.FindAll({
             param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
             $n.GetCommandName() -eq 'Get-DiscoveredStashServiceHost'
         }, $true))
-        Assert-True ($calls.Count -ge 1) 'the gate must consult the discovered address'
-        $literals = [regex]::Matches((Get-Content -Raw $setResource), '\b\d{1,3}(\.\d{1,3}){3}\b')
+        Assert-True ($calls.Count -ge 1) 'the resolver must consult the discovered address'
+        $literals = [regex]::Matches((Get-Content -Raw $script:stashPsm), '\b\d{1,3}(\.\d{1,3}){3}\b')
         Assert-True ($literals.Count -eq 0) "no hard-coded IPv4 stash address may remain (found: $(($literals | ForEach-Object { $_.Value }) -join ', '))"
     }
-
     It 'can address the aggregator on a host that only configured a proxy IP' {
         # A host that USES a caching-proxy service it did not provision has no proxy
         # state file and only carries the env var mid-cycle; without the config

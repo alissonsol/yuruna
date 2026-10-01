@@ -5,10 +5,14 @@ package httpsrv
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -116,6 +120,68 @@ func TestDiagnosticsRepoDirPassesWhenComplete(t *testing.T) {
 
 	if c := checkByName(t, s.collectDiagnostics(context.Background()), "repo-dir"); !c.OK {
 		t.Errorf("repo-dir failed with a complete checkout: %+v", c)
+	}
+}
+
+// runnerScripts returns every .ps1 path the intent Runner names in its code.
+// intent.go is parsed rather than grepped so a script named only in a comment
+// does not count as one the daemon runs.
+func runnerScripts(t *testing.T) map[string]bool {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join("..", "intent", "intent.go"), nil, 0)
+	if err != nil {
+		t.Fatalf("parse intent.go: %v", err)
+	}
+	scripts := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		if v, err := strconv.Unquote(lit.Value); err == nil && strings.HasSuffix(v, ".ps1") {
+			scripts[v] = true
+		}
+		return true
+	})
+	return scripts
+}
+
+// The repo-dir check stats poolAdminCLIs, while intent.Runner is what actually
+// shells out, and the two lists live in different packages. A script the
+// Runner calls but the list omits fails only when an operator triggers it; a
+// listed script nothing calls makes a correct checkout report as partial.
+func TestPoolAdminCLIsMatchTheRunner(t *testing.T) {
+	called := runnerScripts(t)
+	if len(called) == 0 {
+		t.Fatal("no .ps1 literal found in intent.go; this parse does not match the code it guards")
+	}
+	listed := map[string]bool{}
+	for _, cli := range poolAdminCLIs {
+		listed[cli] = true
+		if !called[cli] {
+			t.Errorf("poolAdminCLIs lists %s, which no Runner method runs", cli)
+		}
+	}
+	for cli := range called {
+		if !listed[cli] {
+			t.Errorf("a Runner method runs %s, which poolAdminCLIs does not list", cli)
+		}
+	}
+}
+
+// Every listed CLI has to exist in the framework checkout this package sits
+// in, or the live repo-dir check reports a correct deployment as partial.
+// Skipped, like the flag cross-check in the intent package, when the package
+// is built away from its checkout.
+func TestPoolAdminCLIsExistInTheCheckout(t *testing.T) {
+	testDir := filepath.Join("..", "..", "..", "..", "..")
+	if _, err := os.Stat(filepath.Join(testDir, "pool", "Get-PoolIntent.ps1")); err != nil {
+		t.Skipf("pool-admin CLIs not present next to this package: %v", err)
+	}
+	for _, cli := range poolAdminCLIs {
+		if _, err := os.Stat(filepath.Join(testDir, filepath.FromSlash(cli))); err != nil {
+			t.Errorf("poolAdminCLIs lists %s, which this checkout does not have: %v", cli, err)
+		}
 	}
 }
 

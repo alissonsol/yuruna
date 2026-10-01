@@ -80,3 +80,25 @@ func TestDetectFileHeuristic(t *testing.T) {
 		t.Fatalf("missing file should be other, got %+v", missing)
 	}
 }
+
+func TestClassFromMimeKeepsActiveContentDownloadOnlyWithParameters(t *testing.T) {
+	for _, mt := range []string{"image/svg+xml; charset=utf-8", "TEXT/HTML ; charset=UTF-8", "application/xhtml+xml; charset=utf-8"} {
+		if got := ClassFromMime(mt); got != config.ClassOther {
+			t.Errorf("%q classified as %q", mt, got)
+		}
+	}
+	if got := ClassFromMime("image/png; name=sample.png"); got != config.ClassImage {
+		t.Errorf("PNG classified as %q", got)
+	}
+}
+
+func TestModelTextFlagPreservesDownloadOnlyMimes(t *testing.T) {
+	for _, mime := range []string{"text/html", "image/svg+xml", "Text/HTML; charset=UTF-8", "image/svg+xml; charset=utf-8"} {
+		if got := classFromModelMime(mime, true); got != config.ClassOther {
+			t.Errorf("model promoted %s to %s", mime, got)
+		}
+	}
+	if got := classFromModelMime("application/x-unrecognized", true); got != config.ClassText {
+		t.Errorf("ordinary model text lost: %s", got)
+	}
+}

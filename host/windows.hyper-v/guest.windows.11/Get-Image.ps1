@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,8 +65,8 @@ $defaultDownloadDir = "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks"
 # privileges, so an unpinned moving ref is an unchecked remote-code hop.
 # Refresh on a new Fido release: bump the tag in the URL and replace the hash
 # with the new file's (Get-FileHash -Algorithm SHA256).Hash.
-$fidoUrl        = "https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1"
-$fidoSha256     = "24c86067fa399d2fd75ef0693a2ec79ca8db162827f808caac03541cbf640c13"
+$fidoUrl        = "https://raw.githubusercontent.com/pbatard/Fido/v1.71/Fido.ps1"
+$fidoSha256     = "6481e40d3cf100c79b281942d0d1c7f6d111397be296fec867a56cbe368ebdf9"
 $languageFilter = "English"
 
 # Fido is external code on its own release cadence, never enlistment content: a
@@ -126,7 +126,7 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
-# --- REGION: Short-circuit #2: configured-path existence check
+# --- REGION: Short-circuit #2: adopt the default image or find the configured file
 if (-not (Test-Path -LiteralPath $baseImageFile) -and $downloadDir -ne $defaultDownloadDir -and
     (Test-Path -LiteralPath $defaultBaseFile)) {
     Copy-Item -LiteralPath $defaultBaseFile -Destination $baseImageFile -ErrorAction Stop
@@ -276,7 +276,12 @@ try {
     try {
         Import-Module BitsTransfer -ErrorAction Stop
         $bitsJob = Start-BitsTransfer -Source $downloadUrl -Destination $downloadFile -Asynchronous -DisplayName "Windows 11 ISO"
-        while ($bitsJob.JobState -eq "Transferring" -or $bitsJob.JobState -eq "Connecting") {
+        $bitsClock = [Diagnostics.Stopwatch]::StartNew()
+        while ($bitsJob.JobState -in @('Queued', 'Connecting', 'Transferring', 'TransientError')) {
+            if ($bitsClock.Elapsed.TotalMinutes -ge 120) {
+                Remove-BitsTransfer -BitsJob $bitsJob -ErrorAction SilentlyContinue
+                throw 'BITS transfer exceeded its two-hour deadline.'
+            }
             if ($bitsJob.BytesTotal -gt 0) {
                 $pct = [math]::Round(($bitsJob.BytesTransferred / $bitsJob.BytesTotal) * 100, 1)
                 $transferredGB = [math]::Round($bitsJob.BytesTransferred / 1GB, 2)

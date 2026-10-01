@@ -3064,6 +3064,9 @@
       "lifecycle": "active",
       "means": "A host-refresh body named a key outside requestId, tier and maxRung.",
       "producedBy": [
+        "test/extension/extension-sdk/strictjson/strings.go",
+        "test/extension/pool-control-service/server/internal/httpsrv/hostrefresh.go",
+        "test/extension/pool-control-service/server/internal/httpsrv/mcp.go",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [],

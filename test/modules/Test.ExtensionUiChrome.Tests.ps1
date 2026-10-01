@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a98740-f91d-4449-a691-90bbcafc57af
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,13 +71,11 @@ $services = @(
         Name  = 'Yuruna Pool Control'
         Dir   = 'pool-control-service'
         Guide = 'https://yuruna.link/4207d71a-000c'
-        Links = @('/', '/assign', '/hosts', '/pools', '/test-sets', '/diagnostics')
+        Links = @('/', '/hosts', '/pools', '/diagnostics')
         Pages = @(
             @{ File = 'board.html'; Title = 'Board'; Current = '/' }
-            @{ File = 'index.html'; Title = 'Assign'; Current = '/assign' }
             @{ File = 'hosts.html'; Title = 'Hosts'; Current = '/hosts' }
             @{ File = 'pools.html'; Title = 'Pools'; Current = '/pools' }
-            @{ File = 'test-sets.html'; Title = 'Test sets'; Current = '/test-sets' }
             @{ File = 'diagnostics.html'; Title = 'Diagnostics'; Current = '/diagnostics' }
         )
     }
@@ -720,7 +718,7 @@ Describe 'async behavior: focus survives, results are announced, deletes ask' {
         foreach ($d in $script:webDirs) {
             foreach ($f in (Get-ChildItem -LiteralPath (Join-Path $d 'assets') -Filter '*.js' -File)) {
                 if ($f.Name -like '*.test.js') { continue }
-                $script:assets += [pscustomobject]@{ Id = "$(Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $d))))/$($f.Name)"; Text = (Get-Content -Raw -LiteralPath $f.FullName) }
+                $script:assets += [pscustomobject]@{ Id = "$(Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $d)))))/$($f.Name)"; Text = (Get-Content -Raw -LiteralPath $f.FullName) }
             }
         }
         $script:statusJs3 = Get-Content -Raw -LiteralPath (Join-Path $script:repo3 'test/status/yuruna.common.js')
@@ -745,7 +743,6 @@ Describe 'async behavior: focus survives, results are announced, deletes ask' {
             'image-rows'    = 'images.js'
             'host-rows'     = 'hosts.js'
             'pool-rows'     = 'pools.js'
-            'ts-rows'       = 'test-sets.js'
             'check-rows'    = 'diagnostics.js'
         }
         $findings = @()
@@ -830,7 +827,7 @@ Describe 'async behavior: focus survives, results are announced, deletes ask' {
         # the defect, not the absence of a convention.
         $findings = @()
         foreach ($a in $script:assets) {
-            if ($a.Id -notmatch 'pools\.js$|test-sets\.js$|index\.js$|images\.js$') { continue }
+            if ($a.Id -notmatch 'pools\.js$|index\.js$|images\.js$') { continue }
             foreach ($m in [regex]::Matches($a.Text, "method: 'DELETE'")) {
                 $start = [Math]::Max(0, $m.Index - 900)
                 $before = $a.Text.Substring($start, $m.Index - $start)

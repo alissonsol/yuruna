@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d985d1-8774-4cde-a9d4-deb5b4740d25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,6 +114,30 @@ $script:rootAst = Get-StatusModuleAst -Path $statusModulePath
 }
 
 Describe 'status.json lastFailure surface' {
+    It 'normalizes mixed UTC dates and offset timestamps for history durations' {
+        $module = Get-Module Test.Status
+        $seconds = & $module {
+            Get-StepDurationSeconds -StartedAt ([datetime]::new(2026, 9, 27, 12, 0, 0, [DateTimeKind]::Utc)) -FinishedAt '2026-09-27T14:30:00+02:00'
+        }
+        $seconds | Should -Be 1800
+    }
+
+    It 'retains a completed history row when the configured count is absent' {
+        $dir = New-TempStatusDir
+        $saved = $env:YURUNA_RUNTIME_DIR
+        try {
+            $env:YURUNA_RUNTIME_DIR = $dir
+            $path = Join-Path $dir 'status.json'
+            Initialize-StatusDocument -StatusFilePath $path -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+            Complete-Run -OverallStatus 'pass' -MaxHistoryRuns 0 -ErrorAction Stop
+            $doc = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            @($doc.history).Count | Should -Be 1
+        } finally {
+            $env:YURUNA_RUNTIME_DIR = $saved
+            Remove-Item -LiteralPath $dir -Recurse -Force
+        }
+    }
+
     It 'Initialize seeds lastFailure null; Set-LastFailureSummary records the cause' {
         $dir = New-TempStatusDir
         $env:YURUNA_RUNTIME_DIR = $dir

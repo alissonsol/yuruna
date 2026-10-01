@@ -667,7 +667,7 @@
       "lifecycle": "active"
     },
     "aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952": {
-      "message": "file holding the shared bearer token that gates POST /ingest; empty/absent/empty-file -> /ingest disabled (never an unauthenticated write route)",
+      "message": "file containing the shared bearer token required for POST /ingest, POST /api/v1/forget-host, POST /api/v1/handover-host, and GET /api/v1/host-history; an empty path, absent file, or empty file disables these operations (no unauthenticated control route)",
       "description": "Aggregator operator command help.",
       "lifecycle": "active"
     },

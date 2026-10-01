@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 424573db-29bc-4e57-8b79-371b47df0dd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -153,6 +153,12 @@ Describe 'Download-agent lifecycle entry points honor the entry-point contract' 
         It "$($case.Name) calls Use-LogLevelFromEnv and Get-EntryPointExitCode" -TestCases @(@{ Path = $case.Path }) {
             param([string]$Path)
             $ast = Get-ScriptAst $Path
+            if ((Split-Path -Leaf $Path) -like 'Stop-*ServiceVM.ps1') {
+                # The per-service stop script delegates to the shared stop script, which owns the contract.
+                $delegationText = Get-Content -Raw -LiteralPath $Path
+                Assert-True ($delegationText.Contains("'Stop-ExtensionService.ps1'") -and $delegationText.Contains("-ServiceKey 'download-agent'")) 'the wrapper runs the shared stop script for the download-agent service'
+                $ast = Get-ScriptAst (Join-Path (Split-Path -Parent $Path) 'Stop-ExtensionService.ps1')
+            }
             Assert-True ((Get-CommandCall -Ast $ast -Name 'Use-LogLevelFromEnv').Count -ge 1) 'the log-level cascade is applied (a real invocation, not a comment)'
             $exitCalls = @(Get-CommandCall -Ast $ast -Name 'Get-EntryPointExitCode')
             Assert-True ($exitCalls.Count -ge 2) "both the Ok and Failure exit codes come from Get-EntryPointExitCode; found $($exitCalls.Count)"
@@ -166,18 +172,25 @@ Describe 'Download-agent lifecycle entry points honor the entry-point contract' 
 Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advertises one' {
     It 'polls the real port inside a wall-clock deadline loop' {
         $ast = Get-ScriptAst $script:startAgent
-        $deadlineLoops = @(Get-WhileStatement -Ast $ast | Where-Object { $_.Condition.Extent.Text -match '\$readyDeadline' })
-        Assert-True ($deadlineLoops.Count -ge 1) 'the readiness wait is a while loop bounded by $readyDeadline (not an iteration counter)'
-        $probes = @(Get-CommandCall -Ast $deadlineLoops[0] -Name 'Test-DownloadAgentServicePort')
-        Assert-True ($probes.Count -ge 1) 'the loop body probes the port for real'
-        Assert-True ((Get-NamedArgumentText -CommandAst $probes[0] -ParameterName 'Port') -eq '80') 'the probe targets the daemon port :80'
+        $waits = @(Get-CommandCall -Ast $ast -Name 'Wait-YurunaServiceVmDaemon')
+        Assert-True ($waits.Count -ge 1) 'the readiness wait goes through the shared daemon waiter'
+        Assert-True ((Get-NamedArgumentText -CommandAst $waits[0] -ParameterName 'Port') -eq '80') 'the wait targets the daemon port :80'
+        Assert-True ((Get-NamedArgumentText -CommandAst $waits[0] -ParameterName 'TimeoutSeconds') -eq '$readyTimeoutSeconds') 'the wait is bounded by the resolved budget'
+        $engine = Get-ScriptAst (Join-Path $testDir 'modules/Test.VMUtility.psm1')
+        $waiter = $engine.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Wait-YurunaServiceVmEndpoint' }, $true)
+        Assert-True ($null -ne $waiter) 'the shared endpoint waiter exists'
+        $deadlineLoops = @(Get-WhileStatement -Ast $waiter | Where-Object { $_.Condition.Extent.Text -match '\$deadline' })
+        Assert-True ($deadlineLoops.Count -ge 1) 'the readiness wait is a while loop bounded by a wall-clock $deadline (not an iteration counter)'
+        Assert-True ($waiter.Extent.Text -match 'Test-TcpEndpointOpen') 'the waiter probes the port for real'
         Assert-True ((Get-CommandCall -Ast $ast -Name 'Get-DownloadAgentServiceReadyTimeoutSeconds').Count -ge 1) 'the budget comes from the overridable resolver, not a bare literal'
     }
 
     It 'discriminates "still building" from "serving but unreachable" by asking the guest' {
         $ast = Get-ScriptAst $script:startAgent
         $sshCalls = @(Get-CommandCall -Ast $ast -Name 'Invoke-GuestSsh')
-        Assert-True ($sshCalls.Count -ge 2) "the guest is asked both during the wait and for the failure diagnostics; found $($sshCalls.Count)"
+        Assert-True ($sshCalls.Count -ge 1) "the guest is asked for the failure diagnostics; found $($sshCalls.Count)"
+        $waits = @(Get-CommandCall -Ast $ast -Name 'Wait-YurunaServiceVmDaemon')
+        Assert-True ((Get-NamedArgumentText -CommandAst $waits[0] -ParameterName 'GuestKey') -match 'guest\.download-agent-service') 'and the wait itself is given the guest to ask'
         $listenerProbe = @(Get-StringLiteralExtent -Ast $ast | Where-Object { $_ -match 'ss -ltn' })
         Assert-True ($listenerProbe.Count -ge 1) 'an in-guest `ss -ltn` listener probe literal is present'
         $timeoutHint = @(Get-StringLiteralExtent -Ast $ast | Where-Object { $_ -match 'YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS' })
@@ -193,10 +206,9 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
         $verdictAssignments = @(Get-AssignmentTo -Ast $ast -VariableText '$daemonReady')
         Assert-True ($verdictAssignments.Count -ge 2) 'the verdict is initialized and then set by the probe'
         Assert-True ((@($verdictAssignments | ForEach-Object { $_.Right.Extent.Text })) -contains '$false') 'the verdict starts $false, so every path that never probed publishes inactive'
-        $insideLoop = @(Get-WhileStatement -Ast $ast |
-            ForEach-Object { Get-AssignmentTo -Ast $_ -VariableText '$daemonReady' } |
-            Where-Object { $_.Right.Extent.Text -eq '$true' })
-        Assert-True ($insideLoop.Count -ge 1) 'only the probe loop can set the verdict $true'
+        $fromVerdict = @($verdictAssignments | Where-Object { $_.Right.Extent.Text -match '\$verdict\.Outcome' })
+        Assert-True ($fromVerdict.Count -ge 1) 'only the readiness verdict can set it true'
+        Assert-True ((Get-CommandCall -Ast $ast -Name 'Get-ServiceVmReadinessVerdict').Count -ge 1) 'the verdict is computed from the wait result'
     }
 
     It 'publishes the Shared-NAT-aware address and refreshes the registration' {
@@ -227,40 +239,25 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
         # first boot; one started after the build is one the guest never saw.
         $statusEnsure = Get-FirstCallOffset -Ast $ast -Name 'Start-YurunaStatusServiceIfEnabled'
         Assert-True ($statusEnsure -ge 0) 'the host status service is ensured'
-        $argumentAssignments = @($ast.FindAll({ param($n)
-            $n -is [Management.Automation.Language.AssignmentStatementAst] -and
-            $n.Left.Extent.Text -eq '$newVmArgs' -and
-            $n.Operator -eq [Management.Automation.Language.TokenKind]::Equals
-        }, $true))
-        Assert-Equal 1 $argumentAssignments.Count 'the child invocation needs one authoritative base argument list'
-        Assert-Match "'-File',\s*\`$newVm,\s*'-VMName',\s*\`$VMName" $argumentAssignments[0].Right.Extent.Text `
-            'the child must still run the selected New-VM script with the exact VM name'
-        $newVmOffsets = @($ast.FindAll({ param($n)
-            $n -is [Management.Automation.Language.CommandAst] -and
-            $n.GetCommandName() -eq 'pwsh' -and
-            @($n.CommandElements | Where-Object {
-                $_ -is [Management.Automation.Language.VariableExpressionAst] -and $_.Splatted -and
-                $_.VariablePath.UserPath -eq 'newVmArgs'
-            }).Count -eq 1
-        }, $true) | ForEach-Object { $_.Extent.StartOffset })
-        Assert-Equal 1 $newVmOffsets.Count 'the prepared child arguments must be used by exactly one invocation'
-        $pseudoGuard = @($ast.FindAll({ param($n)
-            $n -is [Management.Automation.Language.IfStatementAst] -and
-            $n.Clauses[0].Item1.Extent.Text -eq '$AllowPseudoLocale' -and
-            $n.Clauses[0].Item2.Extent.Text -match '\$newVmArgs\s*\+=\s*''-AllowPseudoLocale'''
-        }, $true))
-        Assert-Equal 1 $pseudoGuard.Count 'pseudo locale forwarding must remain explicitly opt-in'
-        $newVmOffset = (@($newVmOffsets) | Sort-Object)[0]
+        # The child build goes through the shared builder invocation, once, with the exact VM name and the
+        # explicit opt-in pseudo-locale switch.
+        $builds = @(Get-CommandCall -Ast $ast -Name 'Invoke-YurunaServiceVmBuild')
+        Assert-Equal 1 $builds.Count 'the VM is built by exactly one shared builder invocation'
+        Assert-Equal '$newVm' (Get-NamedArgumentText -CommandAst $builds[0] -ParameterName 'BuilderPath') 'the shared builder runs the selected New-VM script'
+        Assert-Equal '$VMName' (Get-NamedArgumentText -CommandAst $builds[0] -ParameterName 'VMName') 'with the exact VM name'
+        Assert-True ($builds[0].Extent.Text -match '-AllowPseudoLocale:\$AllowPseudoLocale') 'pseudo locale forwarding must remain explicitly opt-in'
+        $newVmOffset = Get-FirstCallOffset -Ast $ast -Name 'Invoke-YurunaServiceVmBuild'
         Assert-True ($storageGate -lt $newVmOffset) 'the storage gate runs before the VM is built'
         Assert-True ($statusEnsure -lt $newVmOffset) 'the status service is up before the guest first boots'
-        Assert-True ((Get-FirstCallOffset -Ast $ast -Name 'Wait-VMRunning') -gt $newVmOffset) 'the running gate follows the build'
+        Assert-True ((Get-FirstCallOffset -Ast $ast -Name 'Wait-VMIp') -gt $newVmOffset) 'the address wait follows the build'
     }
 }
 
 Describe 'Stop-DownloadAgentServiceVM.ps1 retracts the claim before it destroys the VM' {
     It 'removes the marker and republishes the registration ahead of every teardown call' {
-        $ast = Get-ScriptAst $script:stopAgent
-        $markerRemoval = Get-FirstCallOffset -Ast $ast -Name 'Remove-DownloadAgentServiceMarker'
+        # The teardown order lives in the shared stop script; the download-agent wrapper only names the service.
+        $ast = Get-ScriptAst (Join-Path (Split-Path -Parent $script:stopAgent) 'Stop-ExtensionService.ps1')
+        $markerRemoval = Get-FirstCallOffset -Ast $ast -Name 'Remove-ExtensionServiceMarker'
         Assert-True ($markerRemoval -ge 0) 'the marker is removed through the module helper'
         $registration = Get-FirstCallOffset -Ast $ast -Name 'Write-HostRegistrationRecord'
         Assert-True ($registration -ge 0) 'the registration record is refreshed so the removal reaches the aggregator'

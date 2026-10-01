@@ -45,16 +45,7 @@ func (s *Server) auditUnlock(ip, outcome, detail string) {
 // token prompt, say that only automation can mutate, or explain that nothing is
 // configured at all.
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
-	sess := s.gate.Session(r)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":            sess.OK,
-		"labToken":      sess.LabToken,
-		"bearer":        sess.Bearer,
-		"authed":        sess.Authed,
-		"configured":    sess.Configured,
-		"mutationsOpen": sess.MutationsOpen,
-		"version":       s.opts.Version,
-	})
+	s.gate.HandleSession(w, r, s.opts.Version)
 }
 
 // handleLogin exchanges the dashboard's lab token for a session cookie.

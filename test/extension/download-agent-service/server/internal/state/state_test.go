@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -151,5 +152,45 @@ func TestBeatTracksPoolAvailability(t *testing.T) {
 	s.Beat(time.Now(), true)
 	if h := s.Health(); !h.PoolAvailable {
 		t.Fatal("a recovered pool must be reflected in the heartbeat")
+	}
+}
+
+func TestIndependentStoresPublishCompleteStatusSnapshots(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the service runs on Linux; Windows rejects concurrent renames onto one target with access denied")
+	}
+	dir := t.TempDir()
+	stores := make([]*Store, 8)
+	for i := range stores {
+		stores[i] = New(dir, time.Now())
+	}
+	errs := make(chan error, len(stores))
+	for _, s := range stores {
+		go func(s *Store) {
+			for i := 0; i < 100; i++ {
+				if err := s.writeStatus(Status{Actions: i, Healthy: true}); err != nil {
+					errs <- err
+					return
+				}
+			}
+			errs <- nil
+		}(s)
+	}
+	for range stores {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status Status
+	if err := json.Unmarshal(b, &status); err != nil {
+		t.Fatalf("partial status: %v", err)
+	}
+	names, err := filepath.Glob(filepath.Join(dir, ".status.json.tmp-*"))
+	if err != nil || len(names) != 0 {
+		t.Fatalf("temporary files left behind: %v %v", names, err)
 	}
 }

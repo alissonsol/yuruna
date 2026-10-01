@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f3b7c1-6e04-4a95-b1d8-27a5c9603ef4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -108,6 +108,7 @@ Describe 'the host culture decides nothing a reader sees' {
         $sources = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'globalization/catalogs/en-US') -Filter '*.json' -File)
         Assert-True ($locales.Count -gt 0 -and $sources.Count -gt 0) 'production catalog discovery was empty'
         $rows = 0
+        $renderCases = [Collections.Generic.List[hashtable]]::new()
         foreach ($sourceFile in $sources) {
             $source = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sourceFile.FullName)) -AsHashtable
             foreach ($locale in $locales) {
@@ -146,19 +147,28 @@ Describe 'the host culture decides nothing a reader sees' {
                             $variants.Add($argsForSelect)
                         }
                     }
-                    foreach ($values in $variants) {
-                        $baseline = $null
-                        foreach ($culture in $script:Cultures) {
-                            $rendered = Invoke-UnderCulture -Culture $culture -Script {
-                                Format-CatalogMessage -Key $key -Arguments $values -Locale $locale
-                            }
-                            Assert-True ($rendered -cne $key -and $rendered.Length -gt 0) "$locale/$key has no rendered value"
-                            if ($null -eq $baseline) { $baseline = $rendered }
-                            else { Assert-StringEqual $baseline $rendered "$culture altered $locale/$key" }
-                            $rows++
-                        }
-                    }
+                    foreach ($values in $variants) { $renderCases.Add(@{ Key = $key; Arguments = $values; Locale = $locale }) }
                 }
+            }
+        }
+        $baseline = [Collections.Generic.List[string]]::new()
+        foreach ($culture in $script:Cultures) {
+            $index = 0
+            $priorCulture = [Threading.Thread]::CurrentThread.CurrentCulture
+            $priorUi = [Threading.Thread]::CurrentThread.CurrentUICulture
+            try {
+                [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo($culture)
+                [Threading.Thread]::CurrentThread.CurrentUICulture = [Globalization.CultureInfo]::GetCultureInfo($culture)
+                foreach ($case in $renderCases) {
+                    $rendered = Format-CatalogMessage -Key $case.Key -Arguments $case.Arguments -Locale $case.Locale
+                    if ($rendered -ceq $case.Key -or $rendered.Length -eq 0) { throw "$($case.Locale)/$($case.Key) has no rendered value" }
+                    if ($baseline.Count -le $index) { $baseline.Add($rendered) }
+                    elseif (-not [string]::Equals($baseline[$index], $rendered, [StringComparison]::Ordinal)) { throw "$culture altered $($case.Locale)/$($case.Key)" }
+                    $index++; $rows++
+                }
+            } finally {
+                [Threading.Thread]::CurrentThread.CurrentCulture = $priorCulture
+                [Threading.Thread]::CurrentThread.CurrentUICulture = $priorUi
             }
         }
         Assert-True ($rows -gt 0) 'no enabled production locale/culture/message rows ran'
@@ -198,17 +208,21 @@ Describe 'the host culture decides nothing a reader sees' {
             $got = Invoke-UnderCulture -Culture $culture -Script {
                 [ordered]@{
                     canonical = ConvertTo-CanonicalLocaleTag -Tag 'pt_br'
+                    finnish = ConvertTo-CanonicalLocaleTag -Tag 'FI_fi'
+                    italian = ConvertTo-CanonicalLocaleTag -Tag 'it-IT'
+                    filipino = ConvertTo-CanonicalLocaleTag -Tag 'FIL'
                     resolved  = Resolve-SupportedLocale -Tag 'PT-BR' -Manifest $script:Manifest
                     header    = Select-LocaleFromHeader -Header 'de-DE;q=0.9, pt-BR;q=1.0' -Manifest $script:Manifest
                     refused   = Select-LocaleFromHeader -Header 'pt-BR;q=0, en-US;q=0.5' -Manifest $script:Manifest
                     script    = ConvertTo-CanonicalLocaleTag -Tag 'ZH-HANS-cn'
                 }
             }
-            if ($got.canonical -ne 'pt-BR') { $findings += "$culture canonicalized pt_br as '$($got.canonical)'" }
-            if ($got.resolved -ne 'pt-BR') { $findings += "$culture resolved PT-BR as '$($got.resolved)'" }
-            if ($got.header -ne 'pt-BR') { $findings += "$culture read the header as '$($got.header)'" }
-            if ($got.refused -ne 'en-US') { $findings += "$culture honored a q=0 refusal as '$($got.refused)'" }
-            if ($got.script -ne 'zh-Hans-CN') { $findings += "$culture title-cased the script subtag as '$($got.script)'" }
+            if ($got.finnish -cne 'fi-FI' -or $got.italian -cne 'it-IT' -or $got.filipino -cne 'fil') { $findings += "$culture changed tags containing i/I" }
+            if ($got.canonical -cne 'pt-BR') { $findings += "$culture canonicalized pt_br as '$($got.canonical)'" }
+            if ($got.resolved -cne 'pt-BR') { $findings += "$culture resolved PT-BR as '$($got.resolved)'" }
+            if ($got.header -cne 'pt-BR') { $findings += "$culture read the header as '$($got.header)'" }
+            if ($got.refused -cne 'en-US') { $findings += "$culture honored a q=0 refusal as '$($got.refused)'" }
+            if ($got.script -cne 'zh-Hans-CN') { $findings += "$culture title-cased the script subtag as '$($got.script)'" }
         }
         Assert-NoFinding $findings 'the host culture changed which language a reader would be served'
     }

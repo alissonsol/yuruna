@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b2a26c-2f83-45a5-9ea1-2968fe3e40d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,7 +72,11 @@ namespace Yuruna.Test {
             chain.CustomTrustStore.Add(ca);
             var options = new SslClientAuthenticationOptions { TargetHost = "yuruna-host-config",
                 EnabledSslProtocols = SslProtocols.Tls12, CertificateChainPolicy = chain };
-            using var client = String.IsNullOrEmpty(certPath) ? null : X509Certificate2.CreateFromPemFile(certPath, keyPath);
+            using var pem = String.IsNullOrEmpty(certPath) ? null : X509Certificate2.CreateFromPemFile(certPath, keyPath);
+            // Schannel cannot authenticate with the ephemeral key a PEM load yields; a PKCS#12 round trip persists it.
+#pragma warning disable SYSLIB0057
+            using var client = pem == null ? null : new X509Certificate2(pem.Export(X509ContentType.Pfx));
+#pragma warning restore SYSLIB0057
             if (client != null) options.ClientCertificates = new X509CertificateCollection { client };
             if (!tls.AuthenticateAsClientAsync(options).Wait(5000)) throw new TimeoutException("TLS handshake");
             var request = Encoding.ASCII.GetBytes("GET /healthz HTTP/1.1\r\nHost: yuruna-host-config\r\nConnection: close\r\n\r\n");

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 426b2ade-32fc-41ee-bab9-d00d395635bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,9 +77,11 @@ function Invoke-DiagnosticWorker {
     $workDir = if ($WorkDirectory) { $WorkDirectory } else { $Scratch.WorkDirectory }
     $script = if ($DiagnosticScriptPath) { $DiagnosticScriptPath } else { $Scratch.Diagnostic }
     $saved = @{}
-    foreach ($name in @('HOME', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    foreach ($name in @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
     try {
+        # Windows derives the home directory from USERPROFILE, not HOME.
         $env:HOME = $Scratch.Home
+        $env:USERPROFILE = $Scratch.Home
         $env:YURUNA_RUNTIME_DIR = $Scratch.Runtime
         $env:YURUNA_LOG_DIR = $Scratch.Log
         $output = & $script:Pwsh -NoProfile -NonInteractive -File $script:Worker -RunId $RunId -DiagnosticScriptPath $script `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42876abe-db94-7e68-a8e3-79694be0d37c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -500,7 +500,7 @@
         }
     )
     'exceptions.host_dd6d74db4a58cc9d' = @(
-        'Fido.ps1哈希值不匹配（固定版本v1.70）：预期为'
+        'Fido.ps1哈希值不匹配（固定版本v1.71）：预期为'
         @{
             'arg' = 'fidoSha256'
             'type' = 'detail'

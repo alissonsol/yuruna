@@ -5,13 +5,13 @@ package httpsrv
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
+	"yuruna.com/test/extension/extension-sdk/jsonbody"
 
 	"download-agent-service/internal/config"
 	"download-agent-service/internal/imagestore"
@@ -86,9 +86,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // decodeOptional accepts an absent or empty body, which is how a client that
 // holds nothing locally sends ensure.
 func (s *Server) decodeOptional(w http.ResponseWriter, r *http.Request, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, config.MaxRequestBytes)
-	err := json.NewDecoder(r.Body).Decode(dst)
-	if err == nil || errors.Is(err, io.EOF) {
+	err := jsonbody.Decode(r.Body, dst, config.MaxRequestBytes, true)
+	if err == nil {
 		return true
 	}
 	s.writeLocalizedError(w, r, http.StatusBadRequest, "download.api_invalid_json_body_detail", "", map[string]any{"detail": err.Error()})
@@ -187,9 +186,18 @@ func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	images, totals := s.images.Catalog(now)
+	var agentStatus any
+	if snapshot, ok := s.images.(interface {
+		StatusWithTotals(time.Time, imagestore.Totals) imagestore.Status
+	}); ok {
+		agentStatus = snapshot.StatusWithTotals(now, totals)
+	} else {
+		agentStatus = s.images.Status(now)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
 		"poolAvailable": s.images.PoolAvailable(),
+		"agent":         agentStatus,
 		"images":        images,
 		"totals":        totals,
 		"asOfUtc":       now.UTC().Format(time.RFC3339),

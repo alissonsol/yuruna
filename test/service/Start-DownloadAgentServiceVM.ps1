@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,6 +83,7 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
 $repoRoot   = $paths.RepoRoot
 $ModulesDir = $paths.ModulesDir
+Import-Module (Join-Path $ModulesDir 'Test.ServiceVm.psm1') -Global -DisableNameChecking -Verbose:$false
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumeric, dot, hyphen, and underscore are allowed."
@@ -236,49 +237,14 @@ if (-not (Assert-GuestFrameworkSource -RepoRoot $repoRoot -StatusDecision $statu
 # --- REGION: Create the VM
 # Each New-VM runs Get-Image auto-fetch when the base image is missing, tears
 # down any prior VM, creates the new one, and (Hyper-V + KVM) starts it. UTM only
-# builds the bundle -- register + start below.
+# builds the bundle; Invoke-YurunaServiceVmBuild registers and starts it.
 if (-not $PSCmdlet.ShouldProcess($VMName, "Build and start the download-agent service VM on $HostType")) {
     Write-Verbose "Skipped: '$VMName' would be rebuilt on $HostType (nothing was changed)."
     exit $ExitOk
 }
 Write-Information "== Bringing up '$VMName' on $HostType ==" -InformationAction Continue
-$newVmArgs = @('-NoProfile', '-File', $newVm, '-VMName', $VMName)
-if ($AllowPseudoLocale) { $newVmArgs += '-AllowPseudoLocale' }
-# A stop published while this start was preparing wins: nothing is built
-# for a request that no longer stands (the finally reports the newer one).
-if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit $ExitFailure }
-& pwsh @newVmArgs
-$rc = $LASTEXITCODE
-if ($rc -ne 0) {
-    Write-Error "$newVm exited $rc -- aborting."
-    exit $rc
-}
-
-# --- REGION: Register and start the UTM VM
-# See https://yuruna.link/42e220c4-0008
-if ($HostType -eq 'host.macos.utm') {
-    $UtmDir = "$HOME/yuruna/guest.nosync/$VMName.utm"
-    if (-not (Test-Path $UtmDir)) {
-        Write-Error "UTM bundle missing at $UtmDir after New-VM."
-        exit $ExitFailure
-    }
-    Write-Verbose "Starting '$VMName'..."
-    $startResult = Start-VM -VMName $VMName -Confirm:$false
-    if (-not $startResult.success) {
-        Write-Error "Could not start '$VMName': $($startResult.errorMessage)"
-        exit $ExitFailure
-    }
-}
-
-# --- REGION: Verify the VM state
-# See https://yuruna.link/42e220c4-0008
-if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
-    $observed = try { Get-VMState -VMName $VMName } catch { 'unknown' }
-    Write-Error "VM '$VMName' did not reach 'running' (state: $observed); the download-agent service was NOT started. Nothing in the guest -- cloud-init, the go build, the pool share mount -- has run yet. Open the VM in the hypervisor UI and start it by hand to see why."
-    exit $ExitFailure
-}
-# The start request is confirmed once the rebuilt VM is positively running;
-# the daemon's readiness is reported on its own below and is census evidence.
+$build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
+if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
 $serviceOpResult = 'confirmed'
 
 Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
@@ -395,49 +361,18 @@ $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
 # the one place where the alternative is calling a healthy daemon failed.
 $recoveredIp = ''
 if ($verdict.IsFailure) {
-    $recoveredIp = Resolve-GuestDiagnosticAddress -VMName $VMName
-    if ($recoveredIp -and $recoveredIp -ne [string]$vmIp) {
-        Write-Warning "Located '$VMName' at $recoveredIp -- an address the readiness wait never probed. Re-checking :80 there before failing the bring-up."
-        # Bounded by the wall clock rather than an iteration count: the bound
-        # that matters to the operator is a duration, and each probe's own
-        # timeout stretches under load -- so a counted loop silently becomes an
-        # unbounded one exactly when the host is busiest.
-        $readyDeadline = (Get-Date).AddSeconds($recoveryProbeSeconds)
-        while (-not $daemonReady -and (Get-Date) -lt $readyDeadline) {
-            if (Test-DownloadAgentServicePort -Address $recoveredIp -Port 80) {
-                $daemonReady = $true
-            } else {
-                Start-Sleep -Seconds 3
+    $recovery = Confirm-ServiceVmAtRecoveredAddress -VMName $VMName -Port 80 -KnownAddress ([string]$vmIp) -TimeoutSeconds $recoveryProbeSeconds
+    $recoveredIp = [string]$recovery.Address
+    Write-Verbose "  $($recovery.Summary)."
+    if ($recovery.Ready) {
+        $vmIp = $recoveredIp
+        $endpoint = New-ServiceVmRecoveredEndpoint -Endpoint $endpoint -Address $recoveredIp -WaitedSeconds $ipWaitSeconds
+        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
+        if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
+            if (Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false) {
+                $hostAddress = [string](Get-BestHostIp)
+                Write-Verbose "  Re-pointed host :8082 -> ${recoveredIp}:80."
             }
-        }
-        if ($daemonReady) {
-            Write-Verbose "  The daemon IS serving at ${recoveredIp}:80 -- the wait was probing an address this guest never had."
-            $vmIp = $recoveredIp
-            # Re-decided through the same helper rather than set by hand: two
-            # ways of producing a verdict are two verdicts that can disagree
-            # with each other.
-            $endpoint = [pscustomobject]@{
-                Ready         = $true
-                Unreachable   = $false
-                StillBuilding = $false
-                Address       = $recoveredIp
-                WaitedSeconds = $(if ($endpoint) { $endpoint.WaitedSeconds } else { $ipWaitSeconds })
-                # --- REGION: https://yuruna.link/42e220c4-0008
-                ObservedState = 'located by the last-resort guest discovery once the readiness wait had no address for it, then confirmed serving on :80'
-            }
-            $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
-            # The forwarder has to follow, or peers keep dialing an address that
-            # accepts on this host and then cannot connect -- which hangs every
-            # caller for a full timeout instead of failing fast, strictly worse
-            # than no forwarder at all.
-            if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-                if (Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false) {
-                    $hostAddress = [string](Get-BestHostIp)
-                    Write-Verbose "  Re-pointed host :8082 -> ${recoveredIp}:80."
-                }
-            }
-        } else {
-            Write-Warning "${recoveredIp}:80 did not answer within ${recoveryProbeSeconds}s either, so the guest was found but its daemon is not serving."
         }
     }
 }
@@ -575,63 +510,7 @@ Write-Warning "download-agent-service daemon $failureDetail -- $($verdict.Summar
 $diagIp = if ($vmIp) { [string]$vmIp } else { [string]$recoveredIp }
 if (-not $diagIp) { Write-Information "  '$VMName' could not be located by any discovery route this host has." -InformationAction Continue }
 
-# The console frame answers what SSH cannot reach to answer. A guest that
-# stopped at a failed cifs mount, or sits at a login prompt with cloud-init
-# dead, shows exactly that on screen while every host-side probe can only report
-# silence.
-try {
-    $logDir = Initialize-YurunaLogDir
-    if ($logDir -and (Get-Command Get-VMScreenshot -ErrorAction SilentlyContinue)) {
-        $consolePng = Join-Path $logDir "download-agent-service-console_${VMName}.png"
-        $captured = Get-VMScreenshot -VMName $VMName -OutFile $consolePng
-        # Get-VMScreenshot can report truthy without writing the file, so the
-        # path is advertised only once it is on disk.
-        if ($captured -and (Test-Path -LiteralPath $consolePng)) {
-            Write-Verbose "  Guest console captured: $consolePng"
-        } else {
-            Write-Information "  Guest console could not be captured (the hypervisor returned no frame)." -InformationAction Continue
-        }
-    }
-} catch { Write-Verbose "download-agent-service console capture: $($_.Exception.Message)" }
-
-$diagCmd = @(
-    # First, because it is the fact that settles the most common confusion here:
-    # when the guest's own address differs from the one this host probed, the
-    # daemon was never the problem. Printing both side by side names that
-    # immediately instead of leaving it to be inferred from a service journal.
-    "echo `"=== guest addresses (this host probed: $(if ($diagIp) { $diagIp } else { '<none resolved>' })) ===`"; ip -4 -o addr show scope global 2>&1 | awk '{print `$2, `$4}'",
-    'echo "=== cloud-init status ==="; cloud-init status --long 2>&1 | head -n 20',
-    'echo "=== systemctl status download-agent-service.service ==="; systemctl --no-pager --full status download-agent-service.service 2>&1 | head -n 25',
-    'echo "=== journalctl -u download-agent-service.service (last 40) ==="; sudo journalctl -u download-agent-service.service --no-pager -n 40 2>&1',
-    'echo "=== listening on :80? ==="; ss -ltn 2>/dev/null | grep -E ":80\b" || echo "(nothing listening on :80)"',
-    'echo "=== pool mount ==="; findmnt /mnt/yuruna-pool 2>&1 || echo "(/mnt/yuruna-pool is not mounted)"',
-    'echo "=== /var/log/cloud-init-output.log (tail 120) ==="; sudo tail -n 120 /var/log/cloud-init-output.log 2>&1'
-) -join "`n"
-$diag = $null
-# --- REGION: https://yuruna.link/42e220c4-0008
-$sshTarget = if ($diagIp) { $diagIp } else { $VMName }
-if (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue) {
-    try { $diag = Invoke-GuestSsh -VMName $sshTarget -GuestKey 'guest.download-agent-service' -User 'download-agent-service-admin' -Command $diagCmd -TimeoutSeconds 120 }
-    catch { Write-Verbose "guest diagnostics ssh: $($_.Exception.Message)" }
-}
-Write-Verbose ""
-Write-Information "================= download-agent-service guest diagnostics =================" -InformationAction Continue
-if ($diag -and -not [string]::IsNullOrWhiteSpace([string]$diag.output)) {
-    foreach ($line in ([string]$diag.output -split "`r?`n")) { Write-Information "  $line" -InformationAction Continue }
-    if (-not $diag.success) {
-        Write-Verbose "  (ssh ended with exit=$($diag.exitCode); the capture above is what completed before it did)"
-    }
-} else {
-    Write-Information "  Could not reach the VM over SSH (sshd may still be starting, or networking is broken)." -InformationAction Continue
-    # Never an ssh line with a hole where the host should be: an address this
-    # host never learned makes the command unrunnable AND hides the fact that is
-    # actually blocking the reader.
-    foreach ($hintLine in ((Format-GuestSshDiagnosticHint -User 'download-agent-service-admin' -Address $diagIp -VMName $VMName `
-                -Command 'sudo tail -n 120 /var/log/cloud-init-output.log') -split "`r?`n")) {
-        Write-Verbose "  $hintLine"
-    }
-}
-Write-Verbose "========"
+Invoke-YurunaServiceVmFailureDiagnostic -ServiceName 'download-agent-service' -GuestKey 'guest.download-agent-service' -User 'download-agent-service-admin' -VMName $VMName -Address $diagIp
 Write-Verbose ""
 Write-Information "The download-agent-service daemon did not come up on :80. Reading the capture above:" -InformationAction Continue
 Write-Information "  * cloud-init status 'running'  -> the in-guest build (golang) is still going; wait, then" -InformationAction Continue

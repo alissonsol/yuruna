@@ -1140,6 +1140,11 @@ func FileURL(id ImageID, generation string) string {
 // Status snapshots the agent for the status route and the UI header.
 func (a *Agent) Status(now time.Time) Status {
 	_, totals := a.Catalog(now)
+	return a.StatusWithTotals(now, totals)
+}
+
+// StatusWithTotals reuses the current catalog snapshot rather than walking storage again.
+func (a *Agent) StatusWithTotals(now time.Time, totals Totals) Status {
 	a.mu.Lock()
 	st := Status{
 		PoolDir:             a.opts.PoolDir,

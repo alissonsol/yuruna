@@ -35,7 +35,7 @@ const DataptBRcache = `{
   ],
   "cache.no": "não",
   "cache.no_upstream": "sem montante",
-  "cache.no_upstream_explanation": "Esta 'cache' está no modo não- upstream. O objeto abaixo não é armazenado localmente, e esta 'cache' não irá obtê- lo.",
+  "cache.no_upstream_explanation": "Esta 'cache' está no modo não-upstream. O objeto abaixo não é armazenado localmente, e esta 'cache' não irá obtê-lo.",
   "cache.no_upstream_instruction": [
     "Para deixá-lo passar, execute ",
     {
@@ -51,16 +51,16 @@ const DataptBRcache = `{
   "cache.offline_mode": "modo offline",
   "cache.ok": "Está bem.",
   "cache.on": "ligado",
-  "cache.pause_auto_refresh": "Pausar a actualização automática",
-  "cache.pool_control_service": "Serviço de controlo de piscinas",
+  "cache.pause_auto_refresh": "Pausar a atualização automática",
+  "cache.pool_control_service": "Serviço de controlo de grupos",
   "cache.prewarm_held": "pré-aquecimento",
-  "cache.prewarm_last_run": "pré- aquecimento última execução",
+  "cache.prewarm_last_run": "pré-aquecimento última execução",
   "cache.reachable": "acessível",
   "cache.read_from": "ler de",
   "cache.read_only_json": "Só para leitura.",
   "cache.refresh_failed": "(refresh falhou)",
-  "cache.refresh_failed_the_values_below_are_from_the_last_successful_read": "A atualização falhou. Os valores abaixo são da última leitura bem- sucedida.",
-  "cache.registry": "Registo",
+  "cache.refresh_failed_the_values_below_are_from_the_last_successful_read": "A atualização falhou. Os valores abaixo são da última leitura bem-sucedida.",
+  "cache.registry": "Registro",
   "cache.registry_http": [
     "catálogo de registro: HTTP ",
     {

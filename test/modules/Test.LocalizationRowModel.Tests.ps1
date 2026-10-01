@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4248723f-4da9-4aa4-932f-35e16aecf9b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -161,13 +161,13 @@ function New-RowModelFixture {
     param(
         [Parameter(Mandatory)][string]$Base,
         [System.Collections.IDictionary]$Catalog = (Get-FixtureCatalog),
-        [string]$RunnerYaml = "testSets:`n  - name: smoke`n    displayName: Quick smoke test`n"
+        [string]$SequenceYaml = "sequenceGuid: 422ff119-a25d-4ba6-9877-9e1885fef859`nsteps:`n  - name: smoke`n    displayName: Quick smoke test`n"
     )
 
     $root = Join-Path $Base 'framework'
     $project = Join-Path $Base 'project'
     $globalization = Join-Path $root 'globalization'
-    foreach ($relative in @('tools/Invoke-CatalogCompile.ps1', 'globalization/schema/catalog.schema.json')) {
+    foreach ($relative in @('tools/Invoke-CatalogCompile.ps1', 'globalization/schema/catalog.schema.json', 'test/modules/Test.LocalizationExchange.psm1', 'test/modules/Test.CanonicalJson.psm1')) {
         $target = Join-Path $root $relative
         [void][IO.Directory]::CreateDirectory((Split-Path -Parent $target))
         [IO.File]::Copy((Join-Path $script:RepoRoot $relative), $target)
@@ -225,11 +225,11 @@ function New-RowModelFixture {
     Write-FixtureJson -Path (Join-Path $project 'globalization/project-locale-source-hashes.json') -Value ([ordered]@{
             schema = 'yuruna.project-locale-source-hashes/v1'
             hashAlgorithm = 'sha256-utf8-nfc-scalar-v1'
-            entries = @([ordered]@{ path = 'test/test.runner.yml'; fieldPath = '/testSets/name=smoke/displayName'
+            entries = @([ordered]@{ path = 'test/smoke.yml'; fieldPath = '/steps/name=smoke/displayName'
                     locale = 'xx-XX'; sourceHash = ('e' * 64)
                 })
         })
-    Write-FixtureText -Path (Join-Path $project 'test/test.runner.yml') -Text $RunnerYaml
+    Write-FixtureText -Path (Join-Path $project 'test/smoke.yml') -Text $SequenceYaml
     return @{
         Root = $root
         ProjectRoot = $project
@@ -309,7 +309,7 @@ Describe 'a locale enumerates the rows it has' {
             'message:demo:demo.quoted'
             'message:demo:demo.size'
             'message:panel:panel.title'
-            'project-scalar:test/test.runner.yml:/testSets/name=smoke/displayName'
+            'project-scalar:test/smoke.yml:/steps/name=smoke/displayName'
         )
         (@($rows | ForEach-Object { [string]$_.id }) -join "`n") | Should -BeExactly ($expected -join "`n")
         $scalar = $rows | Where-Object { [string]$_.kind -ceq 'project-scalar' }
@@ -319,9 +319,9 @@ Describe 'a locale enumerates the rows it has' {
     It 'returns an empty array for a locale with no rows at all' {
         # Every source is present and yields nothing for yy-YY: the only
         # source message is a tombstone, the terminology and documents belong
-        # to xx-XX, and the runner file declares no display field.
+        # to xx-XX, and the project file declares no display field.
         $retired = [ordered]@{ demo = [ordered]@{ 'demo.retired' = [ordered]@{ lifecycle = 'tombstone'; description = 'A banner nothing renders.' } } }
-        $fixture = New-RowModelFixture -Base (Join-Path $TestDrive 'no-rows') -Catalog $retired -RunnerYaml "name: plain`n"
+        $fixture = New-RowModelFixture -Base (Join-Path $TestDrive 'no-rows') -Catalog $retired -SequenceYaml "name: plain`n"
 
         $rows = @(Get-LocalizationRow -Root $fixture.Root -ProjectRoot $fixture.ProjectRoot -Locale 'yy-YY')
         $rows.Count | Should -Be 0

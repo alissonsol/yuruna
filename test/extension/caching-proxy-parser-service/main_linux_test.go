@@ -144,3 +144,24 @@ func waitForParsed(t *testing.T, s *stats, want int64, because string) {
 	}
 	t.Fatalf("parsed reached %d, want %d: %s", s.parsed.Load(), want, because)
 }
+
+func TestFollowCopyTruncateDiscardsPartial(t *testing.T) {
+	dir, err := os.MkdirTemp("", "yrn-truncate-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "access.log")
+	writeLines(t, path, goldenLine, goldenLine, goldenLine)
+	r, s := &ring{}, newStats()
+	go follow(path, r, s)
+	waitForParsed(t, s, 3, "backfill")
+	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	_, _ = f.WriteString("stale fragment")
+	_ = f.Close()
+	time.Sleep(3 * pollInterval)
+	writeLines(t, path, lineFor("192.0.2.99"))
+	waitForParsed(t, s, 4, "copytruncate")
+	if r.snapshot()[0].ClientIP != "192.0.2.99" || s.skipped.Load() != 0 {
+		t.Fatal("fragment survived truncation")
+	}
+}

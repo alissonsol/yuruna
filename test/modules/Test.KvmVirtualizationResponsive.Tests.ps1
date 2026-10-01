@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4266a8d2-4adb-4edb-a8b6-0875ae9138c8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,14 @@
 #>
 
 BeforeAll {
+    $script:NativeCommandStubs = @()
+    foreach ($nativeName in @('systemctl', 'virsh')) {
+        if (-not (Get-Command $nativeName -ErrorAction SilentlyContinue)) {
+            Set-Item -LiteralPath "Function:global:$nativeName" -Value { $global:LASTEXITCODE = 1 }
+            $script:NativeCommandStubs += $nativeName
+        }
+    }
+
     # Computed here, inside BeforeAll, not as a top-level discovery-time
     # statement and not read through an It block's -Skip parameter: Pester
     # evaluates -Skip during discovery, before any BeforeAll runs, and a
@@ -107,6 +115,8 @@ BeforeAll {
 }
 
 AfterAll {
+    foreach ($nativeName in $script:NativeCommandStubs) { Remove-Item -LiteralPath "Function:global:$nativeName" -ErrorAction SilentlyContinue }
+
     $env:PATH = $script:OrigPath
     Remove-Item -LiteralPath $script:FakeBinDir -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -153,7 +163,8 @@ Describe 'Test-VirtualizationResponsive -- real libvirtd on this host' {
     }
 }
 
-Describe 'Test-VirtualizationResponsive -- record shape and connection pin' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'Test-VirtualizationResponsive -- record shape and connection pin' -Skip:$IsWindows {
     BeforeEach { $script:OrigPath = $env:PATH }
     AfterEach  { $env:PATH = $script:OrigPath }
 
@@ -212,7 +223,8 @@ Describe 'Test-VirtualizationResponsive -- record shape and connection pin' {
     }
 }
 
-Describe 'Test-VirtualizationResponsive -- classification (fake virsh)' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'Test-VirtualizationResponsive -- classification (fake virsh)' -Skip:$IsWindows {
     BeforeEach { $script:OrigPath = $env:PATH }
     AfterEach  { $env:PATH = $script:OrigPath }
 
@@ -400,7 +412,8 @@ Describe 'Test-VirtualizationResponsive -- classification (fake virsh)' {
     }
 }
 
-Describe 'Get-VMState -- bounded, unknown before absent (fake virsh)' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'Get-VMState -- bounded, unknown before absent (fake virsh)' -Skip:$IsWindows {
     BeforeEach { $script:OrigPath = $env:PATH }
     AfterEach  { $env:PATH = $script:OrigPath }
 
@@ -602,7 +615,7 @@ Describe 'Assert-LinuxHostConditionSet -- diagnosis under socket activation' {
         }
     }
     AfterAll {
-        if ($script:ClockStub) { Remove-Item -Path 'Function:\global:Write-HostClockDriftWarning' -ErrorAction SilentlyContinue }
+        if ($script:ClockStub) { Remove-Item -Path 'Function:\Write-HostClockDriftWarning' -ErrorAction SilentlyContinue }
     }
     BeforeEach {
         $script:ConditionKeys = [System.Collections.Generic.List[string]]::new()

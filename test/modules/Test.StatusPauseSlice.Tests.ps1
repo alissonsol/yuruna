@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b7e04d-95c1-4a2f-8d63-70e1c9a4b528
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,11 +51,8 @@ $script:Runtime = Join-Path $script:RepoRoot 'test/status/yuruna.common.js'
 $script:PseudoAsset = Join-Path $script:RepoRoot 'globalization/generated/browser/qps-Ploc.status.js'
 $script:MirroredAsset = Join-Path $script:RepoRoot 'globalization/generated/browser/qps-Plocm.status.js'
 
-$script:Chrome = $null
-foreach ($n in @('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser')) {
-    $c = Get-Command $n -ErrorAction SilentlyContinue
-    if ($c) { $script:Chrome = $c.Source; break }
-}
+$script:Chrome = Get-YurunaTestBrowser
+
 
 $script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-slice-" + [Guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $script:Sandbox -Force
@@ -108,8 +105,7 @@ $Body
 "@
     $pagePath = Join-Path $script:Sandbox "$Name.html"
     [IO.File]::WriteAllText($pagePath, $page)
-    $dom = & $script:Chrome --headless --disable-gpu --no-sandbox `
-        --virtual-time-budget=5000 --dump-dom "file://$pagePath" 2>$null | Out-String
+    $dom = Get-YurunaTestBrowserDom -Browser $script:Chrome -Path $pagePath
     $m = [regex]::Match($dom, '(?s)<pre id="out">(.*?)</pre>')
     if (-not $m.Success) { return @{} }
     $out = @{}

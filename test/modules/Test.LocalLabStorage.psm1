@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421fc09f-36ed-4d1d-872e-0167bfb4583f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -166,7 +166,7 @@ function Get-LocalLabStorageSharePath {
                 # line rather than by a substring: share points here carry
                 # operator-facing names ("Yuruna Test's Public Folder") that can
                 # contain any other share's name as a fragment.
-                $listed = Invoke-LocalLabStorageNative -FilePath 'sharing' -ArgumentList @('-l') -AllowFailure
+                $listed = Get-LocalLabStorageMacShareListing
                 if (-not $listed -or -not $listed.Output) { return '' }
                 $text = ($listed.Output -join "`n")
                 $rx = [regex]::new('(?m)^\s*name:\s*' + [regex]::Escape($ShareName) + '\s*$\s*^\s*path:\s*(?<path>.+?)\s*$')
@@ -949,11 +949,41 @@ function Set-LocalLabStorageFolderAccess {
     return $true
 }
 
-<#
-.SYNOPSIS
-Publishes the tiers as SMB shares, each scoped to its own account. Returns a hashtable of share name to 'created', 'present', or 'whatif'. Windows and macOS act per share; Ubuntu writes one generated Samba conf for all of them and reloads smbd once.
-#>
+function Install-LocalLabStorageText {
+    <# .SYNOPSIS
+        Installs UTF-8 configuration through one unique temporary file.
+    .PARAMETER Destination
+        The root-owned configuration destination.
+    .PARAMETER Text
+        Exact generated configuration text.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Private helper; callers own the ShouldProcess gate.')]
+    [CmdletBinding()]
+    param([string]$Destination, [string]$Text)
+    $temporary = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-smb-' + [guid]::NewGuid().ToString('n') + '.conf')
+    try {
+        [IO.File]::WriteAllText($temporary, $Text, [Text.UTF8Encoding]::new($false))
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('install', '-m', '0644', '-o', 'root', '-g', 'root', $temporary, $Destination)
+    } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+}
+
+function Get-LocalLabStorageMacShareListing {
+    <# .SYNOPSIS
+        Reads the authoritative macOS share listing under the same privilege.
+    #>
+    [CmdletBinding()]
+    param()
+    return Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-l') -AllowFailure
+}
+
 function New-LocalLabStorageShare {
+    <#
+    .SYNOPSIS
+        Publishes the tiers as SMB shares, each scoped to its own account.
+        Returns a hashtable of share name to 'created', 'present', or 'whatif'.
+        Windows and macOS act per share; Ubuntu writes one generated Samba
+        configuration for all of them and reloads smbd once.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][object[]]$Tier)
@@ -970,25 +1000,13 @@ function New-LocalLabStorageShare {
         # sudo: a here-string piped to `sudo tee` would be at the mercy of shell
         # quoting for every path in the generated config.
         $body = Get-LocalLabStorageSambaConfig -Tier $Tier
-        $tmp  = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna.smb.$PID.$([guid]::NewGuid().ToString('N')).conf")
-        try {
-            [System.IO.File]::WriteAllText($tmp, $body, [System.Text.UTF8Encoding]::new($false))
-            $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('install', '-m', '0644', '-o', 'root', '-g', 'root', $tmp, $includePath)
-        } finally {
-            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
-        }
+        Install-LocalLabStorageText -Destination $includePath -Text $body
 
         $current = ''
         if (Test-Path -LiteralPath $smbConf) { $current = Get-Content -Raw -LiteralPath $smbConf }
         $updated = Add-LocalLabStorageSambaInclude -Content $current -IncludePath $includePath
         if ($null -ne $updated) {
-            $tmp2 = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna.smbconf.$PID.$([guid]::NewGuid().ToString('N')).conf")
-            try {
-                [System.IO.File]::WriteAllText($tmp2, $updated, [System.Text.UTF8Encoding]::new($false))
-                $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('install', '-m', '0644', '-o', 'root', '-g', 'root', $tmp2, $smbConf)
-            } finally {
-                Remove-Item -LiteralPath $tmp2 -Force -ErrorAction SilentlyContinue
-            }
+            Install-LocalLabStorageText -Destination $smbConf -Text $updated
         }
         # A config Samba rejects leaves smbd serving the PREVIOUS definitions, so
         # the shares would appear to be missing with no error anywhere. testparm
@@ -1032,7 +1050,7 @@ function New-LocalLabStorageShare {
         # difference between them -- a stale path, a protocol mask that no longer
         # includes SMB, a guest grant -- is invisible from the name alone. The
         # definition is cheap to rebuild and is the only one that is known good.
-        $listed = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-l') -AllowFailure
+        $listed = Get-LocalLabStorageMacShareListing
         $existed = ($listed.Output -match "(?m)^\s*name:\s*$([regex]::Escape($t.ShareName))\s*$")
         if (-not $PSCmdlet.ShouldProcess($t.ShareName, (Format-YurunaOperatorMessage -Key 'runner.operator_203f3612d7d51d8c' -Arguments @{ create = "$(if ($existed) { 'Replace' } else { 'Create' })"; folderPath = "$($t.FolderPath)" }))) { $result[$t.ShareName] = 'whatif'; continue }
         if ($existed) {
@@ -1282,14 +1300,14 @@ function Remove-LocalLabStorageSambaInclude {
     $comment = '# Yuruna local lab storage shares.'
     $kept    = [System.Collections.Generic.List[string]]::new()
     $dropped = $false
-    foreach ($line in ($body -split '\r?\n')) {
+    $lines = @($body -split '\r?\n')
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
         $normalized = ($line -replace '\s+', ' ').Trim()
         if ($normalized -ieq $wanted) { $dropped = $true; continue }
-        # The comment is only ours when it introduces our include, so it is held
-        # back one line and emitted if the next line turns out to be something
-        # else. An operator who wrote that exact text above their own directive
-        # keeps it.
-        if ($normalized -ieq $comment) { continue }
+        # Only the marker immediately introducing our include belongs to us.
+        if ($normalized -ieq $comment -and $i + 1 -lt $lines.Count -and
+            (($lines[$i + 1] -replace '\s+', ' ').Trim() -ieq $wanted)) { continue }
         [void]$kept.Add($line)
     }
     if (-not $dropped) { return $null }
@@ -1386,13 +1404,7 @@ function Remove-LocalLabStorageShare {
             # Same temp-file-then-install dance as the adder: a here-string piped
             # to `sudo tee` would be at the mercy of shell quoting for every path
             # the operator's own smb.conf carries.
-            $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna.smbconf.$PID.$([guid]::NewGuid().ToString('N')).conf")
-            try {
-                [System.IO.File]::WriteAllText($tmp, $updated, [System.Text.UTF8Encoding]::new($false))
-                $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('install', '-m', '0644', '-o', 'root', '-g', 'root', $tmp, $smbConf)
-            } finally {
-                Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
-            }
+            Install-LocalLabStorageText -Destination $smbConf -Text $updated
         }
         # Reload rather than stop: smbd may serve shares this module never
         # defined, and stopping it would take those down too. An operator who
@@ -1412,7 +1424,7 @@ function Remove-LocalLabStorageShare {
             continue
         }
         # macOS.
-        $listed = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-l') -AllowFailure
+        $listed = Get-LocalLabStorageMacShareListing
         if (-not ($listed.Output -match "(?m)^\s*name:\s*$([regex]::Escape($n))\s*$")) { $result[$n] = 'absent'; continue }
         if (-not $PSCmdlet.ShouldProcess($n, (Format-YurunaOperatorMessage -Key 'runner.operator_c4bfe6c236bd294c'))) { $result[$n] = 'whatif'; continue }
         $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-r', $n) -AllowFailure
@@ -1612,12 +1624,8 @@ function Set-LocalLabStorageConfigValue {
         # A leftover deprecated kill switch is dropped as the document is rewritten,
         # so a host configured here does not keep tripping the config-gate advisory.
         if ($doc['pool'] -is [System.Collections.IDictionary]) { $doc['pool'].Remove('networkReplicate') }
-        $yaml = ConvertTo-Yaml $doc
-        $wrote = $false
-        if (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue) {
-            $wrote = [bool](Write-YurunaStateFile -Path $ConfigPath -Content $yaml -Confirm:$false)
-        }
-        if (-not $wrote) { [System.IO.File]::WriteAllText($ConfigPath, $yaml, [System.Text.UTF8Encoding]::new($false)) }
+        Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1') -Global -DisableNameChecking
+        if (-not (Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $doc -Confirm:$false)) { return $false }
         if (Get-Command Clear-TestConfigCache -ErrorAction SilentlyContinue) { Clear-TestConfigCache }
         return $true
     } catch {

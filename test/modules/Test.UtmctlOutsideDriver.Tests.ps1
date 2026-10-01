@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 429aa498-3e96-4845-88b0-cbeb890aeb90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,7 +136,8 @@ Describe 'No bare utmctl invocation outside the driver' {
     }
 }
 
-Describe 'Remove-OrphanedVMFiles.ps1 -- the bounded registration helpers' {
+# Uses a POSIX utmctl stand-in, which Windows cannot launch.
+Describe 'Remove-OrphanedVMFiles.ps1 -- the bounded registration helpers' -Skip:$IsWindows {
     BeforeAll {
         foreach ($definition in (Import-ScriptFunction -Path $script:OrphanScript -Name 'Invoke-OrphanSweepUtmctl', 'Get-OrphanSweepRegistration')) {
             . ([scriptblock]::Create($definition))
@@ -197,7 +198,8 @@ Describe 'Remove-OrphanedVMFiles.ps1 -- the bounded registration helpers' {
     }
 }
 
-Describe 'Remove-OrphanedVMFiles.ps1 -- the sweep end to end against a stand-in utmctl' {
+# Uses a POSIX utmctl stand-in, which Windows cannot launch.
+Describe 'Remove-OrphanedVMFiles.ps1 -- the sweep end to end against a stand-in utmctl' -Skip:$IsWindows {
     BeforeAll {
         function Invoke-OrphanSweep {
             [CmdletBinding()]
@@ -269,7 +271,8 @@ Describe 'Remove-OrphanedVMFiles.ps1 -- the sweep end to end against a stand-in 
     }
 }
 
-Describe 'Test.Ssh -- the utmctl ip-address fallback is bounded' {
+# Uses a POSIX utmctl stand-in, which Windows cannot launch.
+Describe 'Test.Ssh -- the utmctl ip-address fallback is bounded' -Skip:$IsWindows {
     BeforeAll {
         Import-Module $script:SshModule -Force -Global -DisableNameChecking
         $script:AskUtmctl = { param([string]$VMName, [int]$TimeoutSeconds) & (Get-Module Test.Ssh) { param($n, $t) Get-GuestAddressFromUtmctl -VMName $n -TimeoutSeconds $t } $VMName $TimeoutSeconds }
@@ -316,7 +319,8 @@ Describe 'Test.Ssh -- the utmctl ip-address fallback is bounded' {
     }
 }
 
-Describe 'Get-SystemDiagnostic.ps1 -- utmctl list is bounded' {
+# Uses a POSIX utmctl stand-in, which Windows cannot launch.
+Describe 'Get-SystemDiagnostic.ps1 -- utmctl list is bounded' -Skip:$IsWindows {
     BeforeAll {
         foreach ($definition in (Import-ScriptFunction -Path $script:DiagScript -Name 'Get-DiagnosticUtmctlListing')) {
             . ([scriptblock]::Create($definition))

@@ -355,6 +355,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
       STAMP=$(date -u +%Y%m%dT%H%M%SZ)
       BUCKET="installer-fail/${VMNAME}/${STAMP}"
       URL_BASE="http://${HOST_IP}:${HOST_PORT}/log-upload/${BUCKET}"
+      echo "Yuruna installer failure artifacts: /log/${BUCKET}/" >&2
       put_file() {
           SRC="$1"
           DEST="$2"
@@ -369,7 +370,67 @@ APT_PROXY_BLOCK_PLACEHOLDER
                   echo "yuruna error-commands: wget PUT failed for $SRC -> $DEST" >&2
           fi
       }
-      # Capture route evidence first; the ordinary installer log set can be empty.
+      # A busy chroot mount can lose its holder while network probes or uploads
+      # wait. Capture volatile state first, without unmounting or killing holders.
+      capture_probe() (
+          LABEL="$1"
+          shift
+          printf '\n== %s ==\n' "$LABEL"
+          if ! command -v timeout >/dev/null 2>&1; then
+              echo 'unavailable: timeout missing; probe skipped to keep capture bounded'
+              return
+          fi
+          if ! command -v "$1" >/dev/null 2>&1; then
+              echo "unavailable: $1 not installed"
+              return
+          fi
+          PROBE_OUT=$(mktemp) || { echo 'unavailable: cannot create probe output'; return; }
+          timeout --kill-after=1s 3s "$@" > "$PROBE_OUT" 2>&1
+          PROBE_RC=$?
+          head -c 131072 "$PROBE_OUT"
+          if [ "$(wc -c < "$PROBE_OUT")" -gt 131072 ]; then
+              printf '\n[output truncated at 131072 bytes]\n'
+          fi
+          printf '\n[exit=%s; timeout=3s, kill-after=1s; 124=timeout, 137=SIGKILL]\n' "$PROBE_RC"
+          rm -f "$PROBE_OUT"
+      )
+      MOUNTSNAP=$(mktemp 2>/dev/null || echo /tmp/yuruna-mountsnap.txt)
+      {
+          echo '== captured (UTC) =='; date -u
+          capture_probe 'installer mountinfo (mount IDs and propagation)' cat /proc/self/mountinfo
+          capture_probe 'process references into /target (no arguments or environment)' sh -c '
+              for PROC in /proc/[0-9]*; do
+                  PROC_RECORDED=false
+                  for REF in "$PROC/root" "$PROC/cwd" "$PROC"/fd/*; do
+                      LINK=$(readlink "$REF" 2>/dev/null) || continue
+                      case "$LINK" in
+                          /target|/target/*)
+                              if [ "$PROC_RECORDED" = false ]; then
+                                  printf "pid=%s comm=" "${PROC##*/}"; cat "$PROC/comm" 2>/dev/null
+                                  printf "mount-namespace="; readlink "$PROC/ns/mnt" 2>/dev/null
+                                  grep -E " /(target|run)(/[^ ]*)? " "$PROC/mountinfo" 2>/dev/null
+                                  PROC_RECORDED=true
+                              fi
+                              printf "pid=%s reference=%s path=%s\n" "${PROC##*/}" "${REF#"$PROC"/}" "$LINK"
+                              case "$REF" in
+                                  */fd/*) sed -n "/^mnt_id:/p" "$PROC/fdinfo/${REF##*/}" 2>/dev/null ;;
+                              esac
+                              ;;
+                      esac
+                  done
+              done
+          '
+          capture_probe 'process tree identifiers and wait channels (no command arguments)' \
+              ps -e -o pid,ppid,stat,etimes,wchan:32,comm
+          capture_probe 'target mount tree' findmnt --submounts --target /target \
+              --output TARGET,SOURCE,FSTYPE,OPTIONS,PROPAGATION
+          capture_probe 'mount namespaces' lsns --type mnt --output NS,NPROCS,PID,USER
+          # fuser/lsof can include other bind mounts of the same filesystem;
+          # correlate these candidates with mount IDs and /proc references.
+          capture_probe 'filesystem users of /target/run (requires a mountpoint)' fuser -vmM /target/run
+          capture_probe 'open files on the /target/run filesystem' lsof -nP +f -- /target/run
+      } > "$MOUNTSNAP" 2>&1
+      # Capture route evidence before uploads; ordinary installer logs can be empty.
       NETSNAP=$(mktemp 2>/dev/null || echo /tmp/yuruna-netsnap.txt)
       {
           echo "== captured (UTC) =="; date -u
@@ -397,6 +458,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
               -w "livecheck: http=%{http_code} time=%{time_total}s\n" \
               "http://${HOST_IP}:${HOST_PORT}/livecheck" 2>&1 || echo "livecheck: FAILED"
       } > "$NETSNAP" 2>&1
+      put_file "$MOUNTSNAP" "mounts-at-failure.txt"
       put_file "$NETSNAP" "network-at-failure.txt"
       # Preserve curtin's archive when its separately named logs were never written.
       put_file /var/log/installer/curtin-errors.tar curtin-errors.tar

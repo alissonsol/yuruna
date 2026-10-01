@@ -6371,7 +6371,7 @@ const DataenUShost = `{
       "type": "detail",
       "trust": "external"
     },
-    "/  (Assign / Pools / Test sets)"
+    "/  (Board / Hosts / Pools)"
   ],
   "host.operator_bba21c5cbbc83755": [
     "virt-install --print-xml failed (exit ",

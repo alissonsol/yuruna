@@ -1,7 +1,8 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // Pools CRUD: create (mints poolGuid server-side), drive every member's pause
-// state, add/remove hosts, delete an empty pool.
+// state, set each pool's framework and project URLs, add/remove hosts, delete
+// an empty pool.
 (function () {
   // Header version + host id and the footer bar; its countdown re-reads pool
   // intent rather than reloading, so a half-typed new-pool id is not wiped.
@@ -38,6 +39,21 @@
   // than emptying the page.
   var control = {};
   var goBaseUrl = '';
+
+  // The auto-enrollment target pool, from the same /api/state reply as the
+  // pools. Hosts land there on their own and keep running their own projects,
+  // so that row takes no framework or project URL.
+  var targetPoolId = '';
+
+  // Framework / Project text typed but not yet saved, by poolId, as
+  // { framework, project }. Every read rebuilds the rows -- the countdown's,
+  // the one after an action in another row, the one Y.holdRepaint runs once
+  // focus leaves the table -- and a rebuilt row fills its boxes from here
+  // before the saved values, so typing survives until it is saved.
+  var drafts = {};
+  // Pools whose save is on its way, by poolId. A row rebuilt while the request
+  // is out must not offer the same save a second time.
+  var saving = {};
 
   // renderStatus fills one pool's status cell from whatever member states are
   // in hand. It is called twice per load -- once with the states from the
@@ -104,6 +120,22 @@
     return current === 'unknown' ? '' : (LABEL[current] || current);
   }
 
+  // The pool's framework and project URLs as the intent store holds them, ''
+  // for a pool that carries none, so every comparison below is string to
+  // string.
+  function savedRepositories(p) {
+    var r = p.repositories || {};
+    return { framework: String(r.frameworkUrl || ''), project: String(r.projectUrl || '') };
+  }
+
+  // What the Framework / Project column sorts on: the pair the pool holds NOW,
+  // never text sitting unsaved in its boxes -- the table orders what is true of
+  // the lab, and a half-typed URL is not that yet.
+  function repositoriesValue(p) {
+    var saved = savedRepositories(p);
+    return saved.framework || saved.project ? saved.framework + ' ' + saved.project : '';
+  }
+
   // reportApply says what actually happened per host. A fan-out is partial by
   // nature -- one member never enrolled a lab token while the rest paused -- and
   // a bare "done" would hide exactly the host that needs attention.
@@ -125,13 +157,7 @@
   // screen. Every other read replaces it and says so: this page waits on a CLI
   // for pool intent and then on every member for its state.
   function load(opts) {
-    window.YurunaFirstUsable.hold('primary');
-    var quiet = !!(opts && opts.quiet);
-    var done = quiet ? function () { } : Y.busy(document.getElementById('pool-rows'), window.YurunaI18n.t("pool.loading_pools"));
-    chrome.busy(true);
-    // Runs on the failure path too: an indicator left turning over a read that
-    // already failed claims progress that is not happening.
-    var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
+    var finish = Y.beginPageLoad(chrome, { quiet: !!(opts && opts.quiet), target: document.getElementById('pool-rows'), label: window.YurunaI18n.t("pool.loading_pools") });
     return renderPools().then(finish, finish);
   }
 
@@ -151,6 +177,7 @@
     return Promise.all([Y.api('/api/state'), Y.hostInfo()]).then(function (both) {
       chrome.markLoaded();
       goBaseUrl = both[1].goBaseUrl || '';
+      targetPoolId = (both[0].autoEnrollment && both[0].autoEnrollment.targetPoolId) || '';
       return paintPools(both[0].pools || []);
     }, function (e) {
       Y.notice('error', window.YurunaI18n.t("pool.could_not_load_pools_value1", {value1: (e.message)}));
@@ -162,9 +189,16 @@
     var tbody = document.getElementById('pool-rows');
     if (Y.holdRepaint(tbody, renderPools)) { return Promise.resolve(); }
     tbody.textContent = '';
+    // A draft outlives its row but not its pool: text typed for a pool that is
+    // gone must not reappear in a new pool created under the same id.
+    var present = {};
+    for (var pi = 0; pi < pools.length; pi++) { present[pools[pi].poolId] = true; }
+    for (var stale in drafts) {
+      if (Object.prototype.hasOwnProperty.call(drafts, stale) && !present[stale]) { delete drafts[stale]; }
+    }
     if (pools.length === 0) {
       sorter.set([]);
-      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '7', class: 'muted', text: window.YurunaI18n.t("pool.no_pools_yet") })]));
+      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '8', class: 'muted', text: window.YurunaI18n.t("pool.no_pools_yet") })]));
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/pools.html', 'empty');
       return Promise.resolve();
     }
@@ -187,7 +221,7 @@
     }, function () { }).then(function () {
       for (var j = 0; j < pools.length; j++) {
         var p = pools[j];
-        if (statusCells[p.poolId]) { renderStatus(statusCells[p.poolId], p); }
+        if (statusCells[p.poolId] && !Y.holdRepaint(statusCells[p.poolId], renderPools)) { renderStatus(statusCells[p.poolId], p); }
         if (rowsByPool[p.poolId]) { rowsByPool[p.poolId].values.status = statusValue(p); }
       }
       // The column these states feed is sortable, so the table has to answer
@@ -195,6 +229,183 @@
       sorter.refresh();
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/pools.html', 'data');
     });
+  }
+
+  // The outcome of a row's action, in the row that produced it. Looked up by
+  // pool after the reload, because the reload may have replaced the row the
+  // action started from.
+  function feedbackOnRow(poolId, kind, text) {
+    var rows = document.getElementById('pool-rows').children;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute('data-pool-id') === poolId) { Y.rowFeedback(rows[i], kind, text); }
+    }
+  }
+
+  // sendRepositories writes one pool's pair; both empty clears it, and each
+  // member goes back to its own configured repositories. landed runs the
+  // moment the write succeeds, BEFORE the reload, so the rebuilt row does not
+  // find the draft that was just saved. The reload also comes before the
+  // notice, because the reload clears the notice area.
+  function sendRepositories(p, framework, project, landed) {
+    return Y.mutate('/api/pool/repositories', {
+      method: 'POST',
+      body: { poolId: p.poolId, frameworkUrl: framework, projectUrl: project }
+    }).then(function () {
+      landed();
+      return load({ quiet: true }).then(function () {
+        var text = framework
+          ? window.YurunaI18n.t("pool.repositories_saved", {pool: (p.poolId)})
+          : window.YurunaI18n.t("pool.repositories_cleared", {pool: (p.poolId)});
+        Y.notice('ok', text);
+        feedbackOnRow(p.poolId, 'ok', text);
+      });
+    });
+  }
+
+  function saveFailed(e) {
+    Y.notice('error', window.YurunaI18n.t("pool.save_failed_value1", {value1: (Y.bidiIsolate(e && e.message))}));
+  }
+
+  // The Framework / Project cell: two single-line boxes, the framework URL over
+  // the project URL, plus the control that commits them, which the caller puts
+  // in the Actions column. Returns { cell, action }; action is null when the
+  // row has nothing to commit.
+  function buildRepositoryCell(p) {
+    var saved = savedRepositories(p);
+    var draft = drafts[p.poolId] || null;
+    if (draft && draft.framework.trim() === saved.framework && draft.project.trim() === saved.project) {
+      delete drafts[p.poolId];
+      draft = null;
+    }
+    var shown = draft || saved;
+
+    // No visible label: one would repeat the column header on every row. The
+    // aria-label names the box and its pool for assistive tech, the
+    // placeholder says which box is which while it is empty, and dir="ltr"
+    // keeps a URL reading left to right on a right-to-left page.
+    var frameworkBox = Y.el('input', {
+      type: 'text', class: 'repo-url', dir: 'ltr', 'data-repo': 'framework',
+      spellcheck: 'false', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', inputmode: 'url',
+      placeholder: window.YurunaI18n.t("pool.framework_url"),
+      'aria-label': window.YurunaI18n.t("pool.repositories_framework_label", {pool: (p.poolId)})
+    });
+    var projectBox = Y.el('input', {
+      type: 'text', class: 'repo-url', dir: 'ltr', 'data-repo': 'project',
+      spellcheck: 'false', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', inputmode: 'url',
+      placeholder: window.YurunaI18n.t("pool.project_url"),
+      'aria-label': window.YurunaI18n.t("pool.repositories_project_label", {pool: (p.poolId)})
+    });
+    // Properties, never Y.el attributes: Y.el writes every key with
+    // setAttribute, and a value attribute is only the default a box resets to
+    // while a disabled attribute disables whatever its value says.
+    frameworkBox.value = shown.framework;
+    projectBox.value = shown.project;
+    var cell = Y.el('td', { class: 'repo-cell' }, [frameworkBox, projectBox]);
+
+    if (targetPoolId && p.poolId === targetPoolId) {
+      frameworkBox.disabled = true;
+      projectBox.disabled = true;
+      cell.appendChild(Y.el('div', { class: 'muted', text: window.YurunaI18n.t("pool.diagnostic_auto_enrollment_assignment") }));
+      if (!saved.framework && !saved.project) { return { cell: cell, action: null }; }
+      // A pair on this pool is one the runner already ignores and
+      // Test-PoolIntent reports, so the only change offered is taking it off.
+      // Its members run their own projects either way, so nothing changes for
+      // them and there is nothing to confirm.
+      var clearBtn = Y.el('button', {
+        type: 'button', 'data-action': 'clear-repositories',
+        text: window.YurunaI18n.t("pool.repositories_clear"),
+        'aria-label': window.YurunaI18n.t("pool.repositories_clear_label", {pool: (p.poolId)})
+      });
+      clearBtn.disabled = !!saving[p.poolId];
+      clearBtn.addEventListener('click', function () {
+        saving[p.poolId] = true;
+        clearBtn.disabled = true;
+        sendRepositories(p, '', '', function () {
+          delete saving[p.poolId];
+          frameworkBox.value = '';
+          projectBox.value = '';
+        }).then(null, function (e) {
+          delete saving[p.poolId];
+          clearBtn.disabled = false;
+          saveFailed(e);
+        });
+      });
+      return { cell: cell, action: clearBtn };
+    }
+
+    var saveBtn = Y.el('button', {
+      type: 'button', 'data-action': 'set-repositories',
+      text: window.YurunaI18n.t("pool.repositories_save"),
+      'aria-label': window.YurunaI18n.t("pool.repositories_save_label", {pool: (p.poolId)})
+    });
+    function refreshSave() {
+      saveBtn.disabled = !!saving[p.poolId] || !drafts[p.poolId];
+    }
+    refreshSave();
+
+    // A draft exists exactly while a box differs from what the pool holds;
+    // surrounding spaces are not a difference, because the save trims them.
+    function track() {
+      if (frameworkBox.value.trim() === saved.framework && projectBox.value.trim() === saved.project) {
+        delete drafts[p.poolId];
+      } else {
+        drafts[p.poolId] = { framework: frameworkBox.value, project: projectBox.value };
+      }
+      refreshSave();
+    }
+
+    function commit() {
+      if (saveBtn.disabled) { return; }
+      var framework = frameworkBox.value.trim();
+      var project = projectBox.value.trim();
+      // Half a pair is never sent: the server refuses it, and saying why here
+      // costs the operator no Lab-token prompt and no round trip.
+      if ((framework === '') !== (project === '')) {
+        Y.notice('error', window.YurunaI18n.t("pool.repositories_both_or_neither"));
+        return;
+      }
+      // Every member picks the change up on its next cycle, the same blast
+      // radius as a Pool Status change, so it is named before it is written.
+      var count = (p.members || []).length;
+      if (count > 0) {
+        var question = project
+          ? window.YurunaI18n.t('pool.hosts_switch_project', {count: count, project: Y.bidiIsolate(project)})
+          : window.YurunaI18n.t('pool.hosts_switch_own_projects', {count: count});
+        if (!window.confirm(question)) { return; }
+      }
+      saving[p.poolId] = true;
+      refreshSave();
+      sendRepositories(p, framework, project, function () {
+        delete saving[p.poolId];
+        // Compared with the draft rather than the boxes: text typed while the
+        // request was out is newer than what it carried, and it stays.
+        saved = { framework: framework, project: project };
+        var pending = drafts[p.poolId];
+        if (pending && pending.framework.trim() === framework && pending.project.trim() === project) {
+          delete drafts[p.poolId];
+        }
+        refreshSave();
+      }).then(null, function (e) {
+        delete saving[p.poolId];
+        refreshSave();
+        saveFailed(e);
+      });
+    }
+
+    // Enter in either box saves. No form element carries this: the page's CSP
+    // sets form-action 'none', which blocks every form submission. An Enter
+    // that ends an IME composition belongs to the composition.
+    function onKey(ev) {
+      if (Y.key(ev) !== 'Enter' || ev.isComposing || ev.keyCode === 229) { return; }
+      ev.preventDefault();
+      commit();
+    }
+    frameworkBox.addEventListener('input', track);
+    projectBox.addEventListener('input', track);
+    frameworkBox.addEventListener('keydown', onKey);
+    projectBox.addEventListener('keydown', onKey);
+    saveBtn.addEventListener('click', commit);
+    return { cell: cell, action: saveBtn };
   }
 
   // One row, built in its own call so every control below closes over THIS
@@ -233,8 +444,8 @@
     delBtn.addEventListener('click', function () {
       if (members.length > 0) { Y.notice('error', window.YurunaI18n.t("pool.pool_value1_has_members_remove_them_first", {value1: (p.poolId)})); return; }
       // The empty-members check bounds the blast radius but is not a
-      // confirmation: the pool, its display name and its test-set assignment
-      // still go. Every other destructive control on this service asks, in
+      // confirmation: the pool, its display name and its framework and project
+      // URLs still go. Every other destructive control on this service asks, in
       // these words, and one that does not is the inconsistency users learn
       // to distrust.
       if (!window.confirm(window.YurunaI18n.t("pool.delete_pool_value1_this_cannot_be_undone", {value1: (p.poolId)}))) { return; }
@@ -260,6 +471,8 @@
     var statusTd = Y.el('td', {});
     renderStatus(statusTd, p);
 
+    var repositories = buildRepositoryCell(p);
+
     return {
       statusTd: statusTd,
       row: {
@@ -269,14 +482,16 @@
           Y.el('td', { text: p.displayName || '' }),
           memCell,
           statusTd,
-          Y.el('td', {}, [delBtn])
+          repositories.cell,
+          Y.el('td', {}, repositories.action ? [repositories.action, ' ', delBtn] : [delBtn])
         ]),
         values: {
           pool: p.poolId || '',
           poolGuid: p.poolGuid || '',
           name: p.displayName || '',
           members: members.length,
-          status: statusValue(p)
+          status: statusValue(p),
+          repositories: repositoriesValue(p)
         }
       }
     };

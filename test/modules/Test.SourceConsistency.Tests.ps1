@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,19 @@ BeforeAll {
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
     Import-Module powershell-yaml
+
+    function Resolve-ConsistencyWorkflowPath {
+        param([string]$Path)
+        $text = [IO.File]::ReadAllText($Path)
+        if ($text.Contains('modules/New-UbuntuServerVM.ps1')) { return Join-Path (Split-Path (Split-Path $Path -Parent) -Parent) 'modules/New-UbuntuServerVM.ps1' }
+        if ($text.Contains("'Stop-ExtensionService.ps1'")) { return Join-Path (Split-Path $Path -Parent) 'Stop-ExtensionService.ps1' }
+        return $Path
+    }
+
+    function Get-ConsistencyWorkflowSource {
+        param([string]$Path)
+        return [IO.File]::ReadAllText((Resolve-ConsistencyWorkflowPath $Path))
+    }
 
     function Get-NormalizedSource {
         param([string]$Path)
@@ -86,6 +99,7 @@ BeforeAll {
     }
 
     function Get-ConsistencySourceFile {
+        if (Get-Variable -Name ConsistencySourceFiles -Scope Script -ErrorAction SilentlyContinue) { return $script:ConsistencySourceFiles }
         $roots = @(
             'host', 'guest', 'test', 'tools', 'automation', 'install', 'dev-only' |
                 ForEach-Object { Join-Path $script:RepoRoot $_ }
@@ -100,13 +114,21 @@ BeforeAll {
         }
         $extensions = @('.ps1', '.psm1', '.sh', '.yml', '.yaml', '.user-data',
             '.go', '.js', '.cs', '.py', '.html', '.service', '.cmd')
-        foreach ($root in $roots) {
+        $script:ConsistencySourceFiles = @(foreach ($root in $roots) {
             Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object {
                 $_.Extension -in $extensions -and
                 $_.FullName -notmatch '[\\/]test[\\/]status[\\/]runtime[\\/]' -and
                 $_.FullName -notmatch '[\\/](?:bin|obj|node_modules|globalization)[\\/]'
             }
-        }
+        })
+        return $script:ConsistencySourceFiles
+    }
+
+    function Get-ConsistencySourceText {
+        param([string]$Path)
+        if (-not (Get-Variable -Name ConsistencySourceText -Scope Script -ErrorAction SilentlyContinue)) { $script:ConsistencySourceText = @{} }
+        if (-not $script:ConsistencySourceText.ContainsKey($Path)) { $script:ConsistencySourceText[$Path] = [IO.File]::ReadAllText($Path) }
+        return $script:ConsistencySourceText[$Path]
     }
 
     function Format-SourceMatch {
@@ -184,7 +206,7 @@ Describe 'Ubuntu test-sequence parity' {
         } else {
             $first.workload.Count | Should -Be 2
             $second.workload.Count | Should -Be 4
-            ($first.workload[1] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'sshExec'; command = 'sudo reboot now'; allowFailure = $true } | ConvertTo-Json -Compress)
+            ($first.workload[1] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'sshExec'; command = 'sudo reboot now && while :; do sleep 1; done'; timeoutSeconds = 60; allowFailure = $true } | ConvertTo-Json -Compress)
             ($second.workload[1] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'sshExec'; command = 'sudo poweroff'; allowFailure = $true } | ConvertTo-Json -Compress)
             ($second.workload[2] | ConvertTo-Json -Compress) | Should -BeExactly ($start | ConvertTo-Json -Compress)
             ($second.workload[3] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'sshWaitReady'; timeoutSeconds = 600 } | ConvertTo-Json -Compress)
@@ -234,29 +256,28 @@ Describe 'KVM replacement ordering' {
         param($Guest)
         $path = Join-Path $script:RepoRoot "host/ubuntu.kvm/guest.$Guest/New-VM.ps1"
         $errors = $null
-        $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors)
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Resolve-ConsistencyWorkflowPath $path), [ref]$null, [ref]$errors)
         $errors | Should -BeNullOrEmpty
         $commands = @($ast.FindAll({ param($n)
             $n -is [Management.Automation.Language.CommandAst]
         }, $true))
         $gate = @($commands | Where-Object { $_.GetCommandName() -eq 'Assert-YurunaBaseImage' })[0]
-        $destroy = @($commands | Where-Object { $_.Extent.Text -match '^&?\s*virsh .* destroy ' })[0]
-        $verify = @($commands | Where-Object { $_.Extent.Text -match '^&?\s*virsh .* list --all --name' })[0]
+        $remove = @($commands | Where-Object { $_.GetCommandName() -eq 'Remove-KvmDomainDefinition' })[0]
         $gate | Should -Not -BeNullOrEmpty
-        $destroy | Should -Not -BeNullOrEmpty
-        $verify | Should -Not -BeNullOrEmpty
-        $destroy.Extent.StartOffset | Should -BeGreaterThan $gate.Extent.EndOffset
-        $verify.Extent.StartOffset | Should -BeGreaterThan $destroy.Extent.EndOffset
+        $remove | Should -Not -BeNullOrEmpty
+        $remove.Extent.StartOffset | Should -BeGreaterThan $gate.Extent.EndOffset
         $writes = @($commands | Where-Object {
             $_.GetCommandName() -in @('Copy-Item', 'Set-Content', 'New-CloudInitUserData') -or
             $_.Extent.Text -match '^&?\s*qemu-img (create|convert|resize)\b'
         })
         $writes.Count | Should -BeGreaterThan 0
         foreach ($write in $writes) {
-            $write.Extent.StartOffset | Should -BeGreaterThan $verify.Extent.EndOffset
+            $write.Extent.StartOffset | Should -BeGreaterThan $remove.Extent.EndOffset
         }
-        $text = Get-Content -LiteralPath $path -Raw
-        $text | Should -Match '(?s)\$domainNames = .*?list --all --name.*?if \(\$LASTEXITCODE -ne 0\)\s*\{\s*throw'
+        $driver = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'))
+        $driver | Should -Match "(?s)function Remove-KvmDomainDefinition.*?'destroy'.*?'undefine'.*?'list', '--all', '--name'"
+        $driver | Should -Match '(?s)function Remove-KvmDomainDefinition.*?Test-DriverNativeResultComplete.*?ExitCode -ne 0.*?throw'
+
     }
 }
 
@@ -299,7 +320,7 @@ Describe 'VM seed overlay contracts' {
     It 'never writes a substituted placeholder into a seed comment' {
         $findings = @()
         foreach ($file in Get-ChildItem -LiteralPath $script:SeedRoot -File) {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = Get-ConsistencySourceText -Path $file.FullName
             foreach ($comment in [regex]::Matches($text, '(?m)^[ \t]*#[^\r\n]*$')) {
                 $token = [regex]::Match($comment.Value, '\b[A-Z][A-Z0-9_]*_PLACEHOLDER\b')
                 if (-not $token.Success) { continue }
@@ -319,7 +340,9 @@ Describe 'VM seed overlay contracts' {
             $seed.runcmd | Should -Contain 'systemctl enable qemu-guest-agent.service || true'
             $seed.runcmd | Should -Contain 'systemctl start qemu-guest-agent.service || true'
             $builder = Get-Content (Join-Path $script:RepoRoot "host/ubuntu.kvm/guest.$service/New-VM.ps1") -Raw
-            $builder | Should -Match 'org\.qemu\.guest_agent\.0'
+            $builder | Should -Match 'New-KvmServiceDomain'
+            $driver = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'))
+            $driver | Should -Match 'org\.qemu\.guest_agent\.0'
         }
     }
 
@@ -441,7 +464,7 @@ Describe 'Shared source regions' {
             $expected = $null
             foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service', 'caching-proxy-service') {
                 $path = Join-Path $script:RepoRoot "host/$hostKind/guest.$service/Get-Image.ps1"
-                $text = Get-Content -LiteralPath $path -Raw
+                $text = Get-ConsistencyWorkflowSource -Path $path
                 $text = $text -replace '(?m)^\.GUID .+$', '.GUID ID' -replace '(?m)^\.TAGS.*$', '.TAGS'
                 $text = $text -replace 'host\.operator_[0-9a-f]+', 'host.operator_KEY'
                 foreach ($name in 'stash-service', 'pool-control-service', 'download-agent-service', 'caching-proxy-service') {
@@ -465,7 +488,7 @@ Describe 'Shared source regions' {
                 'caching-proxy-service', 'ubuntu.server.24', 'ubuntu.server.26',
                 'amazon.linux.2023', 'windows.11') {
                 $path = Join-Path $script:RepoRoot "host/$hostKind/guest.$guest/New-VM.ps1"
-                $regions = @([regex]::Matches((Get-Content -LiteralPath $path -Raw),
+                $regions = @([regex]::Matches((Get-ConsistencyWorkflowSource -Path $path),
                         '(?m)^# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
                 $observed = @($regions | Where-Object { $_ -in $phases })
                 ($observed -join '|') | Should -BeExactly ($phases -join '|') -Because "$hostKind/$guest shares the replacement order"
@@ -485,7 +508,7 @@ Describe 'Shared source regions' {
                 'Create and configure the Hyper-V VM', 'Start VM and wait for IP')
             'ubuntu.kvm' = @('libvirt-qemu search ACL on $HOME',
                 'Render user-data / meta-data',
-                'Create and configure the libvirt domain (virt-install)',
+                'Create and configure the libvirt domain',
                 'Wait for VM IP')
             'macos.utm' = @('Stage the cloud-init seed directory',
                 'Create and configure the UTM bundle (config.plist, QEMU backend)',
@@ -496,7 +519,7 @@ Describe 'Shared source regions' {
             $expected = $null
             foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service') {
                 $path = Join-Path $script:RepoRoot "host/$hostKind/guest.$service/New-VM.ps1"
-                $regions = @([regex]::Matches((Get-Content -LiteralPath $path -Raw),
+                $regions = @([regex]::Matches((Get-ConsistencyWorkflowSource -Path $path),
                         '(?m)^# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
                 $observed = @($regions | Where-Object { $_ -in $names })
                 if ($null -eq $expected) { $expected = $observed -join '|' }
@@ -510,7 +533,7 @@ Describe 'Shared source regions' {
         foreach ($verb in 'Start', 'Stop') {
             foreach ($service in 'CachingProxy', 'Stash', 'PoolControl', 'DownloadAgent') {
                 $path = Join-Path $script:RepoRoot "test/service/${verb}-${service}ServiceVM.ps1"
-                $text = Get-Content -LiteralPath $path -Raw
+                $text = Get-ConsistencyWorkflowSource -Path $path
                 $confirm = $text.IndexOf('# --- REGION: Confirm the service operation', [StringComparison]::Ordinal)
                 $runtime = $text.IndexOf('# --- REGION: Initialize service runtime', [StringComparison]::Ordinal)
                 $confirm | Should -BeGreaterOrEqual 0
@@ -524,26 +547,28 @@ Describe 'Shared source regions' {
         # still appear once each, in this order, in every VM-backed service.
         $phases = @('Confirm the service operation', 'Initialize service runtime',
             'Storage preflight', 'Resolve the VM builder', 'Start the host status service',
-            'Verify the framework source', 'Create the VM', 'Register and start the UTM VM',
-            'Verify the VM state', 'Configure Shared NAT forwarding',
+            'Verify the framework source', 'Create the VM', 'Configure Shared NAT forwarding',
             'Probe service readiness', 'Evaluate service readiness')
         foreach ($service in 'Stash', 'PoolControl', 'DownloadAgent') {
             $path = Join-Path $script:RepoRoot "test/service/Start-${service}ServiceVM.ps1"
-            $regions = @([regex]::Matches((Get-Content -LiteralPath $path -Raw),
+            $regions = @([regex]::Matches((Get-ConsistencyWorkflowSource -Path $path),
                     '(?m)^[ \t]*# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
             $observed = @($regions | Where-Object { $_ -in $phases })
             ($observed -join '|') | Should -BeExactly ($phases -join '|') -Because "Start-${service}ServiceVM.ps1 shares the service bring-up order"
+            (Get-ConsistencyWorkflowSource -Path $path) | Should -Match 'Invoke-YurunaServiceVmBuild'
+            $shared = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'test/modules/Test.ServiceVm.psm1'))
+            $shared | Should -Match '(?s)function Invoke-YurunaServiceVmBuild.*?Test-Path.*?Start-VM.*?Wait-VMRunning'
         }
     }
 
     It 'keeps service VM teardown phases in the common order' {
         $phases = @('Confirm the service operation', 'Initialize service runtime',
-            'Record the stop intent', 'Clear the service marker',
+            'Record the stop intent', 'Clear the service marker only after stopping a verified host process',
             'Publish the service withdrawal', 'Stop the VM',
             'Remove the VM and its files', 'Verify the final VM state')
         foreach ($service in 'Stash', 'PoolControl', 'DownloadAgent') {
             $path = Join-Path $script:RepoRoot "test/service/Stop-${service}ServiceVM.ps1"
-            $regions = @([regex]::Matches((Get-Content -LiteralPath $path -Raw),
+            $regions = @([regex]::Matches((Get-ConsistencyWorkflowSource -Path $path),
                     '(?m)^[ \t]*# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
             $observed = @($regions | Where-Object { $_ -in $phases })
             ($observed -join '|') | Should -BeExactly ($phases -join '|') -Because "Stop-${service}ServiceVM.ps1 shares the teardown order"
@@ -557,7 +582,7 @@ Describe 'Shared source regions' {
             'Environment file', 'systemd unit', 'Start the service and wait for readiness')
         foreach ($service in 'download-agent-service', 'pool-control-service', 'stash-service') {
             $path = Join-Path $script:RepoRoot "guest/ubuntu.server.26/ubuntu.server.26.$service.sh"
-            $text = Get-Content -LiteralPath $path -Raw
+            $text = Get-ConsistencyWorkflowSource -Path $path
             $regions = @([regex]::Matches($text, '(?m)^# --- REGION: ([^\r\n]+)') |
                 ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -in $names })
             $regions.Count | Should -Be $names.Count
@@ -583,7 +608,7 @@ Describe 'Shared source regions' {
         $pattern = '(?m)^[ \t]*(?:(?:#|//)[ \t]*---[ \t]+REGION:[^\r\n]*|<!--[ \t]*(?:---[ \t]+)?REGION:[^\r\n]*-->)[ \t]*\r?\n[ \t]*\r?\n'
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile) {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = Get-ConsistencySourceText -Path $file.FullName
             foreach ($match in [regex]::Matches($text, $pattern)) {
                 $findings += Format-SourceMatch -File $file -Text $text -Match $match
             }
@@ -600,7 +625,7 @@ Describe 'Shared source regions' {
                 Where-Object { $_.FullName -match '[\\/]test[\\/]' })
         }
         foreach ($file in $sequenceFiles) {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = Get-ConsistencySourceText -Path $file.FullName
             $markers = [regex]::Matches($text, '(?m)^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)\r?\n(?:(?:[ \t]*# See https://yuruna\.link/[^\r\n]+)\r?\n)*(?<next>[^\r\n]*)')
             foreach ($marker in $markers) {
                 $name = $marker.Groups['name'].Value
@@ -619,7 +644,7 @@ Describe 'Shared source regions' {
     It 'matches YAML REGION names to the same-indent keys they precede' {
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.yml', '.yaml', '.user-data')) {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = Get-ConsistencySourceText -Path $file.FullName
             $markers = [regex]::Matches($text,
                 '(?m)^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)\r?\n(?:(?:\k<indent># See https://yuruna\.link/[^\r\n]+)\r?\n)*\k<indent>(?<key>[A-Za-z0-9_.-]+):')
             foreach ($marker in $markers) {
@@ -638,7 +663,7 @@ Describe 'Shared source regions' {
     It 'matches native HTML REGION names to the elements they precede' {
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -eq '.html') {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = Get-ConsistencySourceText -Path $file.FullName
             $markers = [regex]::Matches($text,
                 '(?m)^[ \t]*<!--[ \t]*REGION:[ \t]*(?<name>[^\r\n]*?)[ \t]*-->\r?\n(?:(?:[ \t]*<!--[ \t]*See https://yuruna\.link/[^\r\n]*-->)[ \t]*\r?\n)*[ \t]*<(?<element>html|script|style|body)\b',
                 [Text.RegularExpressions.RegexOptions]::IgnoreCase)
@@ -659,7 +684,7 @@ Describe 'Shared source regions' {
         $pattern = '(?m)^[ \t]*(?<comment>#|//)[ \t]*---[ \t]+REGION:[ \t]*(?:https://yuruna\.link/[^\r\n]+\r?\n[ \t]*\k<comment>[ \t]*---[ \t]+REGION:[ \t]*(?!https://)|(?!(?:https://))[^\r\n]+\r?\n[ \t]*\k<comment>[ \t]*---[ \t]+REGION:[ \t]*https://yuruna\.link/)'
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile) {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = Get-ConsistencySourceText -Path $file.FullName
             foreach ($match in [regex]::Matches($text, $pattern)) {
                 $findings += Format-SourceMatch -File $file -Text $text -Match $match
             }
@@ -671,7 +696,7 @@ Describe 'Shared source regions' {
         $pattern = '(?m)^[ \t]*(?:(?:#|//)[ \t]*-{8,}[ \t]*|(?:#|//)[ \t]*-{2,}[ \t]+(?!REGION:|See\b)[^\r\n]*?[ \t]-{3,}[ \t]*|(?:#|//)[ \t]*---[ \t]+(?!REGION:|See\b)[A-Z][^\r\n]*|(?:#|//)[ \t]*---[ \t]+See[ \t]+https://yuruna\.link/[^\r\n]*|//[ \t]*={2,}[^\r\n]*={2,}[ \t]*|//[ \t]*[\u2500\u2501\u2550]{2,}[^\r\n]*)$'
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile) {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = Get-ConsistencySourceText -Path $file.FullName
             foreach ($match in [regex]::Matches($text, $pattern)) {
                 $findings += Format-SourceMatch -File $file -Text $text -Match $match
             }
@@ -683,7 +708,7 @@ Describe 'Shared source regions' {
         $pattern = '(?m)^[ \t]*(?:#|//)[ \t]*---[ \t]+REGION:[ \t]*(?:Install logging|Storage dirs|Cleanup temporary files|Log level from the environment)[ \t]*$'
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile) {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = Get-ConsistencySourceText -Path $file.FullName
             foreach ($match in [regex]::Matches($text, $pattern)) {
                 $findings += Format-SourceMatch -File $file -Text $text -Match $match
             }
@@ -694,7 +719,7 @@ Describe 'Shared source regions' {
     It 'uses native HTML REGION syntax' {
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -eq '.html') {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = Get-ConsistencySourceText -Path $file.FullName
             foreach ($match in [regex]::Matches($text, '(?m)^[ \t]*<!--[ \t]*---[ \t]+REGION:')) {
                 $findings += Format-SourceMatch -File $file -Text $text -Match $match
             }
@@ -706,7 +731,7 @@ Describe 'Shared source regions' {
         $pattern = '(?ms)^[ \t]*# --- REGION:[^\r\n]+\r?\n(?:[ \t]*#(?! --- REGION:)[^\r\n]*\r?\n)*[ \t]*<\#(?:(?!#>)[\s\S])*?#>[ \t]*\r?\n[ \t]*function[ \t]+'
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.ps1', '.psm1')) {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = Get-ConsistencySourceText -Path $file.FullName
             foreach ($match in [regex]::Matches($text, $pattern)) {
                 $findings += Format-SourceMatch -File $file -Text $text -Match $match
             }
@@ -724,7 +749,7 @@ Describe 'Shared source regions' {
 Describe 'Stable documentation anchors beside legacy aliases' {
     BeforeAll {
         $path = Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1'
-        $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Resolve-ConsistencyWorkflowPath $path), [ref]$null, [ref]$null)
         $definition = $ast.Find({ param($n)
             $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
             $n.Name -eq 'Get-ExistingAnchor'

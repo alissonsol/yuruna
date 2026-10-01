@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -36,12 +36,30 @@ if ! command -v pwsh >/dev/null 2>&1; then
   fi
   PWSH_VERSION="${PS_TAG#v}"
   PKG_URL="https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/powershell-${PWSH_VERSION}-osx-arm64.pkg"
-  PKG_PATH="/tmp/powershell.pkg"
+  PWSH_TMP=$(mktemp -d "${TMPDIR:-/tmp}/yuruna-pwsh.XXXXXX")
+  trap 'rm -rf "$PWSH_TMP"' EXIT
+  PKG_NAME="powershell-${PWSH_VERSION}-osx-arm64.pkg"
+  PKG_PATH="$PWSH_TMP/$PKG_NAME"
   echo "Installing PowerShell ${PWSH_VERSION} (osx-arm64) from ${PKG_URL}"
   curl -fSL --retry 3 -o "$PKG_PATH" \
     "${PKG_URL}${YurunaCacheContent:+?nocache=${YurunaCacheContent}}"
+  curl -fsSL --retry 3 -o "$PWSH_TMP/hashes.sha256" \
+    "https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/hashes.sha256"
+  PS_BOM=$(od -An -tx1 -N2 "$PWSH_TMP/hashes.sha256" | tr -d ' \n')
+  if [[ "$PS_BOM" == "fffe" || "$PS_BOM" == "feff" ]]; then
+    iconv -f UTF-16 -t UTF-8 "$PWSH_TMP/hashes.sha256" | tr -d '\r' > "$PWSH_TMP/hashes.norm"
+  else
+    tr -d '\r' < "$PWSH_TMP/hashes.sha256" > "$PWSH_TMP/hashes.norm"
+  fi
+  PS_WANT=$(LC_ALL=C awk -v p="$PKG_NAME" '$2 == p || $2 == "*" p {print $1; exit}' "$PWSH_TMP/hashes.norm")
+  PS_GOT=$(shasum -a 256 "$PKG_PATH" | awk '{print $1}')
+  if [[ ! "$PS_WANT" =~ ^[0-9a-fA-F]{64}$ ]] || [[ "$PS_GOT" != "$PS_WANT" ]]; then
+    echo "PowerShell package checksum verification failed for $PKG_NAME" >&2
+    exit 1
+  fi
   sudo installer -pkg "$PKG_PATH" -target /
-  rm -f "$PKG_PATH"
+  rm -rf "$PWSH_TMP"
+  trap - EXIT
 fi
 pwsh --version
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c1aae0-6851-429a-a359-f13d409e76c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,8 +30,7 @@
     by AST and run against stubs standing in for utmctl, the VNC read and
     the emulator process. That keeps the table checked on every platform
     rather than only where UTM exists.
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4
-    and Pester 5+.
+    Throw-based assertions so the file runs under Pester 5+.
     Run: Invoke-Pester -Path test/modules/Test.ConsoleSecondOpinion.Tests.ps1
 #>
 
@@ -68,6 +67,7 @@ function Invoke-SecondOpinionCase {
     [OutputType([pscustomobject])]
     param($FnText, $State, $QemuPid, $Frames, $Cpu, $VncOk)
     $seq = [pscustomobject]@{ FrameIdx = 0; CpuIdx = 0 }
+    function Start-Sleep { [CmdletBinding(SupportsShouldProcess)] param([int]$Seconds) $null = $PSCmdlet.ShouldProcess("$Seconds seconds", 'Fixture delay') }
     function Get-VMState { param($VMName) $State }
     function Get-VncPortForVm { param($VMName) 5961 }
     function Get-UtmVMProcessId { param($VMName) $QemuPid }

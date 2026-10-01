@@ -8,14 +8,6 @@ package catalog
 // string so the package carries no init cost until a caller decodes it.
 const DataenUSpool = `{
   "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool. Pool Status reads what the members are doing now — choosing a value applies it to every member.",
-  "pool.a_pool_s_members_are_meant_to_be_configured_alike_to_copy_one_pee": [
-    "* A pool's members are meant to be configured alike. To copy one peer's configuration onto another host, run on that host: ",
-    {
-      "arg": "command1",
-      "type": "token",
-      "trust": "internal"
-    }
-  ],
   "pool.a_scan_of_value1_is_already_running_following_that_one": [
     "A scan of ",
     {
@@ -25,7 +17,6 @@ const DataenUSpool = `{
     },
     " is already running; following that one."
   ],
-  "pool.a_test_set_is_a_framework_project_repo_pair_gh_token_is_not_store": "A test set is a framework + project repo pair. GH_TOKEN is not stored here — it stays host-local on each host's test.config.yml / vault.",
   "pool.actions": "Actions",
   "pool.add_host_failed_value1": [
     "Add host failed: ",
@@ -111,55 +102,19 @@ const DataenUSpool = `{
     "?"
   ],
   "pool.asks_every_address_in_the_network_for_a_yuruna_host_status_servic": "Asks every address in the network for a Yuruna host status service and adds the ones\n      that answer to the monitored hosts — pooled or not, enrolled or not.\n      Scanning changes nothing on the hosts themselves.",
-  "pool.assign": "Assign",
-  "pool.assign_failed_value1": [
-    "Assign failed: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.assign_test_set": "Assign test set?",
-  "pool.assign_test_set_50fb7bbc": "Assign test set",
-  "pool.assign_test_sets_to_pools": "Assign test sets to pools",
-  "pool.assign_value1_to_value2": [
-    "Assign \"",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "\" to ",
-    {
-      "arg": "value2",
-      "type": "detail",
-      "trust": "external"
-    },
-    "?"
-  ],
-  "pool.assign_yuruna_pool_control": "Assign — Yuruna Pool Control",
-  "pool.assigned_value1_to_pool_value2": [
-    "Assigned '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' to pool '",
-    {
-      "arg": "value2",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'."
-  ],
   "pool.board": "Board",
+  "pool.board_live_numbers_unavailable": [
+    "Live numbers unavailable (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
   "pool.board_yuruna_pool_control": "Board — Yuruna Pool Control",
   "pool.cancel": "Cancel",
-  "pool.change_test_set": "Change test set...",
   "pool.check": "Check",
-  "pool.choose_a_test_set": "(choose a test set)",
   "pool.command1_scans_command2_through_command3_a_smaller_prefix_number_": [
     {
       "arg": "command1",
@@ -207,14 +162,6 @@ const DataenUSpool = `{
   "pool.continue": "Continue",
   "pool.control": "Control",
   "pool.cores": "Cores",
-  "pool.could_not_assign_value1": [
-    "Could not assign: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
   "pool.could_not_collect_diagnostics_value1": [
     "Could not collect diagnostics: ",
     {
@@ -231,24 +178,8 @@ const DataenUSpool = `{
       "trust": "external"
     }
   ],
-  "pool.could_not_load_pool_intent_value1": [
-    "Could not load pool intent: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
   "pool.could_not_load_pools_value1": [
     "Could not load pools: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.could_not_load_test_sets_value1": [
-    "Could not load test sets: ",
     {
       "arg": "value1",
       "type": "detail",
@@ -291,7 +222,6 @@ const DataenUSpool = `{
     "'."
   ],
   "pool.cycles": "cycles",
-  "pool.delete": "Delete",
   "pool.delete_failed_value1": [
     "Delete failed: ",
     {
@@ -318,34 +248,8 @@ const DataenUSpool = `{
     },
     "'? This cannot be undone."
   ],
-  "pool.delete_test_set_value1": [
-    "Delete test set ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.delete_test_set_value1_this_cannot_be_undone": [
-    "Delete test set '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'? This cannot be undone."
-  ],
   "pool.deleted_pool_value1": [
     "Deleted pool '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'."
-  ],
-  "pool.deleted_value1": [
-    "Deleted '",
     {
       "arg": "value1",
       "type": "detail",
@@ -560,8 +464,6 @@ const DataenUSpool = `{
   "pool.display_name": "Display name",
   "pool.duration": "duration",
   "pool.each_of_the_four_numbers_must_be_0_to_255": "Each of the four numbers must be 0 to 255.",
-  "pool.each_pool_tests_one_test_set_a_framework_project_repo_pair_gh_tok": "Each pool tests one test set (a framework + project repo pair).\n      GH_TOKEN stays host-local — never stored in pool intent.",
-  "pool.edit": "Edit",
   "pool.empty": "(empty)",
   "pool.enrollment_target": [
     {
@@ -914,7 +816,7 @@ const DataenUSpool = `{
           "type": "integer",
           "trust": "internal"
         },
-        " host cannot read the assigned project. Grant its token access, or assign a different test set."
+        " host cannot read the assigned project. Grant its token access, or set a project URL on the Pools page that every member can read."
       ],
       "other": [
         {
@@ -922,7 +824,7 @@ const DataenUSpool = `{
           "type": "integer",
           "trust": "internal"
         },
-        " hosts cannot read the assigned project. Grant its token access, or assign a different test set."
+        " hosts cannot read the assigned project. Grant its token access, or set a project URL on the Pools page that every member can read."
       ]
     }
   },
@@ -960,7 +862,7 @@ const DataenUSpool = `{
       ]
     }
   },
-  "pool.hosts_switch_assigned": {
+  "pool.hosts_switch_own_projects": {
     "kind": "plural",
     "selector": "count",
     "variants": {
@@ -970,7 +872,7 @@ const DataenUSpool = `{
           "type": "integer",
           "trust": "internal"
         },
-        " host will switch to the assigned project on their next cycle."
+        " host will go back to its own project on its next cycle."
       ],
       "other": [
         {
@@ -978,7 +880,7 @@ const DataenUSpool = `{
           "type": "integer",
           "trust": "internal"
         },
-        " hosts will switch to the assigned project on their next cycle."
+        " hosts will go back to their own projects on their next cycle."
       ]
     }
   },
@@ -1036,21 +938,10 @@ const DataenUSpool = `{
     }
   ],
   "pool.listen_addr": "listen addr",
-  "pool.live_numbers_unavailable_value1_assigning_still_works": [
-    "Live numbers unavailable (",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "). Assigning still works."
-  ],
   "pool.loaded": "Loaded:",
   "pool.loading_hosts": "Loading hosts...",
   "pool.loading_pools": "Loading pools...",
-  "pool.loading_test_sets": "Loading test sets...",
   "pool.lowercase_dns_safe": "lowercase, dns-safe",
-  "pool.members": "Members *",
   "pool.members_1044a4c0": "Members",
   "pool.memory": "Memory",
   "pool.menu": "Menu",
@@ -1104,18 +995,14 @@ const DataenUSpool = `{
   ],
   "pool.moves": "moves",
   "pool.name": "Name",
-  "pool.name_frameworkurl_and_projecturl_are_all_required": "name, frameworkUrl and projectUrl are all required.",
   "pool.network": "Network",
   "pool.never_enrolled_a_lab_token_run_set_labtoken_ps1_on_the_host": "Never enrolled a lab token -- run Set-LabToken.ps1 on the host.",
   "pool.no_hosts_discovered_yet": "No hosts discovered yet.",
   "pool.no_id_reported": "(no id reported)",
-  "pool.no_pools_defined_create_one_on_the_pools_page": "No pools defined. Create one on the Pools page.",
   "pool.no_pools_yet": "No pools yet.",
   "pool.no_pools_yet_create_one_from_menu_pools": "No pools yet. Create one from Menu → Pools.",
   "pool.no_scan_has_run_yet": "No scan has run yet.",
-  "pool.no_test_sets_yet": "No test sets yet.",
   "pool.none": "(none)",
-  "pool.not": "not",
   "pool.not_answered_yet_or_the_proxy_holds_no_token_of_its_own": "Not answered yet, or the proxy holds no token of its own.",
   "pool.not_cidr_notation_write_an_address_a_slash_and_a_prefix_length_19": "Not CIDR notation. Write an address, a slash, and a prefix length: 192.168.7.0/24.",
   "pool.nothing_new_every_yuruna_host_in_that_range_was_already_monitored": "Nothing new. Every Yuruna host in that range was already monitored.",
@@ -1147,7 +1034,6 @@ const DataenUSpool = `{
   "pool.paused_after_cycle_and_step": "Paused after cycle and step",
   "pool.persisted_health": "Persisted health",
   "pool.persistence_disabled": "(persistence disabled)",
-  "pool.pick_a_test_set_first_define_one_on_the_test_sets_page": "Pick a test set first (define one on the Test sets page).",
   "pool.pid": "pid",
   "pool.platform": "platform",
   "pool.pool": "Pool",
@@ -1292,9 +1178,61 @@ const DataenUSpool = `{
       "project": "This host has no project repository and none configured, or it has not answered yet."
     }
   },
+  "pool.repositories_both_or_neither": "Enter both a framework URL and a project URL, or leave both empty to clear them.",
+  "pool.repositories_clear": "Clear",
+  "pool.repositories_clear_label": [
+    "Clear the framework and project URLs of pool ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "pool.repositories_cleared": [
+    "Cleared the framework and project URLs of pool ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ". Its hosts run their own projects from their next cycle."
+  ],
+  "pool.repositories_framework_label": [
+    "Framework URL for pool ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "pool.repositories_project_label": [
+    "Project URL for pool ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "pool.repositories_save": "Save",
+  "pool.repositories_save_label": [
+    "Save the framework and project URLs of pool ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "pool.repositories_saved": [
+    "Saved the framework and project URLs of pool ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
   "pool.result": "Result",
   "pool.row_number": "Row number",
-  "pool.run": "run",
   "pool.running": "Running: ",
   "pool.running_checks": "Running checks...",
   "pool.runtime_environment": "Runtime environment",
@@ -1305,16 +1243,6 @@ const DataenUSpool = `{
       "type": "detail",
       "trust": "external"
     }
-  ],
-  "pool.save_test_set": "Save test set",
-  "pool.saved_test_set_value1": [
-    "Saved test set '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'."
   ],
   "pool.scan": "Scan",
   "pool.scan_a_network_for_yuruna_hosts": "Scan a network for Yuruna hosts",
@@ -1481,7 +1409,6 @@ const DataenUSpool = `{
   "pool.service_user": "service user",
   "pool.show_hostnames": "Show hostnames",
   "pool.started_at": "started at",
-  "pool.state": "State",
   "pool.state_dir": "state dir",
   "pool.state_fail": "fail",
   "pool.state_idle": "idle",
@@ -1602,24 +1529,6 @@ const DataenUSpool = `{
       ]
     }
   },
-  "pool.test_set_for_pool_value1": [
-    "Test set for pool ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.test_set_label": [
-    "Test set for ",
-    {
-      "arg": "name",
-      "type": "text",
-      "trust": "external"
-    }
-  ],
-  "pool.test_sets": "Test sets",
-  "pool.test_sets_yuruna_pool_control": "Test sets — Yuruna Pool Control",
   "pool.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti": "The 6-character code on the Yuruna hosts dashboard's Lab token tile. A code you have just read stays valid for about three minutes, so there is no need to rush it.",
   "pool.the_exact_command_its_exit_code_and_both_streams_verbatim_the_poo": "The exact command, its exit code, and both streams verbatim. The pool-admin CLIs report failures as JSON on stdout, so stdout is usually where the real message is.",
   "pool.the_hosts_own_projects": "the hosts' own projects",
@@ -1668,14 +1577,6 @@ const DataenUSpool = `{
       "trust": "external"
     },
     "'."
-  ],
-  "pool.value1_host_s": [
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    " host(s)"
   ],
   "pool.value1_of_value2_checks_failing_pool_control_service_value3_value": [
     {

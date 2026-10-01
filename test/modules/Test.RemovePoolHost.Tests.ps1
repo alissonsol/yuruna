@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e437e6-8cf0-45ba-9f8c-03558f1d5809
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,12 +41,15 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 function New-RphFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test helper: creates a throwaway pool tree the calling It block deletes in its finally.')]
-    param([string]$LastSeenUtc = '2020-01-01T00:00:00Z')
+    param([string]$LastSeenUtc = '2020-01-01T00:00:00Z', [switch]$CurrentLayout)
     $id       = '42cafe0000000000000000000000dead'
     $tmp      = Join-Path ([System.IO.Path]::GetTempPath()) ("rph_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     $pool     = Join-Path $tmp 'pool'
     $hostsDir = Join-Path $pool 'hosts'
-    $cycleDir = Join-Path $pool $id
+    $cycleDir = if ($CurrentLayout) { Join-Path $pool "hosts/$id/test-cycles" } else { Join-Path $pool $id }
+    $neighborDir = Join-Path $pool 'hosts/42cafe0000000000000000000000beef/test-cycles'
+    [void][IO.Directory]::CreateDirectory($neighborDir)
+    [IO.File]::WriteAllText((Join-Path $neighborDir 'keep.txt'), 'neighbor')
     New-Item -ItemType Directory -Force -Path (Join-Path $cycleDir 'cycle1') | Out-Null
     New-Item -ItemType Directory -Force -Path $hostsDir | Out-Null
     Set-Content (Join-Path $cycleDir 'cycle1/manifest.json') '{}'
@@ -57,12 +60,31 @@ function New-RphFixture {
     $cfgPath = Join-Path $cfgDir 'test.config.yml'
     # single-quoted YAML scalar keeps the Windows backslashes literal
     Set-Content $cfgPath "networkStorage:`n  poolStorageNetworkPath: '//fake/pool'`n  poolStorageNetworkUser: 'fakeuser'`n  poolStorageLocalPath: '$pool'`npool:`n  networkReplicate: false`n"
-    return [pscustomobject]@{ Tmp = $tmp; Id = $id; InfoFile = $infoFile; CycleDir = $cycleDir; CfgPath = $cfgPath }
+    return [pscustomobject]@{ Tmp = $tmp; Id = $id; InfoFile = $infoFile; CycleDir = $cycleDir; CfgPath = $cfgPath; NeighborDir = $neighborDir }
 }
 
 }
 
 Describe 'Remove-PoolHost' {
+    It 'deletes the current archive layout while preserving another host' {
+        $f = New-RphFixture -CurrentLayout
+        try {
+            & pwsh -NoProfile -File $script:rph -HostId $f.Id -ConfigPath $f.CfgPath *> $null
+            Assert-Equal 0 $LASTEXITCODE 'current-layout deletion succeeds'
+            Assert-False (Test-Path -LiteralPath $f.CycleDir) 'selected archive is removed'
+            Assert-Equal 'neighbor' ([IO.File]::ReadAllText((Join-Path $f.NeighborDir 'keep.txt'))) 'other host data survives'
+        } finally { Remove-Item -LiteralPath $f.Tmp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'refuses a traversal-shaped identifier and preserves both hosts' {
+        $f = New-RphFixture -CurrentLayout
+        try {
+            & pwsh -NoProfile -File $script:rph -HostId ($f.Id + '/../42cafe0000000000000000000000beef') -ConfigPath $f.CfgPath *> $null
+            Assert-True ($LASTEXITCODE -ne 0) 'traversal is refused'
+            Assert-True (Test-Path -LiteralPath $f.CycleDir) 'selected host survives refusal'
+            Assert-True (Test-Path -LiteralPath (Join-Path $f.NeighborDir 'keep.txt')) 'neighbor survives refusal'
+        } finally { Remove-Item -LiteralPath $f.Tmp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
     It 'deletes a stale identity record and its replicated cycle folder' {
         $f = New-RphFixture
         try {

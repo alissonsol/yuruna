@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42abeebb-d197-4906-b1e6-91cfd0f2576a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,7 @@ function Get-BaseImageProvenance {
     }
     if (Test-Path -LiteralPath $provenancePath) {
         $result.FileExists = $true
-        $lines = @(Get-Content -Path $provenancePath -ErrorAction SilentlyContinue)
+        $lines = @(Get-Content -LiteralPath $provenancePath -ErrorAction SilentlyContinue)
         if ($lines.Count -ge 1 -and $null -ne $lines[0]) { $result.Filename = "$($lines[0])".Trim() }
         if ($lines.Count -ge 2 -and $null -ne $lines[1]) { $result.Url      = "$($lines[1])".Trim() }
     }

@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
     #banner-dash-row {
-      margin-left: auto; flex: 0 0 auto;
+      margin-inline-start: auto; flex: 0 0 auto;
       font-size: .75rem;
       background: transparent;
     }
@@ -50,7 +50,7 @@
     /* Refusal notice for a control action the host would not accept (403). */
     .control-notice {
       background: var(--bg-elevated); border: 1px solid var(--border);
-      border-left: 3px solid var(--link-strong); border-radius: .5rem;
+      border-inline-start: 3px solid var(--link-strong); border-radius: .5rem;
       padding: .7rem 1rem; margin-bottom: 1.25rem; font-size: .8125rem; line-height: 1.5;
     }
     .control-notice a    { color: var(--link-strong); }
@@ -60,7 +60,7 @@
     /* Degraded guest-network notice. Shares the notice shape but takes the
        warning accent: the host keeps running and passing on a fallback path,
        so this reports a topology, it does not report a failure. */
-    .host-network-notice { border-left-color: var(--warn-fg); }
+    .host-network-notice { border-inline-start-color: var(--warn-fg); }
 
     .meta-grid {
       display: flex; flex-wrap: wrap;
@@ -72,7 +72,7 @@
     .guest-card-header {
       display: flex; align-items: flex-start; justify-content: space-between;
     }
-    .guest-card-header > * + * { margin-left: 1rem; }
+    .guest-card-header > * + * { margin-inline-start: 1rem; }
     .guest-card-header .left { flex: 1; min-width: 0; }
     /* Guest keys are dotted identifiers with no spaces
        (workload.guest.ubuntu.server.24.<name>), so without an explicit break
@@ -85,7 +85,7 @@
       font-family: var(--font-mono); word-break: break-all;
     }
     .steps      { display: flex; flex-wrap: wrap; }
-    .steps > .step-pill { margin-right: .375rem; margin-bottom: .375rem; }
+    .steps > .step-pill { margin-inline-end: .375rem; margin-bottom: .375rem; }
     .step-pill  {
       font-size: .6875rem; font-weight: 600; padding: .2rem .55rem; border-radius: 9999px;
       white-space: nowrap;
@@ -118,7 +118,7 @@
       display: flex; align-items: flex-start; justify-content: space-between;
       margin-bottom: .5rem;
     }
-    .sequence-card-header > * + * { margin-left: 1rem; }
+    .sequence-card-header > * + * { margin-inline-start: 1rem; }
     .sequence-name {
       flex: 1; min-width: 0;
       font-weight: 600; font-size: .9375rem; word-break: break-all;
@@ -137,20 +137,19 @@
 
     /* Nested-run sub-tiles: a host-action stage (e.g. set-resource) that fans
        out per-stage guest builds in child processes shows each as an indented
-       card under its parent. The left rule + indent read the nesting at a
+       card under its parent. The leading rule + indent read the nesting at a
        glance; nested cards nest further to any depth. */
     .nested-card {
-      margin-top: .5rem; margin-left: .75rem;
-      padding-left: .625rem; border-left: 2px solid var(--border-soft);
+      margin-top: .5rem; margin-inline-start: .75rem;
+      padding-inline-start: .625rem; border-inline-start: 2px solid var(--border-soft);
     }
     .nested-card .guest-name { font-size: .8125rem; font-weight: 500; }
     .nested-card .nested-card { margin-top: .375rem; }
 
-    /* Flexbox fallback for iOS 9 Safari (pre-grid). Each card claims
-       half the row minus the inter-card gutter; the flex-wrap lets a
-       narrow viewport stack them. */
+    /* Paired cards share a row until the viewport makes the pair too narrow;
+       flex wrapping then stacks them. */
     .meta-grid > .meta-card { width: -webkit-calc(50% - .1875rem); width: calc(50% - .1875rem); margin-bottom: .375rem; }
-    .meta-grid > .meta-card:nth-child(odd) { margin-right: .375rem; }
+    .meta-grid > .meta-card:nth-child(odd) { margin-inline-end: .375rem; }
 
     @supports (display: grid) {
       .meta-grid {
@@ -161,7 +160,7 @@
       }
       .meta-grid > .meta-card,
       .meta-grid > .meta-card:nth-child(odd) {
-        width: auto; margin-right: 0; margin-bottom: 0;
+        width: auto; margin-inline-end: 0; margin-bottom: 0;
       }
     }
 

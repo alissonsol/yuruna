@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4265d6db-e190-47e6-b2ae-7119aa42d885
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1009,7 +1009,7 @@ Describe 'Invoke-HostRefreshAutoWorker -- the synchronous, bounded launch' {
         $call.File | Should -Be 'pwsh'
         $call.NonInteractive | Should -Be '1'
         $call.Args[0..3] -join ' ' | Should -Be '-NoLogo -NoProfile -NonInteractive -File'
-        $call.Args[4] | Should -Be '/srv/Yuruna Test/repo/test/lab/Invoke-HostRefresh.ps1' -Because 'a list element needs no quoting and must carry none'
+        $call.Args[4] | Should -Be (Join-Path '/srv/Yuruna Test/repo' 'test/lab/Invoke-HostRefresh.ps1') -Because 'a list element needs no quoting and must carry none'
         $call.Args | Should -Contain '-RequestId'
         $call.Args | Should -Contain $script:RequestId
         foreach ($token in $call.Args) { $token | Should -Not -Match '(?i)force|hardstop' }
@@ -1128,7 +1128,8 @@ Describe 'Invoke-HostRefreshAutoWorker -- the synchronous, bounded launch' {
         $script:ChildPidFile = Join-Path $dir 'child.pid'
         Set-Content -LiteralPath $entry -Value (@(
                 'param([string]$RequestId, [long]$DeadlineTickMs, [long]$PreAdmissionDeadlineTickMs)'
-                '$c = Start-Process -FilePath sleep -ArgumentList 60 -PassThru'
+                '$sleepCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes("Start-Sleep -Seconds 60"))'
+                '$c = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @("-NoProfile", "-EncodedCommand", $sleepCommand) -PassThru'
                 "Set-Content -LiteralPath '$($script:ChildPidFile)' -Value `$c.Id"
                 'Start-Sleep -Seconds 60'
             ) -join "`n")

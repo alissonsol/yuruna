@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fda77b-2565-4419-bec1-4390061f6c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -174,10 +174,10 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             try {
                 $a = Get-TestPng -Path (Join-Path $dir 'a.png') -R 1 -G 2 -B 3
-                $missRef = Compare-Screenshot -ReferencePath (Join-Path $dir 'nope.png') -ActualPath $a
+                $missRef = Compare-Screenshot -ReferencePath (Join-Path $dir 'nope.png') -ActualPath $a -ErrorAction SilentlyContinue
                 $missRef.match | Should -BeFalse
                 $missRef.error | Should -Be 'Reference not found'
-                $missAct = Compare-Screenshot -ReferencePath $a -ActualPath (Join-Path $dir 'nope.png')
+                $missAct = Compare-Screenshot -ReferencePath $a -ActualPath (Join-Path $dir 'nope.png') -ErrorAction SilentlyContinue
                 $missAct.match | Should -BeFalse
                 $missAct.error | Should -Be 'Actual not found'
             } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
@@ -202,7 +202,7 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
                 $ref     = Get-TestPng -Path (Join-Path $dir 'ref.png') -R 12 -G 34 -B 56
                 $corrupt = Join-Path $dir 'corrupt.png'
                 Set-Content -LiteralPath $corrupt -Value 'this is not a PNG' -Encoding ascii
-                $r = Compare-Screenshot -ReferencePath $ref -ActualPath $corrupt -Threshold 0.85
+                $r = Compare-Screenshot -ReferencePath $ref -ActualPath $corrupt -Threshold 0.85 -ErrorAction SilentlyContinue
                 $r.match | Should -BeFalse
                 $r.error | Should -Not -BeNullOrEmpty
                 # The reference bitmap was created (locking ref.png) before the actual's

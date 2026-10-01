@@ -762,7 +762,7 @@ const DataenUSautomation = `{
       "trust": "external"
     }
   ],
-  "automation.operator_287506e0d1314af9": "Until (1) is written, the 'target pool carries no test-set' guard is not armed for",
+  "automation.operator_287506e0d1314af9": "Until (1) is written, the 'target pool carries no repositories' guard is not armed for",
   "automation.operator_29759c8a58f5d70a": [
     "Get-PSRepository ERROR: ",
     {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,6 +62,7 @@ $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 $RepoRoot    = $paths.RepoRoot
 $ModulesDir  = $paths.ModulesDir
+Import-Module (Join-Path $ModulesDir 'Test.ServiceVm.psm1') -Global -DisableNameChecking -Verbose:$false
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumeric, dot, hyphen, and underscore are allowed."
@@ -208,46 +209,11 @@ if (-not (Assert-GuestFrameworkSource -RepoRoot $RepoRoot -StatusDecision $statu
 # --- REGION: Create the VM
 # Each New-VM already runs Get-Image auto-fetch when the base image is missing,
 # tears down any prior VM, creates the new one, and (Hyper-V + KVM) starts it.
-# UTM only builds the bundle -- register + start lives below.
+# UTM only builds the bundle; Invoke-YurunaServiceVmBuild registers and starts it.
 Write-Verbose ""
 Write-Output "== Bringing up '$VMName' on $HostType =="
-$newVmArgs = @('-NoProfile', '-File', $newVm, '-VMName', $VMName)
-if ($AllowPseudoLocale) { $newVmArgs += '-AllowPseudoLocale' }
-# A stop published while this start was preparing wins: nothing is built
-# for a request that no longer stands (the finally reports the newer one).
-if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit $ExitFailure }
-& pwsh @newVmArgs
-$rc = $LASTEXITCODE
-if ($rc -ne 0) {
-    Write-Error "$newVm exited $rc -- aborting."
-    exit $rc
-}
-
-# --- REGION: Register and start the UTM VM
-# See https://yuruna.link/42e220c4-0008
-if ($HostType -eq 'host.macos.utm') {
-    $UtmDir = "$HOME/yuruna/guest.nosync/$VMName.utm"
-    if (-not (Test-Path $UtmDir)) {
-        Write-Error "UTM bundle missing at $UtmDir after New-VM."
-        exit $ExitFailure
-    }
-    Write-Verbose "Starting '$VMName'..."
-    $startResult = Start-VM -VMName $VMName -Confirm:$false
-    if (-not $startResult.success) {
-        Write-Error "Could not start '$VMName': $($startResult.errorMessage)"
-        exit $ExitFailure
-    }
-}
-
-# --- REGION: Verify the VM state
-# See https://yuruna.link/42e220c4-0008
-if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
-    $observed = try { Get-VMState -VMName $VMName } catch { 'unknown' }
-    Write-Error "VM '$VMName' did not reach 'running' (state: $observed); the stash service was NOT started. Open the VM in the hypervisor UI and start it by hand to see why."
-    exit $ExitFailure
-}
-# The start request is confirmed once the rebuilt VM is positively running;
-# the daemon's readiness is reported on its own below and is census evidence.
+$build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
+if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
 $serviceOpResult = 'confirmed'
 
 # --- REGION: Configure Shared NAT forwarding
@@ -318,18 +284,7 @@ if ((Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint).IsFailure) {
         # -- the verdict, the marker, the report -- reads this object, and a
         # half-updated copy that still carried the old address would advertise
         # the address the daemon is NOT on.
-        $stashEndpoint = [pscustomobject]@{
-            Ready            = $true
-            Address          = $stashRecovery.Address
-            WaitedSeconds    = $stashEndpoint.WaitedSeconds
-            Unreachable      = $false
-            ListeningInGuest = $stashEndpoint.ListeningInGuest
-            StillBuilding    = $false
-            CloudInitStatus  = $stashEndpoint.CloudInitStatus
-            LastProgress     = $stashEndpoint.LastProgress
-            ExtendedSeconds  = $stashEndpoint.ExtendedSeconds
-            AddressChanges   = [int]$stashEndpoint.AddressChanges + 1
-        }
+        $stashEndpoint = New-ServiceVmRecoveredEndpoint -Endpoint $stashEndpoint -Address $stashRecovery.Address
         if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
             try {
                 if (Add-PortMap -VMIp $stashVmIp -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false) {
@@ -423,65 +378,7 @@ if ($stashVerdict.IsFailure) {
     $stashDiagIp = if ($stashEndpoint) { [string]$stashEndpoint.Address } else { '' }
     if (-not $stashDiagIp -and $stashRecovery) { $stashDiagIp = [string]$stashRecovery.Address }
 
-    # The console frame answers what SSH cannot reach to answer. A guest that
-    # stopped at a failed cifs mount, or sits at a login prompt with cloud-init
-    # dead, shows exactly that on screen while every host-side probe can only
-    # report silence.
-    try {
-        $stashLogDir = Initialize-YurunaLogDir
-        if ($stashLogDir -and (Get-Command Get-VMScreenshot -ErrorAction SilentlyContinue)) {
-            $stashConsolePng = Join-Path $stashLogDir "stash-service-console_${VMName}.png"
-            $stashCaptured = Get-VMScreenshot -VMName $VMName -OutFile $stashConsolePng
-            # Get-VMScreenshot can report truthy without writing the file, so the
-            # path is advertised only once it is on disk.
-            if ($stashCaptured -and (Test-Path -LiteralPath $stashConsolePng)) {
-                Write-Verbose "  Guest console captured: $stashConsolePng"
-            } else {
-                Write-Output "  Guest console could not be captured (the hypervisor returned no frame)."
-            }
-        }
-    } catch { Write-Verbose "stash console capture: $($_.Exception.Message)" }
-
-    # In-guest capture over the harness key. -User pins the account the cloud-init
-    # seed created: it is the only login this VM has, and Get-GuestSshUser would
-    # otherwise return a per-cycle cascade override that an earlier run in this
-    # same shell session left registered for guest.stash-service.
-    $stashDiagCmd = @(
-        # First, because it settles the most common confusion here: when the
-        # guest's own address differs from the one this host probed, the daemon
-        # was never the problem.
-        "echo `"=== guest addresses (this host probed: $(if ($stashDiagIp) { $stashDiagIp } else { '<none resolved>' })) ===`"; ip -4 -o addr show scope global 2>&1 | awk '{print `$2, `$4}'",
-        'echo "=== cloud-init status ==="; cloud-init status --long 2>&1 | head -n 20',
-        'echo "=== systemctl status stash-service.service ==="; systemctl --no-pager --full status stash-service.service 2>&1 | head -n 25',
-        'echo "=== journalctl -u stash-service.service (last 40) ==="; sudo journalctl -u stash-service.service --no-pager -n 40 2>&1',
-        'echo "=== listening on :80? ==="; ss -ltn 2>/dev/null | grep -E ":80\b" || echo "(nothing listening on :80)"',
-        'echo "=== stash share mount ==="; findmnt /mnt/yuruna-stash 2>&1 || echo "(/mnt/yuruna-stash is not mounted)"',
-        'echo "=== /var/log/cloud-init-output.log (tail 120) ==="; sudo tail -n 120 /var/log/cloud-init-output.log 2>&1'
-    ) -join "`n"
-    $stashDiag = $null
-    # --- REGION: https://yuruna.link/42e220c4-0008
-    $stashSshTarget = if ($stashDiagIp) { $stashDiagIp } else { $VMName }
-    try { $stashDiag = Invoke-GuestSsh -VMName $stashSshTarget -GuestKey 'guest.stash-service' -User 'stash-admin' -Command $stashDiagCmd -TimeoutSeconds 120 }
-    catch { Write-Verbose "stash guest diagnostics ssh: $($_.Exception.Message)" }
-
-    Write-Verbose ""
-    Write-Output "======== stash-service guest diagnostics ========"
-    if ($stashDiag -and -not [string]::IsNullOrWhiteSpace([string]$stashDiag.output)) {
-        foreach ($line in ([string]$stashDiag.output -split "`r?`n")) { Write-Output "  $line" }
-        if (-not $stashDiag.success) {
-            Write-Verbose "  (ssh ended with exit=$($stashDiag.exitCode); the capture above is what completed before it did)"
-        }
-    } else {
-        Write-Output "  Could not reach the VM over SSH (sshd may still be starting, or networking is broken)."
-        # Never an ssh line with a hole where the host should be: an address this
-        # host never learned makes the command unrunnable AND hides the fact that
-        # is actually blocking the reader.
-        foreach ($hintLine in ((Format-GuestSshDiagnosticHint -User 'stash-admin' -Address $stashDiagIp -VMName $VMName `
-                    -Command 'sudo tail -n 120 /var/log/cloud-init-output.log') -split "`r?`n")) {
-            Write-Verbose "  $hintLine"
-        }
-    }
-    Write-Verbose "========"
+    Invoke-YurunaServiceVmFailureDiagnostic -ServiceName 'stash-service' -GuestKey 'guest.stash-service' -User 'stash-admin' -VMName $VMName -Address $stashDiagIp -MountPath '/mnt/yuruna-stash'
     Write-Verbose ""
     Write-Output "Reading the capture above:"
     Write-Output "  * cloud-init status 'running'   -> the in-guest build is still going; re-run this script to"
@@ -515,12 +412,7 @@ if ($stashVerdict.IsFailure) {
 # --- REGION: https://yuruna.link/42e220c4-0008
 if ($statusDecision -and $statusDecision.ShouldStart) {
     $statusPort = [int]$statusDecision.Port
-    $probe = [System.Net.Sockets.TcpClient]::new()
-    $accepting = $false
-    try {
-        $iar = $probe.BeginConnect('127.0.0.1', $statusPort, $null, $null)
-        $accepting = ($iar.AsyncWaitHandle.WaitOne(2000) -and $probe.Connected)
-    } catch { Write-Verbose "status port probe: $($_.Exception.Message)" } finally { $probe.Dispose() }
+    $accepting = Test-TcpEndpointOpen -Address '127.0.0.1' -Port $statusPort -TimeoutMilliseconds 2000
     if ($accepting) {
         Write-Verbose "  Status service accepting on :$statusPort -- this host will appear under Extension hosts."
     } else {

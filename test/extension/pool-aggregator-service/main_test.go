@@ -4,7 +4,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -605,7 +607,7 @@ func TestGitCommitsTolerantDecode(t *testing.T) {
 // two deep-links resolve.
 func TestHostInfoCommitLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
-	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.09.27", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.09.30", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleStartUtc: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
 		struct {
@@ -1252,5 +1254,31 @@ func TestHandleGoHost(t *testing.T) {
 		if w.Code != http.StatusFound || w.Header().Get("Location") != "http://10.0.0.5:8080" {
 			t.Fatalf("(d) dashed id: code=%d loc=%q", w.Code, w.Header().Get("Location"))
 		}
+	}
+}
+
+func TestEventTailContinuesPastFetchWindow(t *testing.T) {
+	for _, ranges := range []bool{false, true} {
+		t.Run(fmt.Sprint(ranges), func(t *testing.T) {
+			prefix := strings.Repeat(" ", maxEventFetch-1)
+			body := prefix + "{}\n" + `{"event":"host_address_footprint","verdict":"stable"}` + "\n"
+			host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if ranges {
+					http.ServeContent(w, r, "events", time.Time{}, bytes.NewReader([]byte(body)))
+				} else {
+					io.WriteString(w, body)
+				}
+			}))
+			defer host.Close()
+			s := newPoolState("default", 8080)
+			s.eventCur[testHostID] = &eventCursor{cycleStartUtc: "cycle", offset: int64(len(prefix))}
+			s.tailEvents(host.Client(), "", "default", testHostID, host.URL, "cycle", "", time.Now().UTC())
+			if s.eventCur[testHostID].offset != int64(len(body)) {
+				t.Fatalf("tail stuck at %d of %d bytes", s.eventCur[testHostID].offset, len(body))
+			}
+			if s.footprint[testHostID] == nil || s.footprint[testHostID].verdict != "stable" {
+				t.Fatal("event past fetch window was not applied")
+			}
+		})
 	}
 }

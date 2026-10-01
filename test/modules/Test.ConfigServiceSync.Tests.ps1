@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,8 +22,7 @@
     networkStorage conversion, the reference-config merge rules (secrets,
     non-portable values), and the shared-token credential envelope.
 .DESCRIPTION
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4 and
-    Pester 5+. Run: Invoke-Pester -Path test/modules/Test.ConfigServiceSync.Tests.ps1
+    Throw-based assertions so the file runs under Pester 5+. Run: Invoke-Pester -Path test/modules/Test.ConfigServiceSync.Tests.ps1
 #>
 
 BeforeAll {

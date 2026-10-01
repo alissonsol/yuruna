@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 420389b6-78fe-457b-a0ce-b1bc197ec2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,27 +89,13 @@ function Test-DownloadAgentServiceHost {
         [int]$TimeoutSeconds = 10,
         [int]$BackoffMs = 500
     )
-    $target = "$Address".Trim()
-    if (-not $target) { return $false }
-    # An IPv6 literal has to be bracketed to be a legal URL authority. A name or
-    # IPv4 literal never contains a colon, and an already-bracketed authority
-    # (with or without a :port suffix) is left alone, so this only fires on a
-    # bare IPv6 literal.
-    if ($target.Contains(':') -and -not $target.StartsWith('[') -and ($target -split ':').Count -gt 2) {
-        $target = "[$target]"
+    if (-not (Get-Command Test-YurunaServiceHealth -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking -Verbose:$false
     }
-    $url = "http://$target/healthz"
-    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
-        if ($attempt -gt 1) { Start-Sleep -Milliseconds $BackoffMs }
-        try {
-            $resp = Invoke-WebRequest -Uri $url -NoProxy -TimeoutSec $TimeoutSeconds -ErrorAction Stop
-            if ([int]$resp.StatusCode -eq 200) { return $true }
-            Write-Verbose "download-agent-service.TestDownloadAgentServiceHost: $url attempt $attempt returned HTTP $([int]$resp.StatusCode)."
-        } catch {
-            Write-Verbose "download-agent-service.TestDownloadAgentServiceHost: $url attempt $attempt failed: $($_.Exception.Message)"
-        }
+    return Test-YurunaServiceHealth -Verbose:($VerbosePreference -eq 'Continue') -Address $Address -DefaultPort 80 -Attempts $Attempts -TimeoutSeconds $TimeoutSeconds -BackoffMs $BackoffMs -Request {
+        param($Uri, $Timeout)
+        Invoke-WebRequest -Uri $Uri -NoProxy -TimeoutSec $Timeout -ErrorAction Stop
     }
-    return $false
 }
 
 Export-ModuleMember -Function Get-DownloadAgentServiceInfo, Test-DownloadAgentServiceHost

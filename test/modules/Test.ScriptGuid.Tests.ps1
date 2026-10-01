@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.27
+.VERSION 2026.09.30
 .GUID 42d362a1-db11-4834-938e-bcea5a9d09f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@
     Scope is every tracked .ps1 / .psm1 / .psd1 in the repo, read from
     `git ls-files` so an ignored nested checkout cannot contribute
     look-alike collisions. Throw-based assertions so the file runs under
-    the OS-bundled Pester 3.4 and Pester 5+.
+    Pester 5+.
     Run: Invoke-Pester -Path test/modules/Test.ScriptGuid.Tests.ps1
 #>
 
@@ -48,7 +48,8 @@ function Get-ScriptGuid {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$Path)
-    foreach ($line in (Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue)) {
+    try { $lines = [IO.File]::ReadAllLines($Path) } catch { return '' }
+    foreach ($line in $lines) {
         if ($line -match '^\s*\.GUID\s+([0-9a-fA-F-]{36})\s*$')        { return $Matches[1] }
         if ($line -match "^\s*GUID\s*=\s*['`"]([0-9a-fA-F-]{36})['`"]") { return $Matches[1] }
     }

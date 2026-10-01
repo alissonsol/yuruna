@@ -248,7 +248,7 @@ function loadWithHash(hash) {
   assert.match(source, /function pathTail\(view\)[\s\S]*?typeof view\.permalink !== 'string'/, 'pathTail guards a non-string permalink');
   assert.match(source, /Y\.rawURL = function[\s\S]*?tail === null \? null/, 'rawURL propagates pathTail null');
   assert.match(source, /Y\.stashApiURL = function[\s\S]*?tail === null \? null/, 'stashApiURL propagates pathTail null');
-  assert.match(source, /Y\.session = function[\s\S]*?Y\.proofUnlock\.then/, 'session spends a carried proof BEFORE reading the gate, so an arriving operator is not prompted for a code they do not need');
+  assert.match(coreSource, /Y\.session = function[\s\S]*?Y\.proofUnlock\.then/, 'session spends a carried proof BEFORE reading the gate, so an arriving operator is not prompted for a code they do not need');
   assert.match(coreSource, /if \(paused && paused\(\)\)[\s\S]*?return;[\s\S]*?countdown = Math\.max/, 'a paused page parks the countdown before it ticks down to a refresh');
   assert.match(coreSource, /Y\.api = function[\s\S]*?AbortController/, 'api bounds the fetch and cancels it when the bound is reached');
   assert.match(coreSource, /Y\.humanSize = function[\s\S]*?Number\.isFinite\(v\)/, 'humanSize guards non-finite sizes');

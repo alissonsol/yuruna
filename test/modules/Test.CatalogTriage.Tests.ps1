@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42ca1dd9-3a18-467e-94a5-26a3b73501e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -113,7 +113,10 @@ function Invoke-Triage {
     [OutputType([pscustomobject])]
     param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Argument)
 
-    $output = & pwsh -NoProfile -File $script:Tool @Argument 2>&1 | Out-String
+    $payload = @{ Tool = $script:Tool; Argument = $Argument } | ConvertTo-Json -Compress
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
+    $command = '$p = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("' + $encoded + '"))); $args = @($p.Argument); $bound = @{}; for ($i=0; $i -lt $args.Count; $i++) { $key=$args[$i].TrimStart("-"); if ($key -in "Update","Quiet","Emit","EmitCatalog","Apply") { $bound[$key]=$true } else { $i++; $bound[$key]=if($key -eq "Decide") { @($args[$i] -split ",") } else { $args[$i] } } }; & $p.Tool @bound; exit $LASTEXITCODE'
+    $output = & pwsh -NoProfile -Command $command 2>&1 | Out-String
     return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
 }
 
@@ -340,7 +343,7 @@ Describe 'the gate reports what is left' {
         $open = @($doc.candidates | Where-Object { $_.disposition -eq 'unexplained' } | ForEach-Object { [string]$_.id })
         Assert-True ($open.Count -ge 1) 'the fixture left nothing to resolve'
         $resolve = @('-Root', $script:Gate, '-Update', '-Quiet', '-As', 'internal',
-            '-Reason', 'a runner transcript line, not shipped interface text', '-Decide') + $open
+            '-Reason', 'a runner transcript line, not shipped interface text', '-Decide', ($open -join ','))
         $run = Invoke-Triage -Argument $resolve
         Assert-Equal -Expected 0 -Actual $run.ExitCode -Because $run.Output
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d7a1c5-8e60-4b3f-9a52-6cb0f4e21d78
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -637,11 +637,13 @@ foreach ($goTarget in $GoTargets) {
         continue
     }
     $packageName = Split-Path -Leaf $goTarget.Package
+    $missingArtifact = $false
     foreach ($locale in ($goTarget.Locales | Sort-Object)) {
         foreach ($domain in ($goTarget.Domains | Sort-Object)) {
             $stem = ($locale -replace '[^A-Za-z0-9]', '') + "_$domain"
             $source = Join-Path $RepoRoot "globalization/generated/go/catalog/$stem.go"
             if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+                $missingArtifact = $true
                 $findings += "$($goTarget.Module): no compiled Go artifact for '$locale.$domain'. Run tools/Invoke-CatalogCompile.ps1 first."
                 continue
             }
@@ -650,6 +652,7 @@ foreach ($goTarget in $GoTargets) {
             if ($result) { $changed += $result }
         }
     }
+    if ($missingArtifact) { continue }
     $registryPath = ($goTarget.Module + '/' + $goTarget.Package + '/registry.go')
     $result = Set-GeneratedFile -Relative $registryPath -Text (Get-GoCatalogRegistry -Target $goTarget)
     if ($result) { $changed += $result }

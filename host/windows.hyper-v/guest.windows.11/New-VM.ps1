@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,8 @@ param(
     [string]$ExposeVirtualizationExtensions = ''
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
     exit 1
@@ -34,7 +36,6 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 
 $ProgressPreference = 'SilentlyContinue'
 
-Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 
 # --- REGION: Log level from environment
@@ -49,6 +50,12 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
+
+$hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
+if ($hostCores -lt 4) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
+    exit 1
+}
 
 # Get-YurunaGitHubSource: the token that opens a private frameworkUrl/projectUrl.
 # The Linux guests get it from New-CloudInitUserData; Windows has no cloud-init,
@@ -113,28 +120,7 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
-$existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-if ($existingVM) {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" })
-    Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    try {
-        Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
-    } catch {
-        # A half-removed VM (locked vhdx, permission, etc.) would trip
-        # the next New-VM call with "already exists" and the outer loop
-        # has no signal to recover. Dump live Hyper-V state so the
-        # operator can clean orphan disks before retrying.
-        $diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
-            Format-List Name, State, Status, Generation, Path | Out-String
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1c714189825ec0e2' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)"; diag = "$diag" })
-    }
-    # Hyper-V can return Remove-VM success while leaving a ghost entry;
-    # a second Get-VM is the only reliable post-condition.
-    if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_634b857addaa8df5' -Arguments @{ vMName = "$VMName" })
-    }
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_86f314067f7955de' -Arguments @{ vMName = "$VMName" })
-}
+Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
 $vmDir = Join-Path $downloadDir $VMName
@@ -166,22 +152,7 @@ if (-not (Test-Path $AnswerFileTemplate)) {
 # Pick a vSwitch -- prefer Yuruna-External (LAN-bridged) so the install
 # VM gets a real LAN IP via DHCP. Default Switch fallback for hosts
 # that can't create an External vSwitch. Same pattern as guest.caching-proxy-service.
-$switchName = Get-OrCreateYurunaExternalSwitch
-if (-not $switchName) {
-    $switchName = 'Default Switch'
-    if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
-        # --- REGION: https://yuruna.link/42e220c4-0004
-        # Verify the fallback exists; prefer non-External switches when bridging is unavailable.
-        $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
-            Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
-            Select-Object -First 1
-        if ($substituteSwitch) {
-            $switchName = $substituteSwitch.Name
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_38edbb4cc8da6eb6' -Arguments @{ switchName = "$switchName" })
-        }
-    }
-    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_6ec7fa5a08a2eb27' -Arguments @{ switchName = "$switchName" })
-}
+$switchName = Resolve-HyperVGuestSwitch
 
 # --- REGION: https://yuruna.link/4220a755-002d
 # Seed durable host identity; treat the status address as a hint that may expire during Setup.
@@ -260,11 +231,6 @@ $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseIma
 Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 
 # --- REGION: https://yuruna.link/42fa6f45-0015
-$hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
-if ($hostCores -lt 4) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
-    exit 1
-}
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 Write-Verbose "Host cores: $hostCores -- assigning $vmCores virtual processors to VM."
 # Virtualization extensions only on request (validated in the environment

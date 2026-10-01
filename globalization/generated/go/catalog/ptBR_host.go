@@ -131,7 +131,7 @@ const DataptBRhost = `{
   "host.kvm_start_network_action": "Iniciar a rede inativa da libvirt",
   "host.kvm_start_unit_action": "Iniciar a unidade parada da libvirt",
   "host.operator_005bab80fe0f8f32": [
-    "SSH: ssh pool- control- service- admin@ ",
+    "SSH: ssh pool-control-service-admin@",
     {
       "arg": "dockIp",
       "type": "detail",
@@ -151,7 +151,7 @@ const DataptBRhost = `{
     "."
   ],
   "host.operator_00de7e0959068c8c": [
-    "Send-Click on host.ubuntu.kvm: não implementado (Hyper- V apenas hoje). Use cargas de trabalho em modo SSH no KVM. (vm='",
+    "Send-Click on host.ubuntu.kvm: não implementado (Hyper-V apenas hoje). Use cargas de trabalho em modo SSH no KVM. (vm='",
     {
       "arg": "vMName",
       "type": "detail",
@@ -190,7 +190,7 @@ const DataptBRhost = `{
     },
     "' para 512 GB; recusando-se a construir a cache VM no disco de capacidade base."
   ],
-  "host.operator_018a8ff6db7d23da": "Não foi possível detectar o chip Apple Silicon. macOS 26 hóspedes requerem Apple M4 ou posterior.",
+  "host.operator_018a8ff6db7d23da": "Não foi possível detectar o chip Apple Silicon. macOS 26 convidados requerem Apple M4 ou posterior.",
   "host.operator_01b477e8e8a80cd5": "o daemon, CIFS-monta o pool NAS que detém o pool de download, e",
   "host.operator_01b9bade8d78a614": [
     "Não foi possível ativar a conexão automática em '",
@@ -234,7 +234,7 @@ const DataptBRhost = `{
     " stale per-VM access ACE(s)"
   ],
   "host.operator_0311eef6cb69b548": [
-    "Set- guestMacInBundle: não foi possível atualizar ",
+    "Set-GuestMacInBundle: não foi possível atualizar ",
     {
       "arg": "configPath",
       "type": "detail",
@@ -255,7 +255,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " (desativar-TestAutomation restaura a partir dele)."
+    " (Disable-TestAutomation restaura a partir dele)."
   ],
   "host.operator_0474f0a01f20b99a": [
     "Baixar completo: ",
@@ -322,7 +322,7 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_05f01e441da81178": "YURUNA VIRTUAL DISPLAY está habilitado -- cada ciclo de teste irá anexar uma tela virtual, então a captura de tela/OCR sobrevive rodando sem um monitor conectado. Para desligá-la: [Ambiente]::SetAmbienteVariável('YURUNA VIRTUAL DISPLAY', $null, 'Máquina'); $env:YURUNA VIRTUAL DISPLAY = $null",
+  "host.operator_05f01e441da81178": "YURUNA_VIRTUAL_DISPLAY está habilitado -- cada ciclo de teste irá anexar uma tela virtual, então a captura de tela/OCR sobrevive rodando sem um monitor conectado. Para desligá-la: [Environment]::SetEnvironmentVariable('YURUNA_VIRTUAL_DISPLAY', $null, 'Machine'); $env:YURUNA_VIRTUAL_DISPLAY = $null",
   "host.operator_0618b9b886f5f3d1": [
     "1. Uma janela Finder abriu com '",
     {
@@ -332,17 +332,17 @@ const DataptBRhost = `{
     },
     ".utm' selecionado."
   ],
-  "host.operator_06397ff6173863e8": "Proxy da máquina: Windows WinINet (ProxyEnable/Server/Override) e HTTP PROXY/HTTPS PROXY/NO PROXY env vars apagados",
+  "host.operator_06397ff6173863e8": "Proxy da máquina: Windows WinINet (ProxyEnable/Server/Override) e HTTP_PROXY/HTTPS_PROXY/NO_PROXY env vars apagados",
   "host.operator_0650f798a0996483": "senha: (no cofre de autenticação em 'download-agent-service-admin')",
-  "host.operator_06786a3211f6200f": "Salvar- VMDiskSnapshot: qemu- img não no PATH (brew install qemu).",
+  "host.operator_06786a3211f6200f": "Save-VMDiskSnapshot: qemu-img não no PATH (brew install qemu).",
   "host.operator_06870ad7a1059861": [
-    "O '",
+    "Remove-Item '",
     {
       "arg": "vmDir",
       "type": "detail",
       "trust": "external"
     },
-    "' foi mal- sucedido: ",
+    "' falhou: ",
     {
       "arg": "value",
       "type": "detail",
@@ -398,10 +398,10 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "', que está faltando ou não tem porta de uplink físico -- os hóspedes nele nunca podem obter DHCP. Re-run test/service/Start-CachingProxyServiceVM.ps1 (ele cura ou Reconstrui a ponte), ou rebole a ponte por host/ubuntu.kvm/guest.caching-proxy-service/README.md."
+    "', que está faltando ou não tem porta de uplink físico -- os convidados nele nunca podem obter DHCP. Re-run test/service/Start-CachingProxyServiceVM.ps1 (ele cura ou Reconstrui a ponte), ou rebole a ponte por host/ubuntu.kvm/guest.caching-proxy-service/README.md."
   ],
   "host.operator_08e327b03f39d8c6": [
-    "Renomear- VM: Renomear- VM falhou: ",
+    "Rename-VM: o Rename-VM do Hyper-V falhou: ",
     {
       "arg": "message",
       "type": "detail",
@@ -574,7 +574,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_0cd05bb2d7614998": [
-    "não realizado Msvm VirtualSystemSettingData for '",
+    "não realizado Msvm_VirtualSystemSettingData for '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -589,7 +589,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "/ (Baixar a piscina)"
+    "/ (grupo de downloads)"
   ],
   "host.operator_0d8dc260f5da53ac": [
     "O pacote UTM não foi encontrado: ",
@@ -607,7 +607,7 @@ const DataptBRhost = `{
     "' ainda está registrado não pôde ser determinado (probe negada, cronometrada ou não reconhecida). Resolva a responsividade do próprio UTM antes de criar ou excluir Qualquer coisa."
   ],
   "host.operator_0da6776e773e7f47": "No-op no macOS UTM (gerido pela VMnet)",
-  "host.operator_0da8dccbc6a8c66f": "Renomear-VM: virsh define com XML reescrito falhou; domínio renomeado, mas caminhos de disco e endereço NIC ainda carregam os valores do nome antigo.",
+  "host.operator_0da8dccbc6a8c66f": "Rename-VM: virsh define com XML reescrito falhou; domínio renomeado, mas caminhos de disco e endereço NIC ainda carregam os valores do nome antigo.",
   "host.operator_0dbaee5477554260": [
     "Parando o encaminhador (Pid ",
     {
@@ -636,7 +636,7 @@ const DataptBRhost = `{
   "host.operator_0e3e389832dbc97d": "NetworkManager not active -- tentando o caminho do netplan.",
   "host.operator_0e6be99a1c64ed77": ".NET DefaultWebProxy resolução (o que Invoke-WebRequest realmente usa):",
   "host.operator_0e7d8993e0f54ff9": [
-    "Inválido - Cores '",
+    "Inválido -Cores '",
     {
       "arg": "cores",
       "type": "detail",
@@ -654,7 +654,7 @@ const DataptBRhost = `{
     "' não é um endereço IPv4 válido (netsh portproxy v4tov4 não pode ponte IPv6 destinos) -- pulando."
   ],
   "host.operator_0ef104304974ce38": [
-    "Renomear-VM: domínio fonte '",
+    "Rename-VM: domínio fonte '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -701,7 +701,7 @@ const DataptBRhost = `{
     ")"
   ],
   "host.operator_1043864cdd7a3dc7": "Monitor: ssh para a VM, em seguida, 'squidclient mgr:info' (UI web caiu no Ubuntu 26.04)",
-  "host.operator_104d2f01a997342c": "Amazon Linux 2023 não tem imagem ARM64 com capacidade para hiper-V: o KVM qcow2 obtido abaixo converte bem, mas as botas para um dispositivo Dracut esperam, porque seu kernel aarch64 não carrega drivers Hyper-V. Execute este convidado no host.macos.utm ou host.ubuntu.kvm para cobertura ARM64. Veja documentos/host-hyperv.md.",
+  "host.operator_104d2f01a997342c": "Amazon Linux 2023 não tem imagem ARM64 com capacidade para hiper-V: o KVM qcow2 obtido abaixo converte bem, mas as botas para um dispositivo Dracut esperam, porque seu kernel aarch64 não carrega drivers Hyper-V. Execute este convidado no host.macos.utm ou host.ubuntu.kvm para cobertura ARM64. Veja docs/host-hyperv.md.",
   "host.operator_1050eecd3dbb16e4": [
     "Baixar agente no ",
     {
@@ -794,9 +794,9 @@ const DataptBRhost = `{
     },
     "'"
   ],
-  "host.operator_123fb1ab620bc2d4": "Usando a rede 'default' da libvirt NAT (192.168.122/24). A VM do serviço de controle de piscina é acessível somente a partir desta máquina e o NAS provavelmente não é routável; defina uma rede 'yuruna- external' para LAN + NAS acesso.",
+  "host.operator_123fb1ab620bc2d4": "Usando a rede 'default' da libvirt NAT (192.168.122/24). A VM do serviço de controle de grupo é acessível somente a partir desta máquina e o NAS provavelmente não é routável; defina uma rede 'yuruna-external' para LAN + NAS acesso.",
   "host.operator_126a49ca0c55779b": [
-    "Retomar-YurunaServiceVM: '",
+    "Resume-YurunaServiceVM: '",
     {
       "arg": "name",
       "type": "detail",
@@ -808,11 +808,11 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " Cada hóspede que consome irá falhar até que esteja em execução."
+    " Cada convidado que consome irá falhar até que esteja em execução."
   ],
   "host.operator_126b9e222d96af9b": "sua própria ponte (192.168.64.x, 192.168.65.x, ...) que não roteiam",
   "host.operator_127df62fba83d1e0": [
-    "systemctl enable -- now ",
+    "systemctl enable --now ",
     {
       "arg": "sock",
       "type": "detail",
@@ -827,7 +827,7 @@ const DataptBRhost = `{
     " não exposto."
   ],
   "host.operator_12924e738438f274": "Remover VM",
-  "host.operator_12968989b3705520": "A criação da ponte falhou. A configuração NIC original da máquina foi restaurada pelo rollback da infra- estrutura falhando. Veja as mensagens acima para o erro específico da ferramenta.",
+  "host.operator_12968989b3705520": "A criação da ponte falhou. A configuração NIC original da máquina foi restaurada pelo rollback da infraestrutura falhando. Veja as mensagens acima para o erro específico da ferramenta.",
   "host.operator_12c1c9adfaecb9b1": [
     "Varredura de resíduos ignorada: '",
     {
@@ -853,7 +853,7 @@ const DataptBRhost = `{
     "' recupera)."
   ],
   "host.operator_13283fba83b986c8": "Para ativar o cache, execute: test/service/Start-CachingProxyServiceVM.ps1",
-  "host.operator_133c681126464a2b": "Get-GuestReachableHostIp: -NetworkMode Bridged mas este host não tem IPv4 de rota padrão; um hóspede ponte não tem endereço para contatá-lo.",
+  "host.operator_133c681126464a2b": "Get-GuestReachableHostIp: -NetworkMode Bridged mas este host não tem IPv4 de rota padrão; um convidado ponte não tem endereço para contatá-lo.",
   "host.operator_135befd0132343f2": [
     "Arquivo de checksum não publicado em ",
     {
@@ -890,7 +890,7 @@ const DataptBRhost = `{
     "%)"
   ],
   "host.operator_13cb024dfb19c946": [
-    "Salvar- VMDiskSnapshot: não *.qcow2 discos sob ",
+    "Save-VMDiskSnapshot: não *.qcow2 discos sob ",
     {
       "arg": "dataDir",
       "type": "detail",
@@ -950,7 +950,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " sem uma senha. Executar: sudo kill - 9 ",
+    " sem uma senha. Executar: sudo kill -9 ",
     {
       "arg": "forwarderPid",
       "type": "detail",
@@ -973,7 +973,7 @@ const DataptBRhost = `{
     " está ligado a ele. Saltando: um rebind largaria sua operadora."
   ],
   "host.operator_15b9626a689d8633": [
-    "Renomear-VM: config.plist fonte não encontrado em '",
+    "Rename-VM: config.plist fonte não encontrado em '",
     {
       "arg": "srcConfig",
       "type": "detail",
@@ -981,7 +981,7 @@ const DataptBRhost = `{
     },
     "'."
   ],
-  "host.operator_15c7a852ad128a63": "O qemu- img falhou. Instale as ferramentas QEMU com: brew install qemu",
+  "host.operator_15c7a852ad128a63": "O qemu-img falhou. Instale as ferramentas QEMU com: brew install qemu",
   "host.operator_15cdc9f7300def05": "== pool-control-service VM pacote criado ==",
   "host.operator_16535972b42d607b": "host/macos.utm/guest.download-agent-service/Get-Image.ps1 só é executado no macOS UTM.",
   "host.operator_16656037757bbcc2": [
@@ -991,7 +991,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' (a sua ponte host é inutilizável). Os hóspedes voltam para o 'default' NAT até que uma re- execução reconstrua a ponte."
+    "' (a sua ponte host é inutilizável). Os convidados voltam para o 'default' NAT até que uma re-execução reconstrua a ponte."
   ],
   "host.operator_16a11cbfeabe41ff": [
     "Remove-UtmTestVM: pacote ainda presente após repetições: ",
@@ -1037,7 +1037,7 @@ const DataptBRhost = `{
   "host.operator_17b5ae6b7de1d3d8": "Criar o vSwitch Externo na rota padrão NIC",
   "host.operator_17be5c98af6eef11": "Os seguintes pacotes .utm NÃO estão associados a qualquer VM UTM registrada:",
   "host.operator_17f44b8d51c1771c": "o corpo do checksum estava vazio",
-  "host.operator_1809ac610f9f348c": "Pare a VM Hyper-V (desligamento do hóspede, aumentando para forçar)",
+  "host.operator_1809ac610f9f348c": "Pare a VM Hyper-V (desligamento do convidado, aumentando para forçar)",
   "host.operator_184c1b1b54f3870b": "que NÃO estão registrados com libvirt.",
   "host.operator_18ab1c2a314eaf6a": [
     "Capturadas configurações anteriores do host para ",
@@ -1046,7 +1046,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " (desativar-TestAutomation restaura a partir dele)."
+    " (Disable-TestAutomation restaura a partir dele)."
   ],
   "host.operator_191b359ad430e736": [
     "A rede libvirt '",
@@ -1087,7 +1087,7 @@ const DataptBRhost = `{
     "'."
   ],
   "host.operator_1a0bab74e1794b2b": "host/macos.utm/guest.ubuntu.server.24/Get-Image.ps1 só é executado no macOS UTM.",
-  "host.operator_1a34f423edf48db4": "Naves UTM.app utmctl em: /Aplicações/UTM.app/Conteúdo/MacOS/utmctl",
+  "host.operator_1a34f423edf48db4": "Naves UTM.app utmctl em: /Applications/UTM.app/Contents/MacOS/utmctl",
   "host.operator_1aa1ad3b20325e89": "Cache VM não será acessível da LAN por seu próprio IP, e clientes remotos roteados via netsh portproxy aparecerão como vEthernet IP do host no access.log do squid (ver docs/caching.md).",
   "host.operator_1ad0986987127caa": "Não foi possível determinar a versão UTM. Certifique-se de que UTM v4.6.0 ou posterior está instalado.",
   "host.operator_1af721e69b7a4d55": [
@@ -1108,7 +1108,7 @@ const DataptBRhost = `{
     "'"
   ],
   "host.operator_1b2ab5d91cb086fd": [
-    "Restaurar- VMDiskSnapshot: Restaurar- VMCheckpoint falhou para '",
+    "Restore-VMDiskSnapshot: Restore-VMCheckpoint falhou para '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -1139,7 +1139,7 @@ const DataptBRhost = `{
   "host.operator_1bb9777911767c4b": "Limpar o 'proxy' (preserva o backup)",
   "host.operator_1bba161bfe1aef2a": "o servidor, instala pwsh + o pool-admin CLIs, CIFS-monta o NAS pool para",
   "host.operator_1bf94e57cf95ae30": [
-    "Restaurar- VMDiskSnapshot: o 'snapshot- revert' do virsh falhou para '",
+    "Restore-VMDiskSnapshot: o 'snapshot-revert' do virsh falhou para '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -1198,7 +1198,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_1db4026c87e87900": [
-    "Resolução-UtmConvidadoIpByMac: plist do pacote não encontrado no ",
+    "Resolve-UtmGuestIpByMac: plist do pacote não encontrado no ",
     {
       "arg": "plistPath",
       "type": "detail",
@@ -1208,7 +1208,7 @@ const DataptBRhost = `{
   ],
   "host.operator_1deaa24f39b6e1b2": "2. Selecione 'Windows 11 (multi-edição ISO para dispositivos x64)'",
   "host.operator_1dec325a446dd0f7": [
-    "Nome de arquivo, URL, contagem de bytes gravados e Última modificação para: ",
+    "Nome de arquivo, URL, contagem de bytes gravados e Last-Modified para: ",
     {
       "arg": "baseImageOrigin",
       "type": "detail",
@@ -1232,7 +1232,7 @@ const DataptBRhost = `{
   ],
   "host.operator_1e2a4e011d506e01": "host/macos.utm/guest.caching-proxy-service/Get-Image.ps1 só é executado no macOS UTM.",
   "host.operator_1e2f99261b1a1683": [
-    "Send-Text - Mechanism gui: Test.SequenceEngine.psm1 não encontrado em '",
+    "Send-Text -Mechanism gui: Test.SequenceEngine.psm1 não encontrado em '",
     {
       "arg": "sequenceEngine",
       "type": "detail",
@@ -1328,13 +1328,13 @@ const DataptBRhost = `{
   ],
   "host.operator_1fd3d6987faac1a7": "host/ubuntu.kvm/guest.pool-control-service/Get-Image.ps1 só é executado no Ubuntu KVM.",
   "host.operator_2098089a9d722ad9": [
-    "chave de autenticação interna: o cofre desta máquina não tinha nenhum, de modo que uma chave NEW lab- wide foi cunhada e armazenada (vaultKey '",
+    "chave de autenticação interna: o cofre desta máquina não tinha nenhum, de modo que uma chave NEW lab-wide foi cunhada e armazenada (vaultKey '",
     {
       "arg": "vaultKey",
       "type": "detail",
       "trust": "external"
     },
-    "'). Qualquer máquina matriculada contra um proxy anterior ainda possui a chave OLD: essas máquinas mostram como 'onsite (token mismatch)' no painel de máquinas Yuruna e seus links Host respondem 403 até que cada um re-introduz (pwsh test/lab/Set-LabToken.ps1). Para manter a chave que o pool já compartilha, construa o proxy de um O anfitrião que o segura."
+    "'). Qualquer máquina matriculada contra um proxy anterior ainda possui a chave OLD: essas máquinas mostram como 'onsite (token mismatch)' no painel de máquinas Yuruna e seus links Host respondem 403 até que cada um re-introduz (pwsh test/lab/Set-LabToken.ps1). Para manter a chave que o pool já compartilha, construa o proxy de um O hospedeiro que o segura."
   ],
   "host.operator_20be2f035272a5ea": [
     "Iniciando o encaminhamento do espaço de usuário: ",
@@ -1345,13 +1345,13 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_20cc4b8c9d8b0a89": [
-    "Falha na instalação do apt- get (saída ",
+    "Falha na instalação do apt-get (saída ",
     {
       "arg": "lASTEXITCODE",
       "type": "detail",
       "trust": "external"
     },
-    "). Execute- a manualmente: ",
+    "). Execute-a manualmente: ",
     {
       "arg": "aptLine",
       "type": "detail",
@@ -1359,7 +1359,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_20dac0c25f3fe7a9": [
-    "Renomear-VM: O relançamento UTM não supervisionou '",
+    "Rename-VM: O relançamento UTM não supervisionou '",
     {
       "arg": "newName",
       "type": "detail",
@@ -1367,9 +1367,9 @@ const DataptBRhost = `{
     },
     "' dentro do tempo limite."
   ],
-  "host.operator_20e79763dcd1fd23": "O usuário libvirt- qemu não foi encontrado -- pulando o passo do search- ACL. (O libvirt- daemon- system está instalado?)",
+  "host.operator_20e79763dcd1fd23": "O usuário libvirt-qemu não foi encontrado -- pulando o passo do search-ACL. (O libvirt-daemon-system está instalado?)",
   "host.operator_20ed766361c51090": [
-    "Não existe directório VM no '",
+    "Não existe diretório VM no '",
     {
       "arg": "vmRoot",
       "type": "detail",
@@ -1417,7 +1417,7 @@ const DataptBRhost = `{
   ],
   "host.operator_22ca18573ae3e913": "Baixando o Windows 11 ISO",
   "host.operator_22ea2e011669030a": [
-    "Restaurar-VMDiskSnapshot: sem instantâneo '",
+    "Restore-VMDiskSnapshot: sem instantâneo '",
     {
       "arg": "id",
       "type": "detail",
@@ -1444,11 +1444,11 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' não tem NO\nLAN uplink físico (apenas as portas de toque de hóspedes estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM do serviço de stash não foi iniciada."
+    "' não tem NO\nLAN uplink físico (apenas as portas de toque de convidados estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM do serviço de stash não foi iniciada."
   ],
   "host.operator_2335b1b944e3bce8": "Verificando SHA-256 contra o checksum da editora...",
   "host.operator_235282ccbea4652f": [
-    "Remover- VM: não foi possível apagar '",
+    "Remove-VM: não foi possível apagar '",
     {
       "arg": "vmDir",
       "type": "detail",
@@ -1470,7 +1470,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' não obteve um endereço IP em 10 minutos.\nAcedendo à VM para depuração:\n* Console: virt-viewer -- connect ",
+    "' não obteve um endereço IP em 10 minutos.\nAcedendo à VM para depuração:\n* Console: virt-viewer --connect ",
     {
       "arg": "virshUri",
       "type": "detail",
@@ -1510,7 +1510,7 @@ const DataptBRhost = `{
     "' após vmwp.exe kill."
   ],
   "host.operator_2401d57af4c6cd28": "Grant Screen Recording permissão para o seu terminal.",
-  "host.operator_2407762573afa1d1": "O sudoers de armazenamento de piscina cair, se um foi instalado",
+  "host.operator_2407762573afa1d1": "O sudoers de armazenamento de grupo cair, se um foi instalado",
   "host.operator_243943232cde57ac": [
     "A máquina tem núcleos ",
     {
@@ -1521,7 +1521,7 @@ const DataptBRhost = `{
     "; Yuruna requer pelo menos 4. Veja https://yuruna.link/42fa6f45-0015"
   ],
   "host.operator_2443a2232e97400d": [
-    "Restaurar-VMDiskSnapshot: não *.qcow2 discos sob ",
+    "Restore-VMDiskSnapshot: não *.qcow2 discos sob ",
     {
       "arg": "dataDir",
       "type": "detail",
@@ -1648,7 +1648,7 @@ const DataptBRhost = `{
   ],
   "host.operator_29aa1547e4e4c25c": "Instalá-los agora com o apt-get? [y/N]",
   "host.operator_29c6b97f1b20760c": "Confirmar a conclusão com 'squidclient mgr:storedir'",
-  "host.operator_29fdf0ffc1344091": "O YURUNA  VIRTUAL  DISPLAY não está activo. Deixe- o desligado se esta máquina tiver sempre uma\nmonitor conectado enquanto os testes são executados. Se ele funcionar SEM uma conexão\ndisplay (caixa sem cabeça, tampa de laptop fechada, ou um interruptor KVM que pode soltar o\nmonitor do meio de execução), habilitá-lo para que cada ciclo de teste acoples um display virtual e\nCaptura de ecrã/OCR não é totalmente preto:\n\n# persistir nas sessões (este programa corre elevado). O corredor lê isto\n# escopo diretamente, então ele faz efeito no próximo ciclo mesmo quando lançado a partir\n# esta shell -- embora 'dir env:' não a mostre até abrir um novo terminal:\n[Ambiente]::SetAmbienteVariável('YURUNA VIRTUAL DISPLAY', 'true', 'Machine')\n\nOu apenas esta concha, para uma corrida única (não persistiu):\n$env:YURUNA VIRTUAL DISPLAY = 'true'\n\nVeja docs/host-hyperv.md para o que ele atribui (check-sum-pined usbmmidd v2) e os retrocessos manuais.",
+  "host.operator_29fdf0ffc1344091": "O YURUNA_VIRTUAL_DISPLAY não está activo. Deixe-o desligado se esta máquina tiver sempre uma\nmonitor conectado enquanto os testes são executados. Se ele funcionar SEM uma conexão\ndisplay (caixa sem cabeça, tampa de laptop fechada, ou um interruptor KVM que pode soltar o\nmonitor do meio de execução), habilitá-lo para que cada ciclo de teste acoples um display virtual e\nCaptura de tela/OCR não é totalmente preto:\n\n# persistir nas sessões (este programa corre elevado). O corredor lê isto\n# escopo diretamente, então ele faz efeito no próximo ciclo mesmo quando lançado a partir\n# esta shell -- embora 'dir env:' não a mostre até abrir um novo terminal:\n[Environment]::SetEnvironmentVariable('YURUNA_VIRTUAL_DISPLAY', 'true', 'Machine')\n\n# ou apenas nesta sessão, para uma execução única (não persistente):\n$env:YURUNA_VIRTUAL_DISPLAY = 'true'\n\nVeja docs/host-hyperv.md para o que ele atribui (check-sum-pined usbmmidd_v2) e os retrocessos manuais.",
   "host.operator_2a896884b1a21323": [
     "VMs registadas UTM: ",
     {
@@ -1691,7 +1691,7 @@ const DataptBRhost = `{
     "\n\nRecusar-se a prosseguir -- um utmctl que não pode pedir que o UTM seja mal classificado\nCada VM registada como órfão e -Force apagaria os pacotes.\nExecutar de uma sessão Terminal/iTerm (NOT SSH), após o lançamento do UTM.app\ne um usuário está logado graficamente. Se solicitado, conceda acesso ao pwsh\nConfigurações do sistema -> Privacidade e Segurança -> Automação -> pwsh -> UTM.\nSe UTM está em alta e isso persiste, a solicitação é timing out em vez de\nsendo negado -- tente novamente quando UTM.app estiver respondendo."
   ],
   "host.operator_2c0350b2a7b87558": [
-    "sshd está desactivado), por isso alcance-o com scp: scp ./file user@",
+    "sshd está desativado), por isso alcance-o com scp: scp ./file user@",
     {
       "arg": "dockIp",
       "type": "detail",
@@ -1730,11 +1730,11 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " 'sudo tail - f /var/log/cloud-init-output.log'"
+    " 'sudo tail -f /var/log/cloud-init-output.log'"
   ],
   "host.operator_2ddcdf5273a49efa": "Proxy da máquina: proxy do macOS desabilitado (sem backup para restaurar)",
   "host.operator_2de7d46428ba0823": [
-    "A conversão do qemu- img falhou (saída ",
+    "A conversão do qemu-img falhou (saída ",
     {
       "arg": "lASTEXITCODE",
       "type": "detail",
@@ -1750,7 +1750,7 @@ const DataptBRhost = `{
   "host.operator_2decf002384b9408": "host/ubuntu.kvm/guest.download-agent-service/Get-Image.ps1 só é executado no Ubuntu KVM.",
   "host.operator_2df007db68e91e6d": "qemu-img não foi encontrado. Instale o QEMU para Windows (winget install SoftwareFreedomConservancy.QEMU) ou adicione qemu-img ao PATH.",
   "host.operator_2dfa662521f0753f": [
-    "Pasta VHDX padrão do Hyper- V: ",
+    "Pasta VHDX padrão do Hyper-V: ",
     {
       "arg": "downloadDir",
       "type": "detail",
@@ -1800,7 +1800,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' mantém seu uplink, mas não tem locação IPv4 depois de 30 s. Os hóspedes nele ainda podem DHCP (seus pedidos de ponte direto para a LAN); somente a acessibilidade host->guest é degradada. ",
+    "' mantém seu uplink, mas não tem locação IPv4 depois de 30 s. Os convidados nele ainda podem DHCP (seus pedidos de ponte direto para a LAN); somente a acessibilidade host->guest é degradada. ",
     {
       "arg": "bridgeName",
       "type": "detail",
@@ -1843,7 +1843,7 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_30f614d6e42fae94": "Instalar com: xcode- select -- install",
+  "host.operator_30f614d6e42fae94": "Instalar com: xcode-select --install",
   "host.operator_3116a0bcc76026cb": [
     "Caching-proxy service '",
     {
@@ -1873,7 +1873,7 @@ const DataptBRhost = `{
   ],
   "host.operator_313ce3a59f817c8a": "host/windows.hyper-v/guest.pool-control-service/Get-Image.ps1 só é executado no Windows Hyper-V.",
   "host.operator_314ad0568cf5e5b2": [
-    "O Windows 11 no KVM só é suportado em máquinas x86 64 (esta máquina é ",
+    "O Windows 11 no KVM só é suportado em máquinas x86_64 (esta máquina é ",
     {
       "arg": "arch",
       "type": "detail",
@@ -1882,7 +1882,7 @@ const DataptBRhost = `{
     "). Use o convidado macOS UTM para ARM64."
   ],
   "host.operator_31ab5c2f0d63be27": [
-    "Proxy da máquina: Windows HKCU WiniNet + HTTP PROXY/HTTPS PROXY/NO PROXY configurado para ",
+    "Proxy da máquina: Windows HKCU WiniNet + HTTP_PROXY/HTTPS_PROXY/NO_PROXY configurado para ",
     {
       "arg": "url",
       "type": "detail",
@@ -1906,7 +1906,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ") -- bridged não pode obter uma locação LAN sobre Wi-Fi; construindo a VM de serviço de controle de piscina em UTM Shared NAT. Start-PoolControlServiceVM.ps1 enviará uma porta host para ela para acesso LAN."
+    ") -- bridged não pode obter uma locação LAN sobre Wi-Fi; construindo a VM de serviço de controle de grupo em UTM Shared NAT. Start-PoolControlServiceVM.ps1 enviará uma porta host para ela para acesso LAN."
   ],
   "host.operator_32c598c080522dc9": "Hyper-V Virtual Machine Management service (vmms) não encontrado. Hyper-V provavelmente precisa de uma reinicialização após habilitar.",
   "host.operator_3344aaf03bd51440": [
@@ -1976,7 +1976,7 @@ const DataptBRhost = `{
   "host.operator_352ce8880d1aa08c": "Cloud-init monta o stash share, busca o framework e executa o",
   "host.operator_3536af02f16ccf66": "host/macos.utm/guest.ubuntu.server.26/Get-Image.ps1 só é executado no macOS UTM.",
   "host.operator_355f6d92ffafef75": [
-    "Resolver-UtmConvidadoIpByMac: MacAddress '",
+    "Resolve-UtmGuestIpByMac: MacAddress '",
     {
       "arg": "ourMacRaw",
       "type": "detail",
@@ -1992,7 +1992,7 @@ const DataptBRhost = `{
   ],
   "host.operator_356561278d80158b": "openssl é necessário para o hash senha autoinstall. apt install openssl.",
   "host.operator_3566f32ac9581467": [
-    "Restaurar- VMDiskSnapshot: qemu- img snapshot - a failed for ",
+    "Restore-VMDiskSnapshot: qemu-img snapshot -a failed for ",
     {
       "arg": "name",
       "type": "detail",
@@ -2065,7 +2065,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "'; execute: sudo chown - R ",
+    "'; execute: sudo chown -R ",
     {
       "arg": "sudoUser",
       "type": "detail",
@@ -2181,7 +2181,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_3aa815d3eed4c968": [
-    "Falha ao novo VMSwitch: ",
+    "Falha ao New-VMSwitch: ",
     {
       "arg": "message",
       "type": "detail",
@@ -2222,7 +2222,7 @@ const DataptBRhost = `{
     " (não está no disco)"
   ],
   "host.operator_3d4bd722f2cfda09": [
-    "Gravar- VMDiskSnapshot: o instantâneo '",
+    "Save-VMDiskSnapshot: o instantâneo '",
     {
       "arg": "id",
       "type": "detail",
@@ -2271,7 +2271,7 @@ const DataptBRhost = `{
   ],
   "host.operator_3e3de8bf7b8f6ba1": "Este script requer elevação (Executa como Administrador).",
   "host.operator_3e974f3b27099a83": [
-    "Consola: virt- viewer -- connect ",
+    "Consola: virt-viewer --connect ",
     {
       "arg": "virshUri",
       "type": "detail",
@@ -2344,7 +2344,7 @@ const DataptBRhost = `{
   ],
   "host.operator_3fe3cd93d9d34a34": "entre si. Uma VM concorrente pode então dividir os convidados de teste em",
   "host.operator_410c0c308f73c958": [
-    "libvirt- qemu pesquisa ACL no ",
+    "libvirt-qemu pesquisa ACL no ",
     {
       "arg": "hOME",
       "type": "detail",
@@ -2475,7 +2475,7 @@ const DataptBRhost = `{
     },
     " é o artefato atual virtio-win"
   ],
-  "host.operator_4449d0e3b35c0780": "Estado de serviço Hyper- V e vmms (o bootstrapper ativou estes, não Habilitar a Automação de Teste)",
+  "host.operator_4449d0e3b35c0780": "Estado de serviço Hyper-V e vmms (o bootstrapper ativou estes, não Enable-TestAutomation)",
   "host.operator_44815e503565a001": [
     "O retorno do '",
     {
@@ -2489,13 +2489,13 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ". Esta máquina pode estar fora da rede -- precisa de acesso à consola: Remove- VMSwitch - Nome '",
+    ". Esta máquina pode estar fora da rede -- precisa de acesso à consola: Remove-VMSwitch -Name '",
     {
       "arg": "switchName",
       "type": "detail",
       "trust": "external"
     },
-    "' - Força"
+    "' -Force"
   ],
   "host.operator_448cdaf2e660e77c": "virsh --source lease : disponível (libvirt serve DHCP nesta rede)",
   "host.operator_4496ea1417ee8739": "Auto-cura via netplan não restaurar o uplink. Desfazer a tentativa, em seguida, reconstruir a ponte do zero.",
@@ -2548,13 +2548,13 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' 0; Resize- VHD - Caminho '",
+    "' 0; Resize-VHD -Path '",
     {
       "arg": "destPath",
       "type": "detail",
       "trust": "external"
     },
-    "' - TamanhoBytes ",
+    "' -SizeBytes ",
     {
       "arg": "sizeBytes",
       "type": "detail",
@@ -2597,7 +2597,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_476ac9f4728142ba": [
-    "Renomear-VM: fonte VM '",
+    "Rename-VM: fonte VM '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -2683,13 +2683,13 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' e o anfitrião manteve a sua rota, mas o interruptor ainda relata '",
+    "' e o hospedeiro manteve a sua rota, mas o interruptor ainda relata '",
     {
       "arg": "after",
       "type": "detail",
       "trust": "external"
     },
-    "'. Os hóspedes ficam no recuo."
+    "'. Os convidados ficam no recuo."
   ],
   "host.operator_4880208ccfe2334e": [
     "O download falhou por ",
@@ -2724,7 +2724,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' permanece definido mas inativo; os hóspedes retornam ao 'default' NAT até que uma re-run reconstrua a ponte."
+    "' permanece definido mas inativo; os convidados retornam ao 'default' NAT até que uma re-run reconstrua a ponte."
   ],
   "host.operator_49b535bc8f7577f0": "estado do proxy do macOS",
   "host.operator_4a504bc63a8df63c": "virsh, utilizado por cada etapa do ciclo de vida da MV",
@@ -2797,9 +2797,9 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_4b8f66555bd13ab8": "== Serviço de controle de piscina VM inicializado (rede; daemon ainda construindo em-convidado) ==",
+  "host.operator_4b8f66555bd13ab8": "== Serviço de controle de grupo VM inicializado (rede; daemon ainda construindo em-convidado) ==",
   "host.operator_4b9f3935d5cddbc4": [
-    "Gravar- VMDiskSnapshot: a remoção do checkpoint anterior '",
+    "Save-VMDiskSnapshot: a remoção do checkpoint anterior '",
     {
       "arg": "id",
       "type": "detail",
@@ -2819,7 +2819,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " não está ativo e o root não é acessível sem uma senha. Execute o 'sudo systemctl enable -- now ",
+    " não está ativo e o root não é acessível sem uma senha. Execute o 'sudo systemctl enable --now ",
     {
       "arg": "unit",
       "type": "detail",
@@ -2852,7 +2852,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_4de7942157cfd862": [
-    "scutil -- proxy falhou: ",
+    "scutil --proxy falhou: ",
     {
       "arg": "message",
       "type": "detail",
@@ -2860,7 +2860,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_4e18f285f91cd947": [
-    "Gravar- VMDiskSnapshot: snapshot qemu- img - c falhou para ",
+    "Save-VMDiskSnapshot: qemu-img snapshot -c falhou para ",
     {
       "arg": "name",
       "type": "detail",
@@ -2912,12 +2912,12 @@ const DataptBRhost = `{
   ],
   "host.operator_4f80523f8f0b08bf": "'script' de introdução. Uma vez terminado, o servidor 'shock' possui 22 (o SO",
   "host.operator_4f836dfb9d84f4e5": "networkStorage pool: networkPath/networkUser contém uma única citação; skipping caching-proxy service replication.",
-  "host.operator_4fcc5a4693566633": "Para parar esta recorrente: re-run com YURUNA EXTERNAL BRIDGE SKIP=1,",
+  "host.operator_4fcc5a4693566633": "Para parar esta recorrente: re-run com YURUNA_EXTERNAL_BRIDGE_SKIP=1,",
   "host.operator_4ffbf7056dde8493": "Send-Key -Mechanism ssh: não é significativo para SSH (use Send-Text com o comando digitado).",
   "host.operator_500559b43c00e9b5": "Uma ou mais VMs UTM estão em execução atualmente:",
   "host.operator_503158d3bf5fcbd6": "Excluir a regra de serviço de status Yuruna adicionada",
   "host.operator_50978cbbff00be18": [
-    "Renomear-VM: PlistBuddy não pôde atualizar o registro UTM para UUID ",
+    "Rename-VM: PlistBuddy não pôde atualizar o registro UTM para UUID ",
     {
       "arg": "uuid",
       "type": "detail",
@@ -2952,7 +2952,7 @@ const DataptBRhost = `{
     "'"
   ],
   "host.operator_5104cefeb7625d7d": [
-    "Renomear-VM: fonte VM '",
+    "Rename-VM: fonte VM '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -2981,7 +2981,7 @@ const DataptBRhost = `{
   ],
   "host.operator_521642cda75605a9": "no pacote (mais comumente o mmap'd disk.img). Verifique com:",
   "host.operator_524e2803f12e1efa": [
-    "Renomear-VM: fonte VM '",
+    "Rename-VM: fonte VM '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -2990,7 +2990,7 @@ const DataptBRhost = `{
     "' não registrado com UTM."
   ],
   "host.operator_52bc6c4a54214905": [
-    "captura de tela - R '",
+    "screencapture -R '",
     {
       "arg": "boundsResult",
       "type": "detail",
@@ -3035,7 +3035,7 @@ const DataptBRhost = `{
   "host.operator_53cb004a6b8ce8fe": "Pré-aquecimento ainda pode estar em execução no fundo (pulling",
   "host.operator_540894cbcc3a0f70": "A leitura da miniatura WMI não devolveu dados da imagem",
   "host.operator_5470b2647c701ca1": [
-    "O redimensionamento do qemu- img falhou: ",
+    "O redimensionamento do qemu-img falhou: ",
     {
       "arg": "resizeOut",
       "type": "detail",
@@ -3063,7 +3063,7 @@ const DataptBRhost = `{
   ],
   "host.operator_557888cda7f096ec": "1. Aberto: https://docs.getutm.app/guest-support/windows/",
   "host.operator_55ad2133fb65eb83": "Este script apaga arquivos de seus caminhos de armazenamento Hyper-V",
-  "host.operator_5657b68f115e9443": "Registo de proxy da máquina Windows",
+  "host.operator_5657b68f115e9443": "Registro de proxy da máquina Windows",
   "host.operator_56774322cef868bc": [
     "O DHCP renove no 'vEthernet (",
     {
@@ -3083,7 +3083,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "'). Verifique o DHCP nesse segmento; os hóspedes ficam no retorno."
+    "'). Verifique o DHCP nesse segmento; os convidados ficam no retorno."
   ],
   "host.operator_56aa4cd4e8221b7b": [
     "libvirt rede '",
@@ -3167,7 +3167,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_57c0e651cba9b6ec": [
-    "Parando hiper-V VM '",
+    "Parando Hyper-V VM '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -3193,7 +3193,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' agora tem um uplink LAN; os hóspedes na rede libvirt '",
+    "' agora tem um uplink LAN; os convidados na rede libvirt '",
     {
       "arg": "networkName",
       "type": "detail",
@@ -3217,7 +3217,7 @@ const DataptBRhost = `{
     "); voltando ao caminho Fido."
   ],
   "host.operator_5874e8355455ba51": [
-    "O Get- VMHost falhou (",
+    "O Get-VMHost falhou (",
     {
       "arg": "message",
       "type": "detail",
@@ -3235,15 +3235,15 @@ const DataptBRhost = `{
     "'."
   ],
   "host.operator_5956121984632a78": [
-    "Hyper- V não está habilitado (state: ",
+    "Hyper-V não está habilitado (state: ",
     {
       "arg": "state",
       "type": "detail",
       "trust": "external"
     },
-    "). Execute install\\ windows.hyper- v.ps1 e reinicie, então tente novamente."
+    "). Execute install\\windows.hyper-v.ps1 e reinicie, então tente novamente."
   ],
-  "host.operator_5a147a3482612cdd": "Inválido - MacAddress (ver aviso acima). Nada foi alterado.",
+  "host.operator_5a147a3482612cdd": "Inválido -MacAddress (ver aviso acima). Nada foi alterado.",
   "host.operator_5a3f633bc62da766": [
     "Usando a rede libvirt: ",
     {
@@ -3272,7 +3272,7 @@ const DataptBRhost = `{
       "type": "text",
       "trust": "internal"
     },
-    " GB este hóspede irá cobrar; esperando até ",
+    " GB este convidado irá cobrar; esperando até ",
     {
       "arg": "timeoutSeconds",
       "type": "detail",
@@ -3311,7 +3311,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_5c039b0b7884d16b": [
-    "Renomear-VM: pacote renomear '",
+    "Rename-VM: pacote renomear '",
     {
       "arg": "srcBundle",
       "type": "detail",
@@ -3385,7 +3385,7 @@ const DataptBRhost = `{
   ],
   "host.operator_5e0073f7baaa6926": "Iniciar a VM UTM (com repetição)",
   "host.operator_5e237b9eea6b9490": [
-    "Save- VMDiskSnapshot: pasta de dados do pacote UTM não encontrada: ",
+    "Save-VMDiskSnapshot: pasta de dados do pacote UTM não encontrada: ",
     {
       "arg": "dataDir",
       "type": "detail",
@@ -3393,7 +3393,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_5e409de2ac1c55b7": [
-    "Renomear-VM: não foi possível ler:Informações:UUID de '",
+    "Rename-VM: não foi possível ler:Informações:UUID de '",
     {
       "arg": "srcConfig",
       "type": "detail",
@@ -3521,7 +3521,7 @@ const DataptBRhost = `{
     ") -- bridged não pode obter uma locação LAN sobre Wi-Fi; construindo a VM stash-service em UTM Shared NAT. Start-StashServiceVM.ps1 enviará uma porta host para ela para acesso LAN."
   ],
   "host.operator_6288433a06ff55be": "A copiar a imagem da nuvem para o pacote como disk.qcow2 (clone APFS)...",
-  "host.operator_62a464c885f1b62c": "dockerhub- token: o nome ou o segredo da conta armazenada contém um caractere de controle, cotação ou retrocesso, que o arquivo de credencial JSON do hóspede não pode carregar inalterado; construindo com NENHUMA credencial Docker Hub. Armazene uma credencial limpa valor, em seguida, reconstruir.",
+  "host.operator_62a464c885f1b62c": "dockerhub-token: o nome ou o segredo da conta armazenada contém um caractere de controle, cotação ou retrocesso, que o arquivo de credencial JSON do convidado não pode carregar inalterado; construindo com NENHUMA credencial Docker Hub. Armazene uma credencial limpa valor, em seguida, reconstruir.",
   "host.operator_62b64e15fd55e2e0": [
     "Proxy da máquina: nenhum backup encontrado e não foi possível obter sudo (",
     {
@@ -3550,7 +3550,7 @@ const DataptBRhost = `{
   ],
   "host.operator_6341d2ccab253d90": "Próximas etapas:",
   "host.operator_6342d8c95fdb3c13": "A transferência não pôde ser verificada. Isto é uma falha de recolha, NÃO",
-  "host.operator_637c4dda4b9191b3": "setfacl, para que a libvirt- qemu possa atravessar o $HOME para alcançar os discos VM",
+  "host.operator_637c4dda4b9191b3": "setfacl, para que a libvirt-qemu possa atravessar o $HOME para alcançar os discos VM",
   "host.operator_63d92a5157f8b436": "screencapture produz arquivos vazios. Grant Screen Recording permission to your terminal:",
   "host.operator_640df0d6dcbb011e": [
     "O '",
@@ -3559,7 +3559,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' foi mal- sucedido (sair do ",
+    "' foi mal-sucedido (sair do ",
     {
       "arg": "lASTEXITCODE",
       "type": "detail",
@@ -3568,7 +3568,7 @@ const DataptBRhost = `{
     ")."
   ],
   "host.operator_641824f231dc3781": [
-    "Não foi possível armazenar uma chave de autenticação interna recém- cunhada no cofre desta máquina (keyChanged=",
+    "Não foi possível armazenar uma chave de autenticação interna recém-cunhada no cofre desta máquina (keyChanged=",
     {
       "arg": "keyChanged",
       "type": "detail",
@@ -3580,11 +3580,11 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "); construindo com um token EMPTY: o proxy não contará provas de controle, push-ingest fica desactivado, e o painel não mostra nenhum token de laboratório até que um seja fornecido e o proxy reconstruído."
+    "); construindo com um token EMPTY: o proxy não contará provas de controle, push-ingest fica desativado, e o painel não mostra nenhum token do laboratório até que um seja fornecido e o proxy reconstruído."
   ],
   "host.operator_641d4bde8dc788c6": "6. Clique no botão '64-bit Download'",
   "host.operator_6424990f88c7f7bc": [
-    "O Get- YurunaSshPublicKey voltou em branco. Localização do módulo: ",
+    "O Get-YurunaSshPublicKey voltou em branco. Localização do módulo: ",
     {
       "arg": "testSshModule",
       "type": "detail",
@@ -3667,7 +3667,7 @@ const DataptBRhost = `{
     "."
   ],
   "host.operator_653d2c6949f53ff7": [
-    "Gravar- VMDiskSnapshot: Checkpoint- VM falhou para '",
+    "Save-VMDiskSnapshot: Checkpoint-VM falhou para '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -3726,15 +3726,15 @@ const DataptBRhost = `{
     " condição(s) ainda precisam de um operador (listado acima)."
   ],
   "host.operator_66927d6a35f745c9": [
-    "Falha ao redimensionar- VHD: ",
+    "Falha ao Resize-VHD: ",
     {
       "arg": "message",
       "type": "detail",
       "trust": "external"
     },
-    "; voltando ao redimensionamento do qemu- img."
+    "; voltando ao redimensionamento do qemu-img."
   ],
-  "host.operator_66c7eec66542e844": "O BITS não está disponível ou falhou. A transferir com o Invoke- WebRequest...",
+  "host.operator_66c7eec66542e844": "O BITS não está disponível ou falhou. A transferir com o Invoke-WebRequest...",
   "host.operator_67084b575b89cc58": "A VM está pronta.",
   "host.operator_67195d8019562611": "Lançar o transitário TCP do lado da máquina",
   "host.operator_674e2bcb8e1b2df3": [
@@ -3746,7 +3746,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_6785c036dec5eccd": [
-    "O ajudante Swift não emite a linha MAC PLATFORM. O Stdout/stderr foi:\n",
+    "O ajudante Swift não emite a linha MAC_PLATFORM. O Stdout/stderr foi:\n",
     {
       "arg": "n",
       "type": "detail",
@@ -3755,7 +3755,7 @@ const DataptBRhost = `{
   ],
   "host.operator_67b2df91dc3bcc59": "Digite SIM para excluir todos os itens listados, ou qualquer outra coisa para cancelar",
   "host.operator_67dd1ec8d0469702": "A rede padrão libvirt e quaisquer convidados definidos nesta máquina",
-  "host.operator_67f1fe22f87fb1a8": "Restaurar- VMDiskSnapshot: qemu- img não no PATH (brew install qemu).",
+  "host.operator_67f1fe22f87fb1a8": "Restore-VMDiskSnapshot: qemu-img não no PATH (brew install qemu).",
   "host.operator_681c2451182fe9d4": [
     "Add-PortMap: ",
     {
@@ -3778,13 +3778,13 @@ const DataptBRhost = `{
     "); o estado registra apenas as portas ao vivo."
   ],
   "host.operator_6830e43fa44f64ae": [
-    "Assista ao progresso: ssh pool- control- service- admin@ ",
+    "Assista ao progresso: ssh pool-control-service-admin@",
     {
       "arg": "dockIp",
       "type": "detail",
       "trust": "external"
     },
-    " 'sudo tail - f /var/log/cloud-init- output.log'"
+    " 'sudo tail -f /var/log/cloud-init-output.log'"
   ],
   "host.operator_683db69e0f21153d": [
     "dism.exe não encontrado em ",
@@ -3796,16 +3796,16 @@ const DataptBRhost = `{
     ". Não é possível verificar o estado de Hyper-V."
   ],
   "host.operator_6867e2b5e9483983": [
-    "Assista ao progresso: download- agent- service- admin@ ",
+    "Assista ao progresso: ssh download-agent-service-admin@",
     {
       "arg": "dockIp",
       "type": "detail",
       "trust": "external"
     },
-    " 'sudo tail - f /var/log/cloud-init- output.log'"
+    " 'sudo tail -f /var/log/cloud-init-output.log'"
   ],
   "host.operator_6877083d4624d081": [
-    "Set- VncDisplayInBundle: não foi possível atualizar ",
+    "Set-VncDisplayInBundle: não foi possível atualizar ",
     {
       "arg": "configPath",
       "type": "detail",
@@ -3883,7 +3883,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_697963516e07c1d1": [
-    "Renomear-VM: '",
+    "Rename-VM: '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -3894,7 +3894,7 @@ const DataptBRhost = `{
   "host.operator_699ff5d4716ff43f": "Erro de Yuruna. Saltando criação ponte para evitar bater NM novamente.",
   "host.operator_69b2d5c408d306f0": "A criação da ponte não foi confirmada. A Cache VM irá voltar para a rede 'default' da libvirt (somente para máquinas).",
   "host.operator_69d94670b398f46b": [
-    "Renomear-VM: domínio renomeado para '",
+    "Rename-VM: domínio renomeado para '",
     {
       "arg": "newName",
       "type": "detail",
@@ -3930,7 +3930,7 @@ const DataptBRhost = `{
     ") -- bridged não pode obter uma locação LAN sobre Wi-Fi; construindo a VM de download-agent-service em UTM Shared NAT. Start-DownloadAgentServiceVM.ps1 encaminhará uma porta host para ela para a LAN acesso."
   ],
   "host.operator_6a2d68f7c8f9b5ed": "lula liga-se 3128 antes do início pré-aquecimento, por isso resposta ao porto",
-  "host.operator_6a80b3350f680db8": "O /bin/cp - c (clone APFS) falhou; voltando ao Copy- Item.",
+  "host.operator_6a80b3350f680db8": "O /bin/cp -c (clone APFS) falhou; voltando ao Copy-Item.",
   "host.operator_6c1e9a279c4465de": "Ambos os artefatos necessários encenados:",
   "host.operator_6c2dffba6952556b": [
     "Encontrado Windows 11 ARM64 ISO: ",
@@ -4008,7 +4008,7 @@ const DataptBRhost = `{
     "' (cirurgia de bundle + Registro)"
   ],
   "host.operator_6d9c4686b08fcf2a": [
-    "Get- VMScreenshot: não foi encontrado nem 'convert' (imagemagick) nem 'pamtopng' (netpbm); deixando PPM bruto em ",
+    "Get-VMScreenshot: não foi encontrado nem 'convert' (imagemagick) nem 'pamtopng' (netpbm); deixando PPM bruto em ",
     {
       "arg": "ppm",
       "type": "detail",
@@ -4024,7 +4024,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' (NAT + DHCP). Não obtém nenhum endereço LAN-bridgeed: o host responde apenas no endereço do gateway desse switch, e qualquer coisa na LAN atinge apenas o hóspede através de um anfitrião de bombordo."
+    "' (NAT + DHCP). Não obtém nenhum endereço LAN-bridgeed: o host responde apenas no endereço do gateway desse switch, e qualquer coisa na LAN atinge apenas o convidado através de um hospedeiro de bombordo."
   ],
   "host.operator_6f6bbc018b383fb2": [
     "Falha ao ler as dimensões do PNG a partir de '",
@@ -4040,7 +4040,7 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_6f88583aeb61d648": "virsh não encontrado. Instale libvirt-clients (apt- get install libvirt- clients).",
+  "host.operator_6f88583aeb61d648": "virsh não encontrado. Instale libvirt-clients (apt-get install libvirt-clients).",
   "host.operator_700059c0fbee589a": [
     "Renovação da locação DHCP em «vEthernet (",
     {
@@ -4190,7 +4190,7 @@ const DataptBRhost = `{
   "host.operator_730bab99bcf2735f": "Proxy da máquina: limpo (sem URL anterior para restaurar)",
   "host.operator_73905e18abf967cb": "Execute este script como Administrador.",
   "host.operator_73ba8ba1e410fa99": [
-    "Renomear-VM: renomeado para '",
+    "Rename-VM: renomeado para '",
     {
       "arg": "newName",
       "type": "detail",
@@ -4261,7 +4261,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_76727d9ff6fe99e5": [
-    "Renomear-VM: A lista de preferências UTM não foi encontrada em '",
+    "Rename-VM: A lista de preferências UTM não foi encontrada em '",
     {
       "arg": "utmPrefs",
       "type": "detail",
@@ -4447,7 +4447,7 @@ const DataptBRhost = `{
     },
     "' (intervalo agora)..."
   ],
-  "host.operator_7d0283f1761a3fa6": "Desactivar (estava desactivado antes da automatização)",
+  "host.operator_7d0283f1761a3fa6": "Desactivar (estava desativado antes da automatização)",
   "host.operator_7d3759d60761e085": "A cache VM irá voltar para a libvirt NAT 'default' (somente para máquinas).",
   "host.operator_7d9e74e8eb3a4b80": [
     "Arquitetura da máquina: ",
@@ -4519,7 +4519,7 @@ const DataptBRhost = `{
     " (~15-20 GB)..."
   ],
   "host.operator_7f8fa391d73801ba": [
-    "Renomear-VM: não foi possível renomear '",
+    "Rename-VM: não foi possível renomear '",
     {
       "arg": "fullName",
       "type": "detail",
@@ -4540,7 +4540,7 @@ const DataptBRhost = `{
     ")."
   ],
   "host.operator_7fe1c2acfba18375": "Forçar o modo habilitado -- pulando a confirmação.",
-  "host.operator_801f1557f661696a": "Os hosts M1/M2/M3 não são suportados para este hóspede.",
+  "host.operator_801f1557f661696a": "Os hosts M1/M2/M3 não são suportados para este convidado.",
   "host.operator_8077179580819d5a": [
     "checksum OK (",
     {
@@ -4565,7 +4565,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "); um convidado ARM64 Linux pode cunhar antes de hv storvsc."
+    "); um convidado ARM64 Linux pode cunhar antes de hv_storvsc."
   ],
   "host.operator_81ec9871bc4394ec": "host/macos.utm/guest.stash-service/Get-Image.ps1 só é executado no macOS UTM.",
   "host.operator_8256d85c6ffcd2b9": "3. Clique em Confirmar",
@@ -4588,11 +4588,11 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ") não pode alcançá- los. Re-run SEM sudo -- estes scripts elevam o indivíduo Operações que precisam."
+    ") não pode alcançá-los. Re-run SEM sudo -- estes scripts elevam o indivíduo Operações que precisam."
   ],
-  "host.operator_82caa830c2a7dd2b": "o hóspede através das sequências compartilhadas GUI/SSH uma vez que essas terras",
+  "host.operator_82caa830c2a7dd2b": "o convidado através das sequências compartilhadas GUI/SSH uma vez que essas terras",
   "host.operator_82d7b4c9909ca4dd": [
-    "Register-GuestRailEndereço: não foi possível reservar ",
+    "Register-GuestRailAddress: não foi possível reservar ",
     {
       "arg": "ip",
       "type": "detail",
@@ -4610,10 +4610,10 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ". O hóspede irá correr sem um endereço ferroviário."
+    ". O convidado irá correr sem um endereço ferroviário."
   ],
   "host.operator_8325345b98bdf237": [
-    "Renomear-VM: o nome de destino '",
+    "Rename-VM: o nome de destino '",
     {
       "arg": "newName",
       "type": "detail",
@@ -4623,7 +4623,7 @@ const DataptBRhost = `{
   ],
   "host.operator_832575bbe1b2f32f": "Lançar o avanço da lula macOS",
   "host.operator_83567f970fd6c2db": [
-    "Linha MAC PLATFORM mal formada (precisa de 3 campos separados por páginas): ",
+    "Linha MAC_PLATFORM mal formada (precisa de 3 campos separados por páginas): ",
     {
       "arg": "tupleLine",
       "type": "detail",
@@ -4648,7 +4648,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_84177e952e2487af": [
-    "A pasta VHDX padrão do Hyper- V não existe: ",
+    "A pasta VHDX padrão do Hyper-V não existe: ",
     {
       "arg": "downloadDir",
       "type": "detail",
@@ -4656,7 +4656,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_844a212ddde38874": [
-    "Renomear-VM: nenhuma tela VNC livre em 10..89 para '",
+    "Rename-VM: nenhuma tela VNC livre em 10..89 para '",
     {
       "arg": "newName",
       "type": "detail",
@@ -4671,7 +4671,7 @@ const DataptBRhost = `{
     " e pode colidir com outra VM."
   ],
   "host.operator_84987470d9b561d8": [
-    "Renomear- VM: '",
+    "Rename-VM: '",
     {
       "arg": "newName",
       "type": "detail",
@@ -4689,7 +4689,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ". Cada passo posterior que os consumir irá falhar. Inicie- os antes de continuar: ",
+    ". Cada passo posterior que os consumir irá falhar. Inicie-os antes de continuar: ",
     {
       "arg": "join2",
       "type": "detail",
@@ -4699,13 +4699,13 @@ const DataptBRhost = `{
   ],
   "host.operator_84b2ff2c0bf73bc0": "Não foi possível detectar automaticamente a interface de rede padrão.",
   "host.operator_8508b39a41d150f0": [
-    "Os nomes dos comutadores não estão ligados ao NIC. Liga- o novamente ao Set- VMSwitch - Nome '",
+    "Os nomes dos comutadores não estão ligados ao NIC. Liga-o novamente ao Set-VMSwitch -Name '",
     {
       "arg": "switchName",
       "type": "detail",
       "trust": "external"
     },
-    "' - NetAdapterName <adapter>."
+    "' -NetAdapterName <adapter>."
   ],
   "host.operator_852eb7f6f45f8c86": "Para ativar o cache: test/service/Start-CachingProxyServiceVM.ps1",
   "host.operator_8531557fc4c0c787": "A copiar a imagem de base para o disco por VM (cópia separada)...",
@@ -4815,7 +4815,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' não vai escravizar) -- os hóspedes nele nunca obteriam uma oferta DHCP. Rodando o netplan mudar de volta."
+    "' não vai escravizar) -- os convidados nele nunca obteriam uma oferta DHCP. Rodando o netplan mudar de volta."
   ],
   "host.operator_891e818fe6ad2659": "Assinatura SHA256SUMS não verificada (gpg/keyserver indisponível ou sem .gpg separado); procedendo apenas no hash.",
   "host.operator_89af27dbbf79e963": [
@@ -4875,7 +4875,7 @@ const DataptBRhost = `{
     },
     "' não possui IPv4 utilizável e está configurado estaticamente, então não há locação para renovar. Corrija o endereço estático nesse adaptador ou ligue o DHCP."
   ],
-  "host.operator_8cb88c0dfdc75d37": "Solicitar desligamento de hóspedes (Stop-VM, no -TurnOff)",
+  "host.operator_8cb88c0dfdc75d37": "Solicitar desligamento de convidados (Stop-VM, no -TurnOff)",
   "host.operator_8cc02f27922fb519": [
     "Blocos de locação superados em «",
     {
@@ -4894,9 +4894,9 @@ const DataptBRhost = `{
     },
     ")"
   ],
-  "host.operator_8da23b13d6bee38a": "Desinstalar-Module powershell-yaml, PSScriptAnalyzer",
+  "host.operator_8da23b13d6bee38a": "Uninstall-Module powershell-yaml, PSScriptAnalyzer",
   "host.operator_8e1418fef79d70dd": [
-    "Renomear-VM: não foi possível definir a tela VNC para '",
+    "Rename-VM: não foi possível definir a tela VNC para '",
     {
       "arg": "newName",
       "type": "detail",
@@ -5051,9 +5051,9 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " -- o convidado está executando, mas não está mais desenhando, então o pipeline de captura não é a falha; capture o estado do hóspede antes de qualquer coisa reiniciá-lo"
+    " -- o convidado está executando, mas não está mais desenhando, então o pipeline de captura não é a falha; capture o estado do convidado antes de qualquer coisa reiniciá-lo"
   ],
-  "host.operator_919e5b9a9a611298": "Falha na criação do qemu- img",
+  "host.operator_919e5b9a9a611298": "Falha na criação do qemu-img",
   "host.operator_91b0a35a1dfecdc4": [
     "Razão: imagem de base para ",
     {
@@ -5061,7 +5061,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ". Actualização refazendo Get-Image.ps1 em ",
+    ". Atualização refazendo Get-Image.ps1 em ",
     {
       "arg": "guestName",
       "type": "detail",
@@ -5092,7 +5092,7 @@ const DataptBRhost = `{
     },
     " (Stash-service VM solicitará DHCP nesta LAN)"
   ],
-  "host.operator_92e4fcc8d0e15f7c": "virt-install, usado para construir hóspedes",
+  "host.operator_92e4fcc8d0e15f7c": "virt-install, usado para construir convidados",
   "host.operator_9326163f5beaeed4": [
     "O arquivo baixado é suspeitomente pequeno (",
     {
@@ -5121,7 +5121,7 @@ const DataptBRhost = `{
     "'. Execute Get-Image.ps1 para baixá-lo."
   ],
   "host.operator_94ae6ac85570e806": [
-    "Remove- VM: virsh undefine falhou para '",
+    "Remove-VM: virsh undefine falhou para '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -5135,7 +5135,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_94dcd74cd5ca1780": [
-    "A apagar automaticamente a janela 'Outro utilizador está ligado' para '",
+    "A apagar automaticamente a janela 'Outro usuário está ligado' para '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -5181,7 +5181,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' não obteve um endereço IP em 10 minutos.\nAcedendo à VM para depuração:\n* Console: virt-viewer -- connect ",
+    "' não obteve um endereço IP em 10 minutos.\nAcedendo à VM para depuração:\n* Console: virt-viewer --connect ",
     {
       "arg": "virshUri",
       "type": "detail",
@@ -5215,7 +5215,7 @@ const DataptBRhost = `{
   ],
   "host.operator_97d3ec722b0257fc": "Add-PortMap: nenhuma unidade de encaminhamento poderia ser escrita (sudo / disk issue?).",
   "host.operator_9828b6c9013ab31e": [
-    "Renomear- VM: renomeado para '",
+    "Rename-VM: renomeado para '",
     {
       "arg": "newName",
       "type": "detail",
@@ -5283,7 +5283,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "', ou re- execute test/service/Start-CachingProxyServiceVM.ps1 para reconstruí-lo."
+    "', ou re-execute test/service/Start-CachingProxyServiceVM.ps1 para reconstruí-lo."
   ],
   "host.operator_9a367ca9534863eb": "host/ubuntu.kvm/guest.ubuntu.server.24/Get-Image.ps1 só é executado no Ubuntu KVM.",
   "host.operator_9a5f74f11757033e": "Nenhuma VM Yuruna-caching-proxy-service registrada com UTM e nada responde na LAN 24.",
@@ -5332,7 +5332,7 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_9c80476fdd14c462": "Atualizar com: brew upgrade -- cask utm",
+  "host.operator_9c80476fdd14c462": "Atualizar com: brew upgrade --cask utm",
   "host.operator_9c87c921239516dc": "(nenhuma sonda proxy de sistema específica para plataforma neste sistema operacional)",
   "host.operator_9cc7515199a7b5a2": [
     "\nVM '",
@@ -5347,7 +5347,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "'; leasing de fontes, agente, arp todos retornados vazios).\n\n* 'agent' diz que o agente não está conectado -> o convidado ainda está em seu pacote\nfase (ou o apt falhou), por isso o qemu- guest- agent ainda não começou. A consola\no log abaixo mostra onde está o início da nuvem.\n* Todos os três vazios E a VM está em uma rede ponte cujo uplink é Wi-Fi:\nalguns pontos de acesso recusam-se a encaminhar o pedido DHCP do hóspede (AP baseado em MAC\nisolamento). Use um link com fio, ou unfino 'yuruna- externo' para recuar\npara a rede NAT 'default'.\n\nAcedendo à VM para depuração:\n* Console: virt-viewer -- connect ",
+    "'; leasing de fontes, agente, arp todos retornados vazios).\n\n* 'agent' diz que o agente não está conectado -> o convidado ainda está em seu pacote\nfase (ou o apt falhou), por isso o qemu-guest-agent ainda não começou. A consola\no log abaixo mostra onde está o início da nuvem.\n* Todos os três vazios E a VM está em uma rede ponte cujo uplink é Wi-Fi:\nalguns pontos de acesso recusam-se a encaminhar o pedido DHCP do convidado (AP baseado em MAC\nisolamento). Use um link com fio, ou unfino 'yuruna-externo' para recuar\npara a rede NAT 'default'.\n\nAcedendo à VM para depuração:\n* Console: virt-viewer --connect ",
     {
       "arg": "virshUri",
       "type": "detail",
@@ -5359,7 +5359,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "\nusuário: stash-admin (senha-password no cofre de autenticação)\nentão: cloud-init status -- long; ip - 4 addr"
+    "\nusuário: stash-admin (senha-password no cofre de autenticação)\nentão: cloud-init status --long; ip -4 addr"
   ],
   "host.operator_9cceb6fb2d6d1d12": [
     "Varredura de resíduos pulou: ponte '",
@@ -5400,7 +5400,7 @@ const DataptBRhost = `{
     },
     "' não é um endereço IPv4 válido -- pulando exposição LAN."
   ],
-  "host.operator_9e142fdec39e7972": "uma ponte separada do portal vmnet do anfitrião, quebrando o",
+  "host.operator_9e142fdec39e7972": "uma ponte separada do portal vmnet do hospedeiro, quebrando o",
   "host.operator_9e2d9646b0f0ef93": [
     "Cache VM IP: ",
     {
@@ -5463,7 +5463,7 @@ const DataptBRhost = `{
   ],
   "host.operator_a0a6b2ff7f34905f": "Limpeza completa. Todos os arquivos órfãos excluídos.",
   "host.operator_a0be18b888b1e5b4": [
-    "SSH: ssh download- agent- service- admin@ ",
+    "SSH: ssh download-agent-service-admin@",
     {
       "arg": "dockIp",
       "type": "detail",
@@ -5488,7 +5488,7 @@ const DataptBRhost = `{
     },
     "' falhou; nenhum instantâneo tomado, domínio será apagado na limpeza do próximo ciclo."
   ],
-  "host.operator_a19074ac4867746e": "Utilizador da consola/SSH:",
+  "host.operator_a19074ac4867746e": "Usuário da consola/SSH:",
   "host.operator_a1a6059aaacffcb8": [
     "'",
     {
@@ -5636,7 +5636,7 @@ const DataptBRhost = `{
     },
     ", que precisa do Administrador. Continuando no retorno."
   ],
-  "host.operator_a32e7c960a5619ec": "Nenhuma rede libvirt definida. Execute 'virsh net- start default' para habilitar o padrão NAT, ou defina 'yuruna- external' (ver README. md) para acesso LAN- ponteado.",
+  "host.operator_a32e7c960a5619ec": "Nenhuma rede libvirt definida. Execute 'virsh net-start default' para habilitar o padrão NAT, ou defina 'yuruna-external' (ver README.md) para acesso LAN-ponteado.",
   "host.operator_a3517dfa1bc5ed4b": [
     "Nenhuma rota padrão IPv4 na máquina. Não é possível criar a ponte '",
     {
@@ -5647,7 +5647,7 @@ const DataptBRhost = `{
     "' -- conecte uma NIC à LAN primeiro."
   ],
   "host.operator_a364da43ba1a8746": "A aplicação do netplan falhou.",
-  "host.operator_a3da8d2bcc4b8ff7": "Iniciar VM Hyper- V",
+  "host.operator_a3da8d2bcc4b8ff7": "Iniciar VM Hyper-V",
   "host.operator_a3e88d164570394c": "acima -> 'storedir' e verificação de ocupação de cache > 0.",
   "host.operator_a4149a26e3a5fd3f": [
     "O '",
@@ -5656,7 +5656,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' não pode transportar um hóspede em ponte (veredito '",
+    "' não pode transportar um convidado em ponte (veredito '",
     {
       "arg": "verdict",
       "type": "detail",
@@ -5720,7 +5720,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ". Actualização refazendo Get-Image.ps1 em ",
+    ". Atualização refazendo Get-Image.ps1 em ",
     {
       "arg": "guestName",
       "type": "detail",
@@ -5729,7 +5729,7 @@ const DataptBRhost = `{
     "/"
   ],
   "host.operator_a61a7d21cdb5e750": [
-    "cp -- sparse= sempre falhou ao copiar ",
+    "cp --sparse=always falhou ao copiar ",
     {
       "arg": "baseImageFile",
       "type": "detail",
@@ -5792,7 +5792,7 @@ const DataptBRhost = `{
   "host.operator_a8fc864c6160b85c": "'Yuruna hosts' O painel de Grafana mostra 'Sem dados'.",
   "host.operator_a9163573316af907": "Instalar a regra Permitir port-scope",
   "host.operator_a943d79451176edc": [
-    "qemu- img não encontrado; não é possível redimensionar ",
+    "qemu-img não encontrado; não é possível redimensionar ",
     {
       "arg": "path",
       "type": "detail",
@@ -5802,7 +5802,7 @@ const DataptBRhost = `{
   ],
   "host.operator_a96b67d0b8d27088": "host/ubuntu.kvm/guest.windows.11/Get-Image.ps1 só é executado no Linux.",
   "host.operator_a986b71028c74af3": [
-    "Retomar-YurunaServiceVM: '",
+    "Resume-YurunaServiceVM: '",
     {
       "arg": "name",
       "type": "detail",
@@ -5840,7 +5840,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' não tem ligação física (apenas portas de toque anexadas). Auto- cura..."
+    "' não tem ligação física (apenas portas de toque anexadas). Auto-cura..."
   ],
   "host.operator_a9dbdd1577bb8c0e": "(também incorporado no seed.iso's user-data -- chpasswd)",
   "host.operator_a9dcf6d3662588bf": [
@@ -5901,7 +5901,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ". O interruptor está inalterado; os hóspedes ficam no intervalo."
+    ". O interruptor está inalterado; os convidados ficam no intervalo."
   ],
   "host.operator_ab4a5d9c5e556023": [
     "Esperado : ",
@@ -5963,9 +5963,9 @@ const DataptBRhost = `{
     },
     " não foi encontrada."
   ],
-  "host.operator_ac9a237901fc8f7d": "VMs convidados irão detectar automaticamente lulas na porta 3128 quando\nNova VM.ps1 roda. Mantenha a VM rodando em ciclos.",
+  "host.operator_ac9a237901fc8f7d": "VMs convidados irão detectar automaticamente lulas na porta 3128 quando\nNew-VM.ps1 roda. Mantenha a VM rodando em ciclos.",
   "host.operator_acad3d911acdf65d": [
-    "Resolução-UtmConvidadoIpByMac: nenhum MacAddress no ",
+    "Resolve-UtmGuestIpByMac: nenhum MacAddress no ",
     {
       "arg": "plistPath",
       "type": "detail",
@@ -5983,7 +5983,7 @@ const DataptBRhost = `{
   ],
   "host.operator_ad8085714f2d476d": "SHA256 SUMS GPG SINATURE INVALIDE",
   "host.operator_ad80cba5df7759b7": "(nuvem-init traz rede e instala pacotes -- em um",
-  "host.operator_ada79849fa8dc53a": "A senha veio da variável de ambiente: YURUNA GUEST  PASSWORD",
+  "host.operator_ada79849fa8dc53a": "A senha veio da variável de ambiente: YURUNA_GUEST_PASSWORD",
   "host.operator_ae926188af9d3ca0": "(install/ubuntu.kvm.sh instala estes mais o resto da cadeia de ferramentas host.)",
   "host.operator_aeb932dd3434973c": "A VM stash-service não será acessível da LAN por seu próprio IP, e o NAS pode ser inacessível.",
   "host.operator_aee40e2e224cb007": [
@@ -6076,7 +6076,7 @@ const DataptBRhost = `{
   "host.operator_b0f525825afab689": "Desregistrar VM da UTM",
   "host.operator_b1305c31540ab9a6": "Proxy da máquina: apagado (apt config removido; /etc/environment proxy linhas despojadas)",
   "host.operator_b144a3f615f5cc3d": "Falha de busca transitória persistiu através de tentativas; a transferência",
-  "host.operator_b151e82086a9c67b": "Nenhuma captura pré-automática nesta máquina (Ativar-TestAutomation não escreveu um, ou o arquivo foi removido).",
+  "host.operator_b151e82086a9c67b": "Nenhuma captura pré-automática nesta máquina (Enable-TestAutomation não escreveu um, ou o arquivo foi removido).",
   "host.operator_b15dd410559b0438": "Remover a regra de firewall que Yuruna criou",
   "host.operator_b17b4a09c8f6f0f6": "UTM não encontrado em /Applications/UTM.app. Instalar com: brew install --cask utm",
   "host.operator_b21a8288b21cbc12": [
@@ -6126,7 +6126,7 @@ const DataptBRhost = `{
   ],
   "host.operator_b3a4a5bafc255b3c": "Gravar o sentinela da imagem de 4 linhas",
   "host.operator_b3adfc0d608ac6e8": [
-    "Renomear- VM: recusando- se a renomear '",
+    "Rename-VM: recusando-se a renomear '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -6148,9 +6148,9 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_b452a787ac5af2a4": "em teste/sequências/start.guest.macos.26.yml.",
+  "host.operator_b452a787ac5af2a4": "em test/sequences/start.guest.macos.26.yml.",
   "host.operator_b45c917f03c9cba3": [
-    "Restaurar-VMDiskSnapshot: sem checkpoint '",
+    "Restore-VMDiskSnapshot: sem checkpoint '",
     {
       "arg": "id",
       "type": "detail",
@@ -6183,7 +6183,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_b6e0da77ab1ba6b5": [
-    "Renomear-VM: PlistBuddy não pôde atualizar :Information:Name in '",
+    "Rename-VM: PlistBuddy não pôde atualizar :Information:Name in '",
     {
       "arg": "dstConfig",
       "type": "detail",
@@ -6236,7 +6236,7 @@ const DataptBRhost = `{
   ],
   "host.operator_b8484d0c8d0f00c6": "Ignorando o download do Windows desde ISO para esta máquina já está presente",
   "host.operator_b87fb2bbf66827b8": [
-    "O Get- HyperVWindowScreenshot falhou: ",
+    "O Get-HyperVWindowScreenshot falhou: ",
     {
       "arg": "value",
       "type": "detail",
@@ -6244,7 +6244,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_b89811c24b571c30": [
-    "Renomear-VM: pacote de destino já existe: '",
+    "Rename-VM: pacote de destino já existe: '",
     {
       "arg": "dstBundle",
       "type": "detail",
@@ -6260,10 +6260,10 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ") mas não foi iniciado. Os hóspedes irão baixar diretamente (esperam ocasionalmente 429s)."
+    ") mas não foi iniciado. Os convidados irão baixar diretamente (esperam ocasionalmente 429s)."
   ],
   "host.operator_b8f92bfb6eae66ac": [
-    "Restaurar-VMDiskSnapshot: instantâneo '",
+    "Restore-VMDiskSnapshot: instantâneo '",
     {
       "arg": "id",
       "type": "detail",
@@ -6325,7 +6325,7 @@ const DataptBRhost = `{
   ],
   "host.operator_b9a5e1224438d1d2": "o arquivo de soma de verificação obtido está vazio",
   "host.operator_ba1882e41aac59a1": [
-    "Get- VMScreenshot: a captura de tela do virsh falhou para '",
+    "Get-VMScreenshot: a captura de tela do virsh falhou para '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -6334,7 +6334,7 @@ const DataptBRhost = `{
     "'."
   ],
   "host.operator_ba3dea3cf3e04883": [
-    "Salvo-ImagemComChecksum: o download falhou para ",
+    "Save-ImageWithChecksum: o download falhou para ",
     {
       "arg": "sourceUrl",
       "type": "detail",
@@ -6363,16 +6363,16 @@ const DataptBRhost = `{
   ],
   "host.operator_baea4919b222d9c9": "Configurações do sistema > Privacidade e segurança > Gravação de tela > habilite seu aplicativo de terminal e reinicie.",
   "host.operator_bb96ec06f5e4f923": [
-    "UI: http://",
+    "  UI:       http://",
     {
       "arg": "dockIp",
       "type": "detail",
       "trust": "external"
     },
-    "/ (Atribuir / Pools / Conjuntos de testes)"
+    "/  (Board / Hosts / Pools)"
   ],
   "host.operator_bba21c5cbbc83755": [
-    "virt-install -- print- xml falhou (saída ",
+    "virt-install --print-xml falhou (saída ",
     {
       "arg": "lASTEXITCODE",
       "type": "detail",
@@ -6388,7 +6388,7 @@ const DataptBRhost = `{
   "host.operator_bcc868d6b0c7f0f3": "[Passo 2/3] Obtendo a URL de download ISO do Windows 11...",
   "host.operator_bd13116ee0d4ceed": "2. Selecione 'Windows 11 (multi-edição ISO para dispositivos ARM64)'",
   "host.operator_bd1b3169db53710a": [
-    "Tentativa de remoção de itens ",
+    "Tentativa de Remove-Item ",
     {
       "arg": "attempt",
       "type": "detail",
@@ -6446,8 +6446,8 @@ const DataptBRhost = `{
     },
     "' mantém a rota padrão do host -- ele parece ao vivo, não está velho."
   ],
-  "host.operator_bda747e61af2936d": "Os seguintes ficheiros NÃO estão associados a qualquer VM actual:",
-  "host.operator_be2f6115e6fbd1d0": "O ficheiro de validação publicado falhou na verificação da assinatura contra",
+  "host.operator_bda747e61af2936d": "Os seguintes arquivos NÃO estão associados a qualquer VM actual:",
+  "host.operator_be2f6115e6fbd1d0": "O arquivo de validação publicado falhou na verificação da assinatura contra",
   "host.operator_be4294182f94a395": [
     "nenhuma linha correspondente a '",
     {
@@ -6459,7 +6459,7 @@ const DataptBRhost = `{
   ],
   "host.operator_be62924d72343522": "seu estado dir, e lança-o sob sistemad em :80.",
   "host.operator_be96c470ac033b2c": [
-    "Remove- VM '",
+    "Remove-VM '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -6487,7 +6487,7 @@ const DataptBRhost = `{
     },
     "). Recuando para desabilitar apenas."
   ],
-  "host.operator_bee8709211e28c63": "HKCU WinINet + HKCU\\ Ambiente",
+  "host.operator_bee8709211e28c63": "HKCU WinINet + HKCU\\Environment",
   "host.operator_bf10148337542752": [
     "ISO diário em ",
     {
@@ -6502,7 +6502,7 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_bf5cb6a52f334520": "Ignorando os passos do serviço libvirt, rede, grupo e pesquisa- ACL: eles não podem ter sucesso até que os pacotes acima sejam instalados. Execute novamente este script depois.",
+  "host.operator_bf5cb6a52f334520": "Ignorando os passos do serviço libvirt, rede, grupo e verificação de ACL: eles não podem ter sucesso até que os pacotes acima sejam instalados. Execute novamente este script depois.",
   "host.operator_bf613f7460bae519": [
     "Send-Click on host.macos.utm: não implementado (Hyper-V apenas hoje). (vm='",
     {
@@ -6525,7 +6525,7 @@ const DataptBRhost = `{
     ")"
   ],
   "host.operator_bf7819296c37a7e0": [
-    "O convidado do Windows 11 KVM é apenas x86 64 (esta máquina é ",
+    "O convidado do Windows 11 KVM é exclusivo de x86_64 (x86_64-only) (esta máquina é ",
     {
       "arg": "arch",
       "type": "detail",
@@ -6534,7 +6534,7 @@ const DataptBRhost = `{
     ")."
   ],
   "host.operator_c00f98d8832e6542": [
-    "O processo de paragem falhou para o PID ",
+    "O Stop-Process falhou para o PID ",
     {
       "arg": "processId",
       "type": "detail",
@@ -6556,7 +6556,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_c041d9cc53c27c36": [
-    "Renomear-VM: virsh domrename '",
+    "Rename-VM: virsh domrename '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -6630,7 +6630,7 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_c287504e62bbfb0e": "Sub-rede externa Yuruna",
+  "host.operator_c287504e62bbfb0e": "Yuruna-External",
   "host.operator_c2ac53c45cd20863": "[Passo 3/3] Baixando o Windows 11 ARM64 ISO...",
   "host.operator_c2aed401248959b0": "Ver https://yuruna.link/4268e4cb.",
   "host.operator_c319018d146decfd": [
@@ -6674,7 +6674,7 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_c3465a5d4374dceb": "Usando a rede 'default' da libvirt NAT (192.168.122/24). A VM de download- agent- service é acessível somente a partir desta máquina e o NAS provavelmente não é routável; defina uma rede de libvirt 'yuruna- external' para LAN + NAS acesso.",
+  "host.operator_c3465a5d4374dceb": "Usando a rede 'default' da libvirt NAT (192.168.122/24). A VM de download-agent-service é acessível somente a partir desta máquina e o NAS provavelmente não é routável; defina uma rede de libvirt 'yuruna-external' para LAN + NAS acesso.",
   "host.operator_c3812246baa50ef9": [
     "Não foi possível redimensionar '",
     {
@@ -6702,7 +6702,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ", - CpuCount=",
+    ", -CpuCount=",
     {
       "arg": "cpuCount",
       "type": "detail",
@@ -6711,7 +6711,7 @@ const DataptBRhost = `{
     "; Yuruna requer pelo menos 4 núcleos na máquina E pelo menos 4 vCPU atribuídos. Veja https://yuruna.link/42fa6f45-0015"
   ],
   "host.operator_c53432cf9b294e69": [
-    "Send-Key -Mecanismo gui: Test.SequenceEngine.psm1 não encontrado em '",
+    "Send-Key -Mechanism gui: Test.SequenceEngine.psm1 não encontrado em '",
     {
       "arg": "sequenceEngine",
       "type": "detail",
@@ -6747,7 +6747,7 @@ const DataptBRhost = `{
   "host.operator_c6326e5af9fb01ff": "VM force-stop (matar vmwp.exe se necessário)",
   "host.operator_c65c4b6881513631": "configuração de armazenamento de rede, a credencial abobada e quaisquer montagens",
   "host.operator_c66ee6ced9fa2d77": [
-    "Restaurar-VMDiskSnapshot: '",
+    "Restore-VMDiskSnapshot: '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -6805,7 +6805,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' não tem NO\nLAN uplink físico (apenas as portas de toque de hóspedes estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM pool-control-service não foi iniciada."
+    "' não tem NO\nLAN uplink físico (apenas as portas de toque de convidados estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM pool-control-service não foi iniciada."
   ],
   "host.operator_c748b36dc0a02031": "Não foi possível detectar o chip de silicone Apple. Este script requer Apple Silicon.",
   "host.operator_c75b8ce6370d1e89": "Varrer ICMP para povoar o cache do vizinho",
@@ -6841,13 +6841,13 @@ const DataptBRhost = `{
   ],
   "host.operator_c89f111266a03848": "Descoberta do endereço, por fonte:",
   "host.operator_c8f003fc6b37a1de": [
-    "dockerhub- token: a leitura do cofre desta máquina falhou (",
+    "dockerhub-token: a leitura do cofre desta máquina falhou (",
     {
       "arg": "message",
       "type": "detail",
       "trust": "external"
     },
-    "). Construindo com NENHUMA credencial do Docker Hub: o cache sincroniza- se anonimamente com um orçamento de captura partilhado por todos os convidados por trás deste IP de saída. Resolva o cofre erro e reconstrução."
+    "). Construindo com NENHUMA credencial do Docker Hub: o cache sincroniza-se anonimamente com um orçamento de captura partilhado por todos os convidados por trás deste IP de saída. Resolva o cofre erro e reconstrução."
   ],
   "host.operator_c9280c32bb45be5e": [
     "Baixar agente no ",
@@ -6871,7 +6871,7 @@ const DataptBRhost = `{
   ],
   "host.operator_c981aa2f0a13e26b": "o emulador do sistema QEMU que realmente executa os convidados",
   "host.operator_c9c60711aada785b": [
-    "A pasta VHDX padrão do Hyper- V não existe: ",
+    "A pasta VHDX padrão do Hyper-V não existe: ",
     {
       "arg": "downloadDir",
       "type": "detail",
@@ -7019,7 +7019,7 @@ const DataptBRhost = `{
   ],
   "host.operator_d02a5e01de3815cb": "Guest irá baixar diretamente -- esperar 429 falhas de limite de taxa no linux-firmware sob carga.",
   "host.operator_d055b300ffe84fec": [
-    "Gravar- VMDiskSnapshot: virsh snapshot- create- as failed for '",
+    "Save-VMDiskSnapshot: virsh snapshot-create-as failed for '",
     {
       "arg": "id",
       "type": "detail",
@@ -7032,7 +7032,7 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_d077adca37bbf33b": "O redimensionamento do qemu- img falhou. Instale as ferramentas QEMU com: brew install qemu",
+  "host.operator_d077adca37bbf33b": "O redimensionamento do qemu-img falhou. Instale as ferramentas QEMU com: brew install qemu",
   "host.operator_d081eb7e3c3452a0": [
     "VMs registadas na libvirt: ",
     {
@@ -7106,7 +7106,7 @@ const DataptBRhost = `{
     },
     " =="
   ],
-  "host.operator_d32b2d3c28f9479a": "Para exposição à LAN E um painel de piscina de trabalho (cache VM recebe uma real",
+  "host.operator_d32b2d3c28f9479a": "Para exposição à LAN E um painel de grupo de trabalho (cache VM recebe uma real",
   "host.operator_d36c28967dd8572f": "que NÃO estão registrados em UTM.",
   "host.operator_d389bec5f4a68d26": [
     "O UTM lista '",
@@ -7121,7 +7121,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "). Limpe o registo (Remove- VM - VMName '",
+    "). Limpe o registro (Remove-VM -VMName '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -7242,7 +7242,7 @@ const DataptBRhost = `{
     },
     "' retornou 0 mas VM ainda está registrado."
   ],
-  "host.operator_d6fe825a381b5c81": "A VM de serviço de controle de piscina não será acessível da LAN por seu próprio IP, e o NAS pode ser inacessível.",
+  "host.operator_d6fe825a381b5c81": "A VM de serviço de controle de grupo não será acessível da LAN por seu próprio IP, e o NAS pode ser inacessível.",
   "host.operator_d74692e9db12304f": [
     "Falha na instalação do virt (saída ",
     {
@@ -7253,7 +7253,7 @@ const DataptBRhost = `{
     ")"
   ],
   "host.operator_d7a37d0b142d440c": [
-    "Hyper- V Virtual Machine Management service (vmms) não está em execução (status: ",
+    "Hyper-V Virtual Machine Management service (vmms) não está em execução (status: ",
     {
       "arg": "status",
       "type": "detail",
@@ -7317,7 +7317,7 @@ const DataptBRhost = `{
     },
     "' não existe; abortando antes da criação de VM."
   ],
-  "host.operator_d9865efa39e8e674": "Ambos os degraus de descoberta sob demanda são silenciosos nesta máquina, de modo que os endereços de hóspedes vêm apenas da cache do vizinho da máquina. Essa cache decai, de modo que as buscas irão falhar intermitentemente. Instale o qemu- guest- agent na semente do convidado, ou Ponha os convidados numa rede gerida pela libvirt.",
+  "host.operator_d9865efa39e8e674": "Ambos os degraus de descoberta sob demanda são silenciosos nesta máquina, de modo que os endereços de convidados vêm apenas da cache do vizinho da máquina. Essa cache decai, de modo que as buscas irão falhar intermitentemente. Instale o qemu-guest-agent na semente do convidado, ou Ponha os convidados numa rede gerida pela libvirt.",
   "host.operator_d9b89a1cbf294786": [
     "Criando VM '",
     {
@@ -7333,7 +7333,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_d9f5e63dbaea5cc8": [
-    "Self- heal: 'sudo nmcli connection up ",
+    "Self-heal: 'sudo nmcli connection up ",
     {
       "arg": "slave",
       "type": "detail",
@@ -7384,7 +7384,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' não tem NO\nLAN uplink físico (apenas as portas de toque de hóspedes estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM download- agent- service não foi iniciada."
+    "' não tem NO\nLAN uplink físico (apenas as portas de toque de convidados estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM download-agent-service não foi iniciada."
   ],
   "host.operator_db76a809c970c1de": [
     "Baixando ",
@@ -7485,7 +7485,7 @@ const DataptBRhost = `{
     "'."
   ],
   "host.operator_dc75df94eaaa9e40": [
-    "Inspecione o interruptor com Get-VMSwitch -Nome '",
+    "Inspecione o interruptor com Get-VMSwitch -Name '",
     {
       "arg": "switchName",
       "type": "detail",
@@ -7512,7 +7512,7 @@ const DataptBRhost = `{
     },
     "' (perda de peso possível)."
   ],
-  "host.operator_dd54e1221e1df026": "Subsídios de acessibilidade e gravação de ecrã (TCC)",
+  "host.operator_dd54e1221e1df026": "Subsídios de acessibilidade e gravação de tela (TCC)",
   "host.operator_dd7b45e336b3fcd0": [
     "Não foi possível redimensionar '",
     {
@@ -7538,7 +7538,7 @@ const DataptBRhost = `{
     "'"
   ],
   "host.operator_dda22dc70c2dcb9f": [
-    "Salvar- VMDiskSnapshot: o instantâneo '",
+    "Save-VMDiskSnapshot: o instantâneo '",
     {
       "arg": "id",
       "type": "detail",
@@ -7579,7 +7579,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_dde8dea17f4f28d3": [
-    "SSH: ssh stash- admin@ ",
+    "SSH: ssh stash-admin@",
     {
       "arg": "dockIp",
       "type": "detail",
@@ -7588,7 +7588,7 @@ const DataptBRhost = `{
     " (chave de harness autorizada)"
   ],
   "host.operator_dec3b9d961011af3": [
-    "Restaurar- VMDiskSnapshot: pasta de dados do pacote UTM não encontrada: ",
+    "Restore-VMDiskSnapshot: pasta de dados do pacote UTM não encontrada: ",
     {
       "arg": "dataDir",
       "type": "detail",
@@ -7597,7 +7597,7 @@ const DataptBRhost = `{
   ],
   "host.operator_dee4cbb914cf0c9d": "4. Selecione 'Inglês' como o idioma",
   "host.operator_df10f38143b3b549": [
-    "Cada endereço ferroviário entre ",
+    "Register-GuestRailAddress: todos os endereços de rede entre ",
     {
       "arg": "railPrefix",
       "type": "detail",
@@ -7615,13 +7615,13 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " é reservado; '",
+    " estão reservados; '",
     {
       "arg": "vMName",
       "type": "detail",
       "trust": "external"
     },
-    "' será executado sem um endereço ferroviário."
+    "' será executada sem um endereço dessa rede."
   ],
   "host.operator_df3396f890eae3df": "Configurações do sistema > Privacidade e segurança > Acessibilidade / gravação de tela",
   "host.operator_df4ea4bfb57c50d3": [
@@ -7702,7 +7702,7 @@ const DataptBRhost = `{
   ],
   "host.operator_e29eba4500369d0f": "que NÃO estão associados a nenhuma VM listada atualmente.",
   "host.operator_e30f6e2006f710fa": [
-    "Pasta VHDX padrão do Hyper- V: ",
+    "Pasta VHDX padrão do Hyper-V: ",
     {
       "arg": "downloadDir",
       "type": "detail",
@@ -7711,7 +7711,7 @@ const DataptBRhost = `{
   ],
   "host.operator_e39505c185df23e7": "==Demografia==",
   "host.operator_e3b5217631d5fe3a": [
-    "Nome de arquivo, URL, contagem de bytes gravados e Última modificação para: ",
+    "Nome de arquivo, URL, contagem de bytes gravados e Last-Modified para: ",
     {
       "arg": "originFile",
       "type": "detail",
@@ -7779,7 +7779,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " -- o libvirt- qemu pode não ser capaz de alcançar discos VM. Tente 'chmod o+x ",
+    " -- o libvirt-qemu pode não ser capaz de alcançar discos VM. Tente 'chmod o+x ",
     {
       "arg": "hOME",
       "type": "detail",
@@ -7788,13 +7788,13 @@ const DataptBRhost = `{
     "' como um recuo."
   ],
   "host.operator_e69fb2b8940dab5a": [
-    "Renomear-VM: o registro renomeado para '",
+    "Rename-VM: o registro renomeado para '",
     {
       "arg": "newName",
       "type": "detail",
       "trust": "external"
     },
-    "' mas Mover-VMStorage para '",
+    "' mas Move-VMStorage para '",
     {
       "arg": "destDir",
       "type": "detail",
@@ -7830,7 +7830,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "'. Os hóspedes irão fazer o download diretamente (expect ocasional 429s)."
+    "'. Os convidados irão fazer o download diretamente (expect ocasional 429s)."
   ],
   "host.operator_e73bb843561f0649": [
     "7. Salve o arquivo ISO como: ",
@@ -8004,7 +8004,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' não existe nesta máquina (renomeado ou removido desde que o interruptor do hóspede foi escolhido). Respondendo com o endereço padrão Switch, que é acessível apenas a partir de um hóspede realmente anexado ao Mudança por Omissão."
+    "' não existe nesta máquina (renomeado ou removido desde que o interruptor do convidado foi escolhido). Respondendo com o endereço padrão Switch, que é acessível apenas a partir de um convidado realmente anexado ao Mudança por padrão."
   ],
   "host.operator_ebad947b6ac44dfe": [
     "Verificado: UTM VM '",
@@ -8043,7 +8043,7 @@ const DataptBRhost = `{
   "host.operator_ec958f718e5cbe92": "3. Depois de assistente de configuração completa o arnês de teste pode conduzir",
   "host.operator_ecb97e42bf6353fc": "Confirmar a conclusão abrindo o URL do Monitor",
   "host.operator_ed3c547320b2c6d6": [
-    "Definir Web/securewebproxy para ",
+    "Definir web/securewebproxy para ",
     {
       "arg": "h",
       "type": "detail",
@@ -8132,11 +8132,11 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_f08765755eb06413": "pacotes apt (qemu-kvm, libvirt-daemon-system, cifs-utils, acl, ...) e módulos PSGallery",
-  "host.operator_f0fd9838eca3f370": "virsh -- source agent : tenta (seed instala o qemu- guest- agent best- effort; confirma por convidado)",
+  "host.operator_f0fd9838eca3f370": "virsh --source agent : tenta (seed instala o qemu-guest-agent best-effort; confirma por convidado)",
   "host.operator_f11ac5338e134c99": "Save-ImageWithChecksum: SHA256SUMS signature unverified (gpg/keyserver indisponível ou nenhum .gpg separado); continuando apenas no hash.",
   "host.operator_f138be59eb9fb325": "o libvirt GUI, para assistir um convidado um passo sem cabeça está preso",
   "host.operator_f14a8d0740e60f7c": [
-    "Save- VMDiskSnapshot: '",
+    "Save-VMDiskSnapshot: '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -8148,7 +8148,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' pode ser consistente com falhas -- os ficheiros gravados nos últimos segundos antes de a paragem poder ter um comprimento zero."
+    "' pode ser consistente com falhas -- os arquivos gravados nos últimos segundos antes de a paragem poder ter um comprimento zero."
   ],
   "host.operator_f1828451620bc0f7": [
     "Criando o vSwitch Externo '",
@@ -8179,7 +8179,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "', não externo. Respondendo com o endereço padrão Switch, que é acessível apenas a partir de um hóspede realmente anexado ao Switch padrão."
+    "', não externo. Respondendo com o endereço padrão Switch, que é acessível apenas a partir de um convidado realmente anexado ao Switch padrão."
   ],
   "host.operator_f257239b1955c535": "(primeiro arranque é executado na nuvem-init: apt update + install squid + hyperv-daemons;",
   "host.operator_f297da4003f2a69b": "iuruna-cacheproxy forwarders",
@@ -8196,7 +8196,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    ") -- ela permanece ativa em uma ponte inutilizável, e os hóspedes ligados a ela não obterão DHCP."
+    ") -- ela permanece ativa em uma ponte inutilizável, e os convidados ligados a ela não obterão DHCP."
   ],
   "host.operator_f2bb24df290cd0c1": "O cliente inicia o CA-less; ele vai auto-curar o CA do serviço de status do host no momento da atualização.",
   "host.operator_f303b03da5066386": [
@@ -8225,7 +8225,7 @@ const DataptBRhost = `{
     "' não foi verificado."
   ],
   "host.operator_f3ac8c54b3ef36d7": [
-    "O desligamento dos hóspedes não trouxe '",
+    "O desligamento dos convidados não trouxe '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -8237,7 +8237,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "s; escalonando para um ponto de força. Escreve ainda dentro da janela de writeback do hóspede será perdido."
+    "s; escalonando para um ponto de força. Escreve ainda dentro da janela de writeback do convidado será perdido."
   ],
   "host.operator_f3adc201e5fa38f4": "AVISO: OPERAÇÃO DEStruTIVA",
   "host.operator_f3f37ca41e1f0e2f": "Parar todos os encaminhadores de porto yuruna",
@@ -8283,7 +8283,7 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_f61cceb0afee5ae4": "Remover (adicionado por Active- TestAutomation)",
+  "host.operator_f61cceb0afee5ae4": "Remover (adicionado por Enable-TestAutomation)",
   "host.operator_f62d769e65f81877": [
     "relógio da máquina: ",
     {
@@ -8293,7 +8293,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_f62df16b646f2313": [
-    "VM hiper- V parada: ",
+    "VM Hyper-V parada: ",
     {
       "arg": "vMName",
       "type": "detail",
@@ -8309,7 +8309,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_f69adb6b2f614a13": [
-    "Renomear-VM: o nome de destino '",
+    "Rename-VM: o nome de destino '",
     {
       "arg": "newName",
       "type": "detail",
@@ -8318,13 +8318,13 @@ const DataptBRhost = `{
     "' já existe."
   ],
   "host.operator_f6be3a6bb731458d": [
-    "O Hyper-V não relata nenhum gerenciamento-OS vNIC no switch. O Set-VMswitch - Nome '",
+    "O Hyper-V não relata nenhum gerenciamento do sistema operacional vNIC no switch. O Set-VMSwitch -Name '",
     {
       "arg": "switchName",
       "type": "detail",
       "trust": "external"
     },
-    "' -Permite o gerenciamento OS $true restaura-o, ao custo de uma breve queda na rede do host."
+    "' -AllowManagementOS $true restaura-o, ao custo de uma breve queda na rede do host."
   ],
   "host.operator_f723e2637a819ebc": [
     "NetworkManager CRASHED ao tentar ",
@@ -8374,11 +8374,11 @@ const DataptBRhost = `{
       "trust": "external"
     }
   ],
-  "host.operator_f95b24ace7630162": "Windows HKCU WinINet + HKCU\\Ambiente",
+  "host.operator_f95b24ace7630162": "Windows HKCU WinINet + HKCU\\Environment",
   "host.operator_fa07a6efcd13635f": "Se a espera abaixo parar ou falhar, abra",
   "host.operator_fa53e475b2cdd39b": "== Consola de controle-serviço de pool/SSH login (disponível AGORA) ==",
   "host.operator_fa7ca00859916941": "Não foi possível determinar a versão UTM. Certifique-se de que UTM v4.0.0 ou posterior está instalado.",
-  "host.operator_fac07fa116ddd338": "Remove- HostProxy: não foi possível detectar automaticamente o serviço de rede ativo; nada para limpar.",
+  "host.operator_fac07fa116ddd338": "Remove-HostProxy: não foi possível detectar automaticamente o serviço de rede ativo; nada para limpar.",
   "host.operator_fac89af7ceb85a93": [
     "Porta ",
     {
@@ -8395,13 +8395,13 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' foi mal- sucedido (saída ",
+    "' foi mal-sucedido (saída ",
     {
       "arg": "lASTEXITCODE",
       "type": "detail",
       "trust": "external"
     },
-    "). Tente: sudo virsh - c qemu:///system net- start ",
+    "). Tente: sudo virsh -c qemu:///system net-start ",
     {
       "arg": "networkName",
       "type": "detail",
@@ -8419,7 +8419,7 @@ const DataptBRhost = `{
   ],
   "host.operator_fb4dd946f32e035c": "Pacotes host ausentes -- este host nunca passou por install/ubuntu.kvm.sh, ou antecede um destes:",
   "host.operator_fb588d98fea5af35": [
-    "A verificação da VM falhou: Não foi encontrada a hiper- V VM '",
+    "A verificação da VM falhou: Não foi encontrada a Hyper-V VM '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -8472,10 +8472,10 @@ const DataptBRhost = `{
     },
     "): o lado convidado também é estático, então o pipeline de captura não é a falha"
   ],
-  "host.operator_fc3a019bfe08955e": "Descobrimento do endereço de hóspedes neste host:",
-  "host.operator_fc6e553877a41837": "swift não encontrado no PATH. Instale as ferramentas da linha de comandos Xcode: xcode- select -- install",
+  "host.operator_fc3a019bfe08955e": "Descobrimento do endereço de convidados neste host:",
+  "host.operator_fc6e553877a41837": "swift não encontrado no PATH. Instale as ferramentas da linha de comandos Xcode: xcode-select --install",
   "host.operator_fc7e4d718a95d1a2": [
-    "Renomear- VM: não foi possível mover o endereço '",
+    "Rename-VM: não foi possível mover o endereço '",
     {
       "arg": "vMName",
       "type": "detail",

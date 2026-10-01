@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,7 +88,7 @@ param(
     [switch]$NoStatusService,
 
     # Skip refreshing <RepoRoot>/project. An orchestration caller clones the project
-    # ONCE before iterating a test-set, then passes this so each child
+    # ONCE before iterating its inner sequences, then passes this so each child
     # Debug-TestSequence reuses that fresh tree instead of re-cloning per entry.
     # Standalone callers should omit it -- the default clone keeps a lone
     # Debug-TestSequence run in sync with the runner (same as Invoke-TestRunnerInnerLoop).
@@ -530,16 +530,42 @@ $requiredSnapshotId = $plan.requiredSnapshotId
 # a different VM than the one the operator named on the command line.
 if ($plan.warmPath -and -not $PSBoundParameters.ContainsKey('VMName')) { $VMName = $requiredSnapshotId }
 
+# --- REGION: Validate StartStep / StopStep against the chain's TOTAL step count
+# $ChainTotalSteps was computed by the chain-plan block above. With a
+# single-sequence chain (no baseline OR path-override) this is exactly
+# that sequence's own step count; with prereqs it covers the whole
+# concatenated execution.
+$totalSteps = $ChainTotalSteps
+
+if ($StartStep -lt 1 -or $StartStep -gt $totalSteps) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_c5e5437853bd6622' -Arguments @{ startStep = "$StartStep"; totalSteps = "$totalSteps" })
+    exit $ExitFailure
+}
+
+if ($StopStep -ne 0) {
+    if ($StopStep -lt $StartStep) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9bd6bf003a0b8625' -Arguments @{ stopStep = "$StopStep"; startStep = "$StartStep" })
+        exit $ExitFailure
+    }
+    if ($StopStep -gt $totalSteps) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6a91c5c4b76cc8ff' -Arguments @{ stopStep = "$StopStep"; totalSteps = "$totalSteps" })
+        $StopStep = $totalSteps
+    }
+}
+
+$effectiveStop = $StopStep -ne 0 ? $StopStep : $totalSteps
+
+$stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
+
 # --- REGION: UTM concurrent-VM pre-flight
 # On some macOS versions vmnet-shared assigns a separate host-side bridge
 # per vmnet "session" (bridge100, bridge101, ...) that don't route between
 # each other, so a foreign concurrent VM can push the test guests onto a
 # different bridge from the host's vmnet gateway and break the cloud-init
 # host-proxy URL baked into seed.iso. Refuse the cycle if a foreign VM is
-# running. Two names are exempt inside Assert-NoConcurrentUtmVm: the
-# caching-proxy-service VM (a dependency the guests consume, reachable on the
-# shared bridge) and the operator's own target VM ($VMName, so the
-# iterate-on-an-existing-VM dev loop still works).
+# running. The service VMs and the operator's target ($VMName) are exempt
+# inside Assert-NoConcurrentUtmVm; the target may be left up for another
+# iteration of the same debug sequence.
 # Stop first, refuse second: a leftover guest is stopped rather than left to
 # strand the host, and the guard below refuses only over what would not stop.
 # The operator's own target VM is left running so the dev loop still works.
@@ -719,33 +745,6 @@ if ($firstStepAction -eq 'loadDiskSnapshot') {
     }
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_871b3d6f64f4b730' -Arguments @{ vMName = "$VMName" })
 }
-
-# --- REGION: Validate StartStep / StopStep against the chain's TOTAL step count
-# $ChainTotalSteps was computed by the chain-plan block above. With a
-# single-sequence chain (no baseline OR path-override) this is exactly
-# that sequence's own step count; with prereqs it covers the whole
-# concatenated execution.
-$totalSteps = $ChainTotalSteps
-
-if ($StartStep -lt 1 -or $StartStep -gt $totalSteps) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_c5e5437853bd6622' -Arguments @{ startStep = "$StartStep"; totalSteps = "$totalSteps" })
-    exit $ExitFailure
-}
-
-if ($StopStep -ne 0) {
-    if ($StopStep -lt $StartStep) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9bd6bf003a0b8625' -Arguments @{ stopStep = "$StopStep"; startStep = "$StartStep" })
-        exit $ExitFailure
-    }
-    if ($StopStep -gt $totalSteps) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6a91c5c4b76cc8ff' -Arguments @{ stopStep = "$StopStep"; totalSteps = "$totalSteps" })
-        $StopStep = $totalSteps
-    }
-}
-
-$effectiveStop = $StopStep -ne 0 ? $StopStep : $totalSteps
-
-$stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 
 # --- REGION: Register this run as a cycle in status.json
 # Without this block a Debug-TestSequence run lands under cycle "000000" with

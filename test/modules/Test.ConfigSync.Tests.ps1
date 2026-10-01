@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42dc6e9c-5264-4b7f-9cb1-cbc552391717
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,8 +22,7 @@
     reconciliation), including Update-TestConfigFromTemplate's merge, deprecated-
     key drop, stale-key removal, and structure-departure backup.
 .DESCRIPTION
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4 and
-    Pester 5+. Run: Invoke-Pester -Path test/modules/Test.ConfigSync.Tests.ps1
+    Throw-based assertions so the file runs under Pester 5+. Run: Invoke-Pester -Path test/modules/Test.ConfigSync.Tests.ps1
 #>
 
 BeforeAll {
@@ -67,6 +66,19 @@ function New-TempDir {
     return $d
 }
 
+}
+
+Describe 'documented empty lists' {
+    It 'keeps empty block and inline lists empty after repeated render and parse passes' {
+        $template = "guestSequence:`n- old-guest`ninline: []"
+        $config = @{ guestSequence = @(); inline = $null }
+        foreach ($pass in 1..3) {
+            $rendered = ConvertTo-DocumentedConfigYaml -TemplateText $template -Config $config
+            $config = ConvertFrom-Yaml -Yaml $rendered -Ordered
+            $config.guestSequence.Count | Should -Be 0
+            $config.inline.Count | Should -Be 0
+        }
+    }
 }
 
 Describe 'ConvertTo-MergedHashtable' {
@@ -442,7 +454,7 @@ Describe 'ConvertTo-DocumentedConfigYaml' {
     }
     It 'is idempotent: rendering its own output reproduces it byte for byte' {
         $tplPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'test.config.yml.template'
-        if (Test-Path $tplPath) {
+        Assert-True (Test-Path -LiteralPath $tplPath) 'the shipped configuration template must exist'
             $tplText = Get-Content -Raw $tplPath
             $tpl     = ConvertFrom-Yaml $tplText -Ordered
             $cfg     = ConvertTo-SortedConfig (ConvertTo-MergedHashtable -Template $tpl -Current ([ordered]@{ logLevel = 'Debug' }))
@@ -450,7 +462,6 @@ Describe 'ConvertTo-DocumentedConfigYaml' {
             $r2 = ConvertTo-DocumentedConfigYaml -TemplateText $tplText -Config (ConvertTo-SortedConfig (ConvertTo-MergedHashtable -Template $tpl -Current (ConvertFrom-Yaml $r1 -Ordered)))
             Assert-Equal -Expected $r1 -Actual $r2 -Because 'the writer runs every cycle; it must converge'
             Assert-True ($r1 -match 'logLevel: Debug') 'operator value survived the round trip'
-        }
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,6 +92,8 @@ param(
     [string]$Root,
     [switch]$Quiet
 )
+
+Import-Module (Join-Path $PSScriptRoot '../test/modules/Test.LocalizationExchange.psm1') -DisableNameChecking
 
 $ErrorActionPreference = 'Stop'
 
@@ -476,17 +478,7 @@ function Get-MessageSourceHash {
         [Parameter(Mandatory)][string]$Key,
         [Parameter(Mandatory)]$Message
     )
-
-    # The hash covers every source-owned fact a translator relies on: wording,
-    # context, placeholders, branching and lifecycle. Object property order is
-    # not meaning, so it is sorted recursively before hashing. Reformatting a
-    # source file therefore does not stale translations; changing one message
-    # stales exactly that message.
-    $record = [ordered]@{
-        key      = $Key
-        contract = ConvertTo-SortedValue -Value $Message
-    }
-    return Get-Sha256 -Text (ConvertTo-CanonicalJson -Value $record)
+    return (Get-LocalizationMessageHash -Key $Key -Message $Message)
 }
 
 function ConvertTo-PowerShellLiteral {
@@ -578,7 +570,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.09.27'
+        '.VERSION 2026.09.30'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -1009,7 +1001,7 @@ foreach ($translationKey in $translationProvenance.Keys) {
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.09.27'
+    compilerVersion = '2026.09.30'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash

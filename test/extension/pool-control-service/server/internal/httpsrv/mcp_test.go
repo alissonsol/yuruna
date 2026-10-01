@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"pool-control-service/internal/intent"
 	"yuruna.com/test/extension/extension-sdk/mcp"
 )
 
@@ -38,23 +39,22 @@ func TestMcpToolsArePinnedAndReadOnly(t *testing.T) {
 	// tool declares which it is here, and the assertion below keeps the
 	// declarations honest.
 	readOnly := map[string]bool{
-		"pool_control_board":              true,
-		"pool_control_diagnostics":        true,
-		"pool_control_host_control_state": true,
-		"pool_control_host_facts":         true,
-		"pool_control_hostinfo":           true,
-		"pool_control_hosts":              true,
-		"pool_control_scan_status":        true,
-		"pool_control_state":              true,
-		"pool_control_add_host":           false,
-		"pool_control_assign_testset":     false,
-		"pool_control_move_host":          false,
-		"pool_control_remove_host":        false,
-		"pool_control_set_host_control":   false,
+		"pool_control_board":                 true,
+		"pool_control_diagnostics":           true,
+		"pool_control_host_control_state":    true,
+		"pool_control_host_facts":            true,
+		"pool_control_hostinfo":              true,
+		"pool_control_hosts":                 true,
+		"pool_control_scan_status":           true,
+		"pool_control_state":                 true,
+		"pool_control_add_host":              false,
+		"pool_control_move_host":             false,
+		"pool_control_remove_host":           false,
+		"pool_control_set_host_control":      false,
+		"pool_control_set_pool_repositories": false,
 	}
 	want := []string{
 		"pool_control_add_host",
-		"pool_control_assign_testset",
 		"pool_control_board",
 		"pool_control_diagnostics",
 		"pool_control_host_control_state",
@@ -65,6 +65,7 @@ func TestMcpToolsArePinnedAndReadOnly(t *testing.T) {
 		"pool_control_remove_host",
 		"pool_control_scan_status",
 		"pool_control_set_host_control",
+		"pool_control_set_pool_repositories",
 		"pool_control_state",
 	}
 	if len(tools) != len(want) {
@@ -158,6 +159,51 @@ func TestMcpToolAnswersExactlyWhatTheRouteAnswers(t *testing.T) {
 		if _, present := viaTool[key]; !present {
 			t.Errorf("the tool dropped %q, which the route carries", key)
 		}
+	}
+}
+
+// The repository tool is its route: both URLs set the pair, both omitted clear
+// it, and an argument the route does not take is refused by name rather than
+// silently dropped, so a caller that sends one learns why nothing happened.
+func TestSetPoolRepositoriesToolSharesTheRoute(t *testing.T) {
+	call := func(f *fakeIntent, args string) map[string]any {
+		t.Helper()
+		srv := newTestServer(f)
+		defer srv.Close()
+		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pool_control_set_pool_repositories","arguments":` + args + `}}`
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/mcp", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+testBearer)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("POST /mcp: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		raw, _ := io.ReadAll(resp.Body)
+		var out map[string]any
+		if err := json.Unmarshal(raw, &out); err != nil {
+			t.Fatalf("/mcp body is not JSON: %v (%s)", err, raw)
+		}
+		return out
+	}
+
+	f := &fakeIntent{ret: intent.Result{OK: true}}
+	res := call(f, `{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":"https://x/p"}`)
+	if res["error"] != nil || f.lastCall != "SetPoolRepositories" || strings.Join(f.lastArgs, " ") != "lab https://x/f https://x/p" {
+		t.Fatalf("set: %v, forwarded %s %q", res, f.lastCall, f.lastArgs)
+	}
+
+	f = &fakeIntent{ret: intent.Result{OK: true}}
+	res = call(f, `{"poolId":"lab"}`)
+	if res["error"] != nil || f.lastCall != "ClearPoolRepositories" || strings.Join(f.lastArgs, " ") != "lab" {
+		t.Fatalf("clear: %v, forwarded %s %q", res, f.lastCall, f.lastArgs)
+	}
+
+	f = &fakeIntent{ret: intent.Result{OK: true}}
+	res = call(f, `{"poolId":"lab","name":"x","frameworkUrl":"https://x/f","projectUrl":"https://x/p"}`)
+	errObj, _ := res["error"].(map[string]any)
+	if msg, _ := errObj["message"].(string); !strings.Contains(msg, "unsupported argument name") || f.lastCall != "" {
+		t.Fatalf("an unknown argument must be refused before the route runs: %v, called %q", res, f.lastCall)
 	}
 }
 

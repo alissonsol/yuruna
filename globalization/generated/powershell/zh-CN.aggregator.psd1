@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421bcf2d-5f7f-8b49-9f26-41fdd197f523
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
     'aggregator.help_display_language' = '显示语言：auto或受支持的区域设置'
     'aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083' = '在-cross-host-window内触发池级事件所需的不同故障宿主机数量'
     'aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1' = '最后一次联系后经过此时长，将宿主机从池视图中移除；其每周期去重状态额外保留一小时，以免再次出现的宿主机被重复计数，且仪表板深层链接始终至少在24h内可解析。累计通过/失败（pass/fail）计数不会因此过期，请使用POST /api/v1/forget-host'
-    'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = '存放共享持有者令牌的文件，用于控制POST /ingest的访问；值为空/文件不存在/文件为空（empty/absent/empty-file）-> 禁用 /ingest（绝不提供未经身份验证的写入路由）'
+    'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = '保存共享 Bearer 令牌的文件；POST /ingest、POST /api/v1/forget-host、POST /api/v1/handover-host 和 GET /api/v1/host-history 均需要此令牌。未指定文件、文件不存在或文件为空时，这些操作不可用（不会开放未经身份验证的控制路由）'
     'aggregator.help_loki_push_api_url_c89d9321' = 'Loki推送API URL'
     'aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f' = '启动时，从Loki恢复此回溯窗口内的周期计数（0表示禁用）'
     'aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc' = '在-incident-window内失败周期数达到此数量时，创建事件'

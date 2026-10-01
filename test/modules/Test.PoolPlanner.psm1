@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b8932c-aa15-4760-a06d-b3037804847c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna pool planner test-set guest compatibility
+.TAGS yuruna pool planner manifest guest compatibility
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -16,9 +16,14 @@
 
 #requires -version 7
 
-# Pool planner: turn a pool's assigned test-sets into a cycle plan THIS
-# host can run. See ../../docs/pool-admin.md#what-a-pool-is for the
-# decentralized, best-effort planning model. -- Test.PoolPlanner.psm1
+# Pool planner: Read-YurunaPoolManifest reads runtime/pool.manifest.json (the
+# pool's framework and project repositories) for the inner runner. The
+# guests.compatibility.yml helpers below evaluate a project's per-guest
+# hypervisor rules. The runner does not call them, because every pool member
+# runs its project's whole plan; Test.PoolPlanner.Tests.ps1 is their only
+# caller, and Test-PoolIntent.ps1 validates the store's copy of that file
+# through Test.PoolAdmin instead. See ../../docs/pool-admin.md#what-a-pool-is
+# for the decentralized, best-effort model. -- Test.PoolPlanner.psm1
 
 # Map a host type to its hypervisor token (host.windows.hyper-v -> hyper-v,
 # host.ubuntu.kvm -> kvm, host.macos.utm -> utm) -- the same derivation the host
@@ -132,7 +137,7 @@ function Read-YurunaPoolManifest {
     return $null
 }
 
-# Resolve the project test dir (where test.runner.yml / test-sets/ /
+# Resolve the project test dir (where test.runner.yml and
 # guests.compatibility.yml live) from the cycle-config path.
 function Get-PoolProjectTestDir {
     <#
@@ -168,105 +173,6 @@ function Read-YurunaGuestCompatibility {
     return $null
 }
 
-# Read-YurunaTestSetManifest reads project/test/test-sets/<Name>.yml. $null when
-# absent/malformed or schemaVersion!=1 -> the caller SKIPS that one set (other
-# sets still run) and never throws.
-function Read-YurunaTestSetManifest {
-    <#
-    .SYNOPSIS
-    Reads a named test-set manifest from project/test/test-sets, returning $null when it is absent, malformed, or not schemaVersion 1.
-    #>
-    [CmdletBinding()]
-    [OutputType([System.Collections.IDictionary])]
-    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Name)
-    if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) { return $null }
-    $path = Join-Path (Join-Path (Get-PoolProjectTestDir -RepoRoot $RepoRoot) 'test-sets') ("$Name.yml")
-    if (-not (Test-Path -LiteralPath $path)) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_09419d31a82de2e4' -Arguments @{ path = "$path" }); return $null }
-    try {
-        $doc = Get-Content -Raw -LiteralPath $path | ConvertFrom-Yaml -Ordered
-    } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c83a08264595d72a' -Arguments @{ name = "$Name"; message = "$($_.Exception.Message)" }); return $null }
-    if (-not ($doc -is [System.Collections.IDictionary])) { return $null }
-    if ([int]$doc['schemaVersion'] -ne 1) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_93083a11a290abbd' -Arguments @{ name = "$Name" }); return $null }
-    return $doc
-}
-
-# --- REGION: Orchestrator
-# Resolve-PoolCyclePlan builds the cycle plan for a pooled host from its pool
-# manifest: iterate the assigned test-sets (ordered by `order`), resolve each into
-# plan entries, drop the guests this host can't run, and concatenate
-# (cycleStrategy=all). Returns the combined plan, or $null when nothing is runnable
-# (the inner runner then falls back to single-host). Best-effort; never throws
-# except PlannerFatal (a sequence typo must still abort, like the single-host path).
-function Resolve-PoolCyclePlan {
-    <#
-    .SYNOPSIS
-    Builds the combined cycle plan for a pooled host from its manifest's assigned test-sets, keeping only the guests this host can run, or $null when nothing is runnable.
-    #>
-    [CmdletBinding()]
-    [OutputType([System.Object[]])]
-    param(
-        [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][string]$SequencesDir,
-        [Parameter(Mandatory)][string]$HostType,
-        [Parameter(Mandatory)][System.Collections.IDictionary]$Manifest
-    )
-    $testSets = @($Manifest['testSets'])
-    if ($testSets.Count -eq 0) { return $null }
-    # Stable order by `order` (default 0), then declaration order.
-    $ordered = $testSets | Where-Object { $_ -is [System.Collections.IDictionary] } |
-        Sort-Object -Stable { if ($_.Contains('order')) { [int]$_['order'] } else { 0 } }
-    $compat = Read-YurunaGuestCompatibility -RepoRoot $RepoRoot
-    $all = New-Object System.Collections.Generic.List[Object]
-    foreach ($ts in $ordered) {
-        $name = [string]$ts['name']
-        if ([string]::IsNullOrWhiteSpace($name)) { continue }
-        $strategy = if ($ts.Contains('cycleStrategy')) { [string]$ts['cycleStrategy'] } else { 'all' }
-        if ($strategy -and $strategy -ne 'all') {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_764eb138496adb9a' -Arguments @{ name = "$name"; strategy = "$strategy" })
-        }
-        $body = Read-YurunaTestSetManifest -RepoRoot $RepoRoot -Name $name
-        if (-not $body) { continue }   # missing/malformed -> skip this set
-        $between = if (($body['provisioning'] -is [System.Collections.IDictionary]) -and $body['provisioning'].Contains('betweenSets')) { [string]$body['provisioning']['betweenSets'] } else { 'none' }
-        if ($between -and $between -ne 'none') {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1d0a3ac35890db97' -Arguments @{ name = "$name"; between = "$between" })
-        }
-        $seqs = [string[]]@($body['sequences'])
-        if ($seqs.Count -eq 0) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_05b0d534849b3a19' -Arguments @{ name = "$name" }); continue }
-        # Assignment (NOT @(...)) -- Resolve-TestSetCyclePlan returns ,@(...); wrapping
-        # the call in @() would nest the entries one level deep.
-        $setPlan = Resolve-TestSetCyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType `
-            -Sequences $seqs -SetName $name -PerGuestOverrides $body['perGuestOverrides']
-        if (@($setPlan).Count -eq 0) { continue }
-        # Per-host filter: keep only guests this host can run (assignment, same reason).
-        $candidates = Get-CyclePlanGuestList -Plan $setPlan
-        $folderOk = @{}; $capOk = @{}
-        foreach ($g in $candidates) {
-            $folderOk[$g] = [bool](Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $g)
-            # Capability: run the existing whole-plan checker on this guest's sub-plan
-            # so a host that lacks the actions' HostIO/OCR skips the guest (rather than
-            # hard-failing the cycle-level capability gate downstream).
-            $cap = $true
-            try {
-                $sub = @($setPlan | Where-Object { $_.guestKey -eq $g })
-                $r = Test-CyclePlanCapabilityFromPlan -Plan $sub -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType
-                if ($r -is [System.Collections.IDictionary] -and $r.Contains('supported')) { $cap = [bool]$r['supported'] }
-            } catch { Write-Verbose "pool: capability probe for $g threw: $($_.Exception.Message)" }
-            $capOk[$g] = $cap
-        }
-        $runnable = Select-RunnableGuestList -CandidateGuests $candidates -FolderPresent $folderOk -CapabilitySupported $capOk -Compatibility $compat -HostType $HostType
-        if ($runnable.Count -eq 0) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d164f2ba2a2136ac' -Arguments @{ name = "$name"; hostType = "$HostType" })
-            continue
-        }
-        foreach ($e in $setPlan) {
-            if ($runnable -contains $e.guestKey) { $all.Add($e) }
-        }
-    }
-    if ($all.Count -eq 0) { return $null }
-    return ,@($all.ToArray())
-}
-
 Export-ModuleMember -Function `
     Get-PoolHostHypervisor, Get-CompatibleHypervisorList, Test-GuestCompatibleWithHost, Select-RunnableGuestList, `
-    Read-YurunaPoolManifest, Get-PoolProjectTestDir, Read-YurunaGuestCompatibility, Read-YurunaTestSetManifest, `
-    Resolve-PoolCyclePlan
+    Read-YurunaPoolManifest, Get-PoolProjectTestDir, Read-YurunaGuestCompatibility

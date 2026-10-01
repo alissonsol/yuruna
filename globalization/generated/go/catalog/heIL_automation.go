@@ -790,7 +790,7 @@ const DataheILautomation = `{
       "trust": "external"
     }
   ],
-  "automation.operator_287506e0d1314af9": "עד לכתיבת (1), ההגנה 'מאגר היעד אינו מכיל ערכת בדיקות' אינה מופעלת עבור",
+  "automation.operator_287506e0d1314af9": "עד לכתיבת (1), ההגנה 'מאגר היעד אינו מכיל מאגרי קוד' אינה מופעלת עבור",
   "automation.operator_29759c8a58f5d70a": [
     "שגיאת ⁦Get-PSRepository⁩: ",
     {

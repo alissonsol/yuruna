@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f92ea6-5c9c-4bf9-bc5d-26645804dc86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -152,6 +152,10 @@ function Get-HostRefreshCredentialHostId {
     return $id
 }
 
+foreach ($pathParameter in @('OutputPath', 'KeyPath', 'AuthorityDirectory', 'RuntimeDirectory')) {
+    $value = Get-Variable -Name $pathParameter -ValueOnly
+    if ($value) { Set-Variable -Name $pathParameter -Value $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($value) }
+}
 $exitCode = 0
 try {
     switch ($PSCmdlet.ParameterSetName) {

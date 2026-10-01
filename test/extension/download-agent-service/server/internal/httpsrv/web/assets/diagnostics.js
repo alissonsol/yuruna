@@ -163,37 +163,21 @@
         Y.notice('error', window.YurunaI18n.t("download.resolver_test_failed_to_run_value1", {value1: (e.message)}));
       }).then(finish, finish);
   }
+  $('refresh-view').addEventListener('click', load);
   $('test-amd64').addEventListener('click', function () { runTest('amd64'); });
   $('test-arm64').addEventListener('click', function () { runTest('arm64'); });
 
   // --- REGION: Session
   function loadSession() {
-    return Y.proofUnlock.then(function () {
-      return Y.api('/api/session');
-    }).then(function (s) {
-      gateConfigured = !!s.configured;
-      labTokenGate = !!s.labToken;
-      $('login').hidden = !(labTokenGate && !s.authed);
-      $('gate-unconfigured').hidden = gateConfigured;
-    }, function () {
-      // A gate this page cannot vouch for offers no control it cannot back.
-      gateConfigured = false;
-      labTokenGate = false;
+    return Y.initUnlock(function () { return loadSession(); }).then(function (s) {
+      // A failed gate read stays locked. The diagnostic report may still be
+      // read, while the server refuses an unauthorized resolver test.
+      gateConfigured = s.configured;
+      labTokenGate = s.labToken;
     });
   }
 
-  $('login-form').addEventListener('submit', function (ev) {
-    ev.preventDefault();
-    var field = $('lab-token');
-    var err = $('login-error');
-    err.textContent = '';
-    Y.api('/api/login', { method: 'POST', body: { labToken: field.value.trim().toLowerCase() } }).then(function () {
-      field.value = '';
-      return loadSession();
-    }, function (e) {
-      err.textContent = e.message;
-    });
-  });
+
 
   window.YurunaFirstUsable.hold('session');
   loadSession().then(function () { window.YurunaFirstUsable.release('session'); });

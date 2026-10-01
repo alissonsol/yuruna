@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4218f53d-2ce9-4dd2-9793-e239cc92136d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,7 +49,7 @@ Describe 'sequenceplanner-cascade -- the variable-merge rules are shared by one 
         Assert-True ($n -eq 1) "expected one whitespace-skip after dedup, found $n"
     }
     It 'both planners delegate to Merge-SequenceVariableCascade' {
-        $n = ([regex]::Matches($script:src, [regex]::Escape('Merge-SequenceVariableCascade -Target $effectiveVars -Variables $sSeq.variables'))).Count
+        $n = ([regex]::Matches($script:src, [regex]::Escape('Get-SequenceChainContext -Chain $chain -Paths $paths'))).Count
         Assert-True ($n -eq 2) "expected both planners to delegate, found $n"
     }
 }

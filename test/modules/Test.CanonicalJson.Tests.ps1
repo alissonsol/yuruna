@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d1c8b7-4e05-4a6f-9c31-6b0a7d2e5f48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,10 +111,9 @@ Describe 'the canonical form does not depend on the host' {
         # these differently, which would change the digest on that host without
         # changing a word of the content -- and the value is compared across
         # hosts byte for byte.
-        # Distinct names, chosen so ordinal and culture-aware ordering disagree:
-        # ordinal puts every capital before every lowercase letter, Turkish
-        # treats dotted and dotless i as separate letters, and Swedish sorts a
-        # ring-a after z.
+        # Distinct names include mixed case, for which ordinal ordering puts
+        # every capital before every lowercase letter. Culture-aware sorting
+        # may group letters by base character instead.
         $value = [pscustomobject]@{ zebra = 1; Apple = 2; india = 3; Irish = 4; angstrom = 5 }
         $prior = [Threading.Thread]::CurrentThread.CurrentCulture
         try {

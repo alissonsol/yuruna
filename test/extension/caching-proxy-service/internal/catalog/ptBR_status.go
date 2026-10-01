@@ -76,7 +76,7 @@ const DataptBRstatus = `{
     }
   },
   "status.api_admission_unavailable": [
-    "the host could not record the request (",
+    "o hospedeiro não pôde registrar a solicitação (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -125,18 +125,18 @@ const DataptBRstatus = `{
       "trust": "external"
     }
   ],
-  "status.api_expected_diagnostics_folder_filename_5f581c78": "esperado /diagnóstico/<folder>.../<filename>",
-  "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e": "pasta de falha não encontrada; o corredor deve tê- la criado primeiro",
+  "status.api_expected_diagnostics_folder_filename_5f581c78": "esperado /diagnostics/<folder>.../<filename>",
+  "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e": "pasta de falha não encontrada; o corredor deve tê-la criado primeiro",
   "status.api_filename_must_match_system_diagnostic_id_txt_ec048334": "o nome do arquivo deve corresponder a *.system.diagnostic.<id>.txt",
   "status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5": "segmento de pasta contém transversal ou backslash",
   "status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1": "seguir orientações em https://yuruna.link/42185271-0007",
   "status.api_forbidden_78342a09": "Proibido",
   "status.api_forbidden_deny_list_1c7d1cfa": "Proibido (lista de recusa)",
-  "status.api_forbidden_directory_listing_disabled_5d107f5b": "Proibido (a listagem do directório está desactivada)",
+  "status.api_forbidden_directory_listing_disabled_5d107f5b": "Proibido (a listagem do diretório está desactivada)",
   "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": "proibido: faltando o cabeçalho de solicitação X-Yuruna (guarda de requisição entre locais)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "proibido: o alvo da sonda deve ser um endereço privado (loopback/RFC1918/link-local) ou o IP de cache configurado",
   "status.api_host_refresh_authorization_refused": [
-    "refresh authorization refused (",
+    "autorização de atualização recusada (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -144,9 +144,9 @@ const DataptBRstatus = `{
     },
     ")"
   ],
-  "status.api_host_refresh_busy": "another host operation is in progress",
+  "status.api_host_refresh_busy": "outra operação do hospedeiro está em andamento",
   "status.api_host_refresh_request_closed": [
-    "this request id is already closed (",
+    "este ID de solicitação já foi encerrado (",
     {
       "arg": "state",
       "type": "identifier",
@@ -154,9 +154,9 @@ const DataptBRstatus = `{
     },
     ")"
   ],
-  "status.api_host_refresh_request_conflict": "this request id was already used with different settings",
+  "status.api_host_refresh_request_conflict": "este ID de solicitação já foi usado com configurações diferentes",
   "status.api_host_refresh_unavailable": [
-    "host refresh is not available on this host (",
+    "a atualização do hospedeiro não está disponível neste hospedeiro (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -165,7 +165,7 @@ const DataptBRstatus = `{
     ")"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "chave de autenticação interna não configurada nesta máquina",
-  "status.api_internal_error": "the request failed on the host; see server.err",
+  "status.api_internal_error": "a solicitação falhou no hospedeiro; consulte server.err",
   "status.api_invalid_json_detail_c907dfc3": [
     "JSON inválido: ",
     {
@@ -175,8 +175,8 @@ const DataptBRstatus = `{
     }
   ],
   "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c": "caminho de envio inválido (deve terminar em .log/.txt/.json/.err/.crash/.tar, sem travessia)",
-  "status.api_listener_busy": "too many request bodies are being read; retry shortly",
-  "status.api_listener_dependency_missing": "a module this route needs could not be loaded; see server.err",
+  "status.api_listener_busy": "há corpos de solicitação demais sendo lidos; tente novamente em instantes",
+  "status.api_listener_dependency_missing": "não foi possível carregar um módulo necessário para esta rota; consulte server.err",
   "status.api_method_not_allowed_be4fb6a2": "método não autorizado",
   "status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf": "método não permitido; POST o órgão de controle",
   "status.api_method_not_allowed_post_the_dump_body_fa73866b": "método não permitido; POST o corpo de despejo",
@@ -207,12 +207,12 @@ const DataptBRstatus = `{
   "status.api_path_escapes_log_root_13754cf8": "caminho escapa ao log root",
   "status.api_payload_too_large_1_mb_350b49df": "carga útil muito grande (> 1 MB)",
   "status.api_payload_too_large_256_kb_ad49d5cd": "carga útil muito grande (> 256 KB)",
-  "status.api_payload_too_large_4_kb": "payload too large (4 KB max)",
+  "status.api_payload_too_large_4_kb": "carga muito grande (máximo de 4 KB)",
   "status.api_payload_too_large_4_mb_3455f869": "carga útil muito grande (> 4 MB)",
   "status.api_payload_too_large_5_mb_ab90ca52": "carga útil muito grande (> 5 MB)",
   "status.api_post_required_663cc07c": "PÓS requerido",
   "status.api_private_state_unavailable": [
-    "the host's private state directory is unavailable (",
+    "o diretório de estado privado do hospedeiro está indisponível (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -224,7 +224,7 @@ const DataptBRstatus = `{
   "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b": "prova de incompatibilidade (chave de autenticação interna incorreta ou antiga)",
   "status.api_put_or_post_required_1f919659": "PUT ou POST requerido",
   "status.api_request_body_invalid": [
-    "invalid request body: ",
+    "corpo da solicitação inválido: ",
     {
       "arg": "reason",
       "type": "identifier",
@@ -238,7 +238,7 @@ const DataptBRstatus = `{
     },
     ")"
   ],
-  "status.api_request_body_timeout": "the request body did not arrive within 2 seconds",
+  "status.api_request_body_timeout": "o corpo da solicitação não chegou em 2 segundos",
   "status.api_runner_script_missing": [
     "O Start-TestRunner.ps1 não foi encontrado em ",
     {
@@ -251,17 +251,17 @@ const DataptBRstatus = `{
   "status.api_test_config_yml_not_found_3b38d785": "test.config.yml não foi encontrado",
   "status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c": "Test.ConfigServiceSync / Test.Config não pôde ser carregado no espaço de execução do servidor (ver runtime/server.err)",
   "status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c": "Test.PoolStorage / Test.Config não pôde ser carregado no espaço de execução do servidor (ver runtime/server.err)",
-  "status.api_unsupported_media_type": "Content-Type must be application/json",
+  "status.api_unsupported_media_type": "Content-Type deve ser application/json",
   "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9": "são necessários parâmetros de consulta de usuário, nonce e prova",
   "status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3": "usuário não referenciado pela rede desta máquinaStorage config",
   "status.api_worker_launcher_failed": [
-    "the worker could not be started (",
+    "não foi possível iniciar o processo de trabalho (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    "); the request can be retried"
+    "); a solicitação pode ser repetida"
   ],
   "status.api_write_failed_detail_c07681e1": [
     "erro ao escrever: ",
@@ -281,16 +281,16 @@ const DataptBRstatus = `{
   ],
   "status.archive": "Arquivo",
   "status.attach_downloaded_file": "O rascunho de e-mails não pode incluir automaticamente anexos, então, por favor, anexe manualmente o arquivo baixado antes de enviá-lo.",
-  "status.auto_refresh_paused": "Actualização automática pausada",
+  "status.auto_refresh_paused": "Atualização automática pausada",
   "status.banner_fail": "Incidente detectado — ver estado",
   "status.banner_idle": "Não existem dados de ensaio disponíveis",
   "status.banner_incident_details": "Incidente detectado — ver detalhes abaixo",
-  "status.banner_pass": "Todos os hóspedes operacionais",
+  "status.banner_pass": "Todos os convidados operacionais",
   "status.banner_running": "Teste em curso",
   "status.banner_stopped": "O corredor de teste parou",
-  "status.cache_caching_proxy_service_306beb37": "Serviço de cache- proxy:",
+  "status.cache_caching_proxy_service_306beb37": "Serviço de cache-proxy:",
   "status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d": [
-    "Serviço de cache- proxy: configurado no ",
+    "Serviço de cache-proxy: configurado no ",
     {
       "arg": "address",
       "type": "detail",
@@ -298,9 +298,9 @@ const DataptBRstatus = `{
     },
     ", não respondendo"
   ],
-  "status.cache_caching_proxy_service_detected_port_map_failed_28a5d3cf": "Serviço de cache- proxy: detectado (mapa do porto falhou)",
-  "status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937": "Serviço de cache- proxy: detectado (mapa de porta de propriedade de uma apresentação)",
-  "status.cache_caching_proxy_service_not_detected_eeb2edfb": "Serviço de cache- proxy: não detectado",
+  "status.cache_caching_proxy_service_detected_port_map_failed_28a5d3cf": "Serviço de cache-proxy: detectado (mapa do porto falhou)",
+  "status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937": "Serviço de cache-proxy: detectado (mapa de porta de propriedade de uma apresentação)",
+  "status.cache_caching_proxy_service_not_detected_eeb2edfb": "Serviço de cache-proxy: não detectado",
   "status.cache_detected_b96da48a": "detectado",
   "status.caching_proxy_test_endpoint_unavailable_value1": [
     "Endpoint do teste de cache-proxy não disponível: ",
@@ -310,7 +310,7 @@ const DataptBRstatus = `{
       "trust": "external"
     }
   ],
-  "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host": "O teste de cache- proxy cronometrado (15 s) - não é acessível a partir desta máquina?",
+  "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host": "O teste de cache-proxy cronometrado (15 s) - não é acessível a partir desta máquina?",
   "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host_65801a65": "O teste de cache-proxy cronometrado (15 s) — não é acessível a partir desta máquina?",
   "status.commit": "Enviar",
   "status.config": "Configuração",
@@ -349,7 +349,7 @@ const DataptBRstatus = `{
   "status.config_field_notification": "notificação",
   "status.config_field_perflog": "perfLog",
   "status.config_field_pollseconds": "pollSeconds",
-  "status.config_field_pool": "piscina",
+  "status.config_field_pool": "grupo",
   "status.config_field_poolstoragelocalpath": "poolStorageLocalPath",
   "status.config_field_poolstoragenetworkpath": "poolStorageNetworkPath",
   "status.config_field_poolstoragenetworkuser": "poolStorageNetworkUser",
@@ -454,7 +454,7 @@ const DataptBRstatus = `{
     },
     "s -- salvar em breve, ou reabrir este host do link do painel para um novo."
   ],
-  "status.control_proof_invalid": "O token de controle desta página não verifica aqui – o token de laboratório armazenado deste hospedeiro provavelmente difere do atual do laboratório, então re-introduza.",
+  "status.control_proof_invalid": "O token de controle desta página não verifica aqui – o token do laboratório armazenado deste hospedeiro provavelmente difere do atual do laboratório, então re-introduza.",
   "status.control_proof_missing": "Esta página foi aberta sem um token de controle, então nenhuma foi enviada.",
   "status.control_refused": "Controle recusado.",
   "status.control_routes": "configuração da rota de controlo",
@@ -478,7 +478,7 @@ const DataptBRstatus = `{
       "trust": "internal"
     }
   ],
-  "status.control_verifier_unavailable": "O serviço de status desta máquina não pôde carregar seu verificador de token (verifique teste/status/runtime/server.err na máquina).",
+  "status.control_verifier_unavailable": "O serviço de status desta máquina não pôde carregar seu verificador de token (verifique test/status/runtime/server.err na máquina).",
   "status.could_not_check_the_cycle_folder_first": "Não foi possível verificar a pasta do ciclo primeiro.",
   "status.could_not_determine_runner_status_value1_save_and_start_cycle_any": [
     "Não foi possível determinar o estado de execução (",
@@ -586,7 +586,7 @@ const DataptBRstatus = `{
       "trust": "external"
     }
   ],
-  "status.draft_emails_cannot_automatically_include_attachments_so_please_m": "O rascunho de e- mails não pode incluir automaticamente anexos, por isso, por favor\nanexar manualmente o arquivo baixado antes de enviá-lo.",
+  "status.draft_emails_cannot_automatically_include_attachments_so_please_m": "O rascunho de e-mails não pode incluir automaticamente anexos, por isso, por favor\nanexar manualmente o arquivo baixado antes de enviá-lo.",
   "status.duration": "Duração",
   "status.e_g_192_168_1_42_probed_first_empty_env_var_fallback_else_local_d": "e.g. 192.168.1.42 (provado primeiro; vazio = recuo env-var, caso contrário descoberta local)",
   "status.each_row_is_one_sequence_invocation_bars_show_elapsed_time_hover_": "Cada linha é uma invocação de sequência. As barras mostram o tempo decorrido; paira para os detalhes de trabalho e de repetição.",
@@ -726,7 +726,7 @@ const DataptBRstatus = `{
       "type": "token",
       "trust": "internal"
     },
-    " no repositório do projecto; esta lista é lida apenas quando esse ficheiro não resolve nenhum plano."
+    " no repositório do projecto; esta lista é lida apenas quando esse arquivo não resolve nenhum plano."
   ],
   "status.guest_sequence_last_plan": [
     "Último ciclo executado: ",
@@ -740,15 +740,15 @@ const DataptBRstatus = `{
   "status.guest_sequence_no_plan": "Nenhum plano resolvido é gravado para o último ciclo.",
   "status.guide": "Guia",
   "status.host": "Máquina",
-  "status.host_diagnostic_pending": "Collecting host diagnostics; this can take a minute...",
+  "status.host_diagnostic_pending": "Coletando diagnósticos do hospedeiro; isso pode levar um minuto...",
   "status.host_diagnostic_timeout": [
-    "Host diagnostics did not finish within ",
+    "Os diagnósticos do hospedeiro não terminaram em ",
     {
       "arg": "seconds",
       "type": "integer",
       "trust": "internal"
     },
-    " seconds. Reload the page to try again."
+    " segundos. Recarregue a página para tentar novamente."
   ],
   "status.host_diagnostics": "Diagnóstico da máquina",
   "status.host_ip_addresses": "Endereços IP da máquina",
@@ -783,102 +783,102 @@ const DataptBRstatus = `{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.",
-  "status.host_refresh_action_elevate": "Next step: the repair needs administrator rights; run it on the host from an elevated session.",
-  "status.host_refresh_action_grant_automation": "Next step: allow this host's automation access to UTM, then refresh again.",
-  "status.host_refresh_action_gui_session": "Next step: sign in to a desktop session on the host, then refresh again.",
-  "status.host_refresh_action_install_client": "Next step: install the hypervisor's command-line client on the host, then refresh again.",
-  "status.host_refresh_action_resume_request": "Next step: resume this request on the host with pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.",
-  "status.host_refresh_action_start_runner": "Next step: start the runner on the host; no recorded launch could be reused to restart it.",
+  "status.host_refresh_action_dispose_obligations": "Próxima etapa: revise os itens de recuperação pendentes no hospedeiro e descarte-os com pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.",
+  "status.host_refresh_action_elevate": "Próxima etapa: o reparo exige direitos de administrador; execute-o no hospedeiro em uma sessão elevada.",
+  "status.host_refresh_action_grant_automation": "Próxima etapa: permita o acesso de automação deste hospedeiro ao UTM e atualize novamente.",
+  "status.host_refresh_action_gui_session": "Próxima etapa: entre em uma sessão de área de trabalho no hospedeiro e atualize novamente.",
+  "status.host_refresh_action_install_client": "Próxima etapa: instale o cliente de linha de comando do hipervisor no hospedeiro e atualize novamente.",
+  "status.host_refresh_action_resume_request": "Próxima etapa: retome esta solicitação no hospedeiro com pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.",
+  "status.host_refresh_action_start_runner": "Próxima etapa: inicie o executor no hospedeiro; nenhuma inicialização registrada pôde ser reutilizada para reiniciá-lo.",
   "status.host_refresh_authorization_refused": [
-    "This refresh needs a refresh proof that this page does not have (",
+    "Esta atualização exige uma prova de atualização que esta página não tem (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). Use the status page on the host itself, or the pool-control refresh action."
+    "). Use a página de status no próprio hospedeiro ou a ação de atualização do controle do grupo."
   ],
   "status.host_refresh_busy": [
-    "Another host refresh (",
+    "Outra atualização do hospedeiro (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") is in progress; showing its progress."
+    ") está em andamento; exibindo o progresso dela."
   ],
-  "status.host_refresh_check_host": "On the host, run pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf to see the current state.",
+  "status.host_refresh_check_host": "No hospedeiro, execute pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf para ver o estado atual.",
   "status.host_refresh_closed": [
-    "Request ",
+    "A solicitação ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " is already closed (",
+    " já foi encerrada (",
     {
       "arg": "state",
       "type": "identifier",
       "trust": "external"
     },
-    "); start a new refresh."
+    "); inicie uma nova atualização."
   ],
   "status.host_refresh_confirm": [
-    "Refresh this host, up to the ",
+    "Atualizar este hospedeiro, até a etapa ",
     {
       "arg": "ceiling",
       "type": "identifier",
       "trust": "external"
     },
-    " step? Guest VMs on this host can be suspended or restarted while the hypervisor recovers, and the runner is restarted. This can take up to ",
+    "? As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera, e o executor será reiniciado. Isso pode levar até ",
     {
       "arg": "minutes",
       "type": "integer",
       "trust": "internal"
     },
-    " minutes."
+    " minutos."
   ],
   "status.host_refresh_conflict": [
-    "Request ",
+    "A solicitação ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " was already sent with different settings; start a new refresh."
+    " já foi enviada com configurações diferentes; inicie uma nova atualização."
   ],
-  "status.host_refresh_launcher_failed": "The host could not start the refresh worker. The request is kept; select Retry to start it again.",
+  "status.host_refresh_launcher_failed": "O hospedeiro não pôde iniciar o processo de atualização. A solicitação foi mantida; selecione Tentar novamente para iniciá-la de novo.",
   "status.host_refresh_lost": [
-    "Refresh ",
+    "Atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ": no outcome after ",
+    ": nenhum resultado após ",
     {
       "arg": "seconds",
       "type": "integer",
       "trust": "internal"
     },
-    " seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Refresh host to start a new one."
+    " segundos, ou uma solicitação posterior substituiu o relatório dela. Selecione Tentar novamente para perguntar ao hospedeiro como ela terminou, ou Atualizar hospedeiro para iniciar uma nova."
   ],
-  "status.host_refresh_note": "Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.",
+  "status.host_refresh_note": "Repara um executor ou hipervisor travado neste hospedeiro. As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera.",
   "status.host_refresh_progress": [
-    "Refresh ",
+    "Atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ": step ",
+    ": etapa ",
     {
       "arg": "step",
       "type": "integer",
       "trust": "external"
     },
-    " of ",
+    " de ",
     {
       "arg": "count",
       "type": "integer",
@@ -890,45 +890,45 @@ const DataptBRstatus = `{
       "type": "identifier",
       "trust": "external"
     },
-    "), up to ",
+    "), até ",
     {
       "arg": "remainingSeconds",
       "type": "integer",
       "trust": "external"
     },
-    " seconds left."
+    " segundos restantes."
   ],
-  "status.host_refresh_recovery_pending": "Services or the runner still need restoring. Retry resumes the same request.",
+  "status.host_refresh_recovery_pending": "Serviços ou o executor ainda precisam ser restaurados. Tentar novamente retoma a mesma solicitação.",
   "status.host_refresh_rejected": [
-    "The host rejected the refresh request: ",
+    "O hospedeiro rejeitou a solicitação de atualização: ",
     {
       "arg": "detail",
       "type": "detail",
       "trust": "external"
     }
   ],
-  "status.host_refresh_retry": "Retry",
+  "status.host_refresh_retry": "Tentar novamente",
   "status.host_refresh_stale": [
-    "Refresh ",
+    "Atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ": no progress report for ",
+    ": nenhum relatório de progresso há ",
     {
       "arg": "seconds",
       "type": "integer",
       "trust": "internal"
     },
-    " seconds. The worker may have stopped; check the host before starting another repair."
+    " segundos. O processo de trabalho pode ter parado; verifique o hospedeiro antes de iniciar outro reparo."
   ],
-  "status.host_refresh_start": "Refresh host",
-  "status.host_refresh_start_cycle_busy": "A start-cycle request is in progress; try again when it finishes.",
-  "status.host_refresh_submitting": "Sending the refresh request...",
-  "status.host_refresh_title": "Host refresh",
+  "status.host_refresh_start": "Atualizar hospedeiro",
+  "status.host_refresh_start_cycle_busy": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar.",
+  "status.host_refresh_submitting": "Enviando a solicitação de atualização...",
+  "status.host_refresh_title": "Atualização do hospedeiro",
   "status.host_refresh_unavailable": [
-    "Host refresh is not available on this host (",
+    "A atualização do hospedeiro não está disponível neste hospedeiro (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -937,31 +937,31 @@ const DataptBRstatus = `{
     ")."
   ],
   "status.host_refresh_verdict_abandoned": [
-    "Refresh ",
+    "A atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " was abandoned after repeated attempts; its recovery record is kept on the host."
+    " foi abandonada após tentativas repetidas; o registro de recuperação dela é mantido no hospedeiro."
   ],
   "status.host_refresh_verdict_already_healthy": [
-    "Refresh ",
+    "Atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " finished: the host was already healthy, so nothing was changed."
+    " concluída: o hospedeiro já estava íntegro, então nada foi alterado."
   ],
   "status.host_refresh_verdict_failed": [
-    "Refresh ",
+    "A atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " failed (",
+    " falhou (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -970,28 +970,28 @@ const DataptBRstatus = `{
     ")."
   ],
   "status.host_refresh_verdict_partial": [
-    "Refresh ",
+    "A atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ended incomplete (",
+    " terminou incompleta (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "); some services or the runner still need attention."
+    "); alguns serviços ou o executor ainda precisam de atenção."
   ],
   "status.host_refresh_verdict_refused": [
-    "Refresh ",
+    "A atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " was refused before any change (",
+    " foi recusada antes de qualquer alteração (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1000,31 +1000,31 @@ const DataptBRstatus = `{
     ")."
   ],
   "status.host_refresh_verdict_repaired": [
-    "Refresh ",
+    "Atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " finished: the host was repaired and the runner is ready."
+    " concluída: o hospedeiro foi reparado e o executor está pronto."
   ],
   "status.host_refresh_verdict_still_unresponsive": [
-    "Refresh ",
+    "Atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ended: the hypervisor still does not respond."
+    " encerrada: o hipervisor ainda não responde."
   ],
   "status.host_refresh_verdict_unknown": [
-    "Refresh ",
+    "A atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ended with an outcome this page does not recognize (",
+    " terminou com um resultado que esta página não reconhece (",
     {
       "arg": "verdict",
       "type": "identifier",
@@ -1033,28 +1033,28 @@ const DataptBRstatus = `{
     ")."
   ],
   "status.host_refresh_waiting": [
-    "Refresh ",
+    "A atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " was accepted; waiting for the worker's first report."
+    " foi aceita; aguardando o primeiro relatório do worker."
   ],
   "status.host_refresh_waiting_long": [
-    "Refresh ",
+    "Atualização ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ": no report after ",
+    ": nenhum relatório após ",
     {
       "arg": "seconds",
       "type": "integer",
       "trust": "internal"
     },
-    " seconds. The worker may have failed to start; check the host."
+    " segundos. O worker pode ter falhado ao iniciar; verifique o hospedeiro."
   ],
   "status.host_value1": [
     "Máquina: ",
@@ -1228,7 +1228,7 @@ const DataptBRstatus = `{
           "type": "detail",
           "trust": "external"
         },
-        ". Reinicie- o com: ",
+        ". Reinicie-o com: ",
         {
           "arg": "command",
           "type": "detail",
@@ -1249,7 +1249,7 @@ const DataptBRstatus = `{
           "type": "detail",
           "trust": "external"
         },
-        ". Reinicie- o com: ",
+        ". Reinicie-o com: ",
         {
           "arg": "command",
           "type": "detail",
@@ -1270,7 +1270,7 @@ const DataptBRstatus = `{
           "type": "detail",
           "trust": "external"
         },
-        ". Reinicie- o com: ",
+        ". Reinicie-o com: ",
         {
           "arg": "command",
           "type": "detail",
@@ -1303,7 +1303,7 @@ const DataptBRstatus = `{
   "status.not_a_valid_ipv4_or_ipv6_address_test_skipped": "Não é um endereço IPv4 ou IPv6 válido — o teste foi ignorado.",
   "status.null": "null",
   "status.open_cycle_data_folder": "Abrir a pasta de dados do ciclo",
-  "status.open_the_email_draft": "Abrir o rascunho de e- mail",
+  "status.open_the_email_draft": "Abrir o rascunho de e-mail",
   "status.pack_and_download_the_cycle_results": "Empacote e baixe os resultados do ciclo",
   "status.packing_value1": [
     "Embalagem ",
@@ -1360,7 +1360,7 @@ const DataptBRstatus = `{
   "status.pill_new_vm_resource": "Nova VM",
   "status.pill_start_guestos": "Iniciar o SO",
   "status.pill_start_guestworkload": "Carga de trabalho",
-  "status.process_environment_value_the_status_service_inherited_at_startup": "O valor do processo- ambiente do serviço de estado herdado na inicialização. Somente para leitura aqui; fonte de retorno somente: no início do ciclo o campo vmStart.cachingProxyIp acima é pesquisado primeiro e ganha quando suas respostas de 3128. Exportar isso no shell que lança o Start-TestRunner.ps1 para hosts cujo campo de configuração está vazio.",
+  "status.process_environment_value_the_status_service_inherited_at_startup": "O valor do ambiente do processo do serviço de estado herdado na inicialização. Somente para leitura aqui; fonte de retorno somente: no início do ciclo o campo vmStart.cachingProxyIp acima é pesquisado primeiro e ganha quando suas respostas de 3128. Exportar isso no shell que lança o Start-TestRunner.ps1 para hosts cujo campo de configuração está vazio.",
   "status.quarantine_pinned": [
     "Quarentenado após falhas repetidas da mesma classe (esqueceu até um novo commit; fixado em ",
     {
@@ -1486,17 +1486,17 @@ const DataptBRstatus = `{
     ", reiniciar a VM e, em seguida, retomar a sequência"
   ],
   "status.start_cycle_blocked_by_refresh": [
-    "A host refresh (",
+    "Uma atualização do hospedeiro (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") is in progress; the cycle cannot start until it finishes."
+    ") está em andamento; o ciclo não pode iniciar até que ela termine."
   ],
-  "status.start_cycle_cycle_restarted": "Cycle restarted",
+  "status.start_cycle_cycle_restarted": "Ciclo reiniciado",
   "status.start_cycle_failed": [
-    "Start-cycle failed (",
+    "Falha em start-cycle (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1505,31 +1505,31 @@ const DataptBRstatus = `{
     ")."
   ],
   "status.start_cycle_no_report": [
-    "Start-cycle ",
+    "start-cycle ",
     {
       "arg": "operationId",
       "type": "identifier",
       "trust": "external"
     },
-    " has not reported after ",
+    " não reportou após ",
     {
       "arg": "seconds",
       "type": "integer",
       "trust": "internal"
     },
-    " seconds; check the host."
+    " segundos; verifique o hospedeiro."
   ],
   "status.start_cycle_not_spawned": [
-    "The cycle restart was requested, but the runner's state could not be confirmed, so no second runner was started (",
+    "A reinicialização do ciclo foi solicitada, mas não foi possível confirmar o estado do runner, então nenhum segundo runner foi iniciado (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). A running runner restarts its cycle; if none is running, start it on the host."
+    "). Um runner em execução reinicia seu ciclo; se nenhum estiver em execução, inicie-o no hospedeiro."
   ],
-  "status.start_cycle_queued": "Start-cycle accepted; stopping in-progress VMs and starting the runner...",
-  "status.start_cycle_runner_started": "Runner started",
+  "status.start_cycle_queued": "start-cycle aceito; parando as VMs em andamento e iniciando o runner...",
+  "status.start_cycle_runner_started": "Runner iniciado",
   "status.started": "Iniciado",
   "status.started_utc": "Iniciado (UTC)",
   "status.status": "Estado",
@@ -1573,13 +1573,13 @@ const DataptBRstatus = `{
   "status.test_config_yml": "test.config.yml",
   "status.test_config_yml_yuruna": "test.config.yml — Yuruna",
   "status.test_sequences": "Sequências de ensaio",
-  "status.testing_caching_proxy_service_from_host": "Testando o serviço de cache- proxy da máquina...",
+  "status.testing_caching_proxy_service_from_host": "Testando o serviço de cache-proxy da máquina...",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "O arquivo é construído apenas a partir de registros do servidor e baixado para esta máquina. Nenhum dado desta sessão de navegação está incluído.",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "A prova de controlo expirou.",
   "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "A prova de controle foi rejeitada. Ela pode ter sido cunhada com um lab-auth-token diferente do que este host mantém; o re-introdução com test/lab/Set-LabToken.ps1 realinha-os.",
-  "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "A máquina não pôde carregar o seu verificador à prova de controlo; verifique o registo do serviço de estado.",
+  "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "A máquina não pôde carregar o seu verificador à prova de controlo; verifique o registro do serviço de estado.",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "A folha de partilha expirou enquanto a máquina embalava a pasta.",
-  "status.this_browser_could_not_attach_the_file_to_a_message_itself": "Este navegador não pôde anexar o ficheiro a uma mensagem propriamente dita.",
+  "status.this_browser_could_not_attach_the_file_to_a_message_itself": "Este navegador não pôde anexar o arquivo a uma mensagem propriamente dita.",
   "status.this_cycle_is_still_running_the_archive_will_hold_what_has_been_w": "Este ciclo ainda está em execução. O arquivo irá manter o que foi escrito até agora.",
   "status.this_host_will_not_pack_value1_http_value2_the_cycle_may_have_rot": [
     "Esta máquina não irá embalar ",
@@ -1658,7 +1658,7 @@ const DataptBRstatus = `{
       ]
     }
   },
-  "status.timing_incomplete_record": "registo incompleto",
+  "status.timing_incomplete_record": "registro incompleto",
   "status.timing_kind": [
     "Tipo: ",
     {

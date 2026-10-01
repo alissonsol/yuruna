@@ -4,7 +4,9 @@
 package sshsrv
 
 import (
+	"archive/zip"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,5 +185,38 @@ func TestUploadStageReasonsAreCategorical(t *testing.T) {
 	}
 	if got := stageTarget.clientReason(errBufferFull); !strings.Contains(got, "buffer full") {
 		t.Fatalf("a full buffer must keep its own reason, got %q", got)
+	}
+}
+
+func TestIngestMultiPreservesDuplicateBasenames(t *testing.T) {
+	s := newTestServer(t, true)
+	res, err := s.IngestMulti([]NamedReader{{Name: "report.txt", Body: strings.NewReader("first")}, {Name: `C:\folder\report.txt`, Body: strings.NewReader("second")}}, "tester", "192.0.2.1", "", "ui")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.Meta.Get(res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	z, err := zip.OpenReader(rec.StoredPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer z.Close()
+	content := map[string]bool{}
+	for _, file := range z.File {
+		r, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		content[string(b)] = true
+	}
+	if len(z.File) != 2 || !content["first"] || !content["second"] {
+		t.Fatalf("grouped upload lost bytes: %v", content)
 	}
 }

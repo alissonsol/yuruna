@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -192,6 +192,10 @@ function CreateIso {
     # Information; replay each line via Write-Verbose so logLevel Verbose
     # still gets the full transcript.
     $oscOutput = & $OscdimgPath "$SourceDir" "$OutputFile" -n -h -m -l"$VolumeId" 2>&1
+    $oscExit = $LASTEXITCODE
+    if ($oscExit -ne 0 -or -not (Test-Path -LiteralPath $OutputFile)) {
+        throw ("ISO creation failed (exit {0}) for '{1}': {2}" -f $oscExit, $OutputFile, ($oscOutput -join ' '))
+    }
     foreach ($line in $oscOutput) {
         $text = "$line".TrimEnd()
         if ($text) { Write-Verbose $text }
@@ -308,40 +312,50 @@ function Get-CacheVmCandidateIp {
     [bool] -- $false on non-Windows, no default route, or a bridgeable
     (PCI-attached, wired) uplink.
 #>
+function Get-WindowsDefaultIPv4Route {
+    <#
+    .SYNOPSIS
+        Select the lowest-metric usable default IPv4 route.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param()
+    return Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
+        Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1
+}
+
+function Get-WindowsDefaultRoutePhysicalAdapter {
+    <#
+    .SYNOPSIS
+        Resolve the default route through an external switch, including team members.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param()
+    $route = Get-WindowsDefaultIPv4Route
+    if (-not $route) { return @() }
+    $nic = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
+    if (-not $nic) { return @() }
+    if ($nic.InterfaceDescription -notmatch 'Hyper-V Virtual Ethernet') { return @($nic) }
+    $switch = Get-VMSwitch -ErrorAction SilentlyContinue |
+        Where-Object { $_.SwitchType -eq 'External' -and "vEthernet ($($_.Name))" -eq $nic.InterfaceAlias } | Select-Object -First 1
+    if (-not $switch) { return @() }
+    $descriptions = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $switch)
+    return @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $descriptions -contains $_.InterfaceDescription })
+}
+
 function Test-WindowsUplinkNotBridgeable {
+    <#
+    .SYNOPSIS
+        Identifies Wi-Fi and USB uplinks behind the default route.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param()
-
     if (-not $IsWindows) { return $false }
-
-    $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-        Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
-        Sort-Object RouteMetric, InterfaceMetric |
-        Select-Object -First 1
-    if (-not $route) { return $false }
-
-    $nic = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
-    if (-not $nic) { return $false }
-
-    if ($nic.InterfaceDescription -match 'Hyper-V Virtual Ethernet') {
-        # Route rides a vEthernet: find the External vSwitch whose
-        # management-OS adapter this is ('vEthernet (<name>)'), then test
-        # the switch's underlying physical NIC.
-        $switch = Get-VMSwitch -ErrorAction SilentlyContinue |
-            Where-Object { $_.SwitchType -eq 'External' -and "vEthernet ($($_.Name))" -eq $nic.InterfaceAlias } |
-            Select-Object -First 1
-        if (-not $switch -or -not $switch.NetAdapterInterfaceDescription) { return $false }
-        $phys = Get-NetAdapter -ErrorAction SilentlyContinue |
-            Where-Object { $_.InterfaceDescription -eq $switch.NetAdapterInterfaceDescription } |
-            Select-Object -First 1
-        if (-not $phys) { return $false }
-        # Native 802.11 => Wi-Fi; PnPDeviceID 'USB\...' => USB adapter.
-        return ($phys.PhysicalMediaType -eq 'Native 802.11' -or $phys.PnPDeviceID -like 'USB\*')
-    }
-
-    # Native 802.11 => Wi-Fi; PnPDeviceID 'USB\...' => USB adapter.
-    return ($nic.PhysicalMediaType -eq 'Native 802.11' -or $nic.PnPDeviceID -like 'USB\*')
+    $adapters = @(Get-WindowsDefaultRoutePhysicalAdapter)
+    return @($adapters | Where-Object { $_.PhysicalMediaType -eq 'Native 802.11' -or $_.PnPDeviceID -like 'USB\*' }).Count -gt 0
 }
 
 # Uplink verdicts a caller may treat as "the bridge is fine". 'unknown' is
@@ -435,10 +449,7 @@ function Test-YurunaSwitchOnDefaultRoute {
     param([Parameter(Mandatory)][AllowNull()][object]$SwitchRecord)
 
     if (-not $SwitchRecord) { return $false }
-    $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-        Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
-        Sort-Object RouteMetric, InterfaceMetric |
-        Select-Object -First 1
+    $route = Get-WindowsDefaultIPv4Route
     if (-not $route) { return $false }
     $routeAdapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
     return (Test-YurunaAdapterOnSwitchSegment -SwitchRecord $SwitchRecord -Adapter $routeAdapter)
@@ -703,10 +714,7 @@ function Wait-ExternalSwitchHostIpv4 {
         }
 
         $offSegment = $null
-        $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-            Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
-            Sort-Object RouteMetric, InterfaceMetric |
-            Select-Object -First 1
+        $route = Get-WindowsDefaultIPv4Route
         if ($route) {
             $routeAdapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
             # No -SwitchName is the legacy no-arg contract (any host IPv4
@@ -809,28 +817,9 @@ function Get-YurunaBridgeableRouteAdapter {
     [OutputType([object])]
     param()
     if (-not $IsWindows) { return $null }
-    $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-        Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
-        Sort-Object RouteMetric, InterfaceMetric |
-        Select-Object -First 1
-    if (-not $route) { return $null }
-    $nic = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
-    if (-not $nic) { return $null }
-    if ($nic.InterfaceDescription -match 'Hyper-V Virtual Ethernet') {
-        $sw = Get-VMSwitch -ErrorAction SilentlyContinue |
-            Where-Object { $_.SwitchType -eq 'External' -and "vEthernet ($($_.Name))" -eq $nic.InterfaceAlias } |
-            Select-Object -First 1
-        if (-not $sw) { return $null }
-        $descriptions = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $sw)
-        if ($descriptions.Count -eq 0) { return $null }
-        $nic = Get-NetAdapter -ErrorAction SilentlyContinue |
-            Where-Object { $descriptions -contains $_.InterfaceDescription } |
-            Select-Object -First 1
-        if (-not $nic) { return $null }
-    }
-    if ($nic.PhysicalMediaType -eq 'Native 802.11' -or $nic.PnPDeviceID -like 'USB\*') { return $null }
-    if (-not (Test-YurunaAdapterUp -Adapter $nic)) { return $null }
-    return $nic
+    return Get-WindowsDefaultRoutePhysicalAdapter | Where-Object {
+        $_.PhysicalMediaType -ne 'Native 802.11' -and $_.PnPDeviceID -notlike 'USB\*' -and (Test-YurunaAdapterUp -Adapter $_)
+    } | Select-Object -First 1
 }
 
 function Test-YurunaSwitchRepairable {
@@ -1345,10 +1334,7 @@ function Get-OrCreateYurunaExternalSwitch {
     # themselves through a vEthernet (Default Switch / Hyper-V internal
     # switches) to avoid feedback if a prior bad bridge state left a
     # vEthernet as default.
-    $defaultRoute = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-        Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
-        Sort-Object RouteMetric, InterfaceMetric |
-        Select-Object -First 1
+    $defaultRoute = Get-WindowsDefaultIPv4Route
     if (-not $defaultRoute) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_56b61ac1fd231932')
         return $null
@@ -3056,10 +3042,9 @@ function Get-PwshExePath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $cmd = Get-Command -Name 'pwsh' -CommandType Application -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($cmd) { return $cmd.Source }
-    return $null
+    $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.InnerSpawn.psm1') -Global -DisableNameChecking
+    return (Test.InnerSpawn\Get-PwshExePath)
 }
 
 <#
@@ -3359,7 +3344,7 @@ function Remove-SinglePortMap {
     param([Parameter(Mandatory)][int]$Port)
     if (-not $PSCmdlet.ShouldProcess("host:${Port}", (Format-YurunaOperatorMessage -Key 'host.operator_4ad9fc4774e8be4d'))) { return }
     & netsh interface portproxy delete v4tov4 listenport=$Port listenaddress=0.0.0.0 2>&1 | Out-Null
-    Stop-WindowsCachingProxyServiceForwarder -Port $Port -Quiet
+    $null = Stop-WindowsCachingProxyServiceForwarder -Port $Port -Quiet
     foreach ($prefix in @($script:FirewallRulePrefix, $script:FirewallProgramRulePrefix)) {
         $ruleName = "${prefix}${Port}"
         Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue |
@@ -3412,7 +3397,8 @@ function Clear-AllCachingProxyServicePortMapping {
 # --- REGION: Screenshot helpers
 # Two capture paths:
 #   1. Msvm_VirtualSystemManagementService.GetVirtualSystemThumbnailImage --
-#      no window required, native VM resolution. Used by OCR.
+#      no window required, configured resolution with smaller boot-mode
+#      fallbacks. Used by OCR.
 #   2. PrintWindow against the vmconnect window -- used by click-by-OCR
 #      because clicks need the same coord space as the captured pixels,
 #      and the WMI thumbnail does NOT match vmconnect's client area.
@@ -3423,13 +3409,44 @@ Capture a screenshot of a Hyper-V VM via the WMI thumbnail API.
 
 .DESCRIPTION
 Uses Msvm_VirtualSystemManagementService.GetVirtualSystemThumbnailImage
-to grab the VM's framebuffer at native resolution and writes it to
-$OutputPath as a PNG. Does not require a vmconnect window and runs
+to grab the VM's framebuffer at its configured resolution, falling back to
+smaller supported thumbnail sizes during boot, and writes the returned size
+to $OutputPath as a PNG. Does not require a vmconnect window and runs
 even when the host is headless. Use the PrintWindow path (separate
 helper) when click-by-OCR needs coordinates that match vmconnect's
 client area.
 #>
+function Get-HyperVThumbnailByte {
+    <#
+    .SYNOPSIS
+        Reads a realized VM thumbnail with an escaped and unambiguous WQL lookup.
+    .PARAMETER VMName
+        The VM display name.
+    .PARAMETER Width
+        Requested pixel width.
+    .PARAMETER Height
+        Requested pixel height.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '', Justification = 'Unary comma preserves the byte array as one pipeline value.')]
+    [OutputType([byte[]])]
+    param([string]$VMName, [uint16]$Width = 640, [uint16]$Height = 480)
+    $literal = $VMName.Replace('\', '\\').Replace("'", "\'")
+    $settings = @(Get-CimInstance -Namespace root/virtualization/v2 -ClassName Msvm_VirtualSystemSettingData -Filter "ElementName='$literal'" |
+        Where-Object { $_.VirtualSystemType -eq 'Microsoft:Hyper-V:System:Realized' })
+    if ($settings.Count -ne 1) { return $null }
+    $service = Get-CimInstance -Namespace root/virtualization/v2 -ClassName Msvm_VirtualSystemManagementService
+    $result = Invoke-CimMethod -InputObject $service -MethodName GetVirtualSystemThumbnailImage -Arguments @{
+        TargetSystem = $settings[0]; WidthPixels = $Width; HeightPixels = $Height
+    }
+    if ($result.ReturnValue -ne 0 -or -not $result.ImageData -or $result.ImageData.Length -eq 0) { return $null }
+    return ,([byte[]]$result.ImageData)
+}
+
 function Get-HyperVScreenshot {
+    <# .SYNOPSIS
+        Captures a Hyper-V console through the shared thumbnail or viewer fallback.
+    #>
     param([string]$VMName, [string]$OutputPath)
 
     # --- REGION: Load C# type (once per session)
@@ -3700,24 +3717,28 @@ public class HyperVCapture {
 
     # --- REGION: Primary: WMI GetVirtualSystemThumbnailImage
     try {
-        $vmSettingData = Get-CimInstance -Namespace root/virtualization/v2 `
-            -ClassName Msvm_VirtualSystemSettingData `
-            -Filter "ElementName='$VMName'" |
-            Where-Object { $_.VirtualSystemType -eq 'Microsoft:Hyper-V:System:Realized' }
-        if ($vmSettingData) {
-            $vmms = Get-CimInstance -Namespace root/virtualization/v2 `
-                -ClassName Msvm_VirtualSystemManagementService
-            $vmVideo = Hyper-V\Get-VMVideo -VMName $VMName -ErrorAction SilentlyContinue
-            $reqW = $vmVideo ? [uint16]$vmVideo.HorizontalResolution : [uint16]1920
-            $reqH = $vmVideo ? [uint16]$vmVideo.VerticalResolution : [uint16]1080
-            $result = Invoke-CimMethod -InputObject $vmms `
-                -MethodName GetVirtualSystemThumbnailImage `
-                -Arguments @{
-                    TargetSystem = $vmSettingData
-                    WidthPixels  = $reqW
-                    HeightPixels = $reqH
-                }
-            if ($result.ReturnValue -eq 0 -and $result.ImageData -and $result.ImageData.Length -gt 0) {
+        $vmVideo = Hyper-V\Get-VMVideo -VMName $VMName -ErrorAction SilentlyContinue
+        $reqW = $vmVideo ? [uint16]$vmVideo.HorizontalResolution : [uint16]1920
+        $reqH = $vmVideo ? [uint16]$vmVideo.VerticalResolution : [uint16]1080
+        # Get-VMVideo is the configured mode, not necessarily the live boot
+        # framebuffer. ARM64 firmware/early Linux can reject 1920x1080 with
+        # 32775 while 1024x768 or 640x480 still returns a usable thumbnail.
+        # Keep the configured OCR resolution first, then try only smaller
+        # modes. Encode each response at its requested size without stretching
+        # it to the configured mode; click-by-OCR uses the separate window path.
+        $thumbnailSizes = @(@{ Width = $reqW; Height = $reqH })
+        foreach ($fallbackSize in @(@{ Width = 1024; Height = 768 }, @{ Width = 640; Height = 480 })) {
+            if ($fallbackSize.Width -le $reqW -and $fallbackSize.Height -le $reqH -and
+                ($fallbackSize.Width -lt $reqW -or $fallbackSize.Height -lt $reqH)) {
+                $thumbnailSizes += $fallbackSize
+            }
+        }
+        foreach ($size in $thumbnailSizes) {
+            $captureW = [uint16]$size.Width
+            $captureH = [uint16]$size.Height
+            try {
+                $bytes = Get-HyperVThumbnailByte -VMName $VMName -Width $captureW -Height $captureH
+                if (-not $bytes) { continue }
                 # Detect the "headless host" symptom: WMI returns a valid
                 # thumbnail but every pixel is black because the host's
                 # DWM isn't actively painting the synthetic GPU. Reported
@@ -3729,13 +3750,13 @@ public class HyperVCapture {
                 # troubleshooting pointer when OCR does start timing out.
                 if (-not $script:__YurunaHyperVBlankWarned -and
                     [HyperVCapture]::IsImageMostlyBlack(
-                        [byte[]]$result.ImageData, [int]$reqW, [int]$reqH, 0.99)) {
+                        [byte[]]$bytes, [int]$captureW, [int]$captureH, 0.99)) {
                     Write-Verbose "Hyper-V WMI thumbnail came back all-black for '$VMName' -- DWM is not painting the synthetic GPU (likely no monitor / RDP session on this host)."
                     Write-Verbose "See https://yuruna.link/monitorless"
                     $script:__YurunaHyperVBlankWarned = $true
                 }
                 $ok = [HyperVCapture]::SaveRawImageAsPng(
-                    [byte[]]$result.ImageData, [int]$reqW, [int]$reqH, $OutputPath)
+                    [byte[]]$bytes, [int]$captureW, [int]$captureH, $OutputPath)
                 if ($ok -and (Test-Path $OutputPath)) {
                     # A duplicate of every frame, on a path polled for the whole
                     # length of a wait. Its value is comparing this capture with
@@ -3745,19 +3766,16 @@ public class HyperVCapture {
                     if ($global:DebugPreference -ne 'SilentlyContinue') {
                         Copy-Item -Path $OutputPath -Destination (Join-Path $debugDir "wmi_full.png") -Force
                     }
-                    Write-Debug "Screenshot saved (WMI ${reqW}x${reqH}): $OutputPath"
+                    Write-Debug "Screenshot saved (WMI ${captureW}x${captureH}): $OutputPath"
                     return $OutputPath
                 }
                 [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"),
-                    "dataLen=$($result.ImageData.Length) expected16=$(${reqW}*${reqH}*2) expected24=$(${reqW}*${reqH}*3) expected32=$(${reqW}*${reqH}*4)")
-            } else {
-                $rc = $result ? $result.ReturnValue : "null"
-                $len = ($result -and $result.ImageData) ? $result.ImageData.Length : 0
-                [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "rc=$rc dataLen=$len")
+                    "size=${captureW}x${captureH} dataLen=$($bytes.Length) expected16=$(${captureW}*${captureH}*2) expected24=$(${captureW}*${captureH}*3) expected32=$(${captureW}*${captureH}*4)")
+            } catch {
+                Write-Verbose "Hyper-V WMI thumbnail ${captureW}x${captureH} failed for '$VMName': $($_.Exception.Message)"
             }
-        } else {
-            [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "vmSettingData not found")
         }
+        [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "No usable WMI thumbnail at configured ${reqW}x${reqH} or smaller fallback sizes.")
     } catch {
         [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "exception: $_")
     }
@@ -4268,22 +4286,9 @@ function New-HyperVVirtualizationProbeRecord {
         [Parameter(Mandatory)][System.Collections.IDictionary]$Evidence,
         [AllowEmptyString()][string]$Diagnostic = ''
     )
-    return [pscustomobject]@{
-        PSTypeName        = 'Yuruna.VirtualizationProbe'
-        schemaVersion     = 1
-        hostType          = (Resolve-HostTag)
-        state             = $State
-        reason            = $Reason
-        started           = $Started
-        timedOut          = $TimedOut
-        deadlineExhausted = $DeadlineExhausted
-        corroborated      = $false
-        observedUtc       = $ObservedUtc
-        observedTick      = $ObservedTick
-        elapsedMs         = $ElapsedMs
-        evidence          = [pscustomobject]$Evidence
-        diagnostic        = (Format-VirtualizationProbeDiagnostic -Text $Diagnostic)
-    }
+    $arguments = @{} + $PSBoundParameters
+    $arguments['Diagnostic'] = Format-VirtualizationProbeDiagnostic -Text $Diagnostic
+    New-YurunaVirtualizationProbeRecord @arguments -HostType (Resolve-HostTag)
 }
 
 <#
@@ -4685,26 +4690,7 @@ function Get-VMConsoleSecondOpinion {
         [int]$IntervalSeconds = 5
     )
     try {
-        $vmSettingData = Get-CimInstance -Namespace root/virtualization/v2 `
-            -ClassName Msvm_VirtualSystemSettingData `
-            -Filter "ElementName='$VMName'" |
-            Where-Object { $_.VirtualSystemType -eq 'Microsoft:Hyper-V:System:Realized' }
-        if (-not $vmSettingData) {
-            return [pscustomobject]@{ Verdict = 'unavailable'; Detail = (Format-YurunaOperatorMessage -Key 'host.operator_0cd05bb2d7614998' -Arguments @{ vMName = "$VMName" }) }
-        }
-        $vmms = Get-CimInstance -Namespace root/virtualization/v2 `
-            -ClassName Msvm_VirtualSystemManagementService
-        $readFrame = {
-            $result = Invoke-CimMethod -InputObject $vmms `
-                -MethodName GetVirtualSystemThumbnailImage `
-                -Arguments @{
-                    TargetSystem = $vmSettingData
-                    WidthPixels  = [uint16]640
-                    HeightPixels = [uint16]480
-                }
-            if ($result.ReturnValue -ne 0 -or -not $result.ImageData -or $result.ImageData.Length -eq 0) { return $null }
-            return ,[byte[]]$result.ImageData
-        }
+        $readFrame = { Get-HyperVThumbnailByte -VMName $VMName -Width 640 -Height 480 }
         $first = & $readFrame
         if (-not $first) {
             return [pscustomobject]@{ Verdict = 'unavailable'; Detail = (Format-YurunaOperatorMessage -Key 'host.operator_540894cbcc3a0f70') }
@@ -5185,7 +5171,7 @@ function Remove-PortMap {
         return $false
     }
     $statePath = Get-PortMapStatePath -RuntimeDir $RuntimeDir
-    $cleared = @(Clear-AllCachingProxyServicePortMapping -StatePath $statePath -Confirm:$false)
+    $cleared = Clear-AllCachingProxyServicePortMapping -StatePath $statePath -Confirm:$false
     foreach ($p in $cleared) {
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_4730b007bba5b6f7' -Arguments @{ p = "${p}" })
     }
@@ -5319,18 +5305,7 @@ function Set-HostProxy {
     if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_5657b68f115e9443'), (Format-YurunaOperatorMessage -Key 'host.operator_1d67149dffd75755' -Arguments @{ proxyUrl = "$ProxyUrl" }))) { return $false }
     $parts = ConvertTo-ProxyHostPort -Url $ProxyUrl
     $backupPath = Get-HostProxyBackupPath
-    if (-not (Test-Path -LiteralPath $backupPath)) {
-        # Idempotent backup: only snapshot BEFORE the first apply, so a
-        # repeat Set-HostProxy doesn't overwrite the backup with the
-        # squid-promoted state.
-        $state = Read-WindowsProxyState
-        $state['timestamp']  = (Get-Date).ToUniversalTime().ToString('o')
-        $state['promotedTo'] = $parts.Url
-        $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $backupPath -Encoding UTF8
-        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_e7819cb03343b1e1' -Arguments @{ backupPath = "$backupPath" })
-    } else {
-        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_d8f19d509742ffe8' -Arguments @{ backupPath = "$backupPath" })
-    }
+    Save-YurunaHostProxyBackup -Path $backupPath -ReadState { Read-WindowsProxyState } -PromotedTo $parts.Url
     Set-WindowsHostProxy -ProxyParts $parts -Confirm:$false
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_31ab5c2f0d63be27' -Arguments @{ url = "$($parts.Url)" })
     return $true
@@ -5346,15 +5321,7 @@ function Clear-HostProxy {
     param()
     if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_5657b68f115e9443'), (Format-YurunaOperatorMessage -Key 'host.operator_1bb9777911767c4b'))) { return $false }
     $backupPath = Get-HostProxyBackupPath
-    $state = $null
-    if (Test-Path -LiteralPath $backupPath) {
-        try {
-            $state = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json -AsHashtable
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bea0e70f89d3d54c' -Arguments @{ backupPath = "$backupPath"; message = "$($_.Exception.Message)" })
-            $state = $null
-        }
-    }
+    $state = Read-YurunaHostProxyBackup -Path $backupPath
     if ($state) {
         Restore-WindowsHostProxy -State $state
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_eaa6f26f6eccca85')
@@ -5362,9 +5329,7 @@ function Clear-HostProxy {
         Disable-WindowsHostProxy
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_0a0e99400cdc89b7')
     }
-    if (Test-Path -LiteralPath $backupPath) {
-        Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaHostProxyBackup -Path $backupPath -Confirm:$false
     return $true
 }
 
@@ -5544,12 +5509,7 @@ function Test-DriverNativeResultComplete {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][AllowNull()][hashtable]$Result)
-    if ($null -eq $Result) { return $false }
-    if (-not $Result['Started']) { return $false }
-    foreach ($flag in 'TimedOut', 'DrainTimedOut', 'OutputTruncated', 'KillFailed') {
-        if ($Result[$flag]) { return $false }
-    }
-    return $true
+    return (Test-BoundedNativeResultComplete -Result $Result)
 }
 
 <#
@@ -5565,13 +5525,7 @@ function Format-VirtualizationProbeDiagnostic {
     [CmdletBinding()]
     [OutputType([string])]
     param([AllowNull()][AllowEmptyString()][string]$Text)
-    if ([string]::IsNullOrEmpty($Text)) { return '' }
-    $clean = [regex]::Replace($Text, '\x1B\[[0-9;?]*[ -/]*[@-~]', '')
-    $clean = [regex]::Replace($clean, '\x1B[@-Z\\-_]', '')
-    $clean = [regex]::Replace($clean, '[\x00-\x1F\x7F-\x9F]+', ' ')
-    $clean = [regex]::Replace($clean, ' {2,}', ' ').Trim()
-    if ($clean.Length -gt 1024) { $clean = $clean.Substring(0, 1024) }
-    return $clean
+    return (Format-YurunaVirtualizationProbeDiagnostic @PSBoundParameters)
 }
 
 <#
@@ -5700,18 +5654,7 @@ function New-VirtualizationStartAction {
         [bool]$TimedOut = $false,
         [long]$ElapsedMs = 0
     )
-    return [pscustomobject]@{
-        target    = $Target
-        kind      = $Kind
-        before    = $Before
-        after     = $After
-        result    = $Result
-        reason    = $Reason
-        command   = [string[]]@($Command)
-        exitCode  = $ExitCode
-        timedOut  = $TimedOut
-        elapsedMs = $ElapsedMs
-    }
+    return (New-YurunaVirtualizationStartAction @PSBoundParameters)
 }
 
 <#
@@ -5736,28 +5679,7 @@ function New-VirtualizationStartResult {
         [Parameter(Mandatory)][string]$ObservedUtc,
         [long]$ElapsedMs
     )
-    $rows = @($Action | Where-Object { $null -ne $_ })
-    if (-not $Outcome) {
-        $Outcome = 'already-running'
-        foreach ($candidate in 'failed', 'unknown', 'started', 'preview') {
-            $first = @($rows | Where-Object { $_.result -eq $candidate }) | Select-Object -First 1
-            if ($first) { $Outcome = $candidate; $Reason = [string]$first.reason; break }
-        }
-        if ($Outcome -eq 'already-running') {
-            $Reason = if (@($rows | Where-Object { $_.result -eq 'socket-live' }).Count -gt 0) { 'socket-live' } else { 'already-running' }
-        }
-    }
-    return [pscustomobject]@{
-        PSTypeName    = 'Yuruna.VirtualizationStartResult'
-        schemaVersion = 1
-        hostType      = (Resolve-HostTag)
-        outcome       = $Outcome
-        reason        = $Reason
-        layout        = $Layout
-        actions       = [object[]]$rows
-        observedUtc   = $ObservedUtc
-        elapsedMs     = $ElapsedMs
-    }
+    return (New-YurunaVirtualizationStartResult @PSBoundParameters -HostType (Resolve-HostTag))
 }
 
 <#
@@ -6052,26 +5974,19 @@ function Disable-HyperVHeartbeatForLinuxGuest {
         Turn the Heartbeat integration service off for a Linux guest on an
         ARM64 host. No-op on AMD64.
     .DESCRIPTION
-        On an ARM64 host the heartbeat channel stops a Linux guest booting at
-        all. hv_utils answers each heartbeat request from a VMBus tasklet
-        (heartbeat_onchannelcallback -> vmbus_sendpacket -> vmbus_setevent ->
-        hv_do_fast_hypercall8) and the channel re-arms faster than the tasklet
-        drains it, so CPU 0 never leaves softirq context. The kernel reports
-        `watchdog: BUG: soft lockup - CPU#0 stuck for Ns!`, RCU stalls behind
-        it, and the boot stops one driver short of hv_storvsc -- so the guest
-        never enumerates its own root disk, never reaches its installer, and
-        is unreachable by console and by SSH alike. The console freezes on the
-        three hv_utils IC version lines, which is the signature to match:
+        Disabling Heartbeat helped Linux guests pass early boot stalls on the
+        ARM64 lab host. Affected boots reported soft lockups in the shared
+        VMBus hypercall path and stopped near these utility-driver messages:
 
             hv_utils: Heartbeat IC version 3.0
             hv_utils: Shutdown IC version 3.2
             hv_utils: TimeSync IC version 4.0
 
-        Removing the service removes the channel, and with it the caller that
-        re-arms. It is the difference between a guest that never boots and one
-        that installs. AMD64 is untouched, and no guest OS test is applied
-        either: a Windows guest's own drivers handle the same channel without
-        trouble, so callers gate this on the guest rather than the function.
+        The workaround remains without attributing every VMBus
+        stall to Heartbeat. Storage requests share the hypercall path, and
+        timer-related overhead can persist with Heartbeat already disabled.
+        AMD64 is untouched. Callers gate Linux guest selection because this
+        function checks host architecture, not the guest operating system.
 
         Nothing in the harness depends on the Hyper-V heartbeat. Only
         guest.caching-proxy-service/New-VM.ps1 reads it, as one line of a
@@ -6088,7 +6003,7 @@ function Disable-HyperVHeartbeatForLinuxGuest {
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_ce28ce6cce0e7f70'))) { return $false }
     try {
         Disable-VMIntegrationService -VMName $VMName -Name 'Heartbeat' -ErrorAction Stop
-        Write-Verbose "Heartbeat integration service disabled for '$VMName' (ARM64 host; the channel wedges a Linux guest before hv_storvsc)."
+        Write-Verbose "Heartbeat integration service disabled for '$VMName' (ARM64 Linux guest boot workaround)."
         return $true
     } catch {
         # A guest that boots anyway is the good case, and one that wedges
@@ -6104,30 +6019,16 @@ function Limit-HyperVLinuxGuestCoreCount {
     .SYNOPSIS
         Cap the vCPU count of a Linux guest on an ARM64 host. No-op on AMD64.
     .DESCRIPTION
-        On an ARM64 host a Linux guest's virtual processors do not buy the
-        compute the count implies. Each one traps into the hypervisor at a rate
-        that rises with the number of them, and the trapped time is taken out of
-        the guest's own execution rather than added to it. Measured on one such
-        host, booting the same 12 GB Ubuntu guest off the same image, sampling
-        the Hyper-V virtual-processor counters:
+        Stock Ubuntu's architectural timer produced high interrupt overhead on
+        the affected ARM64 Hyper-V host. A controlled 12 GB installer comparison
+        reached its confirmation prompt in about 115 seconds with one processor
+        and 554-564 seconds with two; another two-processor run was still making
+        progress at the 600-second observation limit. These are serial boot
+        measurements, not a general estimate of multicore workload capacity.
 
-            vCPUs   % guest run time   % hypervisor run time   intercepts/sec
-              1           65                  33                 1.3 million
-              2         7 / 64              88 / 34              4.6 million
-              4           19                  61                 9.2 million
-
-        The root partition on the same machine at the same moment sits under 2%
-        hypervisor time and forty thousand intercepts a second, so this is a
-        property of how the guest is scheduled, not of the host being busy.
-
-        Read the table by column. Delivered compute -- vCPUs times the share
-        actually spent running guest code -- is roughly FLAT at about two thirds
-        of one processor no matter how many are configured. What the count
-        changes is how fast any single thread advances, and that is what a boot
-        is: a long serial path. The guest that gets one vCPU runs that path at
-        two thirds speed; the guest that gets four runs it at a fifth, and takes
-        an order of magnitude longer to reach its installer, its login prompt
-        and everything gated behind them.
+        A same-kernel clockevent control isolated substantial overhead to the
+        architectural timer path. This conservative cap remains useful for
+        stock guests until a replacement kernel passes installed-system tests.
 
         The default cap is two because kubeadm's preflight check refuses to
         initialize a control plane on a single processor, and the guests this
@@ -6135,9 +6036,8 @@ function Limit-HyperVLinuxGuestCoreCount {
         temporary cap when its sequence includes an explicit, offline transition
         back to two before kubeadm starts.
 
-        A caller that has asked for a specific count is still capped: the ask
-        expresses how much work the guest has to do, which is exactly the thing
-        extra virtual processors fail to deliver here.
+        Explicit requests are also capped so callers share the same provisioning
+        policy on affected ARM64 hosts.
     #>
     [CmdletBinding()]
     [OutputType([int])]
@@ -6197,7 +6097,122 @@ function Set-HyperVArm64LinuxGuestProcessorCount {
 }
 
 # --- REGION: Exports
-Export-ModuleMember -Function `
+function Remove-HyperVGuestDefinition {
+    <#
+    .SYNOPSIS
+        Replace a known VM definition while leaving disk cleanup to the builder.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$VMName)
+    $existing = Resolve-HyperVVM -VMName $VMName
+    if ($existing.Presence -eq 'unknown') { throw "Cannot determine whether VM '$VMName' exists; no VM or disk changes were made." }
+    if ($existing.Presence -eq 'absent') { return }
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove existing VM definition')) { return }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
+    Hyper-V\Stop-VM -VM $existing.VM -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    try { Hyper-V\Remove-VM -VM $existing.VM -Force -ErrorAction Stop }
+    catch {
+        $diag = $existing.VM | Format-List Name, State, Status, Generation, Path | Out-String
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1c714189825ec0e2' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)"; diag = "$diag" })
+    }
+    $after = Resolve-HyperVVM -VMName $VMName
+    if ($after.Presence -ne 'absent') {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_634b857addaa8df5' -Arguments @{ vMName = "$VMName" })
+    }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_86f314067f7955de' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
+}
+
+function Resolve-HyperVGuestSwitch {
+    <#
+    .SYNOPSIS
+        Resolve a usable external switch or an existing fallback.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $name = Get-OrCreateYurunaExternalSwitch
+    if ($name) { return $name }
+    $name = 'Default Switch'
+    if (-not (Get-VMSwitch -Name $name -ErrorAction SilentlyContinue)) {
+        $fallback = Get-VMSwitch -ErrorAction SilentlyContinue | Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name | Select-Object -First 1
+        if (-not $fallback) { throw 'No Hyper-V switch is available for the guest.' }
+        $name = $fallback.Name
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_38edbb4cc8da6eb6' -Arguments @{ switchName = "$name" })
+    }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_6ec7fa5a08a2eb27' -Arguments @{ switchName = "$name" })
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_9bb7f114ca4530e9')
+    return $name
+}
+
+function New-HyperVServiceGuest {
+    <#
+    .SYNOPSIS
+        Configure the fixed-memory Linux service guest before its first boot.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$SwitchName,
+        [Parameter(Mandatory)][string]$DiskPath, [Parameter(Mandatory)][string]$SeedPath,
+        [Parameter(Mandatory)][int]$HostCores, [int]$MemoryMb = 2048, [string]$MacAddress)
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Create Linux service VM')) { return }
+    $memory = [int64]$MemoryMb * 1MB
+    $mac = if ($MacAddress) { $MacAddress } else { Get-YurunaGuestMacAddress -VMName $VMName }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_b0bde9c66516dc8a' -Arguments @{ vMName = "$VMName"; switchName = "$SwitchName" }) -InformationAction Continue
+    Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $memory -SwitchName $SwitchName -VHDPath $DiskPath | Out-Null
+    Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($mac -replace ':', '')
+    Set-VM -Name $VMName -MemoryStartupBytes $memory -MemoryMinimumBytes $memory -MemoryMaximumBytes $memory -AutomaticCheckpointsEnabled $false | Out-Null
+    Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
+    Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
+    $null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
+    Add-VMDvdDrive -VMName $VMName -Path $SeedPath | Out-Null
+    $cores = Limit-HyperVLinuxGuestCoreCount -RequestedCores ([math]::Max(4, [math]::Floor($HostCores / 2)))
+    Set-VMProcessor -VMName $VMName -Count $cores | Out-Null
+}
+
+function Wait-HyperVServiceGuestAddress {
+    <#
+    .SYNOPSIS
+        Poll KVP and bridge neighbors for service guest addresses on a wall-clock deadline.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]], [object[]])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$SwitchName,
+        [int]$TimeoutSeconds = 600, [string]$Activity, [scriptblock]$ProgressDetail)
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $activityText = if ($Activity) { $Activity } else { "Waiting for '$VMName' to obtain an IP" }
+    $external = ((Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue).SwitchType -eq 'External')
+    $announced = $false
+    try {
+        while ($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+            $record = Resolve-HyperVVM -VMName $VMName
+            $vm = $record.VM
+            if ($vm) {
+                $adapter = $vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($external -and $adapter.SwitchName -eq $SwitchName -and $clock.Elapsed.TotalSeconds -ge 30) {
+                    if (-not $announced) {
+                        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_86ae3482cd8932d7' -Arguments @{ switchName = "$SwitchName" }) -InformationAction Continue
+                        $announced = $true
+                    }
+                    Invoke-YurunaExternalArpProbe -SwitchName $SwitchName
+                }
+                $addresses = @(Get-CacheVmCandidateIp -VM $vm)
+                if ($addresses.Count -gt 0) {
+                    $mac = [string]$adapter.MacAddress
+                    $mac = if ($mac -match '^[0-9A-Fa-f]{12}$') { ($mac -replace '(..)(?!$)', '$1-').ToUpperInvariant() } else { '(unknown)' }
+                    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_711aec356a249726' -Arguments @{ vmMacDashed = "$mac" }) -InformationAction Continue
+                    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_c31ff5024871e3cc' -Arguments @{ vMName = "$VMName"; join = "$($addresses -join ', ')" }) -InformationAction Continue
+                    return $addresses
+                }
+            }
+            $elapsed = [int]$clock.Elapsed.TotalSeconds
+            $status = if ($ProgressDetail) { & $ProgressDetail $elapsed $vm } else { "elapsed ${elapsed}s" }
+            Write-Progress -Activity $activityText -Status $status -PercentComplete ([math]::Min(100, $elapsed * 100 / $TimeoutSeconds)) -SecondsRemaining ([math]::Max(0, $TimeoutSeconds - $elapsed))
+            Start-Sleep -Milliseconds ([int][math]::Min(5000, [math]::Max(1, ($TimeoutSeconds - $clock.Elapsed.TotalSeconds) * 1000)))
+        }
+        return @()
+    } finally { Write-Progress -Activity $activityText -Completed }
+}
+
+Export-ModuleMember -Function Remove-HyperVGuestDefinition, Resolve-HyperVGuestSwitch, New-HyperVServiceGuest, Wait-HyperVServiceGuestAddress, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
@@ -6220,7 +6235,7 @@ Export-ModuleMember -Function `
     Resolve-VMConnectAnotherUserDialog, Restart-HyperVConnect, `
     Test-WindowsProxyIsYurunaManaged, Read-WindowsProxyState, Invoke-WinInetRefresh, `
     Set-WindowsHostProxy, Restore-WindowsHostProxy, Disable-WindowsHostProxy, Remove-WindowsHostProxy, `
-    Get-CachingProxyServiceForwarderScriptPath, Get-PwshExePath, Get-WindowsForwarderPidPath, `
+    Get-CachingProxyServiceForwarderScriptPath, Get-WindowsForwarderPidPath, `
     Stop-WindowsCachingProxyServiceForwarder, Start-WindowsCachingProxyServiceForwarder, Add-CachingProxyServiceFirewallRule, `
     Get-WindowsForwarderPidPort, Get-YurunaMappedPortFromFirewall, `
     Remove-SinglePortMap, Clear-AllCachingProxyServicePortMapping, `

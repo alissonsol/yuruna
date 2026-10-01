@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 429b56f1-0d8f-43a6-a6dc-445eb58c952f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,7 +129,7 @@ if ($registered.Count -gt 0) {
         $vmDir = Join-Path $vmRoot $vmName
         Write-CleanupMessage "  $vmName"
         if (Test-Path -LiteralPath $vmDir) {
-            $files = Get-ChildItem -Path $vmDir -Recurse -File -ErrorAction SilentlyContinue
+            $files = Get-ChildItem -LiteralPath $vmDir -Recurse -File -ErrorAction SilentlyContinue
             foreach ($f in ($files | Sort-Object FullName)) {
                 $sizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
                 Write-CleanupMessage "    $($f.FullName)  ($sizeStr)"
@@ -146,7 +146,7 @@ $orphanedItems = [System.Collections.Generic.List[hashtable]]::new()
 $dirs = @(Get-ChildItem -LiteralPath $vmRoot -Directory -ErrorAction SilentlyContinue)
 foreach ($d in $dirs) {
     if ($registered.ContainsKey($d.Name)) { continue }
-    $sum = (Get-ChildItem -Path $d.FullName -Recurse -File -ErrorAction SilentlyContinue |
+    $sum = (Get-ChildItem -LiteralPath $d.FullName -Recurse -File -ErrorAction SilentlyContinue |
         Measure-Object -Property Length -Sum).Sum
     $size = if ($null -eq $sum) { 0 } else { [int64]$sum }
     $orphanedItems.Add(@{ Name = $d.Name; Path = $d.FullName; Size = $size })
@@ -165,7 +165,7 @@ foreach ($item in $orphanedItems) {
     $totalSize += [int64]$item.Size
     $sizeStr = "{0:N2} GB" -f ($item.Size / 1GB)
     Write-CleanupMessage "  $($item.Path)  ($sizeStr)"
-    $files = Get-ChildItem -Path $item.Path -Recurse -File -ErrorAction SilentlyContinue
+    $files = Get-ChildItem -LiteralPath $item.Path -Recurse -File -ErrorAction SilentlyContinue
     foreach ($f in ($files | Sort-Object FullName)) {
         $fSizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
         Write-CleanupMessage "    $($f.FullName)  ($fSizeStr)"
@@ -221,7 +221,7 @@ foreach ($item in $orphanedItems) {
             $errors++
             continue
         }
-        Remove-Item -Path $item.Path -Recurse -Force -ErrorAction Stop
+        Remove-Item -LiteralPath $item.Path -Recurse -Force -ErrorAction Stop
         Write-CleanupMessage "  Deleted: $($item.Path)"
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_33915575638287d2' -Arguments @{ path = "$($item.Path)"; value = "$_" })

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,7 @@
 # legitimately large (but progressing) cycle folder must not be killed mid-flight;
 # rsync additionally carries its own --timeout for precise I/O-stall detection.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
 $script:PoolStorageMountTimeoutSeconds     = 90
 $script:PoolStorageCopyTimeoutSeconds      = 600
 $script:PoolStorageSmbCmdletTimeoutSeconds = 60
@@ -90,43 +91,9 @@ function Invoke-PoolStorageProcessResult {
         [Parameter()][string[]]$ArgumentList = @(),
         [Parameter()][int]$TimeoutSeconds = 60
     )
-    $resolved = (Get-Command -CommandType Application -Name $FilePath -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-    if (-not $resolved) { $resolved = $FilePath }
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName = $resolved
-    foreach ($a in $ArgumentList) { [void]$psi.ArgumentList.Add([string]$a) }
-    $psi.UseShellExecute        = $false
-    $psi.CreateNoWindow         = $true
-    $psi.RedirectStandardInput  = $true
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError  = $true
-    $proc = $null
-    try {
-        $proc = [System.Diagnostics.Process]::Start($psi)
-    } catch {
-        Write-Verbose "Invoke-PoolStorageProcess: failed to start '$resolved': $($_.Exception.Message)"
-        return @{ ExitCode = -1; StdOut = ''; StdErr = "$($_.Exception.Message)" }
-    }
-    # Closing stdin gives a prompting child EOF (sudo can't block on a password
-    # prompt). Drain stdout/stderr asynchronously so a chatty child can't deadlock
-    # on a full pipe while we wait.
-    try { $proc.StandardInput.Close() } catch { $null = $_ }
-    $outTask = $proc.StandardOutput.ReadToEndAsync()
-    $errTask = $proc.StandardError.ReadToEndAsync()
-    if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c6da6d9c15bcaea6' -Arguments @{ filePath = "$FilePath"; timeoutSeconds = "${TimeoutSeconds}" })
-        try { $proc.Kill($true) } catch { $null = $_ }
-        try { $null = $proc.WaitForExit(5000) } catch { $null = $_ }
-        try { $proc.Dispose() } catch { $null = $_ }
-        return @{ ExitCode = 124; StdOut = ''; StdErr = "timed out after ${TimeoutSeconds}s" }
-    }
-    try { $null = [System.Threading.Tasks.Task]::WaitAll(@($outTask, $errTask), 2000) } catch { $null = $_ }
-    $code = [int]$proc.ExitCode
-    $so = ''; $se = ''
-    try { if ($outTask.IsCompleted) { $so = [string]$outTask.Result } } catch { $null = $_ }
-    try { if ($errTask.IsCompleted) { $se = [string]$errTask.Result } } catch { $null = $_ }
-    try { $proc.Dispose() } catch { $null = $_ }
-    return @{ ExitCode = $code; StdOut = $so; StdErr = $se }
+    $result = Invoke-BoundedNativeCommand -FilePath $FilePath -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds -Environment @{ LC_ALL = 'C' } -MaxCapturedChars 262144
+    if ($result.Started -and -not (Test-BoundedNativeResultComplete -Result $result)) { $result.ExitCode = 124 }
+    return $result
 }
 
 # Exit-code-only wrapper for the call sites that only branch on success/failure.
@@ -2973,70 +2940,30 @@ function Get-YurunaStashSeedValue {
         [Parameter()][AllowNull()]$Config,
         [Parameter()][AllowNull()][AllowEmptyString()][string]$GuestReachableAddress
     )
-    $out = @{ NetworkPath = ''; NetworkIp = ''; NetworkUser = ''; Password = ''; HostId = '' }
-    try { $out.HostId = [string](Get-YurunaHostId) } catch { Write-Verbose "stash seed hostId: $($_.Exception.Message)" }
-    if (-not $out.HostId) { $out.HostId = 'unknown-host' }
-    $cfg = $null
-    if ($Config) {
-        try { $cfg = Get-YurunaStashStorageConfig -Config $Config } catch { Write-Verbose "stash seed config: $($_.Exception.Message)" }
-    }
-    if (-not $cfg) { return $out }
-    $user    = [string]$cfg.NetworkUser
-    $netPath = Get-PoolStorageUncPath -Path $cfg.NetworkPath -Style unix
-    # Refuse a value with a single quote: it would unbalance the guest's
-    # single-quoted /etc/yuruna/ystash-nas.env entries.
-    if (($netPath -match "'") -or ($user -match "'")) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a598b092ac269721')
-        return $out
-    }
-    $netPwd = ''
-    if ($user -and (Test-PoolStorageVaultReady -Config $cfg -WarningAction SilentlyContinue)) {
-        try { $netPwd = [string](Get-Password -Username $user) } catch { Write-Verbose "stash seed password: $($_.Exception.Message)" }
-    }
-    $out.NetworkPath = $netPath
-    $out.NetworkUser = $user
-    $out.Password    = $netPwd
-    # Resolve the NAS hostname to an IPv4 on the HOST (where NetBIOS/DNS
-    # works). A Linux guest often cannot resolve a bare NetBIOS name like
-    # 'wserver', so the guest's cifs mount uses ip=<this> and skips name
-    # resolution entirely. Empty when unresolvable -> guest falls back to
-    # name resolution (and buffers if that fails).
-    $resolved = ''
-    try {
-        $server = Get-PoolStorageServerName -NetworkPath $cfg.NetworkPath
-        if ($server) {
-            $ip = [System.Net.Dns]::GetHostAddresses($server) |
-                Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
-            if ($ip) { $resolved = $ip.IPAddressToString }
-        }
-    } catch { Write-Verbose "stash seed ip resolve: $($_.Exception.Message)" }
-    $out.NetworkIp = Select-PoolStorageSeedAddress -ResolvedAddress $resolved -GuestReachableAddress $GuestReachableAddress
-    if ($resolved -and $out.NetworkIp -eq $resolved) { return $out }
-    if ($resolved -and $out.NetworkIp) {
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a858d26a381eba4d' -Arguments @{ server = "$server"; resolved = "$resolved"; networkIp = "$($out.NetworkIp)" }) -InformationAction Continue
-    } elseif ($resolved) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_51c78706304ea43f' -Arguments @{ server = "$server"; resolved = "$resolved" })
-    }
-    return $out
+    return Get-PoolStorageSeedValueCore -Tier stash -Config $Config -GuestReachableAddress $GuestReachableAddress
 }
 
-<#
-.SYNOPSIS
-Resolves the POOL storage coordinates a pool-mounting service VM's cloud-init seed needs (the pool-control-service and download-agent-service guests) -- the pool NAS share UNC (unix form), the poolStorageNetworkUser, its vault password, and this host's id -- read from the pool networkStorage keys via Get-YurunaPoolStorageConfig (the three populated paths are the opt-in, matching how the stash seed resolves its own tier). Returns empty strings when unavailable so a caller bakes blanks (the guest then degrades to no persistence); the fail-fast gate lives in each service's Start script, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
-#>
-function Get-YurunaPoolSeedValue {
+function Get-PoolStorageSeedValueCore {
+    <# .SYNOPSIS
+        Resolves the selected pool or stash storage tier into seed values.
+    #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
+        [Parameter(Mandatory)][ValidateSet('pool', 'stash')][string]$Tier,
         [Parameter()][AllowNull()]$Config,
         [Parameter()][AllowNull()][AllowEmptyString()][string]$GuestReachableAddress
     )
+    $reader = if ($Tier -eq 'stash') { 'Get-YurunaStashStorageConfig' } else { 'Get-YurunaPoolStorageConfig' }
+    $messageKey0 = if ($Tier -eq 'stash') { 'runner.operator_a598b092ac269721' } else { 'runner.operator_93b53fc9b0a7e742' }
+    $messageKey1 = if ($Tier -eq 'stash') { 'runner.operator_a858d26a381eba4d' } else { 'runner.operator_5be04f6e27fb57bc' }
+    $messageKey2 = if ($Tier -eq 'stash') { 'runner.operator_51c78706304ea43f' } else { 'runner.operator_775ac9694d358236' }
     $out = @{ NetworkPath = ''; NetworkIp = ''; NetworkUser = ''; Password = ''; HostId = '' }
     try { $out.HostId = [string](Get-YurunaHostId) } catch { Write-Verbose "pool seed hostId: $($_.Exception.Message)" }
     if (-not $out.HostId) { $out.HostId = 'unknown-host' }
     $cfg = $null
     if ($Config) {
-        try { $cfg = Get-YurunaPoolStorageConfig -Config $Config } catch { Write-Verbose "pool seed config: $($_.Exception.Message)" }
+        try { $cfg = & $reader -Config $Config } catch { Write-Verbose "pool seed config: $($_.Exception.Message)" }
     }
     if (-not $cfg) { return $out }
     $user    = [string]$cfg.NetworkUser
@@ -3044,7 +2971,7 @@ function Get-YurunaPoolSeedValue {
     # Refuse a value with a single quote: it would unbalance the guest's env
     # entries and the pool-nas.cifs.cred file.
     if (($netPath -match "'") -or ($user -match "'")) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_93b53fc9b0a7e742')
+        Write-Warning (Format-YurunaOperatorMessage -Key $messageKey0)
         return $out
     }
     $netPwd = ''
@@ -3070,11 +2997,31 @@ function Get-YurunaPoolSeedValue {
     $out.NetworkIp = Select-PoolStorageSeedAddress -ResolvedAddress $resolved -GuestReachableAddress $GuestReachableAddress
     if ($resolved -and $out.NetworkIp -eq $resolved) { return $out }
     if ($resolved -and $out.NetworkIp) {
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5be04f6e27fb57bc' -Arguments @{ server = "$server"; resolved = "$resolved"; networkIp = "$($out.NetworkIp)" }) -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key $messageKey1 -Arguments @{ server = "$server"; resolved = "$resolved"; networkIp = "$($out.NetworkIp)" }) -InformationAction Continue
     } elseif ($resolved) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_775ac9694d358236' -Arguments @{ server = "$server"; resolved = "$resolved" })
+        Write-Warning (Format-YurunaOperatorMessage -Key $messageKey2 -Arguments @{ server = "$server"; resolved = "$resolved" })
     }
     return $out
+}
+
+function Get-YurunaPoolSeedValue {
+    <#
+    .SYNOPSIS
+        Resolves the pool storage seed configuration and guest-reachable address.
+    .DESCRIPTION
+        Pool-control and download-agent service VMs need the pool NAS share,
+        network user, vault password and host ID in cloud-init. The pool
+        networkStorage keys supply those values. Unavailable values stay blank;
+        each service's Start script owns the fail-fast gate. Get-YurunaHostId
+        and Get-Password must be loaded in the caller's session.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter()][AllowNull()]$Config,
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$GuestReachableAddress
+    )
+    return Get-PoolStorageSeedValueCore -Tier pool -Config $Config -GuestReachableAddress $GuestReachableAddress
 }
 
 <#

@@ -4,12 +4,10 @@
 package httpsrv
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 	"net/url"
+	"yuruna.com/test/extension/extension-sdk/strictjson"
 
 	"yuruna.com/test/extension/extension-sdk/mcp"
 )
@@ -31,7 +29,7 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 		name, desc, route string
 		h                 http.HandlerFunc
 	}{
-		{"pool_control_board", "Read the operator board as of this instant: every pool, its hosts, and the test set each one runs. The pool membership comes from the intent store this daemon last pulled, so it is as fresh as the last sync rather than live.", "/api/board", s.handleBoard},
+		{"pool_control_board", "Read the operator board as of this instant: every pool, its hosts, and the framework and project repositories each one runs. The pool membership comes from the intent store this daemon last pulled, so it is as fresh as the last sync rather than live.", "/api/board", s.handleBoard},
 		{"pool_control_hosts", "Read every host the pool control service knows, with its current state.", "/api/hosts", s.handleHosts},
 		{"pool_control_host_facts", "Read the per-host facts behind the board's cards.", "/api/hosts/facts", s.handleHostFacts},
 		{"pool_control_state", "Read the daemon's own state: last write, last action, whether the intent store is readable.", "/api/state", s.handleState},
@@ -103,18 +101,21 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 			},
 		},
 		{
-			name:   "pool_control_assign_testset",
-			desc:   "Assign a test set to a pool. Every host in the pool picks it up on its next cycle.",
-			method: http.MethodPost, target: "/api/pool/testset", idempotent: true,
-			schema: `{"type":"object","properties":{"poolId":{"type":"string","description":"pool id as listed by pool_control_state"},"name":{"type":"string","description":"test-set name to assign"},"frameworkUrl":{"type":"string","description":"git URL the hosts clone the framework from"},"projectUrl":{"type":"string","description":"git URL the hosts clone the project from"}},"required":["poolId","name","frameworkUrl","projectUrl"],"additionalProperties":false}`,
-			h:      s.handleAssign,
+			name: "pool_control_set_pool_repositories",
+			desc: "Set the framework and project repositories every host in a pool runs, from its next cycle. " +
+				"Pass both URLs to set them, or pass both empty (or omit both) to clear them so each host goes back to its own configured repositories. " +
+				"The auto-enrollment target pool cannot carry repositories.",
+			method: http.MethodPost, target: "/api/pool/repositories", idempotent: true,
+			schema: `{"type":"object","properties":{"poolId":{"type":"string","description":"pool id as listed by pool_control_state"},"frameworkUrl":{"type":"string","description":"git URL the hosts clone the framework from; empty together with projectUrl clears both"},"projectUrl":{"type":"string","description":"git URL the hosts clone the project from; empty together with frameworkUrl clears both"}},"required":["poolId"],"additionalProperties":false}`,
+			h:      s.handleSetPoolRepositories,
 			build: func(a json.RawMessage) (string, []byte, error) {
-				in, err := str(a, "poolId", "name", "frameworkUrl", "projectUrl")
+				// strictStringArgs rather than str: str refuses an empty required
+				// value, and both URLs empty is how this tool clears a pool.
+				in, err := strictStringArgs(a, []string{"poolId"}, []string{"frameworkUrl", "projectUrl"})
 				if err != nil {
 					return "", nil, err
 				}
-				b, err := obj(map[string]any{"poolId": in["poolId"], "name": in["name"],
-					"frameworkURL": in["frameworkUrl"], "projectURL": in["projectUrl"]})
+				b, err := obj(map[string]any{"poolId": in["poolId"], "frameworkUrl": in["frameworkUrl"], "projectUrl": in["projectUrl"]})
 				return "", b, err
 			},
 		},
@@ -187,7 +188,7 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 			Description: "Ask ONE host to repair its hypervisor and test runner (the restart tier: reclaim a stalled runner, " +
 				"start a stopped hypervisor service, restart a hung one where that host supports it). Generate requestId once " +
 				"(a lowercase UUID) and reuse it on every retry, so a retry is never a second repair. Returns the host's " +
-				"acceptance and a stateUrl to poll; a busy host names the request it is already running. Requires the refresh " +
+				"acceptance and a stateUrl to poll; a busy host names the request it is currently handling. Requires the refresh " +
 				"credential header in addition to the ordinary write credential.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 				`"hostId":{"type":"string","description":"host id as listed by pool_control_hosts"},` +
@@ -230,42 +231,24 @@ func strictStringArgs(args json.RawMessage, required, optional []string) (map[st
 	}
 	out := map[string]string{}
 	if len(args) > 0 {
-		dec := json.NewDecoder(bytes.NewReader(args))
-		if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-			return nil, notAnObject
-		}
-		for dec.More() {
-			tok, err := dec.Token()
-			if err != nil {
-				return nil, notAnObject
+		values, refusal := strictjson.Strings(args, known, nil)
+		if refusal != nil {
+			shown := refusal.Field
+			if !fieldNameRE.MatchString(shown) {
+				shown = refreshFieldNamePlaceholder
 			}
-			name, _ := tok.(string)
-			if !known[name] {
-				shown := name
-				if !fieldNameRE.MatchString(shown) {
-					shown = refreshFieldNamePlaceholder
-				}
+			switch refusal.Detail {
+			case "unsupported_field":
 				return nil, refuse("unsupported argument " + shown)
-			}
-			if _, repeated := out[name]; repeated {
-				return nil, refuse(name + " is given more than once")
-			}
-			val, err := dec.Token()
-			if err != nil {
+			case "duplicate_key":
+				return nil, refuse(shown + " is given more than once")
+			case "value_not_a_string":
+				return nil, refuse(shown + " must be a string")
+			default:
 				return nil, notAnObject
 			}
-			str, isString := val.(string)
-			if !isString {
-				return nil, refuse(name + " must be a string")
-			}
-			out[name] = str
 		}
-		if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
-			return nil, notAnObject
-		}
-		if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-			return nil, notAnObject
-		}
+		out = values
 	}
 	for _, k := range required {
 		if out[k] == "" {

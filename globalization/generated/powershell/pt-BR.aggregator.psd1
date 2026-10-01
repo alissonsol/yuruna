@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42bda300-8f98-7969-bc3d-200d08e0d119
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,31 +32,31 @@
     'aggregator.failed_to_encode_result' = 'não foi possível codificar o resultado'
     'aggregator.failed_to_encode_scrape_targets' = 'não foi possível codificar alvos de raspagem'
     'aggregator.failed_to_seal_the_token' = 'falhou ao selar o símbolo'
-    'aggregator.forget_host_disabled_no_auth_token_configured' = 'esquecido- máquina desactivado (sem auth token configurado)'
+    'aggregator.forget_host_disabled_no_auth_token_configured' = 'Operação forget-host desativada (nenhum token de autenticação configurado)'
     'aggregator.help_address_to_listen_on_59add3f5' = 'endereço para ouvir em'
-    'aggregator.help_allow_pseudo' = 'Activar as pseudo- localizações de diagnóstico'
+    'aggregator.help_allow_pseudo' = 'Activar as pseudo-localizações de diagnóstico'
     'aggregator.help_display_language' = 'Exibe o idioma: auto ou um local suportado'
-    'aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083' = 'hospedeiros distintos que devem falhar dentro de -cross-host-janela para abrir um incidente em toda a piscina'
-    'aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1' = 'soltar um host da vista da piscina este tempo após o último contacto; o seu estado de desdup por ciclo é mantido uma hora a mais para que um host que reaparece não possa contar duas vezes e as ligações profundas do painel resolvam pelo menos 24h, independentemente. Os contadores cúmulos de passe/falha não expiram por este -- use POST /api/v1/forget-host'
-    'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = 'arquivo segurando o token ao portador compartilhado que gates POST /ingest; vazio/ausente/arquivo vazio -> /ingest desabilitado (nunca uma rota de escrita não autenticada)'
+    'aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083' = 'número de hosts distintos que precisam falhar durante -cross-host-window para abrir um incidente em todo o grupo'
+    'aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1' = 'tempo para remover um host da visualização do grupo após o último contato; seu estado de eliminação de duplicatas por ciclo é mantido por mais uma hora para evitar contagem dupla se ele reaparecer. Os links do painel continuam resolvendo por pelo menos 24 h. Os contadores acumulados de aprovações e falhas não expiram por este parâmetro; use POST /api/v1/forget-host'
+    'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = 'arquivo com o token Bearer compartilhado exigido por POST /ingest, POST /api/v1/forget-host, POST /api/v1/handover-host e GET /api/v1/host-history; caminho vazio, arquivo ausente ou arquivo vazio desativa essas operações (sem rota de controle sem autenticação)'
     'aggregator.help_loki_push_api_url_c89d9321' = 'URL da API do Loki push'
     'aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f' = 'ao iniciar, restaure as contagens de ciclo do Loki sobre esta janela (0 para desativar)'
     'aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc' = 'abrir um incidente após muitos ciclos falhados dentro da janela-incidente'
     'aggregator.help_poll_discover_interval_a9ec46cd' = 'intervalo de pesquisa/descoberta'
     'aggregator.help_pool_name_label_31358a97' = 'rótulo do nome do grupo'
     'aggregator.help_port_the_machine_metrics_exporter_listens_on_for_each__0ae78ba6' = 'porta que o exportador de máquina-metrics escuta para cada host Windows, como publicado no documento /api/v1/prometheus-targets scrape'
-    'aggregator.help_reap_a_self_announced_extension_post_announce_not_refr_56b49fce' = 'colhe uma extensão auto- anunciada (POST/announce) não atualizada nesta janela; 0 desabilita a rota anunciada'
+    'aggregator.help_reap_a_self_announced_extension_post_announce_not_refr_56b49fce' = 'remove uma extensão anunciada automaticamente (POST /announce) que não foi atualizada durante este intervalo; 0 desativa a rota de anúncios'
     'aggregator.help_rotate_the_dashboard_lab_connection_token_this_often_0_f9f6d959' = 'rotaciona o token de conexão de laboratório do painel de instrumentos com frequência; 0 desativa a telha do token do laboratório e a troca POST /api/v1/lab-token'
-    'aggregator.help_squid_access_log_to_discover_pool_client_ips_from_93473aba' = 'log de acesso da lula para descobrir IPs do cliente da piscina'
+    'aggregator.help_squid_access_log_to_discover_pool_client_ips_from_93473aba' = 'log de acesso do Squid para descobrir os IPs dos clientes do grupo'
     'aggregator.help_status_service_port_to_probe_on_each_discovered_ip_e5073cc7' = 'porto de serviço de estado para sondar em cada IP descoberto'
-    'aggregator.help_the_pool_share_s_hosts_directory_on_this_machine_e_g_m_bd4bd40e' = 'o diretório hosts/ pool share nesta máquina (por exemplo, /mnt/ypool-nas/hosts); serve resultados de ciclo arquivados em /archive/<hostId>/test-cycles/... e permite /go/cycle resolvê- los. Vazio desactiva ambos -- a rota é não registado em tudo'
+    'aggregator.help_the_pool_share_s_hosts_directory_on_this_machine_e_g_m_bd4bd40e' = 'diretório hosts/ do compartilhamento do grupo nesta máquina (por exemplo, /mnt/ypool-nas/hosts); disponibiliza os resultados arquivados dos ciclos em /archive/<hostId>/test-cycles/... e permite que /go/cycle os encontre. Um valor vazio desativa ambas as funções; a rota nem chega a ser registrada'
     'aggregator.help_tls_certificate_file_pem_when_both_tls_cert_and_tls_ke_643d7a8e' = 'Arquivo de certificado TLS (PEM); quando ambos -tls-cert e -tls-key nome legível arquivos o ouvinte é HTTPS, então HTTP simples'
-    'aggregator.help_tls_private_key_file_pem_see_tls_cert_28be9018' = 'Arquivo de chave privada TLS (PEM); veja - tls- cert'
+    'aggregator.help_tls_private_key_file_pem_see_tls_cert_28be9018' = 'Arquivo de chave privada TLS (PEM); veja -tls-cert'
     'aggregator.help_trailing_window_for_the_n_failures_in_m_minutes_incide_60aa9aa2' = 'janela de seguimento para a regra de incidente N-falhas-em-M-minutos'
     'aggregator.help_window_for_cross_host_pool_wide_incident_correlation_b4663557' = 'janela para a correlação de incidentes entre máquinas (em conjunto)'
-    'aggregator.host_not_known_to_the_pool' = 'hospedeiro desconhecido da piscina'
+    'aggregator.host_not_known_to_the_pool' = 'hospedeiro desconhecido do grupo'
     'aggregator.hostid_must_be_a_42_prefixed_32_hex_id' = 'hostId deve ser um id 32-hex de 42 prefixos'
-    'aggregator.ingest_disabled' = 'ingerir desactivado'
+    'aggregator.ingest_disabled' = 'ingerir desativado'
     'aggregator.invalid_hostid' = 'hostId inválido'
     'aggregator.invalid_hostid_or_area' = 'hostId ou área inválida'
     'aggregator.invalid_statusport' = 'status inválidoPort'
@@ -151,7 +151,7 @@
         }
         ' padrão'
     )
-    'aggregator.log_ingest_disabled_no_token_3a819fb4' = 'ingerir desactivado (sem token)'
+    'aggregator.log_ingest_disabled_no_token_3a819fb4' = 'ingerir desativado (sem token)'
     'aggregator.log_ingest_enabled_bearer_89578b00' = 'ingesta ativada (portador)'
     'aggregator.log_internal_auth_key_read_from_value1_rebuild_this_proxy__c326800d' = @(
         'chave de autenticação interna lida do '
@@ -160,7 +160,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '; reconstrua este proxy para movê- lo para '
+        '; reconstrua este proxy para movê-lo para '
         @{
             'arg' = 'value2'
             'type' = 'detail'
@@ -201,7 +201,7 @@
         }
     )
     'aggregator.log_lab_token_rotation_failed_value1_keeping_previous_code_e2670350' = @(
-        'Falha na rotação da token de laboratório ('
+        'Falha na rotação da token do laboratório ('
         @{
             'arg' = 'value1'
             'type' = 'detail'
@@ -454,14 +454,14 @@
     'aggregator.no_source_address' = 'sem endereço de origem'
     'aggregator.payload_too_large_or_unreadable' = 'carga útil demasiado grande ou ilegível'
     'aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own' = 'a identidade do remetente não pôde ser vinculada (IP não coberto, hostId não pertence a este IP, ou ambíguo)'
-    'aggregator.stash_target_not_known_to_the_pool' = 'alvo do stash desconhecido da piscina'
+    'aggregator.stash_target_not_known_to_the_pool' = 'alvo do stash desconhecido do grupo'
     'aggregator.target_host_must_be_the_announcing_address' = 'host alvo deve ser o endereço anunciando'
     'aggregator.the_pool_share_is_not_mounted_on_this_machine' = 'o pool share não está montado nesta máquina'
     'aggregator.too_many_announced_extensions' = 'demasiadas extensões anunciadas'
     'aggregator.too_many_failed_attempts_retry_later' = 'muitas tentativas falhadas; tente novamente mais tarde'
     'aggregator.too_many_lines' = 'muitas linhas'
     'aggregator.unauthorized' = 'não autorizado'
-    'aggregator.unknown_or_expired_lab_token' = 'token de laboratório desconhecido ou expirado'
+    'aggregator.unknown_or_expired_lab_token' = 'token do laboratório desconhecido ou expirado'
     'aggregator.unsupported_range_use_1h_24h_7d_or_30d' = 'intervalo não suportado; use 1h, 24h, 7d ou 30d'
     'aggregator.unusable_cycle_results_folder_for_that_host_at_that_time' = 'pasta de resultados de ciclo inutilizável para essa máquina nesse momento'
 }

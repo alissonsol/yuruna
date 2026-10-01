@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4274f795-11a9-4183-b8be-e0da0ebdbc52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,10 +77,7 @@ function Get-FunctionAst {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
         Justification = 'Name IS used -- inside the FindAll predicate scriptblock, which the analyzer does not follow.')]
     param([string]$Name)
-    return $ast.FindAll({
-            param($n)
-            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
-        }, $true) | Select-Object -First 1
+    return Get-YurunaTestFunctionAst -Ast $ast -Name $Name
 }
 
 function Get-CallLine {

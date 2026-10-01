@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4227f6df-0fe0-4a7d-b85b-64c7c2f5ede7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -172,6 +172,29 @@ exit 0
         $plain = ($text -replace "`e\[[0-9;?]*[A-Za-z]", '') -replace '[\x00-\x08\x0B\x0C\x0E-\x1F]', ''
         if ($plain.Length -gt 3000) { $plain = $plain.Substring($plain.Length - 3000) }
         return $plain
+    }
+
+    function Read-ChainText {
+        <#
+        .SYNOPSIS
+            A whole text file as one string, read while the chain's processes may still be appending to it.
+        .DESCRIPTION
+            Get-Content -Raw of a file that grows during the read returns several
+            strings, one per chunk, and a [string] parameter refuses an array of
+            more than one element ("Cannot process argument transformation on
+            parameter 'Actual'"). A shared-read stream returns one string
+            whatever the writers do, and a file that is not there yet reads as
+            empty.
+        #>
+        [CmdletBinding()]
+        [OutputType([string])]
+        param([Parameter(Mandatory)][string]$Path)
+        try {
+            $share = [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+            $stream = [System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, $share)
+            $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8)
+            try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+        } catch [System.IO.IOException] { return '' } catch [System.UnauthorizedAccessException] { return '' }
     }
 
     function Initialize-ChainPrivateRoot {
@@ -409,10 +432,10 @@ Describe 'Case C: the real inner runs only its preflight and acknowledges it' -S
             $null = Complete-YurunaRunnerHandoff -TokenId $token.TokenId -Verdict recovery-pending -ExpectedGeneration ([string]$gate.Generation) -PrivateRoot $root -Confirm:$false
             $outerLog = Join-Path $f.Runtime 'outer.log'
             $until = [DateTime]::UtcNow.AddSeconds(120)
-            while ([DateTime]::UtcNow -lt $until -and -not ((Test-Path -LiteralPath $outerLog) -and ((Get-Content -LiteralPath $outerLog -Raw) -match 'refresh preflight finished'))) {
+            while ([DateTime]::UtcNow -lt $until -and (Read-ChainText -Path $outerLog) -notmatch 'refresh preflight finished') {
                 Start-Sleep -Milliseconds 500
             }
-            Assert-Match -Pattern 'refresh preflight finished' -Actual (Get-Content -LiteralPath $outerLog -Raw)
+            Assert-True ((Read-ChainText -Path $outerLog) -match 'refresh preflight finished') "the outer never logged the end of the preflight: $(Get-ChainDiagnostic -F $f)"
             Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'status.json')) 'a preflight writes no status document'
             Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'host.registration.json')) 'a preflight registers nothing'
             Assert-True (Test-Path -LiteralPath (Join-Path $f.Runtime 'inner.start')) 'the inner published its start record'

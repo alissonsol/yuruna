@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -25,7 +25,7 @@ cfg="${HOME}/.kube/config"
 [ -f "$cfg" ] || err "K8S configuration not found: $cfg"
 [ -s "$cfg" ] || err "K8S current configuration is empty: $cfg"
 
-if ! kubectl --kubeconfig="$cfg" config get-contexts -o name | grep -Fxq "$src"; then
+if ! kubectl --kubeconfig="$cfg" config get-contexts -o name | grep -Fx "$src" >/dev/null; then
     err "K8S source context not found: $src"
 fi
 

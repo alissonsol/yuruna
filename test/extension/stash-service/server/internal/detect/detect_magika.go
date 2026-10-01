@@ -13,8 +13,6 @@ import (
 	"os"
 
 	"github.com/google/magika/go/magika"
-
-	"stash-service/internal/config"
 )
 
 func newBackend() Detector {
@@ -55,11 +53,8 @@ func (d *magikaDetector) DetectFile(path, originalFilename string) Result {
 	}
 	// Reuse the shared MIME->class mapper so SVG/HTML stay download-only
 	// (ClassFromMime maps them to "other", section 7.4) regardless of backend.
-	class := ClassFromMime(ct.MimeType)
+	class := classFromModelMime(ct.MimeType, ct.IsText)
 	isText := ct.IsText
-	if isText && class == config.ClassOther {
-		class = config.ClassText
-	}
 	mt := ct.MimeType
 	if mt == "" {
 		// Empty MIME from the model: lean on the heuristic for the type but

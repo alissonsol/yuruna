@@ -105,23 +105,23 @@ sequenceDiagram
     participant index-html as Browser page
     participant start-statusservice-ps1 as HTTP service
     participant test-locale-psm1 as Locale resolver
-    participant globalization-generated as Generated catalogs
+    participant test-catalog-psm1 as PowerShell catalog
     participant yuruna-i18n-js as Browser kernel
     index-html->>start-statusservice-ps1: GET with Accept-Language
     start-statusservice-ps1->>test-locale-psm1: Config and header
     test-locale-psm1-->>start-statusservice-ps1: Resolved locale context
-    start-statusservice-ps1->>globalization-generated: Render selected catalog
-    start-statusservice-ps1-->>index-html: Localized HTML and headers
-    %% optional: non-default external catalog
-    opt Separate locale asset
-        index-html-->>start-statusservice-ps1: GET selected catalog
-        start-statusservice-ps1-->>index-html: Generated catalog bytes
+    start-statusservice-ps1->>test-catalog-psm1: Render marked HTML slots
+    test-catalog-psm1-->>start-statusservice-ps1: Localized static text
+    start-statusservice-ps1-->>index-html: HTML, lang, dir, headers
+    opt Non-English page
+        index-html->>start-statusservice-ps1: GET catalog asset
+        start-statusservice-ps1-->>index-html: Content-addressed catalog
     end
     index-html->>yuruna-i18n-js: Initialize from document
-    yuruna-i18n-js-->>index-html: Localized controls and numbers
+    yuruna-i18n-js-->>index-html: Selected locale context
     loop Dynamic content
         index-html->>start-statusservice-ps1: Fetch status data
-        start-statusservice-ps1-->>index-html: Codes and typed values
+        start-statusservice-ps1-->>index-html: Status payload
         index-html->>yuruna-i18n-js: Render key and arguments
         yuruna-i18n-js-->>index-html: Reader-language text
     end
@@ -129,18 +129,20 @@ sequenceDiagram
 
 Sources: [status page](../../test/status/index.html),
 [Start-StatusService](../../test/service/Start-StatusService.ps1),
+[Test.Catalog](../../test/modules/Test.Catalog.psm1),
 [status browser client](../../test/status/yuruna.common.js),
 [browser kernel](../../globalization/kernel/yuruna.i18n.js),
 [Go HTTP adapter](../../test/extension/extension-sdk/i18n/http.go),
 [Go page renderer](../../test/extension/extension-sdk/i18n/page.go), and
 [Test.Message](../../test/modules/Test.Message.psm1).
-The five participants group the PowerShell status path and the equivalent
-Go extension SDK path under the service and resolver. The figure is their
-common contract, not an HTTP call between PowerShell and Go.
+The five participants show the PowerShell status path. Go extension pages use
+the same request precedence and catalog authority through the shared SDK, but
+serve their own pages and assets.
 
-The server chooses the locale before sending the page, stamps `lang`, `dir`,
-and locale provenance, and selects any required catalog asset. The browser
-initializes from that document; it does not renegotiate using
+The server chooses the locale before sending the page, renders marked static
+text, stamps `lang`, `dir`, and locale provenance, and selects any required
+catalog asset. The browser initializes from that document; it does not
+renegotiate using
 `navigator.language` or a local-storage preference. English catalogs are
 embedded in the existing browser runtime. Non-English catalogs are selected
 as content-addressed assets, while self-contained Go pages inline their
@@ -174,10 +176,9 @@ as markup. Locale-sensitive display text is separated from stable identifiers,
 URLs, protocol keys, and UTC wire timestamps. Browser display helpers can show
 a timestamp in the reader's local zone using an explicit, fixed format.
 The project repository also carries localized display fields, such as
-`displayNameLocalized` and
-`descriptionLocalized` in
-[test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml);
-the underlying test-set and sequence names remain unchanged.
+`descriptionLocalized` in its
+[website sequences](https://github.com/alissonsol/yuruna-project/tree/main/example/website/test);
+the underlying sequence names remain unchanged.
 
 ## Catalog publication decisions
 

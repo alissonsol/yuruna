@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,10 +122,10 @@ function ConvertTo-ChecksumText {
     return $text.TrimStart([char]0xFEFF)
 }
 
-function Get-ChecksumHttpStatus {
+function Get-YurunaHttpErrorStatus {
     <#
     .SYNOPSIS
-        HTTP status code carried by a failed checksum fetch, 0 when unknown.
+        HTTP status code carried by a failed HTTP request, 0 when unknown.
     .DESCRIPTION
         Invoke-WebRequest raises an exception carrying the .Response to read
         the code from. The squid SSL-bump path does not: it drives HttpClient
@@ -146,8 +146,13 @@ function Get-ChecksumHttpStatus {
     } catch { $null = $_ }
     $message = ''
     try { $message = [string]$ErrorRecord.Exception.Message } catch { $message = '' }
-    if ($message -match '\bHTTP\s+(\d{3})\b') { return [int]$Matches[1] }
+    if ($message -match 'HTTP\s+(\d{3})\b') { return [int]$Matches[1] }
     return 0
+}
+
+function Get-ChecksumHttpStatus {
+    param([AllowNull()]$ErrorRecord)
+    Get-YurunaHttpErrorStatus -ErrorRecord $ErrorRecord
 }
 
 function Get-PublishedChecksumBody {
@@ -920,61 +925,25 @@ function Save-UbuntuExtensionImage {
     $agentServed       = $false
     $agentSourceUrl    = ''
     $agentLastModified = ''
-    if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -and
-        (Get-Command -Name Request-DownloadAgentImage -ErrorAction SilentlyContinue)) {
-        $agentBaseUrl = ''
-        try { $agentBaseUrl = [string](Resolve-DownloadAgentEndpoint) } catch { $agentBaseUrl = '' }
-        if (-not $agentBaseUrl) {
-            Write-Verbose "Save-UbuntuExtensionImage: no download agent reachable; using the origin path."
-        } else {
-            # Fingerprint the local copy with the sentinel's filename + byte
-            # count and no SHA-256: the sentinel records the DOWNLOAD size,
-            # which is the pooled artifact's size even on Hyper-V where the
-            # local file is a converted VHDX, and re-hashing a multi-hundred-MB
-            # image every run would cost more than it saves.
-            $agentArgs = @{
-                BaseUrl         = $agentBaseUrl
-                HostType        = $Image.HostType
-                ImageKey        = 'ubuntu.extension.26'
-                Arch            = $Image.Arch
-                Variant         = 'stable'
-                StagingPath     = $downloadFile
-                DeadlineSeconds = 7200
-            }
-            if ((Test-Path -LiteralPath $Image.BaseImageFile) -and (Test-Path -LiteralPath $Image.OriginFile)) {
-                $sentinelLines = @(Get-Content -LiteralPath $Image.OriginFile -ErrorAction SilentlyContinue)
-                $sentinelBytes = 0L
-                if ($sentinelLines.Count -ge 3 -and [int64]::TryParse($sentinelLines[2].Trim(), [ref]$sentinelBytes) -and $sentinelBytes -gt 0) {
-                    $agentArgs['LocalFilename']  = $sentinelLines[0].Trim()
-                    $agentArgs['LocalByteCount'] = $sentinelBytes
-                }
-            }
-            $agentResult = $null
-            try {
-                Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
-                $agentResult = Request-DownloadAgentImage @agentArgs
-            } catch {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57234ab9582f912d' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
-                $agentResult = $null
-            }
-            if ($agentResult -and $agentResult.outcome -eq 'skipped') {
-                $msg = @(
-                    "Skipping download: the download agent at $agentBaseUrl confirms $($Image.BaseImageFile) is the current ubuntu.extension.26 artifact."
-                    "  Sentinel: $($Image.OriginFile)"
-                    "  To force a re-download, delete or rename: $($Image.BaseImageFile)"
-                ) -join [Environment]::NewLine
-                Write-Information $msg -InformationAction Continue
-                return $true
-            } elseif ($agentResult -and $agentResult.outcome -eq 'downloaded') {
-                $agentServed       = $true
-                $agentSourceUrl    = [string]$agentResult.sourceUrl
-                $agentLastModified = [string]$agentResult.lastModified
-                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_1050eecd3dbb16e4' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; downloadFile = "$downloadFile" }) -InformationAction Continue
-            } elseif ($agentResult) {
-                $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
-                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
-            }
-        }
+    $agentProbe = Invoke-DownloadAgentFirst -HostType $Image.HostType -ImageKey 'ubuntu.extension.26' -Arch $Image.Arch -StagingPath $downloadFile -BaseImageFile $Image.BaseImageFile -OriginFile $Image.OriginFile
+    $agentBaseUrl = $agentProbe.BaseUrl
+    $agentResult = $agentProbe.Result
+    if ($agentResult -and $agentResult.outcome -eq 'skipped') {
+        $msg = @(
+            "Skipping download: the download agent at $agentBaseUrl confirms $($Image.BaseImageFile) is the current ubuntu.extension.26 artifact."
+            "  Sentinel: $($Image.OriginFile)"
+            "  To force a re-download, delete or rename: $($Image.BaseImageFile)"
+        ) -join [Environment]::NewLine
+        Write-Information $msg -InformationAction Continue
+        return $true
+    } elseif ($agentResult -and $agentResult.outcome -eq 'downloaded') {
+        $agentServed       = $true
+        $agentSourceUrl    = [string]$agentResult.sourceUrl
+        $agentLastModified = [string]$agentResult.lastModified
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_1050eecd3dbb16e4' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; downloadFile = "$downloadFile" }) -InformationAction Continue
+    } elseif ($agentResult) {
+        $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
     }
 
     if (-not $agentServed) {
@@ -1199,8 +1168,48 @@ function Assert-YurunaBaseImage {
     return $false
 }
 
+function Invoke-DownloadAgentFirst {
+    <#
+    .SYNOPSIS
+        Consult the image agent once, carrying the local download fingerprint.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$HostType, [string]$ImageKey, [string]$Arch, [string]$Variant = 'stable',
+        [Parameter(Mandatory)][string]$StagingPath, [string]$BaseImageFile, [string]$OriginFile,
+        [string]$ExpectedFilenamePattern)
+    $reply = @{ BaseUrl = ''; Result = $null }
+    if (-not $HostType -or -not $ImageKey -or
+        -not (Get-Command Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -or
+        -not (Get-Command Request-DownloadAgentImage -ErrorAction SilentlyContinue)) { return $reply }
+    try { $reply.BaseUrl = [string](Resolve-DownloadAgentEndpoint) } catch { Write-Verbose $_.Exception.Message }
+    if (-not $reply.BaseUrl) { return $reply }
+    $request = @{ BaseUrl = $reply.BaseUrl; HostType = $HostType; ImageKey = $ImageKey; Arch = $Arch;
+        Variant = $Variant; StagingPath = $StagingPath; DeadlineSeconds = 7200 }
+    if ($ExpectedFilenamePattern) { $request.ExpectedFilenamePattern = $ExpectedFilenamePattern }
+    # The local origin record has a filename and byte count, not a verified
+    # SHA-256. Send only that fingerprint; the agent checks its own artifact.
+    if ((Test-Path -LiteralPath $BaseImageFile) -and (Test-Path -LiteralPath $OriginFile)) {
+        $lines = @(Get-Content -LiteralPath $OriginFile -ErrorAction SilentlyContinue)
+        $bytes = 0L
+        if ($lines.Count -ge 3 -and [int64]::TryParse($lines[2].Trim(), [ref]$bytes) -and $bytes -gt 0) {
+            $request.LocalFilename = $lines[0].Trim()
+            $request.LocalByteCount = $bytes
+        }
+    }
+    try {
+        $parent = Split-Path -Parent $StagingPath
+        if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+        Remove-Item -LiteralPath $StagingPath -Force -ErrorAction SilentlyContinue
+        $reply.Result = Request-DownloadAgentImage @request
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57234ab9582f912d' -Arguments @{ agentBaseUrl = "$($reply.BaseUrl)"; message = "$($_.Exception.Message)" })
+    }
+    return $reply
+}
+
 # --- REGION: Exports
-Export-ModuleMember -Function Save-ImageWithChecksum, Get-ImageChecksumLine, Get-PublishedChecksumBody, ConvertTo-ChecksumText, `
+Export-ModuleMember -Function Get-YurunaHttpErrorStatus, Invoke-DownloadAgentFirst, Save-ImageWithChecksum, Get-ImageChecksumLine, Get-PublishedChecksumBody, ConvertTo-ChecksumText, `
     Convert-Qcow2ToVhdx, Test-PublishedChecksumSignature, `
     Resolve-QemuImgCommand, Get-UbuntuExtensionImageBaseName, Get-UbuntuExtensionImageInfo, Save-UbuntuExtensionImage, Expand-ExtensionVmDisk, `
     Assert-YurunaBaseImage

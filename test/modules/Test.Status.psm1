@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -502,8 +502,13 @@ function Get-StepDurationSeconds {
     param($StartedAt, $FinishedAt)
     if (-not $StartedAt -or -not $FinishedAt) { return 0 }
     try {
-        $s = [datetime]::Parse($StartedAt, [cultureinfo]::InvariantCulture)
-        $f = [datetime]::Parse($FinishedAt, [cultureinfo]::InvariantCulture)
+        $styles = [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal
+        $s = if ($StartedAt -is [datetime]) { $StartedAt.ToUniversalTime() } else {
+            [datetime]::Parse($StartedAt, [cultureinfo]::InvariantCulture, $styles)
+        }
+        $f = if ($FinishedAt -is [datetime]) { $FinishedAt.ToUniversalTime() } else {
+            [datetime]::Parse($FinishedAt, [cultureinfo]::InvariantCulture, $styles)
+        }
         $dt = ($f - $s).TotalSeconds
         if ($dt -lt 0) { return 0 }
         return [int][math]::Round($dt)
@@ -662,7 +667,11 @@ function New-CycleHistoryEntry {
     Marks the run as finished, appends to history, and flushes status.json.
 #>
 function Complete-Run {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Finalizes the runner cycle and its status history unconditionally during cleanup.')]
+    [CmdletBinding()]
     param([string]$OverallStatus, [int]$MaxHistoryRuns = 30)
+    if ($MaxHistoryRuns -le 0) { $MaxHistoryRuns = 30 }
     # Emergency-cleanup paths (e.g. a git-pull failure before
     # Initialize-StatusDocument runs) can reach us with no doc. Silently
     # no-op rather than crashing the catch block -- nothing to finalize.

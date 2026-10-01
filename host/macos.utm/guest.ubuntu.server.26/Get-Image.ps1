@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f7131c-52d5-4a5a-bea9-e492c1af1605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,45 +34,6 @@ param(
 
 # --- REGION: Log level from environment
 # Reuse the caller's log module so an in-process fetch preserves its state.
-Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
-$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
-    Import-Module $_logLevelMod -Global
-}
-if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
-
-# --- REGION: Platform guard
-if (-not $IsMacOS) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_3536af02f16ccf66')
-    exit 1
-}
-
-# --- REGION: Host architecture
-$hostArch = 'arm64'
-
-# --- REGION: Configuration
-$downloadDir = "$HOME/yuruna/image/ubuntu.env"
-
-# --- REGION: Import host modules
-# The host wrapper supplies cache discovery to the shared image pipeline.
-Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
-Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.UbuntuImage.psm1') -Force
-
-# --- REGION: Download the base image
-# See https://yuruna.link/42e220c4-0003
-try {
-    Save-UbuntuServerImage `
-        -ReleaseCodename 'resolute' `
-        -Arch $hostArch `
-        -DownloadDir $downloadDir `
-        -BaseImageName 'host.macos.utm.guest.ubuntu.server.26' `
-        -PreferDaily:$daily `
-        -EmitProxyDiagnosticOnFailure
-} catch {
-    Write-Error $_.Exception.Message
-    exit 1
-}
-
-# --- REGION: Completion
-# Clear a native discovery probe's stale exit code, including on cache hits.
-exit 0
+$arguments = @{} + $PSBoundParameters
+& (Join-Path $PSScriptRoot '../modules/Get-UbuntuServerImage.ps1') @arguments -Release '26' -GuestScriptRoot $PSScriptRoot -EnvironmentErrorKey 'host.operator_3536af02f16ccf66'
+exit $LASTEXITCODE

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 429793e2-063a-4471-aed6-44421c62b4e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,8 +23,7 @@
     and picking a free display -- plus the structural guards that keep a
     failed VM start from being reported as success.
 .DESCRIPTION
-    Throw-based assertions so the file runs under the OS-bundled Pester
-    3.4 and Pester 5+. The bundle cases build a throwaway .utm directory
+    Throw-based assertions so the file runs under Pester 5+. The bundle cases build a throwaway .utm directory
     holding only a config.plist, so nothing here touches a real VM, and
     the whole file skips on a non-macOS host where plutil/PlistBuddy do
     not exist.
@@ -89,7 +88,7 @@ function New-VncFixture {
 Describe 'VNC display allocation (host.macos.utm)' {
 
     It 'reads the display the bundle actually carries, not the name hash' {
-        if (-not $VncIsMac) { return }
+        if (-not $VncIsMac) { Set-ItResult -Skipped -Because 'requires macOS PlistBuddy'; return }
         # The bundle is the authority: the display is written when the VM is
         # built and may be rewritten at start, so a caller that trusted the
         # name hash would aim a screenshot at another VM's framebuffer.
@@ -105,7 +104,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
     }
 
     It 'returns -1 for a VM with no bundle so callers can fall back' {
-        if (-not $VncIsMac) { return }
+        if (-not $VncIsMac) { Set-ItResult -Skipped -Because 'requires macOS PlistBuddy'; return }
         $prev = $HOME
         try {
             Set-Variable -Name HOME -Value $VncTestHome -Scope Global -Force
@@ -116,7 +115,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
     }
 
     It 'rewrites the display and preserves the argument suffix' {
-        if (-not $VncIsMac) { return }
+        if (-not $VncIsMac) { Set-ItResult -Skipped -Because 'requires macOS PlistBuddy'; return }
         # share=force-shared is what lets the screenshot client attach while
         # the console is open; dropping it would break capture rather than
         # the start, so it must survive the rewrite.
@@ -132,7 +131,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
     }
 
     It 'bind-tests a port rather than assuming it is free' {
-        if (-not $VncIsMac) { return }
+        if (-not $VncIsMac) { Set-ItResult -Skipped -Because 'requires macOS PlistBuddy'; return }
         # A connect probe cannot tell "nothing listening" from "listening and
         # refusing"; only a bind tells us whether QEMU will be able to bind.
         $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
@@ -145,7 +144,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
     }
 
     It 'skips a taken display and stays inside the 10..89 range' {
-        if (-not $VncIsMac) { return }
+        if (-not $VncIsMac) { Set-ItResult -Skipped -Because 'requires macOS PlistBuddy'; return }
         $preferred = 40
         $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 5900 + $preferred)
         $listener.Start()
@@ -158,7 +157,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
     }
 
     It 'refuses a display another bundle already claims, even though its port binds free' {
-        if (-not $VncIsMac) { return }
+        if (-not $VncIsMac) { Set-ItResult -Skipped -Because 'requires macOS PlistBuddy'; return }
         # The whole fleet is stopped between cycles, so every port answers
         # "free" and a bind test alone hands two VMs the same display. Only
         # the first of them can then start.
@@ -315,6 +314,8 @@ Describe 'A failed VM start is never reported as success' {
         $next = $text.IndexOf('Register-SequenceAction -Name', $i + 1)
         if ($next -lt 0) { $next = $text.Length }
         $body = $text.Substring($i, $next - $i)
+        Assert-True ($body -match 'Restore-SequenceSnapshot -c \$c -snapId \$snapId') 'the action delegates to the shared restore operation'
+        $body = (Get-YurunaTestFunctionAst -Path (Join-Path $VncRepoRoot 'test/modules/Test.SequenceHandler.psm1') -Name 'Restore-SequenceSnapshot').Extent.Text
         Assert-True ($body -notmatch '\$startRes -is \[hashtable\] -and') 'the short-circuiting shape guard is gone'
         Assert-True ($body -match 'Select-Object -Last 1') 'the status record is extracted from the return'
         Assert-True (((Get-CatalogSourceMessage -Source $body) -join "`n") -match 'no status record') 'a missing record fails the step'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -331,6 +331,22 @@ function Get-GateRemediation {
 }
 
 $rows = [Collections.Generic.List[object]]::new()
+function Invoke-ToolGate {
+    <#
+    .SYNOPSIS
+        Runs a tool and records the shared pass, cannot-run, or fail mapping.
+    .PARAMETER Gate
+        The gate row name.
+    .PARAMETER Arguments
+        Complete native PowerShell command arguments.
+    #>
+    [CmdletBinding()]
+    param([string]$Gate, [string[]]$Arguments)
+    $output = & pwsh @Arguments 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    Add-Row -Gate $Gate -State $(if ($code -eq 0) { 'pass' } elseif ($code -eq 2) { 'cannot-run' } else { 'fail' }) -Detail $output.Trim()
+}
+
 function Add-Row {
     param([string]$Gate, [string]$State, [string]$Detail,
         [string]$RemediationCode = '', [string]$Remediation = '')
@@ -661,23 +677,14 @@ $script:StageTotal = $plannedStages.Count
 # Translated documents. This one already reads both trees, which is why the
 # project's pt-BR drafts have been drift-checked all along.
 Write-GateProgress -Stage 'doc-translation'
-$doc = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-DocTranslation.ps1') `
-    -ProjectRoot $ProjectRoot -Quiet 2>&1 | Out-String
-$docCode = $LASTEXITCODE
-Add-Row -Gate 'doc-translation' `
-    -State $(if ($docCode -eq 0) { 'pass' } elseif ($docCode -eq 2) { 'cannot-run' } else { 'fail' }) `
-    -Detail $doc.Trim()
+Invoke-ToolGate -Gate 'doc-translation' -Arguments @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-DocTranslation.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet')
 
 # Documentation anchors and the public link map, which span both repositories.
 Write-GateProgress -Stage 'region-anchors'
 $anchorArgs = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-RegionAnchors.ps1'),
     '-ProjectRoot', $ProjectRoot)
 if ($LinkMap) { $anchorArgs += @('-LinkMap', $LinkMap) }
-$anchors = & pwsh @anchorArgs 2>&1 | Out-String
-$anchorCode = $LASTEXITCODE
-Add-Row -Gate 'region-anchors' `
-    -State $(if ($anchorCode -eq 0) { 'pass' } elseif ($anchorCode -eq 2) { 'cannot-run' } else { 'fail' }) `
-    -Detail $anchors.Trim()
+Invoke-ToolGate -Gate 'region-anchors' -Arguments $anchorArgs
 
 # --- REGION: Project script validation
 Write-GateProgress -Stage 'project-lint'
@@ -741,22 +748,12 @@ if (-not $shellDiscoveryFailed) {
 # authoritative tool.  A regex here would silently disagree on quoted keys,
 # nested maps, canonical locale tags, bounds, or source-hash provenance.
 Write-GateProgress -Stage 'project-locale-map'
-$map = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-ProjectLocaleMap.ps1') `
-    -ProjectRoot $ProjectRoot -Quiet 2>&1 | Out-String
-$mapCode = $LASTEXITCODE
-Add-Row -Gate 'project-locale-map' `
-    -State $(if ($mapCode -eq 0) { 'pass' } elseif ($mapCode -eq 2) { 'cannot-run' } else { 'fail' }) `
-    -Detail $map.Trim()
+Invoke-ToolGate -Gate 'project-locale-map' -Arguments @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Invoke-ProjectLocaleMap.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet')
 
 # Exact bytes, not ReadAllText's forgiving default. The recorded inventory is
 # also reverse-checked here so removing one project path cannot shrink the gate.
 Write-GateProgress -Stage 'project-utf8'
-$encoding = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-ProjectTextEncoding.ps1') `
-    -ProjectRoot $ProjectRoot -Quiet 2>&1 | Out-String
-$encodingCode = $LASTEXITCODE
-Add-Row -Gate 'project-utf8' `
-    -State $(if ($encodingCode -eq 0) { 'pass' } elseif ($encodingCode -eq 2) { 'cannot-run' } else { 'fail' }) `
-    -Detail $encoding.Trim()
+Invoke-ToolGate -Gate 'project-utf8' -Arguments @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-ProjectTextEncoding.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet')
 
 # Changed-domain mode is useful only if every newly discovered boundary can be
 # attributed to an owned slice.  Run this in all three modes: it is cheap, its
@@ -768,11 +765,7 @@ if (-not (Test-Path -LiteralPath $sliceTool -PathType Leaf)) {
     Add-Row -Gate 'affected-slice-map' -State 'cannot-run' `
         -Detail 'the affected-slice authority tool is missing'
 } else {
-    $slice = & pwsh -NoProfile -File $sliceTool -Check -Quiet 2>&1 | Out-String
-    $sliceCode = $LASTEXITCODE
-    Add-Row -Gate 'affected-slice-map' `
-        -State $(if ($sliceCode -eq 0) { 'pass' } elseif ($sliceCode -eq 2) { 'cannot-run' } else { 'fail' }) `
-        -Detail $slice.Trim()
+    Invoke-ToolGate -Gate 'affected-slice-map' -Arguments @('-NoProfile', '-File', $sliceTool, '-Check', '-Quiet')
 }
 
 # The private-stripped trees are a distinct release artifact. Run the cheap
@@ -825,11 +818,7 @@ if ($executeFramework) {
             continue
         }
         $gateArguments = @('-NoProfile', '-File', $tool) + @($gate.Args)
-        $gateOutput = & pwsh @gateArguments 2>&1 | Out-String
-        $gateCode = $LASTEXITCODE
-        Add-Row -Gate $gate.Name `
-            -State $(if ($gateCode -eq 0) { 'pass' } elseif ($gateCode -eq 2) { 'cannot-run' } else { 'fail' }) `
-            -Detail $gateOutput.Trim()
+        Invoke-ToolGate -Gate $gate.Name -Arguments $gateArguments
     }
 
     foreach ($focused in $focusedGates) {

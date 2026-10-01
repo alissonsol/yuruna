@@ -11,14 +11,15 @@ intent store -- plus the sample intent files under [`examples/`](examples/).
 | `Remove-HostFromPool.ps1` | remove a host from ONE pool's members |
 | `Move-PoolHostIdentity.ps1` | replace a re-keyed host ID in one pool-intent commit |
 | `Remove-PoolHost.ps1` | purge a stale host: delete its NAS records and strip ALL memberships |
-| `Set-PoolTestSet.ps1` | assign the pool's one test-set (framework + project repo pair); replaces any previous one |
-| `Set-PoolTestSetDefinition.ps1` | upsert or delete a library test-set |
+| `Set-PoolRepository.ps1` | set a pool's framework and project repository URLs (both, replacing any previous pair), or clear them with `-Clear` |
 | `Set-PoolDesiredState.ps1` | flip a pool between `run`, `paused` and `drain` |
 | `Get-PoolIntent.ps1` | dump the whole intent store as JSON |
-| `Get-PoolStatus.ps1` | read a pool's members and assigned test-set |
+| `Get-PoolStatus.ps1` | read a pool's members and its framework and project repositories |
 | `Test-PoolIntent.ps1` | schema-validate `pools.yml` (+ `guests.compatibility.yml`) and enforce the one-pool-per-host invariant |
+| `Update-PoolIntentSchema.ps1` | migrate the intent store to `pools.yml` schemaVersion 3 once; a re-run changes nothing |
 | `Convert-ToPoolWorker.ps1` | turn a standalone machine into a worker of an existing lab |
 | `Sync-PoolDashboardOnProxy.ps1` | push the canonical dashboard assets to the lab's caching-proxy-service |
+| `Sync-PoolHostMetricsOnProxy.ps1` | push host metrics configuration to the lab's caching-proxy-service |
 
 ```
 pwsh test/pool/Test-PoolIntent.ps1

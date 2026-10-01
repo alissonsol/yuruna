@@ -80,7 +80,8 @@ test/Stop-ConfigService.ps1|test/service/Stop-ConfigService.ps1
 test/Start-StatusService.ps1|test/service/Start-StatusService.ps1
 test/Stop-StatusService.ps1|test/service/Stop-StatusService.ps1
 test/Set-PoolDesiredState.ps1|test/pool/Set-PoolDesiredState.ps1
-test/Set-PoolTestSet.ps1|test/pool/Set-PoolTestSet.ps1
+test/Set-PoolTestSet.ps1|test/pool/Set-PoolRepository.ps1
+test/pool/Set-PoolTestSet.ps1|test/pool/Set-PoolRepository.ps1
 test/Test-PoolIntent.ps1|test/pool/Test-PoolIntent.ps1
 test/Sync-PoolDashboardOnProxy.ps1|test/pool/Sync-PoolDashboardOnProxy.ps1
 test/Test-TesseractOcr.ps1|test/check/Test-TesseractOcr.ps1
@@ -92,7 +93,6 @@ test/New-Pool.ps1|test/pool/New-Pool.ps1
 test/Remove-Pool.ps1|test/pool/Remove-Pool.ps1
 test/Remove-PoolHost.ps1|test/pool/Remove-PoolHost.ps1
 test/Remove-HostFromPool.ps1|test/pool/Remove-HostFromPool.ps1
-test/Set-PoolTestSetDefinition.ps1|test/pool/Set-PoolTestSetDefinition.ps1
 test/Convert-ToPoolWorker.ps1|test/pool/Convert-ToPoolWorker.ps1
 test/Move-CachingProxyService.ps1|test/service/Move-CachingProxyService.ps1
 test/Repair-CachingProxyServiceForwarder.ps1|test/service/Repair-CachingProxyServiceForwarder.ps1

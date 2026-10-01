@@ -761,9 +761,9 @@ GUI and SSH website sequences both wait for every Kubernetes node to become Read
 
 Website and book chapter-two GUI sequences use the same 60-line completion window after clearing the console and activating the Docker group. The wider window retains the build/deployment completion marker without admitting a marker from an earlier step. Deployment readiness waits stay inside workload scripts; typing their full command into the UTM console risks dropped or repeated characters. Book interactive/unattended pairs differ only in identity, descriptive metadata, and the intended breakpoint. See [console-safe readiness](https://yuruna.link/42a76c30-000b).
 
-The default runner chooses Ubuntu 26 for the website workload. Ubuntu 24's ARM64 Hyper-V boot has an observed VMBus soft-lockup failure; the separate `kubernetes-24` set preserves that workload for compatible hosts. Amazon Linux's ARM64 cloud image lacks the Hyper-V storage drivers needed by this lab, while its x86-64 Hyper-V image and virtio-based KVM/UTM paths remain available through the `smoke` set. These compatibility constraints justify selection differences, not omissions from shared workload logic.
+The default runner chooses Ubuntu 26 for the website workload. Ubuntu 24's ARM64 Hyper-V boot has an observed VMBus soft-lockup failure; the separate `workload.guest.ubuntu.server.24.k8s.website` sequence preserves that workload for compatible hosts. Amazon Linux's ARM64 cloud image lacks the Hyper-V storage drivers needed by this lab, while its x86-64 Hyper-V image and virtio-based KVM/UTM paths remain available through `workload.guest.amazon.linux.2023`. These compatibility constraints justify selection differences, not omissions from shared workload logic.
 
-Named test sets keep English `displayName` and `description` values as fallbacks. Optional localized maps use canonical locale tags and hashes in `globalization/project-locale-source-hashes.json`; invalid or stale published translations are rejected, while runtime readers fall back to English. The implicit `all` set needs no declaration.
+Project sequences keep English `description` values as fallbacks. Optional `descriptionLocalized` maps use canonical locale tags and hashes in `globalization/project-locale-source-hashes.json`; invalid or stale published translations are rejected, while runtime readers fall back to English.
 
 <a id="42e220c4-0012"></a>
 
@@ -874,6 +874,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

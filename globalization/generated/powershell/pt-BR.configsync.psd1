@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421a00db-6a8c-407e-7559-b4d0f0043856
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,7 +145,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não está disponível. Importar primeiro o teste/extensão/autenticação/default.psm1.'
+        ''' não está disponível. Importar primeiro o test/extension/authentication/default.psm1.'
     )
     'configsync.operator_0c6e2106f0eb6822' = 'introduzido pelo operador'
     'configsync.operator_10c994f8cce1fea5' = 'viagem de ida e volta verificada'
@@ -201,13 +201,13 @@
         ', então execute novamente esta sincronização.'
     )
     'configsync.operator_21a32e8df2354bc6' = @(
-        'Foi introduzido um token de laboratório, mas nenhum serviço de cache- proxy este nome da máquina respondeu em : 9400, por isso não pode ser resgatado aqui. Inscreva-se separadamente e execute novamente esta sincronização: pwsh test/lab/Set-LabToken.ps1 -LabToken '
+        'Um token do laboratório foi informado, mas nenhum serviço de caching-proxy configurado neste host respondeu na porta :9400; por isso, o token não pode ser resgatado aqui. Cadastre este host separadamente e execute novamente a sincronização: pwsh test/lab/Set-LabToken.ps1 -LabToken '
         @{
             'arg' = 'code'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' - CachingProxyService <proxy-address> - BounceStatusService'
+        ' -CachingProxyService <proxy-address> -BounceStatusService'
     )
     'configsync.operator_21d662e284475037' = @(
         'Sudo Set-HostAlias para '''
@@ -283,7 +283,7 @@
         ').'
     )
     'configsync.operator_41342d0410aa7c6d' = @(
-        'Senha para o utilizador '''
+        'Senha para o usuário '''
         @{
             'arg' = 'user'
             'type' = 'detail'
@@ -330,7 +330,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' não tem nenhuma chave de autenticação interna configurada, por isso não pode servir credenciais a um par. Inscreva-se Ambas as máquinas com o token de laboratório mostrado no painel de máquinas Yuruna (no '
+        ' não tem nenhuma chave de autenticação interna configurada, por isso não pode servir credenciais a um par. Inscreva-se Ambas as máquinas com o token do laboratório mostrado no painel de máquinas Yuruna (no '
         @{
             'arg' = 'referenceHost2'
             'type' = 'detail'
@@ -443,7 +443,7 @@
     'configsync.operator_9a0416e3d899776d' = 'nada para remover'
     'configsync.operator_9a3e9ae77884bd96' = 'gaultKey atualizado'
     'configsync.operator_9d03f7dc75755f81' = @(
-        'O tempo de execução desta máquina não tem AES- GCM (PowerShell '
+        'O tempo de execução desta máquina não tem AES-GCM (PowerShell '
         @{
             'arg' = 'pSVersion'
             'type' = 'detail'
@@ -455,7 +455,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '), por isso não pode abrir um envelope de credencial nem selar um. Cada registo de token do Lab e cada troca de credencial de sincronização de configuração falha aqui até PowerShell ser atualizado. Nada sobre o código, o proxy ou o cofre está em falta. Confirme com test/lab/Lab-Diag.ps1, cuja linha AesGcm relata a mesma coisa.'
+        '), por isso não pode abrir um envelope de credencial nem selar um. Cada registro de token do Lab e cada troca de credencial de sincronização de configuração falha aqui até PowerShell ser atualizado. Nada sobre o código, o proxy ou o cofre está em falta. Confirme com test/lab/Lab-Diag.ps1, cuja linha AesGcm relata a mesma coisa.'
     )
     'configsync.operator_9d1be9a1af0107c6' = @(
         'Nomes de chaves aposentados ainda em uso no '
@@ -487,7 +487,7 @@
         }
         ').'
     )
-    'configsync.operator_9e1f86637c4a7e09' = 'deixou-o vazio (por omissão para <runtime>/pool-intent)'
+    'configsync.operator_9e1f86637c4a7e09' = 'deixou-o vazio (por padrão para <runtime>/pool-intent)'
     'configsync.operator_9e44a801c5e38eb2' = '(descartado -- a grafia atual já estava presente)'
     'configsync.operator_a01d26f897759fcf' = @(
         @{
@@ -506,9 +506,9 @@
         }
         ' no modo -NonInteractive. Repetir com -AllowStaleReference para aceitar a deriva, ou atualizar o host de referência primeiro.'
     )
-    'configsync.operator_a610cd0fd716e5f9' = 'Sincronização-HostConfiguração: plataforma não suportada.'
+    'configsync.operator_a610cd0fd716e5f9' = 'Sync-HostConfiguration: plataforma não suportada.'
     'configsync.operator_a693215e036db1c5' = @(
-        'host- aliases: '
+        'host-aliases: '
         @{
             'arg' = 'referenceHost'
             'type' = 'detail'
@@ -547,7 +547,7 @@
         ' não analisou como um mapa.'
     )
     'configsync.operator_acd19bbbd8ecb77b' = @(
-        'Sync-HostConfiguração: gravação atômica do '
+        'Sync-HostConfiguration: gravação atômica do '
         @{
             'arg' = 'configPath'
             'type' = 'detail'
@@ -600,7 +600,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' tem a troca lab-token desabilitada (rotação desligada, ou o proxy não possui nenhuma chave de autenticação interna). Reconstruir o serviço de cache- proxy de uma máquina que mantém o token, ou verificar o agregador de piscina Bandeiras de serviço.'
+        ' tem a troca lab-token desabilitada (rotação desligada, ou o proxy não possui nenhuma chave de autenticação interna). Reconstruir o serviço de cache-proxy de uma máquina que mantém o token, ou verificar o agregador de grupo Bandeiras de serviço.'
     )
     'configsync.operator_cb757afbb07cffde' = 'Chave de autenticação interna -- ou token Lab de 6 caracteres do painel, que é resgatado para ele (Enter para pular)'
     'configsync.operator_d065ed41fc7b982c' = @(

@@ -36,7 +36,7 @@ review; English remains the source of truth.
 - **[lab-operator.md](lab-operator.md)** -- bring-up runbook for a lab:
   shared NAS storage, caching-proxy-service, stash and pool-control services,
   each additional machine enrolled via the dashboard's Lab token, and a
-  two-pool split running a different test-set on each.
+  two-pool split running a different project on each.
 - **[lab-new-machine.md](lab-new-machine.md)** -- adding one machine to an
   existing lab, step by step: creating the account the harness runs as (and
   what a domain password policy does to it), signing in, the GitHub
@@ -171,7 +171,8 @@ review; English remains the source of truth.
 ## Pools and services
 
 - **[pool-admin.md](pool-admin.md)** -- the pool administrator's guide: group
-  hosts into a pool and assign them test-sets through the admin commands, and
+  hosts into a pool and set the framework and project repositories it runs,
+  from the Pools page or the admin commands, and
   the [Pool-control service](pool-admin.md#pool-control-service) -- the operator
   UI and API that drives the pool-intent git store, which runners only ever
   pull read-only.
@@ -200,7 +201,7 @@ review; English remains the source of truth.
   breakdown](design/02-component-breakdown.md), [data
   flows](design/03-data-flows.md), [lifecycle
   state](design/04-lifecycle-state.md), the [configuration data
-  model](design/05-data-model.md), and the [deployment
+  model](design/05-data-model.md), the [deployment
   topology](design/06-deployment.md), and
   [globalization](design/07-globalization.md).
 - **[design/naming.md](design/naming.md)** -- the naming rules: components are
@@ -291,6 +292,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

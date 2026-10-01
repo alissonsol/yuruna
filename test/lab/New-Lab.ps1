@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425d0d82-ebe2-4d28-90df-3b22ff1c2915
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,10 +22,11 @@
     repository.
 
 .DESCRIPTION
-    A lab is a physically local set of hosts, which are then grouped into pools and
-    assigned test sets. Bringing one up by hand -- create two folders, share them,
-    set ACLs, put passwords in a vault -- leaves nothing to check the result. This
-    creates all three consistently and is safe to re-run.
+    A lab is a physically local set of hosts, which are then grouped into pools;
+    each pool can carry the framework and project repositories its hosts run.
+    Bringing one up by hand -- create two folders, share them, set ACLs, put
+    passwords in a vault -- leaves nothing to check the result. This creates all
+    three consistently and is safe to re-run.
 
     What it creates under -Root:
       <Root>/yuruna.pool          cycle-output replication + the intent repository
@@ -134,14 +135,14 @@ function Set-DirectoryPrivate {
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][string]$Path)
     if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_258aa0a2968ed154'))) { return }
-    try {
-        if ($IsWindows) {
-            & icacls $Path /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" 2>&1 | Out-Null
-        } else {
-            & chmod 700 $Path 2>&1 | Out-Null
-        }
-    } catch {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c66025ec986aed96' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" })
+    if ($IsWindows) {
+        $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $output = @(& icacls $Path /inheritance:r /grant:r "*${sid}:(OI)(CI)F" 2>&1)
+    } else {
+        $output = @(& chmod 700 $Path 2>&1)
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Cannot secure directory '{0}' (exit {1}): {2}" -f $Path, $LASTEXITCODE, ($output -join ' '))
     }
 }
 
@@ -255,11 +256,11 @@ if ((Test-Path -LiteralPath $labVault) -and -not $Force) {
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add('schemaVersion: 1')
     $lines.Add('lab:')
-    $lines.Add("  name: $Name")
+    $lines.Add("  name: $(ConvertTo-Json -InputObject $Name -Compress)")
     $lines.Add("  createdUtc: '$nowUtc'")
-    $lines.Add("  poolPath: '$poolPath'")
-    $lines.Add("  stashPath: '$stashPath'")
-    $lines.Add("  intentGitPath: '$intentPath'")
+    $lines.Add("  poolPath: $(ConvertTo-Json -InputObject $poolPath -Compress)")
+    $lines.Add("  stashPath: $(ConvertTo-Json -InputObject $stashPath -Compress)")
+    $lines.Add("  intentGitPath: $(ConvertTo-Json -InputObject $intentPath -Compress)")
     $lines.Add('users:')
     $reused = [System.Collections.Generic.List[string]]::new()
     foreach ($u in $User) {
@@ -273,9 +274,8 @@ if ((Test-Path -LiteralPath $labVault) -and -not $Force) {
             $pw = New-RandomPassword -Length $PasswordLength
         }
         $lines.Add("  ${u}:")
-        # Unquoted on purpose: New-RandomPassword never emits a leading YAML
-        # indicator, and the value is substituted unquoted downstream.
-        $lines.Add("    password: $pw")
+        # JSON string quoting is valid YAML and preserves reused credentials.
+        $lines.Add("    password: $(ConvertTo-Json -InputObject $pw -Compress)")
         $lines.Add("    previousPassword: ''")
         $lines.Add("    updatedUtc: '$nowUtc'")
     }

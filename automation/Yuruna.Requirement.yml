@@ -65,7 +65,7 @@ requirements:
     # provisioned machine -- same coupling as the npm/Node LTS entry below.
     command: |-
       ((docker --version) -replace '^Docker version ','' -replace ',\s*build.*$','')
-    version: "29.6.2"
+    version: "29.8.1"
     releases: "https://docs.docker.com/desktop/"
   - tool: "Docker buildx"
     # Ships as a CLI plugin inside Docker Desktop, so the floor follows the
@@ -73,9 +73,10 @@ requirements:
     # the Docker entry above for why an upstream-leading floor misfires.
     command: |-
       ((docker buildx version) -split '\s+')[1]
-    version: "v0.35.0"
+    version: "v0.37.1"
     releases: "https://github.com/docker/buildx"
   - tool: "containerd"
+    platforms: [linux]
     # `containerd --version` prints `containerd github.com/.../v2 vX.Y.Z <commit>` --
     # the third whitespace token is the version.
     command: |-
@@ -153,6 +154,7 @@ requirements:
     version: "qemu-img version 10.2.1"
     releases: "https://www.qemu.org/download/"
   - tool: "oscdimg"
+    platforms: [windows]
     # The banner line is `OSCDIMG X.YZ CD-ROM and DVD-ROM Premastering
     # Utility`. There is no version flag -- `-h` means "include hidden files"
     # -- so the version is read from the banner oscdimg prints ahead of its

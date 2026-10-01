@@ -33,6 +33,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"stash-service/internal/config"
@@ -81,8 +82,11 @@ func Receive(in io.Reader, out io.Writer, stagingDir string) (*Result, error) {
 	for {
 		line, err := readControlLine(br)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if errors.Is(err, io.EOF) && len(relStack) == 0 {
 				return res, nil
+			}
+			if errors.Is(err, io.EOF) {
+				err = io.ErrUnexpectedEOF
 			}
 			return res, fmt.Errorf("read control: %w", err)
 		}
@@ -102,6 +106,9 @@ func Receive(in io.Reader, out io.Writer, stagingDir string) (*Result, error) {
 			}
 			_ = mode // discarded -- we always create 0o600
 			safeName := sanitizeName(name)
+			if _, err := out.Write([]byte{0}); err != nil {
+				return res, fmt.Errorf("ack C: %w", err)
+			}
 			if safeName == "" {
 				// section 5.5 empty-filename: ignored. Still must drain the
 				// payload (size bytes + trailing \x00) so the protocol
@@ -110,16 +117,16 @@ func Receive(in io.Reader, out io.Writer, stagingDir string) (*Result, error) {
 				if err := drainPayload(br, size); err != nil {
 					return res, fmt.Errorf("drain empty-name payload: %w", err)
 				}
-				if _, err := out.Write([]byte{0}); err != nil {
-					return res, fmt.Errorf("ack empty-name C: %w", err)
+				if err := finishFile(br, out); err != nil {
+					return res, err
 				}
 				continue
 			}
-			// Ack the C line so the client starts streaming.
-			if _, err := out.Write([]byte{0}); err != nil {
-				return res, fmt.Errorf("ack C: %w", err)
+			target, err := fsutil.UniqueUploadPath(filepath.Join(stagingDir, currentRel()), safeName)
+			if err != nil {
+				return res, fmt.Errorf("choose upload name: %w", err)
 			}
-			target := filepath.Join(stagingDir, currentRel(), safeName)
+			safeName = filepath.Base(target)
 			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 				return res, fmt.Errorf("mkdir for %s: %w", safeName, err)
 			}
@@ -132,17 +139,8 @@ func Receive(in io.Reader, out io.Writer, stagingDir string) (*Result, error) {
 				return res, fmt.Errorf("stream file %s: %w", safeName, err)
 			}
 			res.FileNames = append(res.FileNames, safeName)
-			// Read the trailing \x00 from the client (end-of-file
-			// marker on the wire -- distinct from EOF on the stream).
-			eof := make([]byte, 1)
-			if _, err := io.ReadFull(br, eof); err != nil {
-				return res, fmt.Errorf("read EOF marker: %w", err)
-			}
-			if eof[0] != 0 {
-				return res, fmt.Errorf("expected 0 after file payload, got 0x%02x", eof[0])
-			}
-			if _, err := out.Write([]byte{0}); err != nil {
-				return res, fmt.Errorf("ack file end: %w", err)
+			if err := finishFile(br, out); err != nil {
+				return res, err
 			}
 		case 'D':
 			_, _, name, err := parseCLine(line) // same shape as C; size always 0
@@ -176,14 +174,33 @@ func Receive(in io.Reader, out io.Writer, stagingDir string) (*Result, error) {
 	}
 }
 
+func finishFile(br *bufio.Reader, out io.Writer) error {
+	// Read the trailing \x00 from the client (end-of-file
+	// marker on the wire -- distinct from EOF on the stream).
+	eof := make([]byte, 1)
+	if _, err := io.ReadFull(br, eof); err != nil {
+		return fmt.Errorf("read EOF marker: %w", err)
+	}
+	if eof[0] != 0 {
+		return fmt.Errorf("expected 0 after file payload, got 0x%02x", eof[0])
+	}
+	if _, err := out.Write([]byte{0}); err != nil {
+		return fmt.Errorf("ack file end: %w", err)
+	}
+	return nil
+}
+
 // readControlLine returns one \n-terminated line WITHOUT the trailing
 // newline. The protocol guarantees ASCII for C/D/E/T headers.
 func readControlLine(br *bufio.Reader) (string, error) {
 	line, err := br.ReadString('\n')
 	if err != nil {
 		// EOF without a partial line is the natural session end.
-		if errors.Is(err, io.EOF) && line == "" {
-			return "", io.EOF
+		if errors.Is(err, io.EOF) {
+			if line == "" {
+				return "", io.EOF
+			}
+			return "", io.ErrUnexpectedEOF
 		}
 		return "", err
 	}
@@ -191,8 +208,11 @@ func readControlLine(br *bufio.Reader) (string, error) {
 }
 
 // parseCLine handles both C<mode> <size> <name> and D<mode> 0 <name>
-// (size always 0 for D, but we tolerate any decimal there).
+// Directory headers require a zero size.
 func parseCLine(line string) (mode string, size int64, name string, err error) {
+	if len(line) < 1 || (line[0] != 'C' && line[0] != 'D') {
+		return "", 0, "", fmt.Errorf("invalid control header")
+	}
 	// Drop the leading control byte.
 	body := line[1:]
 	// mode is everything up to the first space.
@@ -201,6 +221,9 @@ func parseCLine(line string) (mode string, size int64, name string, err error) {
 		return "", 0, "", fmt.Errorf("missing mode separator: %q", line)
 	}
 	mode = body[:sp1]
+	if len(mode) != 4 || strings.IndexFunc(mode, func(r rune) bool { return r < '0' || r > '7' }) >= 0 {
+		return "", 0, "", fmt.Errorf("invalid mode %q", mode)
+	}
 	rest := body[sp1+1:]
 	sp2 := strings.IndexByte(rest, ' ')
 	if sp2 < 0 {
@@ -208,8 +231,15 @@ func parseCLine(line string) (mode string, size int64, name string, err error) {
 	}
 	sizeStr := rest[:sp2]
 	name = rest[sp2+1:]
-	if _, scanErr := fmt.Sscanf(sizeStr, "%d", &size); scanErr != nil {
-		return "", 0, "", fmt.Errorf("parse size %q: %w", sizeStr, scanErr)
+	if sizeStr == "" || strings.IndexFunc(sizeStr, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return "", 0, "", fmt.Errorf("invalid size %q", sizeStr)
+	}
+	size, err = strconv.ParseInt(sizeStr, 10, 64)
+	if err != nil {
+		return "", 0, "", fmt.Errorf("parse size: %w", err)
+	}
+	if line[0] == 'D' && size != 0 {
+		return "", 0, "", fmt.Errorf("directory size must be zero")
 	}
 	return mode, size, name, nil
 }
@@ -257,14 +287,4 @@ func drainPayload(br *bufio.Reader, n int64) error {
 // sanitizeName strips any path separators and "..", then trims. An
 // empty result tells the caller to treat this as the section 5.5 empty-
 // filename case (skip).
-func sanitizeName(raw string) string {
-	clean := strings.TrimSpace(raw)
-	// Reject path separators and parent-dir traversal.
-	if clean == "" || clean == "." || clean == ".." {
-		return ""
-	}
-	if strings.ContainsAny(clean, "/\\") {
-		return ""
-	}
-	return clean
-}
+func sanitizeName(raw string) string { return fsutil.UploadName(raw) }

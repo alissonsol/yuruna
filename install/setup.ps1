@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -191,6 +191,7 @@ $Script:InvokedWith = (@(
 ) -join ' ')
 if (-not $Script:InvokedWith) { $Script:InvokedWith = '(no parameters)' }
 
+$setupEnvironment = @{ NonInteractive = $env:YURUNA_NONINTERACTIVE; SudoPrimed = $env:YURUNA_SUDO_PRIMED }
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $TestRoot = Join-Path $RepoRoot 'test'
 $ConfigPath = Join-Path $TestRoot 'test.config.yml'
@@ -1809,18 +1810,18 @@ function Test-NetworkSubnetConnectivity {
 
     if (-not $hasSubnetAccess) {
         Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_bbbaa5da661ba342')
-        Write-SetupMessage ""
-        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_95b70a8cbc67dfd3')
+        Write-SetupWarning ""
+        Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_95b70a8cbc67dfd3')
         if ($IsLinux) {
-            Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_172b5623f4f06af8')
-            Write-SetupMessage "    sudo ufw allow out to x.y.z.0/24"
-            Write-SetupMessage "    sudo ufw reload"
+            Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_172b5623f4f06af8')
+            Write-SetupWarning "    sudo ufw allow out to x.y.z.0/24"
+            Write-SetupWarning "    sudo ufw reload"
         } elseif ($IsWindows) {
-            Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_be415be6232790f3')
-            Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_ce09531d5eab7838')
+            Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_be415be6232790f3')
+            Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_ce09531d5eab7838')
         }
-        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_dfef811368420551' -Arguments @{ documentationUrl = "$DocumentationUrl" })
-        Write-SetupMessage ""
+        Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_dfef811368420551' -Arguments @{ documentationUrl = "$DocumentationUrl" })
+        Write-SetupWarning ""
         return $false
     }
 
@@ -2551,7 +2552,12 @@ $isLab = ($setupType -eq 'lab')
 
 $runTestsAnswer = Get-Answer 'setup.runTests'
 $runTestsSource = Get-DecisionSource -FromAnswerFile ($null -ne $runTestsAnswer)
-$runTests = if ($null -ne $runTestsAnswer) { [bool]$runTestsAnswer } else {
+$runTests = if ($null -ne $runTestsAnswer) {
+    if ($runTestsAnswer -is [bool]) { $runTestsAnswer }
+    elseif ([string]$runTestsAnswer -match '^(?i:true|yes|on|1)$') { $true }
+    elseif ([string]$runTestsAnswer -match '^(?i:false|no|off|0)$') { $false }
+    else { throw "setup.runTests must be a boolean or yes/no value." }
+} else {
     (Read-Choice -Question 'Should this machine run tests itself?' -Default $true -Option @(
         @{ Label = 'Yes -- configure host settings (display sleep, screen lock, firewall)'; Value = $true }
         @{ Label = 'No -- this machine only hosts services'; Value = $false }
@@ -2751,6 +2757,7 @@ if (-not $IsWindows -and -not $WhatIfPreference) {
 # keyboard, so the run waits forever for a keystroke nobody knows to press. The
 # credential is taken here, once, and the contract that forbids any later
 # question is published into the environment every child inherits.
+try {
 if (-not $WhatIfPreference) {
     $Script:ElevationOk = Initialize-SetupElevation -Reason @(
         'host settings -- display sleep, screen lock, power management',
@@ -3610,3 +3617,9 @@ Write-SetupMessage ''
 # throw away a proxy VM that came up correctly -- but it must not be reported as
 # success either.
 Exit-Setup $(if ($hadFailures) { 1 } else { 0 })
+
+} finally {
+    Stop-SudoKeepAlive
+    $env:YURUNA_NONINTERACTIVE = $setupEnvironment.NonInteractive
+    $env:YURUNA_SUDO_PRIMED = $setupEnvironment.SudoPrimed
+}

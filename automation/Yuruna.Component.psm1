@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42eaea7b-b54f-495c-bbdc-838c8758fced
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,7 +122,8 @@ function Publish-ComponentList {
             })
         }
         Add-Content -LiteralPath $dockerLogFile -Value "== [$Phase] $loggedCommand (exit=$rc) =="
-        $out | ForEach-Object { Add-Content -LiteralPath $dockerLogFile -Value ([string]$_) }
+        $logLines = @($out | ForEach-Object { [string]$_ })
+        if ($logLines.Count -gt 0) { Add-Content -LiteralPath $dockerLogFile -Value $logLines }
         Set-Content -LiteralPath $dockerRcFile -Value $rc -NoNewline
         $out | ForEach-Object { Write-Output ([string]$_) }
         $global:LASTEXITCODE = $rc

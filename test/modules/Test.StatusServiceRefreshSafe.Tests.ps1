@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 424389c7-e56a-4c48-9b73-1d24e21c6aa1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,12 +198,32 @@ Describe 'the refresh-safe start in its own process' {
         }
 
         function Get-FreePort {
+            <#
+            .SYNOPSIS
+                A TCP port nothing holds now, from a band no operating system hands out as an ephemeral source port.
+            .DESCRIPTION
+                Binding port 0 and letting go returns a number from the ephemeral
+                range, and a suite running beside this one can have an outgoing
+                connection given that same number before the child this test
+                starts binds it. Linux allocates ephemeral ports from 32768 and
+                macOS and Windows from 49152, so a port below both is taken only
+                by an explicit bind. Each candidate is probed on the loopback and
+                the wildcard address, the two the launcher and the holders bind.
+            #>
             [CmdletBinding()]
             [OutputType([int])]
             param()
-            $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-            $probe.Start()
-            try { return $probe.LocalEndpoint.Port } finally { $probe.Stop() }
+            for ($attempt = 0; $attempt -lt 100; $attempt++) {
+                $port = Get-Random -Minimum 20000 -Maximum 30000
+                try {
+                    foreach ($address in @([System.Net.IPAddress]::Loopback, [System.Net.IPAddress]::Any)) {
+                        $probe = [System.Net.Sockets.TcpListener]::new($address, $port)
+                        try { $probe.Start() } finally { $probe.Stop() }
+                    }
+                    return $port
+                } catch [System.Net.Sockets.SocketException] { continue }
+            }
+            throw 'no free TCP port between 20000 and 29999'
         }
 
         function Invoke-RefreshSafeStart {
@@ -440,6 +460,7 @@ while (`$listener.IsListening) {
             $run = Invoke-RefreshSafeStart -Scratch $scratch -Argument (Get-RefreshSafeArgument -Scratch $scratch -Port (Get-FreePort))
             $watch.Stop()
             Assert-Equal 2 $run.ExitCode "unexpected exit: $($run.Output)"
+            Assert-True ($watch.Elapsed.TotalSeconds -lt 15) "admission-busy exceeded its startup bound: $($watch.Elapsed.TotalSeconds)s"
             Assert-StringEqual 'admission-busy' $run.Result.outcome
             Assert-StringEqual 'held-elsewhere' $run.Result.reason
         } finally {

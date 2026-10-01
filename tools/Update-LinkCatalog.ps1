@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d5c7e8-3b19-4a62-8f04-6c2ae91b73d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,9 +102,11 @@ foreach ($f in @($anchorData.files)) {
     $idRows.Add(@($row))
 }
 
-$existing = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Catalog))
-$parsedRows = if ($existing -is [System.Collections.IList] -and $existing.Count -gt 0 -and
-                   $existing[0] -is [System.Collections.IList]) { $existing } else { , $existing }
+$existing = ConvertFrom-Json -NoEnumerate -InputObject ([IO.File]::ReadAllText($Catalog))
+$parsedRows = [Collections.Generic.List[object]]::new()
+if ($existing -is [System.Collections.IList] -and $existing.Count -gt 0 -and $existing[0] -is [System.Collections.IList]) {
+    foreach ($entry in $existing) { $parsedRows.Add($entry) }
+} else { $parsedRows.Add($existing) }
 
 # Everything that is not a file-id row stays exactly as it was.
 $kept = [Collections.Generic.List[object]]::new()

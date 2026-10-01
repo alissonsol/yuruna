@@ -10,9 +10,10 @@ description: >
   host belongs to which pool: a runner finds its own pool by locating its hostId
   here (a host belongs to AT MOST one pool); the aggregator labels each host's
   telemetry by the same mapping. `desiredState` gates the runner
-  (run/paused/drain); `testSet` (a single framework/project repo pair) is what
-  a pooled host tests; `config` overrides the per-host testCycle knobs; `gating`
-  is the advisory pool alert/quorum policy the aggregator + host notifier act on.
+  (run/paused/drain); `repositories` (the pool's framework and project
+  repository URLs) is what a pooled host runs; `config` overrides the
+  per-host testCycle knobs; `gating` is the advisory pool alert/quorum policy
+  the aggregator + host notifier act on.
 
 type: object
 required: [schemaVersion, pools]
@@ -22,11 +23,10 @@ properties:
 
   schemaVersion:
     type: integer
-    const: 2
+    const: 3
     description: >
-      Schema contract version. v2: a pool carries a stable `poolGuid` and a
-      single `testSet` (a named framework/project repo pair), replacing the v1
-      `testSets[]` array of sequence-manifest references.
+      Schema contract version. v3: a pool carries a stable `poolGuid` and
+      optional `repositories` (its framework and project repository URLs).
 
   pools:
     type: array
@@ -60,10 +60,10 @@ properties:
         pattern: "^[a-z0-9][a-z0-9-]{0,62}$"
         description: >
           The pool auto-enrolled hosts land in (conventionally `default`). This
-          pool is FORBIDDEN from carrying a testSet -- hosts arrive here without
-          anyone choosing it for them, so a test-set here would silently repoint
-          every auto-enrolled host in the lab. Enforced in code
-          (Test-PoolIntent.ps1 / Set-PoolTestSet.ps1), because a cross-field
+          pool is FORBIDDEN from carrying repositories -- hosts arrive here
+          without anyone choosing it for them, so repositories here would
+          silently repoint every auto-enrolled host in the lab. Enforced in code
+          (Test-PoolIntent.ps1 / Set-PoolRepository.ps1), because a cross-field
           constraint of this shape is not expressible in JSON Schema.
       excluded:
         type: array
@@ -95,9 +95,8 @@ $defs:
         type: string
         pattern: "^42[0-9a-fA-F]{6}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
         description: >
-          Stable 42-prefixed GUID minted at pool creation. Surfaced as the
-          dashboard "Pool ID" column; unlike poolId it is opaque and never
-          reused. Distinct from poolId so the human-facing GUID and the
+          Stable 42-prefixed GUID minted at pool creation. Unlike poolId it is
+          opaque and never reused. Distinct from poolId so the pool GUID and
           telemetry label can evolve independently.
 
       displayName:
@@ -114,44 +113,27 @@ $defs:
           type: string
           pattern: "^42[0-9a-fA-F]{30}$"
 
-      testSet:
+      repositories:
         type: object
         description: >
-          The single test-set assigned to this pool: a named framework +
-          project repo pair. A pooled runner overrides its own
-          repositories.frameworkUrl / repositories.projectUrl with these for the
-          cycle (its GH_TOKEN stays host-local, never in pool intent) and then
-          runs the assigned project's own test.runner.yml. Absent until assigned.
-        required: [name, frameworkUrl, projectUrl]
+          The framework and project repositories every member of this pool
+          runs. A pooled runner overrides its own repositories.frameworkUrl /
+          repositories.projectUrl with these for the cycle (its GH_TOKEN stays
+          host-local, never in pool intent) and then runs that project's own
+          test.runner.yml. Absent when the pool sets none: each member then
+          runs its own configured repositories. Set or cleared with
+          test/pool/Set-PoolRepository.ps1 or on the pool-control Pools page.
+        required: [frameworkUrl, projectUrl]
         additionalProperties: false
         properties:
-          name:
-            type: string
-            pattern: "^[a-z0-9][a-z0-9._-]*$"
-            description: >
-              Test-set name. Discovered entries are project-scoped by
-              construction -- `<project-slug>.<setName>` -- because this name is
-              the SOLE key the library upserts and deletes on, and every project
-              reports an implicit set called `all`; a bare name would have one
-              project's `all` overwrite every other's.
           frameworkUrl:
             type: string
-            description: The Yuruna framework repo URL each pooled host clones for the cycle.
+            minLength: 1
+            description: The Yuruna framework repository URL each pooled host clones for the cycle.
           projectUrl:
             type: string
-            description: The project repo URL each pooled host tests (its test.runner.yml drives the cycle).
-          sequences:
-            type: array
-            description: >
-              Accepted but not yet emitted: see the note on `autoEnrollment`.
-
-              Optional subset of the assigned project's top-level sequences to
-              run. ABSENT or EMPTY means run the project's whole
-              test.runner.yml, which is the behavior every existing store
-              relies on -- so an older runner that ignores this field runs a
-              safe superset rather than nothing.
-            items:
-              type: string
+            minLength: 1
+            description: The project repository URL each pooled host tests (its test.runner.yml drives the cycle).
 
       config:
         type: object

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a887fd-7c8d-47f1-9a01-ca5c0ab67d4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,8 +28,7 @@
     (missing-file warning, blank-url warning, "Provenance: <url>" on the
     information stream rather than verbose, so it survives at the default
     logLevel).
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4
-    and Pester 5+. Run: Invoke-Pester -Path test/modules/Test.Provenance.Tests.ps1
+    Throw-based assertions so the file runs under Pester 5+. Run: Invoke-Pester -Path test/modules/Test.Provenance.Tests.ps1
 #>
 
 BeforeAll {

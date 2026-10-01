@@ -4,13 +4,14 @@
 
 Bring-up runbook for a Yuruna lab: several machines sharing one
 caching-proxy-service, NAS-backed pool and stash storage, and a
-pool-control service, grouped into pools and assigned test-sets.
+pool-control service, grouped into pools that each run their own framework
+and project repositories.
 
 [Section A: Quickstart](#section-a-quickstart) is the complete command
 sequence -- shared services first, then machine by machine.
 [Section B: Deep dive](#section-b-deep-dive) explains each step. The
 guide ends with a worked
-[two-pool split](#two-pools-running-two-different-test-sets).
+[two-pool split](#two-pools-running-two-different-projects).
 
 Prerequisite: every lab machine has completed the
 [operator guide](operator.md) through A.2 (signed in as the test
@@ -257,8 +258,9 @@ lookup and quietly serve this host's cycles
 
 Once `Invoke-TestProject`
 is green, open the pool-control service UI at
-`http://<pool-control-service-vm-ip>/`, add the host to a pool, assign
-a test-set, then:
+`http://<pool-control-service-vm-ip>/`, add the host to a pool on its Hosts
+page, and set that pool's Framework URL and Project URL on its Pools page,
+then:
 
 ```
 pwsh test/Start-TestRunner.ps1
@@ -474,7 +476,7 @@ pwsh test/service/Start-PoolControlServiceVM.ps1
 ```
 
 Brings up the `yuruna-pool-control-service` VM -- operator UI + API for
-pool intent: create pools, add hosts, assign test-sets. Elevated on
+pool intent: create pools, add hosts, set each pool's repositories. Elevated on
 Windows, unelevated on macOS. On a Wi-Fi macOS host it is built on UTM
 Shared NAT ([B.4](#b4-start-the-stash-service)) and forwarded -- peers
 open `http://<host-lan-ip>:8081/` (the per-service forwards never
@@ -606,8 +608,9 @@ credential, reading the first validation report):
 5. **Join a pool and take assignments** -- open the pool-control service UI at
    `http://<pool-control-service-vm-ip>/` (linked as "Pool-control service" in the
    Grafana "Yuruna hosts" dashboard's Extension hosts table), add
-   this host to a pool, and assign a test-set. CLI equivalent:
-   `test/pool/Add-HostToPool.ps1` + `test/pool/Set-PoolTestSet.ps1`
+   this host to a pool on the Hosts page, and set that pool's Framework URL
+   and Project URL on the Pools page. CLI equivalent:
+   `test/pool/Add-HostToPool.ps1` + `test/pool/Set-PoolRepository.ps1`
    ([pool-admin.md](pool-admin.md)). Then start
    `pwsh test/Start-TestRunner.ps1`.
 
@@ -674,7 +677,9 @@ then re-run unelevated.
 
 <a id="42383647-0014"></a>
 
-## Two pools running two different test-sets
+<a id="two-pools-running-two-different-test-sets"></a>
+
+## Two pools running two different projects
 
 A worked example: one lab, two groups of hosts, each running a
 different body of tests. Names are placeholders.
@@ -689,20 +694,15 @@ it.
 
 <a id="42383647-0015"></a>
 
-### 1. Define the two test-sets
+### 1. Choose each pool's framework and project repositories
 
-A test-set is a named framework/project repo **pair**: a pooled
-member overrides its `repositories.*` URLs with it for the cycle and
-runs the assigned project's `test.runner.yml` plan. Two bodies of
-tests therefore mean two project repos -- or two branches or forks of
-one. `GH_TOKEN` is never stored in pool intent; it stays host-local.
-
-Register both pairs in the intent store's test-set library:
-
-```powershell
-pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name testset1 -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
-pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name testset2 -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
-```
+Each pool runs one framework/project repo **pair**: a pooled member
+overrides its `repositories.*` URLs with the pool's pair for the cycle
+and runs that project's `test.runner.yml` plan. Two bodies of tests
+therefore mean two project repos -- or two branches or forks of one.
+`GH_TOKEN` is never stored in pool intent; it stays host-local.
+Nothing is registered up front: step 4 sets each pair directly on its
+pool.
 
 <a id="42383647-0016"></a>
 
@@ -714,7 +714,7 @@ pwsh test/pool/New-Pool.ps1 -PoolId poolb -DisplayName 'Pool B' -IntentGitUrl <i
 ```
 
 `-PoolId` is permanent -- `New-Pool.ps1` mints a stable `poolGuid` for
-it (the dashboard's "Pool ID"), so renaming later means a new pool
+it, so renaming later means a new pool
 and forks the telemetry history.
 
 <a id="42383647-0017"></a>
@@ -733,16 +733,19 @@ pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -IntentGit
 
 <a id="42383647-0018"></a>
 
-### 4. Assign one test-set to each pool
+### 4. Set each pool's framework and project URLs
 
 ```powershell
-pwsh test/pool/Set-PoolTestSet.ps1 -PoolId poola -Name testset1 -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
-pwsh test/pool/Set-PoolTestSet.ps1 -PoolId poolb -Name testset2 -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId poola -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId poolb -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
 ```
 
-A pool holds exactly one `testSet`; assigning replaces the previous
-one. Members do not split the work: every `poola` member clones
-`<project-a-url>` and runs its full plan, reporting under the pool.
+From the pool-control UI, type the same two URLs into each pool's
+**Framework / Project** cell on the Pools page (`/pools`) -- the Framework
+URL in the top box, the Project URL in the bottom one -- and save. A pool
+holds exactly one pair; setting it replaces the previous one. Members do
+not split the work: every `poola` member clones `<project-a-url>` and runs
+its full plan, reporting under the pool.
 
 <a id="42383647-0019"></a>
 
@@ -755,10 +758,10 @@ pwsh test/pool/Get-PoolStatus.ps1  -PoolId poolb -IntentGitUrl <intent-url>
 ```
 
 `Test-PoolIntent.ps1` also enforces the one-pool-per-host rule;
-`Get-PoolStatus.ps1` shows members, `desiredState`, and the assigned
-test-set. Neither probes the repo URLs -- a typo first surfaces when a
-member's next cycle clones. Each runner pulls intent at cycle start,
-so assignments take effect next cycle with no restart.
+`Get-PoolStatus.ps1` shows members, `desiredState`, and the pool's
+framework and project URLs. Neither probes the repo URLs -- a typo first
+surfaces when a member's next cycle clones. Each runner pulls intent at
+cycle start, so a change takes effect next cycle with no restart.
 
 <a id="42383647-001a"></a>
 
@@ -793,6 +796,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

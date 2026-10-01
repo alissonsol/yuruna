@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a1c8e3-5b47-4f60-9d2a-7e83b415cc09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,6 +93,8 @@ Describe 'document anchor history survives partial updates and deletions' {
         }
         $generator = Join-Path $fixture 'tools/Invoke-DocAnchor.ps1'
         Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1') -Destination $generator
+        $null = New-Item -ItemType Directory -Path (Join-Path $fixture 'test/modules') -Force
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/modules/Test.Prelude.psm1') -Destination (Join-Path $fixture 'test/modules/Test.Prelude.psm1')
         $manifest = Join-Path $fixture 'globalization/manifests/doc-anchors.json'
         $readme = Join-Path $fixture 'README.md'
         $records = @(

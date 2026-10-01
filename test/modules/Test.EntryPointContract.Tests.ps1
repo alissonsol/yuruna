@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42eb9613-e03b-4f67-8b89-1b1e1b198727
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,7 +136,7 @@ Describe 'localized boundary identity survives changed display prose' {
             foreach ($call in $ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -in @('Format-YurunaOperatorMessage', 'Format-CatalogMessage') }, $true)) {
                 $ancestor = $call.Parent
                 while ($ancestor -and $ancestor -isnot [Management.Automation.Language.StatementBlockAst]) {
-                    if ($ancestor -is [Management.Automation.Language.BinaryExpressionAst] -and $ancestor.Operator -match '^(I|C)?(eq|ne|match|like|contains|in)$') { $violations += "$path`:$($call.Extent.StartLineNumber)" }
+                    if ($ancestor -is [Management.Automation.Language.BinaryExpressionAst] -and $ancestor.Operator -match '^(I|C)?(eq|ne|match|notmatch|like|notlike|contains|notcontains|in|notin)$') { $violations += "$path`:$($call.Extent.StartLineNumber)" }
                     $ancestor = $ancestor.Parent
                 }
             }

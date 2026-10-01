@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42551ffa-1dbb-4832-a894-196282de212c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,7 @@
 # account can still modify, so there is no equivalent trap to sweep.
 # --- REGION: https://yuruna.link/429fb30b-0014
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
 $script:RootArtifactProcessTimeoutSeconds = 20
 
 function Invoke-RootArtifactProcess {
@@ -41,35 +42,9 @@ function Invoke-RootArtifactProcess {
         [Parameter()][string[]]$ArgumentList = @(),
         [Parameter()][int]$TimeoutSeconds = $script:RootArtifactProcessTimeoutSeconds
     )
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName = $FilePath
-    foreach ($a in $ArgumentList) { [void]$psi.ArgumentList.Add($a) }
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.RedirectStandardInput = $true
-    $proc = $null
-    try {
-        $proc = [System.Diagnostics.Process]::Start($psi)
-    } catch {
-        return @{ ExitCode = -1; StdOut = ''; StdErr = $_.Exception.Message }
-    }
-    try {
-        $proc.StandardInput.Close()
-        # Read to end BEFORE waiting: reading drains the pipes, so a child that
-        # outruns the buffer cannot block on a full pipe while we wait on exit.
-        $outTask = $proc.StandardOutput.ReadToEndAsync()
-        $errTask = $proc.StandardError.ReadToEndAsync()
-        if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
-            try { $proc.Kill($true) } catch { $null = $_ }
-            return @{ ExitCode = 124; StdOut = ''; StdErr = "timeout ${TimeoutSeconds}s" }
-        }
-        return @{ ExitCode = $proc.ExitCode; StdOut = [string]$outTask.Result; StdErr = [string]$errTask.Result }
-    } catch {
-        return @{ ExitCode = -1; StdOut = ''; StdErr = $_.Exception.Message }
-    } finally {
-        if ($proc) { $proc.Dispose() }
-    }
+    $result = Invoke-BoundedNativeCommand -FilePath $FilePath -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds -Environment @{ LC_ALL = 'C' } -MaxCapturedChars 67108864
+    if ($result.Started -and -not (Test-BoundedNativeResultComplete -Result $result)) { $result.ExitCode = 124 }
+    return $result
 }
 
 function Get-YurunaRootHomePath {
@@ -111,9 +86,7 @@ function Test-RootArtifactSudoAnswered {
         [Parameter()][int]$ExitCode = 0,
         [Parameter()][AllowNull()][AllowEmptyString()][string]$StdErr
     )
-    if ($ExitCode -eq 124 -or $ExitCode -eq -1) { return $false }
-    if ([string]::IsNullOrWhiteSpace($StdErr)) { return $true }
-    return -not ($StdErr -match '(?i)(a password is required|a terminal is required|no tty present|interactive authentication is required|may not run|is not in the sudoers file|not allowed to execute|no askpass)')
+    return $ExitCode -notin @(124, -1) -and -not (Test-YurunaSudoRefusal -Output $StdErr)
 }
 
 function New-RootArtifactRecord {

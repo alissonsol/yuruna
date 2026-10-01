@@ -297,8 +297,8 @@ runcmd:
   # --- REGION: https://yuruna.link/429f3d06-008c
   - |
     set +e
-    FIDO_URL=https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1
-    FIDO_SHA256=24c86067fa399d2fd75ef0693a2ec79ca8db162827f808caac03541cbf640c13
+    FIDO_URL=https://raw.githubusercontent.com/pbatard/Fido/v1.71/Fido.ps1
+    FIDO_SHA256=6481e40d3cf100c79b281942d0d1c7f6d111397be296fec867a56cbe368ebdf9
     FIDO_PS1=/etc/yuruna/Fido.ps1
     rm -f "$FIDO_PS1"
     if wget --no-proxy -q --tries=3 --timeout=30 -O "$FIDO_PS1" "$FIDO_URL" && [ -s "$FIDO_PS1" ]; then
@@ -314,14 +314,14 @@ runcmd:
         chmod 0644 "$FIDO_PS1"
       else
         rm -f "$FIDO_PS1"
-        echo "yuruna download-agent-service: Fido SHA-256 mismatch (pinned v1.70: want $FIDO_SHA256, got $FIDO_GOT); NOT installed." >&2
+        echo "yuruna download-agent-service: Fido SHA-256 mismatch (pinned v1.71: want $FIDO_SHA256, got $FIDO_GOT); NOT installed." >&2
       fi
     else
       rm -f "$FIDO_PS1"
       echo "yuruna download-agent-service: could not fetch $FIDO_URL." >&2
     fi
     if command -v pwsh >/dev/null 2>&1 && [ -s "$FIDO_PS1" ]; then
-      echo "yuruna download-agent-service: Windows 11 family ENABLED (best effort) -- $(pwsh --version 2>/dev/null) with verified Fido v1.70 at $FIDO_PS1."
+      echo "yuruna download-agent-service: Windows 11 family ENABLED (best effort) -- $(pwsh --version 2>/dev/null) with verified Fido v1.71 at $FIDO_PS1."
     else
       echo "yuruna download-agent-service: Windows 11 family UNAVAILABLE (pwsh: $(command -v pwsh || echo none), Fido: $([ -s "$FIDO_PS1" ] && echo "$FIDO_PS1" || echo none)); hosts keep the Windows 11 path they use today." >&2
     fi

@@ -523,3 +523,18 @@ func TestListOrderIsTotalSoOneEntryPerAddressAlwaysWins(t *testing.T) {
 		}
 	}
 }
+
+func TestProbeTracksTriggerAndMatchesKnownBaseURL(t *testing.T) {
+	store := NewStore("")
+	probe := func(context.Context, string) (Host, bool) { return Host{BaseURL: "http://192.0.2.9:8080"}, true }
+	e := NewEngine(store, probe, nil)
+	e.cur.Trigger = "sweep"
+	e.probeOne(context.Background(), "192.0.2.9", map[string]struct{}{"http://192.0.2.9:8080": {}})
+	if got := store.List(); len(got) != 0 {
+		t.Fatalf("known base was discovered again: %+v", got)
+	}
+	e.probeOne(context.Background(), "192.0.2.10", nil)
+	if got := store.List(); len(got) != 1 || got[0].FoundBy != "sweep" {
+		t.Fatalf("trigger missing: %+v", got)
+	}
+}

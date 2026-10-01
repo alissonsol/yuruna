@@ -488,7 +488,7 @@ const DatazhCNexceptions = `{
     }
   ],
   "exceptions.host_dd6d74db4a58cc9d": [
-    "Fido.ps1哈希值不匹配（固定版本v1.70）：预期为",
+    "Fido.ps1哈希值不匹配（固定版本v1.71）：预期为",
     {
       "arg": "fidoSha256",
       "type": "detail",

@@ -53,7 +53,8 @@ means CI needs no per-script exit-code lookup table.
 Each iteration of `Start-TestRunner.ps1`:
 
 1. `git pull`, then re-read `test.config.yml`.
-2. Every 24h (configurable): refresh base images via `Get-Image.ps1`.
+2. Every 7 days by the shipped configuration (configurable): refresh base
+   images via `Get-Image.ps1`. The fallback when the setting is absent is 24h.
 3. For each guest in the cycle plan resolved from `test/test.runner.yml` in the
    project repository (`guestSequence` is the fallback, read only when that
    file resolves no plan):
@@ -62,7 +63,10 @@ Each iteration of `Start-TestRunner.ps1`:
    - Clean the previous test VM.
    - `New-VM.ps1` -> `Start-VM` -> poll until running -> screenshot
      checkpoints -> YAML sequences dispatched via the cycle planner.
-4. On first failure: leave the VM, send a Resend notification, exit.
+4. On failure: clean up the test VM unless `testCycle.stopOnFailure` is set,
+   continue with other guests when allowed, and report the failed cycle.
+   The resident outer runner sends a notification after the configured
+   `failuresBeforeAlert` streak and enters its failure pause.
 
 Ahead of each chain entry and each sequence step the
 [lab-health gate](failure-schema.md#the-lab-health-gate-lab_health_-events) checks
@@ -223,7 +227,7 @@ source searches and status-UI click-throughs land on their exported entry point.
 | Module | Purpose |
 |--------|---------|
 | `Test.PoolSync`        | Pulls the pool intent (membership + desiredState) and reconciles it into the outer loop |
-| `Test.PoolPlanner`     | Turns the pool's assigned test-sets into the subset of guests this host can actually run |
+| `Test.PoolPlanner`     | Reads the pool manifest -- the pool's framework and project repositories -- for the runner |
 | `Test.PoolAdmin`       | Helpers behind the pool-admin CLI; every change is schema-validated before it is committed |
 | `Test.PoolStorage`     | Optional SMB3 share as the durable tier for cycle output, plus the drain that commits and reclaims |
 | `Test.PoolPush`        | Pushes a cycle's NDJSON to the aggregator over CA-pinned HTTPS, closing the between-poll gap |
@@ -436,6 +440,23 @@ color another's result. Each child sets a `PesterConfiguration` and then invokes
 the suite with the call operator rather than `Invoke-Pester -Path`, which is
 what keeps the file-scope-fixture suites working while still emitting NUnit XML.
 
+**On Windows, run the suites from an elevated PowerShell that has Git for Windows'
+`usr\bin` on `PATH`.** Elevation: some suites create symbolic links or rewrite the
+owner of a file, and a non-elevated token lacks the privileges for both (the
+symbolic-link privilege and `SeSecurityPrivilege`), so those cases fail there; a
+Windows test-cycle host runs elevated as well. Git tools: several suites run
+`bash`, `chmod` and `openssl`. In a plain PowerShell `bash` is the WSL launcher in
+`System32`, which does not read a Windows path such as `C:\x` as a file, and
+`chmod` and `openssl` are not found at all; Git for Windows ships all three under
+`usr\bin`. The private suites under `dev-only/test` follow the same rule.
+
+**Plan for the time.** Up to eight suite processes run at once (`-ThrottleLimit`),
+and a full run of the tracked suites takes about 8 minutes on the Ubuntu KVM host
+the baseline is recorded on, about 7 minutes on macOS and 17 to 20 minutes on
+Windows. A suite runs beside seven others, so a timing bound inside a
+suite has to hold on a busy machine, and a test that needs a free port must not
+assume that a port it just released stays free.
+
 **The exit code of a single suite is not a pass/fail signal.** Pester's
 standalone path does not propagate a failing run through the call operator: a
 suite whose tests fail still returns 0, and one that discovers nothing returns 0
@@ -449,6 +470,18 @@ deleted suite and a `Describe` that quietly stopped discovering half its cases.
 all rows with `-UpdateBaseline` only from a passing full run, as a deliberate,
 reviewed change. The refresh rejects lost suites, lower test counts, and new
 skips; deliberate removals or skip allowances require a separate reviewed edit.
+
+A baseline row is `total`, `skipped` and `seconds` from the host that recorded it,
+plus two optional fields that are edited by hand in a reviewed change and that a
+refresh carries over. `platformTotal` (for example `{ "macos": 6 }`) is the test
+count a platform must reach when it differs from `total`: a suite that defines
+some of its `Describe` blocks only on Windows or only on Linux has fewer tests
+elsewhere, and one flat count would fail every full run on the platform with
+fewer. A platform with no entry is held to `total`, and a refresh on another
+platform never lowers such a row's `total`. `timeoutSeconds` gives one suite a
+cap of its own, for a suite that takes several times longer on a slow host than
+its recorded cost plus the 300 s allowance covers; it can only raise the cap.
+`tools/Test-SuiteBaseline.ps1` rejects a malformed value in either field.
 
 To register newly added suites without refreshing historical rows, run:
 
@@ -929,7 +962,7 @@ otherwise silent.
 
 **An OS-held handle, where the kernel can be the lock.** The beacon opens its
 lock file with `FileShare::None` and keeps the handle open for the whole run: a
-second beacon simply cannot open it, and the kernel releases it when the process
+second beacon cannot open it, and the kernel releases it when the process
 dies -- including on a kill, where no cleanup code would have run. Nothing parses
 the file; its contents are diagnostics only.
 
@@ -1022,7 +1055,7 @@ the key is absent entirely on a cycle whose commits could not be resolved.
 
 ## Status-service port-orphan resolution
 
-The PID-file checks in `Start-StatusService.ps1` know only about the
+The pidfile checks in `Start-StatusService.ps1` know only about the
 last server *we* launched. A prior detached `pwsh` can still hold the
 HttpListener on the configured port if a previous run survived a
 terminal close, or a failed launch overwrote `server.pid` with a
@@ -1083,9 +1116,33 @@ mismatch, auth failure); when SSH is healthy the diagnostic ships
 immediately, skipping console-typing latency and keystroke corruption
 (character-table misses, host-specific Shift handling).
 
-Earlier rungs' text output is not discarded -- `$lastResult` keeps the
-most informative one, so a partial-and-failed earlier capture is still
-written when every later rung ends up empty.
+No rung can replace the evidence another rung left. A rung that fails
+after capturing output keeps that output in its own file beside the main
+capture, `<stamp>.system.diagnostic.<Id>.key-ssh.txt` or
+`.password-ssh.txt`, and the manifest lists each such file under
+`rungEvidence` with its exit code and its timeout and truncation flags.
+The console rung has the guest upload to
+`<stamp>.system.diagnostic.<Id>.console.txt`: an upload that arrives in
+time is renamed to the main capture, and one that arrives after the rung
+gave up stays under its own name. When every rung fails, the main capture
+holds the most informative failed output -- `$lastResult` keeps the fuller
+of the SSH captures.
+
+Each SSH rung retains up to 16,777,216 characters per stream. A report
+longer than the cap is reported as truncated and the rung as failed, which
+hands the capture to the next rung, so the cap sits far above a real
+report: a guest running Kubernetes with a deployed project already
+produces about 600 KB.
+
+The console rung downloads only `automation/Get-SystemDiagnostic.ps1`
+into the guest's `/tmp`, so that script imports no module. It carries its
+own log-level cascade, message renderer and the en-US text of every
+message it prints, and inside a checkout it renders through the compiled
+catalogs in the configured language. After changing a message the script
+prints, compile the catalogs and run
+`pwsh -NoProfile -File tools/Update-SystemDiagnosticText.ps1`;
+`Test.SystemDiagnosticSelfContained.Tests.ps1` fails until the embedded
+copy matches the catalog.
 
 The entire capture runs in `Invoke-GuestDiagnosticWorker.ps1`, supervised
 by a monotonic **300-second deadline**. This includes process startup,
@@ -1149,6 +1206,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

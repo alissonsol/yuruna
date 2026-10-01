@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 426c2f81-86df-422e-8db7-a94bd7ff61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -204,37 +204,9 @@ function Test-ServiceVmEndpointSet {
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Target,
         [Parameter(Mandatory)][ValidateRange(0, 600000)][int]$TimeoutMilliseconds
     )
+    $outcomes = Invoke-YurunaTcpProbeSet -Target $Target -TimeoutMilliseconds $TimeoutMilliseconds
     $answered = @{}
-    $pending = [System.Collections.Generic.List[object]]::new()
-    try {
-        foreach ($t in @($Target)) {
-            $id = [string]$t.Id
-            $answered[$id] = $false
-            $address = [string]$t.Address
-            $port = [int]$t.Port
-            if ([string]::IsNullOrWhiteSpace($address) -or $port -le 0 -or $port -gt 65535 -or $TimeoutMilliseconds -le 0) { continue }
-            $client = [System.Net.Sockets.TcpClient]::new()
-            try {
-                $ip = $null
-                $task = if ([System.Net.IPAddress]::TryParse($address, [ref]$ip)) { $client.ConnectAsync($ip, $port) } else { $client.ConnectAsync($address, $port) }
-                $pending.Add([pscustomobject]@{ Id = $id; Client = $client; Task = $task })
-            } catch {
-                $client.Dispose()
-            }
-        }
-        if ($pending.Count -gt 0) {
-            $tasks = [System.Threading.Tasks.Task[]]@($pending | ForEach-Object { $_.Task })
-            try { $null = [System.Threading.Tasks.Task]::WaitAll($tasks, $TimeoutMilliseconds) } catch { $null = $_ }
-            foreach ($entry in $pending) {
-                $answered[$entry.Id] = ($entry.Task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $entry.Client.Connected)
-            }
-        }
-    } finally {
-        foreach ($entry in $pending) {
-            try { $entry.Client.Dispose() } catch { $null = $_ }
-            try { $null = $entry.Task.Exception } catch { $null = $_ }
-        }
-    }
+    foreach ($id in $outcomes.Keys) { $answered[$id] = ($outcomes[$id] -eq 'answered') }
     return $answered
 }
 
@@ -1550,6 +1522,85 @@ function Write-YurunaServiceVmRestoreReport {
     }
 }
 
-Export-ModuleMember -Function Get-YurunaServiceVmRoster, Test-YurunaServiceVmPort, `
+function Invoke-YurunaServiceVmBuild {
+    <#
+    .SYNOPSIS
+        Build a service VM, honor its start intent, and require a running guest.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$BuilderPath, [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)]$OperationContext,
+        [switch]$AllowPseudoLocale)
+    if (-not (Test-Path -LiteralPath $BuilderPath)) { return @{ Ok = $false; ExitCode = 1; Error = "VM builder missing: $BuilderPath" } }
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Build and start service VM')) { return @{ Ok = $false; ExitCode = 1; Error = 'Build declined.' } }
+    if (-not (Test-YurunaServiceOperationCurrent -Context $OperationContext)) { return @{ Ok = $false; ExitCode = 1; Error = 'The service start intent changed before build.' } }
+    $arguments = @('-NoProfile', '-File', $BuilderPath, '-VMName', $VMName)
+    if ($AllowPseudoLocale) { $arguments += '-AllowPseudoLocale' }
+    & (Get-PwshApplicationPath) @arguments | ForEach-Object { Write-Information ([string]$_) -InformationAction Continue }
+    $code = $LASTEXITCODE
+    if ($code -ne 0) { return @{ Ok = $false; ExitCode = $code; Error = "$BuilderPath exited $code -- aborting." } }
+    if ($HostType -eq 'host.macos.utm') {
+        $bundle = Join-Path $HOME "yuruna/guest.nosync/$VMName.utm"
+        if (-not (Test-Path -LiteralPath $bundle)) { return @{ Ok = $false; ExitCode = 1; Error = "UTM bundle missing: $bundle" } }
+        $started = Start-VM -VMName $VMName -Confirm:$false
+        if (-not $started.success) { return @{ Ok = $false; ExitCode = 1; Error = "Could not start '$VMName': $($started.errorMessage)" } }
+    }
+    if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
+        $state = try { Get-VMState -VMName $VMName } catch { 'unknown' }
+        return @{ Ok = $false; ExitCode = 1; Error = "VM '$VMName' did not reach running (state: $state); the guest service has not started. Open its hypervisor console to inspect the boot failure." }
+    }
+    return @{ Ok = $true; ExitCode = 0; Error = '' }
+}
+
+function Invoke-YurunaServiceVmFailureDiagnostic {
+    <#
+    .SYNOPSIS
+        Capture the service console and bounded SSH boot diagnostics, retaining partial output.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidatePattern('^[a-z0-9-]+$')][string]$ServiceName,
+        [Parameter(Mandatory)][string]$GuestKey, [Parameter(Mandatory)][string]$User,
+        [Parameter(Mandatory)][string]$VMName, [string]$Address, [string]$MountPath)
+    if ($Address -and -not (Test-IpAddress $Address)) { throw 'The diagnostic address must be an IP address.' }
+    try {
+        $log = Initialize-YurunaLogDir
+        if ($log -and (Get-Command Get-VMScreenshot -ErrorAction SilentlyContinue)) {
+            $path = Join-Path $log "${ServiceName}-console_${VMName}.png"
+            $captured = Get-VMScreenshot -VMName $VMName -OutFile $path
+            if ($captured -and (Test-Path -LiteralPath $path)) { Write-Verbose "Guest console captured: $path" }
+            else { Write-Information 'Guest console capture returned no frame.' -InformationAction Continue }
+        }
+    } catch { Write-Verbose "Console capture: $($_.Exception.Message)" }
+    $probed = if ($Address) { $Address } else { '<none resolved>' }
+    $commands = [Collections.Generic.List[string]]::new()
+    $commands.Add("echo '=== guest addresses (this host probed: $probed) ==='; ip -4 -o addr show scope global 2>&1 | awk '{print `$2, `$4}'")
+    $commands.Add('echo "=== cloud-init status ==="; cloud-init status --long 2>&1 | head -n 20')
+    $commands.Add("echo '=== systemctl status ${ServiceName}.service ==='; systemctl --no-pager --full status ${ServiceName}.service 2>&1 | head -n 25")
+    $commands.Add("echo '=== journalctl -u ${ServiceName}.service ==='; sudo journalctl -u ${ServiceName}.service --no-pager -n 40 2>&1")
+    $commands.Add('echo "=== listening on :80? ==="; ss -ltn 2>/dev/null | grep -E ":80\b" || echo "(nothing listening on :80)"')
+    if ($MountPath) {
+        $mount = "'" + $MountPath.Replace("'", "'\''") + "'"
+        $commands.Add("echo '=== service share mount ==='; findmnt -- $mount 2>&1 || echo '(share is not mounted)'")
+    }
+    $commands.Add('echo "=== /var/log/cloud-init-output.log (tail 120) ==="; sudo tail -n 120 /var/log/cloud-init-output.log 2>&1')
+    $target = if ($Address) { $Address } else { $VMName }
+    $diagnostic = $null
+    if (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue) {
+        try { $diagnostic = Invoke-GuestSsh -VMName $target -GuestKey $GuestKey -User $User -Command ($commands -join "`n") -TimeoutSeconds 120 }
+        catch { Write-Verbose "Guest diagnostic SSH: $($_.Exception.Message)" }
+    }
+    Write-Information "======== $ServiceName guest diagnostics ========" -InformationAction Continue
+    if ($diagnostic -and -not [string]::IsNullOrWhiteSpace([string]$diagnostic.output)) {
+        foreach ($line in ([string]$diagnostic.output -split "`r?`n")) { Write-Information "  $line" -InformationAction Continue }
+        if (-not $diagnostic.success) { Write-Verbose "SSH ended with exit=$($diagnostic.exitCode); completed output was retained." }
+    } else {
+        Write-Information 'Could not reach the VM over SSH; inspect its captured console.' -InformationAction Continue
+        Write-Verbose (Format-GuestSshDiagnosticHint -User $User -Address $Address -VMName $VMName -Command 'sudo tail -n 120 /var/log/cloud-init-output.log')
+    }
+    Write-Verbose '========'
+}
+
+Export-ModuleMember -Function Invoke-YurunaServiceVmBuild, Invoke-YurunaServiceVmFailureDiagnostic, Get-YurunaServiceVmRoster, Test-YurunaServiceVmPort, `
     Get-YurunaServiceVmAddress, Restore-YurunaServiceVM, Write-YurunaServiceVmRestoreReport, `
     Resolve-YurunaServiceVmPolicy, Test-YurunaServiceVmRunning

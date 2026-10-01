@@ -100,7 +100,13 @@ func (s *Server) IngestMulti(files []NamedReader, username, clientIP, pathMeta, 
 		if name == "" {
 			name = fmt.Sprintf("file-%d", i+1)
 		}
-		truncated, werr := writeCapped(filepath.Join(stagingDir, name), fr.Body)
+		targetPath, nameErr := fsutil.UniqueUploadPath(stagingDir, name)
+		if nameErr != nil {
+			_ = os.RemoveAll(stagingDir)
+			return nil, nameErr
+		}
+		name = filepath.Base(targetPath)
+		truncated, werr := writeCapped(targetPath, fr.Body)
 		if werr != nil {
 			_ = s.Meta.UpdateOnPartial(id, 0, time.Now().UTC())
 			_ = os.RemoveAll(stagingDir)
@@ -115,24 +121,20 @@ func (s *Server) IngestMulti(files []NamedReader, username, clientIP, pathMeta, 
 	return s.finishIngest(id, target, dayDir, stagingDir, buffered, username, true, names, "", truncatedAny)
 }
 
-// beginIngest allocates the ID, picks the share/buffer target, creates the
-// day + staging dirs, and writes the up-front pending row (section 8.2 step 2).
-// The UI has no stderr channel to announce the ID on, so it draws silently;
-// an ID lost to a collision is redrawn inside beginPending and the caller
-// only ever sees the one it keeps.
+// pendingRecord builds the row written before an ingest receives any bytes.
+func pendingRecord(id string, buffered bool, username, clientIP, pathMeta, source string, now time.Time) *meta.Record {
+	return &meta.Record{ID: id, Username: username, PathMetadata: pathMeta, ClientAddress: clientIP,
+		CreatedAt: now, Status: meta.StatusPending, LocallyBuffered: buffered, Source: source}
+}
+
+// beginIngest allocates the ID, picks the share or buffer target, creates the
+// staging directories and writes the up-front pending row. The UI has no
+// stderr channel to announce an ID; a collision is redrawn in beginPending,
+// and the caller only sees the ID it keeps.
 func (s *Server) beginIngest(username, clientIP, pathMeta, source string) (id string, target *store.Store, buffered bool, dayDir, stagingDir string, err error) {
 	now := time.Now().UTC()
 	pending, _, err := s.beginPending(now, nil, func(drawn string, isBuffered bool) *meta.Record {
-		return &meta.Record{
-			ID:              drawn,
-			Username:        username,
-			PathMetadata:    pathMeta,
-			ClientAddress:   clientIP,
-			CreatedAt:       now,
-			Status:          meta.StatusPending,
-			LocallyBuffered: isBuffered,
-			Source:          source,
-		}
+		return pendingRecord(drawn, isBuffered, username, clientIP, pathMeta, source, now)
 	})
 	if err != nil {
 		return "", nil, false, "", "", err

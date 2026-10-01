@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a24e8a-bb70-4de1-b78f-9bbdd82d9ea7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -249,7 +249,7 @@ Describe 'Start-StashServiceVM reports the verdict it reached' {
     It 'captures the guest console before failing' {
         # A frame showing a failed cifs mount answers instantly what a host-side
         # probe can only report as silence.
-        Assert-True ($script:StashSource -match 'Get-VMScreenshot') 'on a readiness timeout the console is the remaining evidence.'
+        Assert-True (($script:StashSource -match 'Invoke-YurunaServiceVmFailureDiagnostic') -and ((Get-Content (Join-Path $here 'Test.ServiceVm.psm1') -Raw) -match 'Get-VMScreenshot')) 'on a readiness timeout the console is the remaining evidence.'
     }
 }
 
@@ -342,8 +342,8 @@ Describe 'Diagnostics an operator can actually run' {
         # back empty throws away the only thing that found it -- and leaves the
         # operator with the console frame as the sole evidence when a full
         # in-guest capture was available.
-        Assert-True ($script:StashSource -match 'Invoke-GuestSsh -VMName \$stashSshTarget') 'the capture goes to the address that was found.'
-        Assert-True ($script:StashSource -match '\$stashSshTarget\s*=\s*if \(\$stashDiagIp\)') 'the VM name is the fallback, not the first choice.'
+        Assert-True ($script:StashSource -match 'Invoke-YurunaServiceVmFailureDiagnostic[^\r\n]+-Address \$stashDiagIp') 'the capture goes to the address that was found.'
+        Assert-True ((Get-Content (Join-Path $here 'Test.ServiceVm.psm1') -Raw) -match '\$target = if \(\$Address\) \{ \$Address \} else \{ \$VMName \}') 'the VM name is the fallback, not the first choice.'
     }
 
     It 'reuses the host driver for bundle-MAC discovery instead of a second copy' {

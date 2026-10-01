@@ -12,31 +12,31 @@ phase model, while these views show their actual exchanges.
 ```mermaid
 sequenceDiagram
     participant ubuntu-server-26-workload-k8s-website-sh as Website guest script
-    participant config as Project files
+    participant config-cloud as Project files
     participant set-resource-ps1 as Set-Resource.ps1
     participant resources-output-yml as resources.output.yml
     participant set-component-ps1 as Set-Component.ps1
     participant set-workload-ps1 as Set-Workload.ps1
-    participant global-resources as Deployment targets
+    participant deployment-targets as Deployment targets
     ubuntu-server-26-workload-k8s-website-sh->>set-resource-ps1: Invoke resource phase
-    set-resource-ps1->>config: Read resources.yml and templates
-    set-resource-ps1->>global-resources: Initialize and save plans
+    set-resource-ps1->>config-cloud: Read resources.yml and templates
+    set-resource-ps1->>deployment-targets: Initialize and save plans
     loop Each resource apply
         set-resource-ps1->>resources-output-yml: Record globals and ownership
-        set-resource-ps1->>global-resources: Apply and read outputs
-        global-resources-->>set-resource-ps1: Resource outputs
+        set-resource-ps1->>deployment-targets: Apply and read outputs
+        deployment-targets-->>set-resource-ps1: Resource outputs
         set-resource-ps1->>resources-output-yml: Store resource outputs
     end
     set-resource-ps1-->>ubuntu-server-26-workload-k8s-website-sh: Result and process exit
     ubuntu-server-26-workload-k8s-website-sh->>set-component-ps1: Invoke component phase
-    set-component-ps1->>config: Read component build inputs
+    set-component-ps1->>config-cloud: Read component build inputs
     set-component-ps1->>resources-output-yml: Read resource values
-    set-component-ps1->>global-resources: Authenticate and push images
+    set-component-ps1->>deployment-targets: Authenticate and push images
     set-component-ps1-->>ubuntu-server-26-workload-k8s-website-sh: Result and process exit
     ubuntu-server-26-workload-k8s-website-sh->>set-workload-ps1: Invoke workload phase
-    set-workload-ps1->>config: Read workload deployment inputs
+    set-workload-ps1->>config-cloud: Read workload deployment inputs
     set-workload-ps1->>resources-output-yml: Read resource values
-    set-workload-ps1->>global-resources: Select context and deploy
+    set-workload-ps1->>deployment-targets: Select context and deploy
     set-workload-ps1-->>ubuntu-server-26-workload-k8s-website-sh: Result and process exit
 ```
 
@@ -94,13 +94,13 @@ for overall success.
 sequenceDiagram
     participant test-runnerinnerloop-psm1 as Inner runner
     participant yuruna-host-psm1 as Host provider
-    participant guest as Guest VM
+    participant guest-vm as Guest VM
     participant test-ocrengine-psm1 as OCR engine
-    participant status as Cycle files
+    participant cycle-files as Cycle files
     participant start-statusservice-ps1 as Status service
     participant test-notify-psm1 as Notifications
     test-runnerinnerloop-psm1->>yuruna-host-psm1: Fetch image, create VM
-    yuruna-host-psm1->>guest: Boot seeded guest
+    yuruna-host-psm1->>guest-vm: Boot seeded guest
     loop Sequence steps
         alt Console prompt action
             test-runnerinnerloop-psm1->>yuruna-host-psm1: Capture console
@@ -109,18 +109,18 @@ sequenceDiagram
             test-ocrengine-psm1-->>test-runnerinnerloop-psm1: Evidence and match result
             opt Prompt accepted
                 test-runnerinnerloop-psm1->>yuruna-host-psm1: Send text or key
-                yuruna-host-psm1->>guest: Console input
+                yuruna-host-psm1->>guest-vm: Console input
             end
         else SSH action
-            test-runnerinnerloop-psm1->>guest: Run command through SSH
-            guest-->>test-runnerinnerloop-psm1: Output and exit status
+            test-runnerinnerloop-psm1->>guest-vm: Run command through SSH
+            guest-vm-->>test-runnerinnerloop-psm1: Output and exit status
         end
-        test-runnerinnerloop-psm1->>status: Progress, screenshots, events
+        test-runnerinnerloop-psm1->>cycle-files: Progress, screenshots, events
     end
-    start-statusservice-ps1->>status: Read status and artifacts
-    status-->>start-statusservice-ps1: Browser-serving content
+    start-statusservice-ps1->>cycle-files: Read status and artifacts
+    cycle-files-->>start-statusservice-ps1: Browser-serving content
     opt Failed step
-        test-runnerinnerloop-psm1->>status: Failure record and diagnostics
+        test-runnerinnerloop-psm1->>cycle-files: Failure record and diagnostics
         opt Notification threshold reached
             test-runnerinnerloop-psm1->>test-notify-psm1: Failure and artifact links
         end
@@ -154,13 +154,13 @@ interruption can leave VMs for the next sweep. See
 sequenceDiagram
     participant yuruna-hostdownload-psm1 as Download client
     participant caching-proxy-service as Caching proxy
-    participant global-resources as Upstream origin
+    participant upstream-origin as Upstream origin
     yuruna-hostdownload-psm1->>caching-proxy-service: Proxy HTTP or HTTPS
     alt Cached response
         caching-proxy-service-->>yuruna-hostdownload-psm1: Cached bytes
     else Miss or refresh
-        caching-proxy-service->>global-resources: Fetch upstream
-        global-resources-->>caching-proxy-service: Response bytes
+        caching-proxy-service->>upstream-origin: Fetch upstream
+        upstream-origin-->>caching-proxy-service: Response bytes
         caching-proxy-service-->>yuruna-hostdownload-psm1: Forward response
     end
 ```
@@ -181,25 +181,40 @@ sequenceDiagram
     participant new-html as Stash browser
     participant stash-service as Stash service
     participant store-go as Stash share
-    participant meta as Local index
+    participant metadata-index as Local index
+    participant offline-buffer as Offline buffer
     new-html->>stash-service: POST /api/stashes
-    stash-service->>store-go: Commit dated artifact
-    stash-service->>meta: Record metadata
+    stash-service->>metadata-index: Reserve pending ID
+    alt Share available
+        stash-service->>store-go: Commit dated artifact
+    else Share unavailable
+        stash-service->>offline-buffer: Buffer dated artifact
+    end
+    stash-service->>metadata-index: Complete record
     stash-service-->>new-html: Stash identity
     new-html->>stash-service: HTTP artifact request
-    stash-service->>meta: Resolve record
-    stash-service->>store-go: Read artifact bytes
-    store-go-->>stash-service: Stored content
+    stash-service->>metadata-index: Resolve local record
+    alt Stored on share
+        stash-service->>store-go: Read artifact bytes
+        store-go-->>stash-service: Stored content
+    else Still buffered
+        stash-service->>offline-buffer: Read artifact bytes
+        offline-buffer-->>stash-service: Buffered content
+    end
     stash-service-->>new-html: Download response
 ```
 
 Sources: [upload page](../../test/extension/stash-service/server/internal/httpsrv/web/new.html),
 [HTTP handlers](../../test/extension/stash-service/server/internal/httpsrv/handlers.go),
+[ingest pipeline](../../test/extension/stash-service/server/internal/sshsrv/ingest.go),
 [store](../../test/extension/stash-service/server/internal/store/store.go), and
 [metadata index](../../test/extension/stash-service/server/internal/meta/).
-This shows the online path. The same service accepts SCP/SFTP through its
+This shows a browser creating and fetching a stash on its own host. The local
+index records a pending ID before the artifact is finalized; when the share is
+unavailable, the artifact and index still live on the VM. The same ingest path
+also serves SCP/SFTP through the
 [SSH listener](../../test/extension/stash-service/server/internal/sshsrv/).
-When the share is unavailable, uploads buffer on the VM, and the
+Buffered uploads move to the share when it recovers: the
 [flush worker](../../test/extension/stash-service/server/internal/sshsrv/flush.go)
 copies them after recovery. The
 [discovery extension](../../test/extension/stash-service/default.psm1) resolves
@@ -213,21 +228,21 @@ sequenceDiagram
     participant download-agent-service as Download agent
     participant images as Image pool
     participant caching-proxy-service as Caching proxy
-    participant imagestore-resolve-go as Image origin
+    participant image-origin as Image origin
     yuruna-downloadagent-psm1->>download-agent-service: Ensure requested image
     download-agent-service->>images: Inspect current generation
     opt Missing or stale
-        download-agent-service->>imagestore-resolve-go: Verify origin metadata
-        imagestore-resolve-go-->>download-agent-service: Image identity and freshness
+        download-agent-service->>image-origin: Verify origin metadata
+        image-origin-->>download-agent-service: Image identity and freshness
         alt Proxy configured
             %% optional: proxy settings select the cache-capable byte path.
             download-agent-service->>caching-proxy-service: Fetch image bytes
-            caching-proxy-service->>imagestore-resolve-go: Upstream request if needed
-            imagestore-resolve-go-->>caching-proxy-service: Upstream bytes
+            caching-proxy-service->>image-origin: Upstream request if needed
+            image-origin-->>caching-proxy-service: Upstream bytes
             caching-proxy-service-->>download-agent-service: Image bytes
         else Direct byte fetch
-            download-agent-service->>imagestore-resolve-go: Fetch image bytes
-            imagestore-resolve-go-->>download-agent-service: Image bytes
+            download-agent-service->>image-origin: Fetch image bytes
+            image-origin-->>download-agent-service: Image bytes
         end
         download-agent-service->>images: Commit artifact and checksum
         download-agent-service->>images: Publish current pointer last
@@ -316,6 +331,8 @@ This six-box view includes both storage boundaries. Stash uses separate
 `networkStorage.stashStorage*` settings. Its `stash/<hostId>/` root holds
 `hostkey/` and dated `files/YYYY/MM/DD/` artifacts with sidecars. The SQLite
 index and offline buffer remain on the VM's local disk, outside the pool share.
+Without configured stash storage, the guest script selects a local share
+fallback instead of mounting the stash share.
 
 ## G. Pool telemetry and dashboards
 

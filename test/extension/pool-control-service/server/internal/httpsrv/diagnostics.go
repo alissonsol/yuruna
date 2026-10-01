@@ -34,8 +34,7 @@ var poolAdminCLIs = []string{
 	"pool/Add-HostToPool.ps1",
 	"pool/Remove-HostFromPool.ps1",
 	"pool/Move-PoolHostIdentity.ps1",
-	"pool/Set-PoolTestSet.ps1",
-	"pool/Set-PoolTestSetDefinition.ps1",
+	"pool/Set-PoolRepository.ps1",
 }
 
 // Check is one pass/fail probe with the evidence that produced it.
@@ -268,7 +267,7 @@ func (s *Server) collectDiagnostics(ctx context.Context, locales ...i18n.Context
 	// mutation, long after the UI looked healthy, so probe it up front.
 	d.Checks = append(d.Checks, checkIntentStore(liveURL, locale))
 
-	// 8. End-to-end: the same call the Assign page makes on load. This is the
+	// 8. End-to-end: the same call the Pools page makes on load. This is the
 	// check that reproduces the operator-visible symptom directly.
 	res := s.intent.State(ctx)
 	d.Checks = append(d.Checks, Check{

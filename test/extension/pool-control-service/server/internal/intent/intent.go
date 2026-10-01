@@ -4,7 +4,7 @@
 // Package intent is the pool-control-service write/read layer. Rather than reimplement
 // the git-clone + YAML + schema-validation + commit/push/rebase-retry logic, it
 // SHELLS OUT to the battle-tested PowerShell pool-admin CLIs under <repo>/test/
-// (pool/New-Pool.ps1, pool/Set-PoolTestSet.ps1, ...). That reuses one authoritative
+// (pool/New-Pool.ps1, pool/Set-PoolRepository.ps1, ...). That reuses one authoritative
 // implementation of the intent contract and keeps this service thin.
 package intent
 
@@ -107,7 +107,7 @@ func cliErrorFromStdout(stdout string) string {
 
 // exec runs `pwsh -NoProfile -File <RepoDir>/test/<script> <args...>` and, when
 // IntentGitUrl is set, appends -IntentGitUrl. It never blocks on prompts.
-// script is relative to test/ and names its subfolder ("pool/Set-PoolTestSet.ps1"),
+// script is relative to test/ and names its subfolder ("pool/New-Pool.ps1"),
 // so a CLI that changes folders is one edit at the call site.
 func (r *Runner) exec(ctx context.Context, script string, args ...string) Result {
 	full := append([]string{"-NoProfile", "-NonInteractive", "-File", r.RepoDir + "/test/" + script}, args...)
@@ -158,7 +158,7 @@ func (r *Runner) exec(ctx context.Context, script string, args ...string) Result
 }
 
 // State runs Get-PoolIntent.ps1 (read-only) which emits a single JSON object
-// {ok, pools, testSets} on stdout. Returned verbatim so the handler can relay it.
+// {ok, pools, autoEnrollment} on stdout. Returned verbatim so the handler can relay it.
 func (r *Runner) State(ctx context.Context) Result { return r.exec(ctx, "pool/Get-PoolIntent.ps1") }
 
 func (r *Runner) NewPool(ctx context.Context, poolID, displayName, desiredState string) Result {
@@ -188,8 +188,12 @@ func (r *Runner) SetDesiredState(ctx context.Context, poolID, state string) Resu
 	return r.exec(ctx, "pool/Set-PoolDesiredState.ps1", "-PoolId", poolID, "-State", state)
 }
 
-func (r *Runner) AddHost(ctx context.Context, poolID, hostID string) Result {
-	return r.exec(ctx, "pool/Add-HostToPool.ps1", "-PoolId", poolID, "-HostId", hostID)
+func (r *Runner) AddHost(ctx context.Context, poolID, hostID string, moveExisting ...bool) Result {
+	args := []string{"-PoolId", poolID, "-HostId", hostID}
+	if len(moveExisting) > 0 && moveExisting[0] {
+		args = append(args, "-MoveExisting")
+	}
+	return r.exec(ctx, "pool/Add-HostToPool.ps1", args...)
 }
 
 func (r *Runner) RemoveHost(ctx context.Context, poolID, hostID string, exclude ...bool) Result {
@@ -207,15 +211,16 @@ func (r *Runner) MoveHostIdentity(ctx context.Context, oldID, newID string) Resu
 	return r.exec(ctx, "pool/Move-PoolHostIdentity.ps1", "-OldHostId", oldID, "-NewHostId", newID)
 }
 
-// AssignTestSet copies a library test-set's triple into the pool's inline testSet.
-func (r *Runner) AssignTestSet(ctx context.Context, poolID, name, frameworkURL, projectURL string) Result {
-	return r.exec(ctx, "pool/Set-PoolTestSet.ps1", "-PoolId", poolID, "-Name", name, "-FrameworkUrl", frameworkURL, "-ProjectUrl", projectURL)
+// SetPoolRepositories points every member of the pool at one framework and
+// project repository pair from its next cycle. Both URLs travel together: a
+// runner that overrode only one of them would pair a framework with a project
+// it was never tested against.
+func (r *Runner) SetPoolRepositories(ctx context.Context, poolID, frameworkURL, projectURL string) Result {
+	return r.exec(ctx, "pool/Set-PoolRepository.ps1", "-PoolId", poolID, "-FrameworkUrl", frameworkURL, "-ProjectUrl", projectURL)
 }
 
-func (r *Runner) SetTestSetDef(ctx context.Context, name, frameworkURL, projectURL string) Result {
-	return r.exec(ctx, "pool/Set-PoolTestSetDefinition.ps1", "-Name", name, "-FrameworkUrl", frameworkURL, "-ProjectUrl", projectURL)
-}
-
-func (r *Runner) DeleteTestSetDef(ctx context.Context, name string) Result {
-	return r.exec(ctx, "pool/Set-PoolTestSetDefinition.ps1", "-Name", name, "-Delete")
+// ClearPoolRepositories removes the pool's repository pair, so each member goes
+// back to the repositories it configured for itself from its next cycle.
+func (r *Runner) ClearPoolRepositories(ctx context.Context, poolID string) Result {
+	return r.exec(ctx, "pool/Set-PoolRepository.ps1", "-PoolId", poolID, "-Clear")
 }

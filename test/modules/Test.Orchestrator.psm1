@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -640,6 +640,7 @@ function Invoke-OrchestrationSequence {
             Publish-CycleContext -CycleStartUtc $cycleStartUtc -StatusPath $statusFile `
                 -RootCycleFolder $rootCycleFolder -CycleNumber $rootCycleNumber -ParentId $stepParentId
 
+            $entryStartUtc = [datetime]::UtcNow
             $reason = ''
             $entryVmName = ''
             try {
@@ -710,7 +711,8 @@ function Invoke-OrchestrationSequence {
                     $inheritedClass = 'unknown'
                     if ($env:YURUNA_LOG_DIR) {
                         $innerFailure = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
-                        if (Test-Path -LiteralPath $innerFailure -PathType Leaf) {
+                        if ((Test-Path -LiteralPath $innerFailure -PathType Leaf) -and
+                            (Get-Item -LiteralPath $innerFailure -ErrorAction Stop).LastWriteTimeUtc -ge $entryStartUtc) {
                             try {
                                 $innerRec = Get-Content -Raw -LiteralPath $innerFailure -ErrorAction Stop |
                                     ConvertFrom-Json -AsHashtable -ErrorAction Stop

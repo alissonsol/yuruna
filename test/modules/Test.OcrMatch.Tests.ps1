@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 428a8fea-36e6-48a4-aa62-2004e6035a54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,12 +28,13 @@
     is required to absorb) and what MUST NOT (a pattern that normalizes to
     nothing, a scattered coincidental hit, a screen from the wrong guest).
 
-    Throw-based assertions rather than Should, so the file also runs under
-    the OS-bundled Pester 3.4.
+    Assertions use the shared throw-based helpers and run under Pester 5+.
     Run: pwsh -NoProfile -File test/modules/Test.OcrMatch.Tests.ps1
 #>
 
 BeforeAll {
+$script:SavedOcrCombine = $env:YURUNA_OCR_COMBINE
+$script:SavedOcrEngines = $env:YURUNA_OCR_ENGINES
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.OcrMatch.psm1') -Force -DisableNameChecking
 $script:OcrFixtureDir = Join-Path $here '../fixtures/ocr'
@@ -63,12 +64,8 @@ $script:ConfusionCase = @(
     @{ Raw = ':'; Canonical = ':' }, @{ Raw = ';'; Canonical = ':' }, @{ Raw = '.'; Canonical = ':' }
 )
 
-# Snapshot the OCR environment once, at file scope, so each AfterAll can put it
-# back. The suites below drive Get-OcrCombineMode and Get-EnabledOcrProvider
-# through these two variables, and a leaked value would follow the process into
-# any other suite sharing the run.
-$script:SavedOcrCombine = $env:YURUNA_OCR_COMBINE
-$script:SavedOcrEngines = $env:YURUNA_OCR_ENGINES
+# OCR environment snapshots are captured in BeforeAll, then restored by
+# AfterAll. A leaked value would affect other suites sharing this process.
 
 # Characters normalization removes entirely. The em/en/figure dashes are given
 # by code point so this file stays pure ASCII on disk.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42eb20ad-6a27-430a-ba01-796c50a077ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,10 +145,13 @@ function Read-SequenceFile {
         }
     }
     try {
+        if (-not $NoCache) {
+            $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
+            $mtime = (Get-Item -LiteralPath $resolved -ErrorAction Stop).LastWriteTimeUtc
+        }
         $parsed = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Yaml -Ordered
-        if (-not $NoCache -and (Test-Path -LiteralPath $Path)) {
-            $resolved = (Resolve-Path -LiteralPath $Path).Path
-            $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
+        if ($null -eq $parsed) { return $null }
+        if (-not $NoCache) {
             $script:SequenceFileCache[$resolved] = @{ Mtime = $mtime; Parsed = $parsed }
         }
         return (Expand-SequenceSnippet -Sequence (ConvertTo-NormalizedSequence $parsed) -Path $Path)

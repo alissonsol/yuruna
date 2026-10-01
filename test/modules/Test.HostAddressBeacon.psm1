@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d5663b-af64-472f-8342-ab50456c2fc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,14 @@ $script:LastRecordedAddress  = ''
 $script:LastAnnouncedAddress = ''
 $script:LastAnnounceUtc      = [datetime]::MinValue
 
+# Directory lookup for a beacon started without one; see
+# Resolve-HostAddressBeaconDirectory. A minute bounds what a lab with a
+# configured proxy but no aggregator pays in probe sweeps, and is still well
+# inside the beacon period once a proxy that was being built comes up.
+$script:ResolvedDirectory              = ''
+$script:LastDirectoryLookupUtc         = [datetime]::MinValue
+$script:DirectoryLookupIntervalSeconds = 60
+
 # Renumbering-rate warning. The beacon is the only thing that sees every
 # address change, so it is the only place that can tell "the host moved once"
 # from "the host is being handed a different address every lease". The second
@@ -140,6 +148,8 @@ function Reset-HostAddressBeaconState {
         $script:AddressChangeCount   = 0
         $script:FirstChangeUtc       = [datetime]::MinValue
         $script:ChurnWarningIssued   = $false
+        $script:ResolvedDirectory      = ''
+        $script:LastDirectoryLookupUtc = [datetime]::MinValue
     }
 }
 
@@ -865,6 +875,65 @@ function Assert-HostAddressStability {
     Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_b064cd20fb7eddb1' -Arguments @{ addressChangeCount = "$($script:AddressChangeCount)"; churnWindowMinutes = "$($script:ChurnWindowMinutes)"; hint = "$hint" }))
 }
 
+function Resolve-HostAddressBeaconDirectory {
+<#
+.SYNOPSIS
+    The caching-proxy address to announce to: the one the beacon was started
+    with or, when that was empty, the first aggregator that answers.
+.DESCRIPTION
+    A beacon starts with whatever $env:YURUNA_CACHING_PROXY_SERVICE_IP held
+    when the status service spawned it, and the status service sets that
+    variable only once the proxy answers. Start-CachingProxyServiceVM starts
+    the status service in the step before it creates the proxy VM, so the
+    beacon it spawns starts empty. Being single-instance and bound to
+    server.pid, that beacon also outlives every later status-service start
+    that would have handed it the address -- so without a second look this
+    host is never announced at all.
+
+    An empty start is therefore resolved through
+    Get-PoolAggregatorServiceSeedUrl, the resolver guest seeds use for the same
+    question: it probes the aggregator port this beacon announces to and
+    discards claims that do not answer. It is asked at most once per lookup
+    interval, and the first address it confirms is kept for the life of the
+    process, as a pinned one is.
+.PARAMETER Pinned
+    The address the beacon was started with. Returned unchanged when set.
+.OUTPUTS
+    System.String. The address, or '' while none is known.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()][AllowEmptyString()][string]$Pinned = ''
+    )
+    if (-not [string]::IsNullOrWhiteSpace($Pinned)) { return $Pinned.Trim() }
+    if ($script:ResolvedDirectory) { return $script:ResolvedDirectory }
+
+    $now = (Get-Date).ToUniversalTime()
+    if (($now - $script:LastDirectoryLookupUtc).TotalSeconds -lt $script:DirectoryLookupIntervalSeconds) { return '' }
+    $script:LastDirectoryLookupUtc = $now
+
+    # Test.CachingProxyService supplies it, imported globally by every host
+    # driver. A process that loaded no driver has nothing to resolve with.
+    if (-not (Get-Command -Name 'Get-PoolAggregatorServiceSeedUrl' -ErrorAction SilentlyContinue)) { return '' }
+    $url = ''
+    try {
+        $url = [string](Get-PoolAggregatorServiceSeedUrl)
+    } catch {
+        Write-Verbose "host address beacon: directory lookup failed -- $($_.Exception.Message)"
+        return ''
+    }
+    $uri = $null
+    if ([string]::IsNullOrWhiteSpace($url) -or -not [Uri]::TryCreate($url, [UriKind]::Absolute, [ref]$uri)) { return '' }
+
+    $script:ResolvedDirectory = $uri.DnsSafeHost
+    # Nothing has reached this directory yet. Without this the next tick would
+    # wait out a beacon period that elapsed against no directory at all.
+    $script:LastAnnouncedAddress = ''
+    Write-Verbose "host address beacon: adopted directory '$($script:ResolvedDirectory)'."
+    return $script:ResolvedDirectory
+}
+
 function Invoke-HostAddressBeaconTick {
 <#
 .SYNOPSIS
@@ -980,4 +1049,4 @@ Export-ModuleMember -Function Get-HostAddressBeaconState, Reset-HostAddressBeaco
     Get-HostAddressChurnVerdict, Get-HostBridgeDhcpIdentity, Set-HostBridgeDhcpIdentity,
     Get-HostAddressStabilityReport,
     Send-HostAddressAnnounce, Invoke-HostAddressSquidNudge,
-    Invoke-HostAddressBeaconTick
+    Resolve-HostAddressBeaconDirectory, Invoke-HostAddressBeaconTick

@@ -3344,9 +3344,9 @@
       "message": "  הגדרות המערכת > פרטיות ואבטחה > הקלטת מסך > אפשרו את יישום המסוף שלכם, ואז הפעילו מחדש."
     },
     "host.operator_bb96ec06f5e4f923": {
-      "sourceHash": "7cb86d7548264c19644af17158a52b600cbb1f05a5ea0a245ac726fb2e247dcc",
+      "sourceHash": "44708bc4b698ea3899993e76be435b1f9e70e610029cc0189631afa391a22316",
       "origin": "machine",
-      "message": "  ממשק משתמש:       ⁦http://{dockIp}/⁩  (הקצאה / מאגרים / ערכות בדיקה)"
+      "message": "  ממשק משתמש:       ⁦http://{dockIp}/⁩  (לוח / מארחים / מאגרים)"
     },
     "host.operator_bba21c5cbbc83755": {
       "sourceHash": "0dd10a1d11910a47801a4e6864b2be67ad11bf3a72e0d4ee77620668699cb2af",

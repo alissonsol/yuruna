@@ -526,8 +526,8 @@
         },
         {
           "id": "42f6b05f-001d",
-          "heading": "Loki + Promtail boot-order traps",
-          "slug": "loki--promtail-boot-order-traps"
+          "heading": "Loki + Alloy boot-order traps",
+          "slug": "loki--alloy-boot-order-traps"
         },
         {
           "id": "42f6b05f-001e",
@@ -1870,13 +1870,18 @@
         },
         {
           "id": "42dc5bb9-0005",
-          "heading": "ARM64 hosts: the heartbeat channel wedges a Linux guest",
-          "slug": "arm64-hosts-the-heartbeat-channel-wedges-a-linux-guest"
+          "heading": "ARM64 hosts: early Linux boot stalls and the Heartbeat workaround",
+          "slug": "arm64-hosts-early-linux-boot-stalls-and-the-heartbeat-workaround"
         },
         {
           "id": "42dc5bb9-0006",
           "heading": "ARM64 Hyper-V host: a Linux guest loses half its CPU to hypervisor intercepts",
           "slug": "arm64-hyper-v-host-a-linux-guest-loses-half-its-cpu-to-hypervisor-intercepts"
+        },
+        {
+          "id": "42dc5bb9-0012",
+          "heading": "Distinguish external interrupts from hypercalls",
+          "slug": "distinguish-external-interrupts-from-hypercalls"
         },
         {
           "id": "42dc5bb9-0007",
@@ -1892,6 +1897,11 @@
           "id": "42dc5bb9-0009",
           "heading": "Cleaning up old files",
           "slug": "cleaning-up-old-files"
+        },
+        {
+          "id": "42dc5bb9-0013",
+          "heading": "WMI screenshot size is rejected during early boot",
+          "slug": "wmi-screenshot-size-is-rejected-during-early-boot"
         },
         {
           "id": "42dc5bb9-000a",
@@ -2634,13 +2644,13 @@
         },
         {
           "id": "42383647-0014",
-          "heading": "Two pools running two different test-sets",
-          "slug": "two-pools-running-two-different-test-sets"
+          "heading": "Two pools running two different projects",
+          "slug": "two-pools-running-two-different-projects"
         },
         {
           "id": "42383647-0015",
-          "heading": "1. Define the two test-sets",
-          "slug": "1-define-the-two-test-sets"
+          "heading": "1. Choose each pool's framework and project repositories",
+          "slug": "1-choose-each-pools-framework-and-project-repositories"
         },
         {
           "id": "42383647-0016",
@@ -2654,8 +2664,8 @@
         },
         {
           "id": "42383647-0018",
-          "heading": "4. Assign one test-set to each pool",
-          "slug": "4-assign-one-test-set-to-each-pool"
+          "heading": "4. Set each pool's framework and project URLs",
+          "slug": "4-set-each-pools-framework-and-project-urls"
         },
         {
           "id": "42383647-0019",
@@ -3862,13 +3872,13 @@
         },
         {
           "id": "4207d71a-0006",
-          "heading": "Step 3 -- Define the test-set (a framework/project repo pair)",
-          "slug": "step-3----define-the-test-set-a-frameworkproject-repo-pair"
+          "heading": "Step 3 -- Choose the framework and project repositories",
+          "slug": "step-3----choose-the-framework-and-project-repositories"
         },
         {
           "id": "4207d71a-0007",
-          "heading": "Step 4 -- Assign the test-set to the pool",
-          "slug": "step-4----assign-the-test-set-to-the-pool"
+          "heading": "Step 4 -- Set the repositories on the pool",
+          "slug": "step-4----set-the-repositories-on-the-pool"
         },
         {
           "id": "4207d71a-0008",
@@ -3919,6 +3929,11 @@
           "id": "4207d71a-0010",
           "heading": "Pool Status — pausing and continuing every member at once",
           "slug": "pool-status--pausing-and-continuing-every-member-at-once"
+        },
+        {
+          "id": "4207d71a-0024",
+          "heading": "Framework / Project -- which repositories each pool runs",
+          "slug": "framework--project----which-repositories-each-pool-runs"
         },
         {
           "id": "4207d71a-0011",
@@ -4178,8 +4193,8 @@
         },
         {
           "id": "428405a0-0014",
-          "heading": "Pool harness -- membership, intent, and test-set execution",
-          "slug": "pool-harness----membership-intent-and-test-set-execution"
+          "heading": "Pool harness -- membership, intent, and assigned-project execution",
+          "slug": "pool-harness----membership-intent-and-assigned-project-execution"
         }
       ]
     },
@@ -5678,8 +5693,8 @@
         },
         {
           "id": "429f3d06-0039",
-          "heading": "Package acl for promtail log read",
-          "slug": "package-acl-for-promtail-log-read"
+          "heading": "Package acl for alloy log read",
+          "slug": "package-acl-for-alloy-log-read"
         },
         {
           "id": "429f3d06-003a",
@@ -5753,13 +5768,13 @@
         },
         {
           "id": "429f3d06-0048",
-          "heading": "Promtail timestamp only labels",
-          "slug": "promtail-timestamp-only-labels"
+          "heading": "Alloy timestamp only labels",
+          "slug": "alloy-timestamp-only-labels"
         },
         {
           "id": "429f3d06-0049",
-          "heading": "Promtail supplementary groups drop-in",
-          "slug": "promtail-supplementary-groups-drop-in"
+          "heading": "Alloy supplementary groups drop-in",
+          "slug": "alloy-supplementary-groups-drop-in"
         },
         {
           "id": "429f3d06-004a",
@@ -6028,8 +6043,8 @@
         },
         {
           "id": "429f3d06-007f",
-          "heading": "Verify promtail supplementary groups",
-          "slug": "verify-promtail-supplementary-groups"
+          "heading": "Verify alloy supplementary groups",
+          "slug": "verify-alloy-supplementary-groups"
         },
         {
           "id": "429f3d06-0080",

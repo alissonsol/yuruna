@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,20 @@
     tracked (test/modules/suite-baseline.json) rather than generated per
     machine. Per-run output is disposable and goes to a gitignored directory.
 
+    A baseline row is `total`, `skipped` and `seconds`, recorded by
+    -UpdateBaseline on the reference host, plus two optional fields that are
+    edited by hand in a reviewed change and that a refresh carries over:
+      platformTotal   { "macos": 6 } -- the test count that platform must reach
+                      when it differs from `total`. A suite that defines some of
+                      its Describe blocks only on some platforms has fewer tests
+                      elsewhere, and one flat count would fail every full run on
+                      the platform with fewer. Platforms are windows, linux and
+                      macos; one with no entry is held to `total`. A refresh on
+                      another platform never lowers such a row's `total`.
+      timeoutSeconds  a cap of its own for one suite, for a suite that takes
+                      several times longer on a slow host than the recorded cost
+                      plus the allowance covers. It only raises the cap.
+
     The suites are NOT part of a test cycle and this script must never be
     called from one -- it runs beside the harness, on a developer or CI host.
 
@@ -67,7 +81,9 @@
 .PARAMETER ThrottleLimit
     Concurrent suite processes. Default 8.
 .PARAMETER TimeoutSeconds
-    Per-suite wall-clock limit before the process is killed. Default 300.
+    Per-suite wall-clock limit before the process is killed. Default 300, added
+    to the suite's recorded cost. A baseline row's `timeoutSeconds` raises the
+    cap for that one suite.
 .PARAMETER ResultsPath
     Directory for per-suite NUnit XML, retained worker logs, and
     suite-results.json. Default .test-results (gitignored). Only one runner
@@ -127,11 +143,12 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not (Get-Module -ListAvailable Pester |
-        Where-Object { $_.Version -ge [version]'5.0.0' })) {
-    Write-Error "Pester 5+ is not installed. Install-Module Pester -Scope CurrentUser" -ErrorAction Continue
+        Where-Object { $_.Version -ge [version]'5.0.0' -and $_.Version -lt [version]'6.0.0' })) {
+    Write-Error "Pester 5.x is not installed. Install-Module Pester -RequiredVersion 5.9.1 -Scope CurrentUser" -ErrorAction Continue
     exit 2
 }
 
+$Platform = if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'macos' } else { 'linux' }
 $RepoRoot = if ($Root) { (Resolve-Path -LiteralPath $Root).Path } else { Split-Path -Parent $PSScriptRoot }
 $Shim     = Join-Path $PSScriptRoot '_InvokeOneSuite.ps1'
 if (-not (Test-Path -LiteralPath $Shim)) {
@@ -171,6 +188,20 @@ function Assert-BaselineCount {
     return [int]$number
 }
 
+# --- REGION: Get-SuiteFloor
+# The test count a suite must reach on this platform. A row's `total` is the count
+# recorded on the reference host; a suite whose Describe blocks are defined only on
+# some platforms legitimately has fewer tests elsewhere, and its row then names the
+# floor for that platform in `platformTotal` (windows, linux or macos).
+function Get-SuiteFloor {
+    param([Parameter(Mandatory)]$Row, [Parameter(Mandatory)][string]$Platform)
+    $floors = $Row.PSObject.Properties['platformTotal']
+    if ($floors -and $floors.Value -is [pscustomobject] -and $floors.Value.PSObject.Properties[$Platform]) {
+        return [int]$floors.Value.$Platform
+    }
+    return [int]$Row.total
+}
+
 # --- REGION: Assert-RefreshBaseline
 function Assert-RefreshBaseline {
     param([Parameter(Mandatory)]$Baseline, [string[]]$AllowedRoot = @('test/modules', 'host/modules'))
@@ -191,6 +222,19 @@ function Assert-RefreshBaseline {
         $count = Assert-BaselineCount $row.Value.total "$($row.Name).total" -Minimum 1
         $skipped = Assert-BaselineCount $row.Value.skipped "$($row.Name).skipped"
         if ($skipped -gt $count) { throw 'Existing baseline contains impossible skip counts.' }
+        # Two optional fields are maintained by hand and survive a refresh: a per-platform
+        # floor and a per-suite timeout. A malformed one would be read by every run.
+        if ($row.Value.PSObject.Properties['platformTotal']) {
+            $floors = $row.Value.platformTotal
+            if ($floors -isnot [pscustomobject]) { throw "Suite '$($row.Name)' has an invalid platformTotal." }
+            foreach ($floor in $floors.PSObject.Properties) {
+                if ($floor.Name -cnotin @('windows', 'linux', 'macos')) { throw "Suite '$($row.Name)' names an unknown platform '$($floor.Name)'." }
+                $null = Assert-BaselineCount $floor.Value "$($row.Name).platformTotal.$($floor.Name)" -Minimum 1
+            }
+        }
+        if ($row.Value.PSObject.Properties['timeoutSeconds']) {
+            $null = Assert-BaselineCount $row.Value.timeoutSeconds "$($row.Name).timeoutSeconds" -Minimum 1
+        }
         $tests += $count
         $skips += $skipped
     }
@@ -206,7 +250,8 @@ function Assert-RefreshBaseline {
 function Assert-SuiteBaselineRefresh {
     param([Parameter(Mandatory)]$Run, [AllowNull()]$Baseline,
         [Parameter(Mandatory)][string[]]$ExpectedSuites, [Parameter(Mandatory)][string]$ResultsPath,
-        [string[]]$AllowedRoot = @('test/modules', 'host/modules'))
+        [string[]]$AllowedRoot = @('test/modules', 'host/modules'),
+        [ValidateSet('windows', 'linux', 'macos')][string]$Platform = $(if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'macos' } else { 'linux' }))
 
     if ($Run -isnot [pscustomobject] -or $Run.schemaVersion -cne 1 -or
         $Run.totals -isnot [pscustomobject] -or $Run.suites -isnot [array] -or
@@ -232,7 +277,7 @@ function Assert-SuiteBaselineRefresh {
         $previous = if ($Baseline) { $Baseline.suites.PSObject.Properties[$row.path] } else { $null }
         $skipBudget = if ($previous) { $previous.Value.skipped } else { 0 }
         if ($counts.skipped -gt $skipBudget) { throw "Suite '$($row.path)' increased its skip budget ($skipBudget -> $($counts.skipped))." }
-        if ($previous -and $counts.total -lt $previous.Value.total) { throw "Suite '$($row.path)' lost tests." }
+        if ($previous -and $counts.total -lt (Get-SuiteFloor -Row $previous.Value -Platform $Platform)) { throw "Suite '$($row.path)' lost tests." }
 
         $xmlPath = Join-Path $ResultsPath ('nunit-' + ($row.path -replace '[\\/]', '_') + '.xml')
         $document = [xml](Get-Content -LiteralPath $xmlPath -Raw -ErrorAction Stop)
@@ -378,8 +423,12 @@ if ($RegisterNewSuites) {
 # worth more than any other scheduling choice. Unknown suites sort first so a
 # newly added one is never left to start last.
 $order = @{}
+$baselineRow = @{}
 if ($baseline -and $baseline.suites) {
-    foreach ($p in $baseline.suites.PSObject.Properties) { $order[$p.Name] = [double]$p.Value.seconds }
+    foreach ($p in $baseline.suites.PSObject.Properties) {
+        $order[$p.Name] = [double]$p.Value.seconds
+        $baselineRow[$p.Name] = $p.Value
+    }
 }
 $ordered = $suites | Sort-Object -Property @{ Expression = { if ($order.ContainsKey($_)) { -$order[$_] } else { [double]::NegativeInfinity } } }
 
@@ -390,10 +439,20 @@ $ordered = $suites | Sort-Object -Property @{ Expression = { if ($order.Contains
 # so the allowance keeps one meaning (time beyond what this suite needs) for a
 # four-second suite and a four-minute one alike. A suite with no recorded cost
 # is new, and keeps the flat value.
+#
+# A suite whose honest work is longer than its recorded cost plus the allowance on
+# some host (one that takes 230 s on a fast host and 700 s on a slow one) names a
+# cap of its own in its baseline row: `timeoutSeconds`. It can only raise the cap,
+# never lower it below what the recorded cost already earns.
 $timeoutFor = @{}
 foreach ($rel in $ordered) {
     $recorded = if ($order.ContainsKey($rel)) { [math]::Max(0, [double]$order[$rel]) } else { 0 }
-    $timeoutFor[$rel] = [int]($TimeoutSeconds + [math]::Ceiling($recorded))
+    $cap = [int]($TimeoutSeconds + [math]::Ceiling($recorded))
+    $own = 0
+    if ($baselineRow.ContainsKey($rel) -and $baselineRow[$rel].PSObject.Properties['timeoutSeconds']) {
+        $null = [int]::TryParse([string]$baselineRow[$rel].timeoutSeconds, [ref]$own)
+    }
+    $timeoutFor[$rel] = [math]::Max($cap, $own)
 }
 
 $null = New-Item -ItemType Directory -Force -Path $ResultsPath
@@ -540,7 +599,7 @@ try {
             # Missing evidence is already an infrastructure failure, not proof that
             # a suite discovered fewer tests. Keep the baseline unchanged either way.
             if (-not $seen[$p.Name].haveXml) { continue }
-            $was = [int]$p.Value.total
+            $was = Get-SuiteFloor -Row $p.Value -Platform $Platform
             $now = $seen[$p.Name].total
             if ($now -lt $was) {
                 $problems.Add("$($p.Name): $now tests, baseline had $was -- tests disappeared")
@@ -582,7 +641,7 @@ try {
         startedUtc    = (Get-Date).ToUniversalTime().ToString('o')
         host          = [Environment]::MachineName
         pwshVersion   = $PSVersionTable.PSVersion.ToString()
-        pesterVersion = (Get-Module -ListAvailable Pester | Sort-Object Version -Descending | Select-Object -First 1).Version.ToString()
+        pesterVersion = (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'5.0.0' -and $_.Version -lt [version]'6.0.0' } | Sort-Object Version -Descending | Select-Object -First 1).Version.ToString()
         throttle      = $ThrottleLimit
         totals        = $totals
         problems      = @($problems)
@@ -624,7 +683,20 @@ try {
             foreach ($row in $baseline.suites.PSObject.Properties) { $map[$row.Name] = $row.Value }
         }
         foreach ($r in $results) {
-            $map[$r.path] = [pscustomobject][ordered]@{ total = $r.total; skipped = $r.skipped; seconds = $r.seconds }
+            $row = [ordered]@{ total = $r.total; skipped = $r.skipped; seconds = $r.seconds }
+            $previous = if ($baseline -and -not $RegisterNewSuites) { $baseline.suites.PSObject.Properties[$r.path] } else { $null }
+            if ($previous) {
+                foreach ($field in @('platformTotal', 'timeoutSeconds')) {
+                    if ($previous.Value.PSObject.Properties[$field]) { $row[$field] = $previous.Value.$field }
+                }
+                # A suite with per-platform floors has a reference count that a run on
+                # another platform must not lower: `total` is what every platform
+                # without a floor of its own is held to.
+                if ($previous.Value.PSObject.Properties['platformTotal'] -and [int]$previous.Value.total -gt $row.total) {
+                    $row.total = [int]$previous.Value.total
+                }
+            }
+            $map[$r.path] = [pscustomobject]$row
         }
         if ($RegisterNewSuites) {
             $sortedMap = [ordered]@{}
@@ -654,8 +726,8 @@ try {
                 recordedUtc   = (Get-Date).ToUniversalTime().ToString('o')
                 pesterVersion = $run.pesterVersion
                 totals        = [ordered]@{
-                    suites = $totals.suites; tests = $totals.tests
-                    failed = $totals.failed; skipped = $totals.skipped
+                    suites = $map.Count; tests = [int]($map.Values | Measure-Object total -Sum).Sum
+                    failed = 0; skipped = [int]($map.Values | Measure-Object skipped -Sum).Sum
                 }
                 suites        = $map
             } | ConvertTo-Json -Depth 6

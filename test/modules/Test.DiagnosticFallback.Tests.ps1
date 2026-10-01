@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c9925e-2253-438b-b583-954a89683f39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,6 +118,53 @@ Describe 'Select-MoreInformativeDiagResult keeps the fuller failed-rung capture'
     }
     It 'returns nothing when neither rung produced a result' {
         Invoke-DiagPicker -Current $null -Candidate $null | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'each rung keeps its own evidence file' {
+    It 'names the <Rung> file beside the main capture, in the shape the status service accepts' -TestCases @(
+        @{ Rung = 'key-ssh' }, @{ Rung = 'password-ssh' }, @{ Rung = 'console' }
+    ) {
+        param($Rung)
+        $main = Join-Path $TestDrive '2026-10-01.01-59.system.diagnostic.yuruna.failure.txt'
+        $path = & (Get-Module Test.Diagnostic) { param($p, $r) Get-GuestDiagnosticRungEvidencePath -OutPath $p -Rung $r } $main $Rung
+        Split-Path -Parent $path | Should -Be $TestDrive
+        Split-Path -Leaf $path | Should -BeExactly "2026-10-01.01-59.system.diagnostic.yuruna.failure.$Rung.txt"
+        (Split-Path -Leaf $path) -like '*.system.diagnostic.*.txt' | Should -BeTrue
+        $path | Should -Not -Be $main
+    }
+
+    It 'writes a failed rung''s output to that rung''s file and leaves the main capture untouched' {
+        $main = Join-Path $TestDrive 'fixture.system.diagnostic.website.txt'
+        [IO.File]::WriteAllText($main, 'main capture')
+        $result = @{ success = $false; output = 'key rung output'; mechanism = 'key'; exitCode = -1; timedOut = $false; outputTruncated = $true }
+        $evidence = [System.Collections.Generic.List[hashtable]]::new()
+        & (Get-Module Test.Diagnostic) {
+            param($r, $p, $e)
+            Save-GuestDiagnosticRungEvidence -Result $r -Rung 'key-ssh' -Attempted @('key-ssh') -OutPath $p -Selected $r -Evidence $e
+        } $result $main $evidence
+
+        [IO.File]::ReadAllText($main) | Should -BeExactly 'main capture'
+        $result.evidencePath | Should -BeExactly (Join-Path $TestDrive 'fixture.system.diagnostic.website.key-ssh.txt')
+        [IO.File]::ReadAllText($result.evidencePath) | Should -BeExactly 'key rung output'
+        $evidence.Count | Should -Be 1
+        $evidence[0].rung | Should -Be 'key-ssh'
+        $evidence[0].outputTruncated | Should -BeTrue
+        $evidence[0].bytes | Should -Be ([IO.FileInfo]::new($result.evidencePath)).Length
+    }
+
+    It 'writes nothing for a rung that succeeded' {
+        $main = Join-Path $TestDrive 'success.system.diagnostic.website.txt'
+        $result = @{ success = $true; output = 'complete report'; mechanism = 'key'; exitCode = 0 }
+        $evidence = [System.Collections.Generic.List[hashtable]]::new()
+        & (Get-Module Test.Diagnostic) {
+            param($r, $p, $e)
+            Save-GuestDiagnosticRungEvidence -Result $r -Rung 'key-ssh' -Attempted @('key-ssh') -OutPath $p -Selected $r -Evidence $e
+        } $result $main $evidence
+
+        $evidence.Count | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $TestDrive 'success.system.diagnostic.website.key-ssh.txt') | Should -BeFalse
+        $result.ContainsKey('evidencePath') | Should -BeFalse
     }
 }
 

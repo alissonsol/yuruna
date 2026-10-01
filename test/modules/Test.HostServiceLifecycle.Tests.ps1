@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42541303-69a5-4838-b859-71ad4fcefc3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,13 +224,18 @@ Describe 'Stop-* scripts parse the PID defensively before process control' {
     foreach ($case in $stopScriptCases) {
         It "$($case.Name) gates on [int]::TryParse and passes only the typed int to -Id" -TestCases @(@{ Path = $case.Path }) {
             param([string]$Path)
+            # Both scripts hand the PID file to the shared stopper, which owns the guard.
             $ast = Get-ScriptAst $Path
-            Assert-True ((Get-InvokedMember -Ast $ast) -contains 'TryParse') 'a real [int]::TryParse invocation guards the PID (a comment does not count)'
-            Assert-True ((Get-IfConditionMember -Ast $ast) -contains 'TryParse') 'the [int]::TryParse result gates an if-branch (not an ignored expression)'
+            Assert-True ((Get-CommandCall -Ast $ast -Name 'Stop-YurunaPidFileService').Count -ge 1) 'the script stops the service through the shared PID-file stopper'
+            $module = Get-ScriptAst (Join-Path $discoveryTestDir 'modules/Test.YurunaDir.psm1')
+            $stopper = $module.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Stop-YurunaPidFileService' }, $true)
+            Assert-True ($null -ne $stopper) 'the shared stopper exists'
+            Assert-True ((Get-InvokedMember -Ast $stopper) -contains 'TryParse') 'a real [int]::TryParse invocation guards the PID (a comment does not count)'
+            Assert-True ((Get-IfConditionMember -Ast $stopper) -contains 'TryParse') 'the [int]::TryParse result gates an if-branch (not an ignored expression)'
             foreach ($cmd in @('Get-Process', 'Stop-Process')) {
-                foreach ($call in (Get-CommandCall -Ast $ast -Name $cmd)) {
+                foreach ($call in (Get-CommandCall -Ast $stopper -Name $cmd)) {
                     $idText = Get-IdArgumentText -CommandAst $call
-                    Assert-True ($idText -eq '$id') "$cmd -Id must use the validated int variable, got '$idText'"
+                    Assert-True ($idText -eq '$servicePid') "$cmd -Id must use the validated int variable, got '$idText'"
                 }
             }
         }
@@ -252,7 +257,7 @@ Describe 'Start-StashServiceVM.ps1 surfaces status-service unreachability' {
     It 'captures the start decision, TCP-probes the status port, and warns on unreachable' {
         $ast = Get-ScriptAst $script:startStash
         Assert-True (Test-AssignsFromCommand -Ast $ast -Command 'Start-YurunaStatusServiceIfEnabled') 'the start decision is captured in an assignment (not discarded)'
-        Assert-True ((Get-InvokedMember -Ast $ast) -contains 'BeginConnect') 'the status port is TCP-probed via BeginConnect'
+        Assert-True ((Get-CommandCall -Ast $ast -Name 'Test-TcpEndpointOpen').Count -ge 1) 'the status port is TCP-probed through the shared endpoint probe'
         # The warning must tie an unreachable status port to the degraded Extension-hosts
         # consequence. It states the accurate outcome -- the aggregator falls back to the
         # stash-service VM's presence beacon (the host still appears, minus its status baseUrl link)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4295c2e6-31ed-4bb7-902e-162727b73349
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -320,6 +320,32 @@ Describe 'Invoke-PoolNotifierCycle keeps draining on an unreadable transport but
             Assert-MockCalled -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 1 -Exactly -Scope It
         } finally { $env:YURUNA_RUNTIME_DIR = $saved }
     }
+    It 'drains queued messages when a ready transport has no readable aggregator gauge' -ForEach @(
+        @{ Address = ''; GaugeAvailable = $false }
+        @{ Address = '192.0.2.9'; GaugeAvailable = $false }
+    ) {
+        $savedRuntime = $env:YURUNA_RUNTIME_DIR
+        $savedIp = $env:YURUNA_CACHING_PROXY_SERVICE_IP
+        try {
+            $env:YURUNA_RUNTIME_DIR = $TestDrive
+            $env:YURUNA_CACHING_PROXY_SERVICE_IP = $Address
+            Mock -ModuleName Test.PoolNotifier Get-YurunaPoolStorageConfig { @{ LocalPath = 'x' } }
+            Mock -ModuleName Test.PoolNotifier Test-YurunaPoolStorageMounted { $true }
+            Mock -ModuleName Test.PoolNotifier Get-PoolNotifierSpoolRoot { 'pn-spool' }
+            Mock -ModuleName Test.PoolNotifier Get-PoolNotifierReadiness { @{ Ready = $true; State = 'ready' } }
+            Mock -ModuleName Test.PoolNotifier Initialize-PoolNotifierSpool { }
+            Mock -ModuleName Test.PoolNotifier Get-PoolAlertGaugeState { $null }
+            Mock -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery { @{ delivered = 2; failed = 0; retried = 0 } }
+            $summary = Invoke-PoolNotifierCycle
+            $summary.ran | Should -BeTrue
+            $summary.delivered | Should -Be 2
+            Should -Invoke -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 1 -Exactly
+        } finally {
+            $env:YURUNA_RUNTIME_DIR = $savedRuntime
+            $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedIp
+        }
+    }
+
     It 'does NOT drain when readiness is unconfigured (clean no-op)' {
         $saved = $env:YURUNA_RUNTIME_DIR
         try {

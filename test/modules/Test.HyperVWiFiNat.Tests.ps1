@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4284e886-4b60-4b77-815f-041d9206d0dc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,8 +88,10 @@ Describe 'hyper-v-wifi-nat-divert' {
         # -AllowManagementOS rides the host IP on vEthernet (<switch>); a
         # Wi-Fi- or USB-backed External switch must still read as not bridgeable.
         $fn = Get-FunctionAst -Name 'Test-WindowsUplinkNotBridgeable'
-        Assert-True ($fn.Extent.Text -match 'Hyper-V Virtual Ethernet') 'must special-case a vEthernet default route'
-        Assert-True ($fn.Extent.Text -match 'NetAdapterInterfaceDescription') 'must follow the vSwitch to its physical adapter'
+        Assert-True ($fn.Extent.Text -match 'Get-WindowsDefaultRoutePhysicalAdapter') 'must read the physical adapters behind the default route'
+        $route = Get-FunctionAst -Name 'Get-WindowsDefaultRoutePhysicalAdapter'
+        Assert-True ($route.Extent.Text -match 'Hyper-V Virtual Ethernet') 'must special-case a vEthernet default route'
+        Assert-True ($route.Extent.Text -match 'Get-YurunaSwitchUplinkDescription') 'must follow the vSwitch to its physical adapter'
     }
 
     It 'Get-OrCreateYurunaExternalSwitch diverts a not-bridgeable host to NAT before creating a bridge' {

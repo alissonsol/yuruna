@@ -130,8 +130,8 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 			}
 			n := 0
 			if m, ok := listed.(map[string]any); ok {
-				if arr, ok := m["stashes"].([]any); ok {
-					n = len(arr)
+				if total, ok := m["total"].(float64); ok {
+					n = int(total)
 				}
 			}
 			return map[string]any{"ok": true, "entries": n}, nil

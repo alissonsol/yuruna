@@ -50,8 +50,8 @@
     });
   }
 
-  // ev.submitter is Safari 15.4+, so the query is the path the browser baseline
-  // actually takes: on a form with one button the two agree.
+  // Synthetic submit events can lack submitter; this one-button form still
+  // identifies the control that owns the pending request.
   function submitterOf(ev, form) {
     return ev.submitter || form.querySelector('button');
   }

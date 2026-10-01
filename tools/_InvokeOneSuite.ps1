@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4243f981-9a67-4b29-81f5-966316b4be67
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 try {
+    $pesterModule = Get-Module -ListAvailable Pester |
+        Where-Object { $_.Version -ge [version]'5.0.0' -and $_.Version -lt [version]'6.0.0' } |
+        Sort-Object Version -Descending | Select-Object -First 1
+    if (-not $pesterModule) { throw 'Pester 5.x is required; install Pester 5.9.1.' }
+    Import-Module $pesterModule.Path -Force -ErrorAction Stop
     $PesterPreference = New-PesterConfiguration
     $PesterPreference.Output.Verbosity      = 'None'
     $PesterPreference.TestResult.Enabled    = $true

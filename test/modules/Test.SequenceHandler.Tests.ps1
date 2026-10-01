@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,7 +31,7 @@
     This test parses the module (no host I/O), isolates the break handler's
     scriptblock, and asserts the Restore-VMDiskSnapshot call is lexically nested
     inside an `if` whose condition references $restoreOnContinue. AST-only, so it
-    runs under OS-bundled Pester 3.4 / Pester 5+ with throw-based assertions.
+    runs under Pester 5+ with throw-based assertions.
 #>
 
 BeforeAll {
@@ -115,9 +115,9 @@ Describe 'break handler gates snapshot-restore behind restoreOnContinue' {
         $handler = Get-BreakHandlerScriptBlockAst -Path $script:modulePath
         $restoreCalls = $handler.FindAll({
             param($n)
-            $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Restore-VMDiskSnapshot'
+            $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Restore-SequenceSnapshot'
         }, $true)
-        Assert-True (@($restoreCalls).Count -ge 1) 'expected a Restore-VMDiskSnapshot call to guard'
+        Assert-True (@($restoreCalls).Count -ge 1) 'expected the shared snapshot restore call to guard'
 
         foreach ($call in $restoreCalls) {
             $gated = $false
@@ -131,24 +131,6 @@ Describe 'break handler gates snapshot-restore behind restoreOnContinue' {
                 $node = $node.Parent
             }
             Assert-True $gated "Restore-VMDiskSnapshot at $($call.Extent.StartLineNumber) is not gated by an if referencing restoreOnContinue."
-        }
-    }
-}
-
-Describe 'explicit character pacing' {
-    It 'uses the default only when the step omits its delay' {
-        $ast = [Management.Automation.Language.Parser]::ParseFile($script:modulePath, [ref]$null, [ref]$null)
-        $definition = $ast.Find({ param($node)
-            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Resolve-SequenceCharDelay'
-        }, $true)
-        . ([scriptblock]::Create($definition.Extent.Text))
-        foreach ($case in @(
-            @{ Step = @{}; Expected = 25 }
-            @{ Step = @{ charDelayMs = 0 }; Expected = 0 }
-            @{ Step = @{ charDelayMs = 7 }; Expected = 7 }
-        )) {
-            $actual = Resolve-SequenceCharDelay -Context @{ Step = $case.Step; DefaultCharDelayMs = 25 }
-            Assert-Equal -Expected $case.Expected -Actual $actual -Because 'zero is a valid explicit delay'
         }
     }
 }

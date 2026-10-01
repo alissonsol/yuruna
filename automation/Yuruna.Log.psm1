@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42ba7625-4a32-4a9d-9627-423df940b755
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,18 +133,20 @@ function Write-Output {
     #>
     [CmdletBinding(DefaultParameterSetName = 'NoEnumerate')]
     param(
-        [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
+        [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true, ValueFromRemainingArguments = $true)]
         [AllowEmptyCollection()]
         [AllowNull()]
-        [System.Object[]]$InputObject,
+        [System.Object]$InputObject,
 
         [Parameter()]
         [switch]$NoEnumerate
     )
     process {
         if ($global:__YurunaLogFile) {
-            foreach ($item in $InputObject) {
-                Add-YurunaLogLine "$item" -Severity 'output'
+            if ($NoEnumerate) {
+                Add-YurunaLogLine "$InputObject" -Severity 'output'
+            } else {
+                foreach ($item in $InputObject) { Add-YurunaLogLine "$item" -Severity 'output' }
             }
         }
         Microsoft.PowerShell.Utility\Write-Output -InputObject $InputObject -NoEnumerate:$NoEnumerate
@@ -203,12 +205,14 @@ function Write-Error {
         # parameter sets mirror Write-Error's (NoException = Message,
         # WithException = Exception [+ optional Message]), so $PSBoundParameters
         # is always a valid Write-Error invocation and never a Message+Exception
-        # combination Write-Error rejects. Forwarding it verbatim also preserves
+        # combination Write-Error rejects. Copying it preserves
         # the common parameters (-ErrorAction, -ErrorVariable, ...) that an
         # explicit per-set reconstruction would silently drop. (There is no
         # InputObject parameter here to strip -- this is Write-Error, not the
-        # Write-Output proxy.)
-        Microsoft.PowerShell.Utility\Write-Error @PSBoundParameters
+        # Write-Output proxy.) Supply the effective ErrorAction when omitted.
+        $forward = @{} + $PSBoundParameters
+        if (-not $forward.ContainsKey('ErrorAction')) { $forward.ErrorAction = $PSCmdlet.SessionState.PSVariable.GetValue('ErrorActionPreference', $ErrorActionPreference) }
+        Microsoft.PowerShell.Utility\Write-Error @forward
     }
 }
 
@@ -238,7 +242,9 @@ function Write-Warning {
         if ($global:__YurunaLogFile) {
             Add-YurunaLogLine $Message -Severity 'warning'
         }
-        Microsoft.PowerShell.Utility\Write-Warning -Message $Message
+        $forward = @{} + $PSBoundParameters
+        if (-not $forward.ContainsKey('WarningAction')) { $forward.WarningAction = $PSCmdlet.SessionState.PSVariable.GetValue('WarningPreference', $WarningPreference) }
+        Microsoft.PowerShell.Utility\Write-Warning @forward
     }
 }
 
@@ -259,10 +265,13 @@ function Write-Debug {
         [string]$Message
     )
     process {
-        if ($global:__YurunaLogFile -and $global:DebugPreference -ne 'SilentlyContinue') {
+        if (-not $PSBoundParameters.ContainsKey('Debug')) {
+            $DebugPreference = $PSCmdlet.SessionState.PSVariable.GetValue('DebugPreference', $DebugPreference)
+        }
+        if ($global:__YurunaLogFile -and $DebugPreference -ne 'SilentlyContinue') {
             Add-YurunaLogLine $Message -Severity 'debug'
         }
-        Microsoft.PowerShell.Utility\Write-Debug -Message $Message
+        Microsoft.PowerShell.Utility\Write-Debug @PSBoundParameters
     }
 }
 
@@ -283,10 +292,13 @@ function Write-Verbose {
         [string]$Message
     )
     process {
-        if ($global:__YurunaLogFile -and $global:VerbosePreference -ne 'SilentlyContinue') {
+        if (-not $PSBoundParameters.ContainsKey('Verbose')) {
+            $VerbosePreference = $PSCmdlet.SessionState.PSVariable.GetValue('VerbosePreference', $VerbosePreference)
+        }
+        if ($global:__YurunaLogFile -and $VerbosePreference -ne 'SilentlyContinue') {
             Add-YurunaLogLine $Message -Severity 'verbose'
         }
-        Microsoft.PowerShell.Utility\Write-Verbose -Message $Message
+        Microsoft.PowerShell.Utility\Write-Verbose @PSBoundParameters
     }
 }
 
@@ -311,12 +323,13 @@ function Write-Information {
         [string[]]$Tags
     )
     process {
-        if ($global:__YurunaLogFile -and $global:InformationPreference -ne 'SilentlyContinue') {
+        if (-not $PSBoundParameters.ContainsKey('InformationAction')) {
+            $InformationPreference = $PSCmdlet.SessionState.PSVariable.GetValue('InformationPreference', $InformationPreference)
+        }
+        if ($global:__YurunaLogFile -and $InformationPreference -ne 'SilentlyContinue') {
             Add-YurunaLogLine "$MessageData" -Severity 'information'
         }
-        $params = @{ MessageData = $MessageData }
-        if ($Tags) { $params['Tags'] = $Tags }
-        Microsoft.PowerShell.Utility\Write-Information @params
+        Microsoft.PowerShell.Utility\Write-Information @PSBoundParameters
     }
 }
 

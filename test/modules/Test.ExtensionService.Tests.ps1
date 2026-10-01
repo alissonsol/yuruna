@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -467,14 +467,27 @@ Describe 'the Go SDK is shared, not mirrored' {
         # The replace directive points at ../extension-sdk, so the build dir must
         # hold BOTH. A bring-up that copies only server/ would fail to resolve
         # the module -- and would do so on the guest, long after the change.
+        # The copy lives once, in the shared bring-up helper, so the helper has
+        # to stage both halves and every seed has to build from what it staged.
+        $helperPath = Join-Path $script:RepoRoot 'automation/yuruna-service-bringup.sh'
+        $helper     = Get-Content -Raw -LiteralPath $helperPath
+        $stageFn    = [regex]::Match($helper, '(?ms)^yuruna_service_stage\(\)\s*\{.*?^\}').Value
+        $buildFn    = [regex]::Match($helper, '(?ms)^yuruna_service_build\(\)\s*\{.*?^\}').Value
+        Assert-True ([bool]$stageFn) 'yuruna-service-bringup.sh must define yuruna_service_stage'
+        Assert-True ([bool]$buildFn) 'yuruna-service-bringup.sh must define yuruna_service_build'
+        Assert-Match -Pattern '\$server/\.\./\.\.[^\n]*/extension-sdk' -Actual $stageFn -Because 'the helper must locate the SDK beside the service directory'
+        Assert-Match -Pattern 'cp -r[^\n]*"\$server"\s+"\$stage/server"' -Actual $stageFn -Because 'the helper must stage server/'
+        Assert-Match -Pattern 'cp -r[^\n]*"\$sdk"\s+"\$stage/extension-sdk"' -Actual $stageFn -Because 'the helper must stage the SDK beside server/'
+        Assert-Match -Pattern 'cd "\$stage/server"' -Actual $buildFn -Because 'the helper must build from the staged server/'
+
         $guestDir = Join-Path $script:RepoRoot 'guest/ubuntu.server.26'
         $scripts  = @(Get-ChildItem -LiteralPath $guestDir -File -Filter '*-service.sh' -ErrorAction SilentlyContinue)
         Assert-True ($scripts.Count -ge 3) "expected the service bring-up scripts, found $($scripts.Count)"
         foreach ($s in $scripts) {
             $text = Get-Content -Raw -LiteralPath $s.FullName
-            Assert-Match -Pattern 'SDK_DIR'                 -Actual $text -Because "$($s.Name) must locate the SDK"
-            Assert-Match -Pattern '\$BUILD/extension-sdk'   -Actual $text -Because "$($s.Name) must stage the SDK beside server/"
-            Assert-Match -Pattern '\$BUILD/server'          -Actual $text -Because "$($s.Name) must build from \$BUILD/server"
+            Assert-Match -Pattern 'yuruna-service-bringup\.sh'                   -Actual $text -Because "$($s.Name) must source the shared bring-up helper"
+            Assert-Match -Pattern 'BUILD="\$\(yuruna_service_stage "\$SERVER_DIR"' -Actual $text -Because "$($s.Name) must stage server/ and the SDK through the helper"
+            Assert-Match -Pattern 'yuruna_service_build "\$BUILD"'               -Actual $text -Because "$($s.Name) must build from what it staged"
         }
     }
 }

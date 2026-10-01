@@ -59,11 +59,11 @@
     },
     "status.api_expected_diagnostics_folder_filename_5f581c78": {
       "sourceHash": "7d8197fc55ed93f46375faf9151cb17ca5e00b36ad88d38072a277dcafe19ecf",
-      "message": "esperado /diagnóstico/<folder>.../<filename>"
+      "message": "esperado /diagnostics/<folder>.../<filename>"
     },
     "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e": {
       "sourceHash": "b504b2fed475f0ae1344237dec9dc04e7800a5f0bf834682237fa7501c75b9aa",
-      "message": "pasta de falha não encontrada; o corredor deve tê- la criado primeiro"
+      "message": "pasta de falha não encontrada; o corredor deve tê-la criado primeiro"
     },
     "status.api_filename_must_match_system_diagnostic_id_txt_ec048334": {
       "sourceHash": "c63b6a5245d50c47e080d996213c41eb93a6b4a8daa90bd203c97beb5ed71599",
@@ -87,7 +87,7 @@
     },
     "status.api_forbidden_directory_listing_disabled_5d107f5b": {
       "sourceHash": "f6f01585c8b76762f8a2a194baa28e0a97706351efff8c0f809a6abac810358e",
-      "message": "Proibido (a listagem do directório está desactivada)"
+      "message": "Proibido (a listagem do diretório está desactivada)"
     },
     "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": {
       "sourceHash": "42bcc1931e637027625c17f035b3b735fc21af4d4e7b226115b7886a028b0fe8",
@@ -235,7 +235,7 @@
     },
     "status.auto_refresh_paused": {
       "sourceHash": "7c04f1178af3e19751351514b1dfd049820668d3d88c8c65443669c949f4c8fc",
-      "message": "Actualização automática pausada"
+      "message": "Atualização automática pausada"
     },
     "status.banner_fail": {
       "sourceHash": "61856ed5a08af081f7f7be2496de60f18dbb60fc374ee512380dbfbc3954340e",
@@ -251,7 +251,7 @@
     },
     "status.banner_pass": {
       "sourceHash": "b88365dfab57d5482782749be89d3c525e5a9a0bf2e2e3f1826d724fdb01e16b",
-      "message": "Todos os hóspedes operacionais"
+      "message": "Todos os convidados operacionais"
     },
     "status.banner_running": {
       "sourceHash": "2c6675f82bc7bc983d34d2a5756713002b4f8efc751d8d3b6d0cc38d9ab4556b",
@@ -263,23 +263,23 @@
     },
     "status.cache_caching_proxy_service_306beb37": {
       "sourceHash": "9789f74305471c49498897976c0288b348a41c0292204d20e26235d062b2238a",
-      "message": "Serviço de cache- proxy:"
+      "message": "Serviço de cache-proxy:"
     },
     "status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d": {
       "sourceHash": "a824c0a877584374786a3ae0961f15f0b57cd086ec7b91bd5fd36793966451b2",
-      "message": "Serviço de cache- proxy: configurado no {address}, não respondendo"
+      "message": "Serviço de cache-proxy: configurado no {address}, não respondendo"
     },
     "status.cache_caching_proxy_service_detected_port_map_failed_28a5d3cf": {
       "sourceHash": "041fd1130d136ec6d537b90b1abba19377b4787cab793a57b6102d5495f8b062",
-      "message": "Serviço de cache- proxy: detectado (mapa do porto falhou)"
+      "message": "Serviço de cache-proxy: detectado (mapa do porto falhou)"
     },
     "status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937": {
       "sourceHash": "4a492a3c00652a2371ff14ccb5f1826cd787ab843d53c87dabf9a31527c4316b",
-      "message": "Serviço de cache- proxy: detectado (mapa de porta de propriedade de uma apresentação)"
+      "message": "Serviço de cache-proxy: detectado (mapa de porta de propriedade de uma apresentação)"
     },
     "status.cache_caching_proxy_service_not_detected_eeb2edfb": {
       "sourceHash": "3c5f01fc80fd28bdac4729c8e8deb8b72135b3c25253081726f7d093dd888b55",
-      "message": "Serviço de cache- proxy: não detectado"
+      "message": "Serviço de cache-proxy: não detectado"
     },
     "status.cache_detected_b96da48a": {
       "sourceHash": "5003b540fad3ed214ebc1659b62ca492781e932ccf3336fe279950ced1b53459",
@@ -291,7 +291,7 @@
     },
     "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host": {
       "sourceHash": "6e89f1b5ee71898753a9b10be158448166120ee692987ddb3676326b7305b7ce",
-      "message": "O teste de cache- proxy cronometrado (15 s) - não é acessível a partir desta máquina?"
+      "message": "O teste de cache-proxy cronometrado (15 s) - não é acessível a partir desta máquina?"
     },
     "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host_65801a65": {
       "sourceHash": "5a37e158231478f4a6e8f751a473d40571d9ada8154200cdad42f84a44126221",
@@ -447,7 +447,7 @@
     },
     "status.config_field_pool": {
       "sourceHash": "cbdbf59e8f985ff0526f2897035a5aeb388ff964ee9075f1930e8b759ba874b1",
-      "message": "piscina"
+      "message": "grupo"
     },
     "status.config_field_poolstoragelocalpath": {
       "sourceHash": "a1716307fc94063dd8e62be543be5d2e560f1bb87bc11b41b838c7c935eac612",
@@ -619,7 +619,7 @@
     },
     "status.control_proof_invalid": {
       "sourceHash": "1e75f93926ee04e48e8ee6c49cdb4a020177a07d7d61fc11a6ef54c741a270d9",
-      "message": "O token de controle desta página não verifica aqui – o token de laboratório armazenado deste hospedeiro provavelmente difere do atual do laboratório, então re-introduza."
+      "message": "O token de controle desta página não verifica aqui – o token do laboratório armazenado deste hospedeiro provavelmente difere do atual do laboratório, então re-introduza."
     },
     "status.control_proof_missing": {
       "sourceHash": "ee80d08833c5ecb26090580f2a9823cb63017f871179c16d368cb547d1d9b303",
@@ -639,7 +639,7 @@
     },
     "status.control_verifier_unavailable": {
       "sourceHash": "25ab697d01992ffcc393c0ea27744f1c68a2aa3181b970821211d5818052105b",
-      "message": "O serviço de status desta máquina não pôde carregar seu verificador de token (verifique teste/status/runtime/server.err na máquina)."
+      "message": "O serviço de status desta máquina não pôde carregar seu verificador de token (verifique test/status/runtime/server.err na máquina)."
     },
     "status.could_not_check_the_cycle_folder_first": {
       "sourceHash": "07c42721e9f5dc5cbb20492a0baf8359b869c8900c3eab291efe95017081d4b5",
@@ -759,7 +759,7 @@
     },
     "status.draft_emails_cannot_automatically_include_attachments_so_please_m": {
       "sourceHash": "06f35f176539d39758f59fec976648c3cfb35294afd84ff0bb64a243386ae44d",
-      "message": "O rascunho de e- mails não pode incluir automaticamente anexos, por isso, por favor\nanexar manualmente o arquivo baixado antes de enviá-lo."
+      "message": "O rascunho de e-mails não pode incluir automaticamente anexos, por isso, por favor\nanexar manualmente o arquivo baixado antes de enviá-lo."
     },
     "status.duration": {
       "sourceHash": "7049299f022ba3e80e9401b98ca00cdd3a97dac4913b854b440fd5c26bf98d97",
@@ -855,7 +855,7 @@
     },
     "status.guest_sequence_fallback_note": {
       "sourceHash": "d055ad2ccb65eb2d228343973dba552d9e15099432560ad18a634c932da88491",
-      "message": "Apenas em segundo plano. O conjunto de convidados vem do {file} no repositório do projecto; esta lista é lida apenas quando esse ficheiro não resolve nenhum plano."
+      "message": "Apenas em segundo plano. O conjunto de convidados vem do {file} no repositório do projecto; esta lista é lida apenas quando esse arquivo não resolve nenhum plano."
     },
     "status.guest_sequence_last_plan": {
       "sourceHash": "fd64b23c2382d85cb86b7f4941034e72d9515470f56b9bbd1d1a5bfc891bd37e",
@@ -991,9 +991,9 @@
       "sourceHash": "4b81e8075336e565219ba023aa3d488633add04e3c779edef452d6932199561a",
       "plural": {
         "variants": {
-          "one": "O ciclo {count} carece de tempo por passo — desenhado como uma única barra cinzenta. Isto normalmente significa que o processo de serviço de estado desvinculado precede o tempo por passo no {endpoint}. Reinicie- o com: {command}, depois carregue novamente Esta página.",
-          "other": "Os ciclos do {count} carecem de timing por passo — desenhados como uma única barra cinzenta. Isto normalmente significa que o processo de serviço de estado desvinculado precede o timing por passo no {endpoint}. Reinicie- o com: {command}, depois carregue novamente Esta página.",
-          "many": "Os ciclos do {count} carecem de timing por passo — desenhados como uma única barra cinzenta. Isto normalmente significa que o processo de serviço de estado desvinculado precede o timing por passo no {endpoint}. Reinicie- o com: {command}, depois carregue novamente Esta página."
+          "one": "O ciclo {count} carece de tempo por passo — desenhado como uma única barra cinzenta. Isto normalmente significa que o processo de serviço de estado desvinculado precede o tempo por passo no {endpoint}. Reinicie-o com: {command}, depois carregue novamente Esta página.",
+          "other": "Os ciclos do {count} carecem de timing por passo — desenhados como uma única barra cinzenta. Isto normalmente significa que o processo de serviço de estado desvinculado precede o timing por passo no {endpoint}. Reinicie-o com: {command}, depois carregue novamente Esta página.",
+          "many": "Os ciclos do {count} carecem de timing por passo — desenhados como uma única barra cinzenta. Isto normalmente significa que o processo de serviço de estado desvinculado precede o timing por passo no {endpoint}. Reinicie-o com: {command}, depois carregue novamente Esta página."
         }
       }
     },
@@ -1059,7 +1059,7 @@
     },
     "status.open_the_email_draft": {
       "sourceHash": "14ef70cfc377de1a66dce6bcfd6d5cce2e30da0f082f5a6fcf688ddd7ed3f0b6",
-      "message": "Abrir o rascunho de e- mail"
+      "message": "Abrir o rascunho de e-mail"
     },
     "status.pack_and_download_the_cycle_results": {
       "sourceHash": "73a6c08287b1fd4037e381b62fc9df8a841d6aa54ef0c2c2dd195823ee43ed93",
@@ -1141,7 +1141,7 @@
     },
     "status.process_environment_value_the_status_service_inherited_at_startup": {
       "sourceHash": "350fb53633c2fb1b8d7318201dfbfdfafe757e747765498f6b12160bf4119644",
-      "message": "O valor do processo- ambiente do serviço de estado herdado na inicialização. Somente para leitura aqui; fonte de retorno somente: no início do ciclo o campo vmStart.cachingProxyIp acima é pesquisado primeiro e ganha quando suas respostas de 3128. Exportar isso no shell que lança o Start-TestRunner.ps1 para hosts cujo campo de configuração está vazio."
+      "message": "O valor do ambiente do processo do serviço de estado herdado na inicialização. Somente para leitura aqui; fonte de retorno somente: no início do ciclo o campo vmStart.cachingProxyIp acima é pesquisado primeiro e ganha quando suas respostas de 3128. Exportar isso no shell que lança o Start-TestRunner.ps1 para hosts cujo campo de configuração está vazio."
     },
     "status.quarantine_pinned": {
       "sourceHash": "cbdd272181a458b0009ea754c0ae55d337ba8cb60cc8c249a1405d8510cc5ccb",
@@ -1333,7 +1333,7 @@
     },
     "status.testing_caching_proxy_service_from_host": {
       "sourceHash": "19d1f85c500e0cc6c7f354ed50a6ca56b670ece043d6f2aaae4ff42dc76fdbfc",
-      "message": "Testando o serviço de cache- proxy da máquina..."
+      "message": "Testando o serviço de cache-proxy da máquina..."
     },
     "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": {
       "sourceHash": "7b45b6acf92c9b2c9193db23bee052677ad7e5f4fa35f617c86ae80a38454790",
@@ -1349,7 +1349,7 @@
     },
     "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": {
       "sourceHash": "aaa1a44999bf9f16cb012cace5db71c1438dd84227754648967732a66bd8b859",
-      "message": "A máquina não pôde carregar o seu verificador à prova de controlo; verifique o registo do serviço de estado."
+      "message": "A máquina não pôde carregar o seu verificador à prova de controlo; verifique o registro do serviço de estado."
     },
     "status.the_share_sheet_expired_while_the_host_packed_the_folder": {
       "sourceHash": "c1727c7be81460556c7d371ee0c1de36eccd9f6a856478d8a9ead5300be7b394",
@@ -1357,7 +1357,7 @@
     },
     "status.this_browser_could_not_attach_the_file_to_a_message_itself": {
       "sourceHash": "0b7fc0cb70725fdb9143bcb8ed93293bd93f2855bcef5e6ab215858a3f8322d6",
-      "message": "Este navegador não pôde anexar o ficheiro a uma mensagem propriamente dita."
+      "message": "Este navegador não pôde anexar o arquivo a uma mensagem propriamente dita."
     },
     "status.this_cycle_is_still_running_the_archive_will_hold_what_has_been_w": {
       "sourceHash": "b03e6de6ecde9141322dfa6b5c8aecc2441a682bc22fb1dd950ab17847ca728d",
@@ -1395,7 +1395,7 @@
     },
     "status.timing_incomplete_record": {
       "sourceHash": "98c86120874327c9561724470fee4870cc0d51aa7300edab7cad4d74bf840dea",
-      "message": "registo incompleto"
+      "message": "registro incompleto"
     },
     "status.timing_kind": {
       "sourceHash": "ce46993a6c4a47ed5faee2e76d326f4c72946cf55951d3f517386e0b1b659878",
@@ -1480,302 +1480,302 @@
     "status.api_admission_unavailable": {
       "sourceHash": "88f2f1665f9c5f7df475af36ea910017c1407b871256badf4cebde9ae9fa236f",
       "origin": "machine",
-      "message": "the host could not record the request ({reason})"
+      "message": "o hospedeiro não pôde registrar a solicitação ({reason})"
     },
     "status.api_host_refresh_authorization_refused": {
       "sourceHash": "f793591c7563d3b843f464cfbd3df28d3684e7fd5e863bc085ea41754d75779d",
       "origin": "machine",
-      "message": "refresh authorization refused ({reason})"
+      "message": "autorização de atualização recusada ({reason})"
     },
     "status.api_host_refresh_busy": {
       "sourceHash": "a185926eefe4934ed8a85d387b12af84e363d095167fa67f63547409ed32196e",
       "origin": "machine",
-      "message": "another host operation is in progress"
+      "message": "outra operação do hospedeiro está em andamento"
     },
     "status.api_host_refresh_request_closed": {
       "sourceHash": "99681fb11c3ecd473723e55b4d9f64b4fc421b616349578f9f2c4ca3b6ade4f4",
       "origin": "machine",
-      "message": "this request id is already closed ({state})"
+      "message": "este ID de solicitação já foi encerrado ({state})"
     },
     "status.api_host_refresh_request_conflict": {
       "sourceHash": "9f9e4d4be06c66558bf2115cda5471c8f9995288222b38aef15a2ed388b06709",
       "origin": "machine",
-      "message": "this request id was already used with different settings"
+      "message": "este ID de solicitação já foi usado com configurações diferentes"
     },
     "status.api_host_refresh_unavailable": {
       "sourceHash": "c939f9097fa4068b1e720faa677d751a8d2fe909a45dff9a9d5f463066508089",
       "origin": "machine",
-      "message": "host refresh is not available on this host ({reason})"
+      "message": "a atualização do hospedeiro não está disponível neste hospedeiro ({reason})"
     },
     "status.api_internal_error": {
       "sourceHash": "bfe48a2f94a6554ed148551b776368a32930c18d6409356671df30256d2942f7",
       "origin": "machine",
-      "message": "the request failed on the host; see server.err"
+      "message": "a solicitação falhou no hospedeiro; consulte server.err"
     },
     "status.api_listener_busy": {
       "sourceHash": "030963685ca1cbbc9b35def6bdf5545f7630032a310db9fe1f683784a0c41dac",
       "origin": "machine",
-      "message": "too many request bodies are being read; retry shortly"
+      "message": "há corpos de solicitação demais sendo lidos; tente novamente em instantes"
     },
     "status.api_listener_dependency_missing": {
       "sourceHash": "7710a12aa231c40ee15c7ad80608fcf34296db69b6aadfc4b684a753a095d43c",
       "origin": "machine",
-      "message": "a module this route needs could not be loaded; see server.err"
+      "message": "não foi possível carregar um módulo necessário para esta rota; consulte server.err"
     },
     "status.api_payload_too_large_4_kb": {
       "sourceHash": "ab47184a0e20ddc2160e8b26ecbb4dd72f997768434226cd614e705a8f7be3b6",
       "origin": "machine",
-      "message": "payload too large (4 KB max)"
+      "message": "carga muito grande (máximo de 4 KB)"
     },
     "status.api_private_state_unavailable": {
       "sourceHash": "fff5790c1c71a948a3ec7a6da94618ef0c7379da71c1e1520029734ace631c0c",
       "origin": "machine",
-      "message": "the host's private state directory is unavailable ({reason})"
+      "message": "o diretório de estado privado do hospedeiro está indisponível ({reason})"
     },
     "status.api_request_body_invalid": {
       "sourceHash": "fb38a27aa5d71053c8ef2f3c2347dd88e6c23de4ca92ff310458ec65344e4b08",
       "origin": "machine",
-      "message": "invalid request body: {reason} ({field})"
+      "message": "corpo da solicitação inválido: {reason} ({field})"
     },
     "status.api_request_body_timeout": {
       "sourceHash": "98ddcf47e7950d633f96b81c92a063151c32656dabb31260e0c6f603bb06b5fa",
       "origin": "machine",
-      "message": "the request body did not arrive within 2 seconds"
+      "message": "o corpo da solicitação não chegou em 2 segundos"
     },
     "status.api_unsupported_media_type": {
       "sourceHash": "afcb4e55e721fc04d420f489813e33168b3f72a65afd4495dfe66463312d6e3c",
       "origin": "machine",
-      "message": "Content-Type must be application/json"
+      "message": "Content-Type deve ser application/json"
     },
     "status.api_worker_launcher_failed": {
       "sourceHash": "aea77d2b1dca40319f3d5deee6b0d5b43b56a6e5cbdd5d0b3c3b75996fc346fa",
       "origin": "machine",
-      "message": "the worker could not be started ({reason}); the request can be retried"
+      "message": "não foi possível iniciar o processo de trabalho ({reason}); a solicitação pode ser repetida"
     },
     "status.host_diagnostic_pending": {
       "sourceHash": "e41be205f4a0d4590efdb96d5368ae33b1acbf55209c233ea42575acdd60d1c2",
       "origin": "machine",
-      "message": "Collecting host diagnostics; this can take a minute..."
+      "message": "Coletando diagnósticos do hospedeiro; isso pode levar um minuto..."
     },
     "status.host_diagnostic_timeout": {
       "sourceHash": "d30843f2bc788316b3df4a32b727c9ad0e1adc22351ff7c05ec6215971c17a84",
       "origin": "machine",
-      "message": "Host diagnostics did not finish within {seconds} seconds. Reload the page to try again."
+      "message": "Os diagnósticos do hospedeiro não terminaram em {seconds} segundos. Recarregue a página para tentar novamente."
     },
     "status.host_refresh_action_dispose_obligations": {
       "sourceHash": "9a76de0bc8b101254982bf07a5cfd2afb2e3b1ac82ceb908848322b344db0a9a",
       "origin": "machine",
-      "message": "Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation."
+      "message": "Próxima etapa: revise os itens de recuperação pendentes no hospedeiro e descarte-os com pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation."
     },
     "status.host_refresh_action_elevate": {
       "sourceHash": "ee4e76642b0018d511eece8dd6d3c7765c54d1786aa138b9a1123fbb83cdbd8d",
       "origin": "machine",
-      "message": "Next step: the repair needs administrator rights; run it on the host from an elevated session."
+      "message": "Próxima etapa: o reparo exige direitos de administrador; execute-o no hospedeiro em uma sessão elevada."
     },
     "status.host_refresh_action_grant_automation": {
       "sourceHash": "0c85dd0306f7cd48c2ef3c093311adc02db37fe2716bd3573425abb3ffac2c3b",
       "origin": "machine",
-      "message": "Next step: allow this host's automation access to UTM, then refresh again."
+      "message": "Próxima etapa: permita o acesso de automação deste hospedeiro ao UTM e atualize novamente."
     },
     "status.host_refresh_action_gui_session": {
       "sourceHash": "ab53cf784ab25a4dfbf21cf1d5de0c0e52e1d847d064b6bb80a28f461d57d365",
       "origin": "machine",
-      "message": "Next step: sign in to a desktop session on the host, then refresh again."
+      "message": "Próxima etapa: entre em uma sessão de área de trabalho no hospedeiro e atualize novamente."
     },
     "status.host_refresh_action_install_client": {
       "sourceHash": "359681126bbea61c9185c269c2d247539276e2388cc6c1c242402ad1bc7cb9f2",
       "origin": "machine",
-      "message": "Next step: install the hypervisor's command-line client on the host, then refresh again."
+      "message": "Próxima etapa: instale o cliente de linha de comando do hipervisor no hospedeiro e atualize novamente."
     },
     "status.host_refresh_action_resume_request": {
       "sourceHash": "f9a1d4c3bbc9bb2e83f89401d975b272cb0ca9a51e6d3d2d6066dcb39f1934bb",
       "origin": "machine",
-      "message": "Next step: resume this request on the host with pwsh test/lab/Invoke-HostRefresh.ps1 -Resume."
+      "message": "Próxima etapa: retome esta solicitação no hospedeiro com pwsh test/lab/Invoke-HostRefresh.ps1 -Resume."
     },
     "status.host_refresh_action_start_runner": {
       "sourceHash": "1cd17614d0f7d168ae043ab3776fa593265eff6508052dd150fd4e567847d360",
       "origin": "machine",
-      "message": "Next step: start the runner on the host; no recorded launch could be reused to restart it."
+      "message": "Próxima etapa: inicie o executor no hospedeiro; nenhuma inicialização registrada pôde ser reutilizada para reiniciá-lo."
     },
     "status.host_refresh_authorization_refused": {
       "sourceHash": "bc616071f68187cb02cd0fdf802f51b22b68cdff1ec47a17b577723d68098e36",
       "origin": "machine",
-      "message": "This refresh needs a refresh proof that this page does not have ({reason}). Use the status page on the host itself, or the pool-control refresh action."
+      "message": "Esta atualização exige uma prova de atualização que esta página não tem ({reason}). Use a página de status no próprio hospedeiro ou a ação de atualização do controle do grupo."
     },
     "status.host_refresh_busy": {
       "sourceHash": "7cf0dd5bf96f819d4824123d90f3c396f1c6d61ae3af8c4f94eccf85d12f7e25",
       "origin": "machine",
-      "message": "Another host refresh ({requestId}) is in progress; showing its progress."
+      "message": "Outra atualização do hospedeiro ({requestId}) está em andamento; exibindo o progresso dela."
     },
     "status.host_refresh_check_host": {
       "sourceHash": "559cf785a80fadc87b7d963e23841e0a8c1dd624f55913d87612765b9456e32e",
       "origin": "machine",
-      "message": "On the host, run pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf to see the current state."
+      "message": "No hospedeiro, execute pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf para ver o estado atual."
     },
     "status.host_refresh_closed": {
       "sourceHash": "c49538118d42f49cad0d0b9b3399c35ca1efdedbd9d658ebff00049131417dae",
       "origin": "machine",
-      "message": "Request {requestId} is already closed ({state}); start a new refresh."
+      "message": "A solicitação {requestId} já foi encerrada ({state}); inicie uma nova atualização."
     },
     "status.host_refresh_confirm": {
       "sourceHash": "6dae5956200014040f9dd965beb3bd2376e34b7ff782b34ce644e8bba9f83b23",
       "origin": "machine",
-      "message": "Refresh this host, up to the {ceiling} step? Guest VMs on this host can be suspended or restarted while the hypervisor recovers, and the runner is restarted. This can take up to {minutes} minutes."
+      "message": "Atualizar este hospedeiro, até a etapa {ceiling}? As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera, e o executor será reiniciado. Isso pode levar até {minutes} minutos."
     },
     "status.host_refresh_conflict": {
       "sourceHash": "6366e45e764b8bd907e4c22d9ae1de2ba9d54286eaec0a1f8a4bf6e611023836",
       "origin": "machine",
-      "message": "Request {requestId} was already sent with different settings; start a new refresh."
+      "message": "A solicitação {requestId} já foi enviada com configurações diferentes; inicie uma nova atualização."
     },
     "status.host_refresh_launcher_failed": {
       "sourceHash": "951c587d039276d53cc474891f3bb1b196792ec3304a240dfffe3b49eff0050e",
       "origin": "machine",
-      "message": "The host could not start the refresh worker. The request is kept; select Retry to start it again."
+      "message": "O hospedeiro não pôde iniciar o processo de atualização. A solicitação foi mantida; selecione Tentar novamente para iniciá-la de novo."
     },
     "status.host_refresh_lost": {
       "sourceHash": "ef4234b56c9b61ed0a42ef85c8f80aa5eb0bce9416615ea95f7b355ba2f2bfcb",
       "origin": "machine",
-      "message": "Refresh {requestId}: no outcome after {seconds} seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Refresh host to start a new one."
+      "message": "Atualização {requestId}: nenhum resultado após {seconds} segundos, ou uma solicitação posterior substituiu o relatório dela. Selecione Tentar novamente para perguntar ao hospedeiro como ela terminou, ou Atualizar hospedeiro para iniciar uma nova."
     },
     "status.host_refresh_note": {
       "sourceHash": "ff4a991c377f474f23e75005f4dfb72c289a85546a83d2f80d406deddf69c152",
       "origin": "machine",
-      "message": "Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers."
+      "message": "Repara um executor ou hipervisor travado neste hospedeiro. As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera."
     },
     "status.host_refresh_progress": {
       "sourceHash": "f4070f825719d309006f68db81e14c31c0539d1df577f3328073338e73164f63",
       "origin": "machine",
-      "message": "Refresh {requestId}: step {step} of {count} ({stepName}), up to {remainingSeconds} seconds left."
+      "message": "Atualização {requestId}: etapa {step} de {count} ({stepName}), até {remainingSeconds} segundos restantes."
     },
     "status.host_refresh_recovery_pending": {
       "sourceHash": "fdffa422bcdf33e553308a1ee2811d9d03c5020e5bc1ffb68344ce7430b24cc9",
       "origin": "machine",
-      "message": "Services or the runner still need restoring. Retry resumes the same request."
+      "message": "Serviços ou o executor ainda precisam ser restaurados. Tentar novamente retoma a mesma solicitação."
     },
     "status.host_refresh_rejected": {
       "sourceHash": "36d39c63373a68279a159e35c7e503fbece467ea263e58588c95e81a3a8e10b7",
       "origin": "machine",
-      "message": "The host rejected the refresh request: {detail}"
+      "message": "O hospedeiro rejeitou a solicitação de atualização: {detail}"
     },
     "status.host_refresh_retry": {
       "sourceHash": "0652202c1a5f16f4b6edf8ce72290f62b7c19495dbaf4b9e33d051c0c15e9ff7",
       "origin": "machine",
-      "message": "Retry"
+      "message": "Tentar novamente"
     },
     "status.host_refresh_stale": {
       "sourceHash": "9c37138e39a2370139984ac58a67e01d78c7f7404a97b6eb8a4d57f040a2661f",
       "origin": "machine",
-      "message": "Refresh {requestId}: no progress report for {seconds} seconds. The worker may have stopped; check the host before starting another repair."
+      "message": "Atualização {requestId}: nenhum relatório de progresso há {seconds} segundos. O processo de trabalho pode ter parado; verifique o hospedeiro antes de iniciar outro reparo."
     },
     "status.host_refresh_start": {
       "sourceHash": "27b87fc90c23120cebb056358cfeb8658af53847046cf53c28ebc704dea8e134",
       "origin": "machine",
-      "message": "Refresh host"
+      "message": "Atualizar hospedeiro"
     },
     "status.host_refresh_start_cycle_busy": {
       "sourceHash": "96b34d90f4619bc989f3c72999e183edfbe58819920becd934aa930ed1b59ae5",
       "origin": "machine",
-      "message": "A start-cycle request is in progress; try again when it finishes."
+      "message": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar."
     },
     "status.host_refresh_submitting": {
       "sourceHash": "517542e0aa19065c72df764f40d46adf463b73cf020696a7b3a7bd81e5e55978",
       "origin": "machine",
-      "message": "Sending the refresh request..."
+      "message": "Enviando a solicitação de atualização..."
     },
     "status.host_refresh_title": {
       "sourceHash": "d77727e001caaccb24b397e414affbd5b5629b4dd149987a5d08720e307d0ca2",
       "origin": "machine",
-      "message": "Host refresh"
+      "message": "Atualização do hospedeiro"
     },
     "status.host_refresh_unavailable": {
       "sourceHash": "54e71ffc2ae26845eec8bed3469f074c777e142faf0761131d6320ab19051b9c",
       "origin": "machine",
-      "message": "Host refresh is not available on this host ({reason})."
+      "message": "A atualização do hospedeiro não está disponível neste hospedeiro ({reason})."
     },
     "status.host_refresh_verdict_abandoned": {
       "sourceHash": "15274dc45a970e00ec860d5f0d83fcfa8075758860933b665f7f07cad204100a",
       "origin": "machine",
-      "message": "Refresh {requestId} was abandoned after repeated attempts; its recovery record is kept on the host."
+      "message": "A atualização {requestId} foi abandonada após tentativas repetidas; o registro de recuperação dela é mantido no hospedeiro."
     },
     "status.host_refresh_verdict_already_healthy": {
       "sourceHash": "512c1744f283a09d8f5848855cd8b1a0e23f5cc7dd915d4e74c04bd498b3913e",
       "origin": "machine",
-      "message": "Refresh {requestId} finished: the host was already healthy, so nothing was changed."
+      "message": "Atualização {requestId} concluída: o hospedeiro já estava íntegro, então nada foi alterado."
     },
     "status.host_refresh_verdict_failed": {
       "sourceHash": "70e923c1b5df48d2aa779a70c3b178a152a3fb0e34fd980303de12210333338f",
       "origin": "machine",
-      "message": "Refresh {requestId} failed ({reason})."
+      "message": "A atualização {requestId} falhou ({reason})."
     },
     "status.host_refresh_verdict_partial": {
       "sourceHash": "7ec24ee6933b95015b229b937272a1ea000911ba932831fc13ac8014862dbc53",
       "origin": "machine",
-      "message": "Refresh {requestId} ended incomplete ({reason}); some services or the runner still need attention."
+      "message": "A atualização {requestId} terminou incompleta ({reason}); alguns serviços ou o executor ainda precisam de atenção."
     },
     "status.host_refresh_verdict_refused": {
       "sourceHash": "e4861c26e35c89e46beca88b22fb2752f8ed11474acd445bcd27e988e80cea18",
       "origin": "machine",
-      "message": "Refresh {requestId} was refused before any change ({reason})."
+      "message": "A atualização {requestId} foi recusada antes de qualquer alteração ({reason})."
     },
     "status.host_refresh_verdict_repaired": {
       "sourceHash": "63ed8dc658f67612c9960e246669a08bd976be588b76079fea2c4fac3537ef50",
       "origin": "machine",
-      "message": "Refresh {requestId} finished: the host was repaired and the runner is ready."
+      "message": "Atualização {requestId} concluída: o hospedeiro foi reparado e o executor está pronto."
     },
     "status.host_refresh_verdict_still_unresponsive": {
       "sourceHash": "6c20d4b5e9d4d9e24bbb2705d2b504185dcbe260b909b7b1aee8ff674363f431",
       "origin": "machine",
-      "message": "Refresh {requestId} ended: the hypervisor still does not respond."
+      "message": "Atualização {requestId} encerrada: o hipervisor ainda não responde."
     },
     "status.host_refresh_verdict_unknown": {
       "sourceHash": "5f03881897779c9885487edb448fac62b64974d577215d7d38532012b81d2a32",
       "origin": "machine",
-      "message": "Refresh {requestId} ended with an outcome this page does not recognize ({verdict})."
+      "message": "A atualização {requestId} terminou com um resultado que esta página não reconhece ({verdict})."
     },
     "status.host_refresh_waiting": {
       "sourceHash": "c8a793b93748a78c11e2a49d45b020be9971edffe2a43bbed62860fc4e58ab15",
       "origin": "machine",
-      "message": "Refresh {requestId} was accepted; waiting for the worker's first report."
+      "message": "A atualização {requestId} foi aceita; aguardando o primeiro relatório do worker."
     },
     "status.host_refresh_waiting_long": {
       "sourceHash": "ebfb71153041df44ffd6e31c1c58f38115e179c8bbc1253f23cf31f506284909",
       "origin": "machine",
-      "message": "Refresh {requestId}: no report after {seconds} seconds. The worker may have failed to start; check the host."
+      "message": "Atualização {requestId}: nenhum relatório após {seconds} segundos. O worker pode ter falhado ao iniciar; verifique o hospedeiro."
     },
     "status.start_cycle_blocked_by_refresh": {
       "sourceHash": "3897b3a96059016fb7fb36fe7f1ffb9aa9de34ec5ec7e7071353437bae5eedb4",
       "origin": "machine",
-      "message": "A host refresh ({requestId}) is in progress; the cycle cannot start until it finishes."
+      "message": "Uma atualização do hospedeiro ({requestId}) está em andamento; o ciclo não pode iniciar até que ela termine."
     },
     "status.start_cycle_cycle_restarted": {
       "sourceHash": "777f87538467b94b76119cfba7f06cf9b399e88621f084591bfdcc89ec5b5eba",
       "origin": "machine",
-      "message": "Cycle restarted"
+      "message": "Ciclo reiniciado"
     },
     "status.start_cycle_failed": {
       "sourceHash": "3a056f2340554ab93603f39e56ae0fcd3abfb9afac0a8325edcfb059940f0929",
       "origin": "machine",
-      "message": "Start-cycle failed ({reason})."
+      "message": "Falha em start-cycle ({reason})."
     },
     "status.start_cycle_no_report": {
       "sourceHash": "0dcf50e7f8ed17d2327243ae2a8ee522c28a36e93a4230eeb89d5b5280a8f70f",
       "origin": "machine",
-      "message": "Start-cycle {operationId} has not reported after {seconds} seconds; check the host."
+      "message": "start-cycle {operationId} não reportou após {seconds} segundos; verifique o hospedeiro."
     },
     "status.start_cycle_not_spawned": {
       "sourceHash": "3101d0e30a6dd60ecf87a31369713f8c55ccabbb7b4605455fda09b3b2f9f158",
       "origin": "machine",
-      "message": "The cycle restart was requested, but the runner's state could not be confirmed, so no second runner was started ({reason}). A running runner restarts its cycle; if none is running, start it on the host."
+      "message": "A reinicialização do ciclo foi solicitada, mas não foi possível confirmar o estado do runner, então nenhum segundo runner foi iniciado ({reason}). Um runner em execução reinicia seu ciclo; se nenhum estiver em execução, inicie-o no hospedeiro."
     },
     "status.start_cycle_queued": {
       "sourceHash": "fcc2f0ce8fc2d1fb6c09522be088f3f85e935af5deef316d82ce2e1df9ba89ca",
       "origin": "machine",
-      "message": "Start-cycle accepted; stopping in-progress VMs and starting the runner..."
+      "message": "start-cycle aceito; parando as VMs em andamento e iniciando o runner..."
     },
     "status.start_cycle_runner_started": {
       "sourceHash": "58f43380871f4e102a1123638c086cfad39c13e95373d64d4998efcc78ff4227",
       "origin": "machine",
-      "message": "Runner started"
+      "message": "Runner iniciado"
     }
   }
 }

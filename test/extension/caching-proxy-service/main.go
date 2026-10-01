@@ -19,10 +19,13 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+	"yuruna.com/test/extension/extension-sdk/jsonbody"
 
 	"yuruna.com/test/extension/extension-sdk/beacon"
+	"yuruna.com/test/extension/extension-sdk/hostinfo"
 	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/labgate"
 	"yuruna.com/test/extension/extension-sdk/pool"
@@ -110,7 +113,7 @@ func main() {
 		noUpstreamHelper: noUpstreamHelper,
 		offlinePath:      offlineConfPath,
 		noUpstreamPath:   noUpstreamConfPath,
-		run:              runCommand,
+		run:              runCommandUnbounded,
 		parserURL:        strings.TrimRight(*parserURL, "/"),
 		aggregatorURL:    strings.TrimRight(*aggregatorURL, "/"),
 		grafanaURL:       strings.TrimRight(*grafanaURL, "/"),
@@ -244,7 +247,7 @@ func (d *daemon) handleHostInfo(w http.ResponseWriter, _ *http.Request) {
 		"localHostId": d.hostID,
 		"version":     version,
 		"mode":        string(d.mode),
-		"serverIps":   serverIPLines(),
+		"serverIps":   hostinfo.IPLines(),
 	})
 }
 
@@ -269,13 +272,22 @@ func (d *daemon) handleSession(w http.ResponseWriter, r *http.Request) {
 func (d *daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 	locale := localizedPages().Negotiator.Resolve(r)
 	i18n.Apply(w.Header(), locale)
+	var squid SquidSummary
+	var switches SwitchState
+	var registry RegistryState
+	var pending sync.WaitGroup
+	pending.Add(3)
+	go func() { defer pending.Done(); squid = d.squid.summary() }()
+	go func() { defer pending.Done(); switches = d.readSwitches() }()
+	go func() { defer pending.Done(); registry = d.registry.state(locale) }()
+	pending.Wait()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
 		"mode":     string(d.mode),
 		"version":  version,
-		"squid":    d.squid.summary(),
-		"switches": d.readSwitches(),
-		"registry": d.registry.state(locale),
+		"squid":    squid,
+		"switches": switches,
+		"registry": registry,
 	})
 }
 
@@ -315,7 +327,7 @@ func (d *daemon) applySwitch(w http.ResponseWriter, r *http.Request, apply func(
 	var body struct {
 		On *bool `json:"on"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBytes)).Decode(&body); err != nil {
+	if err := jsonbody.Decode(r.Body, &body, maxRequestBytes, false); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON with an \"on\" boolean")
 		return
 	}
@@ -384,66 +396,7 @@ func uiPort(addr string) int {
 	return n
 }
 
-// serverIPLines returns this host's non-loopback, non-link-local unicast IPs as
-// up to two newline-separated lines: IPv4 (comma-joined) then IPv6. Same shape
-// as every other daemon's /api/hostinfo, so one reader handles all of them.
-func serverIPLines() string {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-	var v4, v6 []string
-	for _, iface := range ifaces {
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, a := range addrs {
-			ipnet, ok := a.(*net.IPNet)
-			if !ok || ipnet.IP.IsLoopback() || ipnet.IP.IsLinkLocalUnicast() || !ipnet.IP.IsGlobalUnicast() {
-				continue
-			}
-			if ipnet.IP.To4() != nil {
-				v4 = append(v4, ipnet.IP.String())
-			} else {
-				v6 = append(v6, ipnet.IP.String())
-			}
-		}
-	}
-	var lines []string
-	if s := commaJoinUnique(v4); s != "" {
-		lines = append(lines, s)
-	}
-	if s := commaJoinUnique(v6); s != "" {
-		lines = append(lines, s)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func commaJoinUnique(in []string) string {
-	seen := map[string]bool{}
-	var out []string
-	for _, s := range in {
-		if seen[s] {
-			continue
-		}
-		seen[s] = true
-		out = append(out, s)
-	}
-	if len(out) == 0 {
-		return ""
-	}
-	sortStrings(out)
-	return strings.Join(out, ",")
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
-}
+func serverIPLines() string { return hostinfo.IPLines() }
 
 // routeRecentRequests republishes the parser daemon's live tail of squid's
 // access log. It exists on THIS service, not on the parser, because the parser

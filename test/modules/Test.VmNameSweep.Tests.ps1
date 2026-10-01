@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e0baf3-f2f9-48ca-aa27-fcf4d1a9763e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,8 +23,7 @@
     (Resolve-CleanupVmNamePrefix), and the Get-VMName contract coverage
     every host driver must provide.
 .DESCRIPTION
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4
-    and Pester 5+. Every case is driven from in-memory names and config
+    Throw-based assertions so the file runs under Pester 5+. Every case is driven from in-memory names and config
     hashtables -- no hypervisor is queried -- so the sweep logic stays
     testable on a host with no VMs and no utmctl/virsh/Hyper-V.
     Run: Invoke-Pester -Path test/modules/Test.VmNameSweep.Tests.ps1

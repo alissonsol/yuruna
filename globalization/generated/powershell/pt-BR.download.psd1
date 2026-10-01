@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 428a3b66-dbc3-5faf-a80e-e2c881bca489
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -147,7 +147,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ")?`n`nA próxima requisição da máquina ou o passe de sementes volta a transferi- la da origem. As máquinas mantêm as suas cópias locais."
+        ")?`n`nA próxima requisição da máquina ou o passe de sementes volta a transferi-la da origem. As máquinas mantêm as suas cópias locais."
     )
     'download.diagnostics' = 'Diagnósticos'
     'download.diagnostics_load_failed_value1' = @(
@@ -360,7 +360,7 @@
     'download.interpreter' = 'Interpretador'
     'download.interpreter_and_script_present_resolves_are_attempted' = 'Interpretador e script presente; soluções são tentadas.'
     'download.ips' = 'IPs:'
-    'download.lab_token' = 'Token de laboratório'
+    'download.lab_token' = 'Token do laboratório'
     'download.last_pass_failed_value1' = @(
         'Falha na última passagem: '
         @{
@@ -422,7 +422,7 @@
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' no servidor para habilitá- lo.'
+        ' no servidor para habilitá-lo.'
     )
     'download.no_aggregator_url_and_no_internal_authentication_key_are_configur_cb1dd86e' = @(
         'Nenhum URL agregador e nenhuma chave de autenticação interna estão configurados, então Forçar atualização, Excluir e Pruna estão desativados. Defina '
@@ -440,7 +440,7 @@
         ' no servidor para os permitir.'
     )
     'download.no_aggregator_url_or_internal_authentication_key_configured_on_th' = 'Nenhum URL agregador ou chave de autenticação interna configurada no servidor'
-    'download.no_pool_entries_yet_the_scanner_seeds_the_pool_on_its_next_pass_o' = 'Ainda não existem itens do pool. O scanner semeia o pool na sua próxima passagem, ou usa o Forçar a actualização numa linha para iniciar um agora.'
+    'download.no_pool_entries_yet_the_scanner_seeds_the_pool_on_its_next_pass_o' = 'Ainda não existem itens do pool. O scanner semeia o pool na sua próxima passagem, ou usa o Forçar a atualização numa linha para iniciar um agora.'
     'download.no_previous' = 'nenhum anterior'
     'download.no_remembered_refresh_errors' = 'Nenhum erro de atualização lembrado.'
     'download.no_resolver' = 'sem resolução'
@@ -450,8 +450,8 @@
     'download.on' = 'ligado'
     'download.pages' = 'Páginas'
     'download.pause' = 'Pausa'
-    'download.pool' = 'Piscina'
-    'download.pool_bytes' = 'bytes de piscina'
+    'download.pool' = 'Grupo'
+    'download.pool_bytes' = 'bytes de grupo'
     'download.previous_value1' = @(
         @{
             'arg' = 'value1'
@@ -561,7 +561,7 @@
     'download.running_a_resolve_can_take_up_to_3_minutes' = 'Correr — uma resolução pode levar até 3 minutos...'
     'download.runs_the_vendored_fido_once_with_the_exact_parameters_a_resolve_u' = "Executa o Fido vendido uma vez com os parâmetros exatos que uma solução usa.`nEle menta um URL assinado e não baixa nada, mas cada execução gasta um`nSessão Microsoft (seus servidores rate-ban chatty endereços), então use-o para`ndiagnosticar, não pesquisar. Um teste bem sucedido limpa uma falha lembrada em`no local; um falhou o rearma."
     'download.scanner' = 'Scanner'
-    'download.six_character_lab_token_from_the_dashboard' = 'Token de laboratório de seis caracteres do painel'
+    'download.six_character_lab_token_from_the_dashboard' = 'Token do laboratório de seis caracteres do painel'
     'download.size_current_previous' = 'Tamanho (atual / anterior)'
     'download.skipped_value1' = @(
         'pulou: '
@@ -598,7 +598,7 @@
     'download.test_amd64_resolve' = 'Resolução do teste amd64'
     'download.test_arm64_resolve' = 'Determinação do braço de ensaio64'
     'download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti' = 'O código de 6 caracteres na peça de token do painel do Yuruna; ambos funcionam em maiúsculas ou minúsculas. Necessário apenas para o teste de resolução abaixo -- tudo o mais nesta página é somente leitura.'
-    'download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti_c3e28ca2' = 'O código de 6 caracteres no painel do Yuruna hospeda o token azulejo do laboratório; ambos funcionam em maiúsculas ou minúsculas. O agregador do pool verifica- o e ele gira, então um código anotado na semana passada não abrirá nada.'
+    'download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti_c3e28ca2' = 'O código de 6 caracteres no painel do Yuruna hospeda o token azulejo do laboratório; ambos funcionam em maiúsculas ou minúsculas. O agregador do pool verifica-o e ele gira, então um código anotado na semana passada não abrirá nada.'
     'download.the_last_remembered_refresh_failure_per_pool_entry_newest_first_t' = 'A última falha de atualização lembrada por entrada do pool, mais recente primeiro. Estes são os erros por trás de um crachá falhado na página do pool.'
     'download.the_pool_share_is_not_available_the_agent_still_answers_metadata_' = 'O compartilhamento do pool não está disponível. O agente ainda responde aos metadados, mas nada pode ser baixado ou servido até que esteja montado.'
     'download.this_folder' = 'esta pasta'

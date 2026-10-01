@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,11 +21,14 @@
     Pester coverage for Invoke-Remediation's inner-cause routing and the
     enriched handler Context (Test.Remediation.psm1).
 .DESCRIPTION
-    Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+). Uses the real
+    Throw-based assertions (Pester 5+). Uses the real
     built-in recovery handlers so the routing decision is exercised end to end.
 #>
 
 BeforeAll {
+$script:PriorRemediationLog = $env:YURUNA_LOG_DIR
+$env:YURUNA_LOG_DIR = Join-Path $TestDrive 'remediation-log'
+$null = New-Item -ItemType Directory -Path $env:YURUNA_LOG_DIR -Force
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Remediation.psm1'
 Import-Module (Join-Path $here 'Test.FailureTaxonomy.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
@@ -34,6 +37,11 @@ if (Get-Command Register-BuiltinRecoveryHandler -ErrorAction SilentlyContinue) {
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
+}
+
+AfterAll {
+    if ($null -eq $script:PriorRemediationLog) { Remove-Item -LiteralPath Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue }
+    else { $env:YURUNA_LOG_DIR = $script:PriorRemediationLog }
 }
 
 Describe 'Invoke-Remediation inner-cause routing' {

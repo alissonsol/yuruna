@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421af4b2-1e1d-4a6c-80fe-e53a2fb240b8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,7 +224,8 @@ Describe 'the host-side release, for the kills no shutdown unit sees' {
         # for a reason that is visible on the call itself.
         $calls = @([regex]::Matches($script:InnerLoop, '(?m)^\s*Remove-GuestVMQuietly[^\r\n]*$') |
                    ForEach-Object { $_.Value.Trim() })
-        $calls.Count | Should -BeGreaterThan 4 -Because 'the sweep must find the teardown sites'
+        # The keyed teardown lives in one shared helper; the other calls are the two emergency paths and the skip-stop path.
+        $calls.Count | Should -BeGreaterThan 3 -Because 'the sweep must find the teardown sites'
         foreach ($c in $calls) {
             if ($c -match '-GuestKey') { continue }
             # -SkipStop: the VM is not running, so there is nobody to ask.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,12 +103,11 @@ $script:RecommendationEnum = @(
 # effect is to end the post-failure pause early, which is the wrong answer for
 # a credential nobody has fixed yet.
 $script:AutoRemediationAllowList = [ordered]@{
-    # The transient four: the condition is external and usually gone by the
+    # The transient three: the condition is external and usually gone by the
     # next attempt, so the retry IS the repair.
     'wait_timeout'           = (Format-YurunaOperatorMessage -Key 'remediation.operator_b9e5f8c44bec51fc')
     'network_timeout'        = (Format-YurunaOperatorMessage -Key 'remediation.operator_4046c1f6949f7aad')
     'ip_not_discovered'      = (Format-YurunaOperatorMessage -Key 'remediation.operator_787985aef3c53e0a')
-    'host_network_degraded'  = (Format-YurunaOperatorMessage -Key 'remediation.operator_a3827909e7a01825')
     # Backed by a Repair-* primitive that is safe to run twice.
     'instrumentation_failure' = (Format-YurunaOperatorMessage -Key 'remediation.operator_36573af397a13ade')
     'host_io_blocked'         = (Format-YurunaOperatorMessage -Key 'remediation.operator_70fab6da39ee36e1')

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42785eb2-7793-490d-933e-6ced2c275f4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -889,7 +889,7 @@ Describe 'Held-control barrier (Wait-YurunaHeldControlBarrier)' {
         $script:NoDelay = { param([int]$Attempt) $null = $Attempt; 100 }
     }
     AfterEach {
-        Remove-Item function:global:Invoke-LabHealthGate, function:global:Clear-LabHold, function:global:Test-LabHoldReleaseRequested -ErrorAction SilentlyContinue
+        Remove-Item function:Invoke-LabHealthGate, function:global:Clear-LabHold, function:global:Test-LabHoldReleaseRequested -ErrorAction SilentlyContinue
     }
     It 'parks on each pause flag until its consumer removes it, refreshing the heartbeat, with the guest disk untouched' {
         foreach ($flag in @('control.cycle-pause', 'control.step-pause', 'control.pause')) {
@@ -975,7 +975,7 @@ Describe 'Preflight inner helpers' {
             if ($null -eq $script:SavedEnv[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
             else { [Environment]::SetEnvironmentVariable($name, $script:SavedEnv[$name]) }
         }
-        Remove-Item function:global:Test-VirtualizationResponsive, function:global:Initialize-YurunaHost, function:global:Write-RunnerPhase -ErrorAction SilentlyContinue
+        Remove-Item function:Test-VirtualizationResponsive, function:global:Initialize-YurunaHost, function:global:Write-RunnerPhase -ErrorAction SilentlyContinue
     }
     It 'reads the refresh role from the environment' {
         Assert-Equal -Expected 'normal' -Actual (Get-YurunaRefreshInnerMode -RuntimeDir $script:Work).Mode
@@ -1075,7 +1075,7 @@ Describe 'Inner cycle gate sites' {
     }
     AfterEach {
         if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
-        Remove-Item function:global:Invoke-GitPull, function:global:Assert-HostConditionSet, function:global:Initialize-HostDisplay, function:global:Initialize-HostMetricsExporter -ErrorAction SilentlyContinue
+        Remove-Item function:Invoke-GitPull, function:global:Assert-HostConditionSet, function:global:Initialize-HostDisplay, function:global:Initialize-HostMetricsExporter -ErrorAction SilentlyContinue
         Remove-Variable __innerCalls -Scope Global -ErrorAction SilentlyContinue
     }
     It 'ends the cycle at its start, before any host work, while the gate holds; counters untouched' {

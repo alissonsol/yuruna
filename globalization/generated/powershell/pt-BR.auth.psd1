@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 420a0423-fafa-7721-4716-d28f53ebb854
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,7 +44,7 @@
     'auth.detail_unconfigured' = 'nenhum token de autenticação de laboratório e nenhum URL agregador configurado'
     'auth.detail_unreachable' = 'não alcançável'
     'auth.encode_refusal' = 'o portão não poderia codificar sua recusa'
-    'auth.login_unavailable' = 'nenhum URL agregador está configurado, então o agregador de pool não pode verificar um token de laboratório; as ações permanecem bloqueadas'
+    'auth.login_unavailable' = 'nenhum URL agregador está configurado, então o agregador de pool não pode verificar um token do laboratório; as ações permanecem bloqueadas'
     'auth.malformed_request' = 'organismo de pedido mal formado'
     'auth.proof_check_failed' = @(
         'não foi possível verificar a prova de controlo ('
@@ -70,9 +70,9 @@
     )
     'auth.refresh_unconfigured' = 'A atualização remota do hospedeiro está desativada: este serviço não tem credencial de atualização provisionada.'
     'auth.route_disabled' = 'nenhum token de autenticação de laboratório configurado; esta rota está desabilitada'
-    'auth.session_required' = 'sessão de token de laboratório ou token de autenticação de laboratório necessário'
+    'auth.session_required' = 'sessão de token do laboratório ou token de autenticação de laboratório necessário'
     'auth.token_check_failed' = @(
-        'o agregador de grupos não pôde verificar o token de laboratório ('
+        'o agregador de grupos não pôde verificar o token do laboratório ('
         @{
             'arg' = 'detail'
             'type' = 'detail'
@@ -80,6 +80,6 @@
         }
         '); as ações permanecem bloqueadas'
     )
-    'auth.token_incorrect' = 'token de laboratório incorreto'
-    'auth.token_shape' = 'o token de laboratório é o código de 6 caracteres na telha do token de laboratório do painel'
+    'auth.token_incorrect' = 'token do laboratório incorreto'
+    'auth.token_shape' = 'o token do laboratório é o código de 6 caracteres na telha do token do laboratório do painel'
 }

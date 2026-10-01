@@ -29,7 +29,7 @@ func TestCLIErrorFromStdout(t *testing.T) {
 		},
 		{
 			name:   "a successful document carries no error to surface",
-			stdout: `{"ok":true,"pools":[],"testSets":[]}`,
+			stdout: `{"ok":true,"pools":[],"autoEnrollment":{"enabled":false,"targetPoolId":"","excluded":[]}}`,
 			want:   "",
 		},
 		{
@@ -65,5 +65,23 @@ func TestRemoveHostExclusionArguments(t *testing.T) {
 	argv = strings.Join(result.Argv, " ")
 	if !strings.Contains(argv, "-PoolId lab") || strings.Contains(argv, "-Exclude") {
 		t.Fatalf("ordinary removal arguments: %v", result.Argv)
+	}
+}
+
+// Setting and clearing a pool's repositories run one CLI with disjoint flags.
+// TestRunnerFlagsMatchScriptParameters proves each flag exists on the script;
+// this proves which flags each method sends, so a clear can never carry a URL
+// and a set can never be read as a clear.
+func TestPoolRepositoriesArguments(t *testing.T) {
+	r := &Runner{Pwsh: "nonexistent-fixture-pwsh", RepoDir: t.TempDir()}
+	argv := strings.Join(r.SetPoolRepositories(context.Background(), "lab", "https://f", "https://p").Argv, " ")
+	if !strings.Contains(argv, "pool/Set-PoolRepository.ps1 -PoolId lab -FrameworkUrl https://f -ProjectUrl https://p") ||
+		strings.Contains(argv, "-Clear") || strings.Contains(argv, "-Name") {
+		t.Fatalf("set arguments: %s", argv)
+	}
+	argv = strings.Join(r.ClearPoolRepositories(context.Background(), "lab").Argv, " ")
+	if !strings.Contains(argv, "pool/Set-PoolRepository.ps1 -PoolId lab -Clear") ||
+		strings.Contains(argv, "-FrameworkUrl") || strings.Contains(argv, "-ProjectUrl") {
+		t.Fatalf("clear arguments: %s", argv)
 	}
 }

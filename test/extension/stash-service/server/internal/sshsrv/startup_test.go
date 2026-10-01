@@ -4,9 +4,12 @@
 package sshsrv
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/crypto/ssh"
 
 	"stash-service/internal/config"
 	"stash-service/internal/id"
@@ -51,8 +54,18 @@ func TestNewStartsWhenShareUnwritable(t *testing.T) {
 	}
 	// The host key must have landed on the VM-local fallback (under buffer/).
 	fallback := filepath.Join(buf.Folder, config.HostKeyDirName, config.HostKeyFileName)
-	if _, err := os.Stat(fallback); err != nil {
+	key, err := os.ReadFile(fallback)
+	if err != nil {
 		t.Fatalf("fallback host key not written under buffer: %v", err)
+	}
+	if _, err := ssh.ParsePrivateKey(key); err != nil {
+		t.Fatalf("fallback host key is invalid: %v", err)
+	}
+	if _, err := New(st, buf, m, ids); err != nil {
+		t.Fatalf("offline restart: %v", err)
+	}
+	if got, err := os.ReadFile(fallback); err != nil || !bytes.Equal(got, key) {
+		t.Fatalf("offline restart changed the host key: %v", err)
 	}
 }
 
@@ -69,12 +82,16 @@ func TestHostKeyFailLoudOnCorruptShareKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	fallback := filepath.Join(tmp, "buffer", "hostkey", "key")
+	_, localKey := seedHostKey(t, fallback)
 	if _, err := loadOrGenerateHostKey(primary, fallback); err == nil {
 		t.Fatal("expected an error for a present-but-corrupt share key, got nil (key would have been overwritten)")
 	}
 	// The corrupt key must be left intact (not overwritten with a fresh one).
 	if b, _ := os.ReadFile(primary); string(b) != "not a valid pem key" {
 		t.Fatal("present share key was overwritten despite being unreadable")
+	}
+	if got, err := os.ReadFile(fallback); err != nil || !bytes.Equal(got, localKey) {
+		t.Fatalf("local key changed despite corrupt primary: %v", err)
 	}
 }
 
@@ -110,5 +127,33 @@ func TestHostKeyPromotedFromFallback(t *testing.T) {
 	}
 	if string(got) != string(validKey) {
 		t.Fatal("promoted key differs from the fallback key")
+	}
+}
+
+func TestHostKeyReusesFallbackWithBlockedShare(t *testing.T) {
+	tmp := t.TempDir()
+	blocker := filepath.Join(tmp, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fallback := filepath.Join(tmp, "local", "key")
+	seed, err := loadOrGenerateHostKey(fallback, filepath.Join(tmp, "unused", "key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := loadOrGenerateHostKey(filepath.Join(blocker, "hostkey", "key"), fallback)
+	if err != nil {
+		t.Fatalf("existing local key must allow offline startup: %v", err)
+	}
+	if ssh.FingerprintSHA256(signer.PublicKey()) != ssh.FingerprintSHA256(seed.PublicKey()) {
+		t.Fatal("offline startup changed the local identity")
+	}
+	got, err := os.ReadFile(fallback)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("local key changed: %v", err)
 	}
 }

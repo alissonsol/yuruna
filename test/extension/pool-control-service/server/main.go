@@ -2,23 +2,21 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Command pool-control-service is the Yuruna pool-control service daemon: a small HTTP service
-// that serves a 3-page UI (assign test-sets to pools; pools CRUD; test-sets
-// CRUD) and drives the pool-intent git store by shelling out to the PowerShell
-// pool-admin CLIs. It self-announces to the pool-aggregator service (beacon) so it shows
-// up in the Extension hosts table, exactly like the stash service.
+// that serves the operator UI (board, hosts, pools, scan, diagnostics) and drives
+// the pool-intent git store by shelling out to the PowerShell pool-admin CLIs. It
+// self-announces to the pool-aggregator service (beacon) so it shows up in the
+// Extension hosts table, exactly like the stash service.
 package main
 
 import (
 	"context"
 	"flag"
 	"log"
-	"net"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
+	"yuruna.com/test/extension/extension-sdk/servicecfg"
 
 	"pool-control-service/internal/config"
 	"pool-control-service/internal/discovery"
@@ -162,24 +160,14 @@ func run() error {
 // readTokenFile loads the internal authentication key; an absent or unreadable
 // file leaves bearer auth simply unconfigured rather than failing startup.
 func readTokenFile(path string) string {
-	if strings.TrimSpace(path) == "" {
-		return ""
-	}
-	b, err := os.ReadFile(path)
+	token, source, err := servicecfg.ReadAuthToken(path, config.DefaultAuthTokenFile, config.LegacyAuthTokenFile)
 	if err != nil {
-		// Only the untouched default falls back. An operator who named a path
-		// meant that path, and quietly reading a different file would hand the
-		// service a bearer they never pointed it at.
-		if path == config.DefaultAuthTokenFile {
-			if lb, lerr := os.ReadFile(config.LegacyAuthTokenFile); lerr == nil {
-				log.Printf("pool-control-service: internal auth key read from %s; rebuild this VM to move it to %s", config.LegacyAuthTokenFile, config.DefaultAuthTokenFile)
-				return strings.TrimSpace(string(lb))
-			}
-		}
 		log.Printf("pool-control-service: internal auth key file %s unreadable (%v); bearer auth disabled", path, err)
-		return ""
 	}
-	return strings.TrimSpace(string(b))
+	if source == config.LegacyAuthTokenFile {
+		log.Printf("pool-control-service: internal auth key read from %s; rebuild this VM to move it to %s", source, config.DefaultAuthTokenFile)
+	}
+	return token
 }
 
 // readRefreshSecrets loads the refresh signing authority and the operator
@@ -199,14 +187,4 @@ func readRefreshSecrets(authorityFile, credentialFile, legacyToken string) ([]by
 // uiPort extracts the port from an addr like "0.0.0.0:80" for the beacon's
 // targetPort (0 = no deep-link). The aggregator derives the host from the
 // announce source address.
-func uiPort(addr string) int {
-	_, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		return 0
-	}
-	p, err := strconv.Atoi(portStr)
-	if err != nil {
-		return 0
-	}
-	return p
-}
+func uiPort(addr string) int { return servicecfg.UIPort(addr) }

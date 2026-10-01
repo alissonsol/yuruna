@@ -46,7 +46,7 @@ func brokenFido(t *testing.T) FidoConfig {
 }
 
 func TestAHandPlacedISOBecomesTheServedArtifact(t *testing.T) {
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.09.27"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.09.30"})
 	body := []byte("bytes an operator downloaded from Microsoft by hand")
 	dropFile(t, a.store, windowsID, signedName, body, 10*time.Minute)
 
@@ -276,5 +276,15 @@ func TestAFolderOutsideThePoolIsNeverRepublishedAsAShare(t *testing.T) {
 	// this agent actually uses, not from the first "/images/" in the string.
 	if got := shareFolder("//nas/share", "/srv/images/pool/images", "/srv/images/pool/images/a/b"); got != "//nas/share/images/a/b" {
 		t.Errorf("shareFolder = %q, want the path re-rooted at the images root, not at the first match", got)
+	}
+}
+
+func TestManualCandidateEqualTimeUsesName(t *testing.T) {
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "test"})
+	dropFile(t, a.store, windowsID, "z.iso", []byte("z"), 10*time.Minute)
+	want := dropFile(t, a.store, windowsID, "a.iso", []byte("a"), 10*time.Minute)
+	got, _, ok := a.store.ManualCandidate(windowsID, fixedNow)
+	if !ok || got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }

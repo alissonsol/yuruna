@@ -234,9 +234,9 @@
       "message": "לא ניתן לאמת את הסרת '{vMName}': הפקודה virsh list נכשלה: {join}"
     },
     "exceptions.host_dd6d74db4a58cc9d": {
-      "sourceHash": "6abcfec211648a1869e7a2d51448357284d6a8a19aa1580f170e3ff9efa1df27",
+      "sourceHash": "74545753fcd3a4a6118ef85ec230bc816833886dbd887643a7be8722573c0a49",
       "origin": "machine",
-      "message": "אי-התאמה בערך הגיבוב של ⁦Fido.ps1⁩ (גרסה מקובעת ⁦v1.70⁩): צפוי {fidoSha256}, התקבל {fidoActual}"
+      "message": "אי-התאמה בערך הגיבוב של ⁦Fido.ps1⁩ (גרסה מקובעת ⁦v1.71⁩): צפוי {fidoSha256}, התקבל {fidoActual}"
     },
     "exceptions.host_de8cc2205b118bfb": {
       "sourceHash": "8ecf9e8eb267a1c7a4ee79d92538e7659d39ceaefc70c4eb9d413e9ad8405df6",

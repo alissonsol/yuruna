@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42944d84-a340-428d-8b14-0273934cf4fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -240,7 +240,7 @@ function Get-UTMBundleUUID {
 Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_2a896884b1a21323' -Arguments @{ count = "$($registeredVMs.Count)" })
 Write-CleanupMessage ""
 
-$utmBundles = Get-ChildItem -Path $scanPath -Directory -Filter "*.utm" -ErrorAction SilentlyContinue
+$utmBundles = Get-ChildItem -LiteralPath $scanPath -Directory -Filter "*.utm" -ErrorAction SilentlyContinue
 $bundleMap = @{}
 foreach ($bundle in $utmBundles) {
     $vmName = $bundle.Name -replace '\.utm$', ''
@@ -259,7 +259,7 @@ foreach ($vmName in ($registeredVMs.Keys | Sort-Object)) {
 
     if ($bundleMap.ContainsKey($vmName)) {
         $bundlePath = $bundleMap[$vmName]
-        $bundleFiles = Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue
+        $bundleFiles = Get-ChildItem -LiteralPath $bundlePath -Recurse -File -ErrorAction SilentlyContinue
         foreach ($f in ($bundleFiles | Sort-Object FullName)) {
             $sizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
             Write-CleanupMessage "    $($f.FullName)  ($sizeStr)"
@@ -292,7 +292,7 @@ foreach ($vmName in $bundleMap.Keys) {
         }
     }
 
-    $bundleSize = (Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue |
+    $bundleSize = (Get-ChildItem -LiteralPath $bundlePath -Recurse -File -ErrorAction SilentlyContinue |
         Measure-Object -Property Length -Sum).Sum
     $itemSize = $bundleSize ?? 0
 
@@ -337,7 +337,7 @@ foreach ($item in $orphanedItems) {
     $totalSize += $item.Size
     $sizeStr = "{0:N2} GB" -f ($item.Size / 1GB)
     Write-CleanupMessage "  $($item.Path)  ($sizeStr)"
-    $bundleFiles = Get-ChildItem -Path $item.Path -Recurse -File -ErrorAction SilentlyContinue
+    $bundleFiles = Get-ChildItem -LiteralPath $item.Path -Recurse -File -ErrorAction SilentlyContinue
     foreach ($f in ($bundleFiles | Sort-Object FullName)) {
         $fSizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
         Write-CleanupMessage "    $($f.FullName)  ($fSizeStr)"
@@ -384,7 +384,7 @@ foreach ($item in $orphanedItems) {
             $errors++
             continue
         }
-        Remove-Item -Path $item.Path -Recurse -Force
+        Remove-Item -LiteralPath $item.Path -Recurse -Force -ErrorAction Stop
         Write-CleanupMessage "  Deleted: $($item.Path)"
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_33915575638287d2' -Arguments @{ path = "$($item.Path)"; value = "$_" })

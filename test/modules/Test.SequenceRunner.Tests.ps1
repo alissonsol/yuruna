@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b4e120-ffe3-4090-9478-c0444af48a73
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,7 @@
     pollution trap class (feedback_powershell_writeoutput_pipeline_pollution).
 
     No host I/O -- AST inspection and pure-function calls only -- so it runs under
-    OS-bundled Pester 3.4 / Pester 5+ with throw-based assertions.
+    Pester 5+ with throw-based assertions.
 #>
 
 BeforeAll {
@@ -85,39 +85,22 @@ function Get-CallArgumentAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.Ast])]
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Command, [Parameter(Mandatory)][string]$ParameterName)
-
-    $tokens = $null; $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-
-    $call = $ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $Command
-    }, $true) | Select-Object -First 1
-    if (-not $call) { throw "No '$Command' call found in $Path" }
-
-    $els = $call.CommandElements
-    for ($i = 0; $i -lt $els.Count; $i++) {
-        $el = $els[$i]
-        if ($el -is [System.Management.Automation.Language.CommandParameterAst] -and $el.ParameterName -eq $ParameterName) {
-            if ($el.Argument) { return $el.Argument }
-            if ($i + 1 -lt $els.Count) { return $els[$i + 1] }
-        }
-    }
-    throw "No -$ParameterName argument found on the '$Command' call in $Path"
+    $ast = Get-YurunaTestFileAst -Path $Path
+    $wanted = $Command
+    $call = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq $wanted }, $true)
+    if (-not $call) { throw "No $Command call found in $Path" }
+    $argument = Get-YurunaTestCommandArgumentAst -Command $call -Name $ParameterName
+    if (-not $argument) { throw "No -$ParameterName argument found" }
+    return $argument
 }
 
 function Get-FunctionText {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$FunctionName)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-    $func = $ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $FunctionName
-    }, $true) | Select-Object -First 1
-    if (-not $func) { throw "Function '$FunctionName' not found in $Path" }
-    return $func.Extent.Text
+    $found = Get-YurunaTestFunctionAst -Path $Path -Name $FunctionName
+    if (-not $found) { throw "Function $FunctionName not found in $Path" }
+    return $found.Extent.Text
 }
 
 $script:planText = Get-FunctionText -Path $modulePath -FunctionName 'Resolve-TestSequencePlan'

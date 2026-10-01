@@ -60,8 +60,9 @@ surfaces up front rather than in the middle of a multi-gigabyte fetch.
 
 ## Activating it
 
-The agent activates the same way in **Standalone** and **Lab** mode: whenever
-pool storage is configured, `install/setup.ps1` runs the stop/start pair for it.
+With pool storage configured, `install/setup.ps1` runs the agent's stop/start
+pair by default in **Lab** mode. A **Standalone** host can start it by hand or
+set `downloadAgentService.enabled: true`.
 The step is non-critical -- a failed agent build never fails setup.
 
 To bring it up or rebuild it by hand:
@@ -85,7 +86,7 @@ pwsh test/service/Stop-DownloadAgentServiceVM.ps1   # tears the VM down; the poo
 3. **Delegates to `host/<platform>/guest.download-agent-service/New-VM.ps1`**,
    which builds the seed and the VM. The Go daemon is compiled **inside** the
    guest -- no host `go` toolchain is needed.
-4. **Waits for `:80` to actually serve**, up to 15 minutes. An IP is not "up":
+4. **Waits for `:80` to actually serve**, up to 45 minutes. An IP is not "up":
    the guest still has to install the toolchain, build the daemon, and mount the
    share. Override the budget with
    `YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS=<seconds>` -- useful for
@@ -538,7 +539,7 @@ script therefore forwards **host `:8082` to guest `:80`** and writes the marker'
 `downloadAgentServiceBaseUrl` as `http://<mac-lan-ip>:8082/`. On a bridged host
 the marker carries the VM's own address and no forward is needed.
 
-The port is fixed, not picked at run time: `:80` is the caching-proxy-service's
+The port is fixed, not picked at runtime: `:80` is the caching-proxy-service's
 CA-cert endpoint, `:2222` is the stash service, and `:8081` is the pool-control
 service.
 Asking for a port already forwarded would attach to that forwarder and publish
@@ -627,8 +628,8 @@ held only live credentials.
 
 The manual smoke test for the daemon build itself is
 `test/sequences/workload.guest.ubuntu.server.26.download-agent-service.yml`. It
-is standalone and deliberately **not** wired into any automated test-set: run it
-by hand to verify the daemon compiles and starts on a vanilla guest.
+is standalone and deliberately **not** listed in any project's `test.runner.yml`:
+run it by hand to verify the daemon compiles and starts on a vanilla guest.
 
 <a id="4268e4cb-0015"></a>
 
@@ -651,6 +652,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,9 +95,7 @@ Write-Verbose "All requirements met."
 # --- REGION: Resolve network interface for Bridged mode
 if ($NetworkMode -eq "Bridged") {
     if (-not $BridgeInterface) {
-        $routeOut = & route get default 2>/dev/null
-        $BridgeInterface = ($routeOut | Select-String 'interface:' |
-            ForEach-Object { ($_ -split ':\s*', 2)[1] }).Trim()
+        $BridgeInterface = Get-MacDefaultRouteInterface
         if (-not $BridgeInterface) {
             Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_84b2ff2c0bf73bc0')
             Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a57c3a4beb072a46')
@@ -225,28 +223,21 @@ if ($hostCores -lt 4) {
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 
-$PlistContent = (Get-Content -Raw $TemplatePath) `
-    -replace '__VM_NAME__',         $VMName `
-    -replace '__VM_UUID__',         $VmUuid `
-    -replace '__MAC_ADDRESS__',     $MacAddress `
-    -replace '__DISK_IDENTIFIER__', $DiskId `
-    -replace '__DISK_IMAGE_NAME__', 'disk.qcow2' `
-    -replace '__ISO_IDENTIFIER__',  $IsoId `
-    -replace '__ISO_IMAGE_NAME__',  "$VMName.iso" `
-    -replace '__SEED_IDENTIFIER__', $SeedId `
-    -replace '__SEED_IMAGE_NAME__', 'seed.iso' `
-    -replace '__CPU_COUNT__',       "$vmCores" `
-    -replace '__MEMORY_SIZE__',     '12288'
-
-Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
-
-$lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$lintOutput" })
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e25e0303ffb73b' -Arguments @{ utmDir = "$UtmDir" })
-    exit 1
+$plistValues = @{
+    '__VM_NAME__' = $VMName
+    '__VM_UUID__' = $VmUuid
+    '__MAC_ADDRESS__' = $MacAddress
+    '__DISK_IDENTIFIER__' = $DiskId
+    '__DISK_IMAGE_NAME__' = 'disk.qcow2'
+    '__ISO_IDENTIFIER__' = $IsoId
+    '__ISO_IMAGE_NAME__' = "$VMName.iso"
+    '__SEED_IDENTIFIER__' = $SeedId
+    '__SEED_IMAGE_NAME__' = 'seed.iso'
+    '__CPU_COUNT__' = "$vmCores"
+    '__MEMORY_SIZE__' = '12288'
 }
-Write-Verbose "config.plist validated OK."
+Write-UtmBundleConfiguration -TemplatePath $TemplatePath -BundlePath $UtmDir -Replacement $plistValues -Confirm:$false
+
 
 if ($NetworkMode -eq "Bridged") {
     # Each plutil call needs its own exit-code test: a failed -replace leaves

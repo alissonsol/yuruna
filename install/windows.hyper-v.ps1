@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -425,6 +425,7 @@ Get-ChildItem -LiteralPath $env:TEMP -Filter 'yuruna-windows-hyper-v-*.ps1' -Err
 
 if (-not $PSCommandPath) {
     $installerUrl = 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1'
+    if ($env:YurunaCacheContent) { $installerUrl += '?nocache=' + [uri]::EscapeDataString($env:YurunaCacheContent) }
     $matTmp = Join-Path $env:TEMP ('yuruna-windows-hyper-v-' + [guid]::NewGuid().ToString('N') + '.ps1')
     Write-Step 'Materializing installer to a temp file (single fetch; relaunches use -File)'
     $src = Invoke-RestMethod $installerUrl
@@ -1129,11 +1130,8 @@ function Backup-YurunaStatus {
         if ($extras) { $hasRuntime = $true; break }
     }
     if (-not $hasRuntime) { return }
-    # 4-digit entropy (10k possibilities) is weak by design: enough to
-    # defeat the deterministic-path symlink trap an attacker could lay
-    # at a predictable backup folder ahead of a known-time install, but
-    # still readable for the operator inspecting %TEMP%.
-    $script:YurunaStatusBackup = Join-Path $env:TEMP ("yuruna-status-backup-{0:D4}" -f (Get-Random -Maximum 10000))
+    # Each backup has a unique name and lives only until a successful restore.
+    $script:YurunaStatusBackup = Join-Path $env:TEMP ("yuruna-status-backup-{0}" -f [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $script:YurunaStatusBackup -Force | Out-Null
     Write-Step "Preserving test/status runtime state (cycle history, logs, perf, vault, captures, ssh keys)"
     Write-Step "  source : $src"
@@ -1141,7 +1139,7 @@ function Backup-YurunaStatus {
     foreach ($sub in $TestStatusSubdirs) {
         $subPath = Join-Path $src $sub
         if (Test-Path $subPath) {
-            Copy-Item -LiteralPath $subPath -Destination $script:YurunaStatusBackup -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item -LiteralPath $subPath -Destination $script:YurunaStatusBackup -Recurse -Force -ErrorAction Stop
         }
     }
 }
@@ -1154,14 +1152,18 @@ function Restore-YurunaStatus {
         if (Test-Path $bsub) {
             $dsub = Join-Path $dst $sub
             if (-not (Test-Path $dsub)) { New-Item -ItemType Directory -Path $dsub -Force | Out-Null }
-            Copy-Item -Path (Join-Path $bsub '*') -Destination $dsub -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item -Path (Join-Path $bsub '*') -Destination $dsub -Recurse -Force -ErrorAction Stop
         }
     }
     Remove-Item -LiteralPath $script:YurunaStatusBackup -Recurse -Force -ErrorAction SilentlyContinue
     $script:YurunaStatusBackup = $null
 }
 
-Backup-YurunaStatus
+try { Backup-YurunaStatus } catch {
+    if ($script:YurunaStatusBackup) { Remove-Item -LiteralPath $script:YurunaStatusBackup -Recurse -Force -ErrorAction SilentlyContinue }
+    $script:YurunaStatusBackup = $null
+    throw
+}
 
 # --- REGION: Tolerate a v / no-v tag mismatch
 # See https://yuruna.link/429fb30b-0007
@@ -1421,6 +1423,11 @@ $script:InstallSucceeded = $true
 } catch {
     $script:InstallError = $_
 } finally {
+    if ($script:YurunaStatusBackup) {
+        try { Restore-YurunaStatus } catch {
+            Write-Warning ("Runtime state restore failed; preserved backup remains at '{0}': {1}" -f $script:YurunaStatusBackup, $_.Exception.Message)
+        }
+    }
     # --- REGION: Done summary
     # See https://yuruna.link/429fb30b-001f
     Write-Output ''

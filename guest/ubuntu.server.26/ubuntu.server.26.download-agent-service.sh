@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/42e220c4-0005
@@ -44,6 +44,17 @@ else
   SERVICE_USER="${SERVICE_USER:-$(id -un)}"
 fi
 echo "Service user: $SERVICE_USER"
+# Load from the framework checkout even when this entry script was fetched to /tmp.
+SERVICE_LIB=''
+for candidate in "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" /home/*/yuruna; do
+  if [ -r "$candidate/automation/yuruna-service-bringup.sh" ]; then
+    SERVICE_LIB="$candidate/automation/yuruna-service-bringup.sh"; break
+  fi
+done
+[ -n "$SERVICE_LIB" ] || { echo "Missing framework automation/yuruna-service-bringup.sh" >&2; exit 1; }
+# shellcheck source=../../automation/yuruna-service-bringup.sh
+. "$SERVICE_LIB"
+
 
 # --- REGION: Service tunables
 # See https://yuruna.link/42fffc2c-000d
@@ -94,32 +105,13 @@ echo ""
 echo -e "\e[1;36m==== Package dependencies ====\e[0m"
 # libcap2-bin supplies setcap for the DIRECT (non-systemd) launch path; under
 # systemd the load-bearing grant is AmbientCapabilities (see the unit below).
-if command -v apt_retry >/dev/null 2>&1; then
-  apt_retry sudo apt-get update -y
-  apt_retry sudo apt-get install -y golang-go git cifs-utils wget ca-certificates libcap2-bin
-else
-  sudo apt-get update -y
-  sudo apt-get install -y golang-go git cifs-utils wget ca-certificates libcap2-bin
-fi
+yuruna_service_packages golang-go git cifs-utils wget ca-certificates libcap2-bin
 go version
 
 # --- REGION: Locate the daemon source
 # Avoid find|head: under pipefail the expected producer SIGPIPE aborts lookup.
 locate_repo_dir() {
-  local candidates=( "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" )
-  local home
-  for home in /home/*; do
-    [ -d "$home/yuruna" ] || continue
-    candidates+=("$home/yuruna")
-  done
-  local enlistment
-  for enlistment in "${candidates[@]}"; do
-    if [ -f "$enlistment/test/extension/download-agent-service/server/go.mod" ]; then
-      printf '%s' "$enlistment"
-      return 0
-    fi
-  done
-  return 1
+  yuruna_service_find_repo test/extension/download-agent-service/server
 }
 REPO_DIR="$(locate_repo_dir)" || {
   echo "download-agent-service: could not locate test/extension/download-agent-service/server/go.mod under any /home/*/yuruna." >&2
@@ -134,36 +126,12 @@ VERSION_STR=$(cat "$REPO_DIR/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
 # See https://yuruna.link/42e220c4-000f
 echo ""
 echo -e "\e[1;36m==== Building download-agent-service ($VERSION_STR) from $SERVER_DIR ====\e[0m"
-BUILD="$(mktemp -d /tmp/download-agent-service-build.XXXXXXXX)"
+BUILD="$(yuruna_service_stage "$SERVER_DIR" 'download-agent-service')"
 trap 'rm -rf -- "$BUILD"' EXIT
-cp -r "$SERVER_DIR" "$BUILD/server"
-SDK_DIR="$(cd "$SERVER_DIR/../.." && pwd)/extension-sdk"
-[ -f "$SDK_DIR/go.mod" ] || { echo "Could not find the extension SDK at $SDK_DIR." >&2; exit 1; }
-cp -r "$SDK_DIR" "$BUILD/extension-sdk"
-# This module has no external graph; do not run networked go mod tidy here.
-# Retry the build because a fresh module cache can still need the proxy.
-attempts=3
-delay=10
-for try in $(seq 1 "$attempts"); do
-  if ( cd "$BUILD/server" && go build -ldflags "-X main.version=$VERSION_STR" -o download-agent-service . ); then
-    break
-  fi
-  if [ "$try" -ge "$attempts" ]; then
-    echo "go build failed after $attempts attempts" >&2
-    exit 1
-  fi
-  echo "go build attempt $try/$attempts failed; retrying in ${delay}s..." >&2
-  sleep "$delay"
-  delay=$((delay * 2))
-done
+yuruna_service_build "$BUILD" 'download-agent-service' "$VERSION_STR"
 
 # --- REGION: Install the binary
-sudo install -m 0755 -o root -g root "$BUILD/server/download-agent-service" /usr/local/bin/download-agent-service
-# Fallback for a DIRECT (non-systemd) launch only: under the unit's
-# NoNewPrivileges=true the grant that reaches the daemon is AmbientCapabilities,
-# so a failure here is not fatal.
-# --- REGION: https://yuruna.link/42d69dfa-0025
-sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/download-agent-service || true
+yuruna_service_install "$BUILD/server/download-agent-service" /usr/local/bin/download-agent-service
 
 # --- REGION: Storage directories
 # Mount the pool NAS best-effort; the daemon reports an absent pool via /healthz.
@@ -272,16 +240,7 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now download-agent-service.service
 
-# Wait for the unit to settle: the Go runtime adds a few hundred ms before the
-# first listen, and a single sleep races that on a loaded first boot.
-for _ in 1 2 3 4 5 6; do
-  if sudo systemctl is-active --quiet download-agent-service.service; then
-    break
-  fi
-  sleep 1
-done
-
-if sudo systemctl is-active --quiet download-agent-service.service; then
+if yuruna_service_wait_active download-agent-service.service 6; then
   ss -ltnp '( sport = :80 )' 2>/dev/null | sed -n '1,4p' || true
   echo "FETCHED AND EXECUTED: download-agent-service.service active on $HTTP_ADDR (pool=$POOL_DIR state=${STATE_DIR:-off})"
 else

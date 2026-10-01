@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d4e5f6-7a8b-49c0-8d1e-2f3a4b5c6d7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,7 +64,6 @@ $script:HostRefreshTombstoneCap         = 512
 $script:HostRefreshTerminalKeep         = 8
 $script:HostRefreshMaxAttempts          = 3
 $script:HostRefreshObservationCap       = 16
-$script:HostRefreshIdentityToleranceMs  = [long]2000
 # Private copy of the request-id shape Test.HostRefreshAuth exports: the spawn
 # and admission paths must not depend on the authorization module, and a
 # parity test pins the two patterns equal.
@@ -203,23 +202,7 @@ function Get-HostRefreshProcessLiveness {
         [AllowNull()]$ProcessId,
         [AllowNull()]$StartTimeUnixMs
     )
-    $processNumber = 0
-    if ($null -eq $ProcessId -or -not [int]::TryParse("$ProcessId", [ref]$processNumber) -or $processNumber -le 0) { return 'unknown' }
-    $process = $null
-    try {
-        $process = [System.Diagnostics.Process]::GetProcessById($processNumber)
-    } catch [System.ArgumentException] {
-        return 'dead'
-    } catch {
-        return 'unknown'
-    }
-    $live = $null
-    try { $live = [long][DateTimeOffset]::new($process.StartTime).ToUnixTimeMilliseconds() } catch { $live = $null }
-    $recorded = [long]0
-    if ($null -eq $StartTimeUnixMs -or -not [long]::TryParse("$StartTimeUnixMs", [ref]$recorded) -or $recorded -le 0) { return 'unknown' }
-    if ($null -eq $live) { return 'unknown' }
-    if ([Math]::Abs($live - $recorded) -le $script:HostRefreshIdentityToleranceMs) { return 'alive' }
-    return 'dead'
+    return Get-YurunaProcessIdentityLiveness -ProcessId $ProcessId -StartTimeUnixMs $StartTimeUnixMs
 }
 
 function Get-HostRefreshPrivateFile {

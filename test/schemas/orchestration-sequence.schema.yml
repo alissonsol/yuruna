@@ -9,8 +9,7 @@ description: >
   (no `baseline:`, InvokeTestSequence steps) and hands it to
   Test.Orchestrator, which runs every inner sequence under ONE status.json
   cycle -- one top-level row per inner sequence, unified naming and pass/fail.
-  The local one-shot successor to the retired test-set manifest
-  (Test-SequenceSet.ps1). An inner sequence may be a guest sequence
+  An inner sequence may be a guest sequence
   (sequence.schema.yml: baseline + steps) or a host action (a `host:` block).
 
   Ownership + nesting: exactly one process -- the outermost -- owns the cycle

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -167,7 +167,7 @@ function Publish-ResourceListHelper {
                 Remove-Item -LiteralPath $workFolderNew -Recurse -Force
             }
             $null = New-Item -ItemType Directory -Force -Path $workFolderNew
-            Copy-Item -Path "$templateFolder/*" -Destination $workFolderNew -Recurse -Container -ErrorAction Stop
+            Copy-Item -Path "$templateFolder/*" -Destination $workFolderNew -Recurse -Container -Force -ErrorAction Stop
             if (Test-Path -LiteralPath $workFolderRoot) {
                 # Local state (including backups and named workspaces) is the
                 # authority for already-created resources; templates cannot replace it.
@@ -202,8 +202,10 @@ function Publish-ResourceListHelper {
             Set-Content -LiteralPath $completeMarker -Value ([DateTime]::UtcNow.ToString('o')) -Encoding utf8NoBOM -ErrorAction Stop
 
             Set-Item -Path Env:resourceName -Value ${resourceName}
-            $terraformVarsFile = Join-Path -Path $workFolder -ChildPath "terraform.tfvars"
-            $null = New-Item -Path $terraformVarsFile -ItemType File -Force
+            $terraformVarsFile = Join-Path -Path $workFolder -ChildPath "terraform.tfvars.json"
+            $legacyVarsFile = Join-Path $workFolder 'terraform.tfvars'
+            if (Test-Path -LiteralPath $legacyVarsFile) { Remove-Item -LiteralPath $legacyVarsFile -Force -ErrorAction Stop }
+            $resolvedTerraformVars = [ordered]@{}
             $terraformVars = [ordered]@{}
             foreach ($key in $globalVariables.Keys) {
                 $value = $globalVariables[$key]
@@ -226,11 +228,10 @@ function Publish-ResourceListHelper {
                     $value = $ExecutionContext.InvokeCommand.ExpandString($value)
                 }
                 if ([string]::IsNullOrEmpty($value)) { Write-Debug "WARNING: empty value for $key" }
-                $line = "$key = `"$value`""
-                Add-Content -Path $terraformVarsFile -Value $line
+                $resolvedTerraformVars[$key] = [string]$value
                 Set-Item -Path Env:$key -Value ${value}
-                Write-Debug "$line"
             }
+            [IO.File]::WriteAllText($terraformVarsFile, ($resolvedTerraformVars | ConvertTo-Json -Depth 32), [Text.UTF8Encoding]::new($false))
             Push-Location $workFolder -ErrorAction Stop
             try {
 

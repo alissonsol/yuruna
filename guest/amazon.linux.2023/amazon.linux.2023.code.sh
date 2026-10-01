@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -38,7 +38,7 @@ echo -e "\e[1;36m==== JDK (Amazon Corretto) ====\e[0m"
 # Amazon Corretto provides both x86_64 and aarch64 packages. Install the
 # newest Corretto devel package instead of a pinned major -- Corretto ships
 # only LTS majors, so "highest available" is the current LTS.
-CORRETTO_PKG=$(dnf -q repoquery --qf '%{name}\n' 'java-*-amazon-corretto-devel' 2>/dev/null | sort -Vu | tail -n1)
+CORRETTO_PKG=$(dnf_retry dnf -q repoquery --qf '%{name}\n' 'java-*-amazon-corretto-devel' | sort -Vu | tail -n1) || { echo 'ERROR: Corretto package discovery failed after retries' >&2; exit 1; }
 if [ -z "$CORRETTO_PKG" ]; then
   echo "ERROR: no java-*-amazon-corretto-devel package found in the repos" >&2
   exit 1
@@ -75,6 +75,7 @@ echo -e "\e[1;36m==== VS Code ====\e[0m"
 # The VS Code yum repo provides both x86_64 and aarch64 packages.
 # --- REGION: https://yuruna.link/4220a755-001e
 # arg1 = key file; remaining args = ALLOWED primary fingerprints, FIRST also required.
+if ! command -v _yuruna_verify_key_fpr >/dev/null 2>&1; then
 _yuruna_verify_key_fpr() {
     local keyfile="$1"; shift
     local required="${1^^}" allowed=("$@") present a fpr ok found=0
@@ -90,6 +91,7 @@ _yuruna_verify_key_fpr() {
     [ "$found" = 1 ] || { echo "!! key verify: required fingerprint $required missing from $keyfile" >&2; return 1; }
     echo "  key verify: OK ($keyfile)"
 }
+fi
 # gpg is required for the fingerprint check; Amazon Linux 2023 may not ship it.
 command -v gpg >/dev/null 2>&1 || dnf_retry sudo dnf install -y gnupg2
 curl_retry -fsSL "https://packages.microsoft.com/keys/microsoft.asc${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/microsoft.asc

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -471,13 +471,7 @@ if (-not $libvirtReady) {
 #   idle-dim                           -> false
 $gsettings = Get-Command -Name 'gsettings' -ErrorAction SilentlyContinue
 if ($gsettings) {
-    $tweaks = @(
-        @('org.gnome.settings-daemon.plugins.power','sleep-inactive-ac-type','nothing'),
-        @('org.gnome.settings-daemon.plugins.power','sleep-inactive-battery-type','nothing'),
-        @('org.gnome.desktop.session','idle-delay','uint32 0'),
-        @('org.gnome.desktop.screensaver','lock-enabled','false'),
-        @('org.gnome.settings-daemon.plugins.power','idle-dim','false')
-    )
+    $tweaks = Get-LinuxAutomationGsetting
     foreach ($t in $tweaks) {
         $schema = $t[0]; $key = $t[1]; $val = $t[2]
         Invoke-Step -Description "gsettings set $schema $key '$val'" -Action {

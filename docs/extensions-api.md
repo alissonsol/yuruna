@@ -18,6 +18,11 @@ one Go SDK for talking to the pool and gating writes, and one host-side module
 for the runtime marker. A new extension service implements that interface and
 is discovered by existing; it adds no case to any list in the framework.
 
+The shared browser `Y.api` helper accepts an empty 204 response. Other successful
+responses must contain valid JSON; malformed JSON rejects the request so the UI
+cannot mistake a broken response for an empty success. HTTP failures retain their
+status, and fetch/body processing remains bounded by the request timeout.
+
 <a id="42fffc2c-0002"></a>
 
 ## Areas today
@@ -26,11 +31,11 @@ is discovered by existing; it adds no case to any list in the framework.
 |------------------------|----------------|------------------|
 | `authentication`       | `default`      | `${ext:authentication.GetPassword(<user>)}` / `NewRandomPassword()` / `SetPassword()` -- vault read/write for sequences. The `default` extension stores per-cycle ephemeral test-VM passwords in plaintext YAML **by design**; see [Authentication -- Test-harness vault threat model](authentication.md#test-harness-vault--threat-model) for the trust boundary. Wire a different extension (DPAPI / keyring / external secret manager) before driving any production system from a sequence. |
 | `notification`         | `default`      | `Send-Notification -EventCode -EventMessage`; iterates the subscriber list and delivers each one through its declared transport. The `default` extension implements exactly one, `email` via Resend; any other value in `transports.yml` warns `Unknown transport` and delivers nothing. An empty or missing subscriber list is a silent no-op (`Verbose` only), so a first-run user with no config filled in yet gets no errors. Wire a new one by adding a branch here. |
-| `caching-proxy-parser-service` | `default`      | Tails the Squid access log into a 100-entry in-memory ring and serves it on `:9302` as JSON (`/recent-requests`) plus a self-contained HTML page -- the source behind the Grafana dashboard's **Recent 100 requests** panel, replacing loki + promtail for it. Ships a stdlib-only Go daemon (`parse.go` + `main_linux.go` + `caching-proxy-parser-service.service`) built into the proxy VM; the PowerShell `default.psm1` is the host-side wrapper, exporting `Get-CachingProxyParserServiceManifest`. Nothing is persisted: the ring is the retention policy. |
+| `caching-proxy-parser-service` | `default`      | Tails the Squid access log into a 100-entry in-memory ring and serves it on `:9302` as JSON (`/recent-requests`) plus a self-contained HTML page. The Grafana **Recent 100 requests** panel continues to read Loki, which Alloy feeds from the Squid log. Ships a stdlib-only Go daemon (`parse.go` + `main_linux.go` + `caching-proxy-parser-service.service`) built into the proxy VM; the PowerShell `default.psm1` is the host-side wrapper, exporting `Get-CachingProxyParserServiceManifest`. Nothing is persisted by the parser: the ring is its retention policy. |
 | `caching-proxy-service` | `default`     | The **management plane** for the caching-proxy-service VM -- the area that made that VM self-describing instead of a hardcoded roster row. A stdlib+SDK Go daemon on `:9310` reports Squid's runtime summary (via the manager API), the offline / no-upstream switch state, and zot's catalog, canary and prewarm records; it owns the two operator switches, which used to be SSH-only. Nothing that serves traffic moved: Squid (`:3128`/`:3129`), zot (`:5000`), Grafana, Prometheus, Loki and the exporters are untouched. Runs either on the proxy VM (`--mode local`) or on another host that can reach those APIs (`--mode remote`, read-only -- see [below](#running-the-caching-proxy-service-from-another-host)). |
 | `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashServiceVM` + cloud-init, plus the PowerShell wrapper `default.psm1`. |
 | `pool-aggregator-service`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorServiceManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy-service machine (pool services host): it auto-discovers pool members from the Squid access log, probes each one's status service, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md). |
-| `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which test-set each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-intent git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` preflight). See [pool-admin.md](pool-admin.md#pool-control-service). |
+| `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which framework and project repositories each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-intent git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` preflight). See [pool-admin.md](pool-admin.md#pool-control-service). |
 | `download-agent-service`       | `default`      | Pool-wide **guest-image downloader**: a stdlib-only Go daemon on its own `yuruna-download-agent-service` VM that keeps a Download pool on the pool share fresh and serves the artifacts to hosts over HTTP, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-DownloadAgentServiceInfo` (status stub) and `Test-DownloadAgentServiceHost` (the `/healthz` preflight). See [download-agent.md](download-agent.md). |
 
 <a id="42fffc2c-0003"></a>
@@ -106,7 +111,7 @@ test/extension/
     +-- pool/                           # the pool-aggregator read client
     +-- labgate/                        # the lab-token write gate
     +-- webui/                          # shared browser assets (yuruna.core.js runtime)
-    +-- mcp/                            # MCP-over-HTTP surface every daemon mounts
+    +-- mcp/                            # MCP-over-HTTP surface every daemon except caching-proxy-parser-service mounts
 ```
 
 No `server/` holds a copy of the SDK. Each one names it as a sibling module
@@ -348,12 +353,14 @@ a stop-a-stray-click gate, not a secret, and it is worth having precisely
 because it rotates: a code copied out of the lab stops working on its own.
 
 `labgate` is that rule in code, and each area's `writeGate:` declares it, so
-"which services gate their writes" is answerable without reading four route
+"which services gate their writes" is answerable without reading each route
 tables.
 
-- **`lab-token`** -- `pool-control-service` (pools, membership, test-set
-  assignment), `download-agent-service` (delete a generation, force a
-  re-download), `pool-aggregator-service` (`/ingest`, `/api/v1/forget-host`),
+- **`lab-token`** -- `caching-proxy-service` (offline and no-upstream switches),
+  `pool-control-service` (pools, membership, each
+  pool's repositories), `download-agent-service` (delete a generation, force a
+  re-download), `pool-aggregator-service` (`/ingest`, `/api/v1/forget-host`,
+  `/api/v1/handover-host`),
   `stash-service` (`DELETE` a stash, singly or a page-worth at once).
 - **`none`** -- nothing at present.
 
@@ -366,9 +373,11 @@ switched off.
 
 Three properties come with the gate:
 
-- **Reads stay open.** Catalogs, boards, artifacts and status are readable on the
+- **Ordinary reads stay open.** Catalogs, boards, artifacts and status are readable on the
   trusted LAN, matching `pool-status`. Gating them would make a credential a
   prerequisite for a host doing its job, and for a wall display rendering a board.
+  The aggregator's `GET /api/v1/host-history` requires the shared internal bearer
+  because raw events may contain sensitive diagnostics.
 - **Fail closed, and say which.** A validator that cannot be reached answers
   `503` with reason `lab-token-unavailable`, never `401` -- an operator who
   cannot tell "wrong code" from "validator down" retypes a correct code until
@@ -548,7 +557,8 @@ should get for a mode it is not running.
 
 ## MCP endpoints
 
-Every Go daemon serves the Model Context Protocol at `POST /mcp` on the port it
+Every Go daemon except `caching-proxy-parser-service` serves the Model Context
+Protocol at `POST /mcp` on the port it
 already listens on, and the core framework serves it on stdio. The rule the
 whole surface is built on is that **MCP adds a protocol, never a second
 truth**: a tool wraps a route or a script that already exists, and inherits the
@@ -563,11 +573,11 @@ suites assert the two match.
 
 | Service | Endpoint | Tools |
 |---|---|---|
-| `pool-aggregator-service` | `POST :9400/mcp` | `pool_status`, `pool_extension_hosts`, `pool_stats` |
-| `caching-proxy-service` | `POST :9310/mcp` | `caching_proxy_status`, `caching_proxy_switches`, `caching_proxy_hostinfo`, and the gated `caching_proxy_set_offline` / `caching_proxy_set_no_upstream` |
-| `stash-service` | `POST :80/mcp` | `stash_list`, `stash_hostinfo`, `stash_session` |
-| `pool-control-service` | `POST :80/mcp` | `pool_control_board`, `pool_control_hosts`, `pool_control_host_facts`, `pool_control_state`, `pool_control_diagnostics`, `pool_control_hostinfo`, and the gated `pool_control_refresh_host` (listed only while remote refresh is provisioned) |
-| `download-agent-service` | `POST :80/mcp` | `download_agent_status`, `download_agent_images`, `download_agent_diagnostics`, `download_agent_hostinfo` |
+| `pool-aggregator-service` | `POST :9400/mcp` | `pool_status`, `pool_extension_hosts`, `pool_stats`, `pool_incidents`, `pool_cycle_links`, `pool_health` |
+| `caching-proxy-service` | `POST :9310/mcp` | `caching_proxy_status`, `caching_proxy_recent_requests`, `caching_proxy_switches`, `caching_proxy_hostinfo`, and the gated `caching_proxy_set_offline` / `caching_proxy_set_no_upstream` |
+| `stash-service` | `POST :80/mcp` | `stash_list`, `stash_get`, `stash_host`, `stash_hostinfo`, `stash_session`, and the gated `stash_refresh` |
+| `pool-control-service` | `POST :80/mcp` | `pool_control_board`, `pool_control_hosts`, `pool_control_host_facts`, `pool_control_state`, `pool_control_diagnostics`, `pool_control_hostinfo`, `pool_control_scan_status`, `pool_control_host_control_state`, and the gated `pool_control_add_host`, `pool_control_move_host`, `pool_control_remove_host`, `pool_control_set_host_control`, `pool_control_set_pool_repositories`, and `pool_control_refresh_host` (listed only while remote refresh is provisioned) |
+| `download-agent-service` | `POST :80/mcp` | `download_agent_status`, `download_agent_images`, `download_agent_image`, `download_agent_session`, `download_agent_diagnostics`, `download_agent_hostinfo`, and the gated `download_agent_refresh_image` / `download_agent_prune_image` |
 | core framework | `test/service/Start-McpServer.ps1` (stdio) | the ten `automation/` entry points |
 
 `caching-proxy-parser-service` is deliberately absent: it has no auth story at
@@ -1121,12 +1131,29 @@ authenticate is refused, never stored); `-lab-token-rotate 0` disables
 the exchange and the dashboard tile.
 See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md).
 
+Service routes use several bounded JSON decoders. Routes using the SDK
+`jsonbody.Decode` helper enforce the full byte limit and exactly one JSON
+value; login, stash batch-delete and aggregator routes use other decoders.
+An `io.LimitReader` alone can truncate a body without reporting that it was
+oversized. MCP keeps JSON-RPC parse errors, while service routes retain their
+existing HTTP/localized error policy. Only endpoints that explicitly allow an
+empty body accept it. Pool status callers own a deep
+snapshot, including nested slices, maps, and host status, so caller edits cannot
+change a later cache hit. Authentication gates prune the current source on each
+attempt and sweep all sources at most once per failure window.
+
+The shared stop implementation is `test/service/Stop-ExtensionService.ps1`, which
+handles both VM and host-process deployments. The
+public `Stop-*ServiceVM.ps1` commands remain compatible entrypoints. The caching
+proxy helper `runCommandUnbounded` explicitly retains its existing unbounded
+execution contract; its HTTP clients are named `httpClient`.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425737dc-81c1-4d1d-8e15-006de1ba8931
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -172,7 +172,7 @@ $mode = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'host-fixture.mode'))
             }
         }
     }
-    if ($Mode -eq 'console-timeout') {
+    if ($Mode -in @('console-timeout', 'console-after-ssh', 'console-late')) {
         function script:Update-GuestNeighborCache { param($VMName) }
         function script:Resolve-StoredPassword { param($Username) return @{ password = $null; reason = 'no-entry' } }
         function script:Resolve-StatusServiceEndpoint { param($VMName) return @{ url = 'http://192.0.2.1:8080' } }
@@ -180,14 +180,28 @@ $mode = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'host-fixture.mode'))
             param($VMName, $GuestKey, $TimeoutSeconds, $BootstrapUrl)
             return @{ success = $false; output = "========`nPartial SSH fixture"; mechanism = 'key'; exitCode = 124; timedOut = $true }
         }
+    }
+    if ($Mode -eq 'console-timeout') {
         function script:Invoke-RemoteDiagnosticsConsole {
             param($VMName, $FailureFolderPath, $DiagnosticsFileName, $TimeoutSeconds)
             [IO.File]::WriteAllText((Join-Path $FailureFolderPath 'console.started'), [string]$PID)
             Start-Sleep -Seconds 30
         }
     }
+    # The guest uploads under the name the rung hands it; the status service
+    # writes that file. 'console-late' is an upload that lands after the rung
+    # has already given up waiting for it.
+    if ($Mode -in @('console-after-ssh', 'console-late')) {
+        function script:Invoke-RemoteDiagnosticsConsole {
+            param($VMName, $FailureFolderPath, $DiagnosticsFileName, $TimeoutSeconds)
+            [IO.File]::WriteAllText((Join-Path $FailureFolderPath 'console.upload-name'), $DiagnosticsFileName)
+            [IO.File]::WriteAllText((Join-Path $FailureFolderPath $DiagnosticsFileName), "========`nConsole capture fixture`nDiagnostics complete.")
+            if ($script:FixtureMode -eq 'console-late') { return @{ success = $false; output = ''; exitCode = -1; mechanism = 'console'; timedOut = $true } }
+            return @{ success = $true; output = ''; exitCode = 0; mechanism = 'console' }
+        }
+    }
 } $mode
-if ($mode -eq 'console-timeout') {
+if ($mode -in @('console-timeout', 'console-after-ssh', 'console-late')) {
     & (Get-Module Test.Ssh) {
         function script:Wait-SshReady { param($VMName, $GuestKey, $TimeoutSeconds, $PollSeconds) return $true }
         function script:Get-GuestAddress { param($VMName) return '192.0.2.10' }
@@ -783,8 +797,106 @@ Describe 'the production diagnostic worker starts without a host or guest depend
         Assert-Equal 'timeout' $result.diagnosticOutcome
         Assert-Equal 'key' $result.mechanism
         Assert-Match 'Partial SSH fixture' ([IO.File]::ReadAllText($result.outPath))
+        Assert-Equal 'fixture.system.diagnostic.actual.key-ssh.txt' (Split-Path -Leaf $result.outPath) 'Failed SSH output lives in that rung''s own file.'
+        Assert-Equal 'key-ssh' $result.rungEvidence[0].rung
         Assert-Equal 'host-fixture.json' $result.hostSnapshot.Path
         Assert-Equal 'partial' $result.guestSnapshot.diagnosticOutcome
         Assert-Equal 'key-ssh,console' ($result.attempted -join ',')
+    }
+}
+
+Describe 'a later rung cannot overwrite the evidence an earlier rung left' {
+    It 'keeps failed SSH output beside the console capture that succeeded after it' {
+        $result = Invoke-ProductionDiagnosticWorkerFixture -Directory $TestDrive -Mode console-after-ssh
+
+        $mainPath = Join-Path $TestDrive 'fixture.system.diagnostic.actual.txt'
+        $evidencePath = Join-Path $TestDrive 'fixture.system.diagnostic.actual.key-ssh.txt'
+        $uploadName = 'fixture.system.diagnostic.actual.console.txt'
+        Assert-True $result.success "The console rung must succeed after the SSH rung failed: $($result.reason)"
+        Assert-Equal 'console' $result.mechanism
+        Assert-Equal 'complete' $result.diagnosticOutcome
+        Assert-Equal 'key-ssh,console' ($result.attempted -join ',')
+        Assert-Equal $uploadName ([IO.File]::ReadAllText((Join-Path $TestDrive 'console.upload-name'))) 'The guest must upload under the console rung''s own name.'
+        Assert-False (Test-Path -LiteralPath (Join-Path $TestDrive $uploadName)) 'A capture that arrived in time is promoted to the main name.'
+        Assert-Equal $mainPath $result.outPath
+        Assert-Match 'Console capture fixture' ([IO.File]::ReadAllText($mainPath))
+        Assert-Equal "========`nPartial SSH fixture" ([IO.File]::ReadAllText($evidencePath)) 'The console capture must not replace the SSH rung''s output.'
+        Assert-Equal 1 @($result.rungEvidence).Count
+        Assert-Equal 'key-ssh' $result.rungEvidence[0].rung
+        Assert-Equal $evidencePath $result.rungEvidence[0].path
+        Assert-Equal 124 $result.rungEvidence[0].exitCode
+        Assert-True $result.rungEvidence[0].timedOut
+    }
+
+    It 'leaves a console upload that arrives after the rung gave up out of the main capture' {
+        $result = Invoke-ProductionDiagnosticWorkerFixture -Directory $TestDrive -Mode console-late
+
+        $mainPath = Join-Path $TestDrive 'fixture.system.diagnostic.actual.txt'
+        $uploadPath = Join-Path $TestDrive 'fixture.system.diagnostic.actual.console.txt'
+        $evidencePath = Join-Path $TestDrive 'fixture.system.diagnostic.actual.key-ssh.txt'
+        Assert-False $result.success
+        Assert-Equal 'key' $result.mechanism 'With every rung failed, the fuller SSH output is the capture.'
+        Assert-Equal $mainPath $result.outPath
+        Assert-Match 'Partial SSH fixture' ([IO.File]::ReadAllText($mainPath))
+        Assert-False ([IO.File]::ReadAllText($mainPath).Contains('Console capture fixture')) 'A late upload must not replace the main capture.'
+        Assert-Match 'Console capture fixture' ([IO.File]::ReadAllText($uploadPath)) 'The late upload is kept under its own name.'
+        Assert-Equal "========`nPartial SSH fixture" ([IO.File]::ReadAllText($evidencePath))
+    }
+}
+
+Describe 'diagnostic SSH rungs keep a report larger than the partial-output default' {
+    BeforeAll {
+        $script:DiagnosticCap = & $script:diagnosticModule { $script:GuestDiagnosticMaxCapturedChars }
+        # Larger than the 524288-character partial-output default, as the
+        # report of a guest running Kubernetes is.
+        $script:LargeReport = "========`n" + [string]::new([char]120, 600000)
+    }
+
+    It 'sets a cap the bounded runner accepts and a real report fits inside' {
+        Assert-True ($script:DiagnosticCap -ge 4096 -and $script:DiagnosticCap -le 67108864) 'Invoke-BoundedNativeCommand validates this range.'
+        Assert-True ($script:DiagnosticCap -gt $script:LargeReport.Length)
+    }
+
+    It 'passes the cap to the key SSH rung and keeps the whole report' {
+        Mock Get-YurunaSshPrivateKeyPath -ModuleName Test.Ssh { return 'fixture-key' }
+        Mock Get-GuestSshUser -ModuleName Test.Ssh { return 'fixture-user' }
+        Mock Get-GuestAddress -ModuleName Test.Ssh { return '192.0.2.10' }
+        Mock Set-ProvenGuestAddress -ModuleName Test.Ssh { }
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Ssh {
+            return @{
+                Started = $true; ExitCode = 0; StdOut = $script:LargeReport; StdErr = ''
+                TimedOut = $false; DrainTimedOut = $false; OutputTruncated = $false; KillFailed = $false
+            }
+        }
+
+        $result = & $script:diagnosticModule {
+            Invoke-RemoteDiagnosticsKeySsh -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 5
+        }
+
+        Assert-True $result.success
+        Assert-Equal $script:LargeReport.Length $result.output.Length
+        Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Ssh -Times 1 -Exactly -ParameterFilter {
+            $FilePath -eq 'ssh' -and $MaxCapturedChars -gt 524288 -and $MaxCapturedChars -eq $script:DiagnosticCap
+        }
+    }
+
+    It 'passes the cap to the password SSH rung and keeps the whole report' {
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Diagnostic {
+            return @{
+                Started = $true; ExitCode = 0; StdOut = $script:LargeReport; StdErr = ''
+                TimedOut = $false; DrainTimedOut = $false; OutputTruncated = $false; KillFailed = $false
+            }
+        }
+
+        $result = & $script:diagnosticModule {
+            Invoke-RemoteDiagnosticsPasswordSsh -User fixture -Address 192.0.2.10 -Password fixture-value `
+                -SshpassPath fixture-sshpass -TimeoutSeconds 5
+        }
+
+        Assert-True $result.success
+        Assert-Equal $script:LargeReport.Length $result.output.Length
+        Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Diagnostic -Times 1 -Exactly -ParameterFilter {
+            $MaxCapturedChars -gt 524288 -and $MaxCapturedChars -eq $script:DiagnosticCap
+        }
     }
 }

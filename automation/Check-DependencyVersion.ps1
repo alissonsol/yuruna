@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427703ae-4857-433b-ab5f-5f81a7ae94c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,6 +140,8 @@ function Get-RequirementFloor {
     return $map
 }
 
+$script:GitHubLatestTagCache = @{}
+
 function Get-GitHubLatestTag {
     <#
     .SYNOPSIS
@@ -151,13 +153,25 @@ function Get-GitHubLatestTag {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$Repo)
+    if ($script:GitHubLatestTagCache.ContainsKey($Repo)) {
+        $cached = $script:GitHubLatestTagCache[$Repo]
+        if ($cached.Error) { throw $cached.Error }
+        return $cached.Version
+    }
+    try {
     $url  = "https://github.com/$Repo/releases/latest"
     $resp = Invoke-WebRequest -Uri $url -Method Head -MaximumRedirection 10 -TimeoutSec 20 -ErrorAction Stop
     $final = [string]$resp.BaseResponse.RequestMessage.RequestUri
     if ($final -match '/releases/tag/v?(?<v>[^/]+)$') {
-        return $Matches['v']
+        $version = $Matches['v']
+        $script:GitHubLatestTagCache[$Repo] = @{ Version = $version; Error = $null }
+        return $version
     }
     throw (Format-YurunaOperatorMessage -Key 'automation.operator_3f717ea683c65c4f' -Arguments @{ final = "$final" })
+    } catch {
+        $script:GitHubLatestTagCache[$Repo] = @{ Version = $null; Error = $_ }
+        throw
+    }
 }
 
 function Get-NodeLatestLtsVersion {

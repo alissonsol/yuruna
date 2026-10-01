@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425681a0-b84a-453d-9df2-fb0f85f547f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,6 +57,8 @@ function Confirm-RequirementList {
         # iteration would overwrite the filter with a row -- silently skipping
         # every tool rather than filtering to the named ones.
         foreach ($requirement in $requirementsYaml.requirements) {
+            $platform = if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'macos' } else { 'linux' }
+            if ($requirement['platforms'] -and $platform -notin @($requirement['platforms'])) { continue }
             $toolName = $requirement['tool']
             if ($Tool -and ($Tool -notcontains $toolName)) { continue }
             $toolCommand = $requirement['command']

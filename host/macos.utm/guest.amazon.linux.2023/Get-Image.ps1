@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f8008d-9acf-4ba5-8a9f-c29d843ce6a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,9 @@ $baseImageName = "host.macos.utm.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 $downloadFile = Join-Path $downloadDir 'downloaded.qcow2'
+# UTM boots the native qcow2 directly; any other artifact would be promoted to
+# the base image as-is and fail at first boot.
+$expectedArtifactPattern = '\.qcow2$'
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
@@ -66,63 +69,26 @@ Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yurun
 # --- REGION: https://yuruna.link/42ec97cd-0004
 $agentServed = $false
 $agentLastModified = ''
-if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -and
-    (Get-Command -Name Request-DownloadAgentImage -ErrorAction SilentlyContinue)) {
-    $agentBaseUrl = ''
-    try { $agentBaseUrl = [string](Resolve-DownloadAgentEndpoint) } catch { $agentBaseUrl = '' }
-    if (-not $agentBaseUrl) {
-        Write-Verbose "No download agent reachable; using the origin path."
-    } else {
-        # Fingerprint the local copy with the sentinel's filename + byte count
-        # and no SHA-256: re-hashing a multi-GB image every run would cost more
-        # than the transfer it can save.
-        $agentArgs = @{
-            BaseUrl         = $agentBaseUrl
-            HostType        = 'macos.utm'
-            ImageKey        = 'guest.amazon.linux.2023'
-            Arch            = $hostArch
-            Variant         = 'stable'
-            StagingPath     = $downloadFile
-            DeadlineSeconds = 7200
-            # UTM boots the native qcow2 directly; anything else would be promoted
-            # to the base image as-is and fail at first boot.
-            ExpectedFilenamePattern = '\.qcow2$'
-        }
-        if ((Test-Path -LiteralPath $baseImageFile) -and (Test-Path -LiteralPath $baseImageOrigin)) {
-            $sentinelLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
-            $sentinelBytes = 0L
-            if ($sentinelLines.Count -ge 3 -and [int64]::TryParse($sentinelLines[2].Trim(), [ref]$sentinelBytes) -and $sentinelBytes -gt 0) {
-                $agentArgs['LocalFilename']  = $sentinelLines[0].Trim()
-                $agentArgs['LocalByteCount'] = $sentinelBytes
-            }
-        }
-        $agentResult = $null
-        try {
-            Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-            $agentResult = Request-DownloadAgentImage @agentArgs
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57234ab9582f912d' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
-            $agentResult = $null
-        }
-        if ($agentResult -and $agentResult.outcome -eq 'skipped') {
-            $msg = @(
-                "Skipping download: the download agent at $agentBaseUrl confirms $baseImageFile is the current guest.amazon.linux.2023 artifact."
-                "  Sentinel: $baseImageOrigin"
-                "  To force a re-download, delete or rename: $baseImageFile"
-            ) -join [Environment]::NewLine
-            Write-Information $msg -InformationAction Continue
-            Write-Output $msg
-            exit 0
-        } elseif ($agentResult -and $agentResult.outcome -eq 'downloaded') {
-            $agentServed = $true
-            $downloadUrl = [string]$agentResult.sourceUrl
-            $agentLastModified = [string]$agentResult.lastModified
-            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1050eecd3dbb16e4' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; downloadFile = "$downloadFile" })
-        } elseif ($agentResult) {
-            $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
-        }
-    }
+$agentProbe = Invoke-DownloadAgentFirst -HostType 'macos.utm' -ImageKey 'guest.amazon.linux.2023' -Arch $hostArch -StagingPath $downloadFile -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin -ExpectedFilenamePattern $expectedArtifactPattern
+$agentBaseUrl = $agentProbe.BaseUrl
+$agentResult = $agentProbe.Result
+if ($agentResult -and $agentResult.outcome -eq 'skipped') {
+    $msg = @(
+        "Skipping download: the download agent at $agentBaseUrl confirms $baseImageFile is the current guest.amazon.linux.2023 artifact."
+        "  Sentinel: $baseImageOrigin"
+        "  To force a re-download, delete or rename: $baseImageFile"
+    ) -join [Environment]::NewLine
+    Write-Information $msg -InformationAction Continue
+    Write-Output $msg
+    exit 0
+} elseif ($agentResult -and $agentResult.outcome -eq 'downloaded') {
+    $agentServed = $true
+    $downloadUrl = [string]$agentResult.sourceUrl
+    $agentLastModified = [string]$agentResult.lastModified
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1050eecd3dbb16e4' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; downloadFile = "$downloadFile" })
+} elseif ($agentResult) {
+    $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
 }
 
 if (-not $agentServed) {

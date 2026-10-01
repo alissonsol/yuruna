@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -434,5 +435,51 @@ func TestMetricsSeparatesUnreachableExtension(t *testing.T) {
 	}
 	if !strings.Contains(body, `yuruna_pool_extension_unreachable{pool="default",hostId="`+hid+`",area="stash-service",target="http://192.168.64.13"`) {
 		t.Errorf("/metrics missing the unreachable row:\n%s", body)
+	}
+}
+
+func TestOldPollCannotReplaceNewlyConfirmedAddress(t *testing.T) {
+	s := newPoolState("default", 8080)
+	now := time.Now()
+	hid := "4287d16ff2c346a98ea90fd3a0c307da"
+	started, release := make(chan struct{}), make(chan struct{})
+	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer old.Close()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	key := announceKey(hid, stashArea)
+	target := "http://192.0.2.7:45677"
+	s.hosts[hid] = &hostView{HostId: hid, ExtensionTargets: map[string]string{stashArea: target}, LastSeenUnixMs: now.UnixMilli()}
+	seedExtensionHealth(s, hid, stashArea, target)
+	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", old.Listener.Addr().String())
+	}}}
+	finished := make(chan struct{})
+	go func() { s.refreshExtensionHealth(client, now); close(finished) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("probe never started")
+	}
+	s.mu.Lock()
+	s.extHealth[key] = &extHealthView{Target: "http://192.0.2.8:45678", Confirmed: true, LastOkUnixMs: now.UnixMilli()}
+	s.mu.Unlock()
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("probe never finished")
+	}
+	if got := s.extHealth[key]; got.Target != "http://192.0.2.8:45678" || !got.Confirmed || got.LastError != "" {
+		t.Fatalf("new address overwritten: %+v", got)
 	}
 }

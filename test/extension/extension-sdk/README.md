@@ -7,25 +7,30 @@ carries the browser runtime its UI is built on.
 | Package | What it is |
 |---|---|
 | [`beacon`](beacon/) | The presence beacon. A hello at startup (retried on a doubling catch-up cadence until it first lands), a re-announce every interval, an `active:false` goodbye at shutdown -- so the dashboard's **Extension hosts** row survives the owning host's status service being down. |
+| [`controlproof`](controlproof/) | Verifies the bounded, HMAC-backed host-control proof carried by dashboard links. |
+| [`hostinfo`](hostinfo/) | Reads active host IP addresses for extension-service UIs. |
+| [`i18n`](i18n/) | Serves compiled message catalogs, locale selection and localized HTTP/page text. |
+| [`jsonbody`](jsonbody/) | Decodes bounded, single-document JSON request bodies. |
 | [`pool`](pool/) | The read client for the pool-aggregator service: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz`, plus `Get`/`GetURL` for the routes it does not type. One TLS posture, one timeout policy, one snapshot cache, and `SanitizeBaseURL` applied to every URL-valued field a response carries. |
 | [`labgate`](labgate/) | The write gate. A session unlocked with the dashboard's rotating Lab token, or the internal authentication key as a bearer, in front of any route that changes host or pool configuration. Ships `Require`, `RequireBearer`, `HandleLogin` and `Session`. |
 | [`hostrefresh`](hostrefresh/) | Remote host refresh authorization: the versioned refresh proof bound to one host, request id, tier and ceiling (`Proof`, and `Verify` with an explicit clock and two-sided skew), the `Signer` that mints it from the provisioned signing authority, the owner-only secret-file loader, and the refresh credential `Gate`, which reads only `X-Yuruna-Refresh-Credential` and never a cookie or a bearer. Its `testdata/vectors.json` is the golden vector file the Go services and the host's PowerShell verifier all pin. Only pool-control imports it. |
 | [`mcp`](mcp/) | The Model Context Protocol server every daemon except `caching-proxy-parser-service` mounts at `POST /mcp`, with `FromRoute`-style wrappers so a tool is the route it wraps. A tool may carry its own `Gate`, evaluated on the incoming request after the daemon's. |
+| [`servicecfg`](servicecfg/) | Shared daemon configuration readers for UI ports and authentication files. |
+| [`strictjson`](strictjson/) | Validates one JSON object with known, unique string fields. |
 | [`webui`](webui/) | The browser assets every service UI shares, embedded and handed over through `Asset(name)`. Today that is [`yuruna.core.js`](webui/assets/yuruna.core.js): the page chrome (header, menu, footer, countdown), the JSON client, and the table furniture. |
 
 Nothing here imports anything outside the standard library and this module.
-`pool` and `mcp` import only the standard library, and nothing in them may
-import another package here: the caching-proxy-service seed fetches the aggregator's
-SDK files one by one, so a new import there -- or a new non-test file in a
-package it stages -- fails that guest's build. `labgate` and `hostrefresh`
-use `i18n` for their refusal text, and `hostrefresh` uses `pool` for the rung
-vocabulary.
+`pool` imports only the standard library; `mcp` imports `jsonbody`. The
+caching-proxy-service seed stages the SDK packages its build needs, including
+`mcp` and `jsonbody`, so adding a package dependency requires updating that
+seed. `labgate` and `hostrefresh` use `i18n` for their refusal text, and
+`hostrefresh` uses `pool` for the rung vocabulary.
 
 ## The browser runtime, and why it is a Go package
 
 A service embeds its own pages and page scripts and serves them as before; it
 asks `webui` only for the names it does not have, so a service overrides a
-shared asset simply by shipping a file of that name itself.
+shared asset by shipping a file of that name itself.
 
 The indirection through Go exists because `//go:embed` cannot reach outside a
 module. The shared assets could not be referenced in place from three separate

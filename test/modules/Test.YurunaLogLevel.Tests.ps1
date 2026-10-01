@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42bcb817-e682-432d-ac46-31486e3944be
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,7 +44,11 @@ $script:module   = Join-Path $autoDir 'Yuruna.LogLevel.psm1'
 # parity guard is what keeps the duplication honest.
 $script:testCascade = Join-Path $here 'Test.LogLevel.psm1'
 $script:entrypoints = 'yuruna','Set-Component','Set-Resource','Set-Workload','Invoke-Clear',
-               'Test-Configuration','Test-Requirement','Test-Runtime','Get-SystemDiagnostic'
+               'Test-Configuration','Test-Requirement','Test-Runtime'
+# Get-SystemDiagnostic runs as a single downloaded file with no module beside
+# it, so it carries its own copy of the cascade; the parity guard below keeps
+# that copy equal to the leaf.
+$script:selfContained = Join-Path $autoDir 'Get-SystemDiagnostic.ps1'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
@@ -95,6 +99,35 @@ Describe 'yuruna-loglevel -- the logLevel cascade lives once in the Yuruna.LogLe
             Assert-True ($src -match "Import-Module[^\n]*Yuruna\.LogLevel\.psm1") "$e must import Yuruna.LogLevel"
             $n = ([regex]::Matches($src, [regex]::Escape('Set-YurunaLogLevel -LogLevel $logLevel'))).Count
             Assert-True ($n -eq 1) "$e must call Set-YurunaLogLevel once, found $n"
+        }
+    }
+}
+
+Describe 'yuruna-loglevel -- the self-contained diagnostic carries the same cascade' {
+    It 'imports no leaf and applies its own Set-YurunaLogLevel once' {
+        $src = Get-Content -LiteralPath $script:selfContained -Raw
+        Assert-True ($src -notmatch 'Import-Module[^\n]*Yuruna\.LogLevel\.psm1') 'Get-SystemDiagnostic must not import Yuruna.LogLevel'
+        Assert-True ($src -match '(?m)^function Set-YurunaLogLevel\b') 'Get-SystemDiagnostic must define its own Set-YurunaLogLevel'
+        $n = ([regex]::Matches($src, [regex]::Escape('Set-YurunaLogLevel -LogLevel $logLevel'))).Count
+        Assert-True ($n -eq 1) "Get-SystemDiagnostic must call Set-YurunaLogLevel once, found $n"
+    }
+    It 'maps the same level names to the same ranks as the leaf' {
+        $leafRank = Get-LogLevelRankTableFromSource -Path $script:module
+        $copyRank = Get-LogLevelRankTableFromSource -Path $script:selfContained
+        Assert-True ((@($leafRank.Keys | Sort-Object) -join ',') -eq (@($copyRank.Keys | Sort-Object) -join ',')) 'rank-table level names diverge'
+        foreach ($name in $leafRank.Keys) {
+            Assert-True ($leafRank[$name] -eq $copyRank[$name]) "rank for '$name' diverges: leaf=$($leafRank[$name]) copy=$($copyRank[$name])"
+        }
+    }
+    It 'sets the same preference streams as the leaf for every level' {
+        foreach ($path in @($script:module, $script:selfContained)) {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+            $definition = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Set-YurunaLogLevel' }, $true)
+            Assert-True ($null -ne $definition) "no Set-YurunaLogLevel in $path"
+            $assigned = @($definition.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -like '$global:*Preference' }, $true) |
+                ForEach-Object { $_.Left.Extent.Text } | Sort-Object)
+            Assert-True (($assigned -join ',') -eq '$global:DebugPreference,$global:InformationPreference,$global:VerbosePreference,$global:WarningPreference') `
+                "$path sets $($assigned -join ',')"
         }
     }
 }

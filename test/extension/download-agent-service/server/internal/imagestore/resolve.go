@@ -354,7 +354,7 @@ func (r *Resolver) resolveAmazonLinux(ctx context.Context, id ImageID) (Resolved
 // To refresh: list .../direct-downloads/stable-virtio/ for the current
 // virtio-win-<ver>.iso, then point this at
 // .../archive-virtio/virtio-win-<ver>-1/virtio-win-<ver>.iso.
-const virtioWinURL = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.285-1/virtio-win-0.1.285.iso"
+const virtioWinURL = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302.iso"
 
 // resolveVirtioWin answers the pinned URL without touching the network: the
 // artifact is one fixed versioned file, so there is no index to scrape and

@@ -706,7 +706,7 @@ func (c *Client) cachedStatus() (Status, bool) {
 	if c.cached == nil || time.Since(c.cachedAt) >= c.cacheTTL {
 		return Status{}, false
 	}
-	return *c.cached, true
+	return cloneStatus(*c.cached), true
 }
 
 func (c *Client) cacheStatus(s Status) {
@@ -715,7 +715,8 @@ func (c *Client) cacheStatus(s Status) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.cached = &s
+	snapshot := cloneStatus(s)
+	c.cached = &snapshot
 	c.cachedAt = time.Now()
 }
 
@@ -739,4 +740,33 @@ func SanitizeBaseURL(raw string) string {
 		return raw
 	}
 	return ""
+}
+
+// cloneStatus gives each consumer ownership of all mutable snapshot fields.
+func cloneStatus(s Status) Status {
+	if s.Hosts == nil {
+		return s
+	}
+	s.Hosts = append([]Host{}, s.Hosts...)
+	for i := range s.Hosts {
+		h := &s.Hosts[i]
+		if h.ActiveExtensions != nil {
+			h.ActiveExtensions = append([]string{}, h.ActiveExtensions...)
+		}
+		if h.PreviousHostIDs != nil {
+			h.PreviousHostIDs = append([]string{}, h.PreviousHostIDs...)
+		}
+		if h.ExtensionTargets != nil {
+			targets := make(map[string]string, len(h.ExtensionTargets))
+			for k, v := range h.ExtensionTargets {
+				targets[k] = v
+			}
+			h.ExtensionTargets = targets
+		}
+		if h.Status != nil {
+			status := *h.Status
+			h.Status = &status
+		}
+	}
+	return s
 }

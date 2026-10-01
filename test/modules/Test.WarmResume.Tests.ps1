@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42bc2da1-ebdb-48ed-9d8a-68099d34d1f5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     resume decision (sequence-name matching + all refusal reasons), and the
     schema-valid warm_resume event.
 .DESCRIPTION
-    Throw-based assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
+    Throw-based assertions for Pester 5+.
     Test.EventSchema is imported (it auto-loads Test.FailureTaxonomy) so the
     event builder is validated against the real schema.
     Run with:  pwsh -NoProfile -File test/modules/Test.WarmResume.Tests.ps1

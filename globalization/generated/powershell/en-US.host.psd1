@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4235cf39-20c0-270a-724d-9125095a5d8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -6383,7 +6383,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '/  (Assign / Pools / Test sets)'
+        '/  (Board / Hosts / Pools)'
     )
     'host.operator_bba21c5cbbc83755' = @(
         'virt-install --print-xml failed (exit '

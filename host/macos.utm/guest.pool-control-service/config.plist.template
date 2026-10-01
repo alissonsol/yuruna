@@ -117,7 +117,7 @@
 			<key>ImageType</key>
 			<string>CD</string>
 			<key>Interface</key>
-			<string>USB</string>
+			<string>VirtIO</string>
 			<key>InterfaceVersion</key>
 			<integer>1</integer>
 			<key>ReadOnly</key>

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4215a4b8-4fbf-82d7-effd-933fdbd2dd43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -752,7 +752,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_287506e0d1314af9' = "在写入（1）之前，`“目标池未包含测试集`”防护尚未对以下对象启用"
+    'automation.operator_287506e0d1314af9' = "在写入（1）之前，`“目标池不包含仓库`”防护尚未对以下对象启用"
     'automation.operator_29759c8a58f5d70a' = @(
         'Get-PSRepository错误：'
         @{

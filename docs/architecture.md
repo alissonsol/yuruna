@@ -99,6 +99,29 @@ and names every place the boundaries diverge.
 
 ## Reusable conventions
 
+Deployment values are serialized as YAML for Helm and as `terraform.tfvars.json`
+for OpenTofu. The resource writer removes its obsolete `terraform.tfvars` file;
+quotes, backslashes, newlines, and Unicode survive serialization. Workload helpers
+restore the caller's working directory even when a tool or log write throws.
+
+The test coordinator and workers select the highest installed Pester 5.x version.
+Pester 6 alone is rejected before running suites; the baseline records the same
+supported major used by the worker. UTF-8 directory scans include nested text
+files and reject an empty requested text root.
+
+Host-process shutdown verifies the captured process identity and confirms exit
+before deleting the service marker. A permission failure, reused PID, uncertain
+liveness, or marker-deletion failure leaves the stop unconfirmed.
+
+Prometheus retention updates use the sibling `prometheus.yml.yuruna.lock` through
+validation, installation, reload, and rollback. Every writer must honor this
+advisory lock. A failed reload restores only the candidate still owned by that
+transaction; a detected foreign edit and the backup are preserved for diagnosis.
+POSIX rename cannot provide a compare-and-swap against writers that ignore the
+lock. Failure to delete a backup after an acknowledged reload does not undo the
+successful update.
+
+
 <a id="42e568c8-0007"></a>
 
 ### `YurunaCacheContent` cache-buster
@@ -129,7 +152,7 @@ Before cloning on Windows:
 
 Every phase captures its tool calls to a stable pair of paths under
 `.yuruna/<cloud>/...` -- a `*.stderr.log` holding full stdout+stderr with a
-`=== <cmd> (exit=N) ===` header, and a `*.rc` sidecar holding the last
+`== <cmd> (exit=N) ==` header, and a `*.rc` sidecar holding the last
 observed exit code -- so a post-mortem never depends on the transcript
 surviving the run. `Get-SystemDiagnostic.ps1` is the consumer: it cross-checks
 each `*.rc` against in-cluster state to flag a silent success-without-effect
@@ -143,11 +166,11 @@ Per-phase paths, the producer of each pair, and how the diagnostic reads them:
 ### Atomic resource work-folder staging
 
 `Set-Resource` (Yuruna.Resource.psm1) never edits a live resource work folder
-in place. The template refresh is staged into a sibling directory, swapped in
-with two `Move-Item` calls, and marked complete last, so no cycle can observe
-a half-applied template. The swap order, the carried-over tofu state, the
-`.workfolder.complete` marker and the SIGKILL-recovery guard are spelled out
-in [Data flows -- three-phase deployment](design/03-data-flows.md#a-three-phase-deployment).
+in place. It copies the template to `<workFolder>.new`, carries the existing
+`.terraform`, lock file, plan file and `*.tfstate*` files into that staging
+directory, then moves the live folder to `<workFolder>.old` and moves `.new`
+into place. It writes `.workfolder.complete` only after the swap. At the start
+of the next run, it restores `.old` if a process kill left the live path absent.
 
 Three properties are load-bearing:
 
@@ -169,8 +192,9 @@ Three properties are load-bearing:
 
 ### Shared transient-failure retry policy
 
-One classifier and one backoff policy cover every network-touching tool
-call across the three phases. Both live in Yuruna.Retry.psm1 and are
+The shared backoff policy covers the retried calls across the three phases.
+The transient-failure classifier gates only the calls described below.
+Both live in Yuruna.Retry.psm1 and are
 mirrored on the guest side by
 [automation/yuruna-retry.sh](../automation/yuruna-retry.sh) -- see
 [Defining yuruna retry lib](network.md#defining-yuruna-retry-lib).
@@ -179,11 +203,12 @@ mirrored on the guest side by
 jitter, 300s cap. That window reaches past github.com's typical 5xx blip,
 so a transient provider download does not fail the cycle.
 
-**The classifier** is the single source of truth for "is this failure
-worth retrying?" across `tofu init/plan/apply/output` and helm/kubectl
-fetches. A deterministic config, plan, auth, or NotFound error does
-*not* match, so callers gating on it fail fast instead of spending the
-whole backoff budget on an error that will never clear. It matches:
+**The classifier** decides whether a failed `tofu plan`, saved-planfile
+`apply`, `tofu output`, or supported helm/kubectl fetch warrants another
+attempt. `tofu init` uses the same backoff but retries any non-zero exit;
+it has no classifier predicate. For classifier-gated calls, a deterministic
+config, plan, auth, or NotFound error does *not* match, so those calls fail
+fast instead of spending the whole backoff budget. The classifier matches:
 
 - **Network blips** -- `failed to fetch`, `i/o timeout`, `no such host`,
   `server misbehaving`, connection refused/reset, `client.timeout`,
@@ -200,21 +225,19 @@ with the first. A classifier carrying only the Go wording fails fast on
 `kubectl -f <URL>`, which is one of the call sites gated below.
 
 A bare `500` sits alongside the gateway 5xx codes because the read-only
-manifest and chart fetches gated here (helm, `kubectl -f <URL>`, tofu
-provider/registry GETs) hit upstream CDNs and registries -- GitHub
+manifest and chart fetches gated here (helm, `kubectl -f <URL>`) hit upstream
+CDNs and registries -- GitHub
 release assets in particular return transient bare 500s that clear on
 retry. A genuinely deterministic 500 burns the backoff budget and then
 fails, like any other code in the list, so including it costs at most one
 backoff cycle.
 
-**Per-phase gating:** matching the classifier is necessary but not sufficient
--- each call site also declares whether re-running it is *safe*. `tofu init`,
-`tofu plan` and a saved-planfile `apply` are; the refreshing-apply fallback is
-not, because it recomputes the plan. `helm repo update`,
-`helm install <repo>/<chart>` and `kubectl -f <URL>` are retried; `chart` and
-`shell` deployments never are. Which call site sits behind which gate:
-[Data flows](design/03-data-flows.md#a-three-phase-deployment). Why the
-resource phase is shaped that way:
+**Per-phase gating:** `tofu init` retries every non-zero exit under the shared
+backoff. `tofu plan`, saved-planfile `apply`, and `tofu output` retry only
+classifier matches. The refreshing-apply fallback is not retried because it
+recomputes the plan. `helm repo update`, `helm install <repo>/<chart>` and
+`kubectl -f <URL>` retry classifier matches; `chart` and `shell` deployments
+do not retry. Why the resource phase is shaped that way:
 [the saved planfile](memory.md#why-set-resource-uses-a-saved-planfile-for-apply),
 [the init retry](memory.md#why-tofu-init-retries-before-failing) and
 [the pre-seeded plugin cache](memory.md#why-set-resource-pre-seeds-tf_plugin_cache_dir)
@@ -276,6 +299,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

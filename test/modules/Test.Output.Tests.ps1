@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42cf1e3a-80ad-4ced-a52c-2fdc80833d43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,7 +81,10 @@ Describe 'Get-OutputState returns a copy-safe WarningsBySection' {
         Reset-OutputState -Confirm:$false
         Write-Fail 'boom' | Out-Null
         $snap = Get-OutputState
-        $snap.Failures += [pscustomobject]@{ Message = 'injected' }
+        $internal = & (Get-Module Test.Output) { $script:State.Failures }
+        Assert-False ([object]::ReferenceEquals($snap.Failures, $internal)) 'failure snapshots must not share the live list'
+        if ($snap.Failures -is [Collections.IList] -and -not $snap.Failures.IsFixedSize) { [void]$snap.Failures.Add([pscustomobject]@{ Message = 'injected' }) }
+        elseif (@($snap.Failures).Count) { $snap.Failures[0] = [pscustomobject]@{ Message = 'injected' } }
         $live = Get-OutputState
         Assert-Equal -Expected 1 -Actual @($live.Failures).Count -Because 'the Failures array snapshot is isolated from caller mutation'
     }

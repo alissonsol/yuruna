@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4282b189-cc04-4ccc-b651-075780a31acd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -295,7 +295,7 @@ function Resolve-DownloadAgentServiceBaseUrl {
     .PARAMETER ForwardedPort
         Host port forwarded to the guest's :80 in Shared-NAT mode.
     .OUTPUTS
-        [string] base URL with a trailing slash, or '' when nothing is
+        [string] canonical base URL without a trailing slash, or '' when nothing is
         publishable.
     #>
     [CmdletBinding()]
@@ -307,10 +307,10 @@ function Resolve-DownloadAgentServiceBaseUrl {
         [int]$ForwardedPort = $script:DownloadAgentServiceForwardedPort
     )
     if ($NetworkMode -eq 'Shared' -and -not [string]::IsNullOrWhiteSpace($HostAddress)) {
-        return ('http://{0}:{1}/' -f (Format-DownloadAgentServiceUrlHost -Address $HostAddress), $ForwardedPort)
+        return ('http://{0}:{1}' -f (Format-DownloadAgentServiceUrlHost -Address $HostAddress), $ForwardedPort)
     }
     if ([string]::IsNullOrWhiteSpace($VMIp)) { return '' }
-    return ('http://{0}/' -f (Format-DownloadAgentServiceUrlHost -Address $VMIp))
+    return ('http://{0}' -f (Format-DownloadAgentServiceUrlHost -Address $VMIp))
 }
 
 function Format-DownloadAgentServiceUrlHost {

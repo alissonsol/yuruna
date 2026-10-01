@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,10 +30,11 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Write-Output "|  Right-click PowerShell and select 'Run as Administrator' |"
     Write-Output "========"
     Write-Output ""
-    exit 1
+    throw 'Guest update failed; review the preceding error.'
 }
 
 # --- REGION: Ensure execution policy allows scripts
+$ProgressPreference = 'SilentlyContinue'
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 
 # --- REGION: Detect architecture
@@ -45,7 +46,7 @@ switch ($arch) {
     default {
         Write-Output "WARNING: Unsupported architecture: $arch"
         Write-Output "This script supports AMD64 (Hyper-V) and ARM64 (UTM on Apple Silicon)."
-        exit 1
+        throw 'Guest update failed; review the preceding error.'
     }
 }
 
@@ -79,7 +80,7 @@ for ($attempt = 1; $attempt -le 3 -and -not $yamlOk; $attempt++) {
 }
 if (-not $yamlOk) {
     Write-Error "powershell-yaml failed to install/import after 3 attempts; it is required by the in-guest sequence planner and Get-SystemDiagnostic.ps1."
-    exit 1
+    throw 'Guest update failed; review the preceding error.'
 }
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
@@ -235,7 +236,7 @@ if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
     if (-not $hostOk) {
         if (-not $frameworkUrl) {
             Write-Error 'yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework'
-            exit 1
+            throw 'Guest update failed; review the preceding error.'
         }
         $cloned = $false
         for ($attempt = 1; $attempt -le 3 -and -not $cloned; $attempt++) {
@@ -247,7 +248,7 @@ if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
         }
         if (-not $cloned) {
             Write-Error 'git clone failed after 3 attempts'
-            exit 1
+            throw 'Guest update failed; review the preceding error.'
         }
     }
 }
@@ -286,7 +287,7 @@ if (-not (Test-Path -LiteralPath $yurunaProject -PathType Container)) {
         }
         if (-not $cloned) {
             Write-Error 'project git clone failed after 3 attempts'
-            exit 1
+            throw 'Guest update failed; review the preceding error.'
         }
     }
 }

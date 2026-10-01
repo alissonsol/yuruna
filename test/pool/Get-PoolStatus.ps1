@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 422c4baa-b4df-4b35-a65a-b6bdf04ee952
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,13 +18,13 @@
 
 <#
 .SYNOPSIS
-    Read-only: show pools, members, desiredState, and assigned test-sets from the
-    intent store.
+    Read-only: show pools, members, desiredState, and each pool's framework and
+    project repositories from the intent store.
 .DESCRIPTION
     Pool admin CLI (read-only -- never writes/commits). Clones/pulls the intent
-    store and prints each pool's membership + desiredState + testSets. Live host
-    health is on the Grafana pool dashboard (the aggregator); this reports the
-    authored INTENT.
+    store and prints each pool's membership + desiredState + repositories. Live
+    host health is on the Grafana pool dashboard (the aggregator); this reports
+    the authored INTENT.
 .PARAMETER PoolId
     Optional: restrict output to one pool.
 .EXAMPLE
@@ -54,13 +54,9 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 Import-Module powershell-yaml -ErrorAction Stop
 
 # --- REGION: Open the intent store
-$t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
-if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') -ErrorAction Continue
-    exit $ExitFailure
-}
-$open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" }) -ErrorAction Continue; exit $ExitFailure }
+$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+$t = $open.Target
+if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Report
 $doc   = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
@@ -73,14 +69,14 @@ if ($pools.Count -eq 0) {
 
 foreach ($p in $pools) {
     $members = @($p['members'])
-    $ts      = if ($p['testSet'] -is [System.Collections.IDictionary]) { $p['testSet'] } else { $null }
+    $repositories = if ($p['repositories'] -is [System.Collections.IDictionary]) { $p['repositories'] } else { $null }
     Write-Information "" -InformationAction Continue
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fe92e0ad4340efe9' -FormatValues ($p['poolId'], $(if ($p['poolGuid']) { $p['poolGuid'] } else { '-' }), $(if ($p['displayName']) { $p['displayName'] } else { '-' }), $(if ($p['desiredState']) { $p['desiredState'] } else { 'run' })) -FormatBindings @{ poolId = '0'; else = '1'; else2 = '2'; run = '3' }) -InformationAction Continue
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5353aae93ac87aae' -FormatValues ($members.Count, $(if ($members.Count) { $members -join ', ' } else { '(none)' })) -FormatBindings @{ count = '0'; none = '1' }) -InformationAction Continue
-    if ($ts) {
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_41a636e6dabd5864' -FormatValues ([string]$ts['name'], [string]$ts['frameworkUrl'], [string]$ts['projectUrl']) -FormatBindings @{ name = '0'; frameworkUrl = '1'; projectUrl = '2' }) -InformationAction Continue
+    if ($repositories) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_41a636e6dabd5864' -Arguments @{ frameworkUrl = [string]$repositories['frameworkUrl']; projectUrl = [string]$repositories['projectUrl'] }) -InformationAction Continue
     } else {
-        Write-Information "  testSet: (none)" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.pool_status_repositories_none') -InformationAction Continue
     }
 }
 exit $ExitOk

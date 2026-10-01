@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4285f6b7-ed85-acb7-05f2-67970932d046
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -501,7 +501,7 @@
         }
     )
     'exceptions.host_dd6d74db4a58cc9d' = @(
-        'אי-התאמה בערך הגיבוב של ⁦Fido.ps1⁩ (גרסה מקובעת ⁦v1.70⁩): צפוי '
+        'אי-התאמה בערך הגיבוב של ⁦Fido.ps1⁩ (גרסה מקובעת ⁦v1.71⁩): צפוי '
         @{
             'arg' = 'fidoSha256'
             'type' = 'detail'

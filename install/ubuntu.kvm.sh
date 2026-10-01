@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -7,7 +7,7 @@
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
 
-set -euo pipefail
+set -Eeuo pipefail
 
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
@@ -141,7 +141,7 @@ fi
 ARCH="$(uname -m)"
 
 log "Yuruna Ubuntu KVM installer starting"
-log "  distro : ${PRETTY_NAME:-$ID $VERSION_ID}"
+log "  distro : ${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}"
 log "  arch   : $ARCH"
 log "  repo   : $YURUNA_REPO ($YURUNA_BRANCH)"
 log "  target : $YURUNA_DIR"
@@ -153,8 +153,9 @@ preflight_system_requirements() {
   if [[ "${ID:-unknown}" != "ubuntu" ]]; then
     issues+=("distro '${PRETTY_NAME:-$ID}' detected (need Ubuntu 26+)")
   fi
-  ubuntu_major="${VERSION_ID%%.*}"
-  ubuntu_minor="${VERSION_ID#*.}"
+  local os_version="${VERSION_ID:-0}"
+  ubuntu_major="${os_version%%.*}"
+  ubuntu_minor="${os_version#*.}"
   ubuntu_num=$(( 10#${ubuntu_major:-0} * 100 + 10#${ubuntu_minor:-0} ))
   if (( ubuntu_num < 2604 )); then
     issues+=("Ubuntu ${VERSION_ID:-?} detected (need 26.04+)")
@@ -457,7 +458,7 @@ osinfo_has_variant() {
   local v="$1"
   local re="${v//./\\.}"
   virt-install --osinfo list 2>/dev/null \
-    | grep -qE "(^|[[:space:],])${re}([[:space:],]|$)"
+    | grep -E "(^|[[:space:],])${re}([[:space:],]|$)" >/dev/null
 }
 osinfo_db_diag() {
   local label="$1"
@@ -497,7 +498,7 @@ ensure_osinfo_db_has_ubuntu24() {
     warn "  could not list pagure.org libosinfo releases -- staying on apt-shipped data."
     return
   fi
-  latest=$(printf '%s' "$listing" | grep -oE 'osinfo-db-[0-9]+\.tar\.xz' | sort -V | tail -1)
+  latest=$(printf '%s' "$listing" | grep -oE 'osinfo-db-[0-9]+\.tar\.xz' | sort -V | tail -1 || true)
   if [[ -z "$latest" ]]; then
     warn "  pagure.org index parsing returned no tarballs (HTML format change?) -- staying on apt-shipped data."
     return
@@ -534,7 +535,10 @@ ensure_osinfo_db_has_ubuntu24() {
     rm -rf "$tmpdir"; return
   fi
   local vstatus
-  vstatus=$(gpg --homedir "$gpghome" --batch --status-fd 1 --verify "$tmpdir/$latest.asc" "$tmpdir/$latest" 2>/dev/null)
+  if ! vstatus=$(gpg --homedir "$gpghome" --batch --status-fd 1 --verify "$tmpdir/$latest.asc" "$tmpdir/$latest" 2>/dev/null); then
+    warn "  GPG verification failed -- retaining apt-shipped osinfo-db."
+    rm -rf "$tmpdir"; return
+  fi
   if printf '%s\n' "$vstatus" | grep -qE '^\[GNUPG:\] BADSIG ' \
      || ! printf '%s\n' "$vstatus" | grep -qE "^\[GNUPG:\] VALIDSIG .*${LIBOSINFO_KEY_FPR}"; then
     warn "  GPG verification FAILED for $latest -- not importing; staying on apt-shipped data."

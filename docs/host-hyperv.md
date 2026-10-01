@@ -105,7 +105,7 @@ AMD64-only guest.
 
 <a id="42dc5bb9-0005"></a>
 
-## ARM64 hosts: the heartbeat channel wedges a Linux guest
+## ARM64 hosts: early Linux boot stalls and the Heartbeat workaround
 
 **Symptom:** a Linux guest boots as far as its VMBus drivers and stops dead.
 The console freezes on the three integration-service version lines and never
@@ -127,28 +127,24 @@ console static for the whole window -- which points at the wrong thing.
 Keystrokes are refused at the same time (`Msvm_Keyboard` returns 32775), for
 the same reason: no guest driver has attached to the synthetic keyboard.
 
-**Cause:** `hv_utils` answers each heartbeat request from a VMBus tasklet
-(`heartbeat_onchannelcallback` -> `vmbus_sendpacket` -> `vmbus_setevent` ->
-`hv_do_fast_hypercall8`). On ARM64 the channel re-arms faster than the
-tasklet drains it, so CPU 0 never leaves softirq context; the kernel reports
-`watchdog: BUG: soft lockup - CPU#0 stuck for Ns! [swapper/0:0]` with
-`hv_do_fast_hypercall8` at the PC and RCU stalls behind it. Ubuntu 24.04 and
-26.04 both do it, and so does the ISO's HWE kernel, so it is not a guest
-version to wait out.
+**Observed stack:** affected boots report a soft lockup with
+`hv_do_fast_hypercall8` at the PC and RCU stalls. A heartbeat response can
+reach this function through `heartbeat_onchannelcallback`, `vmbus_sendpacket`
+and `vmbus_setevent`, but storage requests also use that path. The stack
+alone does not establish a heartbeat rearming defect. Similar boot symptoms
+were observed with Ubuntu 24.04, 26.04 and the ISO's HWE kernel.
 
-**Fix:** the Ubuntu guests call `Disable-HyperVHeartbeatForLinuxGuest` at VM
+**Retained workaround:** the Ubuntu guests call `Disable-HyperVHeartbeatForLinuxGuest` at VM
 creation, which turns the Heartbeat integration service off on ARM64 and does
 nothing on AMD64. Nothing in the harness depends on that service --
 `Get-VMIp` resolves through KVP and ARP, and only the caching-proxy guest
 reads the heartbeat, as one line of a readiness summary. A Windows guest is
 unaffected either way and keeps it.
 
-**What it does not fix.** The guest still runs far slower than the same image
-on an AMD64 host, and still takes occasional soft lockups elsewhere
-(`kick_all_cpus_sync` during module load, for one). Disabling the service is
-the difference between a guest that never boots and one that installs, not
-between a slow guest and a fast one -- which is why the autoinstall wait is
-budgeted in tens of minutes rather than one.
+Disabling Heartbeat helped earlier boots, but later installer stalls and
+high hypervisor overhead occurred with it already disabled. Keep this
+workaround separate from the clockevent investigation below; neither the historical
+stack nor a successful boot proves that all workload failures share one cause.
 
 <a id="42dc5bb9-0006"></a>
 
@@ -160,30 +156,15 @@ minutes elsewhere costs tens of minutes here, and step budgets sized on
 another host expire on this one. Nothing in the guest or in the harness log
 names a cause, because neither can see it.
 
-**What it is.** Measured on this lab's ARM64 host with one 2-vCPU Ubuntu
-guest installing packages, sampling the guest's Hyper-V virtual-processor
-counters and comparing them with the root partition's counters at the same
-moment:
-
-| | root partition | Ubuntu guest |
-|---|---|---|
-| `% Guest Run Time` | 25.3 | 17.3 |
-| `% Hypervisor Run Time` | 0.8 | **51.7** |
-| `Total Intercepts/sec` | 38,810 | **3,856,173** |
-
-The guest traps roughly a hundred times more often than the root partition on
-the same machine at the same instant, and spends more of its scheduled time
-inside the hypervisor than running its own code. That is the throughput
-ceiling: it is not explained by the disk, network, or ordinary host load
-alone.
-
-**What it is not.** Two plausible-looking explanations do not survive
-measurement here. The network is not it -- the same failing step pulls
-442 MB of archives in 22 seconds (13.6 and 27.2 MB/s) and then spends half an
-hour unpacking them. The host's anti-virus filter is not the main term
-either: it accounts for about 0.09 of a core against the guest's 1.41 over
-the same window. It is still worth excluding (see the storage filter stack
-section of `Test-Config.ps1`), but it is a correction, not the cause.
+**Historical observation.** A manual sample on this lab's ARM64 host reported
+hypervisor runtime above guest runtime and a high intercept rate while a
+two-vCPU Ubuntu guest installed packages. The raw counter capture is not
+committed; this heading reflects that historical reading. Treat the readings
+as a diagnostic lead, not a reproducible
+measurement or proof of a particular cause. Repeat the sample on the current
+host and workload before attributing a slow step. Compare package download
+time with unpacking time, and check the storage filter stack with
+`Test-Config.ps1` when investigating disk overhead.
 
 **How to read it.** Sample these while a guest is under load; the instances
 do not exist until the VM is running, so expand the wildcard per sample
@@ -198,17 +179,35 @@ Get-Counter -Counter @(
 ) -MaxSamples 1
 ```
 
-The root-partition column is the control: it is what this machine's trap rate
-looks like when nothing pathological is happening.
+**Boot configuration.** The ARM64 Linux VM builders cap the guest vCPU count.
+The [host module](../host/windows.hyper-v/modules/Yuruna.Host.psm1) records an
+earlier one-vCPU versus two-vCPU boot comparison, but
+the underlying timings are not committed. Measure from the same powered-off
+checkpoint before changing the cap. Moving-console timeouts and static-console
+stalls still require separate diagnosis.
 
-**What follows from it.** Budgets measured on an AMD64 host do not transfer
-to this one, and a budget that expires here is reporting the ceiling rather
-than a stuck guest -- which is why the failure classifier's `wait_timeout` on
-a guest whose console is still moving means "too slow", not "wedged". The
-vCPU cap (`Limit-HyperVLinuxGuestCoreCount`) is the one lever already applied:
-more virtual processors raise the intercept rate without delivering more
-guest compute, so the cap makes single-threaded work -- boot, install,
-`dpkg` -- finish sooner rather than later.
+<a id="42dc5bb9-0012"></a>
+
+### Distinguish external interrupts from hypercalls
+
+Total intercepts alone do not identify their source. The host sampler records
+`Total Intercepts/sec` and `Other Intercepts/sec` for guest virtual processors;
+it does not record separate `External Interrupts/sec` or `Hypercalls/sec`
+series. If the installed performance provider exposes those counters, capture
+them directly and save the output with the guest console and disk-latency
+readings. A VMBus stack or udev timeout alone does not identify the interrupt
+source.
+
+The same [host module](../host/windows.hyper-v/modules/Yuruna.Host.psm1) records
+a same-kernel clockevent comparison as historical
+context. No raw capture or Ubuntu backport recipe for that comparison is
+committed here. Reproduce it before treating clockevent selection as a fix
+for this host.
+
+PDH can return a success status with an out-of-range per-VP runtime percentage.
+The sampler accepts finite cooked values whose PDH status is 0 or 1; it does
+not apply a 0-100 range check. It records the PDH status and raw values along
+with the cooked value, so inspect those fields before averaging utilization.
 
 <a id="42dc5bb9-0007"></a>
 
@@ -273,6 +272,21 @@ modifier-release burst is swallowed. All three return success.
 ## Cleaning up old files
 
 Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (VHDX, seed ISOs, NVRAM, etc.) for any VM that no longer exists in Hyper-V. Downloaded base images (named `host.windows.hyper-v.guest.<name>.*`) are KEPT so later `Get-Image.ps1` runs don't re-download them; refresh a base image with the matching `Get-Image.ps1`.
+
+<a id="42dc5bb9-0013"></a>
+
+## WMI screenshot size is rejected during early boot
+
+An ARM64 guest can expose a 1024x768 framebuffer while `Get-VMVideo`
+reports its configured 1920x1080 mode. Requesting the configured size can
+return WMI code 32775 and no image even while the guest is progressing.
+On this host, requests for 1024x768 and 640x480 succeeded at the same point.
+
+`Get-HyperVScreenshot` tries the configured size first, then smaller
+1024x768 and 640x480 requests when needed. It writes the PNG at the successful
+request's dimensions. Click-by-OCR continues to use the window capture path,
+whose coordinates match the viewer. An unavailable image alone is insufficient
+evidence that the guest has frozen.
 
 <a id="42dc5bb9-000a"></a>
 
@@ -657,6 +671,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

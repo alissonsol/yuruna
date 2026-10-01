@@ -349,7 +349,7 @@ func TestRefreshProofGolden(t *testing.T) {
 }
 
 // refreshStub is a host listener that records every refresh POST and answers
-// with the status and body the test sets.
+// with the status and body the test supplies.
 type refreshStub struct {
 	mu      sync.Mutex
 	bodies  []string

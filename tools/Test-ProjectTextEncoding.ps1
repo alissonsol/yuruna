@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b6f7e1-08a5-4d37-b2c9-6f0a314e8d75
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,7 +114,7 @@ foreach ($path in $recordedYaml) {
 }
 
 $paths = @($recordedYaml + @($docs.inventoryFiles | ForEach-Object { [string]$_ }) | Sort-Object -Unique)
-$decoder = [Text.UTF8Encoding]::new($false, $true)
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1') -Global -Force
 foreach ($relative in $paths) {
     $full = Join-Path $ProjectRoot $relative
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
@@ -122,26 +122,8 @@ foreach ($relative in $paths) {
         continue
     }
     $bytes = [IO.File]::ReadAllBytes($full)
-    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
-        $findings.Add("$relative starts with a UTF-8 BOM")
-        continue
-    }
-    try { $text = $decoder.GetString($bytes) }
-    catch [Text.DecoderFallbackException] {
-        $findings.Add("$relative is not valid UTF-8: $($_.Exception.Message)")
-        continue
-    }
-    if ($text.Contains([char]0xFFFD)) { $findings.Add("$relative contains the Unicode replacement character") }
-    if (-not $text.IsNormalized([Text.NormalizationForm]::FormC)) {
-        $findings.Add("$relative is not Unicode NFC-normalized")
-    }
-    for ($i = 0; $i -lt $text.Length; $i++) {
-        $code = [int]$text[$i]
-        if ($code -lt 0x20 -and $code -notin @(9, 10, 13)) {
-            $findings.Add(("{0} contains control character U+{1:X4} at index {2}" -f `
-                    $relative, $code, $i))
-            break
-        }
+    foreach ($problem in @(Test-Utf8TextByte -Bytes $bytes)) {
+        $findings.Add("$relative $problem")
     }
 }
 

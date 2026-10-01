@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f71118-c871-4ce5-99f5-744301324e82
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -180,6 +180,19 @@ Describe 'Invoke-GuestSsh bounded result contract' {
         $r.output | Should -Match 'one\s+two'
         $r.output | Should -Match 'partial-error'
         Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Ssh -Times 1 -Exactly -ParameterFilter { $MaxCapturedChars -eq 524288 }
+    }
+
+    It 'applies an explicit capture limit over the partial-output default and keeps output longer than that default' {
+        $script:SshNativeResult.StdOut = [string]::new([char]120, 600000)
+        $r = Invoke-GuestSsh @script:SshArguments -PreservePartialOutputOnTimeout -MaxCapturedChars 16777216
+        $r.success | Should -BeTrue
+        $r.output.Length | Should -Be 600000
+        Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Ssh -Times 1 -Exactly -ParameterFilter { $MaxCapturedChars -eq 16777216 }
+    }
+
+    It 'rejects a capture limit the bounded runner would refuse before starting ssh' {
+        { Invoke-GuestSsh @script:SshArguments -MaxCapturedChars 100 } | Should -Throw
+        Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Ssh -Times 0 -Exactly
     }
 
     It 'does not publish partial timeout output unless requested' {

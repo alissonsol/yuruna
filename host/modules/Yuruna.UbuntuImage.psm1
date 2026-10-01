@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42418995-a462-47f5-816a-8709623807f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,8 @@
 # docs/guest-image-setup.md#ubuntu-iso-downloads-yurunaubuntuimagepsm1
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Image.psm1') -DisableNameChecking -Verbose:$false
+
 function Write-UbuntuImageExceptionDetail {
     param($Record)
     Write-Verbose "Exception type: $($Record.Exception.GetType().FullName)"
@@ -49,31 +51,8 @@ function Write-UbuntuImageExceptionDetail {
 }
 
 function Get-UbuntuImageHttpStatus {
-    <#
-    .SYNOPSIS
-        HTTP status code carried by a failed fetch, 0 when none can be read.
-    .DESCRIPTION
-        Invoke-WebRequest raises an exception carrying the .Response to read
-        the code from. The squid SSL-bump path does not: it drives HttpClient
-        directly and throws a plain message, so there the code survives only in
-        the text. Reading both is what keeps a 404 arriving through the cache
-        classified as "the mirror publishes no checksums" instead of as an
-        unverifiable download that aborts the bring-up.
-    .OUTPUTS
-        [int] status code, or 0 when none could be read.
-    #>
-    [CmdletBinding()]
-    [OutputType([int])]
     param([AllowNull()]$ErrorRecord)
-    if (-not $ErrorRecord) { return 0 }
-    try {
-        $response = $ErrorRecord.Exception.Response
-        if ($response -and $response.StatusCode) { return [int]$response.StatusCode }
-    } catch { $null = $_ }
-    $message = ''
-    try { $message = [string]$ErrorRecord.Exception.Message } catch { $message = '' }
-    if ($message -match '\bHTTP\s+(\d{3})\b') { return [int]$Matches[1] }
-    return 0
+    Get-YurunaHttpErrorStatus -ErrorRecord $ErrorRecord
 }
 
 function Get-UbuntuServerImageManifestUrl {
@@ -276,67 +255,23 @@ function Test-UbuntuServerImageChecksum {
         [Parameter(Mandatory)][string]$DownloadFile
     )
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_07fe5b3f6f64fc10') -InformationAction Continue
-    # SHA256SUMS fetch: bounded retries absorb transient mirror failures so they
-    # are not conflated with "mirror publishes no checksums". A definitive HTTP
-    # 403/404/410 means the checksum file genuinely is not published -> soft
-    # pass, same class as the missing-line case below. Any other failure that
-    # survives the retry budget leaves the just-downloaded bytes unverifiable ->
-    # $false, so the caller aborts instead of promoting an unverified image.
-    if (-not (Get-Command Invoke-WithYurunaRetry -ErrorAction SilentlyContinue)) {
-        $retryModule = [System.IO.Path]::GetFullPath((Join-Path -Path $PSScriptRoot -ChildPath '../../automation/Yuruna.Retry.psm1'))
-        if (Test-Path -LiteralPath $retryModule) { Import-Module $retryModule -ErrorAction SilentlyContinue }
-    }
+    Import-Module (Join-Path $PSScriptRoot 'Yuruna.Image.psm1') -DisableNameChecking -Verbose:$false
     $work     = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-sums-' + [Guid]::NewGuid().ToString('N'))
     $sumsFile = Join-Path $work 'SHA256SUMS'
     $checksumContent = $null
     try {
         New-Item -ItemType Directory -Path $work -Force -ErrorAction Stop | Out-Null
-        # The body lands on DISK, never through .Content: releases.ubuntu.com and
-        # cdimage serve SHA256SUMS with no Content-Type, so Invoke-WebRequest
-        # cannot infer text and hands back a Byte[] whose string form is the
-        # space-joined DECIMAL value of every byte -- a body no filename can be
-        # found in, reported afterwards as "the mirror lists no checksum". The
-        # same file then feeds the signature check below, so the bytes that are
-        # authenticated are the bytes the hash is read from. It also takes the
-        # same egress as the ISO transfer it verifies (Save-CachedHttpUri when
-        # the host driver supplies one); on a host whose only route out is the
-        # squid cache a direct request would fail every single time.
-        $fetch = {
-            Remove-Item -LiteralPath $sumsFile -Force -ErrorAction SilentlyContinue
-            if (Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue) {
-                Save-CachedHttpUri -Uri $ChecksumUrl -OutFile $sumsFile
-            } else {
-                Invoke-WebRequest -Uri $ChecksumUrl -OutFile $sumsFile -TimeoutSec 60 -ErrorAction Stop
-            }
-        }.GetNewClosure()
-        $fetchError = $null
-        if (Get-Command Invoke-WithYurunaRetry -ErrorAction SilentlyContinue) {
-            $attempted = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'host.operator_41482ec4b9e3d550') -ScriptBlock $fetch `
-                -MaxAttempts 4 -InitialDelaySeconds 5 -MaxDelaySeconds 20 `
-                -ShouldRetry {
-                    param($info)
-                    return -not ((Get-UbuntuImageHttpStatus -ErrorRecord $info.Error) -in 403, 404, 410)
-                }
-            if (-not $attempted.Success) { $fetchError = $attempted.LastError }
+        $fetched = Get-PublishedChecksumBody -ChecksumUrl $ChecksumUrl -DestinationPath $sumsFile
+        $checksumContent = $fetched.Body
+        if ($fetched.State -eq 'absent') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_135befd0132343f2' -Arguments @{ checksumUrl = "$ChecksumUrl"; status = "$($fetched.Status)" })
+            return $true
         }
-        else {
-            # Retry helper unavailable (module tree incomplete): single attempt,
-            # same missing-vs-transient classification below.
-            try { & $fetch } catch { $fetchError = $_ }
-        }
-        if (-not $fetchError -and (Test-Path -LiteralPath $sumsFile)) {
-            $checksumContent = [System.IO.File]::ReadAllText($sumsFile)
-        }
-        if (-not $checksumContent) {
-            $status = Get-UbuntuImageHttpStatus -ErrorRecord $fetchError
-            if ($status -in 403, 404, 410) {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_135befd0132343f2' -Arguments @{ checksumUrl = "$ChecksumUrl"; status = "$status" })
-                return $true
-            }
+        if ($fetched.State -ne 'fetched') {
             Write-Warning ('=' * 72)
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ffa509d9c8227161')
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0a2316bbbe70c189' -Arguments @{ checksumUrl = "$ChecksumUrl" })
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e96b79d3e29d27c5' -Arguments @{ returned = "$(if ($fetchError) { $fetchError.Exception.Message } else { 'no content returned' })" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e96b79d3e29d27c5' -Arguments @{ returned = "$($fetched.Detail)" })
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b144a3f615f5cc3d')
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_89fba45b13464342')
             Write-Warning ('=' * 72)
@@ -374,20 +309,12 @@ function Test-UbuntuServerImageChecksum {
     } finally {
         Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
     }
-    # Anchor the match to a whole `<sha256> *<filename>` line (the '*' is the
-    # publisher's binary-mode marker). An unanchored substring search accepts any
-    # line merely CONTAINING the name -- a sidecar entry, a comment, a longer
-    # filename this one is a prefix of -- and taking the leading token of such a
-    # line as "the expected hash" without asserting it is 64 hex characters
-    # surfaces a parse error as a checksum MISMATCH, which deletes a good ISO
-    # and aborts the bring-up.
-    $rx = [regex]::new(('^([0-9a-fA-F]{64})\s+\*?' + [regex]::Escape($IsoFileName) + '\s*$'), 'Multiline')
-    $checksumLine = $rx.Match($checksumContent)
-    if (-not $checksumLine.Success) {
+    $checksumLine = Get-ImageChecksumLine -ChecksumUrl $ChecksumUrl -TargetFileName $IsoFileName -ChecksumBody $checksumContent
+    if ($checksumLine.State -ne 'found') {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1dfbd537872c61ec' -Arguments @{ isoFileName = "$IsoFileName"; checksumUrl = "$ChecksumUrl" })
         return $true
     }
-    $expectedHash = $checksumLine.Groups[1].Value
+    $expectedHash = $checksumLine.Hash
     $actualHash = (Get-FileHash -Path $DownloadFile -Algorithm SHA256).Hash
     if ($expectedHash -ine $actualHash) {
         # Visual banner instead of Write-Error: the operator's decision
@@ -430,7 +357,10 @@ function Test-UbuntuServerImageAlreadyCurrent {
     if ($prior[1] -ne $SourceUrl) { return $false }
     try {
         $head = Invoke-WebRequest -Uri $SourceUrl -Method Head -ErrorAction Stop
-        $remoteLen = [int64]$head.Headers['Content-Length']
+        $lengthHeader = $head.Headers['Content-Length']
+        if ($lengthHeader -is [array]) { $lengthHeader = $lengthHeader[0] }
+        $remoteLen = [int64]0
+        if (-not [int64]::TryParse([string]$lengthHeader, [ref]$remoteLen)) { return $false }
     } catch { $null = $_; return $false }
     return ([int64]$prior[2] -eq $remoteLen)
 }
@@ -507,60 +437,23 @@ function Save-UbuntuServerImage {
     # BaseImageName already carries it as the "host.<host type>." prefix.
     $agentHostType = ''
     if ($BaseImageName -match '^host\.(windows\.hyper-v|ubuntu\.kvm|macos\.utm)\.') { $agentHostType = $Matches[1] }
-    if ($agentImageKey -and $agentHostType -and
-        (Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -and
-        (Get-Command -Name Request-DownloadAgentImage -ErrorAction SilentlyContinue)) {
-        $agentBaseUrl = ''
-        try { $agentBaseUrl = [string](Resolve-DownloadAgentEndpoint) } catch { $agentBaseUrl = '' }
-        if (-not $agentBaseUrl) {
-            Write-Verbose "Save-UbuntuServerImage: no download agent reachable; using the origin path."
-        } else {
-            # Fingerprint the local copy with the sentinel's filename + byte
-            # count and no SHA-256: hashing a multi-GB ISO on every run would
-            # cost more than the transfer it can save, and filename + byte
-            # count is what the agent falls back to.
-            $agentArgs = @{
-                BaseUrl         = $agentBaseUrl
-                HostType        = $agentHostType
-                ImageKey        = $agentImageKey
-                Arch            = $Arch
-                Variant         = $(if ($PreferDaily) { 'daily' } else { 'stable' })
-                StagingPath     = $downloadFile
-                DeadlineSeconds = 7200
-            }
-            if ((Test-Path -LiteralPath $baseImageFile) -and (Test-Path -LiteralPath $baseImageOrigin)) {
-                $sentinelLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
-                $sentinelBytes = 0L
-                if ($sentinelLines.Count -ge 3 -and [int64]::TryParse($sentinelLines[2].Trim(), [ref]$sentinelBytes) -and $sentinelBytes -gt 0) {
-                    $agentArgs['LocalFilename']  = $sentinelLines[0].Trim()
-                    $agentArgs['LocalByteCount'] = $sentinelBytes
-                }
-            }
-            $agentResult = $null
-            try {
-                New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
-                Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
-                $agentResult = Request-DownloadAgentImage @agentArgs
-            } catch {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57234ab9582f912d' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
-                $agentResult = $null
-            }
-            if ($agentResult -and $agentResult.outcome -eq 'skipped') {
-                $msg = "Skipping download: the download agent at $agentBaseUrl confirms $baseImageFile is the current $agentImageKey artifact. To force a re-download, delete or rename: $baseImageFile"
-                Write-Information $msg -InformationAction Continue
-                return 'skipped'
-            } elseif ($agentResult -and $agentResult.outcome -eq 'downloaded') {
-                $agentServed       = $true
-                $isoFileName       = [string]$agentResult.filename
-                $sourceUrl         = [string]$agentResult.sourceUrl
-                $agentLastModified = [string]$agentResult.lastModified
-                $downloadedSize    = (Get-Item -LiteralPath $downloadFile).Length
-                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_fcfb9dfaf41b6f33' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; isoFileName = "$isoFileName"; downloadedSize = "$downloadedSize"; downloadFile = "$downloadFile" }) -InformationAction Continue
-            } elseif ($agentResult) {
-                $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
-                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
-            }
-        }
+    $agentProbe = Invoke-DownloadAgentFirst -HostType $agentHostType -ImageKey $agentImageKey -Arch $Arch -Variant $(if ($PreferDaily) { 'daily' } else { 'stable' }) -StagingPath $downloadFile -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin
+    $agentBaseUrl = $agentProbe.BaseUrl
+    $agentResult = $agentProbe.Result
+    if ($agentResult -and $agentResult.outcome -eq 'skipped') {
+        $msg = "Skipping download: the download agent at $agentBaseUrl confirms $baseImageFile is the current $agentImageKey artifact. To force a re-download, delete or rename: $baseImageFile"
+        Write-Information $msg -InformationAction Continue
+        return 'skipped'
+    } elseif ($agentResult -and $agentResult.outcome -eq 'downloaded') {
+        $agentServed       = $true
+        $isoFileName       = [string]$agentResult.filename
+        $sourceUrl         = [string]$agentResult.sourceUrl
+        $agentLastModified = [string]$agentResult.lastModified
+        $downloadedSize    = (Get-Item -LiteralPath $downloadFile).Length
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_fcfb9dfaf41b6f33' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; isoFileName = "$isoFileName"; downloadedSize = "$downloadedSize"; downloadFile = "$downloadFile" }) -InformationAction Continue
+    } elseif ($agentResult) {
+        $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
     }
 
     if (-not $agentServed) {

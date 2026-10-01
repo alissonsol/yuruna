@@ -37,6 +37,7 @@ workload:
     description: "amazon.linux.2023.update.sh"
 
   - action: sshExec
-    command: "sudo reboot now"
+    command: "sudo reboot now && while :; do sleep 1; done"
+    timeoutSeconds: 60
     allowFailure: true
     description: "Reboot the VM"

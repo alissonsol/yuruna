@@ -36,7 +36,7 @@
     },
     "configsync.operator_0bda1d154849ebae": {
       "sourceHash": "899e430075ca166b4a7541c8723d2fe3d3f6d5d57496e0b78053f9df10a4d564",
-      "message": "Set-InternalAuthKey requer a extensão de autenticação: '{fn}' não está disponível. Importar primeiro o teste/extensão/autenticação/default.psm1."
+      "message": "Set-InternalAuthKey requer a extensão de autenticação: '{fn}' não está disponível. Importar primeiro o test/extension/authentication/default.psm1."
     },
     "configsync.operator_0c6e2106f0eb6822": {
       "sourceHash": "f5426d9ea79caf3cbb1a3d8d83c58963948313473e02285aa2475009aa1e1669",
@@ -64,7 +64,7 @@
     },
     "configsync.operator_21a32e8df2354bc6": {
       "sourceHash": "ce99ff21ef0593fdcc33d348ef34cd842b7fe36f0048de64948203c167615046",
-      "message": "Foi introduzido um token de laboratório, mas nenhum serviço de cache- proxy este nome da máquina respondeu em : 9400, por isso não pode ser resgatado aqui. Inscreva-se separadamente e execute novamente esta sincronização: pwsh test/lab/Set-LabToken.ps1 -LabToken {code} - CachingProxyService <proxy-address> - BounceStatusService"
+      "message": "Um token do laboratório foi informado, mas nenhum serviço de caching-proxy configurado neste host respondeu na porta :9400; por isso, o token não pode ser resgatado aqui. Cadastre este host separadamente e execute novamente a sincronização: pwsh test/lab/Set-LabToken.ps1 -LabToken {code} -CachingProxyService <proxy-address> -BounceStatusService"
     },
     "configsync.operator_21d662e284475037": {
       "sourceHash": "deb792ee47a182ea9cfc45029bcb4747256a053c89ed82068c6c607eda51ba10",
@@ -92,7 +92,7 @@
     },
     "configsync.operator_41342d0410aa7c6d": {
       "sourceHash": "43e177e1ee2f90386ae17d1130740fada631c94b85edd0de29572887d7eed34f",
-      "message": "Senha para o utilizador '{user}' (Enter to skip)"
+      "message": "Senha para o usuário '{user}' (Enter to skip)"
     },
     "configsync.operator_504335d8f73a9c9f": {
       "sourceHash": "986f27f4589e8e8a3407fdb04f85acf0b6193aa977c851e8c16c2318a40306fc",
@@ -108,7 +108,7 @@
     },
     "configsync.operator_67b60623c8140b5b": {
       "sourceHash": "d4625d9914289739bcede0683acfd3d6208f848648f48de05118bec4490a2f3a",
-      "message": "O {referenceHost} não tem nenhuma chave de autenticação interna configurada, por isso não pode servir credenciais a um par. Inscreva-se Ambas as máquinas com o token de laboratório mostrado no painel de máquinas Yuruna (no {referenceHost2}: pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code> -BounceStatusService), em seguida, executar novamente esta sincronização."
+      "message": "O {referenceHost} não tem nenhuma chave de autenticação interna configurada, por isso não pode servir credenciais a um par. Inscreva-se Ambas as máquinas com o token do laboratório mostrado no painel de máquinas Yuruna (no {referenceHost2}: pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code> -BounceStatusService), em seguida, executar novamente esta sincronização."
     },
     "configsync.operator_69ca94406cbb5c1f": {
       "sourceHash": "0cb4cd9cc816ef2cacd2048d4c05096cb0b242fc84c8da6e836acf3629af5215",
@@ -168,7 +168,7 @@
     },
     "configsync.operator_9d03f7dc75755f81": {
       "sourceHash": "434ee94eff2d44ce1db3e688c5b41d945fd2708fd9bf7930398a80ae7e689438",
-      "message": "O tempo de execução desta máquina não tem AES- GCM (PowerShell {pSVersion} no {trim}), por isso não pode abrir um envelope de credencial nem selar um. Cada registo de token do Lab e cada troca de credencial de sincronização de configuração falha aqui até PowerShell ser atualizado. Nada sobre o código, o proxy ou o cofre está em falta. Confirme com test/lab/Lab-Diag.ps1, cuja linha AesGcm relata a mesma coisa."
+      "message": "O tempo de execução desta máquina não tem AES-GCM (PowerShell {pSVersion} no {trim}), por isso não pode abrir um envelope de credencial nem selar um. Cada registro de token do Lab e cada troca de credencial de sincronização de configuração falha aqui até PowerShell ser atualizado. Nada sobre o código, o proxy ou o cofre está em falta. Confirme com test/lab/Lab-Diag.ps1, cuja linha AesGcm relata a mesma coisa."
     },
     "configsync.operator_9d1be9a1af0107c6": {
       "sourceHash": "6d1c4675a224436a5101fad956506271b6f025ec0f73731cc62f2ab89dcfb6c6",
@@ -184,7 +184,7 @@
     },
     "configsync.operator_9e1f86637c4a7e09": {
       "sourceHash": "4f9b23ae286063507e60b75f23809311e0abbca4fb61a2abe44edbfb2301b13f",
-      "message": "deixou-o vazio (por omissão para <runtime>/pool-intent)"
+      "message": "deixou-o vazio (por padrão para <runtime>/pool-intent)"
     },
     "configsync.operator_9e44a801c5e38eb2": {
       "sourceHash": "11078a006929941559fb2b92d4450eb9fbb22ac7aaaa6e93e162f4434bdaba30",
@@ -200,11 +200,11 @@
     },
     "configsync.operator_a610cd0fd716e5f9": {
       "sourceHash": "c27b6d61e9ab7fad84b17d5821b74361579cb14972c75131fb3e6decf63048e4",
-      "message": "Sincronização-HostConfiguração: plataforma não suportada."
+      "message": "Sync-HostConfiguration: plataforma não suportada."
     },
     "configsync.operator_a693215e036db1c5": {
       "sourceHash": "723a62e3cf4747bbf880cfa242905087d33131e9252ccf51d0b0d1785f37945c",
-      "message": "host- aliases: {referenceHost} não pôde fornecer a sua redeNome do armazenamento->Mapa IP ({reason}). Qualquer nome que não se resolva aqui tem de ser introduzido à mão; reiniciando o serviço de status no {referenceHost} (test/service/Start-StatusService.ps1 -Restart) geralmente limpa isso."
+      "message": "host-aliases: {referenceHost} não pôde fornecer a sua redeNome do armazenamento->Mapa IP ({reason}). Qualquer nome que não se resolva aqui tem de ser introduzido à mão; reiniciando o serviço de status no {referenceHost} (test/service/Start-StatusService.ps1 -Restart) geralmente limpa isso."
     },
     "configsync.operator_a98b32ec2329c210": {
       "sourceHash": "df1516b58bc5487e9bcb153feff628a3364efe3b574a793a40c2eaff0f24f0aa",
@@ -216,7 +216,7 @@
     },
     "configsync.operator_acd19bbbd8ecb77b": {
       "sourceHash": "f241d83b4291d58315ca03c696af11db7f009ea0690a22f0c674cfcc6e3ec818",
-      "message": "Sync-HostConfiguração: gravação atômica do {configPath} falhou."
+      "message": "Sync-HostConfiguration: gravação atômica do {configPath} falhou."
     },
     "configsync.operator_ae8bc8821187bf0f": {
       "sourceHash": "d52ada722408833e5bac3b5715498a74e6690ec41dc3275d615978c19d016300",
@@ -236,7 +236,7 @@
     },
     "configsync.operator_c593d83f1f3260d0": {
       "sourceHash": "09f8b7c2a38a1bf2fbbc86b46f0ccf2e2b16741c8abf7fc09492dad65751c493",
-      "message": "{aggregatorUrl} tem a troca lab-token desabilitada (rotação desligada, ou o proxy não possui nenhuma chave de autenticação interna). Reconstruir o serviço de cache- proxy de uma máquina que mantém o token, ou verificar o agregador de piscina Bandeiras de serviço."
+      "message": "{aggregatorUrl} tem a troca lab-token desabilitada (rotação desligada, ou o proxy não possui nenhuma chave de autenticação interna). Reconstruir o serviço de cache-proxy de uma máquina que mantém o token, ou verificar o agregador de grupo Bandeiras de serviço."
     },
     "configsync.operator_cb757afbb07cffde": {
       "sourceHash": "7983853d28981ba9c3b060ed8b167c13c53176ad77783cfa5e1d1ac0da68bba8",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 424882ac-09a5-499f-af1e-64e5b6e9bf94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,7 +105,7 @@ Describe 'runner reclamation follows process generations' {
         Set-Content "$runtime/inner.pid" 12345
         Stop-StaleRunner -ProcessId 12344 -RuntimeDir $runtime -TestRoot $TestDrive -WaitForExitMs 0 -Confirm:$false
         Should -Invoke Stop-YurunaProcessTree -ModuleName Test.SingleInstance -Times 0 -Exactly -ParameterFilter { $ProcessId -eq 12345 }
-        Should -Invoke Get-YurunaRunnerRecordState -ModuleName Test.SingleInstance -Times 1 -Exactly -ParameterFilter { $StartFile -like '*/inner.start' -and $ExpectedScriptPath -like '*/Invoke-TestRunnerInnerLoop.ps1' }
+        Should -Invoke Get-YurunaRunnerRecordState -ModuleName Test.SingleInstance -Times 1 -Exactly -ParameterFilter { $StartFile -like '*[/\]inner.start' -and $ExpectedScriptPath -like '*[/\]Invoke-TestRunnerInnerLoop.ps1' }
     }
 }
 

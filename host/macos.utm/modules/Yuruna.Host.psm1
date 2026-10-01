@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -356,11 +356,7 @@ function Test-UtmBoundedResultComplete {
     [CmdletBinding()]
     [OutputType([bool])]
     param([AllowNull()][hashtable]$Result)
-    if (-not $Result -or -not $Result['Started']) { return $false }
-    foreach ($key in 'TimedOut', 'DrainTimedOut', 'OutputTruncated', 'KillFailed', 'DeadlineExhausted') {
-        if ($Result[$key]) { return $false }
-    }
-    return $true
+    return (Test-BoundedNativeResultComplete -Result $Result)
 }
 
 <#
@@ -508,10 +504,8 @@ function Wait-UtmInterval {
         [Parameter(Mandatory)][ValidateRange(0, 3600000)][int]$Milliseconds,
         $Deadline
     )
-    $ms = [long]$Milliseconds
-    if ($Deadline) { $ms = [Math]::Min($ms, [long](Get-YurunaDeadlineRemainingMs -Deadline $Deadline)) }
-    if ($ms -gt 0) { Start-Sleep -Milliseconds ([int]$ms) }
-    if ($Deadline) { return (-not (Test-YurunaDeadlineExpired -Deadline $Deadline)) }
+    if ($Deadline) { return (Wait-YurunaDeadlineInterval -Deadline $Deadline -Milliseconds $Milliseconds) }
+    if ($Milliseconds -gt 0) { Start-Sleep -Milliseconds $Milliseconds }
     return $true
 }
 
@@ -528,13 +522,8 @@ function Get-UtmChildDeadline {
         $Parent,
         [long]$ReserveMilliseconds = 0
     )
-    $budget = [Math]::Max([long]0, $Milliseconds)
-    if ($Parent) {
-        $left = [long](Get-YurunaDeadlineRemainingMs -Deadline $Parent) - $ReserveMilliseconds
-        $budget = [Math]::Max([long]0, [Math]::Min($budget, $left))
-        return (New-YurunaDeadline -TotalMilliseconds $budget -ClockTicks $Parent.ClockTicks)
-    }
-    return (New-YurunaDeadline -TotalMilliseconds $budget)
+    if ($Parent) { return (New-YurunaDeadline -Parent $Parent -TotalMilliseconds ([Math]::Max([long]0, $Milliseconds)) -ReserveMilliseconds ([Math]::Max([long]0, $ReserveMilliseconds))) }
+    return (New-YurunaDeadline -TotalMilliseconds ([Math]::Max([long]0, $Milliseconds)))
 }
 
 <#
@@ -807,15 +796,13 @@ function Start-CachingProxyServiceForwarder {
     # RedirectStandard* is required: without them pwsh inherits the
     # parent TTY and dies when Start-CachingProxyServiceVM.ps1 exits. The
     # forwarder's own log gets live traffic; stdout/stderr go to files.
-    $procArgs = @(
-        '-NoProfile','-NoLogo','-File', $forwarderScript,
-        '-CacheIp', $CacheIp,
-        '-Port', $Port,
-        '-VMPort', $VMPort,
-        '-PidFile', $pidFile,
-        '-LogFile', $logFile
-    )
-    if ($PrependProxyV1) { $procArgs += '-PrependProxyV1' }
+    $forwarderParams = @{ CacheIp = $CacheIp; Port = $Port; VMPort = $VMPort; PidFile = $pidFile; LogFile = $logFile }
+    if ($PrependProxyV1) { $forwarderParams.PrependProxyV1 = $true }
+    $parameterJson = ConvertTo-Json -InputObject $forwarderParams -Compress
+    $parameterBlob = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($parameterJson))
+    $escapedScript = $forwarderScript -replace "['\u2018\u2019]", '$0$0'
+    $command = '$p = ConvertFrom-Json -AsHashtable -InputObject ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(''{0}''))); & ''{1}'' @p' -f $parameterBlob, $escapedScript
+    $procArgs = @('-NoProfile', '-NoLogo', '-EncodedCommand', [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command)))
     # Ports below 1024 need root on macOS. Spawn via `sudo -E pwsh` when not
     # already root; the caller pre-caches credentials via `sudo -v` so the
     # detached subprocess can bind the port without an interactive tty prompt.
@@ -929,7 +916,7 @@ function Stop-CachingProxyServiceForwarder {
     )
     $pidFile = Join-Path $HOME "yuruna/image/caching-proxy-service/forwarder.$Port.pid"
     if (-not (Test-Path $pidFile)) {
-        if (-not $Quiet) { Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_51cfbd5426e42f8d') }
+        if (-not $Quiet) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_51cfbd5426e42f8d') -InformationAction Continue }
         return $true
     }
     $forwarderPid = (Get-Content $pidFile -Raw).Trim()
@@ -950,7 +937,7 @@ function Stop-CachingProxyServiceForwarder {
     }
     $cmd = "$($identity.StdOut)".Trim()
     if ($identity.ExitCode -ne 0 -or -not $cmd) {
-        if (-not $Quiet) { Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_7934de6bf4f9bbe6' -Arguments @{ forwarderPid = "$forwarderPid" }) }
+        if (-not $Quiet) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_7934de6bf4f9bbe6' -Arguments @{ forwarderPid = "$forwarderPid" }) -InformationAction Continue }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
@@ -962,7 +949,7 @@ function Stop-CachingProxyServiceForwarder {
     if (-not $PSCmdlet.ShouldProcess("pid $forwarderPid (Start-CachingProxyServiceForwarder.ps1)", (Format-YurunaOperatorMessage -Key 'host.operator_378bec0a86550e8e'))) {
         return $false
     }
-    if (-not $Quiet) { Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0dbaee5477554260' -Arguments @{ forwarderPid = "$forwarderPid" }) }
+    if (-not $Quiet) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_0dbaee5477554260' -Arguments @{ forwarderPid = "$forwarderPid" }) -InformationAction Continue }
     # /bin/kill sends SIGTERM (default). PowerShell 7's Stop-Process on
     # Unix maps to Process.Kill() == SIGKILL unconditionally, bypassing
     # graceful shutdown -- hence the external binary for TERM-then-KILL.
@@ -1068,8 +1055,7 @@ function Stop-AllCachingProxyServiceForwarder {
             if ($_.BaseName -match '^forwarder\.(\d+)$') {
                 $portInt = [int]$matches[1]
                 if ($PSCmdlet.ShouldProcess("port $portInt", (Format-YurunaOperatorMessage -Key 'host.operator_36b84d687b0706c6'))) {
-                    [void](Stop-CachingProxyServiceForwarder -Port $portInt -Quiet:$Quiet)
-                    $stopped += $portInt
+                    if (Stop-CachingProxyServiceForwarder -Port $portInt -Quiet:$Quiet) { $stopped += $portInt }
                 }
             }
         }
@@ -1707,7 +1693,7 @@ function Remove-UtmTestVM {
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_12924e738438f274'))) { return $false }
     $stop = Invoke-UtmctlLifecycle -Verb 'stop' -VMName $VMName
     if ($stop.OutcomeKnown -and $stop.ExitCode -eq 0 -and $stop.FailureKind -eq 'none') {
-        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ad3787aa98e176ba' -Arguments @{ vMName = "$VMName" })
+        Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_ad3787aa98e176ba' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
     }
     # Confirm the VM is actually powered off (escalating to `utmctl stop --kill`
     # if the soft stop stalls) and its qcow2/bundle handles are released BEFORE
@@ -1731,7 +1717,7 @@ function Remove-UtmTestVM {
     $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (Test-Path $utmBundle) {
         if (Remove-UtmBundleWithRetry -Path $utmBundle) {
-            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fdce3f3a724deacc' -Arguments @{ utmBundle = "$utmBundle" })
+            Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_fdce3f3a724deacc' -Arguments @{ utmBundle = "$utmBundle" }) -InformationAction Continue
         } else {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_16a11cbfeabe41ff' -Arguments @{ utmBundle = "$utmBundle" })
             return $false
@@ -2054,7 +2040,7 @@ function Stop-UtmVM {
     Stop-UtmDialogWatchdog
     $stop = Invoke-UtmctlLifecycle -Verb 'stop' -VMName $VMName
     if ($stop.OutcomeKnown -and $stop.ExitCode -eq 0) {
-        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ad3787aa98e176ba' -Arguments @{ vMName = "$VMName" })
+        Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_ad3787aa98e176ba' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
         Start-Sleep -Seconds 2
         return $true
     }
@@ -3192,16 +3178,31 @@ function Test-MacProxyIsYurunaManaged {
 .SYNOPSIS
     Return the macOS network service for the default-route interface.
 #>
+function Get-MacDefaultRouteInterface {
+    <#
+    .SYNOPSIS
+        Reads the default route interface with DNS disabled and a bounded probe.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $result = Invoke-BoundedNativeCommand -FilePath '/sbin/route' -ArgumentList @('-n', 'get', 'default') -TimeoutSeconds 5
+    if (-not $result.Started -or $result.TimedOut -or $result.ExitCode -ne 0 -or $result.DrainTimedOut -or $result.OutputTruncated) { return $null }
+    foreach ($line in ($result.StdOut -split "`r?`n")) {
+        if ($line -match '^\s*interface:\s*(\S+)\s*$') { return $matches[1] }
+    }
+    return $null
+}
+
 function Get-MacActiveNetworkService {
+    <# .SYNOPSIS
+        Resolves the network service for the bounded default-route interface.
+    #>
     # `route -n get default` -> default-route interface (en0).
     # `networksetup -listnetworkserviceorder` pairs service names to
     # Device: entries; we match en0 back to "Wi-Fi" / "Ethernet" / etc.
     try {
-        $routeOut = & route -n get default 2>$null
-        $iface = $null
-        foreach ($line in $routeOut) {
-            if ($line -match 'interface:\s+(\S+)') { $iface = $matches[1]; break }
-        }
+        $iface = Get-MacDefaultRouteInterface
         if (-not $iface) { return $null }
         $orderOut = & networksetup -listnetworkserviceorder 2>$null
         $lastService = $null
@@ -3289,7 +3290,7 @@ function Invoke-MacElevationIfNeeded {
     if (-not (Test-YurunaCanPrompt)) {
         throw ((Format-YurunaOperatorMessage -Key 'exceptions.host_ce186b06237fbe4d'))
     }
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b5a36047ba736ed1')
+    Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_b5a36047ba736ed1') -InformationAction Continue
     & sudo -v
     if ($LASTEXITCODE -ne 0) {
         throw (Format-YurunaOperatorMessage -Key 'exceptions.host_674dd7c6c0448e92')
@@ -3888,7 +3889,104 @@ function Get-VncScreenshot {
 .SYNOPSIS
     Capture the UTM VM's display (VNC then screencapture fallbacks).
 #>
+function Get-UtmWindowGeometry {
+    <#
+    .SYNOPSIS
+        Resolves a VM window ID and geometry with bounded macOS automation.
+    .PARAMETER VMName
+        The literal window name to match.
+    .PARAMETER AccessibilityOnly
+        Request content bounds after a CG window capture did not work.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$VMName, [switch]$AccessibilityOnly)
+    $safeVMName = ConvertTo-Json -InputObject $VMName -Compress
+    $windowScript = @"
+ObjC.import('CoreGraphics');
+var winList = ObjC.unwrap(
+    `$.CGWindowListCopyWindowInfo(`$.kCGWindowListOptionAll, 0));
+var vmName = __VMNAME__;
+var result = 'not_found';
+for (var i = 0; i < winList.length; i++) {
+    var w = winList[i];
+    var owner = ObjC.unwrap(w.kCGWindowOwnerName) || '';
+    var name  = ObjC.unwrap(w.kCGWindowName)      || '';
+    if (owner.indexOf('UTM') >= 0 && name.indexOf(vmName) >= 0) {
+        var id = ObjC.unwrap(w.kCGWindowNumber);
+        var b  = ObjC.unwrap(w.kCGWindowBounds);
+        result = '' + id + ',' + b.X + ',' + b.Y + ',' + b.Width + ',' + b.Height;
+        break;
+    }
+}
+result;
+"@
+    $windowScript = $windowScript.Replace('__VMNAME__', $safeVMName)
+    $probe = if ($AccessibilityOnly) { $null } else { Invoke-UtmHostTool -Tool 'osascript' -ArgumentList @('-l', 'JavaScript', '-e', $windowScript) -TimeoutSeconds 10 }
+    $windowResult = if ($probe) { $probe.StdOut.Trim() } else { '' }
+    Write-Debug "      CG window query (window+bounds): $windowResult"
+    $windowId = 0
+    $originX  = 0.0
+    $originY  = 0.0
+    $pointW   = 0.0
+    $pointH   = 0.0
+    $cgOk     = $false
+    if ($probe -and (Test-BoundedNativeResultComplete -Result $probe) -and $probe.ExitCode -eq 0 -and "$windowResult" -match '^\d+,-?\d+(\.\d+)?,-?\d+(\.\d+)?,\d+(\.\d+)?,\d+(\.\d+)?$') {
+        $parts    = "$windowResult".Split(',')
+        $windowId = [int]$parts[0]
+        $originX  = [double]::Parse($parts[1], [Globalization.CultureInfo]::InvariantCulture)
+        $originY  = [double]::Parse($parts[2], [Globalization.CultureInfo]::InvariantCulture)
+        $pointW   = [double]::Parse($parts[3], [Globalization.CultureInfo]::InvariantCulture)
+        $pointH   = [double]::Parse($parts[4], [Globalization.CultureInfo]::InvariantCulture)
+        $cgOk     = $true
+    } else {
+        $safeVMNameAS = $VMName -replace '\\', '\\\\' -replace '"', '\\"'
+        $boundsScript = @"
+tell application "System Events"
+    tell process "UTM"
+        repeat with w in windows
+            if name of w contains "$safeVMNameAS" then
+                try
+                    set contentArea to first group of w
+                    set {cx, cy} to position of contentArea
+                    set {cw, ch} to size of contentArea
+                    return ("" & cx & "," & cy & "," & cw & "," & ch)
+                end try
+                set {wx, wy} to position of w
+                set {ww, wh} to size of w
+                set titleBarH to 28
+                return ("" & wx & "," & (wy + titleBarH) & "," & ww & "," & (wh - titleBarH))
+            end if
+        end repeat
+    end tell
+    return "not_found"
+end tell
+"@
+        $probe = Invoke-UtmHostTool -Tool 'osascript' -ArgumentList @('-e', $boundsScript) -TimeoutSeconds 10
+        $boundsResult = $probe.StdOut.Trim()
+        Write-Debug "      Window bounds query (fallback): $boundsResult"
+        if ((Test-BoundedNativeResultComplete -Result $probe) -and $probe.ExitCode -eq 0 -and "$boundsResult" -match '^-?\d+(\.\d+)?,-?\d+(\.\d+)?,\d+(\.\d+)?,\d+(\.\d+)?$') {
+            $parts   = "$boundsResult".Split(',')
+            $originX = [double]::Parse($parts[0], [Globalization.CultureInfo]::InvariantCulture)
+            $originY = [double]::Parse($parts[1], [Globalization.CultureInfo]::InvariantCulture)
+            $pointW  = [double]::Parse($parts[2], [Globalization.CultureInfo]::InvariantCulture)
+            $pointH  = [double]::Parse($parts[3], [Globalization.CultureInfo]::InvariantCulture)
+        } else {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4ec0afe642270f86' -Arguments @{ vMName = "$VMName"; windowResult = "$windowResult"; boundsResult = "$boundsResult" })
+            return $null
+        }
+    }
+    return @{ WindowId = $windowId; OriginX = $originX; OriginY = $originY; PointWidth = $pointW; PointHeight = $pointH; CG = $cgOk }
+}
+
 function Get-UtmScreenshot {
+    <# .SYNOPSIS
+        Captures a UTM console through VNC or shared macOS window geometry.
+    .PARAMETER VMName
+        The VM to capture.
+    .PARAMETER OutputPath
+        Destination PNG path.
+    #>
     param([string]$VMName, [string]$OutputPath)
     $vncPort = Get-VncPortForVm -VMName $VMName
     if (Get-VncScreenshot -OutputPath $OutputPath -Port $vncPort) {
@@ -3917,30 +4015,10 @@ function Get-UtmScreenshot {
         }
     }
     if ($script:ScreencaptureWorks -eq $false) { return $null }
-    $safeVMName = $VMName -replace '\\', '\\\\' -replace "'", "\\'"
-    $windowIdScript = @"
-ObjC.import('CoreGraphics');
-ObjC.import('CoreFoundation');
-var winList = ObjC.unwrap(
-    `$.CGWindowListCopyWindowInfo(`$.kCGWindowListOptionAll, 0));
-var vmName = '__VMNAME__';
-var result = 'not_found';
-for (var i = 0; i < winList.length; i++) {
-    var w = winList[i];
-    var owner = ObjC.unwrap(w.kCGWindowOwnerName) || '';
-    var name  = ObjC.unwrap(w.kCGWindowName)      || '';
-    if (owner.indexOf('UTM') >= 0 && name.indexOf(vmName) >= 0) {
-        result = '' + ObjC.unwrap(w.kCGWindowNumber);
-        break;
-    }
-}
-result;
-"@
-    $windowIdScript = $windowIdScript -replace '__VMNAME__', $safeVMName
-    $windowIdResult = & osascript -l JavaScript -e $windowIdScript 2>&1
-    Write-Debug "      CG window ID query: $windowIdResult"
+    $geometry = Get-UtmWindowGeometry -VMName $VMName
+    $windowIdResult = if ($geometry) { [string]$geometry.WindowId } else { '' }
     $captured = $false
-    if ($LASTEXITCODE -eq 0 -and "$windowIdResult" -match '^\d+$') {
+    if ($geometry.CG -and "$windowIdResult" -match '^\d+$') {
         $captureErr = & screencapture -x -o -l "$windowIdResult" "$OutputPath" 2>&1
         if (Test-Path $OutputPath) {
             $fileSize = (Get-Item $OutputPath).Length
@@ -3955,31 +4033,10 @@ result;
         }
     }
     if (-not $captured) {
-        $safeVMNameAS = $VMName -replace '\\', '\\\\' -replace '"', '\\"'
-        $boundsScript = @"
-tell application "System Events"
-    tell process "UTM"
-        repeat with w in windows
-            if name of w contains "$safeVMNameAS" then
-                try
-                    set contentArea to first group of w
-                    set {cx, cy} to position of contentArea
-                    set {cw, ch} to size of contentArea
-                    return ("" & cx & "," & cy & "," & cw & "," & ch)
-                end try
-                set {wx, wy} to position of w
-                set {ww, wh} to size of w
-                set titleBarH to 28
-                return ("" & wx & "," & (wy + titleBarH) & "," & ww & "," & (wh - titleBarH))
-            end if
-        end repeat
-    end tell
-    return "not_found"
-end tell
-"@
-        $boundsResult = & osascript -e $boundsScript 2>&1
+        $bounds = Get-UtmWindowGeometry -VMName $VMName -AccessibilityOnly
+        $boundsResult = if ($bounds) { '{0},{1},{2},{3}' -f $bounds.OriginX, $bounds.OriginY, $bounds.PointWidth, $bounds.PointHeight } else { '' }
         Write-Debug "      Window bounds query: $boundsResult"
-        if ($LASTEXITCODE -eq 0 -and "$boundsResult" -match '^\d+,\d+,\d+,\d+$') {
+        if ($bounds -and $bounds.PointWidth -gt 0 -and $bounds.PointHeight -gt 0) {
             $captureErr = & screencapture -x -R "$boundsResult" "$OutputPath" 2>&1
             if (Test-Path $OutputPath) {
                 $captured = $true
@@ -4006,79 +4063,10 @@ end tell
 function Get-UtmWindowScreenshot {
     param([string]$VMName, [string]$OutputPath)
     if ($script:ScreencaptureWorks -eq $false) { return $null }
-    $safeVMName = $VMName -replace '\\', '\\\\' -replace "'", "\\'"
-    $windowScript = @"
-ObjC.import('CoreGraphics');
-var winList = ObjC.unwrap(
-    `$.CGWindowListCopyWindowInfo(`$.kCGWindowListOptionAll, 0));
-var vmName = '__VMNAME__';
-var result = 'not_found';
-for (var i = 0; i < winList.length; i++) {
-    var w = winList[i];
-    var owner = ObjC.unwrap(w.kCGWindowOwnerName) || '';
-    var name  = ObjC.unwrap(w.kCGWindowName)      || '';
-    if (owner.indexOf('UTM') >= 0 && name.indexOf(vmName) >= 0) {
-        var id = ObjC.unwrap(w.kCGWindowNumber);
-        var b  = ObjC.unwrap(w.kCGWindowBounds);
-        result = '' + id + ',' + b.X + ',' + b.Y + ',' + b.Width + ',' + b.Height;
-        break;
-    }
-}
-result;
-"@
-    $windowScript = $windowScript -replace '__VMNAME__', $safeVMName
-    $windowResult = & osascript -l JavaScript -e $windowScript 2>&1
-    Write-Debug "      CG window query (window+bounds): $windowResult"
-    $windowId = 0
-    $originX  = 0.0
-    $originY  = 0.0
-    $pointW   = 0.0
-    $pointH   = 0.0
-    $cgOk     = $false
-    if ($LASTEXITCODE -eq 0 -and "$windowResult" -match '^\d+,-?\d+(\.\d+)?,-?\d+(\.\d+)?,\d+(\.\d+)?,\d+(\.\d+)?$') {
-        $parts    = "$windowResult".Split(',')
-        $windowId = [int]$parts[0]
-        $originX  = [double]$parts[1]
-        $originY  = [double]$parts[2]
-        $pointW   = [double]$parts[3]
-        $pointH   = [double]$parts[4]
-        $cgOk     = $true
-    } else {
-        $safeVMNameAS = $VMName -replace '\\', '\\\\' -replace '"', '\\"'
-        $boundsScript = @"
-tell application "System Events"
-    tell process "UTM"
-        repeat with w in windows
-            if name of w contains "$safeVMNameAS" then
-                try
-                    set contentArea to first group of w
-                    set {cx, cy} to position of contentArea
-                    set {cw, ch} to size of contentArea
-                    return ("" & cx & "," & cy & "," & cw & "," & ch)
-                end try
-                set {wx, wy} to position of w
-                set {ww, wh} to size of w
-                set titleBarH to 28
-                return ("" & wx & "," & (wy + titleBarH) & "," & ww & "," & (wh - titleBarH))
-            end if
-        end repeat
-    end tell
-    return "not_found"
-end tell
-"@
-        $boundsResult = & osascript -e $boundsScript 2>&1
-        Write-Debug "      Window bounds query (fallback): $boundsResult"
-        if ($LASTEXITCODE -eq 0 -and "$boundsResult" -match '^-?\d+(\.\d+)?,-?\d+(\.\d+)?,\d+(\.\d+)?,\d+(\.\d+)?$') {
-            $parts   = "$boundsResult".Split(',')
-            $originX = [double]$parts[0]
-            $originY = [double]$parts[1]
-            $pointW  = [double]$parts[2]
-            $pointH  = [double]$parts[3]
-        } else {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4ec0afe642270f86' -Arguments @{ vMName = "$VMName"; windowResult = "$windowResult"; boundsResult = "$boundsResult" })
-            return $null
-        }
-    }
+    $geometry = Get-UtmWindowGeometry -VMName $VMName
+    if (-not $geometry) { return $null }
+    $windowId = $geometry.WindowId; $originX = $geometry.OriginX; $originY = $geometry.OriginY
+    $pointW = $geometry.PointWidth; $pointH = $geometry.PointHeight; $cgOk = $geometry.CG
     if ($cgOk) {
         $captureErr = & screencapture -x -o -l "$windowId" "$OutputPath" 2>&1
     } else {
@@ -4288,22 +4276,11 @@ function Get-VMName {
         (Get-UtmStartFailureKind -Text $text) -ne 'none') {
         throw (Format-YurunaOperatorMessage -Key 'exceptions.host_7c4b552da601ab61' -Arguments @{ text = "$text" })
     }
-    $names = [System.Collections.Generic.List[string]]::new()
-    foreach ($line in ($text -split "`r?`n")) {
-        $line = $line.Trim()
-        if (-not $line -or $line -match '^-+$') { continue }
-        # utmctl list is FIXED-COLUMN, not 2+-space delimited: the UUID
-        # column is 36 chars plus a single pad space, so splitting on
-        # \s{2,} merges UUID and Status into one 44-char field that never
-        # matches a UUID and silently yields zero rows. Anchor on the UUID
-        # and take the remainder as the name so names containing spaces
-        # survive intact.
-        if ($line -match '^([0-9A-Fa-f-]{36})\s+(\S+)\s+(\S.*)$') {
-            $name = $matches[3].Trim()
-            if ($name) { [void]$names.Add($name) }
-        }
+    $parsed = ConvertFrom-UtmctlListResult -Result $listing
+    if (-not $parsed.Recognized) {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_7c4b552da601ab61' -Arguments @{ text = "$text" })
     }
-    return Select-NameByPrefix -Name $names.ToArray() -Prefix $Prefix
+    return Select-NameByPrefix -Name @($parsed.Row | ForEach-Object { $_.Name }) -Prefix $Prefix
 }
 
 <#
@@ -4797,14 +4774,13 @@ function Resume-YurunaServiceVM {
         # that leads to a resume quits UTM, and the Stop-VM on the way in reaps
         # any watchdog with it -- so this is the one place a service VM is
         # launched with nothing to dismiss the launch-time custom-QEMU-args
-        # confirmation that both service VMs carry, and a start waiting on a
+        # confirmation that service VMs carry, and a start waiting on a
         # modal nobody answers looks exactly like a start that was refused.
         if (-not $NoDialogWatchdog) { Start-UtmDialogWatchdog }
         try {
             # The retry budget is spread ACROSS the VM's deadline rather than
             # added on top of it, so a caller's timeout still means what it
-            # says while a momentary refusal now gets the second and third try
-            # that a single-shot start never had.
+            # says while a momentary refusal can use up to three attempts.
             $remainingMs   = Get-YurunaDeadlineRemainingMs -Deadline $vmDeadline
             $settleSeconds = [Math]::Max(1, [Math]::Min([int]($TimeoutSeconds / 3), [int]($remainingMs / 1000)))
             $start = Invoke-UtmVMStartWithRetry -VMName $name -Confirm:$false `
@@ -5108,7 +5084,48 @@ function Rename-VM {
     rename fails, the qcow2 snapshot is still on disk and can be
     restored manually from the original bundle path.
 #>
+function Get-UtmBundleDisk {
+    <#
+    .SYNOPSIS
+        Resolves bundle disks and the common snapshot prerequisites.
+    .PARAMETER VMName
+        The UTM bundle name.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$VMName)
+    $bundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
+    $data = Join-Path $bundle 'Data'
+    $disks = @(Get-ChildItem -LiteralPath $data -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
+    $reason = if (-not (Test-Path -LiteralPath $data)) { 'missing-directory' } elseif ($disks.Count -eq 0) { 'missing-disk' } elseif (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) { 'missing-tool' } else { '' }
+    return @{ Ready = -not $reason; Reason = $reason; Bundle = $bundle; DataDir = $data; Disk = $disks }
+}
+
+function Test-UtmDiskHasSnapshot {
+    <#
+    .SYNOPSIS
+        Verifies snapshot metadata with a bounded, complete qemu-img read.
+    .PARAMETER Disk
+        The qcow2 disk path.
+    .PARAMETER Id
+        The exact snapshot identifier.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$Disk, [string]$Id)
+    $probe = Invoke-UtmHostTool -Tool 'qemu-img' -ArgumentList @('snapshot', '-l', '-U', $Disk) -TimeoutSeconds 10
+    if (-not (Test-BoundedNativeResultComplete -Result $probe) -or $probe.ExitCode -ne 0) { return $false }
+    return [bool]([regex]::IsMatch($probe.StdOut, '(?m)^\s*\d+\s+' + [regex]::Escape($Id) + '\s'))
+}
+
 function Save-VMDiskSnapshot {
+    <# .SYNOPSIS
+        Creates a snapshot on every stopped UTM bundle disk.
+    .PARAMETER VMName
+        The bundle name.
+    .PARAMETER Id
+        Snapshot identifier.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -5116,19 +5133,11 @@ function Save-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$Id
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_dd94ac62ae57701c' -Arguments @{ id = "$Id" }))) { return $false }
-    $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
-    $dataDir   = Join-Path $utmBundle 'Data'
-    if (-not (Test-Path -LiteralPath $dataDir)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5e237b9eea6b9490' -Arguments @{ dataDir = "$dataDir" })
-        return $false
-    }
-    $disks = @(Get-ChildItem -LiteralPath $dataDir -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
-    if ($disks.Count -eq 0) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_13cb024dfb19c946' -Arguments @{ dataDir = "$dataDir" })
-        return $false
-    }
-    if (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_06786a3211f6200f')
+    $bundleDisk = Get-UtmBundleDisk -VMName $VMName
+    $utmBundle = $bundleDisk.Bundle; $dataDir = $bundleDisk.DataDir; $disks = @($bundleDisk.Disk)
+    if (-not $bundleDisk.Ready) {
+        $key = switch ($bundleDisk.Reason) { 'missing-directory' { 'host.operator_5e237b9eea6b9490' } 'missing-disk' { 'host.operator_13cb024dfb19c946' } default { 'host.operator_06786a3211f6200f' } }
+        Write-Warning (Format-YurunaOperatorMessage -Key $key -Arguments @{ dataDir = "$dataDir" })
         return $false
     }
     if ((Get-VMState -VMName $VMName) -eq 'running') {
@@ -5147,10 +5156,10 @@ function Save-VMDiskSnapshot {
     foreach ($disk in $disks) {
         # Idempotent overwrite: drop a prior snapshot with the same id
         # if present, then create.
-        & qemu-img snapshot -d $Id $disk.FullName 2>&1 | Out-Null
-        & qemu-img snapshot -c $Id $disk.FullName 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4e18f285f91cd947' -Arguments @{ name = "$($disk.Name)"; lASTEXITCODE = "$LASTEXITCODE" })
+        $null = Invoke-UtmHostTool -Tool 'qemu-img' -ArgumentList @('snapshot', '-d', $Id, $disk.FullName) -TimeoutSeconds 60
+        $snapshotResult = Invoke-UtmHostTool -Tool 'qemu-img' -ArgumentList @('snapshot', '-c', $Id, $disk.FullName) -TimeoutSeconds 60
+        if (-not (Test-BoundedNativeResultComplete -Result $snapshotResult) -or $snapshotResult.ExitCode -ne 0) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4e18f285f91cd947' -Arguments @{ name = "$($disk.Name)"; lASTEXITCODE = "$($snapshotResult.ExitCode)" })
             return $false
         }
     }
@@ -5178,27 +5187,13 @@ function Test-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$Id
     )
-    $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
-    $dataDir   = Join-Path $utmBundle 'Data'
-    if (-not (Test-Path -LiteralPath $dataDir)) { return $false }
-    $disks = @(Get-ChildItem -LiteralPath $dataDir -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
-    if ($disks.Count -eq 0) { return $false }
-    if (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) { return $false }
+    $bundleDisk = Get-UtmBundleDisk -VMName $VMName
+    $disks = @($bundleDisk.Disk)
+    if (-not $bundleDisk.Ready) {
+        return $false
+    }
     foreach ($disk in $disks) {
-        # -U (--force-share) so a running QEMU's exclusive lock on the
-        # qcow2 doesn't fail this metadata-only read with "Failed to get
-        # shared write lock". Test-VMDiskSnapshot is a pure read; it
-        # never mutates the disk, so force-share is safe.
-        $info = & qemu-img snapshot -l -U $disk.FullName 2>&1
-        # `$array -notmatch <rx>` returns the filtered array of NON-matching
-        # lines, not a Boolean -- with qemu-img's two header lines that's a
-        # non-empty (truthy) array even when the data row matches, so the
-        # naive `if (-notmatch)` form always reports "not present" on UTM.
-        # Use Where-Object + .Count for an unambiguous count of hits.
-        $hits = @($info | Where-Object { $_ -match ("^\s*\d+\s+" + [regex]::Escape($Id) + "\s") })
-        if ($hits.Count -eq 0) {
-            return $false
-        }
+        if (-not (Test-UtmDiskHasSnapshot -Disk $disk.FullName -Id $Id)) { return $false }
     }
     return $true
 }
@@ -5222,41 +5217,14 @@ function Restore-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$Id
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_122c73a3a2052796' -Arguments @{ id = "$Id" }))) { return $false }
-    $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
-    $dataDir   = Join-Path $utmBundle 'Data'
-    if (-not (Test-Path -LiteralPath $dataDir)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_dec3b9d961011af3' -Arguments @{ dataDir = "$dataDir" })
+    $bundleDisk = Get-UtmBundleDisk -VMName $VMName
+    $utmBundle = $bundleDisk.Bundle; $dataDir = $bundleDisk.DataDir; $disks = @($bundleDisk.Disk)
+    if (-not $bundleDisk.Ready) {
+        $key = switch ($bundleDisk.Reason) { 'missing-directory' { 'host.operator_dec3b9d961011af3' } 'missing-disk' { 'host.operator_2443a2232e97400d' } default { 'host.operator_67f1fe22f87fb1a8' } }
+        Write-Warning (Format-YurunaOperatorMessage -Key $key -Arguments @{ dataDir = "$dataDir" })
         return $false
     }
-    $disks = @(Get-ChildItem -LiteralPath $dataDir -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
-    if ($disks.Count -eq 0) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2443a2232e97400d' -Arguments @{ dataDir = "$dataDir" })
-        return $false
-    }
-    if (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_67f1fe22f87fb1a8')
-        return $false
-    }
-    # Verify the id exists on every disk before stopping the VM, so a
-    # typo on a healthy guest does not bounce it for nothing. Multi-disk
-    # VMs must have the snapshot on all disks to stay coherent.
-    foreach ($disk in $disks) {
-        # -U (--force-share) so a running QEMU's exclusive lock doesn't
-        # fail this metadata-only read with "Failed to get shared write
-        # lock". This is a verify probe; the actual `qemu-img snapshot
-        # -a` apply below runs AFTER the VM is stopped, so there is no
-        # risk of read-while-write inconsistency here.
-        $info = & qemu-img snapshot -l -U $disk.FullName 2>&1
-        # `$array -notmatch <rx>` returns the filtered NON-matching lines,
-        # not a Boolean -- qemu-img's two header lines make that array
-        # truthy even when the data row matches. Count Where-Object hits
-        # explicitly instead.
-        $hits = @($info | Where-Object { $_ -match ("^\s*\d+\s+" + [regex]::Escape($Id) + "\s") })
-        if ($hits.Count -eq 0) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b8f92bfb6eae66ac' -Arguments @{ id = "$Id"; name = "$($disk.Name)" })
-            return $false
-        }
-    }
+    if (-not (Test-VMDiskSnapshot -VMName $VMName -Id $Id)) { return $false }
     if ((Get-VMState -VMName $VMName) -eq 'running') {
         if (-not (Stop-VM -VMName $VMName)) {
             [void](Stop-VMForce -VMName $VMName)
@@ -5282,9 +5250,9 @@ function Restore-VMDiskSnapshot {
         Remove-Item -LiteralPath $vmstatePath -Force -ErrorAction SilentlyContinue
     }
     foreach ($disk in $disks) {
-        & qemu-img snapshot -a $Id $disk.FullName 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3566f32ac9581467' -Arguments @{ name = "$($disk.Name)"; lASTEXITCODE = "$LASTEXITCODE" })
+        $snapshotResult = Invoke-UtmHostTool -Tool 'qemu-img' -ArgumentList @('snapshot', '-a', $Id, $disk.FullName) -TimeoutSeconds 60
+        if (-not (Test-BoundedNativeResultComplete -Result $snapshotResult) -or $snapshotResult.ExitCode -ne 0) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3566f32ac9581467' -Arguments @{ name = "$($disk.Name)"; lASTEXITCODE = "$($snapshotResult.ExitCode)" })
             return $false
         }
     }
@@ -6673,10 +6641,7 @@ function Test-MacUplinkNotBridgeable {
     [CmdletBinding()]
     [OutputType([bool])]
     param()
-    $iface = $null
-    foreach ($line in (& '/sbin/route' -n get default 2>$null)) {
-        if ($line -match 'interface:\s*(\S+)') { $iface = $matches[1]; break }
-    }
+    $iface = Get-MacDefaultRouteInterface
     if (-not $iface) { return $false }
     # networksetup -listallhardwareports prints stanzas of the form:
     #   Hardware Port: Wi-Fi
@@ -6804,8 +6769,8 @@ function Remove-PortMap {
     [OutputType([bool])]
     param()
     if (-not $PSCmdlet.ShouldProcess('pwsh forwarders', (Format-YurunaOperatorMessage -Key 'host.operator_f3f37ca41e1f0e2f'))) { return $false }
-    $stopped = @(Stop-AllCachingProxyServiceForwarder)
-    return ($stopped.Count -gt 0)
+    $stopped = Stop-AllCachingProxyServiceForwarder
+    return (@($stopped | Where-Object { $_ }).Count -gt 0)
 }
 
 <#
@@ -6819,11 +6784,7 @@ function Get-BestHostIp {
     # `route -n get default` -> default-route interface, then
     # `ipconfig getifaddr <iface>` for that interface's IPv4. Skips
     # loopback / utun / VZ bridges (no default route).
-    $routeOut = & '/sbin/route' -n get default 2>$null
-    $iface = $null
-    foreach ($line in $routeOut) {
-        if ($line -match 'interface:\s*(\S+)') { $iface = $matches[1]; break }
-    }
+    $iface = Get-MacDefaultRouteInterface
     if (-not $iface) { return $null }
     $ip = "$( & '/usr/sbin/ipconfig' getifaddr $iface 2>$null )".Trim()
     if (Test-Ipv4Address $ip) { return $ip }
@@ -7075,15 +7036,7 @@ function Set-HostProxy {
     # Idempotent backup: only snapshot BEFORE the first apply, so a
     # repeat Set-HostProxy doesn't overwrite the backup with the
     # squid-promoted state.
-    if (-not (Test-Path -LiteralPath $backupPath)) {
-        $state = Read-MacProxyState -NetworkService $svc
-        $state['timestamp']  = (Get-Date).ToUniversalTime().ToString('o')
-        $state['promotedTo'] = $parts.Url
-        $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $backupPath -Encoding UTF8
-        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_e7819cb03343b1e1' -Arguments @{ backupPath = "$backupPath" })
-    } else {
-        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_d8f19d509742ffe8' -Arguments @{ backupPath = "$backupPath" })
-    }
+    Save-YurunaHostProxyBackup -Path $backupPath -ReadState { Read-MacProxyState -NetworkService $svc } -PromotedTo $parts.Url
     Set-MacHostProxy -ProxyParts $parts -NetworkService $svc -Confirm:$false
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_ba4025ead45708af' -Arguments @{ svc = "$svc"; url = "$($parts.Url)" })
     return $true
@@ -7099,15 +7052,7 @@ function Clear-HostProxy {
     param()
     if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_b8a5ce8d9003b608'), (Format-YurunaOperatorMessage -Key 'host.operator_ca5c5716704ce8c4'))) { return $false }
     $backupPath = Get-HostProxyBackupPath
-    $state = $null
-    if (Test-Path -LiteralPath $backupPath) {
-        try {
-            $state = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json -AsHashtable
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bea0e70f89d3d54c' -Arguments @{ backupPath = "$backupPath"; message = "$($_.Exception.Message)" })
-            $state = $null
-        }
-    }
+    $state = Read-YurunaHostProxyBackup -Path $backupPath
     if ($state) {
         Invoke-MacElevationIfNeeded
         Restore-MacHostProxy -State $state
@@ -7120,9 +7065,7 @@ function Clear-HostProxy {
         Disable-MacHostProxy
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2ddcdf5273a49efa')
     }
-    if (Test-Path -LiteralPath $backupPath) {
-        Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaHostProxyBackup -Path $backupPath -Confirm:$false
     return $true
 }
 
@@ -7195,7 +7138,60 @@ function Assert-Virtualization {
 }
 
 # --- REGION: Exports
-Export-ModuleMember -Function `
+function Write-UtmBundleConfiguration {
+    <#
+    .SYNOPSIS
+        Render literal XML values and validate one UTM bundle configuration.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$TemplatePath, [Parameter(Mandatory)][string]$BundlePath,
+        [Parameter(Mandatory)][hashtable]$Replacement, [string]$NetworkMode, [string]$BridgeInterface)
+    if (-not $PSCmdlet.ShouldProcess($BundlePath, 'Write UTM configuration')) { return }
+    $content = Get-Content -LiteralPath $TemplatePath -Raw -ErrorAction Stop
+    foreach ($entry in $Replacement.GetEnumerator()) {
+        $content = $content.Replace([string]$entry.Key, [Security.SecurityElement]::Escape([string]$entry.Value))
+    }
+    if ($NetworkMode -eq 'Shared') {
+        $content = $content -replace "(?m)^[ \t]*<key>BridgedInterface</key>\r?\n[ \t]*<string>__BRIDGE_INTERFACE__</string>\r?\n", ''
+    } elseif ($NetworkMode) {
+        $content = $content.Replace('__BRIDGE_INTERFACE__', [Security.SecurityElement]::Escape($BridgeInterface))
+    }
+    $path = Join-Path $BundlePath 'config.plist'
+    [IO.File]::WriteAllText($path, $content, [Text.UTF8Encoding]::new($false))
+    $result = Invoke-UtmHostTool -Tool 'plutil' -ArgumentList @('-lint', $path) -TimeoutSeconds 10
+    if (-not (Test-UtmBoundedResultComplete -Result $result) -or $result.ExitCode -ne 0) {
+        throw (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$(Get-BoundedNativeOutputLine -Result $result | Out-String)" })
+    }
+    Write-Verbose "config.plist validated OK: $path"
+}
+
+function New-UtmServiceBundleConfiguration {
+    <#
+    .SYNOPSIS
+        Build the common Linux service UTM bundle with service-specific memory and identity.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$TemplatePath, [Parameter(Mandatory)][string]$BundlePath,
+        [Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$NetworkMode,
+        [int]$MemoryMb = 2048, [string]$MacAddress)
+    if (-not $PSCmdlet.ShouldProcess($BundlePath, 'Configure service bundle')) { return }
+    $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
+    if ($hostCores -lt 4) { throw (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" }) }
+    $bridge = Get-MacDefaultRouteInterface
+    if (-not $bridge) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_15685f8ad1d8fea6'); $bridge = 'en0' }
+    $mac = if ($MacAddress) { $MacAddress } else { Get-YurunaGuestMacAddress -VMName $VMName }
+    $display = Get-VncDisplayForVm -VMName $VMName
+    $values = @{
+        '__VM_NAME__' = $VMName; '__VM_UUID__' = [guid]::NewGuid().ToString().ToUpperInvariant()
+        '__DISK_IDENTIFIER__' = [guid]::NewGuid().ToString().ToUpperInvariant(); '__DISK_IMAGE_NAME__' = 'disk.qcow2'
+        '__SEED_IDENTIFIER__' = [guid]::NewGuid().ToString().ToUpperInvariant(); '__SEED_IMAGE_NAME__' = 'seed.iso'
+        '__MAC_ADDRESS__' = $mac; '__NETWORK_MODE__' = $NetworkMode; '__VNC_DISPLAY__' = $display
+        '__CPU_COUNT__' = [math]::Max(4, [math]::Floor($hostCores / 2)); '__MEMORY_SIZE__' = $MemoryMb
+    }
+    Write-UtmBundleConfiguration -TemplatePath $TemplatePath -BundlePath $BundlePath -Replacement $values -NetworkMode $NetworkMode -BridgeInterface $bridge -Confirm:$false
+}
+
+Export-ModuleMember -Function Write-UtmBundleConfiguration, New-UtmServiceBundleConfiguration, Get-MacDefaultRouteInterface, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `

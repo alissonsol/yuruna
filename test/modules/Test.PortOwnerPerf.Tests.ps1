@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e861b5-08b7-414a-a164-c414c541a30d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,7 +177,10 @@ Describe 'Get-PerfHostUuid creates the host id atomically' {
         # rename successfully, the last one lands on disk, and every earlier one
         # returns a UUID that was never persisted. Only the create can be the lock --
         # FileMode.CreateNew is O_CREAT|O_EXCL on POSIX and CREATE_NEW on Windows.
-        (Get-CreateExclusiveOpenCount -Path $perfPath) | Should -BeGreaterOrEqual 1
+        # Get-PerfHostUuid delegates the claim to Get-YurunaHostId, which lives in Test.YurunaDir.psm1.
+        $hostIdPath = Join-Path $here 'Test.YurunaDir.psm1'
+        (Get-CreateExclusiveOpenCount -Path $hostIdPath) | Should -BeGreaterOrEqual 1
+        (Get-StaticInvokeCount -Path $hostIdPath -TypePattern 'System\.IO\.File' -Member 'Move') | Should -Be 0
         (Get-StaticInvokeCount -Path $perfPath -TypePattern 'System\.IO\.File' -Member 'Move') | Should -Be 0
     }
 }

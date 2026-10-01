@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 423aae05-8d83-44cc-b4aa-068ce46e8c35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -186,8 +186,10 @@ function Resume-PerfCycle {
     $raw = [Environment]::GetEnvironmentVariable($script:PerfContextEnvVar)
     if ([string]::IsNullOrWhiteSpace($raw)) { return $false }
     if (-not $PSCmdlet.ShouldProcess($script:PerfContextEnvVar, (Format-YurunaOperatorMessage -Key 'runner.operator_9c5c126bfb40e6f7'))) { return $false }
+    $jsonOptions = @{}
+    if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOptions.DateKind = 'String' }
     try {
-        $ctx = $raw | ConvertFrom-Json -ErrorAction Stop
+        $ctx = $raw | ConvertFrom-Json @jsonOptions -ErrorAction Stop
     } catch {
         Write-Verbose "Resume-PerfCycle: unparseable handle, ignoring: $($_.Exception.Message)"
         return $false
@@ -267,75 +269,12 @@ function Get-PerfHostUuid {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $root = Get-RuntimeRootDir
-    if (-not $root) { return $null }
-    $uuidFile = Join-Path $root 'host.uuid'
-    if (Test-Path -LiteralPath $uuidFile) {
-        try {
-            $existing = ([System.IO.File]::ReadAllText($uuidFile)).Trim()
-            if ($existing) { return $existing }
-        } catch {
-            Write-Verbose "Get-PerfHostUuid: read failed, regenerating: $($_.Exception.Message)"
-        }
+    $runtimeDir = Get-RuntimeRootDir
+    if (-not $runtimeDir) { return $null }
+    if (-not (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -DisableNameChecking
     }
-    # Derived from a stable hardware key when one can be read, so a machine that
-    # lost this file comes back as the same host instead of forking its history
-    # under a fresh identity. Random is the fallback, and the shape is the same
-    # either way.
-    $uuid = Resolve-SeededHostId
-    if (-not $uuid) {
-        $rand = [Guid]::NewGuid().ToString('N')   # 32 hex, no dashes
-        $tail = $rand.Substring(2, 30)            # drop 2 chars to make room for the '42' prefix
-        $uuid = "42$tail"
-    }
-    if (-not (Test-Path -LiteralPath $root)) {
-        New-Item -ItemType Directory -Path $root -Force -ErrorAction SilentlyContinue | Out-Null
-    }
-    # Atomic first-write, shared with Get-YurunaHostId on this same host.uuid: two
-    # processes hitting first-use at once would each generate a DIFFERENT UUID, so a
-    # plain overwrite leaves the machine with two identities. The create itself is
-    # the lock -- FileMode.CreateNew is O_CREAT|O_EXCL on POSIX and CREATE_NEW on
-    # Windows, so exactly one caller can bring the path into existence and everyone
-    # else adopts what that caller wrote. A temp-then-rename cannot hold this line on
-    # POSIX: [System.IO.File]::Move tests for the destination and then renames, so
-    # racers that pass the test together all rename successfully, the last one lands
-    # on disk, and every earlier one walks away with a UUID that was never persisted.
-    $claim = $null
-    try {
-        $claim = [System.IO.File]::Open($uuidFile, [System.IO.FileMode]::CreateNew,
-            [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
-    } catch {
-        Write-Verbose "Get-PerfHostUuid: did not win the host.uuid claim: $($_.Exception.Message)"
-    }
-    if ($claim) {
-        try {
-            $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($uuid)
-            $claim.Write($bytes, 0, $bytes.Length)
-            $claim.Flush()
-            return $uuid
-        } catch {
-            Write-Verbose "Get-PerfHostUuid: host.uuid could not be written: $($_.Exception.Message)"
-        } finally { $claim.Dispose() }
-    } else {
-        # The winner owns the path from the instant it is created, so a loser reading
-        # straight away can catch it before the UUID is flushed. Give that write a
-        # bounded window to land instead of treating one empty read as a lost cause.
-        foreach ($attempt in 1..5) {
-            try {
-                $winner = ([System.IO.File]::ReadAllText($uuidFile)).Trim()
-                if ($winner) { return $winner }
-            } catch {
-                Write-Verbose "Get-PerfHostUuid: post-race read failed: $($_.Exception.Message)"
-            }
-            Start-Sleep -Milliseconds 20
-        }
-    }
-    # Last resort: the claim failed for a NON-race reason (the path never
-    # materialized) and the re-read also failed, so return our own id. Two processes
-    # on this degraded path can diverge, but that is bounded to a genuine IO fault
-    # (matching this module's never-crash contract) and beats returning $null to
-    # callers that must have an id.
-    return $uuid
+    return Get-YurunaHostId -RuntimeDir $runtimeDir
 }
 
 function Get-PerfContentHash {

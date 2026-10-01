@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42331174-548a-4a2c-a2ca-a56b9374880d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,44 +177,8 @@ if ($ImagePath) {
         exit 0
     }
 
-    $ocrScript = @'
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-
-$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
-    Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
-                   $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
-
-function Await($WinRtTask, $ResultType) {
-    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
-    $netTask = $asTask.Invoke($null, @($WinRtTask))
-    $netTask.Wait(-1) | Out-Null
-    $netTask.Result
-}
-
-[Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
-[Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
-
-$imagePath = $args[0]
-$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imagePath)) ([Windows.Storage.StorageFile])
-$stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
-$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-
-[Windows.Graphics.Imaging.SoftwareBitmap, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
-$rawBitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-$bitmap = [Windows.Graphics.Imaging.SoftwareBitmap]::Convert(
-    $rawBitmap,
-    [Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,
-    [Windows.Graphics.Imaging.BitmapAlphaMode]::Premultiplied)
-
-$ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-if (-not $ocrEngine) { throw 'WinRT OcrEngine not available' }
-$ocrResult = Await ($ocrEngine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-
-foreach ($line in $ocrResult.Lines) {
-    $line.Text
-}
-'@
+    Import-Module (Join-Path $PSScriptRoot '../modules/Test.OcrEngine.psm1') -DisableNameChecking
+    $ocrScript = Get-WinRtOcrScriptSource
 
     # Unique per-run name so concurrent invocations (or a leftover from a killed
     # run) cannot collide in the shared temp directory; the finally block removes it.

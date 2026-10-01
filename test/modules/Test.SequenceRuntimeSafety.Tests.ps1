@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a0d2cf-242d-40a3-a0db-67424cfde2ac
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,7 +133,7 @@ Describe 'diagnostic console commands retain their original host binding' {
             Reset-GuestTtyPrompt -VMName fixture -SendKey $driver | Should -BeTrue
             ($calls -join ',') | Should -Be 'CtrlC,Enter'
         } finally {
-            Remove-Item Function:global:Send-Key -ErrorAction SilentlyContinue
+            Remove-Item Function:Send-Key -ErrorAction SilentlyContinue
             if ($prior) { Set-Item Function:global:Send-Key -Value $prior.ScriptBlock }
         }
     }

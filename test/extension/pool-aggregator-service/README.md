@@ -334,7 +334,7 @@ unaffected (graceful degradation).
 
 ## Files
 
-- `main.go` and `handover.go` -- the collector and its durable host-identity ledger. Stdlib only (a static binary, no Go toolchain at
+- `main.go`, `handover.go`, and `mcp.go` -- the collector, durable host-identity ledger, and MCP routes. `localization.go` and `internal/catalog/` supply the compiled UI and API messages. Stdlib plus the shared extension SDK (a static binary, no Go toolchain at
   runtime), cross-platform (no host-specific syscalls; builds + vets on the
   Windows harness toolchain identically to the Linux target).
 - `go.mod` -- module + Go version. Zero external dependencies.

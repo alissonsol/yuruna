@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fa11cf-0b8e-4cd0-886d-508a27923c57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,10 +18,11 @@
 
 <#
 .SYNOPSIS
-    Pester coverage for test-set execution: the pool planner's pure
+    Pester coverage for pooled execution: the pool planner's pure
     compat/selection logic, HostId-scoped VM naming, the per-guest keystroke
-    merge, manifest I/O, and the end-to-end test-set / pool plan resolution
-    (incl. Resolve-CyclePlan parity) against a minimal sequence fixture.
+    merge, the pool manifest contract (writer, reader, target-pool guard), and
+    Resolve-CyclePlan / Get-CycleOrchestrationList against a minimal sequence
+    fixture.
 #>
 
 BeforeAll {
@@ -37,6 +38,14 @@ Import-Module (Join-Path $here 'Test.PoolSync.psm1')        -Force -DisableNameC
 Import-Module (Join-Path $here 'Test.PoolPlanner.psm1')     -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+# Ordinal, so the expected key list does not depend on the test host's culture.
+function Get-OrdinalKeyList {
+    [CmdletBinding()] [OutputType([string])] param([Parameter(Mandatory)][System.Collections.IDictionary]$Map)
+    $keys = [string[]]@($Map.Keys)
+    [Array]::Sort($keys, [StringComparer]::Ordinal)
+    return ($keys -join ',')
+}
 
 function New-TempDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Test temp dir.')]
@@ -59,7 +68,7 @@ $Compat = [ordered]@{ schemaVersion = 1; rules = @(
 
 $script:RunnableCandidates = @('guest.windows.11', 'guest.ubuntu.server.24', 'guest.amazon.linux.2023')
 
-# --- REGION: Sequence-fixture integration: Resolve-TestSetCyclePlan + parity + Resolve-PoolCyclePlan
+# --- REGION: Sequence-fixture integration: Resolve-CyclePlan + guests.compatibility.yml
 function New-PlannerFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Test fixture tree.')]
     [CmdletBinding()] [OutputType([hashtable])] param()
@@ -79,22 +88,8 @@ variables:
 workload: []
 "@ | Set-Content (Join-Path $seqDir 'install.yml')
     $projTest = Join-Path $root 'project/test'
-    $null = New-Item -ItemType Directory -Force -Path (Join-Path $projTest 'test-sets')
+    $null = New-Item -ItemType Directory -Force -Path $projTest
     "sequences:`n  - install`n" | Set-Content (Join-Path $projTest 'test.runner.yml')
-    @"
-schemaVersion: 1
-name: smoke
-sequences:
-  - install
-requiredGuests:
-  - guest.ubuntu.server.24
-perGuestOverrides:
-  guest.ubuntu.server.24:
-    keystrokeMechanism: SSH
-    username: webuser
-    variables:
-      region: eu
-"@ | Set-Content (Join-Path $projTest 'test-sets/smoke.yml')
     ($Compat | ConvertTo-Yaml) | Set-Content (Join-Path $projTest 'guests.compatibility.yml')
     # Guest folder so Test-GuestFolder passes for ubuntu on a kvm host.
     $null = New-Item -ItemType Directory -Force -Path (Join-Path $root (Join-Path (Get-HostFolder 'host.ubuntu.kvm') 'guest.ubuntu.server.24'))
@@ -223,34 +218,35 @@ Describe 'Manifest readers + Write-YurunaPoolManifest' {
     It 'reads a valid pool manifest and returns $null on missing/bad' {
         $d = New-TempDir
         try {
-            '{"poolId":"lab","poolGuid":"42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071","testSet":{"name":"amisad","frameworkUrl":"https://x/f","projectUrl":"https://x/p"}}' | Set-Content (Join-Path $d 'pool.manifest.json')
+            '{"poolId":"lab","poolGuid":"42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071","repositories":{"frameworkUrl":"https://x/f","projectUrl":"https://x/p"}}' | Set-Content (Join-Path $d 'pool.manifest.json')
             $m = Read-YurunaPoolManifest -RuntimeDir $d
             Assert-Equal -Expected 'lab' -Actual $m['poolId'] -Because 'poolId read'
-            Assert-Equal -Expected 'amisad' -Actual $m['testSet']['name'] -Because 'testSet name read'
+            Assert-Equal -Expected 'https://x/p' -Actual $m['repositories']['projectUrl'] -Because 'repositories projectUrl read'
             Assert-Null (Read-YurunaPoolManifest -RuntimeDir (Join-Path $d 'nope')) 'missing dir -> null'
             'not json {' | Set-Content (Join-Path $d 'pool.manifest.json')
             Assert-Null (Read-YurunaPoolManifest -RuntimeDir $d) 'bad json -> null'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    It 'writes a manifest from a pool object and clears it when the pool has no testSet' {
+    It 'writes a manifest from a pool object and clears it when the pool has no repositories' {
         $d = New-TempDir
         try {
             $env:YURUNA_RUNTIME_DIR = $d
-            $pool = [ordered]@{ poolId='lab'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; testSet=[ordered]@{ name='amisad'; frameworkUrl='https://x/f'; projectUrl='https://x/p' }; config=[ordered]@{} }
+            $pool = [ordered]@{ poolId='lab'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; repositories=[ordered]@{ frameworkUrl='https://x/f'; projectUrl='https://x/p' }; config=[ordered]@{} }
             $null = Write-YurunaPoolManifest -Pool $pool -Confirm:$false
             $path = Join-Path $d 'pool.manifest.json'
             Assert-True (Test-Path $path) 'manifest written'
             $back = Read-YurunaPoolManifest -RuntimeDir $d
             Assert-Equal -Expected 'lab' -Actual $back['poolId'] -Because 'roundtrip poolId'
-            Assert-Equal -Expected 'https://x/p' -Actual $back['testSet']['projectUrl'] -Because 'roundtrip testSet projectUrl'
-            # A pool with no testSet -> stale manifest removed
+            Assert-Equal -Expected 'https://x/f' -Actual $back['repositories']['frameworkUrl'] -Because 'roundtrip frameworkUrl'
+            Assert-Equal -Expected 'https://x/p' -Actual $back['repositories']['projectUrl'] -Because 'roundtrip projectUrl'
+            # A pool with no repositories -> stale manifest removed
             $null = Write-YurunaPoolManifest -Pool ([ordered]@{ poolId='lab'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071' }) -Confirm:$false
-            Assert-False (Test-Path $path) 'no-testSet pool clears the manifest'
+            Assert-False (Test-Path $path) 'a pool without repositories clears the manifest'
         } finally { $env:YURUNA_RUNTIME_DIR=$null; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 
-Describe 'Resolve-CyclePlan parity (single-host behavior matches the test-set path)' {
+Describe 'Resolve-CyclePlan (one entry per baseline guest, cascaded variables)' {
     It 'produces one entry per baseline guest with the cascaded variables and null keystroke' {
         $fx = New-PlannerFixture
         try {
@@ -305,52 +301,88 @@ Describe 'Get-CycleOrchestrationList + Resolve-CyclePlan orchestration handling'
     }
 }
 
-Describe 'Resolve-TestSetCyclePlan (perGuestOverrides + RestrictGuests)' {
-    It 'layers per-guest overrides on top of the cascade and tags keystrokeMechanism' {
-        $fx = New-PlannerFixture
+Describe 'Write-YurunaPoolManifest repositories contract' {
+    It 'writes exactly poolId, poolGuid, repositories, config and writtenAtUtc, with trimmed URLs' {
+        $d = New-TempDir
         try {
-            $body = Get-Content -Raw (Join-Path $fx.Root 'project/test/test-sets/smoke.yml') | ConvertFrom-Yaml -Ordered
-            $plan = (Resolve-TestSetCyclePlan -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm' `
-                -Sequences ([string[]]@($body['sequences'])) -SetName 'smoke' -PerGuestOverrides $body['perGuestOverrides'])
-            $u = $plan | Where-Object { $_.guestKey -eq 'guest.ubuntu.server.24' } | Select-Object -First 1
-            Assert-Equal -Expected 'webuser' -Actual $u.effectiveVariables['username'] -Because 'username override wins'
-            Assert-Equal -Expected 'eu' -Actual $u.effectiveVariables['region'] -Because 'variables override wins'
-            Assert-Equal -Expected 'SSH' -Actual $u.keystrokeMechanism -Because 'keystroke override tagged (upper)'
-            Assert-Equal -Expected 'webuser' -Actual $u.effectiveUsername -Because 'effectiveUsername reflects override'
-            Assert-Equal -Expected 'basehost' -Actual $u.effectiveHostname -Because 'effectiveHostname promoted from the cascade'
-            $w = $plan | Where-Object { $_.guestKey -eq 'guest.windows.11' } | Select-Object -First 1
-            Assert-Equal -Expected 'baseuser' -Actual $w.effectiveVariables['username'] -Because 'unoverridden guest keeps cascade'
-            Assert-Null $w.keystrokeMechanism 'unoverridden guest -> null keystroke'
-        } finally { Remove-Item -LiteralPath $fx.Root -Recurse -Force -ErrorAction SilentlyContinue }
+            $env:YURUNA_RUNTIME_DIR = $d
+            $pool = [ordered]@{ poolId='lab'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; repositories=[ordered]@{ frameworkUrl=' https://x/f '; projectUrl='https://x/p' } }
+            Assert-True (Write-YurunaPoolManifest -Pool $pool -Confirm:$false) 'the writer reports a written manifest'
+            $back = Read-YurunaPoolManifest -RuntimeDir $d
+            Assert-Equal -Expected 'config,poolGuid,poolId,repositories,writtenAtUtc' -Actual (Get-OrdinalKeyList -Map $back) -Because 'the manifest keys are a contract with the inner runner'
+            Assert-Equal -Expected 'frameworkUrl,projectUrl' -Actual (Get-OrdinalKeyList -Map $back['repositories']) -Because 'repositories carries exactly the URL pair'
+            Assert-Equal -Expected 'https://x/f' -Actual $back['repositories']['frameworkUrl'] -Because 'surrounding whitespace is trimmed'
+        } finally { $env:YURUNA_RUNTIME_DIR=$null; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    It 'RestrictGuests filters to the runnable subset' {
-        $fx = New-PlannerFixture
+    It 'writes no manifest when either URL is missing or blank' {
+        $d = New-TempDir
         try {
-            $plan = (Resolve-TestSetCyclePlan -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm' `
-                -Sequences @('install') -SetName 'smoke' -RestrictGuests @('guest.ubuntu.server.24'))
-            Assert-Equal -Expected 1 -Actual $plan.Count -Because 'only the restricted guest'
-            Assert-Equal -Expected 'guest.ubuntu.server.24' -Actual $plan[0].guestKey -Because 'ubuntu only'
-        } finally { Remove-Item -LiteralPath $fx.Root -Recurse -Force -ErrorAction SilentlyContinue }
+            $env:YURUNA_RUNTIME_DIR = $d
+            $path = Join-Path $d 'pool.manifest.json'
+            $incomplete = @(
+                [ordered]@{ frameworkUrl = 'https://x/f' },
+                [ordered]@{ frameworkUrl = 'https://x/f'; projectUrl = '' },
+                [ordered]@{ frameworkUrl = '   '; projectUrl = 'https://x/p' },
+                'https://x/p'
+            )
+            foreach ($repositories in $incomplete) {
+                '{"poolId":"lab"}' | Set-Content $path
+                $pool = [ordered]@{ poolId='lab'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; repositories=$repositories }
+                Assert-False (Write-YurunaPoolManifest -Pool $pool -Confirm:$false) 'no manifest for an incomplete pair'
+                Assert-False (Test-Path $path) 'an incomplete pair clears a stale manifest'
+            }
+        } finally { $env:YURUNA_RUNTIME_DIR=$null; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'ignores repositories on the auto-enrollment target pool, warns, and removes a stale manifest' {
+        $d = New-TempDir
+        try {
+            $env:YURUNA_RUNTIME_DIR = $d
+            $path = Join-Path $d 'pool.manifest.json'
+            '{"poolId":"default"}' | Set-Content $path
+            $pool = [ordered]@{ poolId='default'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; repositories=[ordered]@{ frameworkUrl='https://x/f'; projectUrl='https://x/p' } }
+            $warnings = $null
+            $written = Write-YurunaPoolManifest -Pool $pool -AutoEnrollTargetPoolId 'default' -Confirm:$false -WarningVariable warnings -WarningAction SilentlyContinue
+            Assert-False $written 'no manifest is written for the target pool'
+            Assert-False (Test-Path $path) 'a stale manifest is removed, so the host keeps its own repositories'
+            Assert-Equal -Expected 1 -Actual @($warnings).Count -Because 'the ignored repositories are reported once'
+            Assert-True ("$($warnings[0])".Contains('default')) 'the warning names the pool'
+            Assert-True (Write-YurunaPoolManifest -Pool $pool -AutoEnrollTargetPoolId 'other' -Confirm:$false) 'the same pool is honored when it is not the target'
+        } finally { $env:YURUNA_RUNTIME_DIR=$null; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'is read under the same key by the inner runner' {
+        # A key mismatch between this writer and its only reader does not fail
+        # anything: every pooled host silently runs its own project instead.
+        $src = [IO.File]::ReadAllText((Join-Path $here 'Test.RunnerInnerLoop.psm1'))
+        Assert-True ($src.Contains("`$poolManifestForRepos['repositories']")) 'the pooled repos override reads a different manifest key'
+        Assert-True ($src.Contains("`$poolManifest['repositories']")) 'the pooled-cycle flag reads a different manifest key'
     }
 }
 
-Describe 'Resolve-PoolCyclePlan (full filter: drops incompatible guest)' {
-    It 'keeps only the runnable guest for the pool''s test-set on a kvm host' {
+Describe 'Read-YurunaGuestCompatibility + Select-RunnableGuestList against a project fixture' {
+    It 'reads the project rules and returns $null when the file is absent' {
         $fx = New-PlannerFixture
         try {
-            $manifest = [ordered]@{ poolId='lab'; testSets=@([ordered]@{ name='smoke'; order=0; cycleStrategy='all' }) }
-            $plan = (Resolve-PoolCyclePlan -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm' -Manifest $manifest)
-            Assert-Equal -Expected 1 -Actual $plan.Count -Because 'windows.11 filtered (incompatible on kvm); ubuntu kept'
-            Assert-Equal -Expected 'guest.ubuntu.server.24' -Actual $plan[0].guestKey -Because 'ubuntu kept'
-            Assert-Equal -Expected 'SSH' -Actual $plan[0].keystrokeMechanism -Because 'per-guest override flowed through'
+            $compat = Read-YurunaGuestCompatibility -RepoRoot $fx.Root
+            Assert-Equal -Expected 'hyper-v' -Actual (Get-CompatibleHypervisorList -Compatibility $compat -GuestKey 'guest.windows.11')[0] -Because 'the project rule is read'
+            Assert-False (Test-GuestCompatibleWithHost -Compatibility $compat -GuestKey 'guest.windows.11' -HostType 'host.ubuntu.kvm') 'win11 is not runnable on kvm per the file'
+            Remove-Item -LiteralPath (Join-Path $fx.Root 'project/test/guests.compatibility.yml') -Force
+            Assert-Null (Read-YurunaGuestCompatibility -RepoRoot $fx.Root) 'no file -> null (permissive)'
         } finally { Remove-Item -LiteralPath $fx.Root -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    It 'returns $null when no test-set has a runnable guest (caller falls back to single-host)' {
+    It 'keeps only the guests this host can run from a resolved plan' {
         $fx = New-PlannerFixture
         try {
-            $manifest = [ordered]@{ poolId='lab'; testSets=@([ordered]@{ name='does-not-exist'; order=0; cycleStrategy='all' }) }
-            $plan = Resolve-PoolCyclePlan -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm' -Manifest $manifest
-            Assert-Null $plan 'missing test-set -> null -> single-host fallback'
+            $plan = Resolve-CyclePlan -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm'
+            $candidates = Get-CyclePlanGuestList -Plan $plan
+            $folder = @{}; $cap = @{}
+            foreach ($g in $candidates) {
+                $folder[$g] = [bool](Test-GuestFolder -RepoRoot $fx.Root -HostType 'host.ubuntu.kvm' -GuestKey $g)
+                $cap[$g] = $true
+            }
+            $runnable = Select-RunnableGuestList -CandidateGuests $candidates -FolderPresent $folder -CapabilitySupported $cap `
+                -Compatibility (Read-YurunaGuestCompatibility -RepoRoot $fx.Root) -HostType 'host.ubuntu.kvm'
+            Assert-Equal -Expected 1 -Actual $runnable.Count -Because 'windows.11 is incompatible on kvm; ubuntu has its folder'
+            Assert-Equal -Expected 'guest.ubuntu.server.24' -Actual $runnable[0] -Because 'ubuntu kept'
         } finally { Remove-Item -LiteralPath $fx.Root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 423c7308-8393-45aa-a74f-97c52bf1c3df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,14 +89,13 @@ function Get-CycleConfig {
     A project's label for a reader's language, or the English scalar when the
     project offers none.
 .DESCRIPTION
-    The contract is additive on purpose. `displayName:` stays exactly what it
+    The contract is additive on purpose. `description:` stays exactly what it
     always was -- a scalar, in English -- and a project may add a sibling map
     keyed by locale tag:
 
-        - name: smoke
-          displayName: Quick smoke test
-          displayNameLocalized:
-            pt-BR: Teste rapido
+        description: Deploy and verify the website
+        descriptionLocalized:
+          pt-BR: Implantar e verificar o site
 
     That shape survives all three pairings the project boundary has to keep
     working. A framework older than this ignores a key it does not know and
@@ -145,13 +144,11 @@ function Resolve-ProjectLabel {
 function Get-ProjectLabelMap {
     <#
     .SYNOPSIS
-        A bounded canonical map safe to carry through discovery transports.
+        The bounded, canonical locale map of one project label, or an empty map.
     .DESCRIPTION
         The publisher is authoritative and fails malformed project metadata.
         This live projection remains total: one bad optional entry makes the
-        map unavailable, not the cycle. Keeping the whole map lets the HTTP
-        boundary resolve per request instead of freezing it in the runner's
-        process culture.
+        map unavailable, not the cycle.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
@@ -187,113 +184,6 @@ function Get-ProjectLabelMap {
         $result[$tag] = $normalizedValue
     }
     return $result
-}
-
-<#
-.SYNOPSIS
-    The named test sets a project offers, read from its test.runner.yml.
-.DESCRIPTION
-    A project may group its top-level sequences into named sets:
-
-        sequences:                     # always present; becomes the set "all"
-          - ch01.website.example.no-break
-          - workload.guest.windows.11
-
-        testSets:                      # optional
-          - name: smoke
-            displayName: Quick smoke test
-            description: Fastest signal, ~8 min
-            sequences: [ ch01.website.example.no-break ]
-
-    A file with only `sequences:` is unchanged in meaning and yields exactly one
-    set, `all` -- so no existing project has to be edited.
-
-    The grouping lives in the PROJECT rather than in pool intent so that a set
-    and the sequences it names move in one commit; a list held centrally rots
-    silently the moment the project renames a sequence.
-
-    NEVER THROWS on malformed set definitions. This runs inside a live cycle to
-    publish what the host offers, and a typo in an optional label must not be
-    able to fail a test run: bad entries are skipped with a warning and the
-    remaining sets are returned. A missing/empty test.runner.yml still throws
-    from Get-CycleConfig, because that genuinely means there is no work.
-
-    Sequence names are NOT resolved here. A set naming a sequence that does not
-    exist surfaces at plan time as PlannerFatal -> plan_invalid, which is the
-    one authority for that error; duplicating the check here would risk the two
-    disagreeing.
-.OUTPUTS
-    [hashtable[]] ordered @{ name; displayName; description; sequences }.
-    `all` is always first.
-#>
-function Get-ProjectTestSet {
-    [CmdletBinding()]
-    [OutputType([hashtable[]], [object[]])]
-    param([Parameter(Mandatory)][string]$RepoRoot, [string]$Locale = '')
-
-    $cfg = Get-CycleConfig -RepoRoot $RepoRoot
-    $namePattern = '^[a-z0-9][a-z0-9._-]*$'
-    $sets = New-Object System.Collections.Generic.List[Object]
-    $seen = New-Object System.Collections.Generic.HashSet[string]
-
-    # The implicit set. `all` is reserved for it: a project that declares its
-    # own `all` would otherwise silently shadow the whole-project set that pool
-    # assignment falls back to.
-    $allSeqs = @($cfg.sequences | ForEach-Object { ([string]$_) -replace '\.(ya?ml|json)$','' } | Where-Object { $_ })
-    [void]$seen.Add('all')
-    [void]$sets.Add([ordered]@{
-        name        = 'all'
-        displayName = 'All sequences'
-        description = ''
-        sequences   = $allSeqs
-    })
-
-    if (-not $cfg.Contains('testSets')) { return ,@($sets.ToArray()) }
-
-    foreach ($raw in @($cfg['testSets'])) {
-        if ($raw -isnot [System.Collections.IDictionary]) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_217d530848e4cda8')
-            continue
-        }
-        $name = "$($raw['name'])".Trim()
-        if (-not $name) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1ee49d169ec618ee')
-            continue
-        }
-        if ($name -eq 'all') {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8a6b8847ccce49ac')
-            continue
-        }
-        # -cnotmatch, not -notmatch: PowerShell's -match is case-INSENSITIVE by
-        # default, so a name like 'BadName' would pass here and then be rejected
-        # by the JSON Schema pattern (which is case-sensitive) when the library
-        # entry is written -- a failure surfacing far from its cause.
-        if ($name -cnotmatch $namePattern) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5a53c6c93a317e74' -Arguments @{ name = "$name"; namePattern = "$namePattern" })
-            continue
-        }
-        if (-not $seen.Add($name)) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4727d0d8d58200e7' -Arguments @{ name = "$name" })
-            continue
-        }
-        $seqs = @(@($raw['sequences']) | ForEach-Object { ([string]$_) -replace '\.(ya?ml|json)$','' } | Where-Object { $_ })
-        if ($seqs.Count -eq 0) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_df1608b653f0dd73' -Arguments @{ name = "$name" })
-            continue
-        }
-        $set = [ordered]@{
-            name        = $name
-            displayName = Resolve-ProjectLabel -Entry $raw -ScalarKey 'displayName' -Locale $Locale
-            description = Resolve-ProjectLabel -Entry $raw -ScalarKey 'description' -Locale $Locale
-            sequences   = $seqs
-        }
-        $displayMap = Get-ProjectLabelMap -Entry $raw -ScalarKey 'displayName'
-        $descriptionMap = Get-ProjectLabelMap -Entry $raw -ScalarKey 'description'
-        if ($displayMap.Count -gt 0) { $set['displayNameLocalized'] = $displayMap }
-        if ($descriptionMap.Count -gt 0) { $set['descriptionLocalized'] = $descriptionMap }
-        [void]$sets.Add($set)
-    }
-    return ,@($sets.ToArray())
 }
 
 # Internal helper: $true when a parsed sequence is an orchestration sequence
@@ -375,21 +265,59 @@ function Merge-SequenceVariableCascade {
     }
 }
 
-# Shared per-top-level entry builder for Resolve-CyclePlan (legacy) AND
-# Resolve-TestSetCyclePlan (pool). Resolves one top-level sequence into
-# one (topLevel, guestKey, chain, cascade) entry per supported guest OS and
-# appends them to $Entries. The two callers differ only in the SOURCE of the
-# top-level list and in the optional pool args:
-#   -PerGuestOverrides: per-guestKey {keystrokeMechanism, username, variables}
-#       layered ON TOP of the chain cascade (override wins); keystrokeMechanism is
-#       tagged on the entry for the runner to thread per guest.
-#   -RestrictGuests: when set, only guestKeys in this list are emitted (the
-#       pool-planner host filter -- a host skips guests it cannot run).
-# A missing top-level throws PlannerFatal (a typo must abort, not silently skip);
-# an unresolvable prereq is warned + skipped. Keeping ONE code path means the
-# variable cascade, PlannerFatal propagation, and entry shape never drift between
-# the single-host and pool planners.
+function Get-SequenceChainContext {
+    <# .SYNOPSIS
+    Splits dependency order and applies the same visible variable cascade for every planner entry.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)]$Chain, [Parameter(Mandatory)][Collections.IDictionary]$Paths)
+    $start = [Collections.Generic.List[string]]::new()
+    $work = [Collections.Generic.List[string]]::new()
+    foreach ($name in $Chain) { if ($name -match '^start\.') { $start.Add($name) } else { $work.Add($name) } }
+    $variables = [ordered]@{}
+    for ($index = $Chain.Count - 1; $index -ge 0; $index--) {
+        $name = $Chain[$index]; $path = $Paths[$name]
+        if (-not $path) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6d53b6631053aee8' -Arguments @{ sName = "$name" })
+            continue
+        }
+        try { $sequence = Read-SequenceFile -Path $path } catch {
+            if (Test-SequencePlannerFailure -ErrorObject $_) { throw }
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ee13b7d44127b862' -Arguments @{ sName = "$name"; sPath = "$path"; message = $_.Exception.Message })
+            continue
+        }
+        Merge-SequenceVariableCascade -Target $variables -Variables $sequence.variables
+    }
+    return @{ Start = $start; Work = $work; Variables = $variables }
+}
+
+function Get-SequenceEffectiveField {
+    <# .SYNOPSIS
+    Projects the chain's canonical guest identity and hardware fields after overrides.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][Collections.IDictionary]$Variables)
+    $fields = @{}
+    foreach ($name in 'username', 'hostname', 'memoryStartupBytes', 'cores', 'exposeVirtualizationExtensions') {
+        $fields[$name] = if ($Variables.Contains($name)) { [string]$Variables[$name] } else { '' }
+    }
+    return $fields
+}
+
 function Add-CyclePlanEntriesForTopLevel {
+    <#
+    .SYNOPSIS
+        Builds one plan entry per supported guest OS for a top-level sequence.
+    .DESCRIPTION
+        If supplied, PerGuestOverrides layers over the chain cascade and
+        RestrictGuests limits the emitted guest keys. The current
+        Resolve-CyclePlan caller supplies neither. A missing top-level throws
+        PlannerFatal, while an unresolvable prerequisite is warned and skipped.
+        One entry builder keeps cascade, failure handling and entry shape the
+        same across plans.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[Object]]$Entries,
@@ -421,7 +349,7 @@ function Add-CyclePlanEntriesForTopLevel {
     }
     foreach ($osKey in $topSeq.baseline.Keys) {
         $guestKey = "guest.$osKey"
-        # Pool-planner host filter: a host emits only the guests it can run.
+        # Host filter: a host emits only the guests it can run.
         if ($null -ne $RestrictGuests -and ($RestrictGuests -notcontains $guestKey)) { continue }
         $chain   = New-Object System.Collections.Generic.List[string]
         $visited = [System.Collections.Generic.HashSet[string]]::new()
@@ -433,29 +361,10 @@ function Add-CyclePlanEntriesForTopLevel {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bfce497ec631d602' -Arguments @{ topName = "$TopName"; osKey = "$osKey"; message = "$($_.Exception.Message)" })
             continue
         }
-        $startSeqs = New-Object System.Collections.Generic.List[string]
-        $workSeqs  = New-Object System.Collections.Generic.List[string]
-        foreach ($s in $chain) {
-            if ($s -match '^start\.') { [void]$startSeqs.Add($s) } else { [void]$workSeqs.Add($s) }
-        }
-        # Cascade variables top-down across the chain (first non-empty from the top wins).
-        $effectiveVars = [ordered]@{}
-        for ($i = $chain.Count - 1; $i -ge 0; $i--) {
-            $sName = $chain[$i]
-            $sPath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $sName -HostType $HostType -RepoRoot $RepoRoot
-            if (-not $sPath) {
-                # This member IS in the chain, so it resolved earlier; not resolving now (e.g. a
-                # mid-cycle rename) is an inconsistency. Surface it -- silently dropping its
-                # variables lets the chain run with missing vars instead of failing visibly.
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6d53b6631053aee8' -Arguments @{ sName = "$sName" })
-                continue
-            }
-            try { $sSeq = Read-SequenceFile -Path $sPath } catch {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ee13b7d44127b862' -Arguments @{ sName = "$sName"; sPath = "$sPath"; message = "$($_.Exception.Message)" })
-                continue
-            }
-            Merge-SequenceVariableCascade -Target $effectiveVars -Variables $sSeq.variables
-        }
+        $paths = [ordered]@{}
+        foreach ($name in $chain) { $paths[$name] = Resolve-SequencePath -SequencesDir $SequencesDir -Name $name -HostType $HostType -RepoRoot $RepoRoot }
+        $context = Get-SequenceChainContext -Chain $chain -Paths $paths
+        $startSeqs = $context.Start; $workSeqs = $context.Work; $effectiveVars = $context.Variables
         # Per-guest overrides layer ON TOP of the cascade (override wins).
         # keystrokeMechanism is tagged on the entry (not a variable) so the runner
         # can switch the dispatch mode for this guest's VM lifecycle.
@@ -474,14 +383,7 @@ function Add-CyclePlanEntriesForTopLevel {
                 }
             }
         }
-        $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
-        $effectiveHostname = if ($effectiveVars.Contains('hostname')) { [string]$effectiveVars['hostname'] } else { '' }
-        # VM sizing overrides cascade the same way username/hostname do and feed
-        # New-VM directly (memory + vCPU count). Empty leaves each per-guest
-        # New-VM.ps1 on its built-in default.
-        $effectiveMemoryStartupBytes = if ($effectiveVars.Contains('memoryStartupBytes')) { [string]$effectiveVars['memoryStartupBytes'] } else { '' }
-        $effectiveCores    = if ($effectiveVars.Contains('cores')) { [string]$effectiveVars['cores'] } else { '' }
-        $effectiveExposeVirtualizationExtensions = if ($effectiveVars.Contains('exposeVirtualizationExtensions')) { [string]$effectiveVars['exposeVirtualizationExtensions'] } else { '' }
+        $fields = Get-SequenceEffectiveField -Variables $effectiveVars
         $Entries.Add([pscustomobject]@{
             topLevel            = $TopName
             guestKey            = $guestKey
@@ -489,11 +391,11 @@ function Add-CyclePlanEntriesForTopLevel {
             startSequences      = @($startSeqs.ToArray())
             workloadSequences   = @($workSeqs.ToArray())
             effectiveVariables  = $effectiveVars
-            effectiveUsername   = $effectiveUsername
-            effectiveHostname   = $effectiveHostname
-            effectiveMemoryStartupBytes = $effectiveMemoryStartupBytes
-            effectiveCores      = $effectiveCores
-            effectiveExposeVirtualizationExtensions = $effectiveExposeVirtualizationExtensions
+            effectiveUsername   = $fields.username
+            effectiveHostname   = $fields.hostname
+            effectiveMemoryStartupBytes = $fields.memoryStartupBytes
+            effectiveCores      = $fields.cores
+            effectiveExposeVirtualizationExtensions = $fields.exposeVirtualizationExtensions
             keystrokeMechanism  = $guestKsm
         })
     }
@@ -562,19 +464,11 @@ function Get-CycleOrchestrationList {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$SequencesDir,
-        [string]$HostType,
-        # Optional pool test-set subset. When supplied, only these top-levels are
-        # considered -- WITHOUT it this function re-reads the project's FULL
-        # `sequences:` list independently of the plan, so a subset that excludes
-        # an orchestration top-level would still find it here and trip the
-        # orchestration-mix plan_invalid for a cycle that was never going to run
-        # it. Absent/empty preserves the whole-file behavior exactly.
-        [AllowNull()][AllowEmptyCollection()][string[]]$Sequences
+        [string]$HostType
     )
     $cycleCfg = Get-CycleConfig -RepoRoot $RepoRoot
-    $source = if ($null -ne $Sequences -and @($Sequences).Count -gt 0) { $Sequences } else { $cycleCfg.sequences }
     $list = New-Object System.Collections.Generic.List[Object]
-    foreach ($raw in $source) {
+    foreach ($raw in $cycleCfg.sequences) {
         $name = ([string]$raw) -replace '\.(ya?ml|json)$',''
         $path = Resolve-SequencePath -SequencesDir $SequencesDir -Name $name -HostType $HostType -RepoRoot $RepoRoot
         if (-not $path) { continue }
@@ -584,45 +478,6 @@ function Get-CycleOrchestrationList {
         }
     }
     return ,@($list.ToArray())
-}
-
-<#
-.SYNOPSIS
-    Resolves a POOL test-set manifest's sequences[] into the same cycle-plan
-    entry shape Resolve-CyclePlan produces, applying per-guest overrides + the
-    pool-planner host filter.
-.DESCRIPTION
-    The pool counterpart of Resolve-CyclePlan: instead of the single
-    test.runner.yml sequences list, it iterates a test-set manifest's
-    `sequences[]`. Each entry carries the same fields (plus `keystrokeMechanism`
-    from perGuestOverrides). -PerGuestOverrides layers {keystrokeMechanism,
-    username, variables} on top of the chain cascade (override wins).
-    -RestrictGuests limits emitted guests to those the host can run (the
-    pool-planner filter, computed by the caller). Reuses every Resolve-CyclePlan
-    building block via Add-CyclePlanEntriesForTopLevel, so the variable cascade,
-    PlannerFatal propagation, and entry shape never drift from the single-host path.
-#>
-function Resolve-TestSetCyclePlan {
-    [CmdletBinding()]
-    [OutputType([System.Object[]])]
-    param(
-        [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][string]$SequencesDir,
-        [string]$HostType,
-        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Sequences,
-        [string]$SetName = '',
-        [AllowNull()]$PerGuestOverrides,
-        [AllowNull()][string[]]$RestrictGuests
-    )
-    $entries = New-Object System.Collections.Generic.List[Object]
-    $srcLabel = "(referenced in test-set '$SetName')"
-    foreach ($raw in $Sequences) {
-        $topName = ([string]$raw) -replace '\.(ya?ml|json)$',''
-        Add-CyclePlanEntriesForTopLevel -Entries $entries -TopName $topName -RepoRoot $RepoRoot `
-            -SequencesDir $SequencesDir -HostType $HostType -SourceLabel $srcLabel `
-            -PerGuestOverrides $PerGuestOverrides -RestrictGuests $RestrictGuests
-    }
-    return ,@($entries.ToArray())
 }
 
 <#
@@ -720,10 +575,10 @@ function Get-CyclePlanSequencesForGuest {
     $mergedMemoryStartupBytes = ''
     $mergedCores    = ''
     $mergedExposeVirtualizationExtensions = ''
-    # Per-guest keystrokeMechanism (set only on pool/test-set plans). First
-    # non-null across this guest's entries wins -- same first-appearance rule as
-    # effectiveUsername. $null on the legacy single-host path (the field is absent
-    # or null there), so the runner inherits the global default.
+    # Per-guest keystrokeMechanism (set only when a plan entry was built with
+    # -PerGuestOverrides). First non-null across this guest's entries wins --
+    # same first-appearance rule as effectiveUsername. $null when the field is
+    # absent or null, so the runner inherits the global default.
     $mergedKsm      = $null
     foreach ($e in $Plan) {
         if ($e.guestKey -ne $GuestKey) { continue }
@@ -879,30 +734,9 @@ function Resolve-NamedSequenceChain {
         }
     }
 
-    $startSeqs = New-Object System.Collections.Generic.List[string]
-    $workSeqs  = New-Object System.Collections.Generic.List[string]
-    foreach ($s in $chain) {
-        if ($s -match '^start\.') { [void]$startSeqs.Add($s) } else { [void]$workSeqs.Add($s) }
-    }
-
-    # Cascade variables top-down: chain is dependency-ordered (deepest
-    # prereqs first, top-level last), so walking high index -> low index
-    # = top-of-chain -> baseline. First non-empty value wins per key.
-    # Use $paths (not Resolve-SequencePath) so the top-level entry reads
-    # from $TopLevelPath when supplied.
-    $effectiveVars = [ordered]@{}
-    for ($i = $chain.Count - 1; $i -ge 0; $i--) {
-        $sName = $chain[$i]
-        $sPath = $paths[$sName]
-        if (-not $sPath) { continue }
-        try { $sSeq = Read-SequenceFile -Path $sPath } catch { continue }
-        Merge-SequenceVariableCascade -Target $effectiveVars -Variables $sSeq.variables
-    }
-    $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
-    $effectiveHostname = if ($effectiveVars.Contains('hostname')) { [string]$effectiveVars['hostname'] } else { '' }
-    $effectiveMemoryStartupBytes = if ($effectiveVars.Contains('memoryStartupBytes')) { [string]$effectiveVars['memoryStartupBytes'] } else { '' }
-    $effectiveCores    = if ($effectiveVars.Contains('cores')) { [string]$effectiveVars['cores'] } else { '' }
-    $effectiveExposeVirtualizationExtensions = if ($effectiveVars.Contains('exposeVirtualizationExtensions')) { [string]$effectiveVars['exposeVirtualizationExtensions'] } else { '' }
+    $context = Get-SequenceChainContext -Chain $chain -Paths $paths
+    $startSeqs = $context.Start; $workSeqs = $context.Work; $effectiveVars = $context.Variables
+    $fields = Get-SequenceEffectiveField -Variables $effectiveVars
 
     return [pscustomobject]@{
         topLevel            = $SequenceName
@@ -911,13 +745,13 @@ function Resolve-NamedSequenceChain {
         startSequences      = @($startSeqs.ToArray())
         workloadSequences   = @($workSeqs.ToArray())
         effectiveVariables  = $effectiveVars
-        effectiveUsername   = $effectiveUsername
-        effectiveHostname   = $effectiveHostname
-        effectiveMemoryStartupBytes = $effectiveMemoryStartupBytes
-        effectiveCores      = $effectiveCores
-        effectiveExposeVirtualizationExtensions = $effectiveExposeVirtualizationExtensions
+        effectiveUsername   = $fields.username
+        effectiveHostname   = $fields.hostname
+        effectiveMemoryStartupBytes = $fields.memoryStartupBytes
+        effectiveCores      = $fields.cores
+        effectiveExposeVirtualizationExtensions = $fields.exposeVirtualizationExtensions
         chainPaths          = $paths
     }
 }
 
-Export-ModuleMember -Function Resolve-ProjectLabel, Get-ProjectLabelMap, Get-CycleConfigPath, Get-CycleConfig, Get-ProjectTestSet, Resolve-CyclePlan, Get-CycleOrchestrationList, Resolve-TestSetCyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain
+Export-ModuleMember -Function Resolve-ProjectLabel, Get-ProjectLabelMap, Get-CycleConfigPath, Get-CycleConfig, Resolve-CyclePlan, Get-CycleOrchestrationList, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain

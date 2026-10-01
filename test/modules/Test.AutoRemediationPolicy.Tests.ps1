@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c9b3e7-1d58-4a06-9e24-7f3b5c8d1a60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,7 +46,7 @@ Describe 'the auto-remediation allow-list' {
 
     It 'admits only classes whose retry is the whole repair' {
         $expected = @(
-            'wait_timeout', 'network_timeout', 'ip_not_discovered', 'host_network_degraded',
+            'wait_timeout', 'network_timeout', 'ip_not_discovered',
             'instrumentation_failure', 'host_io_blocked'
         )
         foreach ($c in $expected) {
@@ -65,7 +65,7 @@ Describe 'the auto-remediation allow-list' {
         # by shortening the pause before the next attempt.
         foreach ($c in @('plan_invalid', 'payload_unavailable', 'pool_storage_full',
                 'project_access_denied', 'elevation_required', 'script_error',
-                'credential_expired', 'unknown')) {
+                'credential_expired', 'host_network_degraded', 'unknown')) {
             Assert-True (-not (Test-AutoRemediationAllowed -FailureClass $c)) "$c must NOT be retried unattended"
         }
     }

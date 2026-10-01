@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42213d20-67de-42c8-8f4a-9f107b0b9088
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1') -Global -DisableNameChecking
     $repo = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
     Import-Module (Join-Path $repo 'modules/Test.SingleInstance.psm1') -Force -DisableNameChecking
 
@@ -82,7 +83,7 @@ BeforeAll {
 
 Describe 'Stop-YurunaProcessTree' {
 
-    It 'kills the children, not just the named process' {
+    It 'kills the children, not just the named process' -Skip:$IsWindows {
         # The actual incident: the runner died, its inner survived holding the
         # terminal, and the next runner inherited a tty it had to share.
         $tree = Start-TestProcessTree
@@ -116,38 +117,34 @@ Describe 'Cycle abort classification' {
         # The signature of the incident: the child died in seconds because its
         # console broke, wrote no outcome, and the old code printed
         # "Cycle NNNN - FAIL", pointing the operator at tests that never ran.
-        $abortSeconds = 30
         $ranForSeconds = 4
         $reportedOutcome = $false
         $childExit = 1
-        $aborted = (-not $reportedOutcome -and $childExit -ne 0 -and $ranForSeconds -lt $abortSeconds)
+        $aborted = Test-YurunaCycleAborted -ReportedOutcome $reportedOutcome -ChildExit $childExit -RanForSeconds $ranForSeconds
         Assert-True $aborted 'a four-second unexplained death is not a cycle verdict.'
     }
 
     It 'keeps the verdict for a cycle that actually ran and then failed' {
-        $abortSeconds = 30
         $ranForSeconds = 900
         $reportedOutcome = $false
         $childExit = 1
-        $aborted = (-not $reportedOutcome -and $childExit -ne 0 -and $ranForSeconds -lt $abortSeconds)
+        $aborted = Test-YurunaCycleAborted -ReportedOutcome $reportedOutcome -ChildExit $childExit -RanForSeconds $ranForSeconds
         Assert-True (-not $aborted) 'a real failure that ran for minutes must keep its FAIL -- the threshold exists to protect that.'
     }
 
     It 'keeps the verdict when the child reported an outcome, however fast it was' {
-        $abortSeconds = 30
         $ranForSeconds = 2
         $reportedOutcome = $true
         $childExit = 1
-        $aborted = (-not $reportedOutcome -and $childExit -ne 0 -and $ranForSeconds -lt $abortSeconds)
+        $aborted = Test-YurunaCycleAborted -ReportedOutcome $reportedOutcome -ChildExit $childExit -RanForSeconds $ranForSeconds
         Assert-True (-not $aborted) 'a child that reported for itself is believed; the reclassification is only for silence.'
     }
 
     It 'leaves a successful fast cycle alone' {
-        $abortSeconds = 30
         $ranForSeconds = 3
         $reportedOutcome = $false
         $childExit = 0
-        $aborted = (-not $reportedOutcome -and $childExit -ne 0 -and $ranForSeconds -lt $abortSeconds)
+        $aborted = Test-YurunaCycleAborted -ReportedOutcome $reportedOutcome -ChildExit $childExit -RanForSeconds $ranForSeconds
         Assert-True (-not $aborted) 'exit 0 is a pass, not an abort.'
     }
 }

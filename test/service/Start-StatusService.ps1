@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1338,8 +1338,36 @@ function Get-StatusMessageBytes {
     `$Response.Headers.Set('Cache-Control', 'no-store')
     `$Response.Headers.Set('X-Yuruna-Message-Code', `$Key)
     `$text = Format-CatalogMessage -Key `$Key -Arguments `$Arguments -Locale `$locale.Tag
+    `$Response.ContentType = if (`$Json) { 'application/json; charset=utf-8' } else { 'text/plain; charset=utf-8' }
     if (`$Json) { `$text = @{ ok = `$false; code = `$Key; error = `$text } | ConvertTo-Json -Compress }
     return ,([System.Text.Encoding]::UTF8.GetBytes(`$text))
+}
+
+function Get-ControlIdentityCached {
+    `$vaultDirectory = Join-Path `$repoRoot 'test/status/extension/authentication'
+    `$revision = (@('vault.yml', 'users.yml') | ForEach-Object {
+        `$file = [IO.FileInfo]::new((Join-Path `$vaultDirectory `$_))
+        if (`$file.Exists) { "`$(`$file.LastWriteTimeUtc.Ticks):`$(`$file.Length)" } else { 'absent' }
+    }) -join '|'
+    if ((Get-Variable -Name ControlIdentityCache -Scope Script -ErrorAction SilentlyContinue) -and `$script:ControlIdentityCache.Revision -ceq `$revision) { return `$script:ControlIdentityCache }
+    `$token = ''; `$tag = ''
+    if (-not (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) -and (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Extension.psm1' -RequiredCommand 'Import-Extension')) {
+        try { `$null = Import-Extension -Area 'authentication' -RequireSingle } catch { return @{ Token = ''; Tag = '' } }
+    }
+    if (Get-Command Reset-UsersConfigCache -ErrorAction SilentlyContinue) { Reset-UsersConfigCache -Confirm:`$false }
+    if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.ConfigServiceSync.psm1' -RequiredCommand 'Get-YurunaControlTag', 'Test-YurunaControlProof', 'Get-InternalAuthKeyValue') {
+        try { `$token = [string](Get-InternalAuthKeyValue); `$tag = [string](Get-YurunaControlTag -Token `$token) } catch { return @{ Token = ''; Tag = '' } }
+    }
+    if (`$token -and `$tag) { `$script:ControlIdentityCache = @{ Token = `$token; Tag = `$tag; Revision = `$revision }; return `$script:ControlIdentityCache }
+    return @{ Token = ''; Tag = '' }
+}
+
+function Send-StatusMessage {
+    param(`$Request, `$Response, [string]`$Key, [hashtable]`$Arguments = @{}, [switch]`$Json, [switch]`$NoClose)
+    `$bytes = Get-StatusMessageBytes -Request `$Request -Response `$Response -Key `$Key -Arguments `$Arguments -Json:`$Json
+    `$Response.ContentLength64 = `$bytes.Length
+    if (`$Request.HttpMethod -ne 'HEAD') { `$Response.OutputStream.Write(`$bytes, 0, `$bytes.Length) }
+    if (-not `$NoClose) { `$Response.OutputStream.Close() }
 }
 
 function Send-JsonError {
@@ -1357,7 +1385,7 @@ function Send-JsonError {
     `$Response.StatusCode = `$StatusCode
     `$b = [System.Text.Encoding]::UTF8.GetBytes(`$Json)
     `$Response.ContentLength64 = `$b.Length
-    `$Response.OutputStream.Write(`$b, 0, `$b.Length)
+    if (-not `$Request -or `$Request.HttpMethod -ne 'HEAD') { `$Response.OutputStream.Write(`$b, 0, `$b.Length) }
     `$Response.OutputStream.Close()
 }
 # Every reply the refresh, start-cycle and diagnostic routes build: the
@@ -1850,6 +1878,17 @@ function Send-GitArchive {
             `$sidecars['.yuruna-revision'] = `$commit
             `$treeish = `$commit
         }
+        `$archiveKey = `$commit + '|' + [string]`$sidecars['.yuruna-origin']
+        if (-not (Get-Variable -Name GitArchiveCache -Scope Script -ErrorAction SilentlyContinue)) { `$script:GitArchiveCache = @{} }
+        if (`$commit -match '^[0-9a-f]{40}`$' -and `$script:GitArchiveCache.ContainsKey(`$RepoDir) -and `$script:GitArchiveCache[`$RepoDir].Key -ceq `$archiveKey) {
+            `$bytes = `$script:GitArchiveCache[`$RepoDir].Bytes
+            `$Response.ContentType = 'application/gzip'
+            `$Response.Headers.Add('Cache-Control', 'no-store')
+            `$Response.ContentLength64 = `$bytes.Length
+            if (`$Request.HttpMethod -ne 'HEAD') { `$Response.OutputStream.Write(`$bytes, 0, `$bytes.Length) }
+            `$Response.OutputStream.Close()
+            return
+        }
         if (`$sidecars.Count -gt 0) {
             `$sidecarDir = New-Item -ItemType Directory -Path ([IO.Path]::Combine([IO.Path]::GetTempPath(), [Guid]::NewGuid().ToString('N'))) -Force
             foreach (`$sidecarName in @(`$sidecars.Keys)) {
@@ -1868,6 +1907,10 @@ function Send-GitArchive {
             return
         }
         `$bytes = [System.IO.File]::ReadAllBytes(`$tmp)
+        if (`$commit -match '^[0-9a-f]{40}`$') {
+            if (`$script:GitArchiveCache.Count -ge 3 -and -not `$script:GitArchiveCache.ContainsKey(`$RepoDir)) { `$script:GitArchiveCache.Clear() }
+            `$script:GitArchiveCache[`$RepoDir] = @{ Key = `$archiveKey; Bytes = `$bytes }
+        }
         `$Response.ContentType = 'application/gzip'
         `$Response.Headers.Add('Cache-Control', 'no-store')
         `$Response.ContentLength64 = `$bytes.Length
@@ -3093,18 +3136,9 @@ try {
             if (`$path -eq 'control/control-status') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
-                `$csToken = ''
-                # Same lazy-load shape as /control/vault-credential: the vault
-                # only has to be readable when someone actually asks, and a
-                # startup import that silently failed heals here.
-                if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Extension.psm1' -RequiredCommand 'Import-Extension') {
-                    try { `$null = Import-Extension -Area 'authentication' -RequireSingle } catch { `$null = `$_ }
-                }
-                `$csTag = ''
-                if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.ConfigServiceSync.psm1' -RequiredCommand 'Get-YurunaControlTag', 'Test-YurunaControlProof', 'Get-InternalAuthKeyValue') {
-                    try { `$csToken = [string](Get-InternalAuthKeyValue) } catch { `$csToken = '' }
-                    try { `$csTag = [string](Get-YurunaControlTag -Token `$csToken) } catch { `$csTag = '' }
-                }
+                `$controlIdentity = Get-ControlIdentityCached
+                `$csToken = `$controlIdentity.Token
+                `$csTag = `$controlIdentity.Tag
                 # Test-YurunaControlProof is required above alongside the tag
                 # helper on purpose: a runspace that cannot load the verifier
                 # reports no tag at all, rather than a tag that promises control
@@ -3477,8 +3511,7 @@ try {
                 try {
                     Set-Content -Path `$breakContinueFile -Value (Get-Date -Format o) -ErrorAction Stop
                 } catch {
-                    `$msg = '{"ok":false,"error":"could not write continue flag: ' + (`$_.Exception.Message -replace '"','\\"') + '"}'
-                    Send-JsonError -Response `$res -StatusCode 500 -Json `$msg
+                    Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message }
                     continue
                 }
                 `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true}')
@@ -3771,9 +3804,7 @@ try {
                 } catch {
                     `$res.StatusCode = 500
                     `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
-                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message } -Json)
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message } -Json -NoClose
                     Write-ServerErr "diagnostics write failed (`$diagFolder/`$diagFile): `$errMsg"
                 } finally {
                     if (-not `$writeOk -and (Test-Path -LiteralPath `$tmp)) {
@@ -3820,10 +3851,7 @@ try {
                 `$projectRoot = Join-Path `$repoRoot 'project'
                 if (-not (Test-Path -LiteralPath (Join-Path `$projectRoot '.git'))) {
                     `$res.StatusCode = 404
-                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_project_repo_not_present_on_host_885e6338')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_project_repo_not_present_on_host_885e6338'
                     continue
                 }
                 Send-GitArchive -Response `$res -Request `$req -Context `$ctx -RepoDir `$projectRoot -ErrorLabel 'yuruna-project-archive'
@@ -3912,7 +3940,7 @@ try {
                 try {
                     `$uploadCap = 300
                     `$sameDir = @(Get-ChildItem -LiteralPath `$uploadParent -File -ErrorAction SilentlyContinue |
-                        Where-Object { `$_.Extension -in '.log','.txt','.json','.err','.crash' } |
+                        Where-Object { `$_.Extension -in '.log','.txt','.json','.err','.crash','.tar' } |
                         Sort-Object -Property LastWriteTimeUtc -Descending)
                     if (`$sameDir.Count -gt `$uploadCap) {
                         foreach (`$old in (`$sameDir | Select-Object -Skip `$uploadCap)) {
@@ -3981,10 +4009,7 @@ try {
                 }
                 `$res.StatusCode = 404
                 `$res.ContentType = 'text/plain; charset=utf-8'
-                `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2' -Arguments @{ cycle = `$wantedCycle })
-                `$res.ContentLength64 = `$body.Length
-                if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
-                `$res.OutputStream.Close()
+                Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2' -Arguments @{ cycle = `$wantedCycle }
                 continue
             }
 
@@ -3998,10 +4023,7 @@ try {
                 if (`$leaf -notmatch '^(\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.([0-9a-fA-F]{32})(?:\.incomplete)?)\.zip`$') {
                     `$res.StatusCode = 404
                     `$res.ContentType = 'text/plain; charset=utf-8'
-                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_not_a_cycle_results_archive_name_395b9777')
-                    `$res.ContentLength64 = `$body.Length
-                    if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
-                    `$res.OutputStream.Close()
+                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_not_a_cycle_results_archive_name_395b9777'
                     continue
                 }
                 `$cycleFolder = `$Matches[1]
@@ -4023,10 +4045,7 @@ try {
                 if (-not (Test-Path -LiteralPath `$srcDir -PathType Container)) {
                     `$res.StatusCode = 404
                     `$res.ContentType = 'text/plain; charset=utf-8'
-                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_no_cycle_results_folder_folder_on_this_host_51798923' -Arguments @{ folder = `$cycleFolder })
-                    `$res.ContentLength64 = `$body.Length
-                    if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
-                    `$res.OutputStream.Close()
+                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_no_cycle_results_folder_folder_on_this_host_51798923' -Arguments @{ folder = `$cycleFolder }
                     continue
                 }
                 # A HEAD asks whether there is a cycle folder to pack, and the
@@ -4121,9 +4140,7 @@ try {
                     Write-ServerErr "archive `$cycleFolder failed: `$(`$_.Exception.Message)"
                     `$res.StatusCode = 500
                     `$res.ContentType = 'text/plain; charset=utf-8'
-                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_could_not_pack_folder_detail_268ee848' -Arguments @{ folder = `$cycleFolder; detail = `$_.Exception.Message })
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_could_not_pack_folder_detail_268ee848' -Arguments @{ folder = `$cycleFolder; detail = `$_.Exception.Message } -NoClose
                 } finally {
                     Remove-Item -LiteralPath `$tmpArchive -Force -ErrorAction SilentlyContinue
                 }
@@ -4184,9 +4201,7 @@ try {
             # a '<repo>-something' checkout next to it) cannot pass.
             if (-not ((`$file -ceq `$rootFull) -or `$file.StartsWith(`$rootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::Ordinal))) {
                 `$res.StatusCode = 403
-                `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_78342a09')
-                `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                `$res.OutputStream.Close()
+                Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_forbidden_78342a09'
                 continue
             }
             # Apply access rules to the same canonical relative path that
@@ -4223,9 +4238,7 @@ try {
                 }
                 if (`$denied) {
                     `$res.StatusCode = 403
-                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_deny_list_1c7d1cfa')
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_forbidden_deny_list_1c7d1cfa'
                     continue
                 }
             }
@@ -4254,9 +4267,7 @@ try {
                 }
                 if (`$denied) {
                     `$res.StatusCode = 403
-                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_deny_list_1c7d1cfa')
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_forbidden_deny_list_1c7d1cfa'
                     continue
                 }
             }
@@ -4267,13 +4278,11 @@ try {
             # whose <a href=".../"> in the HTML transcript otherwise 404'd.
             # Skipped for /yuruna-repo/* so a working-tree listing never
             # exposes paths beyond the existing per-file deny-list.
-            if (Test-Path `$file -PathType Container) {
+            if (Test-Path -LiteralPath `$file -PathType Container) {
                 if (`$path -like 'yuruna-repo/*' -or `$path -eq 'yuruna-repo' -or `$path -eq 'yuruna-repo/' -or
                     `$root -ceq `$runtimeDir -or `$relNorm -eq 'runtime' -or `$relNorm -like 'runtime/*') {
                     `$res.StatusCode = 403
-                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_directory_listing_disabled_5d107f5b')
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_forbidden_directory_listing_disabled_5d107f5b'
                     continue
                 }
                 `$origLocal = `$req.Url.LocalPath
@@ -4428,7 +4437,7 @@ try {
                 `$res.OutputStream.Close()
                 continue
             }
-            if (`$immutableLocaleCatalog -or (Test-Path `$file -PathType Leaf)) {
+            if (`$immutableLocaleCatalog -or (Test-Path -LiteralPath `$file -PathType Leaf)) {
                 `$ext = [System.IO.Path]::GetExtension(`$file)
                 `$res.ContentType = switch (`$ext) {
                     '.html' { 'text/html; charset=utf-8' }

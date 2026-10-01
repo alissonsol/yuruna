@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a04c70-e7da-4354-977e-5dd4778e74a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,7 +78,8 @@ function Stop-ConcurrentVM {
         VM names that may keep running. The service VMs are infrastructure the
         cycle CONSUMES, not competitors for the host: the caching proxy serves
         every guest install, the stash service receives the build's binaries, and
-        the pool-control service serves the intent store. Stopping one at cycle
+        the pool-control service serves the intent store, and the download
+        agent supplies base images. Stopping one at cycle
         start does not free the host for the cycle, it removes something the
         cycle is about to require -- the stash service in particular fails the
         very first orchestration step, which refuses to provision when nothing
@@ -88,7 +89,7 @@ function Stop-ConcurrentVM {
         cleared (Stop-StashServiceVM.ps1 owns that), so the dashboard keeps
         advertising a service that is no longer running.
 
-        The defaults are the three shipped service VM names. An operator who
+        The defaults are the four shipped service VM names. An operator who
         renames one with -VMName passes the new name here.
     .PARAMETER ExceptVmName
         A VM to leave alone -- the dev loop where an operator re-runs a

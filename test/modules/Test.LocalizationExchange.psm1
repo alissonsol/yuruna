@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b6c05e-7d19-4a83-95f2-c81d3e6470ab
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,7 +80,7 @@ function Get-TextSha256 {
     } finally {
         $sha.Dispose()
     }
-    return -join ($bytes | ForEach-Object { $_.ToString('x2') })
+    return [Convert]::ToHexString($bytes).ToLowerInvariant()
 }
 
 function New-LocalizationRow {
@@ -313,12 +313,14 @@ function Get-ProjectScalarRow {
 function Get-LocalizationProjectSource {
     <#
     .SYNOPSIS
-        Enroll official test-set, sequence, and visible-step display metadata.
+        Enroll official sequence and visible-step display metadata.
     .DESCRIPTION
-        English displayName/description scalars are discovered from runner and
-        sequence YAML. Command, pattern, application, book, and nested-host
-        fixture trees are excluded. Existing sidecar rows retain enrollment for
-        explicitly registered external layouts.
+        English displayName/description scalars are discovered from sequence
+        YAML: a document that carries a sequenceGuid or declares the
+        orchestration-sequence schema. The runner file only names sequences,
+        so it enrolls nothing. Command, pattern, application, book, and
+        nested-host fixture trees are excluded. Existing sidecar rows retain
+        enrollment for explicitly registered external layouts.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -366,7 +368,7 @@ function Get-LocalizationProjectSource {
             $document = ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText($file.FullName)) -Ordered
             if ($document -isnot [Collections.IDictionary]) { continue }
             $orchestration = $document.Contains('name') -and $document.Contains('steps') -and ([IO.File]::ReadAllText($file.FullName) -match '(?m)^#\s*yaml-language-server:\s*\$schema=.*[/\\]orchestration-sequence\.schema\.yml\s*$')
-            if (-not $document.Contains('sequenceGuid') -and -not $document.Contains('testSets') -and -not $orchestration) { continue }
+            if (-not $document.Contains('sequenceGuid') -and -not $orchestration) { continue }
             Add-ProjectDisplayScalar -Node $document -Pointer '' -Relative $relative
         }
     }
@@ -380,7 +382,7 @@ function Get-YamlPointerValue {
     .DESCRIPTION
         Pointer segments are either a mapping key or a `name=value` selector
         that picks one element out of a sequence, which is how the project maps
-        address a named test set without depending on its position.
+        address a named list item without depending on its position.
     .OUTPUTS
         [string]
     #>

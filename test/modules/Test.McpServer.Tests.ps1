@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b151d1-856e-48cb-8f07-88010f773bcb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -200,7 +200,10 @@ Describe 'the entry points that do not answer like the others' {
         # parse on its first character and the pass-through never fires.
         $script = Join-Path $script:RepoRoot 'automation/Check-DependencyVersion.ps1'
         $pwshPath = (Get-Process -Id $PID).Path
-        $stdout = & $pwshPath -NoProfile -NonInteractive -File $script -AsJson 2>$null | Out-String
+        Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
+        $run = Invoke-BoundedNativeCommand -FilePath $pwshPath -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $script, '-AsJson') -TimeoutSeconds 30
+        if (-not (Test-BoundedNativeResultComplete $run)) { Set-ItResult -Skipped -Because 'dependency emitter could not finish its network checks within 30 seconds'; return }
+        $stdout = $run.StdOut
         Assert-True ($stdout.Trim().Length -gt 0) 'the emitter wrote nothing to parse'
         $parsed = $null
         try { $parsed = $stdout | ConvertFrom-Json -ErrorAction Stop } catch { $parsed = $null }

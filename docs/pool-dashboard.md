@@ -45,8 +45,9 @@ The share of terminal cycles across the whole lab that finished "pass", within t
 dashboard's selected time range (top-right picker).
 
 It is computed as `100 * Pass / (Pass + Fail)` over the same Loki transition log the
-*Pool hosts* table's Pass and Fail columns are counted from, so this tile and those
-columns can never disagree. The numerator carries the table's per-host zero baseline, so
+*Pool hosts* table's Pass and Fail columns use. The tile is lab-wide; the table
+omits hosts without a `baseUrl`, so summing its visible rows can give a lower count.
+The numerator carries the per-host zero baseline, so
 a pool where every cycle failed reads 0.00% rather than going blank.
 
 With **no** terminal cycle in range the whole expression is empty and the tile shows
@@ -238,11 +239,12 @@ These three keep their full story in the tooltip itself.
   default, `-host-ttl`), keyed on the stable hostId, reachable or not. Driven by
   `yuruna_pool_hosts_total`.
 - **Failed cycles** -- cycles that finished "fail" lab-wide within the selected time
-  range: the sum of the table's Fail column, counted from the Loki transition log
-  (exact, and reaching back to Loki retention, unlike a Prometheus counter window).
+  range, counted from the Loki transition log (exact, and reaching back to Loki
+  retention, unlike a Prometheus counter window). This can include hosts absent
+  from the table because they have no `baseUrl`.
   Green when zero; red when any.
-- **Total cycles** -- terminal cycles lab-wide within the selected range: the sum of
-  the table's Pass and Fail columns, i.e. the denominator behind Success%. Counted
+- **Total cycles** -- terminal cycles lab-wide within the selected range: the
+  denominator behind Success%. Counted
   from the same Loki transition log as Failed cycles, with the same reach. A cycle
   still running has no terminal status yet and is not in scope. The dashboard is
   lab-wide -- its pool filter is a match-all -- while per-pool figures live on the
@@ -281,7 +283,7 @@ The collapsed row under the timeline. Its panels share the dashboard time range:
 This second collapsed row contains the only panels on this board that read the pool
 hosts themselves rather than the collector's view of them. They are fed by the metrics
 exporter each Windows host runs, scraped straight by the same Prometheus: a host of
-another type, or one with no exporter running, simply has no line.
+another type, or one with no exporter running, has no line.
 
 - **Available memory per host** -- physical memory the host has free.
 - **Commit headroom per host** -- the commit limit minus committed bytes: how much
@@ -307,7 +309,7 @@ two.
 - [collector-down](https://yuruna.link/collector-down) -- restoring the
   pool-aggregator-service collector this whole dashboard depends on.
 - [pool-admin](https://yuruna.link/4207d71a) -- running a pool: membership,
-  test-sets, desired state.
+  framework and project repositories, desired state.
 - [lab-operator](https://yuruna.link/42383647) -- bringing a lab up.
 
 ---
@@ -316,6 +318,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

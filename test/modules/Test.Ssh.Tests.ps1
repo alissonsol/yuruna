@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42539169-cf17-4eb5-b0d6-c972156d3841
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     event so the operator/remediator routes the recoverable
     "IP never discovered" lateness class apart from a real sshd/auth fault.
 .DESCRIPTION
-    Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+). The classifier
+    Throw-based assertions (Pester 5+). The classifier
     is pure (inputs: IpDiscovered + LastError), so no guest, no network, no
     module state is involved.
 #>

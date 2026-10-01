@@ -103,7 +103,14 @@
   // sent it, which is what the table falls back to when no column is chosen.
   S.sort = function (rows, col, dir) {
     if (!S.isColumn(col)) return rows.slice();
-    return rows.slice().sort(S.compare(col, dir));
+    var d = dir < 0 ? -1 : 1;
+    return rows.map(function (row, index) {
+      var key = S.key(row, col);
+      return { row: row, index: index, key: typeof key === 'number' ? key : key.toLowerCase(), identity: S.identity(row).toLowerCase() };
+    }).sort(function (a, b) {
+      var c = cmpNum(a.key, b.key);
+      return c !== 0 ? c * d : (cmpNum(a.identity, b.identity) || a.index - b.index);
+    }).map(function (item) { return item.row; });
   };
 
   window.YSort = S;

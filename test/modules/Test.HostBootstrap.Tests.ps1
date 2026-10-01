@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 424634a3-2e75-44bb-9daf-24331e800d3a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,8 +30,7 @@
     when a driver is missing (including an unknown host type), the
     Test.VMUtility co-import, and the documented "importing this module alone
     gives the full Test.Host* surface" sibling contract.
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4
-    and Pester 5+. Run: Invoke-Pester -Path test/modules/Test.HostBootstrap.Tests.ps1
+    Throw-based assertions so the file runs under Pester 5+. Run: Invoke-Pester -Path test/modules/Test.HostBootstrap.Tests.ps1
 #>
 
 BeforeAll {

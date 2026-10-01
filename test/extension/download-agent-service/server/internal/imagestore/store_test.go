@@ -577,3 +577,47 @@ func TestStagingSweepNeverProbesForeignOrLegacyPIDs(t *testing.T) {
 		t.Fatalf("aged sweep=(%d,%v)", n, err)
 	}
 }
+
+func TestCleanupProtectsRecentlyPromotedSiblingWithoutSidecar(t *testing.T) {
+	for _, operation := range []string{"delete", "prune", "retain"} {
+		t.Run(operation, func(t *testing.T) {
+			s := testStore(t)
+			id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
+			mustCommit(t, s, id, "stable.iso", "1111111111111111", 4, time.Now())
+			fresh := GenerationName("daily.iso", "2222222222222222")
+			old := GenerationName("old.iso", "3333333333333333")
+			for _, name := range []string{fresh, old} {
+				if err := os.WriteFile(filepath.Join(s.Dir(id), name), []byte("download"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			age := time.Now().Add(-time.Hour)
+			if err := os.Chtimes(filepath.Join(s.Dir(id), old), age, age); err != nil {
+				t.Fatal(err)
+			}
+			switch operation {
+			case "delete":
+				_, err := s.Delete(id)
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "prune":
+				_, err := s.PrunePrevious(id)
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "retain":
+				_, err := s.Retain(id)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(s.Dir(id), fresh)); err != nil {
+				t.Fatalf("in-flight sibling was removed: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(s.Dir(id), old)); !os.IsNotExist(err) {
+				t.Fatalf("old orphan survived: %v", err)
+			}
+		})
+	}
+}

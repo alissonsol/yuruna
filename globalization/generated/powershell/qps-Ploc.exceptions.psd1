@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42bb7615-cee4-a88b-8802-0ac4f598abc0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -524,7 +524,7 @@
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'exceptions.host_dd6d74db4a58cc9d' = @(
-        '[Fido.ps1 ħášħ ɱíšɱáţçħ (ƥíññéď v1.70): éẋƥéçţéď '
+        '[Fido.ps1 ħášħ ɱíšɱáţçħ (ƥíññéď v1.71): éẋƥéçţéď '
         @{
             'arg' = 'fidoSha256'
             'type' = 'detail'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 429e4813-bf0c-4e56-8d42-899a9859af6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,6 +64,12 @@ $global:ProgressPreference    = "SilentlyContinue"
 $commonModulePath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
 
+$hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
+if ($hostCores -lt 4) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
+    exit 1
+}
+
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3e3de8bf7b8f6ba1')
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_73905e18abf967cb')
@@ -87,28 +93,7 @@ if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSS
 # --- REGION: Remove existing VM
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
-$existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-if ($existingVM) {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" })
-    Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    try {
-        Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
-    } catch {
-        # A half-removed VM (locked vhdx, permission, etc.) would trip
-        # the next New-VM call with "already exists" and the outer loop
-        # has no signal to recover. Dump live Hyper-V state so the
-        # operator can clean orphan disks before retrying.
-        $diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
-            Format-List Name, State, Status, Generation, Path | Out-String
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1c714189825ec0e2' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)"; diag = "$diag" })
-    }
-    # Hyper-V can return Remove-VM success while leaving a ghost entry;
-    # a second Get-VM is the only reliable post-condition.
-    if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_634b857addaa8df5' -Arguments @{ vMName = "$VMName" })
-    }
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_86f314067f7955de' -Arguments @{ vMName = "$VMName" })
-}
+Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
 $vmDir = Join-Path $downloadDir $VMName
@@ -169,23 +154,7 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42'
 # IP and can reach the NAS + the host status service; fall back to Default
 # Switch only when External is unavailable (Wi-Fi-only host), where the VM
 # is reachable only from same-host peers and the NAS likely isn't routable.
-$switchName = Get-OrCreateYurunaExternalSwitch
-if (-not $switchName) {
-    $switchName = 'Default Switch'
-    if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
-        # --- REGION: https://yuruna.link/42e220c4-0004
-        # Verify the fallback exists; prefer non-External switches when bridging is unavailable.
-        $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
-            Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
-            Select-Object -First 1
-        if ($substituteSwitch) {
-            $switchName = $substituteSwitch.Name
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_38edbb4cc8da6eb6' -Arguments @{ switchName = "$switchName" })
-        }
-    }
-    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_6ec7fa5a08a2eb27' -Arguments @{ switchName = "$switchName" })
-    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_d6fe825a381b5c81')
-}
+$switchName = Resolve-HyperVGuestSwitch
 
 # --- REGION: https://yuruna.link/4220a755-001b
 # Host coordinates (status service, for the in-VM source fetch) + pool storage
@@ -200,13 +169,7 @@ if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
-$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
-$poolControlLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
-    'auto'
-} else {
-    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
-}
-if (-not $poolControlLanguage) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = "$languageRaw" }) }
+$poolControlLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # --- REGION: https://yuruna.link/42e220c4-0004
@@ -259,37 +222,7 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_095582e0ec3b9dc8'
 Write-Output ""
 
 # --- REGION: Create and configure the Hyper-V VM
-# See https://yuruna.link/42fa6f45-0016
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b0bde9c66516dc8a' -Arguments @{ vMName = "$VMName"; switchName = "$switchName" })
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 2GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-
-# --- REGION: https://yuruna.link/4220a755-000a
-# Hyper-V takes bare hex, no separators.
-$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
-Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
-Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
-
-Set-VM -Name $VMName -MemoryStartupBytes 2GB -MemoryMinimumBytes 2GB -MemoryMaximumBytes 2GB -AutomaticCheckpointsEnabled $false | Out-Null
-Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
-Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
-
-# --- REGION: https://yuruna.link/42dc5bb9-0005
-# No-op on AMD64. On ARM64 the heartbeat channel drives a Linux guest into
-# repeated soft lockups before hv_storvsc registers, so the root disk never
-# enumerates and the guest never reaches the service it exists to run. Set
-# before the DVD is attached so the guest's first boot is already free of it.
-$null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
-
-Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-# --- REGION: https://yuruna.link/42fa6f45-0015
-$hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
-if ($hostCores -lt 4) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
-    exit 1
-}
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-$vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores
-Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
+New-HyperVServiceGuest -VMName $VMName -SwitchName $switchName -DiskPath $vhdxFile -SeedPath $SeedIso -HostCores $hostCores -MemoryMb 2048 -Confirm:$false
 
 # --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -303,66 +236,8 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b93b853caa0a1c89'
 
 # Discover via Get-CacheVmCandidateIp -- shared primitive in Yuruna.Host
 # that combines KVP + ARP. Same approach as the caching-proxy-service pattern.
-$dockIp = $null
-$dockCandidateIps = @()
-$maxIterations = 120  # 120 * 5s = 10 minutes
-$vmDiscoveryLogged = $false
-$vmOnExternalSwitch = $false
-$arpProbeAnnounced = $false
-
-# The ARP sweep only makes sense on a bridged (External) switch, where the
-# host is not the DHCP server and never observes the guest's lease. The
-# External vSwitch name is operator-configurable (Get-OrCreateYurunaExternalSwitch
-# honors a pre-created switch under any name), so key off the switch this
-# script resolved rather than a literal name -- a literal silently skips the
-# sweep on a host that named its bridge anything else.
-$switchIsExternal = ((Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue).SwitchType -eq 'External')
-
 $ProgressPreference = 'Continue'
-$activity  = "Waiting for '$VMName' to obtain an IP"
-$startTime = Get-Date
-
-for ($i = 0; $i -lt $maxIterations; $i++) {
-    $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-    if ($vm) {
-        # ARP-probe the bridged /24 to populate the host's neighbor cache
-        # when the host isn't the DHCP server.
-        # feedback_hyperv_external_vswitch_arp_discovery.md
-        if ($i -eq 0) {
-            $vmOnExternalSwitch = $switchIsExternal -and
-                (($vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
-                        Select-Object -First 1).SwitchName -eq $switchName)
-        }
-        if ($vmOnExternalSwitch -and $i -ge 6) {
-            if (-not $arpProbeAnnounced) {
-                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_86ae3482cd8932d7' -Arguments @{ switchName = "$switchName" })
-                $arpProbeAnnounced = $true
-            }
-            Invoke-YurunaExternalArpProbe -SwitchName $switchName
-        }
-
-        $dockCandidateIps = @(Get-CacheVmCandidateIp -VM $vm)
-        if ($dockCandidateIps) {
-            if (-not $vmDiscoveryLogged) {
-                $vmMac = ($vm | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
-                $vmMacDashed = if ($vmMac -match '^[0-9A-Fa-f]{12}$') {
-                    (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
-                } else { '(unknown)' }
-                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_711aec356a249726' -Arguments @{ vmMacDashed = "$vmMacDashed" })
-                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c31ff5024871e3cc' -Arguments @{ vMName = "${VMName}"; join = "$($dockCandidateIps -join ', ')" })
-                $vmDiscoveryLogged = $true
-            }
-            break
-        }
-    }
-
-    $elapsed = [int]((Get-Date) - $startTime).TotalSeconds
-    $pct     = [math]::Min(100, [math]::Round(($elapsed / ($maxIterations * 5)) * 100))
-    Write-Progress -Activity $activity -Status "elapsed ${elapsed}s" -PercentComplete $pct -SecondsRemaining (($maxIterations * 5) - $elapsed)
-
-    Start-Sleep -Seconds 5
-}
-Write-Progress -Activity $activity -Completed
+$dockCandidateIps = @(Wait-HyperVServiceGuestAddress -VMName $VMName -SwitchName $switchName -TimeoutSeconds 600)
 
 if (-not $dockCandidateIps) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5761fd52ff4ccf77' -Arguments @{ vMName = "$VMName" })

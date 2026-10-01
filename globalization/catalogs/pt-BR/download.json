@@ -109,7 +109,7 @@
     },
     "download.delete_every_generation_of_value1_value2_value3_value4_the_next_h": {
       "sourceHash": "cb9a8a278a57b166c4f5ba6245fa8161466e132fdfc012a8a6a1cf2dcb73cf28",
-      "message": "Apagar todas as gerações de {value1} ({value2}, {value3}, {value4})?\n\nA próxima requisição da máquina ou o passe de sementes volta a transferi- la da origem. As máquinas mantêm as suas cópias locais."
+      "message": "Apagar todas as gerações de {value1} ({value2}, {value3}, {value4})?\n\nA próxima requisição da máquina ou o passe de sementes volta a transferi-la da origem. As máquinas mantêm as suas cópias locais."
     },
     "download.diagnostics": {
       "sourceHash": "4fc5b42abe329051fb9855f0d7d3b130f64c09318707caf361639a318f773226",
@@ -239,7 +239,7 @@
     },
     "download.lab_token": {
       "sourceHash": "2026f8baaf7aa2f51d4e0689ba89d61bc92b72604c9550cb3d6dc79091206614",
-      "message": "Token de laboratório"
+      "message": "Token do laboratório"
     },
     "download.last_pass_failed_value1": {
       "sourceHash": "1b00c996990da9f946415da06fd852c3953d89b6afc7ae45bac846bb5bac8a65",
@@ -287,7 +287,7 @@
     },
     "download.no_aggregator_url_and_no_internal_authentication_key_are_configur": {
       "sourceHash": "f430889dc107db19c9298de1a7497654a06e8aaa9eb07acf26081bc316631ae4",
-      "message": "Nenhum URL agregador e nenhuma chave de autenticação interna estão configuradas, então o teste de resolução está desativado. Defina {command1} ou {command2} no servidor para habilitá- lo."
+      "message": "Nenhum URL agregador e nenhuma chave de autenticação interna estão configuradas, então o teste de resolução está desativado. Defina {command1} ou {command2} no servidor para habilitá-lo."
     },
     "download.no_aggregator_url_and_no_internal_authentication_key_are_configur_cb1dd86e": {
       "sourceHash": "f3e7c5f8a68d95c4260362deb7b01dfd7b5c535f51ec5306979d9b9b465d8464",
@@ -299,7 +299,7 @@
     },
     "download.no_pool_entries_yet_the_scanner_seeds_the_pool_on_its_next_pass_o": {
       "sourceHash": "730aaaba55fd3e3e7b4f23c32513ba09d02b50d7d9f6dede58098afce5069297",
-      "message": "Ainda não existem itens do pool. O scanner semeia o pool na sua próxima passagem, ou usa o Forçar a actualização numa linha para iniciar um agora."
+      "message": "Ainda não existem itens do pool. O scanner semeia o pool na sua próxima passagem, ou usa o Forçar a atualização numa linha para iniciar um agora."
     },
     "download.no_previous": {
       "sourceHash": "199e75a09a195502655ad84810738d024e0bea24a56a391331e71bb1770aa380",
@@ -339,11 +339,11 @@
     },
     "download.pool": {
       "sourceHash": "92031d89a0725ecdebc260230e314ed42c5a26b7c13c795767c031fe1f7fde05",
-      "message": "Piscina"
+      "message": "Grupo"
     },
     "download.pool_bytes": {
       "sourceHash": "971f4de4ded1937edc183aa921ed70e79f9a14e198ea00e9f248eb1116406c47",
-      "message": "bytes de piscina"
+      "message": "bytes de grupo"
     },
     "download.previous_value1": {
       "sourceHash": "66e6823affb37085d2bdc6387ede753316e4457278df653875b8f8b08e017c37",
@@ -435,7 +435,7 @@
     },
     "download.six_character_lab_token_from_the_dashboard": {
       "sourceHash": "8f11c7b61a0cc38bcec61006100acbfa6412295dd98dfe7017e2af98135cf950",
-      "message": "Token de laboratório de seis caracteres do painel"
+      "message": "Token do laboratório de seis caracteres do painel"
     },
     "download.size_current_previous": {
       "sourceHash": "a18edfbd3502be7ebe4736ab7d0b3794bfd275fc29b9897375146957f4a2e72f",
@@ -555,7 +555,7 @@
     },
     "download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti_c3e28ca2": {
       "sourceHash": "0bb52a501d3463e5bf7e62bda44367ec697a59ff3aeff6bf64b4a15ed202beda",
-      "message": "O código de 6 caracteres no painel do Yuruna hospeda o token azulejo do laboratório; ambos funcionam em maiúsculas ou minúsculas. O agregador do pool verifica- o e ele gira, então um código anotado na semana passada não abrirá nada."
+      "message": "O código de 6 caracteres no painel do Yuruna hospeda o token azulejo do laboratório; ambos funcionam em maiúsculas ou minúsculas. O agregador do pool verifica-o e ele gira, então um código anotado na semana passada não abrirá nada."
     },
     "download.the_last_remembered_refresh_failure_per_pool_entry_newest_first_t": {
       "sourceHash": "9a0d83944424576cf4d35cf58444b72b336262f7aa585fb8e8ebbb061267d9fc",

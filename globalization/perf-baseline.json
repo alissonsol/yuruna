@@ -77,14 +77,9 @@
       "gzipBytes": 9159,
       "transferDisposition": "deterministic-gzip-estimate"
     },
-    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js": {
-      "rawBytes": 7633,
-      "gzipBytes": 2891,
-      "transferDisposition": "deterministic-gzip-estimate"
-    },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js": {
-      "rawBytes": 16184,
-      "gzipBytes": 5290,
+      "rawBytes": 26520,
+      "gzipBytes": 7986,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/pt-BR.pool.js": {
@@ -110,11 +105,6 @@
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css": {
       "rawBytes": 30045,
       "gzipBytes": 10287,
-      "transferDisposition": "deterministic-gzip-estimate"
-    },
-    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js": {
-      "rawBytes": 5609,
-      "gzipBytes": 1979,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/zh-CN.pool.js": {
@@ -737,12 +727,6 @@
       "rawBytes": 4720,
       "gzipBytes": 1660
     },
-    "test/extension/pool-control-service/server/internal/httpsrv/web/index.html": {
-      "disposition": "budgeted",
-      "requests": 4,
-      "rawBytes": 4719,
-      "gzipBytes": 1694
-    },
     "test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html": {
       "disposition": "budgeted",
       "requests": 4,
@@ -754,12 +738,6 @@
       "requests": 4,
       "rawBytes": 6707,
       "gzipBytes": 2371
-    },
-    "test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html": {
-      "disposition": "budgeted",
-      "requests": 4,
-      "rawBytes": 4503,
-      "gzipBytes": 1570
     },
     "test/extension/download-agent-service/server/internal/httpsrv/web/index.html": {
       "disposition": "budgeted",

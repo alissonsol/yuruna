@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,7 @@
 #requires -version 7
 
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module powershell-yaml -ErrorAction Stop
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
 Import-Module -Name $validationModulePath
@@ -81,26 +82,17 @@ function Invoke-WorkloadChartDeployment {
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
     $workFolder = Resolve-Path -Path $workFolder
     Write-Debug "Copying chart from: $chartFolder to $workFolder"
-    Copy-Item "$chartFolder/*" -Destination $workFolder -Recurse -Container -ErrorAction SilentlyContinue
+    Copy-Item "$chartFolder/*" -Destination $workFolder -Recurse -Container -Force -ErrorAction SilentlyContinue
 
-    # Write deploymentVars to values.yaml. Backslashes are stripped
-    # per helm's --set format constraints:
-    # https://helm.sh/docs/intro/using_helm/#the-format-and-limitations-of---set
+    # Values files are YAML documents, not helm --set expressions.
     $helmValuesFile = Join-Path -Path $workFolder -ChildPath "values.yaml"
-    $null = New-Item -Path $helmValuesFile -ItemType File -Force
-    foreach ($key in $deploymentVars.Keys) {
-        $value = $deploymentVars[$key]
-        $value =  $value -replace '\\', ''
-        $line = "${key}: `"$value`""
-        if (($value.ToString().StartsWith("`"")) -and ($value.ToString().EndsWith("`""))) {
-            $line = "${key}: $value"
-        }
-        Add-Content -Path $helmValuesFile -Value $line
-    }
-    $line = "contextName: `"$contextName`""
-    Add-Content -Path $helmValuesFile -Value $line
+    $helmValues = [ordered]@{}
+    foreach ($key in $deploymentVars.Keys) { $helmValues[$key] = $deploymentVars[$key] }
+    $helmValues['contextName'] = $contextName
+    [IO.File]::WriteAllText($helmValuesFile, (ConvertTo-Yaml $helmValues), [Text.UTF8Encoding]::new($false))
     Write-Debug "Helm execute from: $workFolder"
-    Push-Location $workFolder
+    Push-Location $workFolder -ErrorAction Stop
+    try {
 
     # Per-chart helm stderr/stdout log + final-rc sidecar. Mirrors Set-Resource's
     # tofu.stderr.log pattern so Get-SystemDiagnostic.ps1's *.stderr.log glob
@@ -122,12 +114,13 @@ function Invoke-WorkloadChartDeployment {
     $lintOutput = helm lint . *>&1
     $lintExit = $LASTEXITCODE
     Add-Content -LiteralPath $helmLogFile -Value "== helm lint (exit=$lintExit) =="
-    $lintOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_); Write-Verbose "$_" }
+    $logLines = @($lintOutput | ForEach-Object { [string]$_ })
+    if ($logLines.Count -gt 0) { Add-Content -LiteralPath $helmLogFile -Value $logLines }
+    $lintOutput | ForEach-Object { Write-Verbose "$_" }
     Set-Content -LiteralPath $helmRcFile -Value $lintExit -NoNewline
     if ($lintExit -ne 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e1738c24bf654188' -Arguments @{ lintExit = "$lintExit"; installName = "$installName"; workFolder = "$workFolder" })
         $lintOutput | ForEach-Object { Write-Information "$_" }
-        Pop-Location
         return (New-YurunaResultManifest -Success $false -ErrorMessage "helm lint failed for chart '$installName' in $workFolder" -FailureClass 'chart_invalid' -ExitCode $lintExit -DurationMs $sw.ElapsedMilliseconds)
     }
 
@@ -144,11 +137,13 @@ function Invoke-WorkloadChartDeployment {
             $pendingState = $Matches[1]
             Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_5010c107b9432bae' -Arguments @{ installName = "$installName"; pendingState = "$pendingState" })
             Add-Content -LiteralPath $helmLogFile -Value "== pre-flight helm status (state=$pendingState; recovering) =="
-            $statusOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_) }
+            $logLines = @($statusOutput | ForEach-Object { [string]$_ })
+            if ($logLines.Count -gt 0) { Add-Content -LiteralPath $helmLogFile -Value $logLines }
             $rollbackOutput = helm rollback $installName 0 2>&1
             $rollbackExit = $LASTEXITCODE
             Add-Content -LiteralPath $helmLogFile -Value "== helm rollback $installName 0 (exit=$rollbackExit) =="
-            $rollbackOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_) }
+            $logLines = @($rollbackOutput | ForEach-Object { [string]$_ })
+            if ($logLines.Count -gt 0) { Add-Content -LiteralPath $helmLogFile -Value $logLines }
             if ($rollbackExit -ne 0) {
                 # No prior good revision to roll back to (the very first
                 # upgrade was the one killed): fall through to uninstall
@@ -157,7 +152,8 @@ function Invoke-WorkloadChartDeployment {
                 $uninstallOutput = helm uninstall $installName --no-hooks 2>&1
                 $uninstallExit = $LASTEXITCODE
                 Add-Content -LiteralPath $helmLogFile -Value "== helm uninstall $installName --no-hooks (exit=$uninstallExit) =="
-                $uninstallOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_) }
+                $logLines = @($uninstallOutput | ForEach-Object { [string]$_ })
+                if ($logLines.Count -gt 0) { Add-Content -LiteralPath $helmLogFile -Value $logLines }
             }
         }
     }
@@ -171,7 +167,9 @@ function Invoke-WorkloadChartDeployment {
     $installOutput = helm upgrade --install --atomic $installName . --debug *>&1
     $installExit = $LASTEXITCODE
     Add-Content -LiteralPath $helmLogFile -Value "== helm upgrade --install --atomic $installName --debug (exit=$installExit) =="
-    $installOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_); Write-Verbose "$_" }
+    $logLines = @($installOutput | ForEach-Object { [string]$_ })
+    if ($logLines.Count -gt 0) { Add-Content -LiteralPath $helmLogFile -Value $logLines }
+    $installOutput | ForEach-Object { Write-Verbose "$_" }
     Set-Content -LiteralPath $helmRcFile -Value $installExit -NoNewline
     # Match only helm's terminal error shapes: a real error line starts at column
     # 0 with "Error: " (helm's stderr format), so an indented --debug / rendered
@@ -182,10 +180,9 @@ function Invoke-WorkloadChartDeployment {
     if ($installExit -ne 0 -or $installErrorLines.Count -gt 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_ce3524d480509234' -Arguments @{ installName = "$installName"; installExit = "$installExit"; count = "$($installErrorLines.Count)"; workFolder = "$workFolder" })
         $installOutput | ForEach-Object { Write-Information "$_" }
-        Pop-Location
         return (New-YurunaResultManifest -Success $false -ErrorMessage "helm upgrade --install --atomic '$installName' failed in $workFolder (exit $installExit, $($installErrorLines.Count) Error: line(s))" -FailureClass 'tool_failed' -ExitCode $installExit -DurationMs $sw.ElapsedMilliseconds)
     }
-    Pop-Location
+    } finally { Pop-Location }
 }
 
 function Invoke-WorkloadToolDeployment {
@@ -237,7 +234,8 @@ function Invoke-WorkloadToolDeployment {
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
     $workFolder = Resolve-Path -Path $workFolder
     Set-Item -Path Env:workFolder -Value ${workFolder}
-    Push-Location $workFolder
+    Push-Location $workFolder -ErrorAction Stop
+    try {
     $expression = $ExecutionContext.InvokeCommand.ExpandString($expression)
     Write-Debug "$expression"
     # Per-tool <tool>.stderr.log + <tool>.rc sidecar -- same convention as the
@@ -286,10 +284,9 @@ function Invoke-WorkloadToolDeployment {
         # times out minutes later -- masking the real fault.
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_796c5d30f7816aa9' -Arguments @{ toolExit = "$toolExit"; expression = "$expression" })
         $output | ForEach-Object { Write-Information "$_" }
-        Pop-Location
         return (New-YurunaResultManifest -Success $false -ErrorMessage "$toolName exit $toolExit for: $expression" -FailureClass 'tool_failed' -ExitCode $toolExit -DurationMs $sw.ElapsedMilliseconds)
     }
-    Pop-Location
+    } finally { Pop-Location }
 }
 
 function Publish-WorkloadList {

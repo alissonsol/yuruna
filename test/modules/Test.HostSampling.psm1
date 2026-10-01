@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d6d3a9-02a1-4fb8-87ed-a2137333c910
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -197,7 +197,16 @@ function Write-YurunaHostSampleRecord {
     $bytes = [Text.Encoding]::UTF8.GetBytes(($Record | ConvertTo-Json -Depth 15 -Compress) + "`n")
     if ($files.Count -and $files[-1].Length + $bytes.Length -gt $SegmentBytes) { $number++ }
     $path = Join-Path $Directory ('samples.{0:d6}.ndjson' -f $number)
-    $stream = [IO.FileStream]::new($path, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+    $stream = $null
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        try {
+            $stream = [IO.FileStream]::new($path, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+            break
+        } catch [IO.IOException] {
+            if ($attempt -eq 4) { throw }
+            Start-Sleep -Milliseconds 50
+        }
+    }
     try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
     $old = @(Get-ChildItem -LiteralPath $Directory -Filter 'samples.*.ndjson' -File | Sort-Object Name -Descending | Select-Object -Skip $MaximumSegments)
     foreach ($file in $old) { Remove-Item -LiteralPath $file.FullName -Force }
@@ -240,7 +249,12 @@ function Invoke-YurunaHostSampling {
         $record.CollectionSeconds = $timer.Elapsed.TotalSeconds - $start
         Write-YurunaHostSampleRecord -Directory $Directory -Record $record
         $remaining = $IntervalSeconds - ($timer.Elapsed.TotalSeconds - $start)
-        if ($remaining -gt 0) { Start-Sleep -Milliseconds ([int]($remaining * 1000)) }
+        $sleepUntil = [math]::Min($DurationSeconds, $start + $IntervalSeconds)
+        while ($remaining -gt 0 -and $timer.Elapsed.TotalSeconds -lt $sleepUntil) {
+            if (Test-Path -LiteralPath (Join-Path $Directory 'stop')) { break }
+            if ($OwnerProcessId -gt 0 -and -not (Get-Process -Id $OwnerProcessId -ErrorAction SilentlyContinue)) { break }
+            Start-Sleep -Milliseconds ([int][math]::Min(100, ($sleepUntil - $timer.Elapsed.TotalSeconds) * 1000))
+        }
     }
 }
 
@@ -367,7 +381,12 @@ function Save-YurunaHostSampleSnapshot {
                 if ($source -and [IO.Path]::GetFullPath($source).StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
                     $files = @(Get-ChildItem -LiteralPath $source -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(samples\.\d+\.ndjson|metadata\.json|counter-inventory\.json|sampler-outcome\.json)$' })
                     foreach ($file in $files) {
-                        $bytes = [IO.File]::ReadAllBytes($file.FullName)
+                        $reader = [IO.FileStream]::new($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+                        $buffer = [IO.MemoryStream]::new()
+                        try {
+                            $reader.CopyTo($buffer)
+                            $bytes = $buffer.ToArray()
+                        } finally { $reader.Dispose(); $buffer.Dispose() }
                         if ($file.Extension -eq '.ndjson' -and $bytes.Length -and $bytes[-1] -ne 10) {
                             $lastNewline = [Array]::LastIndexOf($bytes, [byte]10)
                             $bytes = if ($lastNewline -ge 0) { [byte[]]$bytes[0..$lastNewline] } else { [byte[]]@() }

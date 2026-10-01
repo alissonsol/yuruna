@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4223adbe-1c67-4f91-9007-d00e25adf8ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,7 +100,11 @@ BeforeAll {
         $out = @()
         foreach ($h in $script:HostKinds) {
             $p = Join-Path $script:RepoRoot "host/$h/$Guest/New-VM.ps1"
-            if (Test-Path -LiteralPath $p -PathType Leaf) { $out += $p }
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+            # A per-release script that hands its work to the host's shared Ubuntu builder is judged by that builder.
+            $shared = Join-Path $script:RepoRoot "host/$h/modules/New-UbuntuServerVM.ps1"
+            if ((Get-Content -Raw -LiteralPath $p) -match 'New-UbuntuServerVM\.ps1' -and (Test-Path -LiteralPath $shared -PathType Leaf)) { $p = $shared }
+            if ($out -notcontains $p) { $out += $p }
         }
         return $out
     }
@@ -273,7 +277,7 @@ Describe 'the guests that are handed a DHCP identity' {
         foreach ($guest in $script:CloudInitGuests) {
             foreach ($builder in (Get-BuilderPathList -Guest $guest)) {
                 $text = Get-Content -Raw -LiteralPath $builder
-                $text | Should -Match "network-config'?\`"?\s*\)?\s*(-Force)?" -Because "$builder must land it as network-config"
+                $text | Should -Match '(?:Join-Path\s+\$\w+\s+''network-config''|[/\\]network-config["''])' -Because "$builder must land it as network-config"
                 @([regex]::Matches($text, "[/\\']network-config")).Count |
                     Should -BeGreaterThan 0 -Because "$builder must name the destination network-config"
             }

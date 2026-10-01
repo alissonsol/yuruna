@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -225,12 +225,7 @@ function Test-DriverNativeResultComplete {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][AllowNull()][hashtable]$Result)
-    if ($null -eq $Result) { return $false }
-    if (-not $Result['Started']) { return $false }
-    foreach ($flag in 'TimedOut', 'DrainTimedOut', 'OutputTruncated', 'KillFailed') {
-        if ($Result[$flag]) { return $false }
-    }
-    return $true
+    return (Test-BoundedNativeResultComplete -Result $Result)
 }
 
 <#
@@ -246,13 +241,7 @@ function Format-VirtualizationProbeDiagnostic {
     [CmdletBinding()]
     [OutputType([string])]
     param([AllowNull()][AllowEmptyString()][string]$Text)
-    if ([string]::IsNullOrEmpty($Text)) { return '' }
-    $clean = [regex]::Replace($Text, '\x1B\[[0-9;?]*[ -/]*[@-~]', '')
-    $clean = [regex]::Replace($clean, '\x1B[@-Z\\-_]', '')
-    $clean = [regex]::Replace($clean, '[\x00-\x1F\x7F-\x9F]+', ' ')
-    $clean = [regex]::Replace($clean, ' {2,}', ' ').Trim()
-    if ($clean.Length -gt 1024) { $clean = $clean.Substring(0, 1024) }
-    return $clean
+    return (Format-YurunaVirtualizationProbeDiagnostic @PSBoundParameters)
 }
 
 # --- REGION: VM lifecycle
@@ -367,8 +356,9 @@ function Stop-VM {
         [switch]$Force
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, ($Force ? (Format-YurunaOperatorMessage -Key 'host.operator_872a5355019f83c5') : (Format-YurunaOperatorMessage -Key 'host.operator_156e139837bd477d')))) { return $false }
-    $state = Get-VirshDomState -VMName $VMName
-    if (-not $state -or $state -eq 'shut off') { return $true }   # already stopped
+    $state = Get-KvmDomainState -VMName $VMName
+    if ($state.State -eq 'absent' -or $state.Raw -in @('shut off', 'crashed')) { return $true }
+    if ($state.State -eq 'unknown') { return $false }
     if ($Force) { return [bool](Stop-VMForce -VMName $VMName -Confirm:$false) }
     Invoke-Virsh -VirshArgs @('shutdown', $VMName) | Out-Null
     if ($LASTEXITCODE -ne 0) { return $false }
@@ -376,7 +366,9 @@ function Stop-VM {
     # for the OS to follow through.
     $deadline = (Get-Date).AddSeconds(30)
     while ((Get-Date) -lt $deadline) {
-        if ((Get-VirshDomState -VMName $VMName) -in @('shut off', '')) { return $true }
+        $state = Get-KvmDomainState -VMName $VMName
+        if ($state.State -eq 'absent' -or $state.Raw -in @('shut off', 'crashed')) { return $true }
+        if ($state.State -eq 'unknown') { return $false }
         Start-Sleep -Seconds 1
     }
     return $false
@@ -796,22 +788,9 @@ function New-KvmVirtualizationProbeRecord {
         [Parameter(Mandatory)][System.Collections.IDictionary]$Evidence,
         [AllowEmptyString()][string]$Diagnostic = ''
     )
-    return [pscustomobject]@{
-        PSTypeName        = 'Yuruna.VirtualizationProbe'
-        schemaVersion     = 1
-        hostType          = (Resolve-HostTag)
-        state             = $State
-        reason            = $Reason
-        started           = $Started
-        timedOut          = $TimedOut
-        deadlineExhausted = $DeadlineExhausted
-        corroborated      = $false
-        observedUtc       = $ObservedUtc
-        observedTick      = $ObservedTick
-        elapsedMs         = $ElapsedMs
-        evidence          = [pscustomobject]$Evidence
-        diagnostic        = (Format-VirtualizationProbeDiagnostic -Text $Diagnostic)
-    }
+    $arguments = @{} + $PSBoundParameters
+    $arguments['Diagnostic'] = Format-VirtualizationProbeDiagnostic -Text $Diagnostic
+    New-YurunaVirtualizationProbeRecord @arguments -HostType (Resolve-HostTag)
 }
 
 <#
@@ -1553,6 +1532,46 @@ function Get-VMConsoleHandle {
 }
 
 # --- REGION: Discovery
+function Wait-KvmGuestIp {
+    <#
+    .SYNOPSIS
+        Wait for a provisioned KVM guest address with disk-growth progress and source diagnostics.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$DiskPath,
+        [ValidateRange(1, 7200)][int]$TimeoutSeconds = 1200,
+        [ValidateRange(1, 30)][int]$PollSeconds = 5
+    )
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $baselineSizeMB = [math]::Round((Get-Item -LiteralPath $DiskPath).Length / 1MB, 0)
+    $nextProgress = 30
+    while ($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        $address = Get-VMIp -VMName $VMName
+        if ($address) { return $address }
+        $remainingMs = [int][math]::Max(0, ($TimeoutSeconds - $clock.Elapsed.TotalSeconds) * 1000)
+        if ($remainingMs -eq 0) { break }
+        Start-Sleep -Milliseconds ([math]::Min($PollSeconds * 1000, $remainingMs))
+        if ($clock.Elapsed.TotalSeconds -ge $nextProgress) {
+            $elapsed = [int]$clock.Elapsed.TotalSeconds
+            $sizeMB = [math]::Round((Get-Item -LiteralPath $DiskPath).Length / 1MB, 0)
+            $min = [int][math]::Floor($elapsed / 60)
+            $sec = $elapsed % 60
+            $totalMinutes = [int][math]::Ceiling($TimeoutSeconds / 60)
+            Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_ab6af692ee9143e8' -FormatValues ($min, $sec, $totalMinutes, $sizeMB, ($sizeMB - $baselineSizeMB)) -FormatBindings @{ min = '0:D2'; sec = '1:D2'; totalMinutes = '2'; sizeMB = '3'; deltaMB = '4' }) -InformationAction Continue
+            $nextProgress += 30
+        }
+    }
+    Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_c89f111266a03848') -InformationAction Continue
+    foreach ($source in @('lease', 'agent', 'arp')) {
+        $probe = (Invoke-Virsh -VirshArgs @('domifaddr', $VMName, '--source', $source) 2>&1 | Out-String).Trim()
+        Write-Information -MessageData "--source ${source}: $probe" -InformationAction Continue
+    }
+    return $null
+}
+
 function Wait-VMIp {
     <#
     .SYNOPSIS
@@ -3955,16 +3974,8 @@ function Set-HostProxy {
     # Idempotent backup: only snapshot BEFORE the first apply, so a
     # repeat Set-HostProxy doesn't overwrite the backup with the
     # squid-promoted state.
-    if (-not (Test-Path -LiteralPath $backupPath)) {
-        $state = Read-LinuxProxyState
-        $state['timestamp']  = (Get-Date).ToUniversalTime().ToString('o')
-        $state['promotedTo'] = $parts.Url
-        $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $backupPath -Encoding UTF8
-        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_e7819cb03343b1e1' -Arguments @{ backupPath = "$backupPath" })
-    } else {
-        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_d8f19d509742ffe8' -Arguments @{ backupPath = "$backupPath" })
-    }
-    Set-LinuxHostProxy -ProxyUrl $parts.Url
+    Save-YurunaHostProxyBackup -Path $backupPath -ReadState { Read-LinuxProxyState } -PromotedTo $parts.Url
+    if (-not (Set-LinuxHostProxy -ProxyUrl $parts.Url)) { return $false }
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_3f5727a91dcab9f6' -Arguments @{ url = "$($parts.Url)" })
     return $true
 }
@@ -3979,25 +3990,15 @@ function Clear-HostProxy {
     param()
     if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_b336eaad209fac7c'), (Format-YurunaOperatorMessage -Key 'host.operator_ca5c5716704ce8c4'))) { return $false }
     $backupPath = Get-HostProxyBackupPath
-    $state = $null
-    if (Test-Path -LiteralPath $backupPath) {
-        try {
-            $state = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json -AsHashtable
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bea0e70f89d3d54c' -Arguments @{ backupPath = "$backupPath"; message = "$($_.Exception.Message)" })
-            $state = $null
-        }
-    }
+    $state = Read-YurunaHostProxyBackup -Path $backupPath
     if ($state -and $state.previousUrl) {
-        Set-LinuxHostProxy -ProxyUrl $state.previousUrl
+        if (-not (Set-LinuxHostProxy -ProxyUrl $state.previousUrl)) { return $false }
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_44e3bf492036c774' -Arguments @{ previousUrl = "$($state.previousUrl)" })
     } else {
-        Disable-LinuxHostProxy
+        if (-not (Disable-LinuxHostProxy)) { return $false }
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_730bab99bcf2735f')
     }
-    if (Test-Path -LiteralPath $backupPath) {
-        Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaHostProxyBackup -Path $backupPath -Confirm:$false
     return $true
 }
 
@@ -4010,7 +4011,7 @@ function Remove-HostProxy {
     [OutputType([bool])]
     param()
     if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_b336eaad209fac7c'), (Format-YurunaOperatorMessage -Key 'host.operator_0b42b69cacf83715'))) { return $false }
-    Disable-LinuxHostProxy
+    if (-not (Disable-LinuxHostProxy)) { return $false }
     $backupPath = Get-HostProxyBackupPath
     if (Test-Path -LiteralPath $backupPath) {
         Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
@@ -4052,18 +4053,20 @@ function Set-LinuxHostProxy {
     param([Parameter(Mandatory)][string]$ProxyUrl)
     # /etc/environment: clean any prior yuruna-managed lines first, then
     # write the new ones. Match upper-case + lower-case forms.
-    $script = @"
+    if ($ProxyUrl -match '[\x00-\x1f\x7f]') { throw 'Proxy URL contains a control character.' }
+    $script = @'
 set -e
-sed -i.yuruna-bak '/^[Hh][Tt][Tt][Pp][Ss]\?_proxy\s*=/d' /etc/environment 2>/dev/null || true
-printf 'http_proxy="%s"\nhttps_proxy="%s"\nHTTP_PROXY="%s"\nHTTPS_PROXY="%s"\n' '$ProxyUrl' '$ProxyUrl' '$ProxyUrl' '$ProxyUrl' >> /etc/environment
+proxy=$1
+proxy=${proxy//\\/\\\\}
+proxy=${proxy//\"/\\\"}
+sed -i.yuruna-bak '/^[Hh][Tt][Tt][Pp][Ss]\?_proxy\s*=/d' /etc/environment
+printf 'http_proxy="%s"\nhttps_proxy="%s"\nHTTP_PROXY="%s"\nHTTPS_PROXY="%s"\n' "$proxy" "$proxy" "$proxy" "$proxy" >> /etc/environment
 mkdir -p /etc/apt/apt.conf.d
-cat > /etc/apt/apt.conf.d/99yuruna-host-proxy <<EOF
-Acquire::http::Proxy "$ProxyUrl";
-Acquire::https::Proxy "$ProxyUrl";
-EOF
+printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$proxy" "$proxy" > /etc/apt/apt.conf.d/99yuruna-host-proxy
 chmod 0644 /etc/apt/apt.conf.d/99yuruna-host-proxy
-"@
-    & sudo bash -c $script
+'@
+    & sudo bash -c $script _ $ProxyUrl | Out-Null
+    return ($LASTEXITCODE -eq 0)
 }
 
 <#
@@ -4075,10 +4078,11 @@ function Disable-LinuxHostProxy {
     param()
     $script = @'
 set -e
-sed -i.yuruna-bak '/^[Hh][Tt][Tt][Pp][Ss]\?_proxy\s*=/d' /etc/environment 2>/dev/null || true
-rm -f /etc/apt/apt.conf.d/99yuruna-host-proxy 2>/dev/null || true
+sed -i.yuruna-bak '/^[Hh][Tt][Tt][Pp][Ss]\?_proxy\s*=/d' /etc/environment
+rm -f /etc/apt/apt.conf.d/99yuruna-host-proxy
 '@
-    & sudo bash -c $script
+    & sudo bash -c $script | Out-Null
+    return ($LASTEXITCODE -eq 0)
 }
 
 <#
@@ -4337,18 +4341,7 @@ function New-VirtualizationStartAction {
         [bool]$TimedOut = $false,
         [long]$ElapsedMs = 0
     )
-    return [pscustomobject]@{
-        target    = $Target
-        kind      = $Kind
-        before    = $Before
-        after     = $After
-        result    = $Result
-        reason    = $Reason
-        command   = [string[]]@($Command)
-        exitCode  = $ExitCode
-        timedOut  = $TimedOut
-        elapsedMs = $ElapsedMs
-    }
+    return (New-YurunaVirtualizationStartAction @PSBoundParameters)
 }
 
 <#
@@ -4373,28 +4366,7 @@ function New-VirtualizationStartResult {
         [Parameter(Mandatory)][string]$ObservedUtc,
         [long]$ElapsedMs
     )
-    $rows = @($Action | Where-Object { $null -ne $_ })
-    if (-not $Outcome) {
-        $Outcome = 'already-running'
-        foreach ($candidate in 'failed', 'unknown', 'started', 'preview') {
-            $first = @($rows | Where-Object { $_.result -eq $candidate }) | Select-Object -First 1
-            if ($first) { $Outcome = $candidate; $Reason = [string]$first.reason; break }
-        }
-        if ($Outcome -eq 'already-running') {
-            $Reason = if (@($rows | Where-Object { $_.result -eq 'socket-live' }).Count -gt 0) { 'socket-live' } else { 'already-running' }
-        }
-    }
-    return [pscustomobject]@{
-        PSTypeName    = 'Yuruna.VirtualizationStartResult'
-        schemaVersion = 1
-        hostType      = (Resolve-HostTag)
-        outcome       = $Outcome
-        reason        = $Reason
-        layout        = $Layout
-        actions       = [object[]]$rows
-        observedUtc   = $ObservedUtc
-        elapsedMs     = $ElapsedMs
-    }
+    return (New-YurunaVirtualizationStartResult @PSBoundParameters -HostType (Resolve-HostTag))
 }
 
 <#
@@ -5072,14 +5044,115 @@ function Save-VMDhcpCapture {
 }
 
 # --- REGION: Exports
-Export-ModuleMember -Function `
+function Remove-KvmDomainDefinition {
+    <#
+    .SYNOPSIS
+        Remove a previous domain definition without deleting its disk artifacts.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove existing domain definition')) { return }
+    foreach ($arguments in @(@('destroy', $VMName), @('undefine', '--nvram', '--managed-save', '--snapshots-metadata', '--checkpoints-metadata', $VMName))) {
+        $result = Invoke-VirshBounded -VirshArgs $arguments -TimeoutSeconds 30
+        Write-Verbose ("virsh {0}: {1}" -f ($arguments -join ' '), ($result | ConvertTo-Json -Compress))
+    }
+    $listing = Invoke-VirshBounded -VirshArgs @('list', '--all', '--name')
+    $names = @(Get-BoundedNativeOutputLine -Result $listing)
+    if (-not (Test-DriverNativeResultComplete -Result $listing) -or $listing.ExitCode -ne 0) {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d43d0cab95add9be' -Arguments @{ vMName = "$VMName"; join = "$($names -join '; ')" })
+    }
+    if ($names | Where-Object { $_.Trim() -ceq $VMName }) {
+        $info = Invoke-VirshBounded -VirshArgs @('dominfo', $VMName)
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9174df31c5ee6350' -Arguments @{ vMName = "$VMName"; dominfo = "$(Get-BoundedNativeOutputLine -Result $info | Out-String)" })
+    }
+}
+
+function Resolve-KvmOsVariant {
+    <#
+    .SYNOPSIS
+        Select the first supported guest variant or the generic Linux fallback.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string[]]$Candidates)
+    $result = Invoke-BoundedNativeCommand -FilePath 'virt-install' -ArgumentList @('--osinfo', 'list') -TimeoutSeconds 20
+    if ((Test-DriverNativeResultComplete -Result $result) -and $result.ExitCode -eq 0) {
+        $ids = @(Get-BoundedNativeOutputLine -Result $result | ForEach-Object { (($_.Trim() -split '[\s,]', 2)[0] -replace ',$', '').Trim() })
+        foreach ($candidate in $Candidates) { if ($ids -contains $candidate) { return $candidate } }
+    }
+    Write-Verbose "osinfo-db lacks a requested guest variant; using linux2022."
+    return 'linux2022'
+}
+
+function New-KvmServiceDomain {
+    <#
+    .SYNOPSIS
+        Create a Linux service domain with consistent CPU, disk, network and reboot policy.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$DiskPath,
+        [Parameter(Mandatory)][string]$SeedPath, [Parameter(Mandatory)][string]$NetworkName,
+        [int]$MemoryMb = 2048, [string]$MacAddress)
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Create service domain')) { return $false }
+    $virshUri = $script:VirshUri
+    $diskImg = $DiskPath
+    $seedImg = $SeedPath
+    $arch = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    if ($arch -eq 'Arm64') { $arch = 'aarch64' }
+    $osVariant = Resolve-KvmOsVariant -Candidates @('ubuntu26.04', 'ubuntu24.04', 'ubuntu22.04')
+    $hostCores = [int](& nproc --all)
+    if ($hostCores -lt 4) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
+        return $false
+    }
+    $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+
+    # --- REGION: https://yuruna.link/4220a755-000a
+    $YurunaGuestMac = if ($MacAddress) { $MacAddress } else { Get-YurunaGuestMacAddress -VMName $VMName }
+    Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
+
+    $installArgs = @(
+        '--connect',    $virshUri,
+        '--name',       $VMName,
+        '--memory',     "$MemoryMb",
+        '--vcpus',      "$vmCores",
+        '--cpu',        'host-passthrough',
+        '--os-variant', $osVariant,
+        '--disk',       "path=$diskImg,format=qcow2,bus=virtio",
+        '--disk',       "path=$seedImg,device=cdrom",
+        '--network',    "network=$networkName,model=virtio,mac=$YurunaGuestMac",
+        '--graphics',   'vnc,listen=127.0.0.1',
+        '--channel',    'unix,target_type=virtio,name=org.qemu.guest_agent.0',
+        '--events',     'on_reboot=restart',
+        '--noautoconsole',
+        '--import'
+    )
+    if ($arch -eq 'aarch64') {
+        $installArgs += @('--machine', 'virt', '--boot', 'uefi')
+    }
+
+    Write-Verbose "virt-install $($installArgs -join ' ')"
+    $installed = Invoke-BoundedNativeCommand -FilePath 'virt-install' -ArgumentList $installArgs -TimeoutSeconds 300
+    $virtInstallOutput = @(Get-BoundedNativeOutputLine -Result $installed)
+    $virtInstallExit = if (Test-DriverNativeResultComplete -Result $installed) { $installed.ExitCode } else { -1 }
+    $virtInstallOutput | ForEach-Object { Write-Verbose "$_" }
+    if ($virtInstallExit -ne 0) {
+        $virtInstallOutput | ForEach-Object { Write-Information "$_" -InformationAction Continue }
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d74692e9db12304f' -Arguments @{ virtInstallExit = "$virtInstallExit" })
+        return $false
+    }
+    return $true
+}
+
+Export-ModuleMember -Function Remove-KvmDomainDefinition, Resolve-KvmOsVariant, New-KvmServiceDomain, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
     Start-VMDhcpCapture, Save-VMDhcpCapture, Stop-VMDhcpCapture, `
-    Wait-VMIp, Get-VMIp, Get-VMMac, Update-GuestNeighborCache, `
+    Wait-VMIp, Wait-KvmGuestIp, Get-VMIp, Get-VMMac, Update-GuestNeighborCache, `
     Get-ExternalNetwork, New-ExternalNetwork, New-YurunaExternalNetwork, Get-YurunaExternalNetworkPlan, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, Resolve-GuestHostBinding, `
     Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, `

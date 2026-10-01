@@ -17,7 +17,7 @@ properties:
     additionalProperties:
       type: object
       additionalProperties: false
-      required: [password, updatedUtc]
+      required: [password]
       properties:
         password:         { type: string, minLength: 1 }
         # previousPassword carries the prior secret across a Set-Password

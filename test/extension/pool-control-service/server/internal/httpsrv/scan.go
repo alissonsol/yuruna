@@ -100,11 +100,23 @@ func (s *Server) RunDiscovery(ctx context.Context, interval time.Duration) {
 // Open like every other read on this service. It exposes the addresses of
 // machines on the lab's own network to the lab's own network, which is what a
 // scan of that network found by asking it.
-func (s *Server) handleScanStatus(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleScanStatus(w http.ResponseWriter, r *http.Request) {
+	progress := s.scan.Progress()
+	hosts := s.discovered.List()
+	if !s.gate.Authed(r) {
+		progress.Found = append([]discovery.Host(nil), progress.Found...)
+		hosts = append([]discovery.Host(nil), hosts...)
+		for i := range progress.Found {
+			progress.Found[i].Hostname = ""
+		}
+		for i := range hosts {
+			hosts[i].Hostname = ""
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":           true,
-		"scan":         s.scan.Progress(),
-		"hosts":        s.discovered.List(),
+		"scan":         progress,
+		"hosts":        hosts,
 		"defaultCidr":  s.scanCIDR(),
 		"port":         s.opts.ScanPort,
 		"sweepSeconds": int(s.opts.ScanInterval / time.Second),
@@ -213,7 +225,7 @@ func hostSortKey(h boardHost) string {
 // one for every other host it cannot reach. Hardware is not in that class: it
 // is the host's own answer about itself, served on the address the sweep
 // reached it at, so /api/hosts/facts asks a discovered host directly.
-func discoveredRows(hosts []discovery.Host, seen map[string]bool, seenBase map[string]bool) []boardHost {
+func discoveredRows(hosts []discovery.Host, seen map[string]bool, seenBase map[string]bool, hostnamesVisible bool) []boardHost {
 	rows := make([]boardHost, 0, len(hosts))
 	for _, h := range hosts {
 		if h.HostID != "" && seen[h.HostID] {
@@ -223,9 +235,13 @@ func discoveredRows(hosts []discovery.Host, seen map[string]bool, seenBase map[s
 		if base != "" && seenBase[base] {
 			continue
 		}
+		hostname := ""
+		if hostnamesVisible {
+			hostname = h.Hostname
+		}
 		rows = append(rows, boardHost{
 			HostID:     h.HostID,
-			Hostname:   h.Hostname,
+			Hostname:   hostname,
 			Type:       h.HostType,
 			Control:    "unknown",
 			Refresh:    pool.UnobservedRefresh(),

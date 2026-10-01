@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 420effcb-c2e1-4c95-b3b0-ddb550aecce4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -149,7 +149,7 @@ foreach ($p in $scanPaths) {
 
 $allFiles = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 foreach ($scanPath in $scanPaths) {
-    $files = Get-ChildItem -Path $scanPath -Recurse -File -ErrorAction SilentlyContinue
+    $files = Get-ChildItem -LiteralPath $scanPath -Recurse -File -ErrorAction SilentlyContinue
     foreach ($file in $files) {
         if (Test-IsHyperVSystemPath $file.FullName) { continue }
         [void]$allFiles.Add($file.FullName)
@@ -348,7 +348,7 @@ if ($Force) {
 $errors = 0
 foreach ($filePath in $orphanedFiles) {
     try {
-        Remove-Item -Path $filePath -Force
+        Remove-Item -LiteralPath $filePath -Force -ErrorAction Stop
         Write-CleanupMessage "  Deleted: $filePath"
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a77fd89b921c3ab7' -Arguments @{ filePath = "$filePath"; value = "$_" })
@@ -363,14 +363,14 @@ foreach ($filePath in $orphanedFiles) {
 # empty-folder sweep removes 15+ vmms system dirs on every run, only for
 # vmms to recreate them. Skip anything Test-IsHyperVSystemPath flags.
 foreach ($scanPath in $scanPaths) {
-    $dirs = Get-ChildItem -Path $scanPath -Recurse -Directory -ErrorAction SilentlyContinue |
+    $dirs = Get-ChildItem -LiteralPath $scanPath -Recurse -Directory -ErrorAction SilentlyContinue |
         Sort-Object { $_.FullName.Length } -Descending
     foreach ($dir in $dirs) {
         if (Test-IsHyperVSystemPath $dir.FullName) { continue }
-        $remaining = Get-ChildItem -Path $dir.FullName -Force -ErrorAction SilentlyContinue
+        $remaining = Get-ChildItem -LiteralPath $dir.FullName -Force -ErrorAction SilentlyContinue
         if ($null -eq $remaining -or $remaining.Count -eq 0) {
             try {
-                Remove-Item -Path $dir.FullName -Force
+                Remove-Item -LiteralPath $dir.FullName -Force -ErrorAction Stop
                 Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_3a3fdfb4b32c1839' -Arguments @{ fullName = "$($dir.FullName)" })
             } catch {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2823da5e63119e42' -Arguments @{ fullName = "$($dir.FullName)"; value = "$_" })

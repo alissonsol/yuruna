@@ -4,6 +4,16 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.09.30
+
+- **Pools carry their repositories.** The pool-control service drops its
+  Assign and Test sets pages and the named test-set library. Each pool's
+  Framework URL and Project URL are edited in the new Framework / Project
+  column of the Pools page, or with `test/pool/Set-PoolRepository.ps1`;
+  `pools.yml` moves to `schemaVersion: 3` (`repositories`), and
+  `test/pool/Update-PoolIntentSchema.ps1` migrates an existing intent store
+  once. Projects no longer declare `testSets:` in `test.runner.yml`.
+
 ## 2026.09.27
 
 - **Guest diagnostics.** Bound the complete diagnostic capture and SSH
@@ -530,6 +540,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](README.md)

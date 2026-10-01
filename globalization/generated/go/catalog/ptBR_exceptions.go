@@ -9,7 +9,7 @@ package catalog
 const DataptBRexceptions = `{
   "exceptions.host_1568d9e12a12e190": "Esta é a variante Ubuntu KVM; execute host/<type>/Sync-HostConfiguration.ps1 para esta plataforma.",
   "exceptions.host_1c714189825ec0e2": [
-    "Hiper- V\\ Remove- VM falhou para '",
+    "Hyper-V\\Remove-VM falhou para '",
     {
       "arg": "vMName",
       "type": "detail",
@@ -21,7 +21,7 @@ const DataptBRexceptions = `{
       "type": "detail",
       "trust": "external"
     },
-    "\nEstado de hiper- V vivo:\n",
+    "\nEstado de Hyper-V vivo:\n",
     {
       "arg": "diag",
       "type": "detail",
@@ -66,7 +66,7 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.host_35a1dbbdd2006dae": [
-    "sysadminctl - screenLock ",
+    "sysadminctl -screenLock ",
     {
       "arg": "target",
       "type": "detail",
@@ -123,7 +123,7 @@ const DataptBRexceptions = `{
     ")"
   ],
   "exceptions.host_4ff2b596d293bb78": [
-    "systemsetup - set usingnetworktime ",
+    "systemsetup -setusingnetworktime ",
     {
       "arg": "onOff",
       "type": "detail",
@@ -136,7 +136,7 @@ const DataptBRexceptions = `{
       "trust": "external"
     }
   ],
-  "exceptions.host_56dd0a83b1740c20": "Desactivar-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux.",
+  "exceptions.host_56dd0a83b1740c20": "Disable-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux.",
   "exceptions.host_5e82d7a32d22a269": [
     "HTTP ",
     {
@@ -176,9 +176,9 @@ const DataptBRexceptions = `{
     },
     "' mas Get-VM ainda o encontra; abortando antes da recriação."
   ],
-  "exceptions.host_674dd7c6c0448e92": "o sudo - v falhou -- não é possível obter o root para o networksetup. Verifique a sua configuração do sudo.",
+  "exceptions.host_674dd7c6c0448e92": "o sudo -v falhou -- não é possível obter o root para o networksetup. Verifique a sua configuração do sudo.",
   "exceptions.host_6a438f8f59faef03": [
-    "A pasta VHDX padrão do Hyper- V não existe: ",
+    "A pasta VHDX padrão do Hyper-V não existe: ",
     {
       "arg": "dir",
       "type": "detail",
@@ -186,7 +186,7 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.host_6ac6dfe19b3c2194": [
-    "Inválido -ExposiçãoVirtualizaçãoExtensões '",
+    "Inválido -ExposeVirtualizationExtensions '",
     {
       "arg": "exposeVirtualizationExtensions",
       "type": "detail",
@@ -216,8 +216,8 @@ const DataptBRexceptions = `{
   ],
   "exceptions.host_7e0c1c27f76157e5": "Esta é a variante do Windows Hyper-V; execute host/<type>/Sync-HostConfiguration.ps1 para esta plataforma.",
   "exceptions.host_81fb05f8b6924bce": "Get-VMName: utmctl não encontrado no PATH; não é possível enumerar VMs UTM.",
-  "exceptions.host_870df3a8573355af": "A transferência falhou: o ficheiro não foi encontrado.",
-  "exceptions.host_8829c3d9ffaef2dd": "Active-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux.",
+  "exceptions.host_870df3a8573355af": "A transferência falhou: o arquivo não foi encontrado.",
+  "exceptions.host_8829c3d9ffaef2dd": "Enable-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux.",
   "exceptions.host_88d0b2dc03ee17c2": [
     "O download do virtio-win.iso falhou após ",
     {
@@ -256,8 +256,8 @@ const DataptBRexceptions = `{
       "trust": "external"
     }
   ],
-  "exceptions.host_88e5a12c10f16189": "O ficheiro transferido é suspeitomente pequeno (< 1 GB). Pode não ser uma ISO válida.",
-  "exceptions.host_8c0479442a041d98": "Desactivar-TestAutomation.ps1 (host/windows.hyper-v) só é executado no Windows.",
+  "exceptions.host_88e5a12c10f16189": "O arquivo transferido é suspeitomente pequeno (< 1 GB). Pode não ser uma ISO válida.",
+  "exceptions.host_8c0479442a041d98": "Disable-TestAutomation.ps1 (host/windows.hyper-v) só é executado no Windows.",
   "exceptions.host_8d770e16b147abe9": "gsettings não está presente nesta máquina",
   "exceptions.host_8fa181c2fe215cd1": [
     "Língua configurada inválida '",
@@ -334,7 +334,7 @@ const DataptBRexceptions = `{
     " (ver banner acima): erro de correspondência ou download inverificável. Apagou o download e abortou; execute novamente uma vez que a soma de verificação do editor é alcançável."
   ],
   "exceptions.host_9e5168a03fb971f1": [
-    "pmset - a ",
+    "pmset -a ",
     {
       "arg": "key",
       "type": "detail",
@@ -359,10 +359,10 @@ const DataptBRexceptions = `{
       "trust": "external"
     }
   ],
-  "exceptions.host_9e776665909b3868": "Não foi possível ler o Hyper- V VirtualHardDiskPath: O Get- VMHost falhou. O Hyper- V pode não estar instalado ou esta sessão não está elevada.",
+  "exceptions.host_9e776665909b3868": "Não foi possível ler o Hyper-V VirtualHardDiskPath: O Get-VMHost falhou. O Hyper-V pode não estar instalado ou esta sessão não está elevada.",
   "exceptions.host_a64eb0bfe41b92f6": "o serviço Tempo do Windows não está presente neste host",
   "exceptions.host_a6a18006853361cb": [
-    "Get- VMName: o virsh não conseguiu enumerar os domínios (a libvirtd está em execução e esta shell no grupo libvirt?): ",
+    "Get-VMName: o virsh não conseguiu enumerar os domínios (a libvirtd está em execução e esta shell no grupo libvirt?): ",
     {
       "arg": "join",
       "type": "detail",
@@ -400,19 +400,19 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.host_b719fe2e9aee1899": [
-    "sysadminctl - telaLock ",
+    "sysadminctl -screenLock ",
     {
       "arg": "target",
       "type": "detail",
       "trust": "external"
     },
-    " precisa da senha da conta: ",
+    " requer a senha da conta: ",
     {
       "arg": "output",
       "type": "detail",
       "trust": "external"
     },
-    ". Execute-a manualmente: ",
+    ". Execute manualmente: ",
     {
       "arg": "target2",
       "type": "detail",
@@ -428,9 +428,9 @@ const DataptBRexceptions = `{
     },
     ". Instale o recurso 'Ferramentas de implantação' ADK do Windows (winget install --id Microsoft.WindowsADK), então re-run. Se o ADK estiver instalado em outro lugar, aponte $script:OscdimgToolsRoot in host\\windows.hyper-v\\modules\\Yuruna.Host.psm1 em seu diretório 'Ferramentas de implantação'."
   ],
-  "exceptions.host_bf69280290368131": "Desactivar- TesteAutomation.ps1 (host/macos.utm) só é executado no macOS.",
+  "exceptions.host_bf69280290368131": "Disable-TestAutomation.ps1 (host/macos.utm) só é executado no macOS.",
   "exceptions.host_c3577106b0f799eb": [
-    "pmset - a ",
+    "pmset -a ",
     {
       "arg": "key",
       "type": "detail",
@@ -466,7 +466,7 @@ const DataptBRexceptions = `{
   ],
   "exceptions.host_ce186b06237fbe4d": "networksetup precisa de root e esta execução não pode pedir uma senha. Execute 'sudo -v' no terminal que possui esta execução antes de iniciar, ou conceda a esta conta uma regra sem senha para /usr/sbin/networksetup em /etc/sudoers.d.",
   "exceptions.host_d35eaa0aac5124a8": [
-    "O ficheiro transferido é demasiado pequeno (bytes ",
+    "O arquivo transferido é demasiado pequeno (bytes ",
     {
       "arg": "spiceSize",
       "type": "detail",
@@ -489,13 +489,13 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.host_dd6d74db4a58cc9d": [
-    "Fido.ps1 hash mismatch (v1.70 marcado): esperado ",
+    "Hash de Fido.ps1 diferente do esperado (versão fixa v1.71): esperado ",
     {
       "arg": "fidoSha256",
       "type": "detail",
       "trust": "external"
     },
-    ", obteve ",
+    ", obtido ",
     {
       "arg": "fidoActual",
       "type": "detail",
@@ -532,7 +532,7 @@ const DataptBRexceptions = `{
     ")"
   ],
   "exceptions.host_e9ae1d4da44d99f5": [
-    "systemctl desabilitar -- agora ",
+    "systemctl disable --now ",
     {
       "arg": "unit",
       "type": "detail",
@@ -546,13 +546,13 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.host_ede3d2a333ea0452": [
-    "Test- UtmVMRegistered: o estado de registro para '",
+    "Test-UtmVMRegistered: o estado de registro para '",
     {
       "arg": "vMName",
       "type": "detail",
       "trust": "external"
     },
-    "' não pôde ser determinado (cliente ausente, sonda negada, tempo limite ou resposta não reconhecida). Chame Get- UtmVMRegistrationState diretamente para lidar com 'Desconhecido' explicitamente em vez de ler isso como ausência."
+    "' não pôde ser determinado (cliente ausente, sonda negada, tempo limite ou resposta não reconhecida). Chame Get-UtmVMRegistrationState diretamente para lidar com 'Desconhecido' explicitamente em vez de ler isso como ausência."
   ],
   "exceptions.host_ee375a40b48f886b": [
     "o conjunto de gsettings ",
@@ -818,7 +818,7 @@ const DataptBRexceptions = `{
     " ou importar Test.YurunaDir)."
   ],
   "exceptions.runner_140e410616042231": [
-    "Write- YurunaStateFileJson retornou false para ",
+    "Write-YurunaStateFileJson retornou false para ",
     {
       "arg": "currentActionFile",
       "type": "detail",
@@ -826,7 +826,7 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.runner_171dd62b87249d01": [
-    "Não foi possível gravar o apelido do ficheiro '",
+    "Não foi possível gravar o apelido do arquivo '",
     {
       "arg": "n",
       "type": "detail",
@@ -1008,7 +1008,7 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.runner_31cfbd18727596c9": "A linha de verificação de comandos GUI excede o orçamento de caracteres digitados.",
-  "exceptions.runner_3f7582b4c254198f": "Sistema operacional não suportado. Novo-LocalLabStorage suporta Windows, macOS e Ubuntu.",
+  "exceptions.runner_3f7582b4c254198f": "Sistema operacional não suportado. New-LocalLabStorage suporta Windows, macOS e Ubuntu.",
   "exceptions.runner_3f7ce7bf346e3755": [
     "o helper mount.cifs não está instalado, então 'mount -t cifs' não pode funcionar neste host (ele falha com o tipo de sistema de arquivos 'cifs' desconhecido). Instale-o: ",
     {
@@ -1052,7 +1052,7 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.runner_4ebab78c20241f2d": [
-    "powershell- yaml é necessário para ler arquivos de sequência. Instalar com: ",
+    "powershell-yaml é necessário para ler arquivos de sequência. Instalar com: ",
     {
       "arg": "command",
       "type": "identifier",
@@ -1081,7 +1081,7 @@ const DataptBRexceptions = `{
       "trust": "external"
     }
   ],
-  "exceptions.runner_58320111b08e6feb": "Inicialize-YurunaConfigCA: -WhatIf recusou a cunhagem e ainda não existe CA.",
+  "exceptions.runner_58320111b08e6feb": "Initialize-YurunaConfigCA: -WhatIf recusou a cunhagem e ainda não existe CA.",
   "exceptions.runner_62eaa799b46f377c": [
     "Yuruna.Host.psm1 não foi encontrado para ",
     {
@@ -1099,7 +1099,7 @@ const DataptBRexceptions = `{
   ],
   "exceptions.runner_6305b986d1a90039": "caching-proxy-service CA não é um PEM X509 válido",
   "exceptions.runner_636858bd74711c9e": [
-    "Chave recém- gerada não é carregável com frase- senha vazia. ssh- keygen output: ",
+    "Chave recém-gerada não é carregável com frase-senha vazia. ssh-keygen output: ",
     {
       "arg": "string",
       "type": "detail",
@@ -1131,7 +1131,7 @@ const DataptBRexceptions = `{
     "')."
   ],
   "exceptions.runner_7387b2930b7001c9": [
-    "chmod 600 no ficheiro de credenciais falhou (rc=",
+    "chmod 600 no arquivo de credenciais falhou (rc=",
     {
       "arg": "lASTEXITCODE",
       "type": "detail",
@@ -1167,10 +1167,10 @@ const DataptBRexceptions = `{
       "type": "detail",
       "trust": "external"
     },
-    "' deve corresponder ^[A-Za-z0-9. -]+$ -- é interpolado em uma linha de comando shell."
+    "' deve corresponder ^[A-Za-z0-9._-]+$ -- é interpolado em uma linha de comando shell."
   ],
   "exceptions.runner_86e81d4c81406275": [
-    "mount smbfs rc=",
+    "mount_smbfs rc=",
     {
       "arg": "exitCode",
       "type": "detail",
@@ -1198,7 +1198,7 @@ const DataptBRexceptions = `{
     ")."
   ],
   "exceptions.runner_88fa927a70dd9984": [
-    "sudo mount - t cifs rc=",
+    "sudo mount -t cifs rc=",
     {
       "arg": "exitCode",
       "type": "detail",
@@ -1223,7 +1223,7 @@ const DataptBRexceptions = `{
       "trust": "external"
     }
   ],
-  "exceptions.runner_92362a2623a29d74": "O ssh- keygen não foi encontrado no PATH. Instale o cliente OpenSSH.",
+  "exceptions.runner_92362a2623a29d74": "O ssh-keygen não foi encontrado no PATH. Instale o cliente OpenSSH.",
   "exceptions.runner_956bc257626cca2e": [
     "a regra de acesso para SID ",
     {
@@ -1265,7 +1265,7 @@ const DataptBRexceptions = `{
     "'. Remova ou renomeie-o, e então reexecute."
   ],
   "exceptions.runner_9fe3c4a46ba0668d": [
-    "git pull --ff-somente falhou (saída ",
+    "git pull --ff-only falhou (saída ",
     {
       "arg": "exitCode",
       "type": "detail",
@@ -1301,7 +1301,7 @@ const DataptBRexceptions = `{
   ],
   "exceptions.runner_a038a1eea843a737": "A política de instantâneo requer pelo menos um arquivo fonte.",
   "exceptions.runner_a36f9aee4f868c72": [
-    "O directório da área de extensão não foi encontrado: ",
+    "O diretório da área de extensão não foi encontrado: ",
     {
       "arg": "dir",
       "type": "detail",
@@ -1362,7 +1362,7 @@ const DataptBRexceptions = `{
     " (set test.config.yml's repositórios.projectUrl, ou coloque o arquivo sob <repo>/project/test/)"
   ],
   "exceptions.runner_b8accd7ac3900ef3": [
-    "Não foi possível habilitar o servidor MacOS SMB. Ativar o Compartilhamento de Arquivos em Configurações do Sistema > Geral > Compartilhamento e re- execução. (ativar launchctl: ",
+    "Não foi possível habilitar o servidor MacOS SMB. Ativar o Compartilhamento de Arquivos em Configurações do Sistema > Geral > Compartilhamento e re-execução. (ativar launchctl: ",
     {
       "arg": "output",
       "type": "detail",
@@ -1419,7 +1419,7 @@ const DataptBRexceptions = `{
     "'. Apenas 'Or' e 'And' são permitidos."
   ],
   "exceptions.runner_c959d88998b87c80": [
-    "powershell- yaml é necessário para expandir trechos de sequência. Instalar com: ",
+    "powershell-yaml é necessário para expandir trechos de sequência. Instalar com: ",
     {
       "arg": "command",
       "type": "identifier",
@@ -1427,7 +1427,7 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.runner_d0e5e81b3dcaf9c7": [
-    "O ssh- keygen falhou ao criar a chave no ",
+    "O ssh-keygen falhou ao criar a chave no ",
     {
       "arg": "sshKeyPath",
       "type": "detail",
@@ -1435,7 +1435,7 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.runner_d3b174912efd30ac": [
-    "git init -- bare falhou para '",
+    "git init --bare falhou para '",
     {
       "arg": "path",
       "type": "detail",
@@ -1555,7 +1555,7 @@ const DataptBRexceptions = `{
       "type": "detail",
       "trust": "external"
     },
-    "' tem caracteres fora [A-Za-z0-9. -]; corrigir vmStart.testVmNamePrefix ('",
+    "' tem caracteres fora [A-Za-z0-9._-]; corrigir vmStart.testVmNamePrefix ('",
     {
       "arg": "prefix",
       "type": "detail",
@@ -1584,13 +1584,13 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.runner_f1bde95b1f050137": [
-    "sequência prereq não encontrada: ",
+    "pré-requisito da sequência não encontrado: ",
     {
       "arg": "sequenceName",
       "type": "detail",
       "trust": "external"
     },
-    " (referenciado por uma entrada em projeto/teste/teste.runner.yml)\nPesquisado (sem correspondência):\n",
+    " (referenciado por uma entrada em project/test/test.runner.yml)\nLocais pesquisados (sem correspondência):\n",
     {
       "arg": "list",
       "type": "detail",

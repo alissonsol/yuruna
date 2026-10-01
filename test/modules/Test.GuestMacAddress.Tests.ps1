@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b98737-f5a4-45fd-a853-c26c9d97ec84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,6 +93,24 @@ $script:PromotableBuilders = @(
     'host/macos.utm/guest.ubuntu.server.26/New-VM.ps1'
     'host/macos.utm/guest.amazon.linux.2023/New-VM.ps1'
 )
+
+function Get-BuilderSourceText {
+    # A builder's own text plus what it delegates to: the host's shared Ubuntu builder, and the shared
+    # service-guest function of that host's module (the definition only, not the whole module).
+    param([Parameter(Mandatory)][string]$Path)
+    $text = Get-Content -Raw -LiteralPath $Path
+    $hostRoot = Split-Path -Parent (Split-Path -Parent $Path)
+    $shared = Join-Path $hostRoot 'modules/New-UbuntuServerVM.ps1'
+    if ($text -match 'New-UbuntuServerVM\.ps1' -and (Test-Path -LiteralPath $shared)) { $text += "`n" + (Get-Content -Raw -LiteralPath $shared) }
+    $module = Join-Path $hostRoot 'modules/Yuruna.Host.psm1'
+    foreach ($name in @('New-UtmServiceBundleConfiguration', 'New-HyperVServiceGuest', 'New-KvmServiceDomain')) {
+        if ($text -notmatch [regex]::Escape($name) -or -not (Test-Path -LiteralPath $module)) { continue }
+        $ast = [Management.Automation.Language.Parser]::ParseFile($module, [ref]$null, [ref]$null)
+        $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+        if ($definition) { $text += "`n" + $definition.Extent.Text }
+    }
+    return $text
+}
 
 function Format-DomainXml {
     param([string]$Mac, [int]$NicCount = 1)
@@ -206,11 +224,12 @@ Describe 'Get-YurunaHostMacSeed -- what the host half is keyed on' {
         # A random fallback would hand every guest a new MAC on every build -- the
         # exact behavior this mechanism exists to remove -- and it would do so
         # silently, on precisely the hosts that have not finished a cycle yet.
+        Mock Test-Path -ModuleName Yuruna.Common { $false } -ParameterFilter { $LiteralPath -like '*host.uuid' }
         $saved = $env:YURUNA_RUNTIME_DIR
         try {
             $env:YURUNA_RUNTIME_DIR = (Join-Path ([System.IO.Path]::GetTempPath()) ('mac-' + [guid]::NewGuid().ToString('N').Substring(0, 8)))
             $first = Get-YurunaHostMacSeed
-            Assert-True (-not [string]::IsNullOrWhiteSpace($first)) 'a seed is always produced'
+            Assert-True ([string]::Equals($first, [Net.Dns]::GetHostName(), [StringComparison]::Ordinal)) 'the fallback must use the hostname when both runtime files are absent'
             foreach ($i in 1..5) {
                 Assert-Equal -Expected $first -Actual (Get-YurunaHostMacSeed) -Because 'fallback seed is stable across calls'
             }
@@ -246,7 +265,7 @@ Describe 'the guest is pinned at build time to the identity it keeps' {
 
     It 'derives from the guest identity, not the slot the VM is built in' {
         foreach ($rel in $script:PromotableBuilders) {
-            $text = Get-Content -Raw -LiteralPath (Join-Path $repoRoot $rel)
+            $text = Get-BuilderSourceText -Path (Join-Path $repoRoot $rel)
             Assert-True ($text -match '\$GuestHostname\s*=\s*if\s*\(\$Hostname\)') "$rel resolves a guest identity"
             Assert-True ($text -match 'Get-YurunaGuestMacAddress\s+-VMName\s+\$GuestHostname') `
                 "$rel must key its NIC on the guest identity; keying on `$VMName pins the slot's address into whatever the guest records"
@@ -415,7 +434,7 @@ Describe 'every New-VM.ps1 derives its MAC (no randomness left)' {
     }
     It 'calls the shared derivation from every New-VM.ps1' {
         $all  = @(Get-ChildItem (Join-Path $repoRoot 'host') -Recurse -Filter 'New-VM.ps1')
-        $with = @($all | Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'Get-YurunaGuestMacAddress' })
+        $with = @($all | Where-Object { (Get-BuilderSourceText -Path $_.FullName) -match 'Get-YurunaGuestMacAddress' })
         Assert-Equal -Expected $all.Count -Actual $with.Count -Because 'every guest builder pins its MAC'
     }
 }

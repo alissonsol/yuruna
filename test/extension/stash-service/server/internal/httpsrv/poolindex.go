@@ -465,7 +465,18 @@ func sortColumn(col string) string {
 // rows between two requests would let "Load more" skip a stash or serve one
 // twice -- the tiebreak is what makes the window mean anything.
 func sortViews(v []StashView, col string, asc bool) {
-	cmp := viewComparator(col)
+	// Each distinct value is normalized once per sort, rather than once for
+	// every comparator invocation over Unicode filenames.
+	keys := make(map[string]string, len(v)*2)
+	key := func(text string) string {
+		if cached, ok := keys[text]; ok {
+			return cached
+		}
+		normalized := meta.ComparisonKey(text)
+		keys[text] = normalized
+		return normalized
+	}
+	cmp := viewComparatorWithKey(col, key)
 	sort.SliceStable(v, func(i, j int) bool {
 		if c := cmp(&v[i], &v[j]); c != 0 {
 			if asc {
@@ -473,30 +484,38 @@ func sortViews(v []StashView, col string, asc bool) {
 			}
 			return c > 0
 		}
-		return tiebreakViews(&v[i], &v[j]) < 0
+		if c := cmpTime(v[i].CreatedAt, v[j].CreatedAt); c != 0 {
+			return c > 0
+		}
+		return strings.Compare(key(v[i].ID), key(v[j].ID)) < 0
 	})
 }
 
 // viewComparator returns the three-way comparison for one column.
 func viewComparator(col string) func(a, b *StashView) int {
+	return viewComparatorWithKey(col, meta.ComparisonKey)
+}
+
+func viewComparatorWithKey(col string, key func(string) string) func(a, b *StashView) int {
+	compare := func(a, b string) int { return strings.Compare(key(a), key(b)) }
 	switch col {
 	case sortID:
-		return func(a, b *StashView) int { return cmpText(a.ID, b.ID) }
+		return func(a, b *StashView) int { return compare(a.ID, b.ID) }
 	case sortName:
-		return func(a, b *StashView) int { return cmpText(a.OriginalFilename, b.OriginalFilename) }
+		return func(a, b *StashView) int { return compare(a.OriginalFilename, b.OriginalFilename) }
 	case sortHost:
-		return func(a, b *StashView) int { return cmpText(a.HostID, b.HostID) }
+		return func(a, b *StashView) int { return compare(a.HostID, b.HostID) }
 	case sortUser:
-		return func(a, b *StashView) int { return cmpText(a.Username, b.Username) }
+		return func(a, b *StashView) int { return compare(a.Username, b.Username) }
 	case sortSize:
 		return func(a, b *StashView) int { return cmpInt64(a.SizeBytes, b.SizeBytes) }
 	case sortStatus:
-		return func(a, b *StashView) int { return cmpText(a.Status, b.Status) }
+		return func(a, b *StashView) int { return compare(a.Status, b.Status) }
 	case sortType:
 		// The cell shows an icon, so ordering by the class behind it is what
 		// makes same-looking rows gather -- which is the whole point of sorting
 		// a column whose values cannot be read as words.
-		return func(a, b *StashView) int { return cmpText(a.ContentClass, b.ContentClass) }
+		return func(a, b *StashView) int { return compare(a.ContentClass, b.ContentClass) }
 	default:
 		return func(a, b *StashView) int { return cmpTime(a.CreatedAt, b.CreatedAt) }
 	}

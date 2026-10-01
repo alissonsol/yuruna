@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e1904b-8c57-4d3a-b06f-5719ca82dd41
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,9 +83,11 @@ foreach ($needed in @($LinkMap, $AnchorManifest)) {
 
 # slug -> repo-relative docs path, the same shape the anchor gate reads.
 $slugToDoc = @{}
-$parsed = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($LinkMap))
-$entries = if ($parsed -is [System.Collections.IList] -and $parsed.Count -gt 0 -and
-                $parsed[0] -is [System.Collections.IList]) { $parsed } else { , $parsed }
+$parsed = ConvertFrom-Json -NoEnumerate -InputObject ([IO.File]::ReadAllText($LinkMap))
+$entries = [Collections.Generic.List[object]]::new()
+if ($parsed -is [System.Collections.IList] -and $parsed.Count -gt 0 -and $parsed[0] -is [System.Collections.IList]) {
+    foreach ($entry in $parsed) { $entries.Add($entry) }
+} else { $entries.Add($parsed) }
 foreach ($entry in $entries) {
     foreach ($url in @($entry[2])) {
         $m = [regex]::Match([string]$url, '/blob/main/(docs/[^#\s]+\.md)')
@@ -132,13 +134,12 @@ foreach ($rel in $tracked) {
         param($m)
         $slug = $m.Groups[1].Value
         $anchor = $m.Groups[2].Value.ToLowerInvariant()
-        if (-not $slugToDoc.ContainsKey($slug)) { return $m.Value }
+        if (-not $slugToDoc.ContainsKey($slug)) { $left.Add($m.Value); return $m.Value }
         $key = "$($slugToDoc[$slug])|$anchor"
         if (-not $idBySlug.ContainsKey($key)) {
-            $script:leftBehind = $true
+            $left.Add($m.Value)
             return $m.Value
         }
-        $script:fileChangeCount++
         return "yuruna.link/$($idBySlug[$key])"
     })
 
@@ -164,5 +165,5 @@ Write-Output ("Update-RegionPointer: {0} pointer(s) in {1} file(s) {2}." -f
 if ($left.Count -gt 0) {
     Write-Output "Left in slug form (target not in the anchor manifest): $($left.Count)"
 }
-if ($rewritten -gt 0) { exit 1 }
+if ($rewritten -gt 0 -or $left.Count -gt 0) { exit 1 }
 exit 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42ac2b74-32fe-4772-8fad-0e7833bd2f68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,21 +44,16 @@ function Get-ModuleAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.ScriptBlockAst])]
     param([Parameter(Mandatory)][string]$Path)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 
 function Get-FunctionAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.FunctionDefinitionAst])]
     param([Parameter(Mandatory)]$RootAst, [Parameter(Mandatory)][string]$FunctionName)
-    $f = $RootAst.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $FunctionName
-    }, $true) | Select-Object -First 1
-    if (-not $f) { throw "Function '$FunctionName' not found." }
-    return $f
+    $found = Get-YurunaTestFunctionAst -Ast $RootAst -Name $FunctionName
+    if (-not $found) { throw "Function $FunctionName not found" }
+    return $found
 }
 
 # True iff the AST subtree invokes a command named $CommandName.
@@ -141,7 +136,7 @@ Describe 'yuruna-log-tee -- the append-to-transcript block is centralized in one
     }
     It 'each proxy delegates its OWN message source (guards a wrong-variable delegation)' {
         $expected = @{
-            'Write-Output'     = '"$item"'
+            'Write-Output'     = '"$InputObject"'
             'Write-Error'      = '$text'
             'Write-Warning'    = '$Message'
             'Write-Debug'      = '$Message'
@@ -191,6 +186,41 @@ Describe 'yuruna-log-tee -- severity tags and unconditional warning mirroring' {
         # The session-wide overrides outlive this file otherwise; unloading
         # restores the real Write-* cmdlets for whatever runs next.
         Remove-Module -Name 'Yuruna.Log' -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'preserves byte array identity and logs one record with NoEnumerate' {
+        $fx = New-TranscriptFixture
+        try {
+            $bytes = [byte[]]@(1, 2, 3)
+            $result = Write-Output -NoEnumerate -InputObject $bytes
+            $result.GetType() | Should -Be ([byte[]])
+            [object]::ReferenceEquals($bytes, $result) | Should -BeTrue
+            ([regex]::Matches((Get-Content -Raw -LiteralPath $fx.File), 'class="log-output"')).Count | Should -Be 1
+        } finally { Restore-TranscriptFixture -Fixture $fx }
+    }
+
+    It 'accepts multiple positional output objects like the built-in cmdlet' {
+        $writer = Get-Command Write-Output
+        $result = @(& $writer 'one' 'two' 'three')
+        $result.Count | Should -Be 3
+        $result -join ',' | Should -Be 'one,two,three'
+    }
+
+    It 'honors caller error preference and explicit common parameter overrides' {
+        $ErrorActionPreference = 'Stop'
+        { Write-Error 'expected stop' } | Should -Throw '*expected stop*'
+        { Write-Error 'expected suppressed' -ErrorAction SilentlyContinue } | Should -Not -Throw
+    }
+
+    It 'honors caller verbose, debug, information and warning preferences' {
+        $VerbosePreference = 'Continue'
+        $DebugPreference = 'Continue'
+        $InformationPreference = 'Continue'
+        $WarningPreference = 'SilentlyContinue'
+        @(& { Write-Verbose 'caller verbose' } 4>&1).Count | Should -Be 1
+        @(& { Write-Debug 'caller debug' } 5>&1).Count | Should -Be 1
+        @(& { Write-Information 'caller information' } 6>&1).Count | Should -Be 1
+        @(& { Write-Warning 'caller warning' } 3>&1).Count | Should -Be 0
     }
 
     It 'tags each transcript record with a log-<severity> CSS class' {

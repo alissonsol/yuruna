@@ -17,7 +17,7 @@
     },
     "parser.pause_auto_refresh": {
       "sourceHash": "59c89b11cfccc1197d725c2c513bd94ccb23cf1802f92c260ca3938dab5ad345",
-      "message": "Pausar a actualização automática"
+      "message": "Pausar a atualização automática"
     },
     "parser.refresh_failed": {
       "sourceHash": "1bdc19c1444818ef78b4f46cf32ba1404c3abd9d7e2e7f52b8df65b897b8241e",
@@ -25,7 +25,7 @@
     },
     "parser.refresh_failed_the_rows_below_are_from_the_last_successful_read": {
       "sourceHash": "a60675e85796b0af59817e6131eb219a58ef9bf2f0afc97c115184216a4c769b",
-      "message": "A atualização falhou. As linhas abaixo são da última leitura bem- sucedida."
+      "message": "A atualização falhou. As linhas abaixo são da última leitura bem-sucedida."
     },
     "parser.refreshed_rows": {
       "sourceHash": "f920be0ce57ff1958816bf7089bbbedd027324679c31e9012ffa0ee82af3f33e",
@@ -59,7 +59,7 @@
     },
     "parser.user_agent": {
       "sourceHash": "6a203fe4d39ae7a7b6fe4c18c51ea33b8ac63899d8d53c34c8f356b2fd3500ce",
-      "message": "utilizador- agente"
+      "message": "usuário do agente"
     }
   }
 }

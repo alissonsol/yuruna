@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b82fc3-4953-421c-ba0f-6771b3725fe1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,17 +39,13 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Global -DisableNameChecking
 $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.RunnerInnerLoop.psm1'
 Import-Module $modPath -Force
 
 # --- REGION: https://yuruna.link/42d69dfa-0015
-function Get-ModuleAst {
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($modPath): $($errs[0].Message)" }
-    return $ast
-}
+function Get-ModuleAst { return Get-YurunaTestFileAst -Path $modPath }
 
 # Count of command invocations of $Name (CommandAst nodes only -- the definition
 # and the Export-ModuleMember bareword are not CommandAst with this name).

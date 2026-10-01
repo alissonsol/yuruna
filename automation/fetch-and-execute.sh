@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -356,6 +356,7 @@ verify_sha256() {
 }
 QUERY_PARAMS="${EXEC_QUERY_PARAMS:-${YurunaCacheContent:+?nocache=${YurunaCacheContent}}}"
 FILE_PATH="$1"
+SCRIPT_ARGUMENTS=("${@:2}")
 
 if [ -z "$FILE_PATH" ]; then
     echo "Usage: $0 <file-path>"
@@ -620,7 +621,7 @@ EXPECTED_SHA="${E_SHA:-${EXEC_SHA256:-}}"
 if verify_sha256 "$fetch_tmp" "$EXPECTED_SHA" "$FILE_PATH"; then
     :
 elif [ -n "$EXPECTED_SHA" ] \
-     && wget "${WGET_FETCH_FLAGS[@]}" -qO "$fetch_tmp" "$FULL_URL" 2>/dev/null \
+     && wget --timeout=20 --tries=2 "${WGET_FETCH_FLAGS[@]}" -qO "$fetch_tmp" "$FULL_URL" 2>/dev/null \
      && verify_sha256 "$fetch_tmp" "$EXPECTED_SHA" "$FILE_PATH"; then
     echo "  integrity: verified on re-fetch (absorbed a concurrent-edit race)"
 else
@@ -648,7 +649,7 @@ if [ ! -r "$YURUNA_RETRY_LIB" ]; then
     # checks below ensure only a complete, verified body is ever written.
     lib_tmp="$(mktemp /tmp/yuruna-fae-retrylib.XXXXXX 2>/dev/null)"
     if [ -n "$lib_tmp" ] \
-         && wget "${WGET_FETCH_FLAGS[@]}" -qO "$lib_tmp" "$(build_fetch_url 'automation/yuruna-retry.sh')" 2>/dev/null \
+         && wget --timeout=20 --tries=2 "${WGET_FETCH_FLAGS[@]}" -qO "$lib_tmp" "$(build_fetch_url 'automation/yuruna-retry.sh')" 2>/dev/null \
          && [ -s "$lib_tmp" ] \
          && verify_sha256 "$lib_tmp" "${E_RETRY_SHA:-${EXEC_RETRY_SHA256:-}}" "automation/yuruna-retry.sh"; then
         sudo mkdir -p "$YURUNA_LIB_DIR" 2>/dev/null
@@ -778,7 +779,7 @@ if [ "$profile_enabled" = '1' ]; then
     # fetched script is simply the next statement. xtrace lands on BASH_XTRACEFD
     # (the profile file), not fd 2, so `2>&1` below keeps the console clean.
     profile_preamble="exec {__yfd}>'$profile_file'; export BASH_XTRACEFD=\$__yfd; export PS4='+ \${EPOCHREALTIME} '; set -x"
-    /bin/bash -c "$profile_preamble"$'\n'"$script_content" 2>&1 \
+    /bin/bash -c "$profile_preamble"$'\n'"$script_content" "$FILE_PATH" "${SCRIPT_ARGUMENTS[@]}" 2>&1 \
       | while IFS= read -r __line || [ -n "$__line" ]; do
             printf '%s\n' "$__line"
             # A checkpoint is an output line whose first visible characters are
@@ -803,7 +804,7 @@ if [ "$profile_enabled" = '1' ]; then
       | __fae_sink
     rc=${PIPESTATUS[0]}
 else
-    /bin/bash -c "$script_content" 2>&1 | __fae_sink
+    /bin/bash -c "$script_content" "$FILE_PATH" "${SCRIPT_ARGUMENTS[@]}" 2>&1 | __fae_sink
     rc=${PIPESTATUS[0]}
 fi
 {

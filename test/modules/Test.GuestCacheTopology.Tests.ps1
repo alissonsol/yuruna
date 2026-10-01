@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42782448-e44d-4353-957b-a836ffda43e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -268,6 +268,8 @@ Describe 'Project workload scripts honor the same two-topology contract' {
     # pulls, then the workload script adopts a hostname nothing answers to and
     # fails naming a machine that was never meant to exist.
     It 'never adopts the cache hostname without probing it' {
+        if (-not $script:projectRoots.Count) { Set-ItResult -Skipped -Because $script:projectScanLabel; return }
+        $script:projectCacheScripts.Count | Should -BeGreaterThan 0
         $offenders = @(
             foreach ($p in $script:projectCacheScripts) {
                 $t = Get-Content -LiteralPath $p -Raw
@@ -280,6 +282,8 @@ Describe 'Project workload scripts honor the same two-topology contract' {
     }
 
     It 'adopts the bare service name only after something answers on it' {
+        if (-not $script:projectRoots.Count) { Set-ItResult -Skipped -Because $script:projectScanLabel; return }
+        $script:projectCacheScripts.Count | Should -BeGreaterThan 0
         foreach ($p in $script:projectCacheScripts) {
             $t = Get-Content -LiteralPath $p -Raw
             if ($t -notmatch 'CACHE_HOST="yuruna-caching-proxy-service"') { continue }
@@ -293,6 +297,8 @@ Describe 'Project workload scripts honor the same two-topology contract' {
     }
 
     It 'says out loud which topology it decided it is in' {
+        if (-not $script:projectRoots.Count) { Set-ItResult -Skipped -Because $script:projectScanLabel; return }
+        $script:projectCacheScripts.Count | Should -BeGreaterThan 0
         # The decision is invisible otherwise: every later message names a cache
         # or does not, and a reader with no record of the branch cannot tell a
         # lab without a cache from a cache that went missing.
@@ -303,6 +309,8 @@ Describe 'Project workload scripts honor the same two-topology contract' {
     }
 
     It 'expands CACHE_HOST only where the variable has been tested' {
+        if (-not $script:projectRoots.Count) { Set-ItResult -Skipped -Because $script:projectScanLabel; return }
+        $script:projectCacheScripts.Count | Should -BeGreaterThan 0
         # Structural rather than by enumeration: a step added later that
         # addresses the cache without asking whether there is one is exactly the
         # regression this pins, and naming today's steps would not catch it.
@@ -367,7 +375,15 @@ Describe 'The cache-address derivation resolves each topology correctly' -Skip:(
             try {
                 $hostEnv = Join-Path $tmp 'host.env'
                 if ($null -ne $HostEnvContent) { Set-Content -LiteralPath $hostEnv -Value $HostEnvContent -NoNewline }
-                $prologue = $prologue.Replace('/etc/yuruna/host.env', $hostEnv)
+                # A Windows path cannot sit inside a bash script: use the MSYS spelling of it.
+                $toBash = {
+                    param([string]$Path)
+                    if (-not $IsWindows) { return $Path }
+                    $Path = $Path -replace '\\', '/'
+                    if ($Path -match '^([A-Za-z]):(.*)$') { $Path = '/' + $Matches[1].ToLowerInvariant() + $Matches[2] }
+                    return $Path
+                }
+                $prologue = $prologue.Replace('/etc/yuruna/host.env', (& $toBash $hostEnv))
 
                 # Stub curl so the probe's verdict is the test's to choose.
                 $stub = Join-Path $tmp 'curl'
@@ -375,7 +391,7 @@ Describe 'The cache-address derivation resolves each topology correctly' -Skip:(
                 & chmod +x $stub
 
                 $runner = Join-Path $tmp 'run.sh'
-                $body = "#!/bin/bash`nset -euo pipefail`nexport PATH=""${tmp}:`$PATH""`nexport http_proxy='${ProxyValue}'`n${prologue}`necho ""CACHE_HOST=[`${CACHE_HOST}]""`n"
+                $body = "#!/bin/bash`nset -euo pipefail`nexport PATH=""$(& $toBash $tmp):`$PATH""`nexport http_proxy='${ProxyValue}'`n${prologue}`necho ""CACHE_HOST=[`${CACHE_HOST}]""`n"
                 Set-Content -LiteralPath $runner -Value $body -NoNewline
                 & chmod +x $runner
                 return (& bash $runner 2>&1) -join "`n"
@@ -389,6 +405,8 @@ Describe 'The cache-address derivation resolves each topology correctly' -Skip:(
     }
 
     It 'takes the address from http_proxy when the guest was given one' {
+        if (-not $script:projectRoots.Count) { Set-ItResult -Skipped -Because $script:projectScanLabel; return }
+        $script:derivationScripts.Count | Should -BeGreaterThan 0
         foreach ($p in $script:derivationScripts) {
             $out = & $script:runPrologue $p 'http://192.168.7.42:3128/' $null 7
             $out | Should -Match 'CACHE_HOST=\[192\.168\.7\.42\]' -Because "$p must derive the cache host from http_proxy"
@@ -396,6 +414,8 @@ Describe 'The cache-address derivation resolves each topology correctly' -Skip:(
     }
 
     It 'falls back to the address the host recorded when http_proxy is absent' {
+        if (-not $script:projectRoots.Count) { Set-ItResult -Skipped -Because $script:projectScanLabel; return }
+        $script:derivationScripts.Count | Should -BeGreaterThan 0
         foreach ($p in $script:derivationScripts) {
             $out = & $script:runPrologue $p '' "YURUNA_CACHING_PROXY_SERVICE_IP=10.1.2.3`n" 7
             $out | Should -Match 'CACHE_HOST=\[10\.1\.2\.3\]' -Because "$p must read the recorded cache address"
@@ -403,6 +423,8 @@ Describe 'The cache-address derivation resolves each topology correctly' -Skip:(
     }
 
     It 'adopts the bare service name when it answers' {
+        if (-not $script:projectRoots.Count) { Set-ItResult -Skipped -Because $script:projectScanLabel; return }
+        $script:derivationScripts.Count | Should -BeGreaterThan 0
         foreach ($p in $script:derivationScripts) {
             $out = & $script:runPrologue $p '' $null 0
             $out | Should -Match 'CACHE_HOST=\[yuruna-caching-proxy-service\]' -Because "$p may adopt the name once it answers"
@@ -410,6 +432,8 @@ Describe 'The cache-address derivation resolves each topology correctly' -Skip:(
     }
 
     It 'resolves to no cache at all when nothing answers' {
+        if (-not $script:projectRoots.Count) { Set-ItResult -Skipped -Because $script:projectScanLabel; return }
+        $script:derivationScripts.Count | Should -BeGreaterThan 0
         # The regression in one line: this is the lab where the old chain
         # adopted the unresolvable name and failed the run.
         foreach ($p in $script:derivationScripts) {

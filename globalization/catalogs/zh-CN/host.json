@@ -2174,9 +2174,9 @@
       "message": "  系统设置 > 隐私与安全性 > 屏幕录制 > 启用终端应用，然后重新启动。"
     },
     "host.operator_bb96ec06f5e4f923": {
-      "sourceHash": "7cb86d7548264c19644af17158a52b600cbb1f05a5ea0a245ac726fb2e247dcc",
+      "sourceHash": "44708bc4b698ea3899993e76be435b1f9e70e610029cc0189631afa391a22316",
       "origin": "machine",
-      "message": "  界面：       http://{dockIp}/  （分配 / 池 / 测试集）"
+      "message": "  界面：       http://{dockIp}/  （看板 / 宿主机 / 池）"
     },
     "host.operator_bba21c5cbbc83755": {
       "sourceHash": "0dd10a1d11910a47801a4e6864b2be67ad11bf3a72e0d4ee77620668699cb2af",

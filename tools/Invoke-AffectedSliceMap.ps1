@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a8e238-9fc4-4ca2-bdd0-9b55ac2ff25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Generate the Wave-1 affected-slice boundary map.
+    Generate the affected-slice boundary map from its authority manifest.
 .DESCRIPTION
     Reverse-discovers stable-code producers and consumers from the code
     registry, adds the explicitly censused source signatures that have no code
@@ -154,13 +154,14 @@ function Get-LiteralScanText {
         $tokens = $null
         $errors = $null
         [void][Management.Automation.Language.Parser]::ParseInput($text, [ref]$tokens, [ref]$errors)
-        $chars = $text.ToCharArray()
+        $scan = [Text.StringBuilder]::new($text)
         foreach ($token in @($tokens | Where-Object Kind -EQ 'Comment')) {
-            for ($i = $token.Extent.StartOffset; $i -lt $token.Extent.EndOffset; $i++) {
-                if ($chars[$i] -notin @([char]0x0a, [char]0x0d)) { $chars[$i] = [char]0x20 }
-            }
+            $start = $token.Extent.StartOffset
+            $length = $token.Extent.EndOffset - $start
+            $blank = [regex]::Replace($text.Substring($start, $length), '[^\n\r]', ' ')
+            [void]$scan.Remove($start, $length).Insert($start, $blank)
         }
-        return -join $chars
+        return $scan.ToString()
     }
     if ($extension -in @('.sh', '.user-data')) {
         # Shell globs and cloud-init strings can contain /* without opening a
@@ -387,7 +388,13 @@ foreach ($entry in @($registry.codes | Sort-Object { [string]$_.wireCode })) {
     # A newly added exact literal becomes a source edge and therefore must be
     # mapped, declared, or narrowly classified as an unrelated same-word use.
     foreach ($path in @($sourceTextByPath.Keys | Sort-Object)) {
-        $count = Get-ExactLiteralCount -Text ([string]$sourceTextByPath[$path]) -Value $literalValues
+        $scanText = [string]$sourceTextByPath[$path]
+        $mayMatch = $false
+        foreach ($literal in $literalValues) {
+            if ($scanText.IndexOf($literal, [StringComparison]::Ordinal) -ge 0) { $mayMatch = $true; break }
+        }
+        if (-not $mayMatch) { continue }
+        $count = Get-ExactLiteralCount -Text $scanText -Value $literalValues
         if ($count -eq 0 -or $declaredPaths.ContainsKey($path)) { continue }
         $exclusionKey = "$wireCode`n$path"
         if ($literalExclusionByKey.ContainsKey($exclusionKey)) {
@@ -418,7 +425,7 @@ foreach ($key in @($literalExclusionByKey.Keys | Sort-Object)) {
     }
 }
 
-# Some bounded Wave-1 findings predate the stable-code registry or are source
+# Some bounded correctness findings predate the stable-code registry or are source
 # invariants rather than enumerations. Their exact signatures are still
 # discovered from code, never inferred from plan prose.
 $signatureIds = @{}
@@ -446,7 +453,8 @@ foreach ($signature in @($authority.signatureConsumers | Sort-Object { [string]$
         try {
             $pattern = [regex]::new([string]$signature.pattern,
                 [Text.RegularExpressions.RegexOptions]::CultureInvariant)
-            $count = $pattern.Matches((Get-LiteralScanText -Path $full)).Count
+            $scan = if ($sourceTextByPath.ContainsKey($path)) { [string]$sourceTextByPath[$path] } else { Get-LiteralScanText -Path $full }
+            $count = $pattern.Matches($scan).Count
         } catch {
             Add-Finding "signature '$id' has invalid regex: $($_.Exception.Message)"
         }

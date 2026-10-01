@@ -21,6 +21,7 @@ import (
 	"time"
 	"unicode"
 	"yuruna.com/test/extension/extension-sdk/i18n"
+	"yuruna.com/test/extension/extension-sdk/jsonbody"
 
 	"stash-service/internal/config"
 	"stash-service/internal/detect"
@@ -493,7 +494,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			Title  string `json:"title"`
 			Author string `json:"author"`
 		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, config.PerFileSizeLimit+1024)).Decode(&body); err != nil {
+		if err := jsonbody.Decode(r.Body, &body, config.PerFileSizeLimit+1024, false); err != nil {
 			s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_invalid_json_body", "", nil)
 			return
 		}

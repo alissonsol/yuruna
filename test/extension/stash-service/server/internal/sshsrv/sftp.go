@@ -146,16 +146,7 @@ func (s *Server) newSFTPUpload(reqPath, username, clientIP string) (*sftpUpload,
 	// tree beginPending has already removed. errBufferFull still surfaces to
 	// the client as a write error, as every error from here does.
 	pending, _, err := s.beginPending(now, nil, func(drawn string, buffered bool) *meta.Record {
-		return &meta.Record{
-			ID:              drawn,
-			Username:        username,
-			PathMetadata:    reqPath,
-			ClientAddress:   clientIP,
-			CreatedAt:       now,
-			Status:          meta.StatusPending,
-			LocallyBuffered: buffered,
-			Source:          config.SourceSCP,
-		}
+		return pendingRecord(drawn, buffered, username, clientIP, reqPath, config.SourceSCP, now)
 	})
 	if err != nil {
 		return nil, err
@@ -260,10 +251,4 @@ func (u *sftpUpload) Close() error {
 // sanitizeUploadName reduces a client-supplied name to a safe basename:
 // no path separators, no traversal. Empty result tells the caller to fall
 // back to the bare ID.
-func sanitizeUploadName(raw string) string {
-	clean := filepath.Base(raw)
-	if clean == "." || clean == ".." || clean == string(filepath.Separator) {
-		return ""
-	}
-	return clean
-}
+func sanitizeUploadName(raw string) string { return fsutil.UploadName(raw) }

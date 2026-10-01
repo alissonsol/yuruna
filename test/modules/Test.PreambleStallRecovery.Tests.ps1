@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425d1ef1-c9ad-47cc-8b78-45a0c1156135
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -221,7 +221,12 @@ Describe 'Invoke-BoundedNativeCommand' {
     }
 
     It 'reports the direct child''s process id' {
-        $r = Invoke-BoundedNativeCommand -FilePath 'bash' -ArgumentList @('-c', 'echo $$') -TimeoutSeconds 10
+        # The shell's own pid on Windows would be an MSYS pid, not the Windows pid the runner reports.
+        $r = if ($IsWindows) {
+            Invoke-BoundedNativeCommand -FilePath (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile', '-Command', '$PID') -TimeoutSeconds 30
+        } else {
+            Invoke-BoundedNativeCommand -FilePath 'bash' -ArgumentList @('-c', 'echo $$') -TimeoutSeconds 10
+        }
         $r.ProcessId | Should -BeGreaterThan 0
         [int]($r.StdOut.Trim()) | Should -Be $r.ProcessId
         (Test-BoundedNativeResultComplete -Result $r) | Should -Be $true

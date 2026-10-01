@@ -22,7 +22,7 @@ Hypervisor) to run a Windows 11 ARM64 VM.
 Prerequisites: `brew install --cask utm`, `brew install powershell qemu`.
 Unlike Ubuntu, the Windows 11 ARM64 ISO has no stable direct download
 URL. [`Get-Image.ps1`](./Get-Image.ps1) first tries an automated
-download via a hash-pinned Fido release (pbatard/Fido v1.70, fetched to
+download via a hash-pinned Fido release (pbatard/Fido v1.71, fetched to
 a temp directory per run and deleted after use -- it is never part of
 the enlistment), then falls back to printing manual instructions and
 checking for an existing ISO in `~/yuruna/image/windows.env/`:
@@ -154,6 +154,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../../../README.md)

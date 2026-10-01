@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4284df2f-52a5-4145-9114-1e901d60121e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -312,8 +312,9 @@ function Get-PowerShellContextRange {
     [OutputType([object[]])]
     param([Parameter(Mandatory)][Management.Automation.Language.Ast]$Ast)
 
+    $contextNodes = @($Ast.FindAll({ $true }, $true))
     $ranges = [Collections.Generic.List[object]]::new()
-    foreach ($node in @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] }, $true))) {
+    foreach ($node in @($contextNodes | Where-Object { $n = $_; $n -is [Management.Automation.Language.CommandAst] })) {
         $name = $node.GetCommandName()
         if (-not $name) { continue }
         $tag = switch -Regex ($name) {
@@ -340,51 +341,51 @@ function Get-PowerShellContextRange {
         }
         $ranges.Add([pscustomobject]@{ Start = $node.Extent.StartOffset; End = $node.Extent.EndOffset; Tag = $tag })
     }
-    foreach ($node in @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.ThrowStatementAst] }, $true))) {
+    foreach ($node in @($contextNodes | Where-Object { $n = $_; $n -is [Management.Automation.Language.ThrowStatementAst] })) {
         $ranges.Add([pscustomobject]@{ Start = $node.Extent.StartOffset; End = $node.Extent.EndOffset; Tag = 'exception-text' })
     }
     # Only the right operand: the left of "-match" is the subject being tested
     # and is frequently the operator text itself.
-    foreach ($node in @($Ast.FindAll({
-                    param($n)
+    foreach ($node in @($contextNodes | Where-Object {
+                    $n = $_;
                     $n -is [Management.Automation.Language.BinaryExpressionAst] -and
                     $n.Operator -in @('Imatch', 'Inotmatch', 'Ireplace', 'Isplit', 'Cmatch', 'Cnotmatch', 'Creplace', 'Csplit')
-                }, $true))) {
+                })) {
         $ranges.Add([pscustomobject]@{ Start = $node.Right.Extent.StartOffset; End = $node.Right.Extent.EndOffset; Tag = 'regex-body' })
     }
     # Either side of an equality or containment test. A literal being compared
     # is a value some other program produced, and its spelling is the contract
     # between the two -- translating it silently changes which branch runs.
-    foreach ($node in @($Ast.FindAll({
-                    param($n)
+    foreach ($node in @($contextNodes | Where-Object {
+                    $n = $_;
                     $n -is [Management.Automation.Language.BinaryExpressionAst] -and
                     $n.Operator -in @('Ieq', 'Ine', 'Ilike', 'Inotlike', 'Icontains', 'Inotcontains', 'Iin', 'Inotin',
                         'Ceq', 'Cne', 'Clike', 'Cnotlike', 'Ccontains', 'Cnotcontains', 'Cin', 'Cnotin')
-                }, $true))) {
+                })) {
         $ranges.Add([pscustomobject]@{ Start = $node.Extent.StartOffset; End = $node.Extent.EndOffset; Tag = 'comparison-operand' })
     }
-    foreach ($node in @($Ast.FindAll({
-                    param($n)
+    foreach ($node in @($contextNodes | Where-Object {
+                    $n = $_;
                     $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
                     [string]$n.Member.Value -in @('Contains', 'IndexOf', 'LastIndexOf', 'StartsWith', 'EndsWith', 'Equals')
-                }, $true))) {
+                })) {
         $ranges.Add([pscustomobject]@{ Start = $node.Extent.StartOffset; End = $node.Extent.EndOffset; Tag = 'comparison-operand' })
     }
     # Attribute arguments are read by the language itself: a validation set, an
     # output type, the justification on a suppressed analyzer rule. They look
     # like sentences and reach no screen.
-    foreach ($node in @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.AttributeAst] }, $true))) {
+    foreach ($node in @($contextNodes | Where-Object { $n = $_; $n -is [Management.Automation.Language.AttributeAst] })) {
         $ranges.Add([pscustomobject]@{ Start = $node.Extent.StartOffset; End = $node.Extent.EndOffset; Tag = 'attribute-argument' })
     }
-    foreach ($node in @($Ast.FindAll({
-                    param($n)
+    foreach ($node in @($contextNodes | Where-Object {
+                    $n = $_;
                     $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
                     $n.Expression -is [Management.Automation.Language.TypeExpressionAst] -and
                     $n.Expression.TypeName.Name -match '(^|\.)regex$'
-                }, $true))) {
+                })) {
         $ranges.Add([pscustomobject]@{ Start = $node.Extent.StartOffset; End = $node.Extent.EndOffset; Tag = 'regex-body' })
     }
-    foreach ($node in @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.HashtableAst] }, $true))) {
+    foreach ($node in @($contextNodes | Where-Object { $n = $_; $n -is [Management.Automation.Language.HashtableAst] })) {
         foreach ($pair in $node.KeyValuePairs) {
             $name = [string]$pair.Item1.Value
             if ($name -imatch '^(description|displayName|title|label|summary|hint|remediation|guidance|humanMessage)$') {
@@ -564,7 +565,7 @@ function Get-DomainCandidate {
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$TrackedFile
     )
 
-    $result = [ordered]@{ files = 0; occurrences = 0; candidates = [ordered]@{} }
+    $result = [ordered]@{ files = 0; occurrences = 0; candidates = [Collections.Specialized.OrderedDictionary]::new([StringComparer]::Ordinal) }
     foreach ($rel in @($Definition.Paths)) {
         if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $rel) -PathType Container)) { continue }
         foreach ($relative in @($TrackedFile | Where-Object { $_ -eq $rel -or $_.StartsWith("$rel/") })) {

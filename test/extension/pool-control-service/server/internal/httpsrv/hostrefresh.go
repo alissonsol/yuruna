@@ -4,10 +4,8 @@
 package httpsrv
 
 import (
-	"bytes"
 	"context"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"yuruna.com/test/extension/extension-sdk/strictjson"
 
 	"pool-control-service/internal/config"
 	"pool-control-service/internal/hostctl"
@@ -151,51 +150,19 @@ func decodeRefreshBody(r *http.Request) (refreshBody, *refreshRefusal) {
 	invalid := func(detail string) (refreshBody, *refreshRefusal) {
 		return refreshBody{}, &refreshRefusal{status: http.StatusBadRequest, key: "pool.host_refresh_body_invalid", args: map[string]any{"detail": detail}}
 	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	tok, err := dec.Token()
-	if err != nil || tok != json.Delim('{') {
-		return invalid("not_an_object")
-	}
-	allowed := map[string]*string{}
 	var body refreshBody
-	allowed["hostId"], allowed["requestId"], allowed["tier"], allowed["maxRung"] = &body.HostID, &body.RequestID, &body.Tier, &body.MaxRung
-	seen := map[string]bool{}
-	for dec.More() {
-		tok, err := dec.Token()
-		if err != nil {
-			return invalid("malformed_json")
+	values, refusal := strictjson.Strings(raw, map[string]bool{"hostId": true, "requestId": true, "tier": true, "maxRung": true}, normalizeFieldName)
+	if refusal != nil {
+		if refusal.Detail != "unsupported_field" {
+			return invalid(refusal.Detail)
 		}
-		name, _ := tok.(string)
-		norm := normalizeFieldName(name)
-		if seen[norm] {
-			return invalid("duplicate_key")
+		shown := refusal.Field
+		if !fieldNameRE.MatchString(shown) {
+			shown = refreshFieldNamePlaceholder
 		}
-		seen[norm] = true
-		dst, ok := allowed[name]
-		if !ok {
-			shown := name
-			if !fieldNameRE.MatchString(shown) {
-				shown = refreshFieldNamePlaceholder
-			}
-			return refreshBody{}, &refreshRefusal{status: http.StatusBadRequest, key: "pool.host_refresh_field_unsupported",
-				args: map[string]any{"field": shown}, field: shown}
-		}
-		val, err := dec.Token()
-		if err != nil {
-			return invalid("malformed_json")
-		}
-		str, isString := val.(string)
-		if !isString {
-			return invalid("value_not_a_string")
-		}
-		*dst = str
+		return refreshBody{}, &refreshRefusal{status: http.StatusBadRequest, key: "pool.host_refresh_field_unsupported", args: map[string]any{"field": shown}, field: shown}
 	}
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
-		return invalid("malformed_json")
-	}
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return invalid("trailing_data")
-	}
+	body.HostID, body.RequestID, body.Tier, body.MaxRung = values["hostId"], values["requestId"], values["tier"], values["maxRung"]
 
 	hostID, ok := hostrefresh.CanonicalHostID(body.HostID)
 	if !ok {
@@ -485,9 +452,9 @@ func (s *Server) recordHostRefresh(b refreshBody, outcome string, hostStatus int
 	})
 }
 
-// auditRefreshGate records one refresh credential check with the address that
-// made it. Refusals matter most: a lab-key holder probing the refresh route is
-// exactly who an operator wants to see.
+// auditRefreshGate records a refused refresh credential check with the source
+// address. A lab-key holder probing the refresh route is exactly who an
+// operator wants to see; successful checks are not audited here.
 func (s *Server) auditRefreshGate(ip, outcome string) {
 	if outcome == hostrefresh.AuditOK {
 		return

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f9c779-1132-4dfb-9658-60cfc646620d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,6 +130,12 @@ function Assert-ExtensionContractCoverage {
         Write-Verbose "No contract file for area '$Area' at $contractFile; skipping coverage check."
         return $true
     }
+    $item = Get-Item -LiteralPath $contractFile
+    $modulePath = Join-Path $dir "$ExtensionName.psm1"
+    $stamp = "$($item.LastWriteTimeUtc.Ticks):$($item.Length):$($ExportedFunction -join ',')"
+    $key = "$Area|$modulePath"
+    if (-not (Get-Variable -Name ExtensionContractCache -Scope Script -ErrorAction SilentlyContinue)) { $script:ExtensionContractCache = @{} }
+    if ($script:ExtensionContractCache.ContainsKey($key) -and $script:ExtensionContractCache[$key] -ceq $stamp) { return $true }
     $contract = Get-Content -Raw $contractFile | ConvertFrom-Yaml -Ordered
     $required = @()
     if ($contract.Contains('requiredFunction') -and $contract.requiredFunction) {
@@ -149,6 +155,7 @@ function Assert-ExtensionContractCoverage {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8d84017ce35d5327' -Arguments @{ extensionName = "$ExtensionName"; area = "$Area"; count = "$($missing.Count)"; join = "$($missing -join ', ')"; contractFile = "$contractFile" })
         return $false
     }
+    $script:ExtensionContractCache[$key] = $stamp
     Write-Verbose "Extension '$ExtensionName' for area '$Area' covers all $($required.Count) contract verbs."
     return $true
 }

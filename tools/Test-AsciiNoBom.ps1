@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e9bd8a-5257-4459-82a4-765455c96fe3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -225,10 +225,8 @@ foreach ($file in $resolved) {
         if (-not $Quiet) { Write-Output "PASS  $file  ($($bytes.Length) bytes, no BOM)" }
         continue
     }
-    $offender = -1
-    for ($i = 0; $i -lt $bytes.Length; $i++) {
-        if ($bytes[$i] -gt 0x7F) { $offender = $i; break }
-    }
+    $nonAscii = [regex]::Match([Text.Encoding]::Latin1.GetString($bytes), '[\x80-\xFF]')
+    $offender = if ($nonAscii.Success) { $nonAscii.Index } else { -1 }
     if ($offender -ge 0) {
         $failures.Add(@{
             path   = $file

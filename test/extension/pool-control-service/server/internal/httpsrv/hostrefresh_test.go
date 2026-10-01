@@ -51,7 +51,7 @@ var (
 )
 
 // rfTarget is a host status service's refresh route: it records every call and
-// answers with what the test sets.
+// answers with what the test supplies.
 type rfTarget struct {
 	mu      sync.Mutex
 	calls   int
@@ -624,7 +624,7 @@ func TestReadRoutesCarryRefreshButNoSecret(t *testing.T) {
 	target := newRFTarget(t)
 	s, srv := rfServer(t, target, configured(rfUsable))
 	s.discovered.Add(discovery.Host{Address: "192.0.2.77", BaseURL: "http://192.0.2.77:8080", HostID: "42dddddddddddddddddddddddddddddd"}, time.Now())
-	s.intent = &fakeIntent{stateRes: intent.Result{OK: true, Stdout: `{"ok":true,"pools":[{"poolId":"lab","members":["` + rfHost + `","42eeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]}],"testSets":[]}`}}
+	s.intent = &fakeIntent{stateRes: intent.Result{OK: true, Stdout: `{"ok":true,"pools":[{"poolId":"lab","members":["` + rfHost + `","42eeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]}]}`}}
 	resp, err := http.Get(srv.URL + "/api/hosts")
 	if err != nil {
 		t.Fatal(err)

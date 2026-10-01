@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42311ffa-42b0-4315-961e-121394721d42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,12 +132,12 @@ else {
 }
 if (-Not $isOk) {
     if ($result -is [hashtable] -or $result -is [System.Collections.IDictionary]) {
-        Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
+        Complete-YurunaRun -Result $result -TranscriptFile $transcriptFileName
     }
     else {
+        Write-Output (Get-Content -LiteralPath $transcriptFileName)
         Write-Output $result
     }
-    Write-Output $(Get-Content -Path $transcriptFileName)
     # Propagate failure as a non-zero process exit so a `set -e` shell wrapper sees this
     # dispatcher fail, matching the `exit 1` the Set-Component/Set-Resource/Set-Workload
     # wrappers already emit for the same failure.

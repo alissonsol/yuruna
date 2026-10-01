@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fd45e3-d490-4fe2-a3d8-49d6577c6a35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,7 +133,8 @@ Describe 'Test.CachingProxyService CA-source helpers' {
             Assert-Equal -Expected 'none' -Actual $r.Source -Because 'nothing to serve'
             Assert-True ([string]::IsNullOrEmpty($r.Pem)) 'empty PEM'
         }
-        It 'falls back to a persisted CA when no live host is reachable' {
+        It 'falls back to a persisted CA when its configured host is unreachable' {
+            $env:YURUNA_CACHING_PROXY_SERVICE_IP = '10.9.9.9'
             $b64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((Get-TestCaPem)))
             $null = Save-CachingProxyServiceState -CaCert $b64 -CaCertSourceHost '10.9.9.9' -Confirm:$false
             $r = Resolve-CachingProxyServiceCaCertPem -LiveTimeoutSeconds 1
@@ -208,7 +209,9 @@ Describe 'CA re-anchor runs at every fetched-script boundary' {
         Context (Split-Path $s -Leaf) {
             It 'calls the shared re-anchor and does not carry its own copy' -TestCases @(@{ ScriptPath = $s }) {
                 param($ScriptPath)
-                $body = Get-Content -Raw -LiteralPath $ScriptPath
+                $entrypoint = Get-Content -Raw -LiteralPath $ScriptPath
+                Assert-True ($entrypoint -match 'workflow="guest/shared/ubuntu.update.sh"') 'entrypoint delegates to the update workflow'
+                $body = Get-Content -Raw -LiteralPath (Join-Path (Split-Path (Split-Path $ScriptPath -Parent) -Parent) 'shared/ubuntu.update.sh')
                 Assert-True ($body -match 'yuruna_ca_selfheal \|\| true') 'calls the shared re-anchor'
                 Assert-False ($body -match 'yuruna_ca_selfheal\(\)') 'no second copy to drift from the lib'
             }

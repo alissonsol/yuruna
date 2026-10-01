@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -244,12 +244,25 @@ if (-not $chrome -and $IsMacOS) {
     $mac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     if (Test-Path -LiteralPath $mac) { $chrome = $mac }
 }
+if (-not $chrome -and $IsWindows) {
+    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
+        if (-not $base) { continue }
+        $candidate = Join-Path $base 'Google/Chrome/Application/chrome.exe'
+        if (Test-Path -LiteralPath $candidate) { $chrome = $candidate; break }
+    }
+}
 if (-not $chrome) {
     if (-not $Quiet) { foreach ($p in $pages) { Write-Line "SKIPPED $($p.Label)" } }
     Write-Line ("{0} page(s), 0 measured -- SKIPPED: no Chrome or Chromium on PATH" -f $pages.Count)
     exit 2
 }
 $browserVersion = (& $chrome --version 2>&1 | Out-String).Trim()
+if ($IsWindows) {
+    # chrome.exe is a GUI-subsystem program and prints nothing for --version;
+    # the version lives in the file's own metadata.
+    $browserVersion = [string](Get-Item -LiteralPath $chrome).VersionInfo.ProductVersion
+    $global:LASTEXITCODE = 0
+}
 if ($LASTEXITCODE -ne 0 -or $browserVersion -notmatch '\d+(?:\.\d+){1,3}') {
     Write-Line ("{0} page(s), 0 measured -- SKIPPED: browser version could not be established" -f $pages.Count)
     exit 2

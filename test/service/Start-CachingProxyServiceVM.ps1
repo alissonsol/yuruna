@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,6 +119,7 @@ $proxyEnvVars = @(
 $envSidecarDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path $PSScriptRoot '../status/runtime' }
 $envSidecarPath = Join-Path $envSidecarDir '.caching-proxy-service.env.json'
 $clearedProxy = @()
+Import-Module (Join-Path $PSScriptRoot '../modules/Test.StateFile.psm1') -Global -DisableNameChecking
 $sidecarPayload = [ordered]@{}
 foreach ($pv in $proxyEnvVars) {
     $envProvPath = "Env:$pv"
@@ -593,12 +594,7 @@ if ($cpStatusDecision.ShouldStart) {
     # headline printed off it can therefore claim the service is up in the same
     # breath as the launch reports that it is not. Verify the port the way Step
     # 2.6 verifies the config service, and say which of the two actually happened.
-    $cpStatusUp = $false
-    $cpStatusProbe = [System.Net.Sockets.TcpClient]::new()
-    try {
-        $cpStatusAr = $cpStatusProbe.BeginConnect('127.0.0.1', [int]$cpStatusDecision.Port, $null, $null)
-        $cpStatusUp = ($cpStatusAr.AsyncWaitHandle.WaitOne(3000) -and $cpStatusProbe.Connected)
-    } catch { $cpStatusUp = $false } finally { $cpStatusProbe.Dispose() }
+    $cpStatusUp = Test-TcpEndpointOpen -Address '127.0.0.1' -Port ([int]$cpStatusDecision.Port) -TimeoutMilliseconds 3000
     if ($cpStatusUp) {
         Write-Verbose "  status service up on :$($cpStatusDecision.Port) -- the cache VM will build from http://<host>:$($cpStatusDecision.Port)/yuruna-repo/"
     } else {
@@ -638,12 +634,7 @@ if ($cpConfigDecision.ShouldStart) {
     # is DOWN at build time is the silent cause of a cache VM that bakes EMPTY mTLS
     # materials, never mounts ystash-nas, and shows an empty "Extension hosts" panel.
     # Surface it now (loudly) instead of leaving the operator to discover it later.
-    $cpConfigUp = $false
-    $cpProbe = [System.Net.Sockets.TcpClient]::new()
-    try {
-        $cpAr = $cpProbe.BeginConnect('127.0.0.1', [int]$cpConfigDecision.Port, $null, $null)
-        $cpConfigUp = ($cpAr.AsyncWaitHandle.WaitOne(3000) -and $cpProbe.Connected)
-    } catch { $cpConfigUp = $false } finally { $cpProbe.Dispose() }
+    $cpConfigUp = Test-TcpEndpointOpen -Address '127.0.0.1' -Port ([int]$cpConfigDecision.Port) -TimeoutMilliseconds 3000
     if ($cpConfigUp) {
         Write-Verbose "  config service verified accepting on :$($cpConfigDecision.Port) (mTLS; serves NAS creds to this host's VMs)."
     } else {
@@ -1333,7 +1324,7 @@ if ($cacheIp) {
 }
 Write-Verbose ""
 Write-Verbose "  SSH / console login:"
-Write-Verbose "    user:     yuruna"
+Write-Verbose "    user:     caching-proxy-service-admin"
 Write-Verbose "    password: (saved at $PasswordFile)"
 if ($cacheForwarded -and $cacheLanIp -and $cacheLanIp -ne $cacheIp) {
     # Linux NAT path: SSH reaches the cache via the host's 8022 -> 22

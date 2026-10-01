@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c8b0e7-91d4-4a36-b5f8-2e7c19d3a640
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,12 +63,7 @@ function Get-NamedFunctionText {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Name)
-
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$null)
-    $found = $ast.FindAll({
-            param($n)
-            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
-        }, $true) | Select-Object -First 1
+    $found = Get-YurunaTestFunctionAst -Path $Path -Name $Name
     if (-not $found) { return '' }
     return $found.Extent.Text
 }
@@ -267,7 +262,7 @@ Describe 'virsh is asked for its output in a language the code can read' {
         #
         # So each unpinned call is followed to the variable it fills, and the
         # finding is raised only where that variable reaches a comparison.
-        $nameOnly = @('net-list', 'list', 'dumpxml', 'net-dumpxml', 'domuuid', 'domid')
+        $nameOnly = @('dumpxml', 'net-dumpxml', 'domuuid', 'domid')
         $comparison = '-(match|notmatch|eq|ne|ieq|ine|in|notin|like|notlike|contains|notcontains)\b'
         $findings = @()
         $files = Get-ChildItem -Path (Join-Path $script:RepoRoot 'host') -Recurse -Include '*.ps1', '*.psm1' -File
@@ -278,6 +273,7 @@ Describe 'virsh is asked for its output in a language the code can read' {
                 if ($line -notmatch '&\s*virsh\b') { continue }
                 $rel = $file.FullName.Substring($script:RepoRoot.Length).TrimStart('/', '\')
 
+                if ($line -match '\b(?:net-list|list)\b' -and $line -match '--name(?:\b|[''"])') { continue }
                 if ($nameOnly | Where-Object { $line -match "\b$([regex]::Escape($_))\b" }) { continue }
 
                 # Pinned within the dozen lines above the call, which is as far

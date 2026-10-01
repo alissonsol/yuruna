@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f60b19-4d8a-4e27-9b53-1c7048ae3d62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,11 +44,8 @@ Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameCh
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $script:Runtime = Join-Path $script:RepoRoot 'test/extension/extension-sdk/webui/assets/yuruna.core.js'
 
-$script:Chrome = $null
-foreach ($n in @('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser')) {
-    $c = Get-Command $n -ErrorAction SilentlyContinue
-    if ($c) { $script:Chrome = $c.Source; break }
-}
+$script:Chrome = Get-YurunaTestBrowser
+
 
 $script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-timeout-" + [Guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $script:Sandbox -Force
@@ -92,8 +89,7 @@ $Preamble
 
     # The virtual-time budget is what lets a 250 ms timeout be observed without
     # the suite waiting on a wall clock.
-    $dom = & $script:Chrome --headless --disable-gpu --no-sandbox `
-        --virtual-time-budget=5000 --dump-dom "file://$pagePath" 2>$null | Out-String
+    $dom = Get-YurunaTestBrowserDom -Browser $script:Chrome -Path $pagePath
     $m = [regex]::Match($dom, '(?s)<pre id="out">(.*?)</pre>')
     if (-not $m.Success) { return 'NOOUTPUT' }
     return [Net.WebUtility]::HtmlDecode($m.Groups[1].Value).Trim()
@@ -180,8 +176,7 @@ Describe 'a stalled request is given up on rather than left hanging' {
 '@
         $pagePath = Join-Path $script:Sandbox 'raw-page.html'
         [IO.File]::WriteAllText($pagePath, $page)
-        $dom = & $script:Chrome --headless --disable-gpu --no-sandbox `
-            --virtual-time-budget=5000 --dump-dom "file://$pagePath" 2>$null | Out-String
+        $dom = Get-YurunaTestBrowserDom -Browser $script:Chrome -Path $pagePath
         $out = [regex]::Match($dom, '(?s)<pre id="out">(.*?)</pre>')
         Assert-True $out.Success 'the raw page rendered nothing'
         $result = [Net.WebUtility]::HtmlDecode($out.Groups[1].Value).Trim()

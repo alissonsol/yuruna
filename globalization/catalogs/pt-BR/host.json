@@ -9,7 +9,7 @@
     },
     "host.operator_005bab80fe0f8f32": {
       "sourceHash": "8c798283088b6da463af1ad03ba820ce3ceb6aad68d18ef359c7c2aa814df8d0",
-      "message": "SSH: ssh pool- control- service- admin@ {dockIp} (chave de harness autorizada)"
+      "message": "SSH: ssh pool-control-service-admin@{dockIp} (chave de harness autorizada)"
     },
     "host.operator_0093ac9c0edd7d9f": {
       "sourceHash": "d8e903e46b70fd0d4308eefa5c0e43a1aef353afa3f905be9c0532bb73c28ad4",
@@ -25,7 +25,7 @@
     },
     "host.operator_00de7e0959068c8c": {
       "sourceHash": "06e1e17579bd921451294aa363436ed997dae4b9a33a81743da591d1ae129a5c",
-      "message": "Send-Click on host.ubuntu.kvm: não implementado (Hyper- V apenas hoje). Use cargas de trabalho em modo SSH no KVM. (vm='{vMName}' ignorado x={x} y={y})"
+      "message": "Send-Click on host.ubuntu.kvm: não implementado (Hyper-V apenas hoje). Use cargas de trabalho em modo SSH no KVM. (vm='{vMName}' ignorado x={x} y={y})"
     },
     "host.operator_00df328f839cec6c": {
       "sourceHash": "7ecf9d6ac0427eae88d2bd282a079845a60a438e2c7365b6b60674f2e09a2f3e",
@@ -41,7 +41,7 @@
     },
     "host.operator_018a8ff6db7d23da": {
       "sourceHash": "632492ac27d9541ea774e2ec312cbb6ca22732329c98fabaeedc87a0cd45a116",
-      "message": "Não foi possível detectar o chip Apple Silicon. macOS 26 hóspedes requerem Apple M4 ou posterior."
+      "message": "Não foi possível detectar o chip Apple Silicon. macOS 26 convidados requerem Apple M4 ou posterior."
     },
     "host.operator_01b477e8e8a80cd5": {
       "sourceHash": "1be34cf59e4829142ddd6d492bcc780c34b4f9272d419a93d884b5274a5050df",
@@ -69,7 +69,7 @@
     },
     "host.operator_0311eef6cb69b548": {
       "sourceHash": "0a257eb1a2fe1712f4af0a87c9588d656e3022b54be0970d41f350601ab0cd49",
-      "message": "Set- guestMacInBundle: não foi possível atualizar {configPath}: {message}"
+      "message": "Set-GuestMacInBundle: não foi possível atualizar {configPath}: {message}"
     },
     "host.operator_03631e7fcccff720": {
       "sourceHash": "5936d1f1a1cce0a7661c8c0576191fff0590d4a8515530b2bb5bb7a427ad20d8",
@@ -77,7 +77,7 @@
     },
     "host.operator_03e4abcc5cd53ea9": {
       "sourceHash": "9a8caa0afcabe0857b6465125bdd8d4a44245122fb136099ff5cf16dab705b21",
-      "message": "Capturadas configurações anteriores do host para {capturePath} (desativar-TestAutomation restaura a partir dele)."
+      "message": "Capturadas configurações anteriores do host para {capturePath} (Disable-TestAutomation restaura a partir dele)."
     },
     "host.operator_0474f0a01f20b99a": {
       "sourceHash": "333348358e2b52c8c41b01d2195329353bd67b7b4a221a60642eedac2fc3d2de",
@@ -113,7 +113,7 @@
     },
     "host.operator_05f01e441da81178": {
       "sourceHash": "e9ed5e831d77fed4862a107fc3294b607ec35cf852b062ec08694335b3e76128",
-      "message": "YURUNA VIRTUAL DISPLAY está habilitado -- cada ciclo de teste irá anexar uma tela virtual, então a captura de tela/OCR sobrevive rodando sem um monitor conectado. Para desligá-la: [Ambiente]::SetAmbienteVariável('YURUNA VIRTUAL DISPLAY', $null, 'Máquina'); $env:YURUNA VIRTUAL DISPLAY = $null"
+      "message": "YURUNA_VIRTUAL_DISPLAY está habilitado -- cada ciclo de teste irá anexar uma tela virtual, então a captura de tela/OCR sobrevive rodando sem um monitor conectado. Para desligá-la: [Environment]::SetEnvironmentVariable('YURUNA_VIRTUAL_DISPLAY', $null, 'Machine'); $env:YURUNA_VIRTUAL_DISPLAY = $null"
     },
     "host.operator_0618b9b886f5f3d1": {
       "sourceHash": "d7b1720b13403b91906ef032c8e8d30d5536f342660e1b277a584c903c778161",
@@ -121,7 +121,7 @@
     },
     "host.operator_06397ff6173863e8": {
       "sourceHash": "a422c8db65353a93e05fb14c6002fc3d8ada0a09054f57e31c8fc9c4f0332051",
-      "message": "Proxy da máquina: Windows WinINet (ProxyEnable/Server/Override) e HTTP PROXY/HTTPS PROXY/NO PROXY env vars apagados"
+      "message": "Proxy da máquina: Windows WinINet (ProxyEnable/Server/Override) e HTTP_PROXY/HTTPS_PROXY/NO_PROXY env vars apagados"
     },
     "host.operator_0650f798a0996483": {
       "sourceHash": "0b74ff188b03a2a74df10074b2fd0b90095cbe921e5b2113400244870f7670bb",
@@ -129,11 +129,11 @@
     },
     "host.operator_06786a3211f6200f": {
       "sourceHash": "ff2b3dfa11a163a931ec9dd5241c50efd896ab557b200bdc6d326e1790043915",
-      "message": "Salvar- VMDiskSnapshot: qemu- img não no PATH (brew install qemu)."
+      "message": "Save-VMDiskSnapshot: qemu-img não no PATH (brew install qemu)."
     },
     "host.operator_06870ad7a1059861": {
       "sourceHash": "f68329ab423edbc14913d55262f6785b32021479e8fd1ea893d663d0ce250403",
-      "message": "O '{vmDir}' foi mal- sucedido: {value}"
+      "message": "Remove-Item '{vmDir}' falhou: {value}"
     },
     "host.operator_06933c41d231b3ad": {
       "sourceHash": "3df4b105e335a997743bba28a800a7e539f509b6c9b90af154c0607469935bd6",
@@ -169,11 +169,11 @@
     },
     "host.operator_08b96223c1b8497a": {
       "sourceHash": "eb6ee9d5caeefc5aabd2e3f51b5deab0e348e4f32b2a50dde9d00ea25e79b756",
-      "message": "libvirt network '{networkName}' é suportado pela ponte '{bridgeDev}', que está faltando ou não tem porta de uplink físico -- os hóspedes nele nunca podem obter DHCP. Re-run test/service/Start-CachingProxyServiceVM.ps1 (ele cura ou Reconstrui a ponte), ou rebole a ponte por host/ubuntu.kvm/guest.caching-proxy-service/README.md."
+      "message": "libvirt network '{networkName}' é suportado pela ponte '{bridgeDev}', que está faltando ou não tem porta de uplink físico -- os convidados nele nunca podem obter DHCP. Re-run test/service/Start-CachingProxyServiceVM.ps1 (ele cura ou Reconstrui a ponte), ou rebole a ponte por host/ubuntu.kvm/guest.caching-proxy-service/README.md."
     },
     "host.operator_08e327b03f39d8c6": {
       "sourceHash": "e67fb04de4546d3a5c5d94ead644f295b22db86539ca798c9a21d979a792ef8c",
-      "message": "Renomear- VM: Renomear- VM falhou: {message}"
+      "message": "Rename-VM: o Rename-VM do Hyper-V falhou: {message}"
     },
     "host.operator_09429947681e4567": {
       "sourceHash": "5fc6915f02e55d10474228da7137091c18fa06b6fb8363da447dd0dcde103773",
@@ -265,11 +265,11 @@
     },
     "host.operator_0cd05bb2d7614998": {
       "sourceHash": "ba28d3f2c5d2b395bf9b0904c11a86f3909aa0afc70446ca4f341f3c5308cf9f",
-      "message": "não realizado Msvm VirtualSystemSettingData for '{vMName}'"
+      "message": "não realizado Msvm_VirtualSystemSettingData for '{vMName}'"
     },
     "host.operator_0d2c724a13016680": {
       "sourceHash": "ee3fd3e2595f133ea98e604567eaa02ee0081dd713d55e978ac7827dd23a714d",
-      "message": "UI: http://{dockIp}/ (Baixar a piscina)"
+      "message": "UI: http://{dockIp}/ (grupo de downloads)"
     },
     "host.operator_0d8dc260f5da53ac": {
       "sourceHash": "af2a8ee3a0ccea5430505631bc26b667e6613329320bef03a5579f45effcaeb1",
@@ -281,7 +281,7 @@
     },
     "host.operator_0da8dccbc6a8c66f": {
       "sourceHash": "0ab9cc7930866a717653ddf15317a76f5e91f5884ec3d60bb53461942976027a",
-      "message": "Renomear-VM: virsh define com XML reescrito falhou; domínio renomeado, mas caminhos de disco e endereço NIC ainda carregam os valores do nome antigo."
+      "message": "Rename-VM: virsh define com XML reescrito falhou; domínio renomeado, mas caminhos de disco e endereço NIC ainda carregam os valores do nome antigo."
     },
     "host.operator_0dbaee5477554260": {
       "sourceHash": "ca294c555e4f813f90b328f7ff8ddf20b9bb17e33e12d6c4318ca7d577f16682",
@@ -305,7 +305,7 @@
     },
     "host.operator_0e7d8993e0f54ff9": {
       "sourceHash": "92b2538ce927cfd2770fc937ad83a68e3f949a4702c3bfb99c03d162835fc816",
-      "message": "Inválido - Cores '{cores}': esperado um inteiro positivo."
+      "message": "Inválido -Cores '{cores}': esperado um inteiro positivo."
     },
     "host.operator_0ecd062994307300": {
       "sourceHash": "62046ac8ed819c5a917f1bd9218eb4d76a871a7c986c78a19613480c8e2509c3",
@@ -313,7 +313,7 @@
     },
     "host.operator_0ef104304974ce38": {
       "sourceHash": "b2ad4b12cd04c4af8bc9dbbfc3d358488eb854085311244f36548a47ee3b92f0",
-      "message": "Renomear-VM: domínio fonte '{vMName}' não definido."
+      "message": "Rename-VM: domínio fonte '{vMName}' não definido."
     },
     "host.operator_0f55317f348115fc": {
       "sourceHash": "6357c79ae083307f2baee2d9afdda9a5286dcf0acdcd9d364e85342a4755bb0d",
@@ -333,7 +333,7 @@
     },
     "host.operator_104d2f01a997342c": {
       "sourceHash": "47768a35883a42d7b8b59aaab94f7dd654223d112dcd983314b3fd80b18861be",
-      "message": "Amazon Linux 2023 não tem imagem ARM64 com capacidade para hiper-V: o KVM qcow2 obtido abaixo converte bem, mas as botas para um dispositivo Dracut esperam, porque seu kernel aarch64 não carrega drivers Hyper-V. Execute este convidado no host.macos.utm ou host.ubuntu.kvm para cobertura ARM64. Veja documentos/host-hyperv.md."
+      "message": "Amazon Linux 2023 não tem imagem ARM64 com capacidade para hiper-V: o KVM qcow2 obtido abaixo converte bem, mas as botas para um dispositivo Dracut esperam, porque seu kernel aarch64 não carrega drivers Hyper-V. Execute este convidado no host.macos.utm ou host.ubuntu.kvm para cobertura ARM64. Veja docs/host-hyperv.md."
     },
     "host.operator_1050eecd3dbb16e4": {
       "sourceHash": "d8b1e8f19f3fb616508c91d079487fc7804a2ed24c9f7d886e7a8a96367c3de4",
@@ -357,11 +357,11 @@
     },
     "host.operator_123fb1ab620bc2d4": {
       "sourceHash": "4f054fa9491f21e656293c8093a9a4f149bc4becde61397b3c02643a1dfe3d84",
-      "message": "Usando a rede 'default' da libvirt NAT (192.168.122/24). A VM do serviço de controle de piscina é acessível somente a partir desta máquina e o NAS provavelmente não é routável; defina uma rede 'yuruna- external' para LAN + NAS acesso."
+      "message": "Usando a rede 'default' da libvirt NAT (192.168.122/24). A VM do serviço de controle de grupo é acessível somente a partir desta máquina e o NAS provavelmente não é routável; defina uma rede 'yuruna-external' para LAN + NAS acesso."
     },
     "host.operator_126a49ca0c55779b": {
       "sourceHash": "dd277bf36e060062242ed084c7bfac66fa4c8cd396ebb939d3917d01757c9ca1",
-      "message": "Retomar-YurunaServiceVM: '{name}' não retornou ao 'started'. {errorMessage} Cada hóspede que consome irá falhar até que esteja em execução."
+      "message": "Resume-YurunaServiceVM: '{name}' não retornou ao 'started'. {errorMessage} Cada convidado que consome irá falhar até que esteja em execução."
     },
     "host.operator_126b9e222d96af9b": {
       "sourceHash": "f8f79b24ed9a2b87754207ab678e7ce6adc53e3961f0dfbd1bfa7497628580a1",
@@ -369,7 +369,7 @@
     },
     "host.operator_127df62fba83d1e0": {
       "sourceHash": "691ea314e7630fe6d8d4fabfdb67712151309701277387bbdc524c5096b482a0",
-      "message": "systemctl enable -- now {sock} failed -- porto {hostPort} não exposto."
+      "message": "systemctl enable --now {sock} failed -- porto {hostPort} não exposto."
     },
     "host.operator_12924e738438f274": {
       "sourceHash": "a9c1ae5440ff62fd812d9ebbccc3b7d2167d2fbc638d05567e83335ac3654721",
@@ -377,7 +377,7 @@
     },
     "host.operator_12968989b3705520": {
       "sourceHash": "dc37beadffecadd86a578c9f5e0d51c3b8f4869651b44bf7faf3927015720876",
-      "message": "A criação da ponte falhou. A configuração NIC original da máquina foi restaurada pelo rollback da infra- estrutura falhando. Veja as mensagens acima para o erro específico da ferramenta."
+      "message": "A criação da ponte falhou. A configuração NIC original da máquina foi restaurada pelo rollback da infraestrutura falhando. Veja as mensagens acima para o erro específico da ferramenta."
     },
     "host.operator_12c1c9adfaecb9b1": {
       "sourceHash": "8bdfa60e0abcdde5b93945d3fa727d67fb529225c88b0c56fdf4d1365a1301e0",
@@ -393,7 +393,7 @@
     },
     "host.operator_133c681126464a2b": {
       "sourceHash": "3e07dff80c52b6b093bcd133909e1b3318cbd25d76046781203b841e05a10f5b",
-      "message": "Get-GuestReachableHostIp: -NetworkMode Bridged mas este host não tem IPv4 de rota padrão; um hóspede ponte não tem endereço para contatá-lo."
+      "message": "Get-GuestReachableHostIp: -NetworkMode Bridged mas este host não tem IPv4 de rota padrão; um convidado ponte não tem endereço para contatá-lo."
     },
     "host.operator_135befd0132343f2": {
       "sourceHash": "8759e1110ca42d80e1ac3470158637e45beb2ac3b86acc04dd24abf828aa3e97",
@@ -405,7 +405,7 @@
     },
     "host.operator_13cb024dfb19c946": {
       "sourceHash": "1ba8573b0f0f65c40e63c217f77dcf021d85ed6b2cd2f982efc9986d5509c86a",
-      "message": "Salvar- VMDiskSnapshot: não *.qcow2 discos sob {dataDir}."
+      "message": "Save-VMDiskSnapshot: não *.qcow2 discos sob {dataDir}."
     },
     "host.operator_13ef318fcba6de6e": {
       "sourceHash": "2bb318181d3122982377bd80647b99b9d8a798a07ea43a237118c8d8277ab4ef",
@@ -445,7 +445,7 @@
     },
     "host.operator_157f9a28bfef1ebf": {
       "sourceHash": "e3a3c2694e38465203a567f15f2cd3cbeeb30108959f47d9b13bfb7c35cd45d9",
-      "message": "Não foi possível enviar o 'root' do SIGKILL {forwarderPid} sem uma senha. Executar: sudo kill - 9 {forwarderPid}"
+      "message": "Não foi possível enviar o 'root' do SIGKILL {forwarderPid} sem uma senha. Executar: sudo kill -9 {forwarderPid}"
     },
     "host.operator_15a6309222839c03": {
       "sourceHash": "0d18a63a8c680a0e0ec9ae8f0d03a004ded4622ef7f164c38d5344f9507cd3d1",
@@ -453,11 +453,11 @@
     },
     "host.operator_15b9626a689d8633": {
       "sourceHash": "e5f9c69deb7a5adbfeabce69839a5117a71f347c61d9838966db6818f1915b18",
-      "message": "Renomear-VM: config.plist fonte não encontrado em '{srcConfig}'."
+      "message": "Rename-VM: config.plist fonte não encontrado em '{srcConfig}'."
     },
     "host.operator_15c7a852ad128a63": {
       "sourceHash": "e7c27716601d118b65dcdba4d977176839d3aa328aab6795f4fdba65d33ce397",
-      "message": "O qemu- img falhou. Instale as ferramentas QEMU com: brew install qemu"
+      "message": "O qemu-img falhou. Instale as ferramentas QEMU com: brew install qemu"
     },
     "host.operator_15cdc9f7300def05": {
       "sourceHash": "478e33fc24ee68f8204fb84f67f9936d8dffb2e83c1e9d6422de7bb1a9f0e1e0",
@@ -469,7 +469,7 @@
     },
     "host.operator_16656037757bbcc2": {
       "sourceHash": "3a3e00d3bd94f7ad74cef92b1c14608c15bc4e6e00f359334680b0b22a1be4c4",
-      "message": "Parou a rede libvirt '{networkName}' (a sua ponte host é inutilizável). Os hóspedes voltam para o 'default' NAT até que uma re- execução reconstrua a ponte."
+      "message": "Parou a rede libvirt '{networkName}' (a sua ponte host é inutilizável). Os convidados voltam para o 'default' NAT até que uma re-execução reconstrua a ponte."
     },
     "host.operator_16a11cbfeabe41ff": {
       "sourceHash": "c5f1106814f7edaac181daf0ef451075e8f925e57c285eb4844660d1dcaf4e00",
@@ -501,7 +501,7 @@
     },
     "host.operator_1809ac610f9f348c": {
       "sourceHash": "cefa699a33731f677862c440dfd2e5187293a9a0bd90bd1bec1dce0201f002a8",
-      "message": "Pare a VM Hyper-V (desligamento do hóspede, aumentando para forçar)"
+      "message": "Pare a VM Hyper-V (desligamento do convidado, aumentando para forçar)"
     },
     "host.operator_184c1b1b54f3870b": {
       "sourceHash": "a9a6ad8fe69924d983cd42ad7a7e264d5bed4e38bcc190d1f1c916731bfdc806",
@@ -509,7 +509,7 @@
     },
     "host.operator_18ab1c2a314eaf6a": {
       "sourceHash": "aee9906df3b9e10da1f57ed7ec6991885827cd65570833804bd14da16a8b3ea8",
-      "message": "Capturadas configurações anteriores do host para {capturePath} (desativar-TestAutomation restaura a partir dele)."
+      "message": "Capturadas configurações anteriores do host para {capturePath} (Disable-TestAutomation restaura a partir dele)."
     },
     "host.operator_191b359ad430e736": {
       "sourceHash": "9d5da94e18c66677ffdd59b47702001fce7b1271ff4f57624ccd57818f71ba90",
@@ -529,7 +529,7 @@
     },
     "host.operator_1a34f423edf48db4": {
       "sourceHash": "8eb962fc323b47aa1c8687b2cb42aebf79bf8ea8f9c6f1552b27e722ef1c3e3a",
-      "message": "Naves UTM.app utmctl em: /Aplicações/UTM.app/Conteúdo/MacOS/utmctl"
+      "message": "Naves UTM.app utmctl em: /Applications/UTM.app/Contents/MacOS/utmctl"
     },
     "host.operator_1aa1ad3b20325e89": {
       "sourceHash": "94ce9cbba31392d5fdebad7173641a4c6878ff83bab8b59a42e40dc2cc7da143",
@@ -549,7 +549,7 @@
     },
     "host.operator_1b2ab5d91cb086fd": {
       "sourceHash": "a515ab2b8fb63bf49807c2d564483a954bff0865d2d34a5374c487b2a50db00e",
-      "message": "Restaurar- VMDiskSnapshot: Restaurar- VMCheckpoint falhou para '{vMName}/{id}': {message}"
+      "message": "Restore-VMDiskSnapshot: Restore-VMCheckpoint falhou para '{vMName}/{id}': {message}"
     },
     "host.operator_1b83e0a223018f37": {
       "sourceHash": "9270ceea5d4c40aeb23430d55733985277916f139ebbca2d5a7a161380c91368",
@@ -565,7 +565,7 @@
     },
     "host.operator_1bf94e57cf95ae30": {
       "sourceHash": "34d3db02b548eca82ab6a7b0a09037ae51bfac39047ab6c5af8c7d7e616ad74a",
-      "message": "Restaurar- VMDiskSnapshot: o 'snapshot- revert' do virsh falhou para '{vMName}/{id}': {join}"
+      "message": "Restore-VMDiskSnapshot: o 'snapshot-revert' do virsh falhou para '{vMName}/{id}': {join}"
     },
     "host.operator_1c96d636b10e91f1": {
       "sourceHash": "4865ed33c6b0c385f0a754d38dcda7d1467ea6cdfd74c178d06bf5c49252d185",
@@ -585,7 +585,7 @@
     },
     "host.operator_1db4026c87e87900": {
       "sourceHash": "ef3a7c9c765925b347d29b5acd10da4a65979f5b65524b1e2f9515a46b3191fb",
-      "message": "Resolução-UtmConvidadoIpByMac: plist do pacote não encontrado no {plistPath} -- não pode identificar o VM pelo MAC."
+      "message": "Resolve-UtmGuestIpByMac: plist do pacote não encontrado no {plistPath} -- não pode identificar o VM pelo MAC."
     },
     "host.operator_1deaa24f39b6e1b2": {
       "sourceHash": "28bae627a1d96ac7d22c0dae98f5728652f9cc82f08e2f8ec0c1a5032eb10b3e",
@@ -593,7 +593,7 @@
     },
     "host.operator_1dec325a446dd0f7": {
       "sourceHash": "fbdcc696da26ab4807598a37f2472d83b137831efe417544b7ebb7aa5da1147a",
-      "message": "Nome de arquivo, URL, contagem de bytes gravados e Última modificação para: {baseImageOrigin}"
+      "message": "Nome de arquivo, URL, contagem de bytes gravados e Last-Modified para: {baseImageOrigin}"
     },
     "host.operator_1dfbd537872c61ec": {
       "sourceHash": "bce3d805dd89ea861d58bc8e09a2e51c586aa5a7691dad25d94f01fba8e1ff78",
@@ -605,7 +605,7 @@
     },
     "host.operator_1e2f99261b1a1683": {
       "sourceHash": "a3f23600f1dd78802af4b671df99fc8c61880ee81a887b4ac27eab089def0ffd",
-      "message": "Send-Text - Mechanism gui: Test.SequenceEngine.psm1 não encontrado em '{sequenceEngine}'."
+      "message": "Send-Text -Mechanism gui: Test.SequenceEngine.psm1 não encontrado em '{sequenceEngine}'."
     },
     "host.operator_1e70ed145bb5ab5f": {
       "sourceHash": "5c89f3c889a5a211a5abacd22bdf9075236e76029414fa80ca6ceee57c8a7c7b",
@@ -657,7 +657,7 @@
     },
     "host.operator_2098089a9d722ad9": {
       "sourceHash": "724d4fcdc49d322ce9682890079694b88bfd9159f43d15050b02ddec5a228c30",
-      "message": "chave de autenticação interna: o cofre desta máquina não tinha nenhum, de modo que uma chave NEW lab- wide foi cunhada e armazenada (vaultKey '{vaultKey}'). Qualquer máquina matriculada contra um proxy anterior ainda possui a chave OLD: essas máquinas mostram como 'onsite (token mismatch)' no painel de máquinas Yuruna e seus links Host respondem 403 até que cada um re-introduz (pwsh test/lab/Set-LabToken.ps1). Para manter a chave que o pool já compartilha, construa o proxy de um O anfitrião que o segura."
+      "message": "chave de autenticação interna: o cofre desta máquina não tinha nenhum, de modo que uma chave NEW lab-wide foi cunhada e armazenada (vaultKey '{vaultKey}'). Qualquer máquina matriculada contra um proxy anterior ainda possui a chave OLD: essas máquinas mostram como 'onsite (token mismatch)' no painel de máquinas Yuruna e seus links Host respondem 403 até que cada um re-introduz (pwsh test/lab/Set-LabToken.ps1). Para manter a chave que o pool já compartilha, construa o proxy de um O hospedeiro que o segura."
     },
     "host.operator_20be2f035272a5ea": {
       "sourceHash": "24253cca0685c65478cfbc4bff7093a2fd6a35f4749e23b5177dc192fbec02a5",
@@ -665,19 +665,19 @@
     },
     "host.operator_20cc4b8c9d8b0a89": {
       "sourceHash": "109e4553a6fd2458c619a146ff7878a660e1fc13059a12ceb453ad182af9ba82",
-      "message": "Falha na instalação do apt- get (saída {lASTEXITCODE}). Execute- a manualmente: {aptLine}"
+      "message": "Falha na instalação do apt-get (saída {lASTEXITCODE}). Execute-a manualmente: {aptLine}"
     },
     "host.operator_20dac0c25f3fe7a9": {
       "sourceHash": "e1836d84ef1ebe66d475a8b0666d43f0dd6017ab4e969b2f137355ca6fd88575",
-      "message": "Renomear-VM: O relançamento UTM não supervisionou '{newName}' dentro do tempo limite."
+      "message": "Rename-VM: O relançamento UTM não supervisionou '{newName}' dentro do tempo limite."
     },
     "host.operator_20e79763dcd1fd23": {
       "sourceHash": "bf45209ebb1ea4d18c06995da6462994d44e25ae2a66b5eb4b6726cf6f75a03d",
-      "message": "O usuário libvirt- qemu não foi encontrado -- pulando o passo do search- ACL. (O libvirt- daemon- system está instalado?)"
+      "message": "O usuário libvirt-qemu não foi encontrado -- pulando o passo do search-ACL. (O libvirt-daemon-system está instalado?)"
     },
     "host.operator_20ed766361c51090": {
       "sourceHash": "5841216f94a22a51c9decf434dbe5235d5235bfcad2d601eaeb19517fcebdc8f",
-      "message": "Não existe directório VM no '{vmRoot}'. Nada a analisar."
+      "message": "Não existe diretório VM no '{vmRoot}'. Nada a analisar."
     },
     "host.operator_2148bcc575bad4ac": {
       "sourceHash": "29fa624187653a2246a40e1ee2c414900c5787ed46dd0c8bb7ebe50a3936d204",
@@ -701,11 +701,11 @@
     },
     "host.operator_22ea2e011669030a": {
       "sourceHash": "157415dbf6360106888a094a6f9ebea5e6aaed034bdc578f932191cf2e5ea7f8",
-      "message": "Restaurar-VMDiskSnapshot: sem instantâneo '{id}' em '{vMName}'."
+      "message": "Restore-VMDiskSnapshot: sem instantâneo '{id}' em '{vMName}'."
     },
     "host.operator_2331212c13235927": {
       "sourceHash": "cdc729e38baaf8ed2604cd01b4f49916dfbfcb1ab5dc24694aaf89d512a156ae",
-      "message": "\nA rede libvirt '{networkName}' está activa, mas a sua ponte hospedeira '{extBridge}' não tem NO\nLAN uplink físico (apenas as portas de toque de hóspedes estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM do serviço de stash não foi iniciada."
+      "message": "\nA rede libvirt '{networkName}' está activa, mas a sua ponte hospedeira '{extBridge}' não tem NO\nLAN uplink físico (apenas as portas de toque de convidados estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM do serviço de stash não foi iniciada."
     },
     "host.operator_2335b1b944e3bce8": {
       "sourceHash": "f498012ce1006b8c02ceba617c05c180048e6074f3a2a39620453bfbc5477792",
@@ -713,7 +713,7 @@
     },
     "host.operator_235282ccbea4652f": {
       "sourceHash": "4105ef12ecda50a6681d70783cdbda1b847e0e87f44f6fa072a015bb22492c50",
-      "message": "Remover- VM: não foi possível apagar '{vmDir}' ({message})."
+      "message": "Remove-VM: não foi possível apagar '{vmDir}' ({message})."
     },
     "host.operator_2362a852e62ea069": {
       "sourceHash": "bbb2796a28f877756be30a9eb1145fcd7c8bc08f56bb4d35d29497fa73a0ab69",
@@ -721,7 +721,7 @@
     },
     "host.operator_2387f9a3bd0995a8": {
       "sourceHash": "40438cbdb42aa47c469cfb98f5b2274f643d4fa7b5f6352115ed24cb079a88b8",
-      "message": "\ndownload-agent-service VM '{vMName}' não obteve um endereço IP em 10 minutos.\nAcedendo à VM para depuração:\n* Console: virt-viewer -- connect {virshUri} {vMName}\nusuário: download-agent-service-admin (senha em abóbada de autenticação)"
+      "message": "\ndownload-agent-service VM '{vMName}' não obteve um endereço IP em 10 minutos.\nAcedendo à VM para depuração:\n* Console: virt-viewer --connect {virshUri} {vMName}\nusuário: download-agent-service-admin (senha em abóbada de autenticação)"
     },
     "host.operator_239ba3e5aec356be": {
       "sourceHash": "cf6f0ab970f9c31e30dec8381a071314b260ede54149ca97106dade5fe0b81ad",
@@ -741,7 +741,7 @@
     },
     "host.operator_2407762573afa1d1": {
       "sourceHash": "abbc2c4767d2de5b2624efc2b0dd5d06fcbdc09d6fedbb6a51b573af25161419",
-      "message": "O sudoers de armazenamento de piscina cair, se um foi instalado"
+      "message": "O sudoers de armazenamento de grupo cair, se um foi instalado"
     },
     "host.operator_243943232cde57ac": {
       "sourceHash": "4fe6203931e3a8fdaa44483db4b676456ca2dd4d8ff0f71c22a4437e7aaa0184",
@@ -749,7 +749,7 @@
     },
     "host.operator_2443a2232e97400d": {
       "sourceHash": "2063c0b737c8042583cd14fd67d1e53b79fa2dea379216408a232e72f6a7be25",
-      "message": "Restaurar-VMDiskSnapshot: não *.qcow2 discos sob {dataDir}."
+      "message": "Restore-VMDiskSnapshot: não *.qcow2 discos sob {dataDir}."
     },
     "host.operator_24e25e0303ffb73b": {
       "sourceHash": "6f8a5eaffd866613ac90785a21eb9f9e4196d5aecd15d539fcb183c35cd47b98",
@@ -833,7 +833,7 @@
     },
     "host.operator_29fdf0ffc1344091": {
       "sourceHash": "0e1b8678703bdb4d76dec7808476b58ff5436704e6fb18458896c9569e31a9f2",
-      "message": "O YURUNA  VIRTUAL  DISPLAY não está activo. Deixe- o desligado se esta máquina tiver sempre uma\nmonitor conectado enquanto os testes são executados. Se ele funcionar SEM uma conexão\ndisplay (caixa sem cabeça, tampa de laptop fechada, ou um interruptor KVM que pode soltar o\nmonitor do meio de execução), habilitá-lo para que cada ciclo de teste acoples um display virtual e\nCaptura de ecrã/OCR não é totalmente preto:\n\n# persistir nas sessões (este programa corre elevado). O corredor lê isto\n# escopo diretamente, então ele faz efeito no próximo ciclo mesmo quando lançado a partir\n# esta shell -- embora 'dir env:' não a mostre até abrir um novo terminal:\n[Ambiente]::SetAmbienteVariável('YURUNA VIRTUAL DISPLAY', 'true', 'Machine')\n\nOu apenas esta concha, para uma corrida única (não persistiu):\n$env:YURUNA VIRTUAL DISPLAY = 'true'\n\nVeja docs/host-hyperv.md para o que ele atribui (check-sum-pined usbmmidd v2) e os retrocessos manuais."
+      "message": "O YURUNA_VIRTUAL_DISPLAY não está activo. Deixe-o desligado se esta máquina tiver sempre uma\nmonitor conectado enquanto os testes são executados. Se ele funcionar SEM uma conexão\ndisplay (caixa sem cabeça, tampa de laptop fechada, ou um interruptor KVM que pode soltar o\nmonitor do meio de execução), habilitá-lo para que cada ciclo de teste acoples um display virtual e\nCaptura de tela/OCR não é totalmente preto:\n\n# persistir nas sessões (este programa corre elevado). O corredor lê isto\n# escopo diretamente, então ele faz efeito no próximo ciclo mesmo quando lançado a partir\n# esta shell -- embora 'dir env:' não a mostre até abrir um novo terminal:\n[Environment]::SetEnvironmentVariable('YURUNA_VIRTUAL_DISPLAY', 'true', 'Machine')\n\n# ou apenas nesta sessão, para uma execução única (não persistente):\n$env:YURUNA_VIRTUAL_DISPLAY = 'true'\n\nVeja docs/host-hyperv.md para o que ele atribui (check-sum-pined usbmmidd_v2) e os retrocessos manuais."
     },
     "host.operator_2a896884b1a21323": {
       "sourceHash": "b75bdcb4d151497f6d8b7157248fa42671766f2c368a8d4104c7da3b103eeca9",
@@ -853,7 +853,7 @@
     },
     "host.operator_2c0350b2a7b87558": {
       "sourceHash": "845ae713c9d9a3cb9cd33d7d159ca55ecf1ddf2f0112c805c3006dddccbf0c62",
-      "message": "sshd está desactivado), por isso alcance-o com scp: scp ./file user@{dockIp}:/scratch"
+      "message": "sshd está desativado), por isso alcance-o com scp: scp ./file user@{dockIp}:/scratch"
     },
     "host.operator_2c39a46858dd9e79": {
       "sourceHash": "0755443a2e05288538f36c42d3733a24986a0fc23cdf839cce60d8ef4582f7fe",
@@ -877,7 +877,7 @@
     },
     "host.operator_2da2f3a61688f8c3": {
       "sourceHash": "dea099415acbecec457f5633e1cce752f7347a0a6e64d1c3ec9b496c4bea9b40",
-      "message": "Assista ao progresso: ssh stash-admin@{dockIp} 'sudo tail - f /var/log/cloud-init-output.log'"
+      "message": "Assista ao progresso: ssh stash-admin@{dockIp} 'sudo tail -f /var/log/cloud-init-output.log'"
     },
     "host.operator_2ddcdf5273a49efa": {
       "sourceHash": "44f7e75174fe7f3036346be91b4820f0aa1538049d6328d4dfdb7d40efd06201",
@@ -885,7 +885,7 @@
     },
     "host.operator_2de7d46428ba0823": {
       "sourceHash": "d46f17cd339995eac443b4871054823465936af49ad67c520599ca03fd6389b1",
-      "message": "A conversão do qemu- img falhou (saída {lASTEXITCODE}): {convertOut}"
+      "message": "A conversão do qemu-img falhou (saída {lASTEXITCODE}): {convertOut}"
     },
     "host.operator_2decf002384b9408": {
       "sourceHash": "f87ac5776fc2add9cb80c5850f7fb8c660c05219b0ee1bf586b659b62a3e8b7c",
@@ -897,7 +897,7 @@
     },
     "host.operator_2dfa662521f0753f": {
       "sourceHash": "0ed71b48e31d4cc90fdf4b3850d126b0545f4e1935a77db33c82ff22a0e26d14",
-      "message": "Pasta VHDX padrão do Hyper- V: {downloadDir}"
+      "message": "Pasta VHDX padrão do Hyper-V: {downloadDir}"
     },
     "host.operator_2e323024e58e4960": {
       "sourceHash": "81958b0b67d4090db68b02e88d51a106814b17453177796e2e14c8eb98b47122",
@@ -913,7 +913,7 @@
     },
     "host.operator_2e94e17d6c886c3b": {
       "sourceHash": "721c2e64ab4e54b161630711694588f6316daba36899032dd9a41f0624ee9998",
-      "message": "Ponte '{bridgeName}' mantém seu uplink, mas não tem locação IPv4 depois de 30 s. Os hóspedes nele ainda podem DHCP (seus pedidos de ponte direto para a LAN); somente a acessibilidade host->guest é degradada. {bridgeName}' e seu servidor DHCP."
+      "message": "Ponte '{bridgeName}' mantém seu uplink, mas não tem locação IPv4 depois de 30 s. Os convidados nele ainda podem DHCP (seus pedidos de ponte direto para a LAN); somente a acessibilidade host->guest é degradada. {bridgeName}' e seu servidor DHCP."
     },
     "host.operator_2eafe07b6f1ae191": {
       "sourceHash": "22bbd01b11a3142e2779774380f84fee921a829775ff3464d113323c559eef14",
@@ -941,7 +941,7 @@
     },
     "host.operator_30f614d6e42fae94": {
       "sourceHash": "ec779bb4c386618d71968e0bd47b602a02c0f8fcd7b47b4e024eff31acf43dc5",
-      "message": "Instalar com: xcode- select -- install"
+      "message": "Instalar com: xcode-select --install"
     },
     "host.operator_3116a0bcc76026cb": {
       "sourceHash": "a1b29b35a68671782403ad9a68e300999e6b42efe9dd0708e3ff93c0686bd0d1",
@@ -961,11 +961,11 @@
     },
     "host.operator_314ad0568cf5e5b2": {
       "sourceHash": "c01d7f47699de25d79606024d9863740dc55ee7201b60a1a92964ba26c027897",
-      "message": "O Windows 11 no KVM só é suportado em máquinas x86 64 (esta máquina é {arch}). Use o convidado macOS UTM para ARM64."
+      "message": "O Windows 11 no KVM só é suportado em máquinas x86_64 (esta máquina é {arch}). Use o convidado macOS UTM para ARM64."
     },
     "host.operator_31ab5c2f0d63be27": {
       "sourceHash": "d48cc0c769598874e49c0a96bf2010b7bf4e00125078713a693b9b64d5f5840d",
-      "message": "Proxy da máquina: Windows HKCU WiniNet + HTTP PROXY/HTTPS PROXY/NO PROXY configurado para {url}"
+      "message": "Proxy da máquina: Windows HKCU WiniNet + HTTP_PROXY/HTTPS_PROXY/NO_PROXY configurado para {url}"
     },
     "host.operator_32469d88df49b475": {
       "sourceHash": "4b0a58a462bb4c9e11bec219011815a56af5d94d4d2416de3f3963d419f727d5",
@@ -977,7 +977,7 @@
     },
     "host.operator_32870f9d0f1c87c4": {
       "sourceHash": "6a7b511ef4e045fea102ca0ea0ff801af8dd1bd596bb5a535ab3c4294ce7784e",
-      "message": "A rota padrão é Wi-Fi ({bridgeInterface}) -- bridged não pode obter uma locação LAN sobre Wi-Fi; construindo a VM de serviço de controle de piscina em UTM Shared NAT. Start-PoolControlServiceVM.ps1 enviará uma porta host para ela para acesso LAN."
+      "message": "A rota padrão é Wi-Fi ({bridgeInterface}) -- bridged não pode obter uma locação LAN sobre Wi-Fi; construindo a VM de serviço de controle de grupo em UTM Shared NAT. Start-PoolControlServiceVM.ps1 enviará uma porta host para ela para acesso LAN."
     },
     "host.operator_32c598c080522dc9": {
       "sourceHash": "0b37699e48a39cb232a19719fe4a71100a9be825a1e790669f1637cedb649030",
@@ -1029,7 +1029,7 @@
     },
     "host.operator_355f6d92ffafef75": {
       "sourceHash": "2c5b144f798c32ad7b8013beea88b7ee6db49be13c6414a02280ba4a5291c209",
-      "message": "Resolver-UtmConvidadoIpByMac: MacAddress '{ourMacRaw}' em {plistPath} não é seis octets hex -- não pode identificar a VM por MAC."
+      "message": "Resolve-UtmGuestIpByMac: MacAddress '{ourMacRaw}' em {plistPath} não é seis octets hex -- não pode identificar a VM por MAC."
     },
     "host.operator_356561278d80158b": {
       "sourceHash": "ccbbfb25e375b6e4e535630399d8072151d40c7ea95ab6b1d1a21149bbd7f7fc",
@@ -1037,7 +1037,7 @@
     },
     "host.operator_3566f32ac9581467": {
       "sourceHash": "dc7a4d8c006704a89f28e265ea87de318ac488fb3308b928692a12fb18cfb6df",
-      "message": "Restaurar- VMDiskSnapshot: qemu- img snapshot - a failed for {name} (exit {lASTEXITCODE})."
+      "message": "Restore-VMDiskSnapshot: qemu-img snapshot -a failed for {name} (exit {lASTEXITCODE})."
     },
     "host.operator_357cbe83efce827f": {
       "sourceHash": "b5fa098ff978253c337f506d6d3867e23791345ba09e49d666ad8a8ab80e748c",
@@ -1069,7 +1069,7 @@
     },
     "host.operator_372aa49990c2bacc": {
       "sourceHash": "3736fa89da6a361484ef6545a58e00bd99d17b482caa9d438390df06ad6f809b",
-      "message": "Não foi possível restaurar a propriedade de '{p}' para '{sudoUser}'; execute: sudo chown - R {sudoUser} '{p}'"
+      "message": "Não foi possível restaurar a propriedade de '{p}' para '{sudoUser}'; execute: sudo chown -R {sudoUser} '{p}'"
     },
     "host.operator_378bec0a86550e8e": {
       "sourceHash": "bf9670a943c341e9f8b29ec8463d18db770091e75027cadc7f2a83011587b1ea",
@@ -1129,7 +1129,7 @@
     },
     "host.operator_3aa815d3eed4c968": {
       "sourceHash": "58ae6865405a70f5c6b25e93cb2f0c5677ad59f1f04e746f8a4ea37e3af8a327",
-      "message": "Falha ao novo VMSwitch: {message}"
+      "message": "Falha ao New-VMSwitch: {message}"
     },
     "host.operator_3b43e71b8125bf95": {
       "sourceHash": "ce5e14a919c2a9a8487c691315912558f64db9ce3f9f744de7db93d727eef23a",
@@ -1149,7 +1149,7 @@
     },
     "host.operator_3d4bd722f2cfda09": {
       "sourceHash": "0ae8e105f9aaccf7f6885764e8c2713e4593ee32a7c70eb6079e7b970086fcc7",
-      "message": "Gravar- VMDiskSnapshot: o instantâneo '{id}' gravado em '{utmBundle}' mas renomear '{vMName}' -> '{id}' falhou; o VM será apagado na limpeza do próximo ciclo. O instantâneo do qcow2 está no disco e pode ser restaurado manualmente."
+      "message": "Save-VMDiskSnapshot: o instantâneo '{id}' gravado em '{utmBundle}' mas renomear '{vMName}' -> '{id}' falhou; o VM será apagado na limpeza do próximo ciclo. O instantâneo do qcow2 está no disco e pode ser restaurado manualmente."
     },
     "host.operator_3d53fa1f73f89fed": {
       "sourceHash": "8107d53884c4254b2579e47684ce6c6cd76ff16d2664e0e77ffc859086b8c8c9",
@@ -1177,7 +1177,7 @@
     },
     "host.operator_3e974f3b27099a83": {
       "sourceHash": "9756d6dc1c5b24d2d523d3febfe5aa953c1dc73fe89f4a0644472b301f7d13e4",
-      "message": "Consola: virt- viewer -- connect {virshUri} {vMName}"
+      "message": "Consola: virt-viewer --connect {virshUri} {vMName}"
     },
     "host.operator_3ec30441269e453e": {
       "sourceHash": "a836f146d1fd27fc4a1b13159404795742a2fa0d35a972e2c08f7c58046f6881",
@@ -1217,7 +1217,7 @@
     },
     "host.operator_410c0c308f73c958": {
       "sourceHash": "e83868574c37e2e31286aa7684cc80dff53cf9cc12f7e07dfdd85ac2fcbd8e17",
-      "message": "libvirt- qemu pesquisa ACL no {hOME}"
+      "message": "libvirt-qemu pesquisa ACL no {hOME}"
     },
     "host.operator_411b830ef7e4b606": {
       "sourceHash": "20c3cc0e23a79a9212b8d411b4e02a58cb41e2641ec1a19c0b79f0084b1ae768",
@@ -1269,11 +1269,11 @@
     },
     "host.operator_4449d0e3b35c0780": {
       "sourceHash": "8e3fcb6ba3d59f72564a82f536d5c176f521e043c593b1a387d022094726513b",
-      "message": "Estado de serviço Hyper- V e vmms (o bootstrapper ativou estes, não Habilitar a Automação de Teste)"
+      "message": "Estado de serviço Hyper-V e vmms (o bootstrapper ativou estes, não Enable-TestAutomation)"
     },
     "host.operator_44815e503565a001": {
       "sourceHash": "e69f6f2fb2557553a5d6962131fef140373aebe53056ffe9541dc2fb4dd298a8",
-      "message": "O retorno do '{switchName}' também falhou: {message}. Esta máquina pode estar fora da rede -- precisa de acesso à consola: Remove- VMSwitch - Nome '{switchName}' - Força"
+      "message": "O retorno do '{switchName}' também falhou: {message}. Esta máquina pode estar fora da rede -- precisa de acesso à consola: Remove-VMSwitch -Name '{switchName}' -Force"
     },
     "host.operator_448cdaf2e660e77c": {
       "sourceHash": "fa90e1413a78840b8665433676843f2c9f396a7941edecebd2fc386a1a4d6524",
@@ -1309,7 +1309,7 @@
     },
     "host.operator_4568dad83d9c1581": {
       "sourceHash": "8e8dcd1212d2390e69b43630a6010f867fcd3eec9479fd03eb7a57d4a1c1136d",
-      "message": "Redimensionar manualmente: fsutil sparse setflag '{destPath}' 0; Resize- VHD - Caminho '{destPath}' - TamanhoBytes {sizeBytes}"
+      "message": "Redimensionar manualmente: fsutil sparse setflag '{destPath}' 0; Resize-VHD -Path '{destPath}' -SizeBytes {sizeBytes}"
     },
     "host.operator_458ed1226109f7ab": {
       "sourceHash": "522bc0ae1e90e5f5c1e99e743fc2c6d3c593322894200e5bcc68acc5b962cfd0",
@@ -1329,7 +1329,7 @@
     },
     "host.operator_476ac9f4728142ba": {
       "sourceHash": "ed6b40d16cba3508049cdb82701dc43c2c0cd33d9097fc51f69c6df563ca3a4f",
-      "message": "Renomear-VM: fonte VM '{vMName}' estado não pôde ser confirmado (probe negada, cronometrada ou não reconhecida); recusando-se a interromper UTM de um estado não confirmado."
+      "message": "Rename-VM: fonte VM '{vMName}' estado não pôde ser confirmado (probe negada, cronometrada ou não reconhecida); recusando-se a interromper UTM de um estado não confirmado."
     },
     "host.operator_4770215bffdbd75c": {
       "sourceHash": "520a7b1868cb127985d53c2a1364f38e9169925aefbd09d5faebcd8fceb88b7e",
@@ -1361,7 +1361,7 @@
     },
     "host.operator_4843e747d7df16f4": {
       "sourceHash": "60d207b130232b9285f1c55dcf7fd0fccefa1d57971fbcc5055d2f10fc7c5340",
-      "message": "Rebound '{switchName}' para '{name}' e o anfitrião manteve a sua rota, mas o interruptor ainda relata '{after}'. Os hóspedes ficam no recuo."
+      "message": "Rebound '{switchName}' para '{name}' e o hospedeiro manteve a sua rota, mas o interruptor ainda relata '{after}'. Os convidados ficam no recuo."
     },
     "host.operator_4880208ccfe2334e": {
       "sourceHash": "c6a29ec9bd3e814f4437af2568b71bd46303f9b2dfef02d42149ee91dfb39d87",
@@ -1381,7 +1381,7 @@
     },
     "host.operator_4991467056bc0e31": {
       "sourceHash": "f5f18104a98dc591bb0a757a4dfe28b80b0a261f94a0427061a9f7ab344763b5",
-      "message": "libvirt network '{networkName}' permanece definido mas inativo; os hóspedes retornam ao 'default' NAT até que uma re-run reconstrua a ponte."
+      "message": "libvirt network '{networkName}' permanece definido mas inativo; os convidados retornam ao 'default' NAT até que uma re-run reconstrua a ponte."
     },
     "host.operator_49b535bc8f7577f0": {
       "sourceHash": "8067194ffd2819986c8f69066afdedd44ab9438689dee44383ab105e7f819632",
@@ -1437,15 +1437,15 @@
     },
     "host.operator_4b8f66555bd13ab8": {
       "sourceHash": "2a2c2b84052b4878e3ef5f21bec865b08e982c540598d3b3cad5102fecc2720f",
-      "message": "== Serviço de controle de piscina VM inicializado (rede; daemon ainda construindo em-convidado) =="
+      "message": "== Serviço de controle de grupo VM inicializado (rede; daemon ainda construindo em-convidado) =="
     },
     "host.operator_4b9f3935d5cddbc4": {
       "sourceHash": "7a2abd00789ef6d99c1be079cac40cca9d654f0a1e53d8dbb6f4277b3733933a",
-      "message": "Gravar- VMDiskSnapshot: a remoção do checkpoint anterior '{id}' falhou: {message}"
+      "message": "Save-VMDiskSnapshot: a remoção do checkpoint anterior '{id}' falhou: {message}"
     },
     "host.operator_4bda2a4b26710c65": {
       "sourceHash": "e54a1103473854157c885012a841301e9fda57d7bfae86327ff9dfa67a1c0666",
-      "message": "O {unit} não está ativo e o root não é acessível sem uma senha. Execute o 'sudo systemctl enable -- now {unit}', então execute novamente este script."
+      "message": "O {unit} não está ativo e o root não é acessível sem uma senha. Execute o 'sudo systemctl enable --now {unit}', então execute novamente este script."
     },
     "host.operator_4c797db53595bac6": {
       "sourceHash": "46a2243008445c5325c1982ede10bdc51039a44557b5fa7e647005d2145dd6be",
@@ -1461,11 +1461,11 @@
     },
     "host.operator_4de7942157cfd862": {
       "sourceHash": "418300920ea0ae82df05221db555c4de82ff74c5d51ce78536d79b1cbca053a7",
-      "message": "scutil -- proxy falhou: {message}"
+      "message": "scutil --proxy falhou: {message}"
     },
     "host.operator_4e18f285f91cd947": {
       "sourceHash": "fd446af42ebcc5564f2d5e710a74eaf6d3ed857c9602f953adc3470b91eee169",
-      "message": "Gravar- VMDiskSnapshot: snapshot qemu- img - c falhou para {name} (sair {lASTEXITCODE})."
+      "message": "Save-VMDiskSnapshot: qemu-img snapshot -c falhou para {name} (sair {lASTEXITCODE})."
     },
     "host.operator_4ec0afe642270f86": {
       "sourceHash": "18007ade89c47ff82911e652fbae273f8aa26395cb72e29da07adda824871245",
@@ -1485,7 +1485,7 @@
     },
     "host.operator_4fcc5a4693566633": {
       "sourceHash": "1f2b375b500dec5cfe4951abf4161f8cd7fcc790552a26cbc54743acd7deb7a0",
-      "message": "Para parar esta recorrente: re-run com YURUNA EXTERNAL BRIDGE SKIP=1,"
+      "message": "Para parar esta recorrente: re-run com YURUNA_EXTERNAL_BRIDGE_SKIP=1,"
     },
     "host.operator_4ffbf7056dde8493": {
       "sourceHash": "5bb9e480e2f70fbf4b3ff7e280ed407152e27809c34fd3e3061cbdd77deb597d",
@@ -1501,7 +1501,7 @@
     },
     "host.operator_50978cbbff00be18": {
       "sourceHash": "b636d7368c722b4a3cdec076709ff9971ba8a3337d36e5d40a13e5c3c6dc81c8",
-      "message": "Renomear-VM: PlistBuddy não pôde atualizar o registro UTM para UUID {uuid} (Nome exit={regExitName}, Path exit={regExitPath})."
+      "message": "Rename-VM: PlistBuddy não pôde atualizar o registro UTM para UUID {uuid} (Nome exit={regExitName}, Path exit={regExitPath})."
     },
     "host.operator_50d00b7a87dd80cf": {
       "sourceHash": "f87516818e787783ca4596dd66cd4c6483608a19509cff30a656f959d6c51439",
@@ -1509,7 +1509,7 @@
     },
     "host.operator_5104cefeb7625d7d": {
       "sourceHash": "f2d609753660d934e3c117020388460237fa489a24264c47720f1f4695037ad4",
-      "message": "Renomear-VM: fonte VM '{vMName}' não registrado."
+      "message": "Rename-VM: fonte VM '{vMName}' não registrado."
     },
     "host.operator_5115fc3aa0fb34ef": {
       "sourceHash": "46f197c80e97f13176886f879a021ea5eae292730e4777dd4a79623bc31dd077",
@@ -1537,11 +1537,11 @@
     },
     "host.operator_524e2803f12e1efa": {
       "sourceHash": "ae442a289f6dce8b32299f6573191ecc319680ee8faff87616bd0d7de403fb95",
-      "message": "Renomear-VM: fonte VM '{vMName}' não registrado com UTM."
+      "message": "Rename-VM: fonte VM '{vMName}' não registrado com UTM."
     },
     "host.operator_52bc6c4a54214905": {
       "sourceHash": "d97a51f16eb1a00c30d00bbc5087d7e944e5a90a6b0ff1b251bc63898cfa0fdd",
-      "message": "captura de tela - R '{boundsResult}' falhou: {captureErr}"
+      "message": "screencapture -R '{boundsResult}' falhou: {captureErr}"
     },
     "host.operator_52d8339a86ba49b9": {
       "sourceHash": "7fedf7b131d29d6243fe2b165a36f49eb28f91475fc62f8174e9e5784e539987",
@@ -1581,7 +1581,7 @@
     },
     "host.operator_5470b2647c701ca1": {
       "sourceHash": "0a7487ad96a9b8bff3b6f403b235c5c18e71cf088562d2638713aa117f0dc8d0",
-      "message": "O redimensionamento do qemu- img falhou: {resizeOut}"
+      "message": "O redimensionamento do qemu-img falhou: {resizeOut}"
     },
     "host.operator_5482df881e0cb0fe": {
       "sourceHash": "34301c19b266403077614855bd480feedc6a2baba0052bc9866fccfbac06da51",
@@ -1609,11 +1609,11 @@
     },
     "host.operator_5657b68f115e9443": {
       "sourceHash": "c013ca4330f32fee6c98c347add81a604656989557fa3a48ed37c775615c130d",
-      "message": "Registo de proxy da máquina Windows"
+      "message": "Registro de proxy da máquina Windows"
     },
     "host.operator_56774322cef868bc": {
       "sourceHash": "f2d3953524c61ba195da4a8504e497de9cfade409638318bafc52f92ccc73252",
-      "message": "O DHCP renove no 'vEthernet ({switchName})' não restaurou um endereço dentro do {verifySeconds}s (a mudança ainda reporta o '{renewVerdict}'). Verifique o DHCP nesse segmento; os hóspedes ficam no retorno."
+      "message": "O DHCP renove no 'vEthernet ({switchName})' não restaurou um endereço dentro do {verifySeconds}s (a mudança ainda reporta o '{renewVerdict}'). Verifique o DHCP nesse segmento; os convidados ficam no retorno."
     },
     "host.operator_56aa4cd4e8221b7b": {
       "sourceHash": "8be261f6017a60d4f84544aa1f124f7ef5671ee551ba79fda90352cbf9eb94bb",
@@ -1661,11 +1661,11 @@
     },
     "host.operator_57c0e651cba9b6ec": {
       "sourceHash": "cb85191cffcad46092fec8723261f42fc34a5f6c5f290cc73d1d0c689ec3be15",
-      "message": "Parando hiper-V VM '{vMName}' lançado: {value}"
+      "message": "Parando Hyper-V VM '{vMName}' lançado: {value}"
     },
     "host.operator_57d04989b79f71fc": {
       "sourceHash": "c7d23a9c7afd4f2697efa82854d8e968ec9351005f24383ad0630d20333fc956",
-      "message": "Auto-cura: '{slave}' activado bridge-slave. Ponte '{bridgeName}' agora tem um uplink LAN; os hóspedes na rede libvirt '{networkName}' irá DHCP normalmente."
+      "message": "Auto-cura: '{slave}' activado bridge-slave. Ponte '{bridgeName}' agora tem um uplink LAN; os convidados na rede libvirt '{networkName}' irá DHCP normalmente."
     },
     "host.operator_57d6aa65fdb2331b": {
       "sourceHash": "b153a9eea44a8bae1d839f608cd0f1cac9cd65eb2e5b706483dee49a86592b65",
@@ -1673,7 +1673,7 @@
     },
     "host.operator_5874e8355455ba51": {
       "sourceHash": "536d4878a25ed78369d8d04582a0b18e7bd35de3434faf4d1db63de46424c950",
-      "message": "O Get- VMHost falhou ({message}); voltando ao caminho padrão."
+      "message": "O Get-VMHost falhou ({message}); voltando ao caminho padrão."
     },
     "host.operator_58d831021de668db": {
       "sourceHash": "ca94de6c433529fe6ce30cfb32b7d4201b6229c09dfc7b671f3eaa54cca6e051",
@@ -1681,11 +1681,11 @@
     },
     "host.operator_5956121984632a78": {
       "sourceHash": "44f5fed7763dfb2ffc315b9db969a71e60bb096f0701b0b39aa864a7c3482d03",
-      "message": "Hyper- V não está habilitado (state: {state}). Execute install\\ windows.hyper- v.ps1 e reinicie, então tente novamente."
+      "message": "Hyper-V não está habilitado (state: {state}). Execute install\\windows.hyper-v.ps1 e reinicie, então tente novamente."
     },
     "host.operator_5a147a3482612cdd": {
       "sourceHash": "f6799a0e5dabed61f95d87246a2e6b1fd8179ac8e50d88d0a7c2aabbdd1af50f",
-      "message": "Inválido - MacAddress (ver aviso acima). Nada foi alterado."
+      "message": "Inválido -MacAddress (ver aviso acima). Nada foi alterado."
     },
     "host.operator_5a3f633bc62da766": {
       "sourceHash": "12fb7db79681a669b0318fc5a061de1868e51894c51adc513ed4078b091b959b",
@@ -1693,7 +1693,7 @@
     },
     "host.operator_5a62ca9dd9977b94": {
       "sourceHash": "1120681f00292ce540c05a58b60cfa95df1cb736adc8be376dfe26b8cb36e4df",
-      "message": "Start-VM {label}: {status} -- a menos que o {requiredGB} GB este hóspede irá cobrar; esperando até {timeoutSeconds}s, e apenas enquanto o host continua dando memória de volta."
+      "message": "Start-VM {label}: {status} -- a menos que o {requiredGB} GB este convidado irá cobrar; esperando até {timeoutSeconds}s, e apenas enquanto o host continua dando memória de volta."
     },
     "host.operator_5a636fde131a5a2f": {
       "sourceHash": "df9f09596a1889cb9994fabcf39a929d6068df17c48fdc5368db363b5a3637f3",
@@ -1725,7 +1725,7 @@
     },
     "host.operator_5c039b0b7884d16b": {
       "sourceHash": "101159b1afe7d6f546740c18b0617bf2bc82707561f03e625cf08b080983827a",
-      "message": "Renomear-VM: pacote renomear '{srcBundle}' -> '{dstBundle}' falhou: {message}."
+      "message": "Rename-VM: pacote renomear '{srcBundle}' -> '{dstBundle}' falhou: {message}."
     },
     "host.operator_5c41679836569594": {
       "sourceHash": "48ceabd9436e719ff198f2dda31062d5ae38c689ba8da8afadc3c7c5e8a5b343",
@@ -1769,11 +1769,11 @@
     },
     "host.operator_5e237b9eea6b9490": {
       "sourceHash": "05b67622bf794dd06373fc2c433ba53f527328891488818d7caa624faa648256",
-      "message": "Save- VMDiskSnapshot: pasta de dados do pacote UTM não encontrada: {dataDir}"
+      "message": "Save-VMDiskSnapshot: pasta de dados do pacote UTM não encontrada: {dataDir}"
     },
     "host.operator_5e409de2ac1c55b7": {
       "sourceHash": "5c6b0a179bdeadc7953671ba0429974f49d7bf5189d03186934ed648151f4c52",
-      "message": "Renomear-VM: não foi possível ler:Informações:UUID de '{srcConfig}' (tem '{uuid}')."
+      "message": "Rename-VM: não foi possível ler:Informações:UUID de '{srcConfig}' (tem '{uuid}')."
     },
     "host.operator_5f1478be62ab5e8d": {
       "sourceHash": "6c8cefb9ea75ca0483f0182c8757bf3ac9ca27e7334d52f54d24ea02fb861ad8",
@@ -1829,7 +1829,7 @@
     },
     "host.operator_62a464c885f1b62c": {
       "sourceHash": "5bd63edd1ec9bed6da137b424e5c51a762c889a2ecc8cecf875deae0d9ffcf84",
-      "message": "dockerhub- token: o nome ou o segredo da conta armazenada contém um caractere de controle, cotação ou retrocesso, que o arquivo de credencial JSON do hóspede não pode carregar inalterado; construindo com NENHUMA credencial Docker Hub. Armazene uma credencial limpa valor, em seguida, reconstruir."
+      "message": "dockerhub-token: o nome ou o segredo da conta armazenada contém um caractere de controle, cotação ou retrocesso, que o arquivo de credencial JSON do convidado não pode carregar inalterado; construindo com NENHUMA credencial Docker Hub. Armazene uma credencial limpa valor, em seguida, reconstruir."
     },
     "host.operator_62b64e15fd55e2e0": {
       "sourceHash": "c5691efdfae6da45eff8881827d1eb603e969e4e7df46c14544c133d468be6d3",
@@ -1853,7 +1853,7 @@
     },
     "host.operator_637c4dda4b9191b3": {
       "sourceHash": "f71f4bdfa6ac864197330bec2e7e50b0ebb3488aae6eeee30ae3f42b88808142",
-      "message": "setfacl, para que a libvirt- qemu possa atravessar o $HOME para alcançar os discos VM"
+      "message": "setfacl, para que a libvirt-qemu possa atravessar o $HOME para alcançar os discos VM"
     },
     "host.operator_63d92a5157f8b436": {
       "sourceHash": "100ecf1d0eb05e8264ec94787f81daa517f51b46ecf43a593f4cf2356090ed4e",
@@ -1861,11 +1861,11 @@
     },
     "host.operator_640df0d6dcbb011e": {
       "sourceHash": "33d896b5072d6d0ed67d2ae4e0dd9f7f8abe76cb82e9b3986720787a51eee8ca",
-      "message": "O '{networkName}' foi mal- sucedido (sair do {lASTEXITCODE})."
+      "message": "O '{networkName}' foi mal-sucedido (sair do {lASTEXITCODE})."
     },
     "host.operator_641824f231dc3781": {
       "sourceHash": "19625b5140ddffc55cda8876488a9f3897fcf80f087651284fc549637555cce0",
-      "message": "Não foi possível armazenar uma chave de autenticação interna recém- cunhada no cofre desta máquina (keyChanged={keyChanged}, verific={verified}); construindo com um token EMPTY: o proxy não contará provas de controle, push-ingest fica desactivado, e o painel não mostra nenhum token de laboratório até que um seja fornecido e o proxy reconstruído."
+      "message": "Não foi possível armazenar uma chave de autenticação interna recém-cunhada no cofre desta máquina (keyChanged={keyChanged}, verific={verified}); construindo com um token EMPTY: o proxy não contará provas de controle, push-ingest fica desativado, e o painel não mostra nenhum token do laboratório até que um seja fornecido e o proxy reconstruído."
     },
     "host.operator_641d4bde8dc788c6": {
       "sourceHash": "a5090f560206e3b6617be740cdd013f497eccefb96e36779688ed8c9adc802d4",
@@ -1873,7 +1873,7 @@
     },
     "host.operator_6424990f88c7f7bc": {
       "sourceHash": "8f02f12494d81d8733243894214ea426c5c44ff14cbdb59e7117265cf8c7decf",
-      "message": "O Get- YurunaSshPublicKey voltou em branco. Localização do módulo: {testSshModule}"
+      "message": "O Get-YurunaSshPublicKey voltou em branco. Localização do módulo: {testSshModule}"
     },
     "host.operator_6428deaf8329b8f4": {
       "sourceHash": "91abe3f72feb4a99710e44cb60f3077b83446523b4e78ab62f3a3f0af3551e23",
@@ -1897,7 +1897,7 @@
     },
     "host.operator_653d2c6949f53ff7": {
       "sourceHash": "b46b1d9b24cff07e5c9e3d77750b2c825b8e407cd022566b6bb709a23cd178e7",
-      "message": "Gravar- VMDiskSnapshot: Checkpoint- VM falhou para '{vMName}/{id}': {message}"
+      "message": "Save-VMDiskSnapshot: Checkpoint-VM falhou para '{vMName}/{id}': {message}"
     },
     "host.operator_659701d157b56883": {
       "sourceHash": "b79487aa0c3bd0d25d521e0a2a67c34616bdbf2ba659049db37199127c80fcc6",
@@ -1917,11 +1917,11 @@
     },
     "host.operator_66927d6a35f745c9": {
       "sourceHash": "6b88267d095a89b6df46c2d7609224c8411952cc635afffa7a37dd15397c2b82",
-      "message": "Falha ao redimensionar- VHD: {message}; voltando ao redimensionamento do qemu- img."
+      "message": "Falha ao Resize-VHD: {message}; voltando ao redimensionamento do qemu-img."
     },
     "host.operator_66c7eec66542e844": {
       "sourceHash": "dee2da1a1dec7c0cf4ab1bd113dcde331417d1db90341e126addfcea981db64b",
-      "message": "O BITS não está disponível ou falhou. A transferir com o Invoke- WebRequest..."
+      "message": "O BITS não está disponível ou falhou. A transferir com o Invoke-WebRequest..."
     },
     "host.operator_67084b575b89cc58": {
       "sourceHash": "c1d13e5573381e016e89db79f6665e65b49965e5cf2b06e53c925ed32079a59d",
@@ -1937,7 +1937,7 @@
     },
     "host.operator_6785c036dec5eccd": {
       "sourceHash": "d8180ae9c810734ad88e688c1de2eb1af2175e667dfc2b7ccd64c5049e0b07ba",
-      "message": "O ajudante Swift não emite a linha MAC PLATFORM. O Stdout/stderr foi:\n{n}"
+      "message": "O ajudante Swift não emite a linha MAC_PLATFORM. O Stdout/stderr foi:\n{n}"
     },
     "host.operator_67b2df91dc3bcc59": {
       "sourceHash": "d57c5ef14a5f75dffea337f4d65a3c08c67dd0892f37049cc5181a14bb1336eb",
@@ -1949,7 +1949,7 @@
     },
     "host.operator_67f1fe22f87fb1a8": {
       "sourceHash": "b6da05fb45ba80564679d419f85f6d4fe635110279944c62bd70caa6f89959d8",
-      "message": "Restaurar- VMDiskSnapshot: qemu- img não no PATH (brew install qemu)."
+      "message": "Restore-VMDiskSnapshot: qemu-img não no PATH (brew install qemu)."
     },
     "host.operator_681c2451182fe9d4": {
       "sourceHash": "12d4e36e778f286ce4d8f57d61d3a69aaf5f321ec4d889108ad7c43c7c9fe26d",
@@ -1957,7 +1957,7 @@
     },
     "host.operator_6830e43fa44f64ae": {
       "sourceHash": "798c8f2c03caa5738c7e394f424ed7d9c88345e99b5fe005661f5f2e5db11005",
-      "message": "Assista ao progresso: ssh pool- control- service- admin@ {dockIp} 'sudo tail - f /var/log/cloud-init- output.log'"
+      "message": "Assista ao progresso: ssh pool-control-service-admin@{dockIp} 'sudo tail -f /var/log/cloud-init-output.log'"
     },
     "host.operator_683db69e0f21153d": {
       "sourceHash": "327d70ec60f853567ef926b24495e06ab742d731e129d2b7a4ef9dde01086870",
@@ -1965,11 +1965,11 @@
     },
     "host.operator_6867e2b5e9483983": {
       "sourceHash": "2284cb924f2eddc650a45bfd257cf24652ff89aba9418c2002dc9917056934ff",
-      "message": "Assista ao progresso: download- agent- service- admin@ {dockIp} 'sudo tail - f /var/log/cloud-init- output.log'"
+      "message": "Assista ao progresso: ssh download-agent-service-admin@{dockIp} 'sudo tail -f /var/log/cloud-init-output.log'"
     },
     "host.operator_6877083d4624d081": {
       "sourceHash": "ce776f9e577e9b992d33c47e2b168344fe907f44ac27ea65be82eec34e777481",
-      "message": "Set- VncDisplayInBundle: não foi possível atualizar {configPath}: {message}"
+      "message": "Set-VncDisplayInBundle: não foi possível atualizar {configPath}: {message}"
     },
     "host.operator_6897d3661c2e2fcd": {
       "sourceHash": "6feae5c0b8fc2b068f5b7fb0f03c4d949c53119e34df6e171f70d58a16efa08d",
@@ -2005,7 +2005,7 @@
     },
     "host.operator_697963516e07c1d1": {
       "sourceHash": "c33dcf726aef3e8d4760fb148f44024f4cd86eaa0d53948ac3c46f559451e3d4",
-      "message": "Renomear-VM: '{vMName}' ainda está em execução; UTM mantém uma fechadura exclusiva no pacote. Pare o VM primeiro."
+      "message": "Rename-VM: '{vMName}' ainda está em execução; UTM mantém uma fechadura exclusiva no pacote. Pare o VM primeiro."
     },
     "host.operator_699ff5d4716ff43f": {
       "sourceHash": "77430e0687e818396526b9a5153a9bf607ce5d30a2fb09e80742624cc2b54010",
@@ -2017,7 +2017,7 @@
     },
     "host.operator_69d94670b398f46b": {
       "sourceHash": "0cc0d4334814dffa00ca79551347bc94d201d4e5b096f674c992582134ec6371",
-      "message": "Renomear-VM: domínio renomeado para '{newName}' mas movendo '{oldDir}' -> '{newDir}' falhou: {message}. Domínio XML ainda referencia caminhos antigos; restauração-snapshot pode falhar."
+      "message": "Rename-VM: domínio renomeado para '{newName}' mas movendo '{oldDir}' -> '{newDir}' falhou: {message}. Domínio XML ainda referencia caminhos antigos; restauração-snapshot pode falhar."
     },
     "host.operator_69e62e2795b0c3d2": {
       "sourceHash": "81cdb305fbfa4794b690699a3c32da8d2dff95297d13a7f31cd923338fc9b12e",
@@ -2029,7 +2029,7 @@
     },
     "host.operator_6a80b3350f680db8": {
       "sourceHash": "19a6338d9838942a55f1137afcce039b144660442d9321afaa0a59c8738c6e5d",
-      "message": "O /bin/cp - c (clone APFS) falhou; voltando ao Copy- Item."
+      "message": "O /bin/cp -c (clone APFS) falhou; voltando ao Copy-Item."
     },
     "host.operator_6c1e9a279c4465de": {
       "sourceHash": "83a36354281f2b16358593a35c8e3313f6d670c937c16e974db5e28af2079481",
@@ -2065,7 +2065,7 @@
     },
     "host.operator_6d9c4686b08fcf2a": {
       "sourceHash": "2d2d8a0b4040541c6f8f23719fed9e003b8afa73a0c7ab19e47623da50a8ddec",
-      "message": "Get- VMScreenshot: não foi encontrado nem 'convert' (imagemagick) nem 'pamtopng' (netpbm); deixando PPM bruto em {ppm}."
+      "message": "Get-VMScreenshot: não foi encontrado nem 'convert' (imagemagick) nem 'pamtopng' (netpbm); deixando PPM bruto em {ppm}."
     },
     "host.operator_6e0202c4ffd01c8a": {
       "sourceHash": "a612d065de459a3b50eaf31f0f189f0eb1a7c9ab3571f2f98d4f220703a76103",
@@ -2073,7 +2073,7 @@
     },
     "host.operator_6ec7fa5a08a2eb27": {
       "sourceHash": "e90742963c03d71e39ae2b6bed5251e49c024ebc9d4e39d2f896e3aa8735d91a",
-      "message": "O vSwitch externo não está disponível -- a VM está ligada ao '{switchName}' (NAT + DHCP). Não obtém nenhum endereço LAN-bridgeed: o host responde apenas no endereço do gateway desse switch, e qualquer coisa na LAN atinge apenas o hóspede através de um anfitrião de bombordo."
+      "message": "O vSwitch externo não está disponível -- a VM está ligada ao '{switchName}' (NAT + DHCP). Não obtém nenhum endereço LAN-bridgeed: o host responde apenas no endereço do gateway desse switch, e qualquer coisa na LAN atinge apenas o convidado através de um hospedeiro de bombordo."
     },
     "host.operator_6f6bbc018b383fb2": {
       "sourceHash": "656eeaa856a9210d419306bc4a216a0e862d193db6eef1019f356b20ef479f93",
@@ -2081,7 +2081,7 @@
     },
     "host.operator_6f88583aeb61d648": {
       "sourceHash": "48f936c97f2f8ecfb0fc8783496c456933416bad270bd428011fcaf93210128a",
-      "message": "virsh não encontrado. Instale libvirt-clients (apt- get install libvirt- clients)."
+      "message": "virsh não encontrado. Instale libvirt-clients (apt-get install libvirt-clients)."
     },
     "host.operator_700059c0fbee589a": {
       "sourceHash": "f6d97b059dc26681a2f2e9e708c19d14707822bd4cae902dccee473e4a1a6589",
@@ -2181,7 +2181,7 @@
     },
     "host.operator_73ba8ba1e410fa99": {
       "sourceHash": "a47cdb648f5085941014e06c5d1709115a9bb5db03e2e5c4e2d99f28cb04dbe2",
-      "message": "Renomear-VM: renomeado para '{newName}' mas mover o endereço '{vMName}' para fora falhou: {message}. Ele mantém o endereço desse nome e irá colidir com o próximo convidado construído sob ele."
+      "message": "Rename-VM: renomeado para '{newName}' mas mover o endereço '{vMName}' para fora falhou: {message}. Ele mantém o endereço desse nome e irá colidir com o próximo convidado construído sob ele."
     },
     "host.operator_74adb6c89d5b326d": {
       "sourceHash": "1982fb0af5586101273645ad9fc3352bc8d390ef20fb5c8380f6c1706c2c8ebf",
@@ -2209,7 +2209,7 @@
     },
     "host.operator_76727d9ff6fe99e5": {
       "sourceHash": "0320f825358b59406c1830e2851554ebfcbf4e51831a95dd24fa57bf96c8a1d3",
-      "message": "Renomear-VM: A lista de preferências UTM não foi encontrada em '{utmPrefs}'."
+      "message": "Rename-VM: A lista de preferências UTM não foi encontrada em '{utmPrefs}'."
     },
     "host.operator_768bdece9805bfb7": {
       "sourceHash": "a05e9550ef22d5f0c82ac46831cf8490cac6ff28fe64ff9f9b7c6dccb94f27b7",
@@ -2301,7 +2301,7 @@
     },
     "host.operator_7d0283f1761a3fa6": {
       "sourceHash": "ac9dbfa3910bd45d9f9632c2756ee8c3828de95ee3e77d476657a74162b73427",
-      "message": "Desactivar (estava desactivado antes da automatização)"
+      "message": "Desactivar (estava desativado antes da automatização)"
     },
     "host.operator_7d3759d60761e085": {
       "sourceHash": "d7d966c8809902cf964ba293c43fa84c7b5d4270251b1893a5eedc6931dbb326",
@@ -2353,7 +2353,7 @@
     },
     "host.operator_7f8fa391d73801ba": {
       "sourceHash": "e70b45a2413135106dc25db67b330b90847b3df6f24e9ce3fb9e3357f2a62703",
-      "message": "Renomear-VM: não foi possível renomear '{fullName}' -> '{renamed}' ({message})."
+      "message": "Rename-VM: não foi possível renomear '{fullName}' -> '{renamed}' ({message})."
     },
     "host.operator_7fe1c2acfba18375": {
       "sourceHash": "6ccf38934a777c7935c9fa91ac7c1e693968a3f7083938974383274cbe0b77d3",
@@ -2361,7 +2361,7 @@
     },
     "host.operator_801f1557f661696a": {
       "sourceHash": "3143944f818c041079e25d6eb1f0877b9443a2dea6e634f5666f98a24baa69ec",
-      "message": "Os hosts M1/M2/M3 não são suportados para este hóspede."
+      "message": "Os hosts M1/M2/M3 não são suportados para este convidado."
     },
     "host.operator_8077179580819d5a": {
       "sourceHash": "2e913e169dd18ace40f06686fed9d64b4bfc8c3abc5b66140e02444985a7c460",
@@ -2377,7 +2377,7 @@
     },
     "host.operator_8107fa04808ac8e9": {
       "sourceHash": "5561a9ebf961d9ada355bfe995d0c2e5657f590c90180958fa30415ce3767f14",
-      "message": "Não foi possível desativar o serviço de integração Heartbeat para '{vMName}' ({message}); um convidado ARM64 Linux pode cunhar antes de hv storvsc."
+      "message": "Não foi possível desativar o serviço de integração Heartbeat para '{vMName}' ({message}); um convidado ARM64 Linux pode cunhar antes de hv_storvsc."
     },
     "host.operator_81ec9871bc4394ec": {
       "sourceHash": "46b7c5be959971af239b25c0ed0c7f6fd3e49e3680db3613d0d44fa8263c33d3",
@@ -2389,19 +2389,19 @@
     },
     "host.operator_82599fffc9de7081": {
       "sourceHash": "507e9078cfbcf3e53ef78e5bfda789b0a2a0c115ed3cfe0d8abd3475b75e3d9c",
-      "message": "Esta compilação foi executada como root com HOME={hOME}, de modo que seus artefatos estão na casa do root, não {sudoUserHome}. O UTM (correndo como {sudoUser}) não pode alcançá- los. Re-run SEM sudo -- estes scripts elevam o indivíduo Operações que precisam."
+      "message": "Esta compilação foi executada como root com HOME={hOME}, de modo que seus artefatos estão na casa do root, não {sudoUserHome}. O UTM (correndo como {sudoUser}) não pode alcançá-los. Re-run SEM sudo -- estes scripts elevam o indivíduo Operações que precisam."
     },
     "host.operator_82caa830c2a7dd2b": {
       "sourceHash": "089128cff009cf41f6e84d2dc56a613470df93ade093e7cbfa2fbd04639fb4c0",
-      "message": "o hóspede através das sequências compartilhadas GUI/SSH uma vez que essas terras"
+      "message": "o convidado através das sequências compartilhadas GUI/SSH uma vez que essas terras"
     },
     "host.operator_82d7b4c9909ca4dd": {
       "sourceHash": "95551c7a9b107903f9930876c4ad2e9b40c3924a6f7858bb81b03f6d78abeba5",
-      "message": "Register-GuestRailEndereço: não foi possível reservar {ip} para '{vMName}' -- {join}. O hóspede irá correr sem um endereço ferroviário."
+      "message": "Register-GuestRailAddress: não foi possível reservar {ip} para '{vMName}' -- {join}. O convidado irá correr sem um endereço ferroviário."
     },
     "host.operator_8325345b98bdf237": {
       "sourceHash": "7a32de1c6eecce56eb013347ed0644fb91b264a9032a2dd4352293dbe4474b51",
-      "message": "Renomear-VM: o nome de destino '{newName}' não pôde ser confirmado (sonda negada, cronometrada ou não reconhecida); recusando-se a renomear para um alvo não confirmado."
+      "message": "Rename-VM: o nome de destino '{newName}' não pôde ser confirmado (sonda negada, cronometrada ou não reconhecida); recusando-se a renomear para um alvo não confirmado."
     },
     "host.operator_832575bbe1b2f32f": {
       "sourceHash": "f0bb2821298ebc5e2bf2d6e356fff192ce1788adbd1d196d6024aab9f07371eb",
@@ -2409,7 +2409,7 @@
     },
     "host.operator_83567f970fd6c2db": {
       "sourceHash": "b3564b2ca98ccac252a6170e2cd8118707fd574134b74fabd6a86feb530d507e",
-      "message": "Linha MAC PLATFORM mal formada (precisa de 3 campos separados por páginas): {tupleLine}"
+      "message": "Linha MAC_PLATFORM mal formada (precisa de 3 campos separados por páginas): {tupleLine}"
     },
     "host.operator_836ce08aa7c8918a": {
       "sourceHash": "306e03e23710184fb983510498e97ce66a85c4d584e005f321e1aeb72e543d0c",
@@ -2421,15 +2421,15 @@
     },
     "host.operator_84177e952e2487af": {
       "sourceHash": "e42342f4d5ba301cc46be3a790d5aeec755be6070fd2349cef27046f0e6e11e3",
-      "message": "A pasta VHDX padrão do Hyper- V não existe: {downloadDir}"
+      "message": "A pasta VHDX padrão do Hyper-V não existe: {downloadDir}"
     },
     "host.operator_844a212ddde38874": {
       "sourceHash": "04003bacb3e4a3060af956351c27386e1a69ce8ac7f109befb273e99d5c90d94",
-      "message": "Renomear-VM: nenhuma tela VNC livre em 10..89 para '{newName}'; ele mantém a tela {newName2} e pode colidir com outra VM."
+      "message": "Rename-VM: nenhuma tela VNC livre em 10..89 para '{newName}'; ele mantém a tela {newName2} e pode colidir com outra VM."
     },
     "host.operator_84987470d9b561d8": {
       "sourceHash": "bbcbebb0ed893da494ea84f763a2898d7887e15c8045623fce95a99d07eff80a",
-      "message": "Renomear- VM: '{newName}' foi renomeado, mas o serviço {count} VM(s) que este renome parou não voltou: {join}. Cada passo posterior que os consumir irá falhar. Inicie- os antes de continuar: {join2}."
+      "message": "Rename-VM: '{newName}' foi renomeado, mas o serviço {count} VM(s) que este renome parou não voltou: {join}. Cada passo posterior que os consumir irá falhar. Inicie-os antes de continuar: {join2}."
     },
     "host.operator_84b2ff2c0bf73bc0": {
       "sourceHash": "3a6de92e986a488745a519d47a05e69ec4925e9a4c3aabe3a690c1db1b9e0519",
@@ -2437,7 +2437,7 @@
     },
     "host.operator_8508b39a41d150f0": {
       "sourceHash": "f4e394915eb08c688173f7222055ca0906f2650b5233b9573d6b7d8428529942",
-      "message": "Os nomes dos comutadores não estão ligados ao NIC. Liga- o novamente ao Set- VMSwitch - Nome '{switchName}' - NetAdapterName <adapter>."
+      "message": "Os nomes dos comutadores não estão ligados ao NIC. Liga-o novamente ao Set-VMSwitch -Name '{switchName}' -NetAdapterName <adapter>."
     },
     "host.operator_852eb7f6f45f8c86": {
       "sourceHash": "ee681e131cc53f816815db5286184ef4cfbbdd7104c4a8a55569927839ae768c",
@@ -2521,7 +2521,7 @@
     },
     "host.operator_8901b9ff5d800b56": {
       "sourceHash": "b2d3a0a62561590f59b090eea9e0e4aaf31c25b1307bebeecad3c6d6843521fa",
-      "message": "Ponte '{bridgeName}' tem NO uplink port ('{nic}' não vai escravizar) -- os hóspedes nele nunca obteriam uma oferta DHCP. Rodando o netplan mudar de volta."
+      "message": "Ponte '{bridgeName}' tem NO uplink port ('{nic}' não vai escravizar) -- os convidados nele nunca obteriam uma oferta DHCP. Rodando o netplan mudar de volta."
     },
     "host.operator_891e818fe6ad2659": {
       "sourceHash": "4c4a9aaccd45a5f5774944f094ba4aded1cb51b6b3be4b1f02160c15185ab93d",
@@ -2573,7 +2573,7 @@
     },
     "host.operator_8cb88c0dfdc75d37": {
       "sourceHash": "bd62fd8d05ab30f2e6610690bd3b9cf4fb94ca283958d52bad9785d519ea9b77",
-      "message": "Solicitar desligamento de hóspedes (Stop-VM, no -TurnOff)"
+      "message": "Solicitar desligamento de convidados (Stop-VM, no -TurnOff)"
     },
     "host.operator_8cc02f27922fb519": {
       "sourceHash": "d16d9b1c0e67de8b2929d4de0f842b8b262a9c8aa68975b7afcb2bfdb01a7125",
@@ -2585,11 +2585,11 @@
     },
     "host.operator_8da23b13d6bee38a": {
       "sourceHash": "11d467713d346aa0063bbdf51a170a8366452ccd437c6e5cca445d3ca7ab5739",
-      "message": "Desinstalar-Module powershell-yaml, PSScriptAnalyzer"
+      "message": "Uninstall-Module powershell-yaml, PSScriptAnalyzer"
     },
     "host.operator_8e1418fef79d70dd": {
       "sourceHash": "f762c4ad29644b858fd9079a9cdb806d87d8b7f282d2cda57b496e57ecc5644c",
-      "message": "Renomear-VM: não foi possível definir a tela VNC para '{newName}'; ela mantém a tela {newName2} e pode colidir com outra VM."
+      "message": "Rename-VM: não foi possível definir a tela VNC para '{newName}'; ela mantém a tela {newName2} e pode colidir com outra VM."
     },
     "host.operator_8e635d5ac6761fab": {
       "sourceHash": "7f6df806f6c4c57c3a370bf11d90fc21e59b540090508033a93c8c736c04b439",
@@ -2653,15 +2653,15 @@
     },
     "host.operator_912d123572f4b9c5": {
       "sourceHash": "18359d3cca7adf35ed0522b86b3be1d9a52446fc0145dad9934fbdeab96e9c11",
-      "message": "{frameText} e {cpuText} -- o convidado está executando, mas não está mais desenhando, então o pipeline de captura não é a falha; capture o estado do hóspede antes de qualquer coisa reiniciá-lo"
+      "message": "{frameText} e {cpuText} -- o convidado está executando, mas não está mais desenhando, então o pipeline de captura não é a falha; capture o estado do convidado antes de qualquer coisa reiniciá-lo"
     },
     "host.operator_919e5b9a9a611298": {
       "sourceHash": "58c7cf423398546709bab82bf1fea220e11ed81908734155ff7081c51cbeb1ef",
-      "message": "Falha na criação do qemu- img"
+      "message": "Falha na criação do qemu-img"
     },
     "host.operator_91b0a35a1dfecdc4": {
       "sourceHash": "c59cae5a860fcb3b100f630222e546d33cd4758eb274944d9ea1a28ce66554d1",
-      "message": "Razão: imagem de base para {guestName}. Actualização refazendo Get-Image.ps1 em {guestName}/"
+      "message": "Razão: imagem de base para {guestName}. Atualização refazendo Get-Image.ps1 em {guestName}/"
     },
     "host.operator_91c56ae74ac1dc10": {
       "sourceHash": "b8178dba57d3686e275cdac37c447aac5d5b9727b45ed40cb573d7bb47b74ce3",
@@ -2693,7 +2693,7 @@
     },
     "host.operator_92e4fcc8d0e15f7c": {
       "sourceHash": "3ca104fa7e94bc7555654e6303a373a7326645437e4933a7982ab6af46c85dcf",
-      "message": "virt-install, usado para construir hóspedes"
+      "message": "virt-install, usado para construir convidados"
     },
     "host.operator_9326163f5beaeed4": {
       "sourceHash": "6f7c1b6c73b47c69d8374f0961ecf3468eef4443c2f36ecd4e1ab8584a116534",
@@ -2709,11 +2709,11 @@
     },
     "host.operator_94ae6ac85570e806": {
       "sourceHash": "cd5732b28af210491c837ace35bcd8f95d449dfe4c688f0d6c31d0e7c67fc0f7",
-      "message": "Remove- VM: virsh undefine falhou para '{vMName}': {join}"
+      "message": "Remove-VM: virsh undefine falhou para '{vMName}': {join}"
     },
     "host.operator_94dcd74cd5ca1780": {
       "sourceHash": "9d4cef83783a81bac79e52f0597770470bd5fa5c1f5d5b2f4f9da480d1e8137a",
-      "message": "A apagar automaticamente a janela 'Outro utilizador está ligado' para '{vMName}'"
+      "message": "A apagar automaticamente a janela 'Outro usuário está ligado' para '{vMName}'"
     },
     "host.operator_94f12e1266d95601": {
       "sourceHash": "79cb4278be61bcd327308d056cffa4ed40b27910fad571e39f6981eef6bdace8",
@@ -2729,7 +2729,7 @@
     },
     "host.operator_95e05e441841ef8e": {
       "sourceHash": "fc8065077802e8391521c3a17ae9cb12baacdf9bd9d6f57ba85270075e68dd2f",
-      "message": "\npool-control-service VM '{vMName}' não obteve um endereço IP em 10 minutos.\nAcedendo à VM para depuração:\n* Console: virt-viewer -- connect {virshUri} {vMName}\nusuário: pool-control-service-admin (senha em abóbada de autenticação)"
+      "message": "\npool-control-service VM '{vMName}' não obteve um endereço IP em 10 minutos.\nAcedendo à VM para depuração:\n* Console: virt-viewer --connect {virshUri} {vMName}\nusuário: pool-control-service-admin (senha em abóbada de autenticação)"
     },
     "host.operator_96658c0e8ad547f3": {
       "sourceHash": "8cab30f6d9dcb861b331798622f66ed84322bd80ce0c868d04133f468eb9eb47",
@@ -2745,7 +2745,7 @@
     },
     "host.operator_9828b6c9013ab31e": {
       "sourceHash": "c45a2f9fc50c92dcd1550495931c9727cf5300ebfa8d23bc12ea60db84c52058",
-      "message": "Renomear- VM: renomeado para '{newName}' mas seu NIC não pôde ser lido: {message}. O endereço é deixado como está."
+      "message": "Rename-VM: renomeado para '{newName}' mas seu NIC não pôde ser lido: {message}. O endereço é deixado como está."
     },
     "host.operator_988e727e609d9616": {
       "sourceHash": "54eb1909240175e41a57c68ed5f83318d82e52797ed6332851c1e6e8f3d5a58e",
@@ -2773,7 +2773,7 @@
     },
     "host.operator_9a26d7342217e270": {
       "sourceHash": "f0fcb436052dbf12b3c28e6ff94eb21041cd87731b4f22d4cd9c0c08a611a16c",
-      "message": "libvirt network '{c}' é definido, mas não ativo -- pulando-o. Inicie-o com 'virsh -c qemu:///system net-start {c}', ou re- execute test/service/Start-CachingProxyServiceVM.ps1 para reconstruí-lo."
+      "message": "libvirt network '{c}' é definido, mas não ativo -- pulando-o. Inicie-o com 'virsh -c qemu:///system net-start {c}', ou re-execute test/service/Start-CachingProxyServiceVM.ps1 para reconstruí-lo."
     },
     "host.operator_9a367ca9534863eb": {
       "sourceHash": "f65a4c7a99abe58e5e8e8075c807706db13016ffe44f45d2a3ebdfb3186d869a",
@@ -2817,7 +2817,7 @@
     },
     "host.operator_9c80476fdd14c462": {
       "sourceHash": "b0ff9235b26e583ac41bf46acaf82b83250faaa35f82239e49db9dc0f2ab4994",
-      "message": "Atualizar com: brew upgrade -- cask utm"
+      "message": "Atualizar com: brew upgrade --cask utm"
     },
     "host.operator_9c87c921239516dc": {
       "sourceHash": "b6b7da7abebe3ea674f73771163dac7d6db29e7906d77ce2c81f93afa0ddfeeb",
@@ -2825,7 +2825,7 @@
     },
     "host.operator_9cc7515199a7b5a2": {
       "sourceHash": "ce75de1465c7b6598497726b8eb1eaf61ca13a273fe5a39df2ae9c374c2751ec",
-      "message": "\nVM '{vMName}' não obteve um endereço IP em 20 minutos\n(rede '{networkName}'; leasing de fontes, agente, arp todos retornados vazios).\n\n* 'agent' diz que o agente não está conectado -> o convidado ainda está em seu pacote\nfase (ou o apt falhou), por isso o qemu- guest- agent ainda não começou. A consola\no log abaixo mostra onde está o início da nuvem.\n* Todos os três vazios E a VM está em uma rede ponte cujo uplink é Wi-Fi:\nalguns pontos de acesso recusam-se a encaminhar o pedido DHCP do hóspede (AP baseado em MAC\nisolamento). Use um link com fio, ou unfino 'yuruna- externo' para recuar\npara a rede NAT 'default'.\n\nAcedendo à VM para depuração:\n* Console: virt-viewer -- connect {virshUri} {vMName}\nusuário: stash-admin (senha-password no cofre de autenticação)\nentão: cloud-init status -- long; ip - 4 addr"
+      "message": "\nVM '{vMName}' não obteve um endereço IP em 20 minutos\n(rede '{networkName}'; leasing de fontes, agente, arp todos retornados vazios).\n\n* 'agent' diz que o agente não está conectado -> o convidado ainda está em seu pacote\nfase (ou o apt falhou), por isso o qemu-guest-agent ainda não começou. A consola\no log abaixo mostra onde está o início da nuvem.\n* Todos os três vazios E a VM está em uma rede ponte cujo uplink é Wi-Fi:\nalguns pontos de acesso recusam-se a encaminhar o pedido DHCP do convidado (AP baseado em MAC\nisolamento). Use um link com fio, ou unfino 'yuruna-externo' para recuar\npara a rede NAT 'default'.\n\nAcedendo à VM para depuração:\n* Console: virt-viewer --connect {virshUri} {vMName}\nusuário: stash-admin (senha-password no cofre de autenticação)\nentão: cloud-init status --long; ip -4 addr"
     },
     "host.operator_9cceb6fb2d6d1d12": {
       "sourceHash": "6edb295c3958151fec103feeae35837c6c1a61b1f4b594a2a8391870c6d8cc5c",
@@ -2845,7 +2845,7 @@
     },
     "host.operator_9e142fdec39e7972": {
       "sourceHash": "df4f9ea4c61982f5f7b0424aa1b01c5a5ed797490fdfea7919f379f96e21df19",
-      "message": "uma ponte separada do portal vmnet do anfitrião, quebrando o"
+      "message": "uma ponte separada do portal vmnet do hospedeiro, quebrando o"
     },
     "host.operator_9e2d9646b0f0ef93": {
       "sourceHash": "54b8d148a792895d7b4a82d064f646b70f28369632a862e55060180b8742c9e6",
@@ -2889,7 +2889,7 @@
     },
     "host.operator_a0be18b888b1e5b4": {
       "sourceHash": "099a44f7dcb5e4a3110c2c0c522b7e9a434c05dd66be6c7f8b75249ec2abea9c",
-      "message": "SSH: ssh download- agent- service- admin@ {dockIp} (chave harness autorizada)"
+      "message": "SSH: ssh download-agent-service-admin@{dockIp} (chave harness autorizada)"
     },
     "host.operator_a0e97dcbb626019f": {
       "sourceHash": "f618b6dfc7bb8a5e09a5724d98821422449f0acbdc957c6c86eee0899f03ac71",
@@ -2905,7 +2905,7 @@
     },
     "host.operator_a19074ac4867746e": {
       "sourceHash": "5dfbda1c19cb0b249879c5819add22db468e903a3a21f497e15edccb64bbc3ad",
-      "message": "Utilizador da consola/SSH:"
+      "message": "Usuário da consola/SSH:"
     },
     "host.operator_a1a6059aaacffcb8": {
       "sourceHash": "8d5a519f8d0834a9ddfbb33f95725525e24d4b00640f4371b522b00612c69410",
@@ -2961,7 +2961,7 @@
     },
     "host.operator_a32e7c960a5619ec": {
       "sourceHash": "7b6965541b1a9ee912b94ac5dc03237df6f1461c265c0d841f47f265192d7188",
-      "message": "Nenhuma rede libvirt definida. Execute 'virsh net- start default' para habilitar o padrão NAT, ou defina 'yuruna- external' (ver README. md) para acesso LAN- ponteado."
+      "message": "Nenhuma rede libvirt definida. Execute 'virsh net-start default' para habilitar o padrão NAT, ou defina 'yuruna-external' (ver README.md) para acesso LAN-ponteado."
     },
     "host.operator_a3517dfa1bc5ed4b": {
       "sourceHash": "93e370764242f20d5cf6affd6e95f09fdd28c90c8a2ce756383851cbe3fdb5f6",
@@ -2973,7 +2973,7 @@
     },
     "host.operator_a3da8d2bcc4b8ff7": {
       "sourceHash": "e3c6b98c19e08fbe6bfed9d1334f33d10e35af84144eedb2c8b9c97ebc58041b",
-      "message": "Iniciar VM Hyper- V"
+      "message": "Iniciar VM Hyper-V"
     },
     "host.operator_a3e88d164570394c": {
       "sourceHash": "f46c6bb657f5ddf80aef0a63ebda74eef1467f42345cbdbae82545f711676c33",
@@ -2981,7 +2981,7 @@
     },
     "host.operator_a4149a26e3a5fd3f": {
       "sourceHash": "e90dbf79681a9fb956cd471d3deccfa7bdde29ccbc3936b3e31f879be91c4b11",
-      "message": "O '{switchName}' não pode transportar um hóspede em ponte (veredito '{verdict}'{detailText}). {consequence} Remedy: {remedy}"
+      "message": "O '{switchName}' não pode transportar um convidado em ponte (veredito '{verdict}'{detailText}). {consequence} Remedy: {remedy}"
     },
     "host.operator_a419339df771d79e": {
       "sourceHash": "d925badad7b7839fa730adea1a452c336366b751ea5466c4c25398d8838262cd",
@@ -3001,11 +3001,11 @@
     },
     "host.operator_a601ce2317e589b6": {
       "sourceHash": "3102ced0d19a4a6b7815426992d79f22dfe87f5e92d275fdb0a3b3563682a2a8",
-      "message": "Razão: imagem de base para {guestName}. Actualização refazendo Get-Image.ps1 em {guestName}/"
+      "message": "Razão: imagem de base para {guestName}. Atualização refazendo Get-Image.ps1 em {guestName}/"
     },
     "host.operator_a61a7d21cdb5e750": {
       "sourceHash": "9861822bf69dbdd7ee1ed2d5867fbf2ea114b6ae7e0c92c9464d964cf20554a8",
-      "message": "cp -- sparse= sempre falhou ao copiar {baseImageFile} -> {diskImg}"
+      "message": "cp --sparse=always falhou ao copiar {baseImageFile} -> {diskImg}"
     },
     "host.operator_a652e6111719f172": {
       "sourceHash": "0ac04a4bd1782af791ed82bcafcfd8a313f3ad03b3a1f755fb318b2262b658db",
@@ -3045,7 +3045,7 @@
     },
     "host.operator_a943d79451176edc": {
       "sourceHash": "a6901f5ccee977d2ff0d6f67755a0bcb7662a7326d4ec5415a347bf9739025e5",
-      "message": "qemu- img não encontrado; não é possível redimensionar {path}."
+      "message": "qemu-img não encontrado; não é possível redimensionar {path}."
     },
     "host.operator_a96b67d0b8d27088": {
       "sourceHash": "f6777170e7e9dd6bde8316940157cf258afc0c530aaaa05ecbc5ac98c3f06ffb",
@@ -3053,7 +3053,7 @@
     },
     "host.operator_a986b71028c74af3": {
       "sourceHash": "6d67f226670f8c3c2953aeda3f6af9a94bbbb000c2f5137278b7d69c14c369dd",
-      "message": "Retomar-YurunaServiceVM: '{name}' não re-registrou com UTM dentro de {timeoutSeconds} s; retome-o manualmente (itmctl start '{name}')."
+      "message": "Resume-YurunaServiceVM: '{name}' não re-registrou com UTM dentro de {timeoutSeconds} s; retome-o manualmente (itmctl start '{name}')."
     },
     "host.operator_a987e4f99dc9ede6": {
       "sourceHash": "17b29755e02aef100cb3406c25cd491a9b3cf90999160b294975900aefbe66c9",
@@ -3069,7 +3069,7 @@
     },
     "host.operator_a9b466db2e20d135": {
       "sourceHash": "7d318f601b3da38c6d2e7782b46634a6e32359fe9515ba0b18138ae575fc6fc1",
-      "message": "Ponte '{bridgeName}' não tem ligação física (apenas portas de toque anexadas). Auto- cura..."
+      "message": "Ponte '{bridgeName}' não tem ligação física (apenas portas de toque anexadas). Auto-cura..."
     },
     "host.operator_a9dbdd1577bb8c0e": {
       "sourceHash": "a6a4935803fb9832f8c8da3ca7e83332fd5c6b271ce7df973dbe7aa98061c067",
@@ -3093,7 +3093,7 @@
     },
     "host.operator_ab1fcde57a7857c8": {
       "sourceHash": "ceed4a09af6bcb329a53af2dcd74c5723c2ddacd8ad87831c6cb98c52e16b751",
-      "message": "A ligação '{switchName}' ao '{name}' falhou: {message}. O interruptor está inalterado; os hóspedes ficam no intervalo."
+      "message": "A ligação '{switchName}' ao '{name}' falhou: {message}. O interruptor está inalterado; os convidados ficam no intervalo."
     },
     "host.operator_ab4a5d9c5e556023": {
       "sourceHash": "ef6088abe856fb35bea9e41e36ada4f7ba0afa3a74488515bac67723671ddbfc",
@@ -3117,11 +3117,11 @@
     },
     "host.operator_ac9a237901fc8f7d": {
       "sourceHash": "f90f5789bd3dbdaa22883c882548f38be521a9470746acf9d9c70f8149b998d9",
-      "message": "VMs convidados irão detectar automaticamente lulas na porta 3128 quando\nNova VM.ps1 roda. Mantenha a VM rodando em ciclos."
+      "message": "VMs convidados irão detectar automaticamente lulas na porta 3128 quando\nNew-VM.ps1 roda. Mantenha a VM rodando em ciclos."
     },
     "host.operator_acad3d911acdf65d": {
       "sourceHash": "a734adeb9d601e00a28c2e18aff4e1f549b60b6d6db46397a9c0d3b1c71f3e24",
-      "message": "Resolução-UtmConvidadoIpByMac: nenhum MacAddress no {plistPath} -- não pode identificar a VM pelo MAC."
+      "message": "Resolve-UtmGuestIpByMac: nenhum MacAddress no {plistPath} -- não pode identificar a VM pelo MAC."
     },
     "host.operator_ad3787aa98e176ba": {
       "sourceHash": "d995115aa3e4754041c61da29c9abe9bb9d3eed5e8928d7a7677d38431b881fc",
@@ -3137,7 +3137,7 @@
     },
     "host.operator_ada79849fa8dc53a": {
       "sourceHash": "e0f96ec44212394a9542a3c5ec8decff7bceb4b8844dcd2641b9cf214ce58e13",
-      "message": "A senha veio da variável de ambiente: YURUNA GUEST  PASSWORD"
+      "message": "A senha veio da variável de ambiente: YURUNA_GUEST_PASSWORD"
     },
     "host.operator_ae926188af9d3ca0": {
       "sourceHash": "2b4934abdde389b94560084e104e4ff091ce213c42769317002417014e6ef6da",
@@ -3189,7 +3189,7 @@
     },
     "host.operator_b151e82086a9c67b": {
       "sourceHash": "26f0fb465d8664692df612bfa1870d4007f55146d096586781258efbd49c1537",
-      "message": "Nenhuma captura pré-automática nesta máquina (Ativar-TestAutomation não escreveu um, ou o arquivo foi removido)."
+      "message": "Nenhuma captura pré-automática nesta máquina (Enable-TestAutomation não escreveu um, ou o arquivo foi removido)."
     },
     "host.operator_b15dd410559b0438": {
       "sourceHash": "f40d8b22feac6685fd189735560388ca7fdd4ac0b10299254e3cbe0d1dfd010b",
@@ -3233,7 +3233,7 @@
     },
     "host.operator_b3adfc0d608ac6e8": {
       "sourceHash": "9f5d145dd08a9aeeda6d4855f7994548dd4feb465edffc08563d94a9082ddea3",
-      "message": "Renomear- VM: recusando- se a renomear '{vMName}' -> '{newName}' (os nomes não devem conter '/', '\\\\', ou '\"')."
+      "message": "Rename-VM: recusando-se a renomear '{vMName}' -> '{newName}' (os nomes não devem conter '/', '\\\\', ou '\"')."
     },
     "host.operator_b416f0c3ecd65028": {
       "sourceHash": "8f633f8b22b74cb0fb865f2d0ab68d1203b8e76ea3c4bdf021f9613e566cd5e1",
@@ -3241,11 +3241,11 @@
     },
     "host.operator_b452a787ac5af2a4": {
       "sourceHash": "27c84b3d1a82758e543d09347d2a2f1324c2ab0550cbba5a24518b007d7bc411",
-      "message": "em teste/sequências/start.guest.macos.26.yml."
+      "message": "em test/sequences/start.guest.macos.26.yml."
     },
     "host.operator_b45c917f03c9cba3": {
       "sourceHash": "22cead1033fa870a272bc09ae6a8a9e6e51f2f32bbd4150e06f68eb6c1d71990",
-      "message": "Restaurar-VMDiskSnapshot: sem checkpoint '{id}' em '{vMName}'."
+      "message": "Restore-VMDiskSnapshot: sem checkpoint '{id}' em '{vMName}'."
     },
     "host.operator_b488eb4173bc6e6b": {
       "sourceHash": "654cf767fb2c24a1f624493c6e006723f6abfa018904a55870059d2fe83b32d9",
@@ -3269,7 +3269,7 @@
     },
     "host.operator_b6e0da77ab1ba6b5": {
       "sourceHash": "0b719f6fc8631b0f2a88372b33b5ded5562ef33e1eaf53a90ebb1edc5a836432",
-      "message": "Renomear-VM: PlistBuddy não pôde atualizar :Information:Name in '{dstConfig}'."
+      "message": "Rename-VM: PlistBuddy não pôde atualizar :Information:Name in '{dstConfig}'."
     },
     "host.operator_b6e237c7cda71c3f": {
       "sourceHash": "ebff2b95d31a80dd893ae1ca76a8fe7cbac49e5d31ce513feac36cd3872bc17c",
@@ -3305,11 +3305,11 @@
     },
     "host.operator_b87fb2bbf66827b8": {
       "sourceHash": "7c2ea66a77f605e6074a69b13a093b8ba5fa8b94d46edead85084f66fbbda0d4",
-      "message": "O Get- HyperVWindowScreenshot falhou: {value}"
+      "message": "O Get-HyperVWindowScreenshot falhou: {value}"
     },
     "host.operator_b89811c24b571c30": {
       "sourceHash": "b2edf9187f1881cc2131aa34164028d1f919ac60c9c3d94629bc4e73cca776b2",
-      "message": "Renomear-VM: pacote de destino já existe: '{dstBundle}'."
+      "message": "Rename-VM: pacote de destino já existe: '{dstBundle}'."
     },
     "host.operator_b8a5ce8d9003b608": {
       "sourceHash": "1a665d1761c26be5fd96b121b2c05bd57716ebb43b0b9810da7c2708e5c0ee0e",
@@ -3317,11 +3317,11 @@
     },
     "host.operator_b8e47643acd55dfa": {
       "sourceHash": "c5466c37eae17f5fd56f042811d3c1ffe169584f87d6642299a286aef66e3955",
-      "message": "Yuruna-caching-proxy-service VM existe (status: {squidStatus}) mas não foi iniciado. Os hóspedes irão baixar diretamente (esperam ocasionalmente 429s)."
+      "message": "Yuruna-caching-proxy-service VM existe (status: {squidStatus}) mas não foi iniciado. Os convidados irão baixar diretamente (esperam ocasionalmente 429s)."
     },
     "host.operator_b8f92bfb6eae66ac": {
       "sourceHash": "3fe301faefa065a6adb6786bdb870de5403523efc49c95977c5f2c042ca661f4",
-      "message": "Restaurar-VMDiskSnapshot: instantâneo '{id}' não presente no {name}."
+      "message": "Restore-VMDiskSnapshot: instantâneo '{id}' não presente no {name}."
     },
     "host.operator_b9071f2223cd19e1": {
       "sourceHash": "d7bf4c6b0bdd76e11e963179998bdd7fff10e95f3de38bb6ced7108bfb0a9c53",
@@ -3349,11 +3349,11 @@
     },
     "host.operator_ba1882e41aac59a1": {
       "sourceHash": "98658f4bc0cc7119a763c6c11002a0308ba6c942e5e21d3fe5752c7ae7983641",
-      "message": "Get- VMScreenshot: a captura de tela do virsh falhou para '{vMName}'."
+      "message": "Get-VMScreenshot: a captura de tela do virsh falhou para '{vMName}'."
     },
     "host.operator_ba3dea3cf3e04883": {
       "sourceHash": "dc79c10db04281077670bb37439135577e018046f947d624509504b24a4732e3",
-      "message": "Salvo-ImagemComChecksum: o download falhou para {sourceUrl} : {message}"
+      "message": "Save-ImageWithChecksum: o download falhou para {sourceUrl} : {message}"
     },
     "host.operator_ba4025ead45708af": {
       "sourceHash": "4d3190115baa9f0b9b876166d24b37a67f3d1c18b269c56b68dc2c414f25604c",
@@ -3364,12 +3364,13 @@
       "message": "Configurações do sistema > Privacidade e segurança > Gravação de tela > habilite seu aplicativo de terminal e reinicie."
     },
     "host.operator_bb96ec06f5e4f923": {
-      "sourceHash": "7cb86d7548264c19644af17158a52b600cbb1f05a5ea0a245ac726fb2e247dcc",
-      "message": "UI: http://{dockIp}/ (Atribuir / Pools / Conjuntos de testes)"
+      "sourceHash": "44708bc4b698ea3899993e76be435b1f9e70e610029cc0189631afa391a22316",
+      "origin": "machine",
+      "message": "  UI:       http://{dockIp}/  (Board / Hosts / Pools)"
     },
     "host.operator_bba21c5cbbc83755": {
       "sourceHash": "0dd10a1d11910a47801a4e6864b2be67ad11bf3a72e0d4ee77620668699cb2af",
-      "message": "virt-install -- print- xml falhou (saída {lASTEXITCODE}):\n{installXml}"
+      "message": "virt-install --print-xml falhou (saída {lASTEXITCODE}):\n{installXml}"
     },
     "host.operator_bcc868d6b0c7f0f3": {
       "sourceHash": "5d25d1016021aa45c642eeb026bb2ae14b7bf4223429ef3632c520456cc8f3d4",
@@ -3381,7 +3382,7 @@
     },
     "host.operator_bd1b3169db53710a": {
       "sourceHash": "7eef1039e949702fb442ad566ab515311de5f6945b83332c831da3d74dccdd23",
-      "message": "Tentativa de remoção de itens {attempt}/{maxAttempts} em '{path}' falhou: {message}. Tentando novamente em {sleepSeconds}s..."
+      "message": "Tentativa de Remove-Item {attempt}/{maxAttempts} em '{path}' falhou: {message}. Tentando novamente em {sleepSeconds}s..."
     },
     "host.operator_bd4076d09a36eec5": {
       "sourceHash": "69fce5232015403674f93092659568fcab15677afee59618648d9be0b1d48c15",
@@ -3401,11 +3402,11 @@
     },
     "host.operator_bda747e61af2936d": {
       "sourceHash": "0530997fa429fc0a113745ef8f062c404321aaa7bedbfd093061186b9cc479fb",
-      "message": "Os seguintes ficheiros NÃO estão associados a qualquer VM actual:"
+      "message": "Os seguintes arquivos NÃO estão associados a qualquer VM actual:"
     },
     "host.operator_be2f6115e6fbd1d0": {
       "sourceHash": "44011c23a8a36bf52b6018527c1bc5310c0a2f44758861e3af6ed04ccf843dab",
-      "message": "O ficheiro de validação publicado falhou na verificação da assinatura contra"
+      "message": "O arquivo de validação publicado falhou na verificação da assinatura contra"
     },
     "host.operator_be4294182f94a395": {
       "sourceHash": "66b4e086634d7fe45dc3d1157535b5b6d6002867162ae7e31dbf9e5b403eb543",
@@ -3417,7 +3418,7 @@
     },
     "host.operator_be96c470ac033b2c": {
       "sourceHash": "65cab33f472e4c96f928e4e1f47b265602150721093ae6ced1323e940c5a1679",
-      "message": "Remove- VM '{vMName}' falhou: {value}"
+      "message": "Remove-VM '{vMName}' falhou: {value}"
     },
     "host.operator_bea0e70f89d3d54c": {
       "sourceHash": "73f048853a9edeaa8550c065b3d58302226bed0ab8e4705ea4e23d3506c53698",
@@ -3425,7 +3426,7 @@
     },
     "host.operator_bee8709211e28c63": {
       "sourceHash": "4e0b6b2ed4a4e819be0710df8ee2a01a016daa165398914f414b87ef37ae5162",
-      "message": "HKCU WinINet + HKCU\\ Ambiente"
+      "message": "HKCU WinINet + HKCU\\Environment"
     },
     "host.operator_bf10148337542752": {
       "sourceHash": "f38724c7f61eb6d89a7afa7c3a9d6177834ee02ff613bab2d2ae7776acab6eab",
@@ -3433,7 +3434,7 @@
     },
     "host.operator_bf5cb6a52f334520": {
       "sourceHash": "1406494f54eff46ab094639bc2a94fcb79c44f37d360f582e9c39a32751d684d",
-      "message": "Ignorando os passos do serviço libvirt, rede, grupo e pesquisa- ACL: eles não podem ter sucesso até que os pacotes acima sejam instalados. Execute novamente este script depois."
+      "message": "Ignorando os passos do serviço libvirt, rede, grupo e verificação de ACL: eles não podem ter sucesso até que os pacotes acima sejam instalados. Execute novamente este script depois."
     },
     "host.operator_bf613f7460bae519": {
       "sourceHash": "58203ad4558b9ae9e04806c4522aeb0b1624ae103f8b1226053d9d1bafbc2f01",
@@ -3441,11 +3442,11 @@
     },
     "host.operator_bf7819296c37a7e0": {
       "sourceHash": "514d44c21d95932988ad7dabe194ed3c0a611a27c71591f85b26b33f0171cc84",
-      "message": "O convidado do Windows 11 KVM é apenas x86 64 (esta máquina é {arch})."
+      "message": "O convidado do Windows 11 KVM é exclusivo de x86_64 (x86_64-only) (esta máquina é {arch})."
     },
     "host.operator_c00f98d8832e6542": {
       "sourceHash": "4db77a5bf6f4f01a7123d976780ed4295113d4c059f9ab1d98a0d41fde600f2c",
-      "message": "O processo de paragem falhou para o PID {processId}: {value}"
+      "message": "O Stop-Process falhou para o PID {processId}: {value}"
     },
     "host.operator_c02ee678823c4a0e": {
       "sourceHash": "16160972a473dadb602cf0845f2fce3578b9c1200c8ef983bbd4a0592545eb78",
@@ -3453,7 +3454,7 @@
     },
     "host.operator_c041d9cc53c27c36": {
       "sourceHash": "b1bd7a3feb14774ef96078ff4133b5f4f3feac5074b7f2c1689e4ba8c648c6e4",
-      "message": "Renomear-VM: virsh domrename '{vMName}' -> '{newName}' falhou."
+      "message": "Rename-VM: virsh domrename '{vMName}' -> '{newName}' falhou."
     },
     "host.operator_c08a2cd955043a9e": {
       "sourceHash": "cc01caabb7bc578564edd31a555f1d0c67cceb60471aecb3d283c6ad0f53f0a1",
@@ -3481,7 +3482,7 @@
     },
     "host.operator_c287504e62bbfb0e": {
       "sourceHash": "7ee69e7e338a6396bbf197db67571154748a6331858d0708ca2631ce6841dbd3",
-      "message": "Sub-rede externa Yuruna"
+      "message": "Yuruna-External"
     },
     "host.operator_c2ac53c45cd20863": {
       "sourceHash": "da97e735a8dec58281248d4973d03cc9821a3479d0f9d62ef95c78a56bbb395e",
@@ -3501,7 +3502,7 @@
     },
     "host.operator_c3465a5d4374dceb": {
       "sourceHash": "3debd9e779f01a19b407dbc7c53dd6e3c8713e51a25405b2a5fb1d56a2bc3bf8",
-      "message": "Usando a rede 'default' da libvirt NAT (192.168.122/24). A VM de download- agent- service é acessível somente a partir desta máquina e o NAS provavelmente não é routável; defina uma rede de libvirt 'yuruna- external' para LAN + NAS acesso."
+      "message": "Usando a rede 'default' da libvirt NAT (192.168.122/24). A VM de download-agent-service é acessível somente a partir desta máquina e o NAS provavelmente não é routável; defina uma rede de libvirt 'yuruna-external' para LAN + NAS acesso."
     },
     "host.operator_c3812246baa50ef9": {
       "sourceHash": "3573e28f6c40c38c4109761d6a4427ac04d4da96a51868199e3fd3105aa872f7",
@@ -3525,11 +3526,11 @@
     },
     "host.operator_c487c562962fbd2a": {
       "sourceHash": "796317ac3508b4dd8356bb11d061401be63976a1eaeacc6eccbe816737f53635",
-      "message": "A máquina tem núcleos físicos {hostCores}, - CpuCount={cpuCount}; Yuruna requer pelo menos 4 núcleos na máquina E pelo menos 4 vCPU atribuídos. Veja https://yuruna.link/42fa6f45-0015"
+      "message": "A máquina tem núcleos físicos {hostCores}, -CpuCount={cpuCount}; Yuruna requer pelo menos 4 núcleos na máquina E pelo menos 4 vCPU atribuídos. Veja https://yuruna.link/42fa6f45-0015"
     },
     "host.operator_c53432cf9b294e69": {
       "sourceHash": "c6aa72d035f4f190ae53d9bdab1b67a3513bdc396175036dc24ff9437ca9e25e",
-      "message": "Send-Key -Mecanismo gui: Test.SequenceEngine.psm1 não encontrado em '{sequenceEngine}'."
+      "message": "Send-Key -Mechanism gui: Test.SequenceEngine.psm1 não encontrado em '{sequenceEngine}'."
     },
     "host.operator_c57bb9bc8d0199f8": {
       "sourceHash": "ade2c3e503a07c0339929dea3a6f581edf4d64eb4fd0fdfe85f2518d13f05db7",
@@ -3553,7 +3554,7 @@
     },
     "host.operator_c66ee6ced9fa2d77": {
       "sourceHash": "3639017da388afb89c332c768ebc72b7ad04e7f260b9e767211e350248af8581",
-      "message": "Restaurar-VMDiskSnapshot: '{vMName}' não desligou completamente (qcow2 ainda bloqueado); abortando para evitar uma reversão entupida."
+      "message": "Restore-VMDiskSnapshot: '{vMName}' não desligou completamente (qcow2 ainda bloqueado); abortando para evitar uma reversão entupida."
     },
     "host.operator_c67e69b1dce2a237": {
       "sourceHash": "31629f398acbd78cd8937267b1af01a3ed2da579c25c2e00f31fd22b6df5f0d8",
@@ -3569,7 +3570,7 @@
     },
     "host.operator_c6ed9927d5052f27": {
       "sourceHash": "278e3c515bfddfc900785a082cd161335c54723e516b12ca40aae1af9edba08f",
-      "message": "\nA rede libvirt '{networkName}' está activa, mas a sua ponte hospedeira '{extBridge}' não tem NO\nLAN uplink físico (apenas as portas de toque de hóspedes estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM pool-control-service não foi iniciada."
+      "message": "\nA rede libvirt '{networkName}' está activa, mas a sua ponte hospedeira '{extBridge}' não tem NO\nLAN uplink físico (apenas as portas de toque de convidados estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM pool-control-service não foi iniciada."
     },
     "host.operator_c748b36dc0a02031": {
       "sourceHash": "6bc45073aefce9705d0f7f7267fff4bc771727f39abb296664cdcf33b7695d94",
@@ -3593,7 +3594,7 @@
     },
     "host.operator_c8f003fc6b37a1de": {
       "sourceHash": "a7b9b4786c8a28569c16323c8e0bcf3ae258b4062eaee358c683e208f5ae28e5",
-      "message": "dockerhub- token: a leitura do cofre desta máquina falhou ({message}). Construindo com NENHUMA credencial do Docker Hub: o cache sincroniza- se anonimamente com um orçamento de captura partilhado por todos os convidados por trás deste IP de saída. Resolva o cofre erro e reconstrução."
+      "message": "dockerhub-token: a leitura do cofre desta máquina falhou ({message}). Construindo com NENHUMA credencial do Docker Hub: o cache sincroniza-se anonimamente com um orçamento de captura partilhado por todos os convidados por trás deste IP de saída. Resolva o cofre erro e reconstrução."
     },
     "host.operator_c9280c32bb45be5e": {
       "sourceHash": "4b5cac5809e7a74a91abc46e2ca90c5b6d616171330344c57a2c4f28cccc931a",
@@ -3605,7 +3606,7 @@
     },
     "host.operator_c9c60711aada785b": {
       "sourceHash": "d9a4311e675bdc4736a3272d30d8c3ba348b356f545e8fcc1f2b36dc7f0e41c5",
-      "message": "A pasta VHDX padrão do Hyper- V não existe: {downloadDir}"
+      "message": "A pasta VHDX padrão do Hyper-V não existe: {downloadDir}"
     },
     "host.operator_c9cdde915a1c6b17": {
       "sourceHash": "63f3db1127fb67012c53737d6091b2d0f4c6277f9c672213d9c14842860a89c9",
@@ -3705,11 +3706,11 @@
     },
     "host.operator_d055b300ffe84fec": {
       "sourceHash": "94262ec3d47527945614eda43a3d2838a0d52f678e7a152ec379a784a6ee34f3",
-      "message": "Gravar- VMDiskSnapshot: virsh snapshot- create- as failed for '{id}': {join}"
+      "message": "Save-VMDiskSnapshot: virsh snapshot-create-as failed for '{id}': {join}"
     },
     "host.operator_d077adca37bbf33b": {
       "sourceHash": "c4e98f87f355f23982c860baa220da2434f6ea914c18047371fa7610fd655e8b",
-      "message": "O redimensionamento do qemu- img falhou. Instale as ferramentas QEMU com: brew install qemu"
+      "message": "O redimensionamento do qemu-img falhou. Instale as ferramentas QEMU com: brew install qemu"
     },
     "host.operator_d081eb7e3c3452a0": {
       "sourceHash": "9bf4af2244b84fea5c3b2d94423abd11f95035d37b82681c37bb2ef261b392d4",
@@ -3753,7 +3754,7 @@
     },
     "host.operator_d32b2d3c28f9479a": {
       "sourceHash": "02d4cee2a7bc0c11401ac50a2593291085cb82ee24c1cf8af75d982a193629e5",
-      "message": "Para exposição à LAN E um painel de piscina de trabalho (cache VM recebe uma real"
+      "message": "Para exposição à LAN E um painel de grupo de trabalho (cache VM recebe uma real"
     },
     "host.operator_d36c28967dd8572f": {
       "sourceHash": "030e4a5844c17982f170d509df01bf0c78b854e93f3be23abf38bebcd5e67378",
@@ -3761,7 +3762,7 @@
     },
     "host.operator_d389bec5f4a68d26": {
       "sourceHash": "c107cb113bbf83a169e9a5d9ae5d5e6d36d81214290457b144f7e7d3b32a1366",
-      "message": "O UTM lista '{vMName}' mas o seu pacote desapareceu ({utmBundle}). Limpe o registo (Remove- VM - VMName '{vMName}') para que o VM possa ser criado novamente."
+      "message": "O UTM lista '{vMName}' mas o seu pacote desapareceu ({utmBundle}). Limpe o registro (Remove-VM -VMName '{vMName}') para que o VM possa ser criado novamente."
     },
     "host.operator_d3a388ccdbaaa347": {
       "sourceHash": "1bbf8036bd2242e5d55a51f45e011eda1768de01fa2ff22df89c3944802c96fa",
@@ -3837,7 +3838,7 @@
     },
     "host.operator_d6fe825a381b5c81": {
       "sourceHash": "9c915198efd537659804345483a7d51e5c389263583a6dec034efafd0b961864",
-      "message": "A VM de serviço de controle de piscina não será acessível da LAN por seu próprio IP, e o NAS pode ser inacessível."
+      "message": "A VM de serviço de controle de grupo não será acessível da LAN por seu próprio IP, e o NAS pode ser inacessível."
     },
     "host.operator_d74692e9db12304f": {
       "sourceHash": "cbb64add07f63507fb220a948898ba6db9b0c400127cdc0bbee59ee42bc35cf6",
@@ -3845,7 +3846,7 @@
     },
     "host.operator_d7a37d0b142d440c": {
       "sourceHash": "d73ac250b8aecc90bead5881eed786249ad9d1c3c6644a8b1b78c7978380aaa6",
-      "message": "Hyper- V Virtual Machine Management service (vmms) não está em execução (status: {status}). Tente: Start-Service vmms"
+      "message": "Hyper-V Virtual Machine Management service (vmms) não está em execução (status: {status}). Tente: Start-Service vmms"
     },
     "host.operator_d86a196b1addbb2e": {
       "sourceHash": "e549937df33df8bbe8f9051314b9ae909416d4da9d9b6fb570e6bd24d97ed6cd",
@@ -3873,7 +3874,7 @@
     },
     "host.operator_d9865efa39e8e674": {
       "sourceHash": "054e253f9cf2454ee1271156a408a4bd6b577d7e373dc835e869aaf02ca6dc70",
-      "message": "Ambos os degraus de descoberta sob demanda são silenciosos nesta máquina, de modo que os endereços de hóspedes vêm apenas da cache do vizinho da máquina. Essa cache decai, de modo que as buscas irão falhar intermitentemente. Instale o qemu- guest- agent na semente do convidado, ou Ponha os convidados numa rede gerida pela libvirt."
+      "message": "Ambos os degraus de descoberta sob demanda são silenciosos nesta máquina, de modo que os endereços de convidados vêm apenas da cache do vizinho da máquina. Essa cache decai, de modo que as buscas irão falhar intermitentemente. Instale o qemu-guest-agent na semente do convidado, ou Ponha os convidados numa rede gerida pela libvirt."
     },
     "host.operator_d9b89a1cbf294786": {
       "sourceHash": "4888f118f7c0d47bb282e2181ade0d8260599582e0bb59ed173384fe272c7371",
@@ -3881,7 +3882,7 @@
     },
     "host.operator_d9f5e63dbaea5cc8": {
       "sourceHash": "1ab5f3deb945a3f32b35e611c93670ee2c8a6ae6e9d813439b1afa800ae7b266",
-      "message": "Self- heal: 'sudo nmcli connection up {slave}' não restaurou o uplink. Tentando quaisquer candidatos a escravos restantes..."
+      "message": "Self-heal: 'sudo nmcli connection up {slave}' não restaurou o uplink. Tentando quaisquer candidatos a escravos restantes..."
     },
     "host.operator_d9fd336c78bc7623": {
       "sourceHash": "0dc705188f341e1988a4de7c437748433fc302c443a4635e57410c3e70ca7195",
@@ -3897,7 +3898,7 @@
     },
     "host.operator_da47370b58937f49": {
       "sourceHash": "d60aee074f7dae1f9ee1c2a185bfc72d9d086b944fdd4d03e6e4dc87c85cd7bb",
-      "message": "\nA rede libvirt '{networkName}' está activa, mas a sua ponte hospedeira '{extBridge}' não tem NO\nLAN uplink físico (apenas as portas de toque de hóspedes estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM download- agent- service não foi iniciada."
+      "message": "\nA rede libvirt '{networkName}' está activa, mas a sua ponte hospedeira '{extBridge}' não tem NO\nLAN uplink físico (apenas as portas de toque de convidados estão anexadas).\nobter uma locação DHCP -- esta é a espera silenciosa de 'sem IP' de 20 minutos, não uma inicialização lenta.\n\nCurar a ponte, depois repetir este script:\ntest/service/Start-CachingProxyServiceVM.ps1\n(possui o ciclo de vida da ponte 'yuruna-externa' e auto-cura ou reconstrói\nuplink NIC). Nada foi criado; a VM download-agent-service não foi iniciada."
     },
     "host.operator_db76a809c970c1de": {
       "sourceHash": "139bd7aab16d632e418629e0e265e6ffcb3970251368f84ad8e18c03adb5e36b",
@@ -3921,7 +3922,7 @@
     },
     "host.operator_dc75df94eaaa9e40": {
       "sourceHash": "f55952b5fadac74db6bb4e867154fc08b643deb71f9eac52a5bad4f9768388a6",
-      "message": "Inspecione o interruptor com Get-VMSwitch -Nome '{switchName}' e Get-NetAdapter."
+      "message": "Inspecione o interruptor com Get-VMSwitch -Name '{switchName}' e Get-NetAdapter."
     },
     "host.operator_dcce50e7f8a2921d": {
       "sourceHash": "65f1db1a7406c0165a24722b6a958c7fee0b3571c367ac9f63a0fa35d401c9d5",
@@ -3937,7 +3938,7 @@
     },
     "host.operator_dd54e1221e1df026": {
       "sourceHash": "5af994f893bd6b8601fc4d267fd082ee75d27030cbc3a84845de4d3b27c9c4e7",
-      "message": "Subsídios de acessibilidade e gravação de ecrã (TCC)"
+      "message": "Subsídios de acessibilidade e gravação de tela (TCC)"
     },
     "host.operator_dd7b45e336b3fcd0": {
       "sourceHash": "ba3169ec8894103628223e463d91b670343ed6c89a08bf3c846c9b5ea777dd9d",
@@ -3949,7 +3950,7 @@
     },
     "host.operator_dda22dc70c2dcb9f": {
       "sourceHash": "5db06ecada51e619cf2bb7922125e404774303235f30f33aa7028359ddfb53de",
-      "message": "Salvar- VMDiskSnapshot: o instantâneo '{id}' salvo, mas renomear '{vMName}' -> '{id}' falhou; VM será apagado na limpeza do ciclo seguinte."
+      "message": "Save-VMDiskSnapshot: o instantâneo '{id}' salvo, mas renomear '{vMName}' -> '{id}' falhou; VM será apagado na limpeza do ciclo seguinte."
     },
     "host.operator_ddd6375b1613a19a": {
       "sourceHash": "02b5280ac93dbcc00b301303f93e57485928f679cd36688cc3b256715cfeb2f0",
@@ -3957,11 +3958,11 @@
     },
     "host.operator_dde8dea17f4f28d3": {
       "sourceHash": "857c4006fb6efba62bed36f8db5334ce8fdf1e81bd038f3f9bb488567574a8bd",
-      "message": "SSH: ssh stash- admin@ {dockIp} (chave de harness autorizada)"
+      "message": "SSH: ssh stash-admin@{dockIp} (chave de harness autorizada)"
     },
     "host.operator_dec3b9d961011af3": {
       "sourceHash": "58213aecf630d1234f043e61c859d01fd191f0d9eb544f2a4f1597c14755d7df",
-      "message": "Restaurar- VMDiskSnapshot: pasta de dados do pacote UTM não encontrada: {dataDir}"
+      "message": "Restore-VMDiskSnapshot: pasta de dados do pacote UTM não encontrada: {dataDir}"
     },
     "host.operator_dee4cbb914cf0c9d": {
       "sourceHash": "8fcde79ec696fe766e9cd806623b7274e16ad677ab7c7649e30c84598a384676",
@@ -3969,7 +3970,7 @@
     },
     "host.operator_df10f38143b3b549": {
       "sourceHash": "bc4588fc80ef3479f3eb6640251cba9a5c0e12d9227017281099698e8e6a7464",
-      "message": "Cada endereço ferroviário entre {railPrefix}.{railFirstOctet} e .{railLastOctet} é reservado; '{vMName}' será executado sem um endereço ferroviário."
+      "message": "Register-GuestRailAddress: todos os endereços de rede entre {railPrefix}.{railFirstOctet} e .{railLastOctet} estão reservados; '{vMName}' será executada sem um endereço dessa rede."
     },
     "host.operator_df3396f890eae3df": {
       "sourceHash": "bd5d5bc53b133f56be043117c4da80aa0fff650002fff278ec3bafc3c77da12c",
@@ -4021,7 +4022,7 @@
     },
     "host.operator_e30f6e2006f710fa": {
       "sourceHash": "2e79e7107ae5ff9bdaf39de71c6228f4834e9ce3c19b35e03a96b42a6a4d0ef6",
-      "message": "Pasta VHDX padrão do Hyper- V: {downloadDir}"
+      "message": "Pasta VHDX padrão do Hyper-V: {downloadDir}"
     },
     "host.operator_e39505c185df23e7": {
       "sourceHash": "598e652f0b4f7b2b44b11cbcf126124dac6d40a84a462e17d215384419fc5bdf",
@@ -4029,7 +4030,7 @@
     },
     "host.operator_e3b5217631d5fe3a": {
       "sourceHash": "bfeff59fa5c210edbb7455ddffbb09e99f91ab3c43bedf5c4209f5c435f0b782",
-      "message": "Nome de arquivo, URL, contagem de bytes gravados e Última modificação para: {originFile}"
+      "message": "Nome de arquivo, URL, contagem de bytes gravados e Last-Modified para: {originFile}"
     },
     "host.operator_e3c81edbb00cfb45": {
       "sourceHash": "8222448308d1228eada735c53ec07b7bf2c0b5b650fced9e0e2611af7b7f43a3",
@@ -4069,11 +4070,11 @@
     },
     "host.operator_e66e5fac2f0dcb7f": {
       "sourceHash": "016513f8fe882e91d188eedfc45dc1c4f35673203761a50abc043f9a828c33d3",
-      "message": "O setfacl falhou no {hOME} -- o libvirt- qemu pode não ser capaz de alcançar discos VM. Tente 'chmod o+x {hOME}' como um recuo."
+      "message": "O setfacl falhou no {hOME} -- o libvirt-qemu pode não ser capaz de alcançar discos VM. Tente 'chmod o+x {hOME}' como um recuo."
     },
     "host.operator_e69fb2b8940dab5a": {
       "sourceHash": "76596b4ac45cc4fe1ea2fbfc7bc89f4285e331be2b0633e6248d185ff3c42592",
-      "message": "Renomear-VM: o registro renomeado para '{newName}' mas Mover-VMStorage para '{destDir}' falhou: {message}. Os arquivos ainda vivem em '<vhdPath>\\{vMName}\\' e podem ser varridos pela varredura de arquivos órfãos."
+      "message": "Rename-VM: o registro renomeado para '{newName}' mas Move-VMStorage para '{destDir}' falhou: {message}. Os arquivos ainda vivem em '<vhdPath>\\{vMName}\\' e podem ser varridos pela varredura de arquivos órfãos."
     },
     "host.operator_e6c7788318dbd530": {
       "sourceHash": "a6a749e418728027b1a71fa915fa0da84fb67d94de6c073c3892f4197a72a9ad",
@@ -4081,7 +4082,7 @@
     },
     "host.operator_e715d99e397197d5": {
       "sourceHash": "06d333f5a08ce62f5cfd13591fbc0bc86da429cd15755c2450567c110d0c40cd",
-      "message": "yuruna-caching-proxy-service VM existe, mas é '{state}'. Os hóspedes irão fazer o download diretamente (expect ocasional 429s)."
+      "message": "yuruna-caching-proxy-service VM existe, mas é '{state}'. Os convidados irão fazer o download diretamente (expect ocasional 429s)."
     },
     "host.operator_e73bb843561f0649": {
       "sourceHash": "f9c4e11dc7abcea11c2ba9fb080835d133748f2a0a890061e79dfa6256772d4a",
@@ -4173,7 +4174,7 @@
     },
     "host.operator_eb80b57d92f969a7": {
       "sourceHash": "e665fa7d286a85abafe5bec18ccea6254d5ea41cf25c33ff075be484edcfd84d",
-      "message": "vSwitch '{switchName}' não existe nesta máquina (renomeado ou removido desde que o interruptor do hóspede foi escolhido). Respondendo com o endereço padrão Switch, que é acessível apenas a partir de um hóspede realmente anexado ao Mudança por Omissão."
+      "message": "vSwitch '{switchName}' não existe nesta máquina (renomeado ou removido desde que o interruptor do convidado foi escolhido). Respondendo com o endereço padrão Switch, que é acessível apenas a partir de um convidado realmente anexado ao Mudança por padrão."
     },
     "host.operator_ebad947b6ac44dfe": {
       "sourceHash": "804385c4d5da6d54061937b9baa6722af3fd4e0613fdc5b231c9058f4e5312ef",
@@ -4205,7 +4206,7 @@
     },
     "host.operator_ed3c547320b2c6d6": {
       "sourceHash": "13d356fa0030144b8f5bfe3a4138afcc675482fc50ecbfdf6746511b2079c44a",
-      "message": "Definir Web/securewebproxy para {h}:{p} e habilitar"
+      "message": "Definir web/securewebproxy para {h}:{p} e habilitar"
     },
     "host.operator_ed6f405da50b5ea4": {
       "sourceHash": "40e8221c55ea6b1aa14d0c269add83422f53e940ff13337ded6f2b3bd0bb438b",
@@ -4253,7 +4254,7 @@
     },
     "host.operator_f0fd9838eca3f370": {
       "sourceHash": "508d7188db9598dc6214bd45f4d340d962b9d5713659f70c27b22606fcfa70ec",
-      "message": "virsh -- source agent : tenta (seed instala o qemu- guest- agent best- effort; confirma por convidado)"
+      "message": "virsh --source agent : tenta (seed instala o qemu-guest-agent best-effort; confirma por convidado)"
     },
     "host.operator_f11ac5338e134c99": {
       "sourceHash": "e288add86c27ce9adf52ac5833a49fe5d0e6c7a2f3e954ac7384711975dd0227",
@@ -4265,7 +4266,7 @@
     },
     "host.operator_f14a8d0740e60f7c": {
       "sourceHash": "f6edbdf740f698fac15044617045779c2632c30ea3f88f8c569f0fb538a5a8d1",
-      "message": "Save- VMDiskSnapshot: '{vMName}' não seria desligado de forma limpa; paragem de força. O ponto de verificação '{id}' pode ser consistente com falhas -- os ficheiros gravados nos últimos segundos antes de a paragem poder ter um comprimento zero."
+      "message": "Save-VMDiskSnapshot: '{vMName}' não seria desligado de forma limpa; paragem de força. O ponto de verificação '{id}' pode ser consistente com falhas -- os arquivos gravados nos últimos segundos antes de a paragem poder ter um comprimento zero."
     },
     "host.operator_f1828451620bc0f7": {
       "sourceHash": "55c3ea409a1f3091d8652131c2debe22b4bacaea8eae223a7cbdffba6f3af91c",
@@ -4277,7 +4278,7 @@
     },
     "host.operator_f20ec6dc25a27749": {
       "sourceHash": "e8b884a2f216ed5548c82e78d587342aa4425df833346bf474fca5c7e13fe71c",
-      "message": "vSwitch '{switchName}' é tipo '{switchType}', não externo. Respondendo com o endereço padrão Switch, que é acessível apenas a partir de um hóspede realmente anexado ao Switch padrão."
+      "message": "vSwitch '{switchName}' é tipo '{switchType}', não externo. Respondendo com o endereço padrão Switch, que é acessível apenas a partir de um convidado realmente anexado ao Switch padrão."
     },
     "host.operator_f257239b1955c535": {
       "sourceHash": "52635ebc9c608e049b0816d0d651e738cc57037b230b1fefd91487176b8206cd",
@@ -4289,7 +4290,7 @@
     },
     "host.operator_f29ceda33915a5d0": {
       "sourceHash": "34da632df16008af5b4274adbd8825e6aac2c3da1e6e8b92dd3ce040ffb4754f",
-      "message": "Não foi possível parar a rede libvirt '{networkName}' (virsh net-destruir saída {lASTEXITCODE}) -- ela permanece ativa em uma ponte inutilizável, e os hóspedes ligados a ela não obterão DHCP."
+      "message": "Não foi possível parar a rede libvirt '{networkName}' (virsh net-destruir saída {lASTEXITCODE}) -- ela permanece ativa em uma ponte inutilizável, e os convidados ligados a ela não obterão DHCP."
     },
     "host.operator_f2bb24df290cd0c1": {
       "sourceHash": "951eb896f3fe6205e5985acb99a0748c444d827fe3b82d0573ce55860e8c25d7",
@@ -4309,7 +4310,7 @@
     },
     "host.operator_f3ac8c54b3ef36d7": {
       "sourceHash": "31bea660ba36b571833f91631f96c5cf74f83534ab480d5b06140ad608f784cc",
-      "message": "O desligamento dos hóspedes não trouxe '{vMName}' para Off dentro de {shutdownTimeoutSeconds}s; escalonando para um ponto de força. Escreve ainda dentro da janela de writeback do hóspede será perdido."
+      "message": "O desligamento dos convidados não trouxe '{vMName}' para Off dentro de {shutdownTimeoutSeconds}s; escalonando para um ponto de força. Escreve ainda dentro da janela de writeback do convidado será perdido."
     },
     "host.operator_f3adc201e5fa38f4": {
       "sourceHash": "18103838b79b7e361f98cd90e3720f98a661a2f604d9a768565d117ba040345c",
@@ -4345,7 +4346,7 @@
     },
     "host.operator_f61cceb0afee5ae4": {
       "sourceHash": "e36585a15259c8929575a61b73e9f7cdfd9a1b5452dd7d69468e8eaff56221d5",
-      "message": "Remover (adicionado por Active- TestAutomation)"
+      "message": "Remover (adicionado por Enable-TestAutomation)"
     },
     "host.operator_f62d769e65f81877": {
       "sourceHash": "ed0d6cc0669d82eebc459b3737ebbdbd75bf1c58455142112de9490ef418f274",
@@ -4353,7 +4354,7 @@
     },
     "host.operator_f62df16b646f2313": {
       "sourceHash": "eae99d0106bc31cb879d28c42dda0915d4e49b0d2c908a3e8922c08561fc7c19",
-      "message": "VM hiper- V parada: {vMName}"
+      "message": "VM Hyper-V parada: {vMName}"
     },
     "host.operator_f63ef0c4c6099b60": {
       "sourceHash": "9258a477e99bf3326a1a9bdfd993c0af8364894ec2b4efdcd026f31d60d631a5",
@@ -4361,11 +4362,11 @@
     },
     "host.operator_f69adb6b2f614a13": {
       "sourceHash": "11b728c71fbaa988ac4b041cf02cfc5a76a4b2b433bfff6960ddd0a8591513c9",
-      "message": "Renomear-VM: o nome de destino '{newName}' já existe."
+      "message": "Rename-VM: o nome de destino '{newName}' já existe."
     },
     "host.operator_f6be3a6bb731458d": {
       "sourceHash": "ee6a46f7be19294454bf8a906a815935b78f10856035a55ac9e504a83cb242c7",
-      "message": "O Hyper-V não relata nenhum gerenciamento-OS vNIC no switch. O Set-VMswitch - Nome '{switchName}' -Permite o gerenciamento OS $true restaura-o, ao custo de uma breve queda na rede do host."
+      "message": "O Hyper-V não relata nenhum gerenciamento do sistema operacional vNIC no switch. O Set-VMSwitch -Name '{switchName}' -AllowManagementOS $true restaura-o, ao custo de uma breve queda na rede do host."
     },
     "host.operator_f723e2637a819ebc": {
       "sourceHash": "350f63e3b6ab73bffa5f5cf64e88be2e7ebac5500061b9e0853b8e71e15bf746",
@@ -4393,7 +4394,7 @@
     },
     "host.operator_f95b24ace7630162": {
       "sourceHash": "d31a683e4fefa806d35855911384ce063e9184616f0ae09244168822295fdbd5",
-      "message": "Windows HKCU WinINet + HKCU\\Ambiente"
+      "message": "Windows HKCU WinINet + HKCU\\Environment"
     },
     "host.operator_fa07a6efcd13635f": {
       "sourceHash": "cc3862c8ede0e422b63670baf60e3ab849d710bfb4af88e0fcd62d530a677b22",
@@ -4409,7 +4410,7 @@
     },
     "host.operator_fac07fa116ddd338": {
       "sourceHash": "76a4285b36c074f937af4b0b73e35ce02079f1703661cf3243cb6e4e6051b7e8",
-      "message": "Remove- HostProxy: não foi possível detectar automaticamente o serviço de rede ativo; nada para limpar."
+      "message": "Remove-HostProxy: não foi possível detectar automaticamente o serviço de rede ativo; nada para limpar."
     },
     "host.operator_fac89af7ceb85a93": {
       "sourceHash": "15ac89cf6885b8c8e610e6c363f781a5b4b44524505b99740d0b7becd721c45a",
@@ -4417,7 +4418,7 @@
     },
     "host.operator_fae4b0ca3431a5dc": {
       "sourceHash": "7aafec4cd7dce2d5119cfd76ff3681d8cb271c8b2d1902852f0c087660e13796",
-      "message": "O '{networkName}' foi mal- sucedido (saída {lASTEXITCODE}). Tente: sudo virsh - c qemu:///system net- start {networkName}"
+      "message": "O '{networkName}' foi mal-sucedido (saída {lASTEXITCODE}). Tente: sudo virsh -c qemu:///system net-start {networkName}"
     },
     "host.operator_fb4cd0846e3495d1": {
       "sourceHash": "8792a3897aac6d4db393a21d0872d215857eebcdbfce0eb2d97e36bbeb5e0e07",
@@ -4429,7 +4430,7 @@
     },
     "host.operator_fb588d98fea5af35": {
       "sourceHash": "08f800abee236480dc37ace2d4f499410306c7c65504be0ce15b47ea6a4c30fe",
-      "message": "A verificação da VM falhou: Não foi encontrada a hiper- V VM '{vMName}'."
+      "message": "A verificação da VM falhou: Não foi encontrada a Hyper-V VM '{vMName}'."
     },
     "host.operator_fb77dad01082953b": {
       "sourceHash": "adcedef6e42bfaceecf36697a039af9b39103f124b3022c2e9a8a80cdf00095f",
@@ -4445,15 +4446,15 @@
     },
     "host.operator_fc3a019bfe08955e": {
       "sourceHash": "def5c83c358265d846f9cd90f6db740791f0eebd6d338500a46a9b1ac838e630",
-      "message": "Descobrimento do endereço de hóspedes neste host:"
+      "message": "Descobrimento do endereço de convidados neste host:"
     },
     "host.operator_fc6e553877a41837": {
       "sourceHash": "096782e1dad914bf01694f9d2697ddb0e654da7269ca3b81b8be00fbdf717633",
-      "message": "swift não encontrado no PATH. Instale as ferramentas da linha de comandos Xcode: xcode- select -- install"
+      "message": "swift não encontrado no PATH. Instale as ferramentas da linha de comandos Xcode: xcode-select --install"
     },
     "host.operator_fc7e4d718a95d1a2": {
       "sourceHash": "90bf4f97bbc92418e6e16b73ca609484ee02bd99ceedcc52a6cfd671a6d8b3df",
-      "message": "Renomear- VM: não foi possível mover o endereço '{vMName}' para fora do '{newName}'; ele mantém o endereço desse nome e colide com o próximo convidado construído sob ele. Veja https://yuruna.link/4220a755-000a"
+      "message": "Rename-VM: não foi possível mover o endereço '{vMName}' para fora do '{newName}'; ele mantém o endereço desse nome e colide com o próximo convidado construído sob ele. Veja https://yuruna.link/4220a755-000a"
     },
     "host.operator_fca7faa4a4ccb506": {
       "sourceHash": "9f69e9424f39a745aab6728c783d540ea09211f1d363f7d09e5b30e4e1bb4b7d",

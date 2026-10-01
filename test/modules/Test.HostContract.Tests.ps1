@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 423dd1b8-e8b5-4131-80dc-f7bed94cafae
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,8 +31,7 @@
     sibling re-import that a second facade load performs, and a function
     reached through the facade really runs.
     Nothing is imported from a host driver and no VM is touched.
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4
-    and Pester 5+. Run: Invoke-Pester -Path test/modules/Test.HostContract.Tests.ps1
+    Throw-based assertions so the file runs under Pester 5+. Run: Invoke-Pester -Path test/modules/Test.HostContract.Tests.ps1
 #>
 
 BeforeDiscovery {

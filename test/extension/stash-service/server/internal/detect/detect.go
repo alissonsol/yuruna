@@ -160,11 +160,20 @@ func mimeFromExtension(name string) string {
 	return mime.TypeByExtension(ext)
 }
 
-// ClassFromMime maps a (parameter-stripped) MIME type onto a UI content
-// class. SVG and HTML/XHTML are classed "other" on purpose: they are active
-// content the UI serves download-only (section 7.4), so they must never land in an
-// inline-rendered class.
+// classFromModelMime preserves deliberately download-only active document types.
+func classFromModelMime(mimeType string, isText bool) string {
+	class := ClassFromMime(mimeType)
+	base, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(mimeType)), ";")
+	if isText && class == config.ClassOther && strings.TrimSpace(base) != "text/html" && strings.TrimSpace(base) != "image/svg+xml" {
+		return config.ClassText
+	}
+	return class
+}
+
+// ClassFromMime maps MIME types to UI content classes. Active SVG and HTML
+// content stays download-only rather than entering an inline-rendered class.
 func ClassFromMime(mt string) string {
+	mt, _, _ = strings.Cut(mt, ";")
 	mt = strings.ToLower(strings.TrimSpace(mt))
 	switch mt {
 	case "image/svg+xml":

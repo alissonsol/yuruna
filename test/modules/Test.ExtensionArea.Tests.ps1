@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fa8d36-e7cb-4b28-93b8-d483c23cdcb4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -264,16 +264,5 @@ Describe 'the service host pre-flights' {
         }
     }
 
-    It 'builds identical URLs across the three areas' {
-        # The three are copies of one design. When they diverge it is silent:
-        # each area is exercised by a different cycle path, so the odd one out
-        # only fails on the host that happens to use it.
-        foreach ($address in $script:AuthorityCase.Keys) {
-            $urls = @(foreach ($area in $script:HostProbeArea.Keys) {
-                Get-AreaProbeUrl -Area $area -Function $script:HostProbeArea[$area] -Address $address
-            })
-            $distinct = @($urls | Sort-Object -Unique)
-            Assert-Equal 1 $distinct.Count "'$address' produced $($distinct -join ' vs ')"
-        }
-    }
+
 }

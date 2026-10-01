@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e081b9-58a9-4e13-8b33-aad4c1f05feb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -313,7 +313,7 @@ Describe 'Get-YurunaPrivateStateRoot -- owner checks fail closed' {
         foreach ($name in @('Get-YurunaPrivateStateRoot', 'Get-YurunaPrivateStatePath')) {
             $calls = (Get-Command -Name $name).ScriptBlock.Ast.FindAll({
                     param($node)
-                    $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Test-YurunaPrivateOwnerMatch'
+                    $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Confirm-YurunaPrivateDirectory'
                 }, $true)
             @($calls).Count | Should -BeGreaterOrEqual 1 -Because "$name decides ownership through the shared rule"
         }
@@ -331,7 +331,10 @@ Describe 'Owner and identity helpers' {
         [IO.File]::WriteAllText($file, '')
         $owner = Get-YurunaPathOwnerId -Path $file
         $owner.Resolved | Should -Be $true
-        $owner.OwnerId  | Should -Be $me.OwnerId
+        # An elevated Windows process creates files owned by the Administrators
+        # group rather than by its user (the rule Test-YurunaPrivateOwnerMatch applies).
+        $expectedOwner = if ($IsWindows -and $me.Elevated) { 'S-1-5-32-544' } else { $me.OwnerId }
+        $owner.OwnerId  | Should -Be $expectedOwner
         if (-not $IsWindows) {
             $me.OwnerId | Should -Match '^\d+$'
             $me.IsRoot  | Should -Be ($me.OwnerId -eq '0')

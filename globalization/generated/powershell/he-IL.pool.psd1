@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f65e66-8ecf-5728-a2d5-83dd16a2a464
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,14 +20,6 @@
 
 @{
     'pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to' = 'מאגר מקבץ מארחים תחת מזהה מאגר קבוע (GUID); מארח שייך לכל היותר למאגר אחד. מצב המאגר מציג מה חברי המאגר עושים כעת — בחירת ערך מחילה אותו על כל חבר.'
-    'pool.a_pool_s_members_are_meant_to_be_configured_alike_to_copy_one_pee' = @(
-        '* חברי מאגר אמורים להיות מוגדרים באופן זהה. כדי להעתיק את התצורה של עמית למארח אחר, הריצו במארח היעד: '
-        @{
-            'arg' = 'command1'
-            'type' = 'token'
-            'trust' = 'internal'
-        }
-    )
     'pool.a_scan_of_value1_is_already_running_following_that_one' = @(
         'סריקה של '
         @{
@@ -37,7 +29,6 @@
         }
         ' כבר פועלת; מתבצע מעקב אחריה.'
     )
-    'pool.a_test_set_is_a_framework_project_repo_pair_gh_token_is_not_store' = 'ערכת בדיקות היא צמד של תשתית ומאגר קוד פרויקט. GH_TOKEN אינו נשמר כאן — הוא נשאר מקומי בכל מארח, בקובץ ⁦test.config.yml⁩ או בכספת שלו.'
     'pool.actions' = 'פעולות'
     'pool.add_host_failed_value1' = @(
         'הוספת המארח נכשלה: '
@@ -122,55 +113,19 @@
         '?'
     )
     'pool.asks_every_address_in_the_network_for_a_yuruna_host_status_servic' = "פונה לכל כתובת ברשת בבקשה ל-status service של מארח Yuruna ומוסיף את המארחים`n      המשיבים למארחים המנוטרים — בין שהם במאגר ובין שלא, בין שהם רשומים ובין שלא.`n      הסריקה אינה משנה דבר במארחים עצמם."
-    'pool.assign' = 'שייכו'
-    'pool.assign_failed_value1' = @(
-        'השיוך נכשל: '
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'pool.assign_test_set' = 'לשייך ערכת בדיקות?'
-    'pool.assign_test_set_50fb7bbc' = 'שייכו ערכת בדיקות'
-    'pool.assign_test_sets_to_pools' = 'שייכו ערכות בדיקות למאגרים'
-    'pool.assign_value1_to_value2' = @(
-        'לשייך את "'
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '" אל '
-        @{
-            'arg' = 'value2'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '?'
-    )
-    'pool.assign_yuruna_pool_control' = 'שיוך — Yuruna Pool Control'
-    'pool.assigned_value1_to_pool_value2' = @(
-        ''''
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' שויך למאגר '''
-        @{
-            'arg' = 'value2'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '''.'
-    )
     'pool.board' = 'לוח'
+    'pool.board_live_numbers_unavailable' = @(
+        'המספרים החיים אינם זמינים ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ').'
+    )
     'pool.board_yuruna_pool_control' = 'לוח — Yuruna Pool Control'
     'pool.cancel' = 'בטלו'
-    'pool.change_test_set' = 'שנו ערכת בדיקות...'
     'pool.check' = 'בדקו'
-    'pool.choose_a_test_set' = '(בחרו ערכת בדיקות)'
     'pool.command1_scans_command2_through_command3_a_smaller_prefix_number_' = @(
         @{
             'arg' = 'command1'
@@ -218,14 +173,6 @@
     'pool.continue' = 'המשיכו'
     'pool.control' = 'בקרה'
     'pool.cores' = 'ליבות'
-    'pool.could_not_assign_value1' = @(
-        'לא ניתן לשייך: '
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'pool.could_not_collect_diagnostics_value1' = @(
         'לא ניתן לאסוף נתוני אבחון: '
         @{
@@ -242,24 +189,8 @@
             'trust' = 'external'
         }
     )
-    'pool.could_not_load_pool_intent_value1' = @(
-        'לא ניתן לטעון את המצב הרצוי של המאגר: '
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'pool.could_not_load_pools_value1' = @(
         'לא ניתן לטעון מאגרים: '
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'pool.could_not_load_test_sets_value1' = @(
-        'לא ניתן לטעון ערכות בדיקות: '
         @{
             'arg' = 'value1'
             'type' = 'detail'
@@ -302,7 +233,6 @@
         ''' נוצר.'
     )
     'pool.cycles' = 'מחזורים'
-    'pool.delete' = 'מחקו'
     'pool.delete_failed_value1' = @(
         'המחיקה נכשלה: '
         @{
@@ -329,34 +259,8 @@
         }
         ''' יימחק ללא אפשרות לבטל זאת. למחוק?'
     )
-    'pool.delete_test_set_value1' = @(
-        'מחקו את ערכת הבדיקות '
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'pool.delete_test_set_value1_this_cannot_be_undone' = @(
-        'ערכת הבדיקות '''
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' תימחק ללא אפשרות לבטל זאת. למחוק?'
-    )
     'pool.deleted_pool_value1' = @(
         'המאגר '''
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' נמחק.'
-    )
-    'pool.deleted_value1' = @(
-        ''''
         @{
             'arg' = 'value1'
             'type' = 'detail'
@@ -571,8 +475,6 @@
     'pool.display_name' = 'שם תצוגה'
     'pool.duration' = 'משך'
     'pool.each_of_the_four_numbers_must_be_0_to_255' = 'כל אחד מארבעת המספרים חייב להיות בטווח 0 עד 255.'
-    'pool.each_pool_tests_one_test_set_a_framework_project_repo_pair_gh_tok' = "כל מאגר בודק ערכת בדיקות אחת (צמד מאגרי קוד של תשתית + פרויקט).`n      GH_TOKEN נשאר מקומי למארח — לעולם אינו נשמר במצב הרצוי של המאגר."
-    'pool.edit' = 'ערכו'
     'pool.empty' = '(ריק)'
     'pool.enrollment_target' = @(
         @{
@@ -926,7 +828,7 @@
                     'type' = 'integer'
                     'trust' = 'internal'
                 }
-                ' אינו יכול לקרוא את הפרויקט שהוקצה. העניקו לאסימון שלו גישה, או הקצו ערכת בדיקות אחרת.'
+                ' אינו יכול לקרוא את הפרויקט שהוקצה. העניקו לאסימון שלו גישה, או הגדירו בדף Pools כתובת פרויקט שכל החברים יכולים לקרוא.'
             )
             'other' = @(
                 @{
@@ -934,7 +836,7 @@
                     'type' = 'integer'
                     'trust' = 'internal'
                 }
-                ' מארחים אינם יכולים לקרוא את הפרויקט שהוקצה. העניקו לאסימונים שלהם גישה, או הקצו ערכת בדיקות אחרת.'
+                ' מארחים אינם יכולים לקרוא את הפרויקט שהוקצה. העניקו לאסימונים שלהם גישה, או הגדירו בדף Pools כתובת פרויקט שכל החברים יכולים לקרוא.'
             )
             'two' = @(
                 @{
@@ -942,7 +844,7 @@
                     'type' = 'integer'
                     'trust' = 'internal'
                 }
-                ' מארחים אינם יכולים לקרוא את הפרויקט שהוקצה. העניקו לאסימונים שלהם גישה, או הקצו ערכת בדיקות אחרת.'
+                ' מארחים אינם יכולים לקרוא את הפרויקט שהוקצה. העניקו לאסימונים שלהם גישה, או הגדירו בדף Pools כתובת פרויקט שכל החברים יכולים לקרוא.'
             )
         }
     }
@@ -992,7 +894,7 @@
             )
         }
     }
-    'pool.hosts_switch_assigned' = @{
+    'pool.hosts_switch_own_projects' = @{
         'kind' = 'plural'
         'selector' = 'count'
         'variants' = @{
@@ -1003,7 +905,7 @@
                     'type' = 'integer'
                     'trust' = 'internal'
                 }
-                ' יעבור לפרויקט שהוקצה במחזור הבא שלו.'
+                ' יחזור לפרויקט שלו במחזור הבא.'
             )
             'other' = @(
                 @{
@@ -1011,7 +913,7 @@
                     'type' = 'integer'
                     'trust' = 'internal'
                 }
-                ' מארחים יעברו לפרויקט שהוקצה במחזור הבא שלהם.'
+                ' מארחים יחזרו לפרויקטים שלהם במחזור הבא.'
             )
             'two' = @(
                 @{
@@ -1019,7 +921,7 @@
                     'type' = 'integer'
                     'trust' = 'internal'
                 }
-                ' מארחים יעברו לפרויקט שהוקצה במחזור הבא שלהם.'
+                ' מארחים יחזרו לפרויקטים שלהם במחזור הבא.'
             )
         }
     }
@@ -1092,21 +994,10 @@
         }
     )
     'pool.listen_addr' = 'כתובת האזנה'
-    'pool.live_numbers_unavailable_value1_assigning_still_works' = @(
-        'הנתונים בזמן אמת אינם זמינים ('
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '). ההקצאה עדיין פועלת.'
-    )
     'pool.loaded' = 'נטען:'
     'pool.loading_hosts' = 'טוען מארחים...'
     'pool.loading_pools' = 'טוען מאגרים...'
-    'pool.loading_test_sets' = 'טוען ערכות בדיקות...'
     'pool.lowercase_dns_safe' = 'אותיות קטנות, תואם dns'
-    'pool.members' = 'חברים *'
     'pool.members_1044a4c0' = 'חברים'
     'pool.memory' = 'זיכרון'
     'pool.menu' = 'תפריט'
@@ -1160,18 +1051,14 @@
     )
     'pool.moves' = 'העברות'
     'pool.name' = 'שם'
-    'pool.name_frameworkurl_and_projecturl_are_all_required' = 'השדות name, frameworkUrl ו-projectUrl נדרשים כולם.'
     'pool.network' = 'רשת'
     'pool.never_enrolled_a_lab_token_run_set_labtoken_ps1_on_the_host' = 'מעולם לא נרשם אסימון מעבדה -- הריצו את ⁦Set-LabToken.ps1⁩ במארח.'
     'pool.no_hosts_discovered_yet' = 'טרם התגלו מארחים.'
     'pool.no_id_reported' = '(לא דווח מזהה)'
-    'pool.no_pools_defined_create_one_on_the_pools_page' = 'לא הוגדרו מאגרים. צרו מאגר בדף המאגרים.'
     'pool.no_pools_yet' = 'אין עדיין מאגרים.'
     'pool.no_pools_yet_create_one_from_menu_pools' = 'אין עדיין מאגרים. צרו מאגר דרך תפריט → מאגרים.'
     'pool.no_scan_has_run_yet' = 'טרם בוצעה סריקה.'
-    'pool.no_test_sets_yet' = 'אין עדיין ערכות בדיקות.'
     'pool.none' = '(אין)'
-    'pool.not' = 'לא'
     'pool.not_answered_yet_or_the_proxy_holds_no_token_of_its_own' = 'טרם התקבלה תשובה, או שלשרת המתווך אין אסימון משלו.'
     'pool.not_cidr_notation_write_an_address_a_slash_and_a_prefix_length_19' = 'הערך אינו בתבנית CIDR. כתבו כתובת, לוכסן ואורך קידומת: ⁦192.168.7.0⁩⁦/24.⁩'
     'pool.nothing_new_every_yuruna_host_in_that_range_was_already_monitored' = 'אין חדש. כל מארחי Yuruna בטווח הזה כבר היו מנוטרים.'
@@ -1203,7 +1090,6 @@
     'pool.paused_after_cycle_and_step' = 'מושהה לאחר מחזור ושלב'
     'pool.persisted_health' = 'מצב תקינות שנשמר'
     'pool.persistence_disabled' = '(שמירה מתמשכת מושבתת)'
-    'pool.pick_a_test_set_first_define_one_on_the_test_sets_page' = 'בחרו תחילה ערכת בדיקות (הגדירו ערכה בדף ערכות הבדיקות).'
     'pool.pid' = 'מזהה תהליך (pid)'
     'pool.platform' = 'פלטפורמה'
     'pool.pool' = 'מאגר'
@@ -1348,9 +1234,61 @@
             'project' = 'למארח זה אין מאגר קוד של פרויקט ולא הוגדר עבורו מאגר כזה, או שהוא טרם השיב.'
         }
     }
+    'pool.repositories_both_or_neither' = 'הזינו גם כתובת framework וגם כתובת פרויקט, או השאירו את שתיהן ריקות כדי לנקות אותן.'
+    'pool.repositories_clear' = 'ניקוי'
+    'pool.repositories_clear_label' = @(
+        'ניקוי כתובות ה-framework והפרויקט של המאגר '
+        @{
+            'arg' = 'pool'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+    )
+    'pool.repositories_cleared' = @(
+        'כתובות ה-framework והפרויקט של המאגר '
+        @{
+            'arg' = 'pool'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' נוקו. המארחים שלו יריצו את הפרויקטים שלהם מהמחזור הבא.'
+    )
+    'pool.repositories_framework_label' = @(
+        'כתובת framework עבור המאגר '
+        @{
+            'arg' = 'pool'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+    )
+    'pool.repositories_project_label' = @(
+        'כתובת פרויקט עבור המאגר '
+        @{
+            'arg' = 'pool'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+    )
+    'pool.repositories_save' = 'שמירה'
+    'pool.repositories_save_label' = @(
+        'שמירה של כתובות ה-framework והפרויקט של המאגר '
+        @{
+            'arg' = 'pool'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+    )
+    'pool.repositories_saved' = @(
+        'כתובות ה-framework והפרויקט של המאגר '
+        @{
+            'arg' = 'pool'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' נשמרו.'
+    )
     'pool.result' = 'תוצאה'
     'pool.row_number' = 'מספר שורה'
-    'pool.run' = 'הריצו'
     'pool.running' = 'בהרצה: '
     'pool.running_checks' = 'הבדיקות מתבצעות...'
     'pool.runtime_environment' = 'סביבת זמן ריצה'
@@ -1361,16 +1299,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'pool.save_test_set' = 'שמרו ערכת בדיקות'
-    'pool.saved_test_set_value1' = @(
-        'ערכת הבדיקות '''
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' נשמרה.'
     )
     'pool.scan' = 'סריקה'
     'pool.scan_a_network_for_yuruna_hosts' = 'סרקו רשת לאיתור מארחי Yuruna'
@@ -1595,7 +1523,6 @@
     'pool.service_user' = 'משתמש השירות'
     'pool.show_hostnames' = 'הציגו שמות מארחים'
     'pool.started_at' = 'מועד התחלה'
-    'pool.state' = 'מצב'
     'pool.state_dir' = 'תיקיית המצב'
     'pool.state_fail' = 'כישלון'
     'pool.state_idle' = 'ללא פעילות'
@@ -1758,24 +1685,6 @@
             )
         }
     }
-    'pool.test_set_for_pool_value1' = @(
-        'ערכת בדיקות למאגר '
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'pool.test_set_label' = @(
-        'ערכת בדיקות עבור '
-        @{
-            'arg' = 'name'
-            'type' = 'text'
-            'trust' = 'external'
-        }
-    )
-    'pool.test_sets' = 'ערכות בדיקות'
-    'pool.test_sets_yuruna_pool_control' = 'ערכות בדיקות — Yuruna Pool Control'
     'pool.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti' = 'הקוד בן 6 התווים באריח אסימון המעבדה בלוח הבקרה של מארחי Yuruna. קוד שזה עתה נקרא נשאר תקף כשלוש דקות, כך שאין צורך למהר.'
     'pool.the_exact_command_its_exit_code_and_both_streams_verbatim_the_poo' = 'הפקודה המדויקת, קוד היציאה שלה ושני זרמי הפלט כלשונם. ממשקי שורת הפקודה של pool-admin מדווחים על כשלים בפורמט JSON ב-stdout, ולכן ההודעה עצמה נמצאת בדרך כלל ב-stdout.'
     'pool.the_hosts_own_projects' = 'הפרויקטים של המארחים עצמם'
@@ -1824,14 +1733,6 @@
             'trust' = 'external'
         }
         '''.'
-    )
-    'pool.value1_host_s' = @(
-        @{
-            'arg' = 'value1'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' מארחים'
     )
     'pool.value1_of_value2_checks_failing_pool_control_service_value3_value' = @(
         @{

@@ -159,9 +159,9 @@
       "message": "如果再次失败，请将屏幕截图和OCR产物保存到周期文件夹下，并暂停以供检查"
     },
     "remediation.operator_f279084b2eb96f2c": {
-      "sourceHash": "542bb61b17215e86ff94ded1a0c369e3e7477e85e5d521fe0016bcbe3fd4b0db",
+      "sourceHash": "422370599a20f72ec049265c8e05e90ad3d57e014a8771b0dfcd38229c8d9750",
       "origin": "machine",
-      "message": "或者将池重新分配给其项目可供所有成员读取的测试集"
+      "message": "或者将池的项目 URL 设置为所有成员都能读取的仓库"
     },
     "remediation.operator_f4ded9a21116febc": {
       "sourceHash": "adc0e309250690d734697751bf902e079a783f80899ddc0300ad63377f58aca0",
@@ -344,9 +344,9 @@
       "message": "检查客户机诊断信息的NETWORK部分，查找停滞或缓慢的软件包镜像源"
     },
     "remediation.operator_2b9a82d1d78b3138": {
-      "sourceHash": "c3adaf3f12b85124e2ad7a80986eb3273cd8dc79e98d466da51deb4824151a75",
+      "sourceHash": "14253515024434d6c9968fe8ae406e5392d44a13af311764338633c8b3e60bfa",
       "origin": "machine",
-      "message": "{vmName}发生project_access_denied：池为此宿主机分配的projectUrl无法由其git凭据读取（私有仓库，或令牌无访问权限）。重试不可能成功，因为凭据位于宿主机本地，而分配在别处完成，因此此故障从不进入退避重试。它不同于bootstrap_sync，后者是宿主机自身的项目克隆失败；此处应由分配池测试集的人员修复。"
+      "message": "{vmName}发生project_access_denied：池为此宿主机分配的projectUrl无法由其git凭据读取（私有仓库，或令牌无访问权限）。重试不可能成功，因为凭据位于宿主机本地，而分配在别处完成，因此此故障从不进入退避重试。它不同于bootstrap_sync，后者是宿主机自身的项目克隆失败；此处应由设置池项目 URL 的人员修复。"
     },
     "remediation.operator_2be2a7b55fde9058": {
       "sourceHash": "80bc475ab2eb232d1abde655975137964946e5b910e0d866fc6c3a6f01d61d31",

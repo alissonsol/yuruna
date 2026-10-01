@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 428f620a-6793-4a91-af55-61a1a07b3e6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ Describe 'component command execution' {
         Set-Location -LiteralPath $script:originalLocation
         $global:LASTEXITCODE = $script:originalExit
         if ($null -ne $script:originalDocker) { Set-Item -Path Function:global:docker -Value $script:originalDocker.ScriptBlock }
-        else { Remove-Item Function:global:docker -ErrorAction SilentlyContinue }
+        else { Remove-Item Function:docker -ErrorAction SilentlyContinue }
         foreach ($item in Get-ChildItem Env:) {
             if (-not $script:originalEnvironment.ContainsKey($item.Name)) { Remove-Item -LiteralPath "Env:$($item.Name)" }
         }

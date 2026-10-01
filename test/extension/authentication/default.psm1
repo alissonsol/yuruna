@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4236c7a4-0e24-4a2c-beef-a19ebb5235fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,7 +106,15 @@ function Invoke-WithVaultLock {
     $mutex = [System.Threading.Mutex]::new($false, $name)
     $acquired = $false
     try {
-        $acquired = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        try {
+            $acquired = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        } catch {
+            $exception = $_.Exception
+            while ($exception.InnerException) { $exception = $exception.InnerException }
+            if ($exception -isnot [Threading.AbandonedMutexException]) { throw }
+            # An abandoned mutex is granted to the waiter even though WaitOne throws.
+            $acquired = $true
+        }
         if (-not $acquired) { throw "Vault mutex '$name' could not be acquired within 30 s." }
         return & $Action
     } finally {

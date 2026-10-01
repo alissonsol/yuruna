@@ -12,28 +12,26 @@ See [Architecture](../architecture.md) for the system's capability boundaries.
 
 ```mermaid
 flowchart LR
-    subgraph test-status["Operator host"]
+    subgraph operator-host["Operator host"]
     end
-    subgraph host["Hypervisor and provider"]
+    subgraph hypervisor-host["Hypervisor host"]
     end
-    subgraph guest["Guest VMs"]
+    subgraph workload-vms["Workload VMs"]
     end
     subgraph caching-proxy-service["Caching proxy VM"]
     end
     subgraph stash-service["Stash VM"]
     end
-    subgraph start-statusservice-ps1["Host status service"]
+    subgraph deployment-targets["Cluster and registry"]
     end
-    subgraph global-resources["Cluster and registry"]
-    end
-    test-status -->|HTTP 8080| start-statusservice-ps1
-    host -->|console or SSH| guest
-    guest -->|HTTP script fetch| start-statusservice-ps1
-    host -->|proxy 3128 or 3129| caching-proxy-service
-    guest -->|proxy 3128 or 3129| caching-proxy-service
-    host -->|SCP or SFTP 22| stash-service
-    test-status -->|HTTP downloads| stash-service
-    guest -->|configured deployment| global-resources
+    operator-host -->|HTTP status 8080| hypervisor-host
+    operator-host -->|HTTP UI and downloads| stash-service
+    hypervisor-host -->|console or SSH| workload-vms
+    workload-vms -->|HTTP script fetch 8080| hypervisor-host
+    hypervisor-host -->|proxy 3128 or 3129| caching-proxy-service
+    workload-vms -->|proxy 3128 or 3129| caching-proxy-service
+    hypervisor-host -->|SCP or SFTP 22| stash-service
+    workload-vms -->|deploy and publish| deployment-targets
 ```
 
 Sources: the [host providers](../../host/),
@@ -47,14 +45,14 @@ Sources: the [host providers](../../host/),
 and the companion [website guest deployment](https://github.com/alissonsol/yuruna-project/blob/main/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh).
 
 The hypervisor box groups the selected `Yuruna.Host.psm1` driver with its
-outer/cycle/inner runner processes. Implemented host families are
-`windows.hyper-v`, `ubuntu.kvm`, and `macos.utm`; provider console operations are
+outer/cycle/inner runner processes and the host status service. Implemented
+host families are `windows.hyper-v`, `ubuntu.kvm`, and `macos.utm`.
+Provider console operations are
 local hypervisor calls, while SSH is a guest network connection. The status
-service is another process on the hypervisor host, separated here to show the
-HTTP boundary. It serves operator pages, control routes, artifacts, and scripts
-fetched by guests. An operator may use the same physical host.
+service serves operator pages, control routes, artifacts, and scripts fetched
+by guests over HTTP. An operator may use the same physical host.
 
-The seven-box overview groups deployment targets into one endpoint. The website
+The six-box overview groups deployment targets into one endpoint. The website
 Ubuntu guest runs the three deployment scripts itself and can host its local
 registry and Kubernetes target. Other selected configurations target cloud
 infrastructure, expanded below. Stash uploads use the stash daemon's SSH
@@ -64,9 +62,9 @@ listener; this listener replaces the service VM's ordinary SSH daemon.
 
 ```mermaid
 flowchart LR
-    subgraph test-status["Operator host"]
+    subgraph operator-host["Operator host"]
     end
-    subgraph host["Runner hosts"]
+    subgraph hypervisor-host["Runner hosts"]
     end
     subgraph caching-proxy-service["Caching proxy VM"]
     end
@@ -78,29 +76,29 @@ flowchart LR
     end
     subgraph network-storage["Storage server"]
     end
-    test-status -->|HTTP control UI| pool-control-service
-    test-status -->|HTTP image UI| download-agent-service
-    host -->|HTTPS event push| caching-proxy-service
-    caching-proxy-service -->|HTTP status pull| host
-    host -->|HTTP image API| download-agent-service
-    host -->|SMB cycle archives| network-storage
+    operator-host -->|HTTP control UI| pool-control-service
+    operator-host -->|HTTP image UI| download-agent-service
+    hypervisor-host -->|HTTPS event push| caching-proxy-service
+    caching-proxy-service -->|HTTP status pull| hypervisor-host
+    hypervisor-host -->|HTTP image API| download-agent-service
+    hypervisor-host -->|SMB cycle archives| network-storage
     caching-proxy-service -->|SMB monitoring data| network-storage
     pool-control-service -->|SMB intent and state| network-storage
     download-agent-service -->|SMB images and state| network-storage
     stash-service -->|SMB stash data| network-storage
     pool-control-service -->|HTTP pool facts| caching-proxy-service
     download-agent-service -->|HTTP presence and discovery| caching-proxy-service
-    host -->|HTTP intent fetch| caching-proxy-service
+    hypervisor-host -->|HTTP intent fetch| caching-proxy-service
     %% optional: remote refresh requires configured authority and credentials.
-    pool-control-service -.->|signed host refresh| host
+    pool-control-service -.->|signed host refresh| hypervisor-host
 ```
 
 Sources: [pool event push](../../test/modules/Test.PoolPush.psm1),
 [pool storage](../../test/modules/Test.PoolStorage.psm1),
 [pool worker conversion](../../test/modules/Test.PoolWorker.psm1),
 [aggregator](../../test/extension/pool-aggregator-service/main.go),
-[pool control](../../test/extension/pool-control-service/server/main.go),
-[download agent](../../test/extension/download-agent-service/server/main.go),
+[pool-control service](../../test/extension/pool-control-service/server/main.go),
+[download-agent service](../../test/extension/download-agent-service/server/main.go),
 [host image client](../../host/modules/Yuruna.DownloadAgent.psm1),
 [stash server](../../test/extension/stash-service/server/main.go), and the
 [shared proxy provisioning assets](../../host/vmconfig/caching-proxy-service.base.user-data).

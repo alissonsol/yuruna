@@ -961,9 +961,9 @@
       "message": "客户端：{gitVersion}"
     },
     "automation.operator_287506e0d1314af9": {
-      "sourceHash": "9ae419d34468258bed7b4a649b113b9009581fe2551e268f94007dde8469b0b3",
+      "sourceHash": "0abce7b258e008b8e8609abcb3657e3f6544932dc71c6e14e09afea20dc7327f",
       "origin": "machine",
-      "message": "在写入（1）之前，“目标池未包含测试集”防护尚未对以下对象启用"
+      "message": "在写入（1）之前，“目标池不包含仓库”防护尚未对以下对象启用"
     },
     "automation.operator_29759c8a58f5d70a": {
       "sourceHash": "022130b7b0b08fc44fb61295c8c82cc18ff84cc5b993f443576e9b4af4a4366c",

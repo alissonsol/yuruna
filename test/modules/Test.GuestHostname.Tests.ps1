@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,7 +68,7 @@ function Get-SequenceStepRecord {
 # iterate them are fed by the file-scope case list below; this run-phase copy
 # exists only so the fixture-sanity It can assert the glob still matches.
 $script:guestScript = @(
-    Get-ChildItem -Path (Join-Path $repoRoot 'host') -Filter 'New-VM.ps1' -Recurse -File |
+    Get-ChildItem -Path (Join-Path $repoRoot 'host') -Include 'New-VM.ps1', 'New-UbuntuServerVM.ps1' -Recurse -File |
         Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'HOSTNAME_PLACEHOLDER' }
 )
 
@@ -87,9 +87,17 @@ $script:engineSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/
 $discoveryRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 
 $guestCase = @(
-    Get-ChildItem -Path (Join-Path $discoveryRepoRoot 'host') -Filter 'New-VM.ps1' -Recurse -File |
+    Get-ChildItem -Path (Join-Path $discoveryRepoRoot 'host') -Include 'New-VM.ps1', 'New-UbuntuServerVM.ps1' -Recurse -File |
         Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'HOSTNAME_PLACEHOLDER' } |
         ForEach-Object { @{ name = (Split-Path -Leaf $_.Directory.FullName); path = $_.FullName } }
+)
+
+# Per-release wrappers that hand their parameters to the host's shared Ubuntu builder. The hostname
+# logic lives in the shared builder cases above; a wrapper must still declare and forward the parameter.
+$wrapperCase = @(
+    Get-ChildItem -Path (Join-Path $discoveryRepoRoot 'host') -Filter 'New-VM.ps1' -Recurse -File |
+        Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'New-UbuntuServerVM\.ps1' } |
+        ForEach-Object { @{ name = ((Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $_.FullName))) + '/' + (Split-Path -Leaf $_.Directory.FullName)); path = $_.FullName } }
 )
 
 # Meta-data templates that carry a hostname placeholder.
@@ -140,6 +148,20 @@ Describe 'guest-hostname -- variables.hostname reaches cloud-init local-hostname
         $src = Get-Content -Raw -LiteralPath $path
         Assert-True ($src -match '(?m)^\s*\[string\]\$Hostname\s*=\s*''''') `
             "$name templates a hostname but has no [string]`$Hostname = '' parameter; Invoke-PerGuestNewVm would drop the cascade to Verbose"
+    }
+
+    It 'a wrapper declares -Hostname so the dispatcher forwards it: <name>' -TestCases $wrapperCase {
+        param($name, $path)
+        $src = Get-Content -Raw -LiteralPath $path
+        Assert-True ($src -match '(?m)^\s*\[string\]\$Hostname\s*=\s*''''') `
+            "$name has no [string]`$Hostname = '' parameter; Invoke-PerGuestNewVm would drop the cascade to Verbose"
+    }
+
+    It 'a wrapper hands every bound parameter to the shared builder: <name>' -TestCases $wrapperCase {
+        param($name, $path)
+        $src = Get-Content -Raw -LiteralPath $path
+        Assert-True ($src -match [regex]::Escape('$arguments = @{} + $PSBoundParameters')) "$name must copy its bound parameters, including Hostname"
+        Assert-True ($src -match '@arguments') "$name must splat them into the shared builder"
     }
 
     It 'falls back to the VM name when -Hostname is empty: <name>' -TestCases $guestCase {

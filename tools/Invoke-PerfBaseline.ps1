@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b3f81a-6c27-4d95-8e13-7a5f2c904db6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,7 +86,7 @@ function Get-GzipByteCount {
     #>
     [CmdletBinding()]
     [OutputType([int])]
-    param([Parameter(Mandatory)][byte[]]$Bytes)
+    param([Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Bytes)
 
     $output = [IO.MemoryStream]::new()
     try {
@@ -116,7 +116,7 @@ function Get-PageRequestCount {
     #>
     [CmdletBinding()]
     [OutputType([int])]
-    param([Parameter(Mandatory)][string]$Html)
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Html)
 
     $count = 0
     foreach ($pattern in @(
@@ -295,8 +295,8 @@ if (-not (Test-Path -LiteralPath $BaselinePath -PathType Leaf)) {
 }
 
 $baseline = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($BaselinePath))
-$bytePercent = if ($baseline.tolerance.bytePercent) { [double]$baseline.tolerance.bytePercent } else { $DefaultByteTolerancePercent }
-$byteAbsolute = if ($baseline.tolerance.byteAbsolute) { [double]$baseline.tolerance.byteAbsolute } else { $DefaultByteToleranceAbsolute }
+$bytePercent = if ($null -ne $baseline.tolerance.bytePercent) { [double]$baseline.tolerance.bytePercent } else { $DefaultByteTolerancePercent }
+$byteAbsolute = if ($null -ne $baseline.tolerance.byteAbsolute) { [double]$baseline.tolerance.byteAbsolute } else { $DefaultByteToleranceAbsolute }
 
 $findings = @()
 
@@ -388,10 +388,10 @@ foreach ($name in $baseline.pages.PSObject.Properties.Name) {
 # bundle from bypassing every ceiling until somebody happens to re-record it.
 $added = @()
 foreach ($name in $current.assets.Keys) {
-    if (-not $baseline.assets.PSObject.Properties.Name.Contains($name)) { $added += $name }
+    if (-not (@($baseline.assets.PSObject.Properties.Name) -contains $name)) { $added += $name }
 }
 foreach ($name in $current.pages.Keys) {
-    if (-not $baseline.pages.PSObject.Properties.Name.Contains($name)) { $added += $name }
+    if (-not (@($baseline.pages.PSObject.Properties.Name) -contains $name)) { $added += $name }
 }
 foreach ($a in $added) { $findings += "$a is shipped but unbudgeted; review it and re-record with -Update" }
 

@@ -133,10 +133,6 @@ Solid value, moderate effort -- the bulk of the everyday backlog.
 - **Persistent volume for pool telemetry.** Retention tiering is done, but
   `/var/lib/{loki,prometheus}` sit on the caching-proxy-service VM root, so a
   rebuild wipes all pool history -- move them onto a persistent volume.
-- **Wire the parsed-but-stubbed cycle strategies and provisioning modes.**
-  Only `cycleStrategy: all` + `provisioning.betweenSets: none` are
-  runtime-active; `round-robin`/`single` and snapshot-revert/reprovision
-  are parsed and validated but silently execute as all/none.
 - **Enrich incident objects.** Attach the failure-class histogram to the
   incident object itself, and require the *same* failure class across hosts
   before declaring a cross-host incident (currently any cross-host failures
@@ -258,10 +254,10 @@ docs / code):
   intentionally not folded in.)
 - **Multi-host pool harness, Phases 0-6** -- DHCP-resilient `hostId` +
   capability record; the self-discovering stdlib-Go pull-collector and
-  Grafana pool dashboard; per-step NDJSON tail + incident correlation; v1
-  pool/test-set schemas, git intent store, pull-sync shim, and admin CLI
-  ([pool-admin.md](pool-admin.md)); test-set execution with per-guest
-  overrides; advisory pool gating, alerting, and first-engage remediation;
+  Grafana pool dashboard; per-step NDJSON tail + incident correlation;
+  pool intent schemas, git intent store, pull-sync shim, and admin CLI
+  ([pool-admin.md](pool-admin.md)); pooled-project execution; advisory
+  pool gating, alerting, and first-engage remediation;
   push telemetry with TLS/bearer auth. All additive -- a no-pool host is
   byte-identical to single-host.
 - **Installer & in-guest script integrity** -- signed `install.sha256`
@@ -283,6 +279,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

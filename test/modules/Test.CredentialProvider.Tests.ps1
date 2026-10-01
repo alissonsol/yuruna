@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 423d0447-f082-4bcc-aa8c-feb1b6cfab81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,7 +80,8 @@ function Restore-CredentialEnv {
     #>
     [CmdletBinding()] [OutputType([void])] param([Parameter(Mandatory)][hashtable]$Snapshot)
     foreach ($name in $Snapshot.Keys) {
-        [Environment]::SetEnvironmentVariable($name, $Snapshot[$name])
+        if ($null -eq $Snapshot[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+        else { [Environment]::SetEnvironmentVariable($name, [string]$Snapshot[$name]) }
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e237df-6378-43f5-b1f4-c3f181119e39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,13 @@ $wanted = 'Test-TcpReachable', 'ConvertTo-YurunaBool'
 $fnDefs = $cfgAst.FindAll({ param($n)
     $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $n.Name
 }, $true)
+# Test-TcpReachable hands the socket work to the shared Test-TcpConnectOutcome.
+$commonPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..', 'automation', 'Yuruna.Common.psm1')).Path
+Import-Module $commonPath -Global -Force -DisableNameChecking
+$commonAst = [System.Management.Automation.Language.Parser]::ParseFile($commonPath, [ref]$null, [ref]$null)
+if (-not $commonAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-TcpConnectOutcome' }, $true)) {
+    throw "Test.EntConfig.Tests.ps1: Test-TcpConnectOutcome is not defined in Yuruna.Common.psm1 (renamed or removed?)."
+}
 foreach ($fn in $fnDefs) { . ([ScriptBlock]::Create($fn.Extent.Text)) }
 # Fail loudly at load if a helper could not be lifted (renamed/removed), instead of
 # every It later reporting a bare 'command not recognized' with no cause.
@@ -126,9 +133,12 @@ Describe 'Test-Config.ps1 routes probes and flags through the helpers' {
     It 'the probe helper disposes its socket in a finally' {
         $fn = Get-HelperDefinition -Ast $cfgAst -Name 'Test-TcpReachable'
         $fn | Should -Not -BeNullOrEmpty
-        $body = $fn.Body.Extent.Text
+        $fn.Body.Extent.Text | Should -Match 'Test-TcpConnectOutcome'
+        $shared = Get-HelperDefinition -Ast $commonAst -Name 'Test-TcpConnectOutcome'
+        $shared | Should -Not -BeNullOrEmpty
+        $body = $shared.Body.Extent.Text
         $body | Should -Match 'finally'
-        $body | Should -Match '\.Dispose\(\)'
+        $body | Should -Match '\.Close\(\)'
     }
     It 'every TCP probe routes through Test-TcpReachable' {
         # One call per probe site the validator performs: GitHub, the pool registry's
@@ -138,8 +148,9 @@ Describe 'Test-Config.ps1 routes probes and flags through the helpers' {
         (Get-CommandCallCount -Ast $cfgAst -Name 'Test-TcpReachable') | Should -Be 3
     }
     It 'no inline TcpClient BeginConnect remains outside the shared helper' {
-        # Exactly one BeginConnect member-invoke -- the one inside Test-TcpReachable.
-        (Get-MemberInvokeCount -Ast $cfgAst -Member 'BeginConnect') | Should -Be 1
+        # The validator opens no socket itself; the one BeginConnect lives in the shared probe.
+        (Get-MemberInvokeCount -Ast $cfgAst -Member 'BeginConnect') | Should -Be 0
+        (Get-MemberInvokeCount -Ast $commonAst -Member 'BeginConnect') | Should -Be 1
     }
     It 'the three config boolean flags route through ConvertTo-YurunaBool' {
         (Get-CommandCallCount -Ast $cfgAst -Name 'ConvertTo-YurunaBool') | Should -Be 3

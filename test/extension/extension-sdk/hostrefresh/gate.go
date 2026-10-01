@@ -6,10 +6,10 @@ package hostrefresh
 import (
 	"crypto/subtle"
 	"encoding/json"
-	"net"
 	"net/http"
 	"sync"
 	"time"
+	"yuruna.com/test/extension/extension-sdk/internal/gatethrottle"
 
 	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/internal/catalog"
@@ -67,8 +67,9 @@ type Gate struct {
 	now        func() time.Time
 	locale     *i18n.Negotiator
 
-	mu    sync.Mutex
-	fails map[string][]time.Time
+	mu        sync.Mutex
+	fails     map[string][]time.Time
+	lastSweep time.Time
 }
 
 // NewGate builds a gate. A credential that does not parse leaves it
@@ -176,44 +177,23 @@ func (g *Gate) throttled(ip string) bool {
 	return len(g.keepRecent(ip, g.now().Add(-FailWindow))) >= MaxFailedAttempts
 }
 
-// recordFail sweeps every source, not only this one, so a caller cycling
-// source addresses cannot grow the map without bound.
+// recordFail prunes this source on every call and asks gatethrottle to sweep
+// other sources at most once per window, bounding growth from rotated addresses.
 func (g *Gate) recordFail(ip string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	cutoff := g.now().Add(-FailWindow)
-	for known := range g.fails {
-		g.keepRecent(known, cutoff)
-	}
-	g.fails[ip] = append(g.fails[ip], g.now())
+	gatethrottle.Record(g.fails, ip, g.now(), FailWindow, &g.lastSweep)
 }
 
 // keepRecent drops this source's expired attempts, and the source once none
 // remain. Must be called with the lock held.
 func (g *Gate) keepRecent(ip string, cutoff time.Time) []time.Time {
-	kept := g.fails[ip][:0]
-	for _, t := range g.fails[ip] {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	if len(kept) == 0 {
-		delete(g.fails, ip)
-		return nil
-	}
-	g.fails[ip] = kept
-	return kept
+	return gatethrottle.KeepRecent(g.fails, ip, cutoff)
 }
 
 // clientIP keys the throttle and the audit on the address, with the brackets
 // of an IPv6 literal removed.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
+func clientIP(r *http.Request) string { return gatethrottle.ClientIP(r) }
 
 var (
 	gateOnce     sync.Once

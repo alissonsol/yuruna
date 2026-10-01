@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,6 +93,45 @@ function Test-YurunaVirtualDisplayEnabled {
     return $value.ToLowerInvariant() -in $truthy
 }
 
+function Get-YurunaVirtualDisplayToolkitLayout {
+    <#
+    .SYNOPSIS
+        Resolve the shared virtual display toolkit and optional log paths.
+    .DESCRIPTION
+        usbmmidd has 32-bit and 64-bit installers. ARM64 Windows runs the x64
+        one under emulation, so only true x86 uses the 32-bit installer.
+        ProgramData holds this host-level driver across users and repo clones.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([switch]$LogFiles)
+    $name = if ($env:PROCESSOR_ARCHITECTURE -eq 'x86') { 'deviceinstaller.exe' } else { 'deviceinstaller64.exe' }
+    $cache = Join-Path $env:ProgramData 'Yuruna'
+    $tool = Join-Path $cache 'usbmmidd_v2'
+    $layout = @{ InstallerExe = $name; CacheRoot = $cache; ZipPath = (Join-Path $cache 'usbmmidd_v2.zip'); ToolDir = $tool; Installer = (Join-Path $tool $name) }
+    if ($LogFiles) {
+        if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -ErrorAction Stop -Verbose:$false
+        }
+        $debug = Join-Path (Initialize-YurunaLogDir) 'VirtualDisplay'
+        New-Item -ItemType Directory -Force -Path $debug | Out-Null
+        $layout.LogPath = Join-Path $debug 'usbmmidd.log'
+    }
+    return $layout
+}
+
+function Get-YurunaUsbmmiddMonitorCount {
+    <#
+    .SYNOPSIS
+        Count present vendor monitors, optionally requiring healthy status.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([switch]$Healthy)
+    return @(Get-PnpDevice -PresentOnly -Class Monitor -ErrorAction SilentlyContinue |
+        Where-Object { (Test-YurunaUsbmmiddDevice $_) -and (-not $Healthy -or $_.Status -eq 'OK') }).Count
+}
+
 function Install-YurunaVirtualDisplay {
     <#
     .SYNOPSIS
@@ -147,11 +186,8 @@ function Install-YurunaVirtualDisplay {
         return 'Disabled'
     }
 
-    # usbmmidd ships both a 32-bit (deviceinstaller) and 64-bit
-    # (deviceinstaller64) installer. ARM64 Windows runs the x64 binary under
-    # emulation, so deviceinstaller64 is correct on everything except a true
-    # 32-bit x86 SKU.
-    $installerExe = if ($env:PROCESSOR_ARCHITECTURE -eq 'x86') { 'deviceinstaller.exe' } else { 'deviceinstaller64.exe' }
+    $layout = Get-YurunaVirtualDisplayToolkitLayout -LogFiles
+    $installerExe = $layout.InstallerExe
 
     # Pinned source + SHA-256. The checksum gate fails closed: a mismatch
     # (vendor re-rolled the zip, truncated download, MITM) refuses to install
@@ -159,21 +195,12 @@ function Install-YurunaVirtualDisplay {
     $url            = 'https://www.amyuni.com/downloads/usbmmidd_v2.zip'
     $expectedSha256 = '629B51E9944762BAE73948171C65D09A79595CF4C771A82EBC003FBBA5B24F51'
 
-    # Machine-wide cache: this is a host-level driver and the install needs
-    # Administrator, so ProgramData is the natural home -- it survives across
-    # users and repo re-clones, unlike a path under the working tree (which
-    # the status service also serves).
-    $cacheRoot = Join-Path $env:ProgramData 'Yuruna'
-    $zipPath   = Join-Path $cacheRoot 'usbmmidd_v2.zip'
-    $toolDir   = Join-Path $cacheRoot 'usbmmidd_v2'   # the zip's own top folder
-    $installer = Join-Path $toolDir $installerExe
+    $cacheRoot = $layout.CacheRoot
+    $zipPath = $layout.ZipPath
+    $toolDir = $layout.ToolDir
+    $installer = $layout.Installer
 
-    if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
-        Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -ErrorAction SilentlyContinue -Verbose:$false
-    }
-    $debugDir = Join-Path (Initialize-YurunaLogDir) 'VirtualDisplay'
-    if (-not (Test-Path -LiteralPath $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
-    $logPath = Join-Path $debugDir 'usbmmidd.log'
+    $logPath = $layout.LogPath
 
     # --- REGION: Cache + verify the toolkit (download only when missing)
     if (-not (Test-Path -LiteralPath $installer)) {
@@ -230,14 +257,8 @@ function Install-YurunaVirtualDisplay {
     # then misfires and enableidd 1 stacks another monitor every cycle.
     # Converging on the count (the "Converge to exactly ONE healthy virtual display" region) collapses any leftover / duplicate /
     # unhealthy state back to exactly one.
-    $healthyCount = {
-        @(Get-PnpDevice -PresentOnly -Class Monitor -ErrorAction SilentlyContinue |
-            Where-Object { (Test-YurunaUsbmmiddDevice $_) -and $_.Status -eq 'OK' }).Count
-    }
-    $presentCount = {
-        @(Get-PnpDevice -PresentOnly -Class Monitor -ErrorAction SilentlyContinue |
-            Where-Object { Test-YurunaUsbmmiddDevice $_ }).Count
-    }
+    $healthyCount = { Get-YurunaUsbmmiddMonitorCount -Healthy }
+    $presentCount = { Get-YurunaUsbmmiddMonitorCount }
 
     # --- REGION: Stage the signed driver only when its devnode is absent
     # `install` creates a fresh root devnode on every call; gating on devnode
@@ -925,20 +946,16 @@ function Remove-YurunaVirtualDisplay {
 
     if (-not $IsWindows) { return 'Unsupported' }
 
-    # Same architecture-pinned installer name + cache layout as the install
-    # path; if those drift, both must change together.
-    $installerExe = if ($env:PROCESSOR_ARCHITECTURE -eq 'x86') { 'deviceinstaller.exe' } else { 'deviceinstaller64.exe' }
-    $cacheRoot = Join-Path $env:ProgramData 'Yuruna'
-    $toolDir   = Join-Path $cacheRoot 'usbmmidd_v2'
-    $installer = Join-Path $toolDir $installerExe
+    # The install and repair paths use the same toolkit layout helper.
+    $layout = Get-YurunaVirtualDisplayToolkitLayout
+    $installerExe = $layout.InstallerExe
+    $toolDir = $layout.ToolDir
+    $installer = $layout.Installer
 
     # usbmmidd present-monitor census -- the same usbmmidd-specific signal the
     # install path converges on (never a generic "any monitor" count, which a
     # physical display would satisfy). Nothing present -> nothing to tear down.
-    $presentCount = {
-        @(Get-PnpDevice -PresentOnly -Class Monitor -ErrorAction SilentlyContinue |
-            Where-Object { Test-YurunaUsbmmiddDevice $_ }).Count
-    }
+    $presentCount = { Get-YurunaUsbmmiddMonitorCount }
 
     if (-not (Test-Path -LiteralPath $installer)) {
         # Driver never staged on this host. If a usbmmidd monitor is somehow
@@ -956,12 +973,7 @@ function Remove-YurunaVirtualDisplay {
         return 'Skipped'
     }
 
-    if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
-        Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -ErrorAction SilentlyContinue -Verbose:$false
-    }
-    $debugDir = Join-Path (Initialize-YurunaLogDir) 'VirtualDisplay'
-    if (-not (Test-Path -LiteralPath $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
-    $logPath = Join-Path $debugDir 'usbmmidd.log'
+    $logPath = (Get-YurunaVirtualDisplayToolkitLayout -LogFiles).LogPath
 
     # Run a deviceinstaller verb, then poll the usbmmidd monitor census on a
     # wall-clock deadline (the PnP devnode can lag the command's return) and
@@ -1462,19 +1474,18 @@ function Set-WindowsHostConditionSet {
     # (ICMP echo (ping) and the host firewall).
 
     # 5a. Enable built-in Allow + Inbound + ICMPv4 Echo Request rules.
-    $icmpAllowRules = Get-NetFirewallRule -Direction Inbound -Action Allow -ErrorAction SilentlyContinue |
-        Where-Object {
-            $fltr = $_ | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
-            $null -ne $fltr -and $fltr.Protocol -eq 'ICMPv4'
-        } |
-        Where-Object {
-            $icmp = $_ | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
-            # IcmpType '8' (echo request) may be listed as '8:*' or similar;
-            # match on the leading 8. When it's 'Any', keep it too since
-            # 'Any' includes echo request.
-            $types = ($icmp.IcmpType -join ',')
-            $types -match '(^|,)8(:|\*|,|$)' -or $types -match '(^|,)Any($|,)'
-        }
+    $inboundRules = @(Get-NetFirewallRule -PolicyStore ActiveStore -Direction Inbound -ErrorAction SilentlyContinue)
+    $echoIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $icmpIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($filter in ($inboundRules | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue)) {
+        if ("$($filter.Protocol)" -ne 'ICMPv4') { continue }
+        [void]$icmpIds.Add([string]$filter.InstanceID)
+        $types = $filter.IcmpType -join ','
+        # Port filters render echo request as 8 or 8:<code>; Any also
+        # includes echo. Delimiters prevent a type such as 18 matching 8.
+        if ($types -match '(^|,)8(:|\*|,|$)' -or $types -match '(^|,)Any($|,)') { [void]$echoIds.Add([string]$filter.InstanceID) }
+    }
+    $icmpAllowRules = @($inboundRules | Where-Object { "$($_.Action)" -eq 'Allow' -and $echoIds.Contains([string]$_.Name) })
     $enabledAny = $false
     foreach ($rule in $icmpAllowRules) {
         if ($rule.Enabled -ne 'True') {
@@ -1521,12 +1532,7 @@ function Set-WindowsHostConditionSet {
     # 5c. Diagnostic: surface any enabled *Block* rule on ICMPv4 Echo that
     # would veto our allow, so the user sees the blocker instead of
     # wondering why ping still fails.
-    $icmpBlockRules = Get-NetFirewallRule -Direction Inbound -Action Block -ErrorAction SilentlyContinue |
-        Where-Object { $_.Enabled -eq 'True' } |
-        Where-Object {
-            $fltr = $_ | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
-            $null -ne $fltr -and $fltr.Protocol -eq 'ICMPv4'
-        }
+    $icmpBlockRules = @($inboundRules | Where-Object { "$($_.Action)" -eq 'Block' -and "$($_.Enabled)" -eq 'True' -and $icmpIds.Contains([string]$_.Name) })
     if ($icmpBlockRules) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dee3df1a3e35bd23')
         foreach ($r in $icmpBlockRules) {
@@ -2064,6 +2070,8 @@ function Get-WindowsVhdxFilterProfile {
         AntiVirus       = @()
         DefenderPassive = $null
         Exclusions      = @()
+        ExclusionExtensions = @()
+        ExclusionProcesses = @()
         ShadowUsedBytes = $null
         ShadowMaxBytes  = $null
         ShadowCount     = $null
@@ -2114,14 +2122,28 @@ function Get-WindowsVhdxFilterProfile {
     # third-party product owns real-time scanning, Defender's list says
     # nothing about coverage either way, so the rule already treats an empty
     # one as "not excluded" rather than as a failure.
-    try { $prof.Exclusions = @((Get-MpPreference -ErrorAction Stop).ExclusionPath) } catch { Write-Debug "Defender exclusion list read failed: $_" }
+    try {
+        $preferences = Get-MpPreference -ErrorAction Stop
+        $prof.Exclusions = @($preferences.ExclusionPath)
+        $prof.ExclusionExtensions = @($preferences.ExclusionExtension)
+        $prof.ExclusionProcesses = @($preferences.ExclusionProcess)
+    } catch { Write-Debug "Defender exclusion list read failed: $_" }
 
     try {
-        $shadows = @(Get-CimInstance Win32_ShadowCopy -ErrorAction Stop)
-        $prof.ShadowCount = $shadows.Count
-        foreach ($s in @(Get-CimInstance Win32_ShadowStorage -ErrorAction Stop)) {
-            $prof.ShadowUsedBytes = [int64]$s.UsedSpace
-            $prof.ShadowMaxBytes  = [int64]$s.MaxSpace
+        $volume = Get-CimInstance Win32_Volume -Filter "DriveLetter='$($prof.VhdxVolume)'" -ErrorAction Stop
+        if ($volume -and $volume.DeviceID) {
+            $volumeId = [string]$volume.DeviceID
+            $prof.ShadowCount = @(Get-CimInstance Win32_ShadowCopy -ErrorAction Stop |
+                Where-Object { $_.VolumeName -eq $volumeId }).Count
+            $prof.ShadowUsedBytes = [int64]0
+            $prof.ShadowMaxBytes = [int64]0
+            foreach ($storage in @(Get-CimInstance Win32_ShadowStorage -ErrorAction Stop)) {
+                $storageVolume = if ($storage.Volume -is [string]) { [string]$storage.Volume } else { [string]$storage.Volume.DeviceID }
+                if ($storageVolume -eq $volumeId -or $storageVolume.Replace('\\', '\').Contains($volumeId)) {
+                    $prof.ShadowUsedBytes += [int64]$storage.UsedSpace
+                    $prof.ShadowMaxBytes += [int64]$storage.MaxSpace
+                }
+            }
         }
     } catch { $prof.Errors += "Shadow copies: $($_.Exception.Message)" }
 
@@ -2173,11 +2195,19 @@ function Get-WindowsVhdxFilterIssue {
         $names = ($scanners | ForEach-Object { "$($_.Name) (altitude $($_.Altitude))" }) -join ', '
         $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_3eb81d6ae5a943dd' -Arguments @{ vhdxVolume = "$($FilterProfile.VhdxVolume)"; vhdxPath = "$($FilterProfile.VhdxPath)"; names = "$names" })
 
-        # An exclusion list that does not name the VHDX path is the same as no
-        # exclusion, and Defender's list is the only one readable from here --
-        # a third-party scanner's is not, so its presence is reported as
-        # unknown coverage rather than assumed either way.
-        $covered = @($FilterProfile.Exclusions | Where-Object { $_ -and $FilterProfile.VhdxPath.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) })
+        # Check Defender path, extension and process exclusions. Third-party
+        # scanner exclusions are not readable here, so their coverage remains
+        # unknown rather than assumed either way.
+        $vhdxPath = ([string]$FilterProfile.VhdxPath).TrimEnd('\', '/')
+        $covered = @($FilterProfile.Exclusions | Where-Object {
+            if (-not $_) { return $false }
+            $exclusion = ([string]$_).TrimEnd('\', '/')
+            $vhdxPath.Equals($exclusion, [StringComparison]::OrdinalIgnoreCase) -or
+                $vhdxPath.StartsWith($exclusion + '\', [StringComparison]::OrdinalIgnoreCase) -or
+                $vhdxPath.StartsWith($exclusion + '/', [StringComparison]::OrdinalIgnoreCase)
+        })
+        $covered += @($FilterProfile.ExclusionExtensions | Where-Object { ([string]$_).TrimStart('.') -in @('vhdx', 'avhdx') })
+        $covered += @($FilterProfile.ExclusionProcesses | Where-Object { ([string]$_ -split '[\\/]')[-1] -in @('vmwp.exe', 'vmms.exe') })
         if ($covered.Count -eq 0) {
             $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_f5a443dafafef278')
         }

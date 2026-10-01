@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4245aa15-0036-4384-9791-32951e4e7589
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -189,13 +189,7 @@ $script:InstallerText = $installerText
 # out of it by name; each is defined at column 0 and closed by a lone '}'.
 function Get-ShellFunctionBody {
     param([Parameter(Mandatory)][string]$Text, [Parameter(Mandatory)][string[]]$Name)
-    $parts = [System.Collections.Generic.List[string]]::new()
-    foreach ($n in $Name) {
-        $m = [regex]::Match($Text, "(?ms)^$([regex]::Escape($n))\(\)\s*\{.*?^\}")
-        if (-not $m.Success) { throw "Shell function '$n' not found in the installer." }
-        $parts.Add($m.Value)
-    }
-    return ($parts -join "`n")
+    return Get-YurunaTestShellFunction -Text $Text -Name $Name
 }
 
 # Top-level constants travel with the functions that read them: lifting only
@@ -624,7 +618,8 @@ echo "MODE=$YURUNA_INSTALL_MODE"
     }
 }
 
-Describe 'yuruna_refresh_dispatch -- past the platform gate (Darwin stubbed)' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'yuruna_refresh_dispatch -- past the platform gate (Darwin stubbed)' -Skip:$IsWindows {
     It 'refuses when the target directory does not exist' {
         $missing = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-missing-{0}" -f [guid]::NewGuid().ToString('N'))
         $r = Invoke-InstallerShell -FakeDarwin -Body 'yuruna_refresh_dispatch "installer.sh" --refresh' `
@@ -714,7 +709,8 @@ echo FELL-THROUGH
     }
 }
 
-Describe 'pwsh resolution' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'pwsh resolution' -Skip:$IsWindows {
     It 'lists the location Microsoft''s PowerShell package installs to' {
         $r = Invoke-InstallerShell -Body 'yuruna_pwsh_candidates' -Environment @{ PATH = '/nonexistent-path-dir' }
         Assert-Match '(?m)^/usr/local/microsoft/powershell/7/pwsh$' $r.Output 'a host whose only pwsh is that package must still resolve one'
@@ -924,14 +920,16 @@ Describe 'No Bash-4-only construct in the installer' {
     }
 }
 
-Describe 'is_service_vm_running preserves on anything it cannot read' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'is_service_vm_running preserves on anything it cannot read' -Skip:$IsWindows {
     It '<CaseName>' -ForEach $script:ServiceGateCases {
         $result = Invoke-ServiceGate -Case $_
         Confirm-ServiceGateOutcome -Result $result -Case $_ -Interpreter 'bash on PATH'
     }
 }
 
-Describe 'published refresh forms run the real installer file under <InterpreterName>' -ForEach $script:Interpreters {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'published refresh forms run the real installer file under <InterpreterName>' -ForEach $script:Interpreters -Skip:$IsWindows {
     It '<CaseName>' -ForEach $script:RefreshCases {
         if ($Unavailable) {
             Set-ItResult -Skipped -Because $Unavailable

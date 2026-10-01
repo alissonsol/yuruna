@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 426b5e54-fbb6-4398-849c-4e49eda31278
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -305,16 +305,13 @@ if ($Serve) {
 }
 
 # --- REGION: Launcher
+Import-Module (Join-Path $TestRoot 'modules/Test.VMUtility.psm1') -Global -Force
 # Non-blocking TCP connect probe (used for both skip-if-healthy and readiness).
 function Test-YurunaConfigPortAccepting {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][int]$ProbePort, [int]$TimeoutMs = 1000)
-    $probe = [System.Net.Sockets.TcpClient]::new()
-    try {
-        $iar = $probe.BeginConnect('127.0.0.1', $ProbePort, $null, $null)
-        return ($iar.AsyncWaitHandle.WaitOne($TimeoutMs) -and $probe.Connected)
-    } catch { return $false } finally { $probe.Dispose() }
+    return Test-TcpEndpointOpen -Address '127.0.0.1' -Port $ProbePort -TimeoutMilliseconds $TimeoutMs
 }
 
 # Health marker the runner / status service / operator can read to see the service

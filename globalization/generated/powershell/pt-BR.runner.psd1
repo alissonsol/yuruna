@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b0681f-50bb-3b49-3fcf-f99d409ef81e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,31 +20,25 @@
 
 @{
     'runner.assigned_project_denied' = @(
-        "O pool atribuiu um projeto que esta máquina não consegue ler.`nProjeto: "
+        "O grupo atribuiu um projeto que este hospedeiro não consegue ler.`n  Projeto: "
         @{
             'arg' = 'project'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`nAtribuído por: conjunto «"
+        "`n  Atribuído por: grupo '"
         @{
             'arg' = 'pool'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '», conjunto de ensaios «'
-        @{
-            'arg' = 'testSet'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "»`ngit: "
+        "'`n  git: "
         @{
             'arg' = 'detail'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`nCorrigir (nem): conceder o acesso GH TOKEN desta máquina àquele repositório,`nou reatribuir o pool para um projeto que cada membro possa ler."
+        "`n  Correção (uma das duas): conceda acesso ao GH_TOKEN deste hospedeiro a esse repositório,`n                ou defina a URL de projeto do grupo como um repositório que todos os membros possam ler."
     )
     'runner.boot_recovery_preserved_controls' = @(
         'A recuperação na inicialização (preservação do refresh) manteve '
@@ -1203,28 +1197,28 @@
         ' não existe; defina YURUNA_RUNTIME_DIR como o diretório de runtime do executor.'
     )
     'runner.host_refresh_runtime_owner_mismatch' = @(
-        'Invoke-HostRefresh: this account''s refresh state is registered to runtime '
+        'Invoke-HostRefresh: o estado de atualização desta conta está registrado para o runtime '
         @{
             'arg' = 'registeredRuntimeDir'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ', not '
+        ', não para '
         @{
             'arg' = 'runtimeDir'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        '; one owning runtime per account is supported.'
+        '; há suporte a um único runtime proprietário por conta.'
     )
     'runner.host_refresh_service_unverified' = @(
-        'Invoke-HostRefresh: service '
+        'Invoke-HostRefresh: o serviço '
         @{
             'arg' = 'key'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' is not verified after the repair ('
+        ' não foi verificado após o reparo ('
         @{
             'arg' = 'outcome'
             'type' = 'identifier'
@@ -1233,19 +1227,19 @@
         ').'
     )
     'runner.host_refresh_session_passive' = @(
-        'Invoke-HostRefresh: session kind is '
+        'Invoke-HostRefresh: o tipo de sessão é '
         @{
             'arg' = 'sessionKind'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '; steps that need the desktop session are skipped.'
+        '; as etapas que exigem a sessão da área de trabalho são ignoradas.'
     )
-    'runner.host_refresh_should_process_admission' = 'Record host-refresh admission'
-    'runner.host_refresh_should_process_listener' = 'Start the status listener in refresh-safe mode'
-    'runner.host_refresh_should_process_publish' = 'Publish host-refresh progress'
+    'runner.host_refresh_should_process_admission' = 'Registrar a admissão da atualização do hospedeiro'
+    'runner.host_refresh_should_process_listener' = 'Iniciar o listener de status em modo seguro para atualização'
+    'runner.host_refresh_should_process_publish' = 'Publicar o progresso da atualização do hospedeiro'
     'runner.host_refresh_should_process_run' = @(
-        'Run host-refresh request '
+        'Executar a solicitação de atualização do hospedeiro '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1253,7 +1247,7 @@
         }
     )
     'runner.host_refresh_summary_active_request' = @(
-        '  Unresolved request: '
+        '  Solicitação pendente: '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1265,7 +1259,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ', attempt '
+        ', tentativa '
         @{
             'arg' = 'attempt'
             'type' = 'integer'
@@ -1280,13 +1274,13 @@
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ' (configuration '
+        ' (configuração '
         @{
             'arg' = 'configPath'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ', from '
+        ', de '
         @{
             'arg' = 'configSource'
             'type' = 'identifier'
@@ -1295,13 +1289,13 @@
         ')'
     )
     'runner.host_refresh_summary_header' = @(
-        'Host refresh ('
+        'Atualização do hospedeiro ('
         @{
             'arg' = 'mode'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ') on '
+        ') em '
         @{
             'arg' = 'hostType'
             'type' = 'identifier'
@@ -1309,7 +1303,7 @@
         }
     )
     'runner.host_refresh_summary_ladder' = @(
-        '  Repair ladder, ceiling '
+        '  Escada de reparo, limite '
         @{
             'arg' = 'ceiling'
             'type' = 'identifier'
@@ -1318,7 +1312,7 @@
         ':'
     )
     'runner.host_refresh_summary_obligation' = @(
-        '  Outstanding:      '
+        '  Pendente:         '
         @{
             'arg' = 'obligation'
             'type' = 'identifier'
@@ -1326,7 +1320,7 @@
         }
     )
     'runner.host_refresh_summary_probe' = @(
-        '  Hypervisor probe: '
+        '  Sonda do hipervisor: '
         @{
             'arg' = 'state'
             'type' = 'identifier'
@@ -1359,7 +1353,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': above the requested ceiling'
+        ': acima do limite solicitado'
     )
     'runner.host_refresh_summary_rung_available' = @(
         '    ['
@@ -1374,7 +1368,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': available'
+        ': disponível'
     )
     'runner.host_refresh_summary_rung_result' = @(
         '    ['
@@ -1416,7 +1410,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': unavailable, '
+        ': indisponível, '
         @{
             'arg' = 'reason'
             'type' = 'detail'
@@ -1432,25 +1426,25 @@
         }
     )
     'runner.host_refresh_summary_verdict' = @(
-        '  Verdict:          '
+        '  Veredito:         '
         @{
             'arg' = 'verdict'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' (request '
+        ' (solicitação '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ', attempt '
+        ', tentativa '
         @{
             'arg' = 'attempt'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ', state '
+        ', estado '
         @{
             'arg' = 'state'
             'type' = 'identifier'
@@ -1459,7 +1453,7 @@
         ')'
     )
     'runner.host_refresh_unexpected_error' = @(
-        'Invoke-HostRefresh: unexpected error during '
+        'Invoke-HostRefresh: erro inesperado durante '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -1472,7 +1466,7 @@
             'trust' = 'external'
         }
     )
-    'runner.host_refresh_verified_noop' = 'Invoke-HostRefresh: the hypervisor answered and the runner is healthy; nothing was changed.'
+    'runner.host_refresh_verified_noop' = 'Invoke-HostRefresh: o hipervisor respondeu e o runner está íntegro; nada foi alterado.'
     'runner.inner_guest_folder_missing' = @(
         'A pasta de visitas não foi encontrada para '''
         @{
@@ -1503,8 +1497,8 @@
         }
         ''' não tem ''baseline:'' chave OS; não uma sequência de convidado executável.'
     )
-    'runner.launch_record_complete_action' = 'Mark the runner launch record ended'
-    'runner.launch_record_write_action' = 'Write the runner launch record'
+    'runner.launch_record_complete_action' = 'Marcar o registro de inicialização do runner como encerrado'
+    'runner.launch_record_write_action' = 'Gravar o registro de inicialização do runner'
     'runner.mac_automation_utm_title' = 'Automação -> UTM'
     'runner.mac_dock_reload_deferred' = 'O Dock não foi reiniciado porque esta execução não deve interferir na sessão da área de trabalho; as alterações de cantos ativos e Spaces entram em vigor na próxima vez que o Dock for iniciado.'
     'runner.mac_grant_prompt_suppressed' = @(
@@ -1577,7 +1571,7 @@
         }
     )
     'runner.mcp_dependency_drift' = 'saída 1 deste script significa que uma dependência presa se deslocou, não que o relatório tenha falhado'
-    'runner.mcp_dependency_invalid_json' = 'esperado JSON de - AsJson, mas a saída não analisou'
+    'runner.mcp_dependency_invalid_json' = 'esperado JSON de -AsJson, mas a saída não analisou'
     'runner.mcp_diagnostic_verdict' = 'O Get-SystemDiagnostic sempre sai de 0; os problemas estão no relatório, não no código de saída.'
     'runner.mcp_false_verdict' = 'o script retornou Falso no nível superior e saiu 0; o veredicto é o resultado, não o código de saída'
     'runner.mcp_host_alias_verdict' = 'O Set-HostAlias não escreve nenhuma transcrição e não tem instrução de saída; um erro lançado é o sinal de falha.'
@@ -1623,13 +1617,13 @@
     )
     'runner.mcp_yuruna_dependency_version' = 'Reporte as versões de dependência fixadas e o que está instalado. Emits JSON nativamente.'
     'runner.mcp_yuruna_invoke_clear' = 'Limpar o estado gerado. DEStruTIVO: o que remove não é recuperável chamando-o novamente.'
-    'runner.mcp_yuruna_set_component' = 'Aplicar as definições dos componentes. Grava a configuração; sai não- zero com uma transcrição na falha.'
+    'runner.mcp_yuruna_set_component' = 'Aplicar as definições dos componentes. Grava a configuração; sai não-zero com uma transcrição na falha.'
     'runner.mcp_yuruna_set_host_alias' = 'Define o apelido da máquina. Ao contrário dos seus irmãos, não tem nenhuma instrução de saída e não escreve nenhuma transcrição, por isso um erro lançado é o único sinal de falha.'
-    'runner.mcp_yuruna_set_resource' = 'Aplicar as definições dos recursos. Grava a configuração; sai não- zero com uma transcrição na falha.'
-    'runner.mcp_yuruna_set_workload' = 'Aplicar as definições de carga de trabalho. Grava a configuração; sai não- zero com uma transcrição na falha.'
+    'runner.mcp_yuruna_set_resource' = 'Aplicar as definições dos recursos. Grava a configuração; sai não-zero com uma transcrição na falha.'
+    'runner.mcp_yuruna_set_workload' = 'Aplicar as definições de carga de trabalho. Grava a configuração; sai não-zero com uma transcrição na falha.'
     'runner.mcp_yuruna_system_diagnostic' = 'Produzir o relatório de diagnóstico da máquina. SEMPRE sai 0: código de saída 0 significa que o relatório foi produzido, nunca que nada está errado. Leia os problemas na saída.'
-    'runner.mcp_yuruna_test_configuration' = 'Valida a configuração do teste. Sai não- zero com uma transcrição quando uma verificação falha e retorna uma Falsa nua ao sair de 0 quando o conjunto root não se resolver.'
-    'runner.mcp_yuruna_test_requirement' = 'Verifique se esta máquina satisfaz os requisitos de que um ciclo necessita. Sai não- zero com um requisito falhado.'
+    'runner.mcp_yuruna_test_configuration' = 'Valida a configuração do teste. Sai não-zero com uma transcrição quando uma verificação falha e retorna uma Falsa nua ao sair de 0 quando o conjunto root não se resolver.'
+    'runner.mcp_yuruna_test_requirement' = 'Verifique se esta máquina satisfaz os requisitos de que um ciclo necessita. Sai não-zero com um requisito falhado.'
     'runner.mcp_yuruna_test_runtime' = 'Verifique o tempo de execução. O veredicto é um booleano emitido como o último objeto do gasoduto; este script não tem instrução de saída, então o código de saída não diz nada.'
     'runner.no_other_runner_refresh_active' = @(
         @{
@@ -1637,19 +1631,19 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': host refresh '
+        ': a atualização do hospedeiro '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' holds this host''s runner (gate '
+        ' mantém o runner deste hospedeiro (portão '
         @{
             'arg' = 'state'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); refusing to start. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.'
+        '); a inicialização foi recusada. Aguarde a conclusão ou retome com test/lab/Invoke-HostRefresh.ps1 -Resume.'
     )
     'runner.operator_00041714738b26ad' = 'Definir a topologia do clone (duplicar)'
     'runner.operator_0021edc0297e700d' = @(
@@ -1678,7 +1672,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''; o hóspede recusar-se-á a executá-lo.'
+        '''; o convidado recusar-se-á a executá-lo.'
     )
     'runner.operator_005c1ce69aef7499' = @(
         'Falha ao remover '''
@@ -1713,7 +1707,7 @@
     )
     'runner.operator_0069e1e9dde926cf' = 'nmcli aceitou a mudança, mas o perfil não lê de volta como fixado.'
     'runner.operator_0074e7b362cc1375' = @(
-        'Causa da falha do registo '
+        'Causa da falha do registro '
         @{
             'arg' = 'failureClass'
             'type' = 'detail'
@@ -1799,7 +1793,7 @@
         }
         ' ms).'
     )
-    'runner.operator_018abd0c53f4a963' = 'A activação do protector de ecrã já está desactivada.'
+    'runner.operator_018abd0c53f4a963' = 'A activação do protector de tela já está desactivada.'
     'runner.operator_019df28e2a34d19e' = @(
         '--- '
         @{
@@ -2019,7 +2013,7 @@
         }
     )
     'runner.operator_05564109830bf14c' = @(
-        'Serviço de cache- proxy: detectado, mapa do porto diferido -- escrito em '
+        'Serviço de cache-proxy: detectado, mapa do porto diferido -- escrito em '
         @{
             'arg' = 'cachingProxyServiceFile'
             'type' = 'detail'
@@ -2049,15 +2043,6 @@
             'trust' = 'external'
         }
         ').'
-    )
-    'runner.operator_05b0d534849b3a19' = @(
-        'pool: test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' não tem sequências; pulando.'
     )
     'runner.operator_05c7282e24926d99' = @(
         'A credencial '''
@@ -2101,7 +2086,7 @@
     'runner.operator_06133b7736b263c1' = 'Invoke-RemoteDiagnosticsConsole: console echo ainda corrompido após um retype; abandonando o caminho do console sem enviar.'
     'runner.operator_0622a4d0730acf6c' = 'Define a política de execução do ActualUser como Assinada RemoteSigned (one-shot logon)'
     'runner.operator_0662379096e5f8cc' = 'criado test.config.yml do modelo'
-    'runner.operator_06d926b8e7ee2f1f' = 'A senha do bloqueio de ecrã (currentHost) já está desactivada.'
+    'runner.operator_06d926b8e7ee2f1f' = 'A senha do bloqueio de tela (currentHost) já está desactivada.'
     'runner.operator_0701b2318dd0c5cc' = @(
         'Falha na finalização do reinício do ciclo: '
         @{
@@ -2130,13 +2115,13 @@
         ''' contém uma citação ou espaço em branco; dê um nome de IP ou máquina.'
     )
     'runner.operator_075bc59a36ee3ca1' = @(
-        'sincronia da piscina: pools.yml parse falhou ('
+        'sincronização do grupo: falha ao analisar pools.yml ('
         @{
             'arg' = 'message'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); ciclismo como uma única máquina.'
+        '); executando os ciclos como um único host.'
     )
     'runner.operator_0761d2ab1dce11c3' = 'Pode haver mais recomendações de saúde do host disponíveis. Para um relatório mais profundo (arquivos de configuração, transportes, framework/project staleness, RAM/CPU, estado específico da funcionalidade do host) executado: pwsh test/Test-Config.ps1'
     'runner.operator_076859b0b8d40bc0' = 'Token do laboratório aceito; usando a chave de autenticação interna para esta execução apenas.'
@@ -2241,14 +2226,6 @@
         }
         '); ele mantém os coletores que tinha.'
     )
-    'runner.operator_09419d31a82de2e4' = @(
-        'pool: manifesto do conjunto de testes não encontrado: '
-        @{
-            'arg' = 'path'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'runner.operator_097d3c2b155e207c' = 'nenhum mapeamento de drive SMB velho (todos os nomes de servidor mapeados ainda resolvem).'
     'runner.operator_09864de73849237f' = 'acesso negado -- executar o arnês elevado'
     'runner.operator_09b3d3a9a05974c3' = 'Start-TestRunner ativa o UTM sem puxar o operador do Código VS.'
@@ -2315,7 +2292,7 @@
         }
         ').'
     )
-    'runner.operator_0a7402a9f9613d98' = 'correto -GuestKey para um hóspede que existe neste host.'
+    'runner.operator_0a7402a9f9613d98' = 'correto -GuestKey para um convidado que existe neste host.'
     'runner.operator_0a9fd5fd1526e2d2' = @(
         @{
             'arg' = 'sequenceElapsedLabel'
@@ -2337,7 +2314,7 @@
         ']'
     )
     'runner.operator_0aebef8687ba03fa' = @(
-        'erro de processamento do transporte.yml no '
+        'erro de processamento do transports.yml no '
         @{
             'arg' = 'notificationCfgPath'
             'type' = 'detail'
@@ -2366,7 +2343,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' não está a servir a sua configuração em :'
+        ' não está atendendo a sua configuração em :'
         @{
             'arg' = 'statusPort'
             'type' = 'detail'
@@ -2397,7 +2374,7 @@
         }
     )
     'runner.operator_0bd78cad6aa93694' = @(
-        '-NenhumProjectClone está definido, mas o '
+        '-NoProjectClone está definido, mas o '
         @{
             'arg' = 'projectDir'
             'type' = 'detail'
@@ -2535,7 +2512,7 @@
     'runner.operator_0d2bb1e23a0f67d7' = '- Alterações locais não comprometidas bloqueando a frente rápida'
     'runner.operator_0d3475ea37a81bab' = 'Send-ClickHyperV chamado na máquina não-Windows.'
     'runner.operator_0d598771558dab19' = 'nem a tabela de partilha desta máquina pôde ser lida'
-    'runner.operator_0d5b3ab6571f7a39' = 'Validando a configuração sincronizada (teste/teste-Config.ps1) ...'
+    'runner.operator_0d5b3ab6571f7a39' = 'Validando a configuração sincronizada (test/Test-Config.ps1)...'
     'runner.operator_0d624d70cea6a6d5' = 'uuid para recuperar'
     'runner.operator_0dd03afa72233a06' = 'macOS pede isso na primeira vez que utmctl fala com UTM. Responda OK, não "Não permitir" -- uma recusa é lembrada, e só este painel pode desfazer.'
     'runner.operator_0dfb80d85bdca638' = 'Confirmar senha'
@@ -2585,11 +2562,11 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_0e6b41a9acea21ce' = 'Isto impedirá esta máquina de SERVIR a sua própria piscina e armazenamento stash:'
+    'runner.operator_0e6b41a9acea21ce' = 'Isto impedirá esta máquina de SERVIR seu próprio grupo e o armazenamento stash:'
     'runner.operator_0e8ca595acd6197f' = 'Verifique seus transportes.resend.apiKey e deEmail em transports.yml'
     'runner.operator_0e929ded244ecd06' = 'nenhuma tentativa de instalação está registrada para esta máquina'
     'runner.operator_0e9e9264026f513e' = @(
-        'Get- Password lançado para '''
+        'Get-Password lançado para '''
         @{
             'arg' = 'user'
             'type' = 'detail'
@@ -2597,7 +2574,7 @@
         }
         ''' (vault pode estar corrompido)'
     )
-    'runner.operator_0ea7a491f185a1a6' = 'Apagar o registo de identidade da máquina do grupo'
+    'runner.operator_0ea7a491f185a1a6' = 'Apagar o registro de identidade da máquina do grupo'
     'runner.operator_0eaac625cae7caa8' = 'Requisitos da máquina (rápido)'
     'runner.operator_0eb7bda9b10d1bc4' = @(
         '['
@@ -2648,7 +2625,7 @@
         }
         ' verificadas.'
     )
-    'runner.operator_0ee5a858a1d212de' = 'O instalador e os scripts dos hóspedes são BOM-less 7-bit ASCII.'
+    'runner.operator_0ee5a858a1d212de' = 'O instalador e os scripts dos convidados são BOM-less 7-bit ASCII.'
     'runner.operator_0eeb0f082780ca5f' = 'direitos de uma conta que já os tenha:'
     'runner.operator_0ef40349ea9f9ff4' = @(
         'Criar TCP inbound :'
@@ -2701,7 +2678,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_0f5a121afdec7904' = 'Hyper-V Virtual Machine Management service (vmms) não está instalado. Habilite Hyper-V de uma PowerShell elevada: Active-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All (então reinicie).'
+    'runner.operator_0f5a121afdec7904' = 'Hyper-V Virtual Machine Management service (vmms) não está instalado. Habilite Hyper-V de uma PowerShell elevada: Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All (então reinicie).'
     'runner.operator_0f5a8f43e49a6d8b' = @(
         '(chave de valor '''
         @{
@@ -2709,7 +2686,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''). Reutilizando- a, assim a conta corresponde à'
+        '''). Reutilizando-a, assim a conta corresponde à'
     )
     'runner.operator_0f623ab3104195e4' = 'utmctl no PATH'
     'runner.operator_0f8092ec9d970028' = @(
@@ -2775,7 +2752,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' vezes consecutivas -- o corredor está a passar na última boa configuração. O ficheiro pode estar no meio da edição ou corrompido; botões recarregáveis (logLevel, timeouts, cycleDelay) stay congelado até que uma recarga tenha sucesso.'
+        ' vezes consecutivas -- o corredor está passando na última boa configuração. O arquivo pode estar no meio da edição ou corrompido; botões recarregáveis (logLevel, timeouts, cycleDelay) stay congelado até que uma recarga tenha sucesso.'
     )
     'runner.operator_0fea3eacdce256ad' = @(
         @{
@@ -2923,7 +2900,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_11155c290bdca317' = 'bloco de piscina não presente -- sincronia de intenção de piscina está desligada (opcional).'
+    'runner.operator_11155c290bdca317' = 'bloco de grupo não presente -- sincronia de intenção de grupo está desligada (opcional).'
     'runner.operator_112839be6c0da628' = 'Reiniciar o documento de estado para o novo ciclo'
     'runner.operator_115a0cebc1971e79' = @(
         'Não foi possível retirar a entrada '''
@@ -2940,7 +2917,7 @@
         }
         '); ela ainda possui uma cópia da chave de autenticação interna desta máquina.'
     )
-    'runner.operator_115c537f68698f1e' = 'Escrever ciclo manifesto.json'
+    'runner.operator_115c537f68698f1e' = 'Escrever ciclo manifest.json'
     'runner.operator_116ec74ac5b0a7f3' = 'Definir LogPixels=96, Win8DpiScaling=1 (100% DPI do sistema)'
     'runner.operator_1181aab1d5f7aea0' = @(
         'A tela principal '''
@@ -3052,7 +3029,7 @@
         }
         '.'
     )
-    'runner.operator_11d1149a0fb16062' = 'A raiz deixou de ser acessível sem uma senha através dos protectores de ''pmset'' estendidos. Execute- os você mesmo antes de iniciar os testes:'
+    'runner.operator_11d1149a0fb16062' = 'A raiz deixou de ser acessível sem uma senha através dos protectores de ''pmset'' estendidos. Execute-os você mesmo antes de iniciar os testes:'
     'runner.operator_11dd313197e1d9c6' = @(
         'O '''
         @{
@@ -3080,7 +3057,7 @@
     )
     'runner.operator_127885b6f7dcb1b0' = 'armazenamento completo'
     'runner.operator_128d310098239f76' = @(
-        'Save- guestDiagnostic: não foi possível escrever '''
+        'Save-GuestDiagnostic: não foi possível escrever '''
         @{
             'arg' = 'outPath'
             'type' = 'detail'
@@ -3131,7 +3108,7 @@
         ".`nSem eles a conversão deixaria as senhas que esta máquina cunhava para as ações que servia ITSELF -- que o laboratório`no armazenamento nunca viu -- e o mount falharia mais tarde com um erro de credencial.`nInscrição em primeiro lugar: teste pwsh/lab/Set-LabToken.ps1 -LabToken <code from the Yuruna hosts dashboard>`nou passe a chave bruta: -InternalAuthKey '<value>'"
     )
     'runner.operator_12e2dd1dd8779580' = @(
-        '- SetHostProxy lançado: '
+        '-SetHostProxy lançado: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -3201,7 +3178,7 @@
         '. Exemplo: ''Yuruna <notifications@yourdomain.com>'''
     )
     'runner.operator_1395b068573e4406' = 'Corrigir com: Configurações > Sistema > Visualização > Escala definida para 100%, em seguida, sair e voltar (uma sessão mantém a escala com a qual começou).'
-    'runner.operator_13a64a29700e4dfa' = 'A captura desta máquina precede a versão gravada do sistema operacional, de modo que uma atualização já que a configuração não pode ser detectada a partir dela.'
+    'runner.operator_13a64a29700e4dfa' = 'A captura deste host é anterior à versão registrada do sistema operacional; por isso, não é possível detectar uma atualização posterior à configuração a partir dela. Execute Enable-TestAutomation novamente para registrar a versão.'
     'runner.operator_13a941989b043d74' = @(
         'Esta máquina mudou o endereço '
         @{
@@ -3226,7 +3203,7 @@
     'runner.operator_13c098483d4f4c49' = 'powershell-yaml não está instalado: users.yml será verificado por varredura de texto'
     'runner.operator_13eefd852d733d69' = 'O hipervisor corre como você e não pode alcançá-los, então eles são peso morto.'
     'runner.operator_13f62b2ffa686ec3' = @(
-        '[break/continuar] Restaurar-VMDiskSnapshot lançado: '
+        '[break/continuar] Restore-VMDiskSnapshot lançado: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -3411,7 +3388,7 @@
     )
     'runner.operator_165ea1e68d413260' = 'Os resultados finais do ciclo são arquivados para o compartilhamento. Modo de movimento TAMBÉM exclui a pasta local de cada ciclo uma vez que a cópia é verificada, então o NAS mantém a única cópia e o disco desta máquina pára de acumular resultados.'
     'runner.operator_168924d252881cdf' = @(
-        'Atraso na senha do bloqueio do ecrã ['
+        'Atraso na senha do bloqueio da tela ['
         @{
             'arg' = 'label'
             'type' = 'detail'
@@ -3501,13 +3478,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ']: abóbadaKey='''
+        ']: vaultKey='''
         @{
             'arg' = 'vk'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não tem entrada em abóbada.yml (modo leniente). O ciclo irá lançar na primeira chamada Get-Password contra '''
+        ''' não tem entrada em vault.yml (modo leniente). O ciclo lançará uma exceção na primeira chamada Get-Password para '''
         @{
             'arg' = 'logical'
             'type' = 'detail'
@@ -3589,7 +3566,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        's, directório '''
+        's, diretório '''
         @{
             'arg' = 'cacheAddress'
             'type' = 'detail'
@@ -3651,7 +3628,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não irá montar: até que vá, sua sessão SMB continua respondendo por esse nome do servidor. Desmontá- lo manualmente (macOS: diskutil unmount force «'
+        ''' não irá montar: até que vá, sua sessão SMB continua respondendo por esse nome do servidor. Desmontá-lo manualmente (macOS: diskutil unmount force «'
         @{
             'arg' = 'mountPoint2'
             'type' = 'detail'
@@ -3687,7 +3664,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ') e foi removida; instale- a manualmente. '
+        ') e foi removida; instale-a manualmente. '
         @{
             'arg' = 'join'
             'type' = 'detail'
@@ -3704,7 +3681,7 @@
         }
     )
     'runner.operator_1a355714114b86a7' = 'Falta o UTM.app -- install it: brew install --cask utm (ou https://mac.getutm.app)'
-    'runner.operator_1a3ffa06ec11b7a6' = 'virsh não encontrado no PATH -- os pacotes libvirt/QEMU não estão instalados. Executar install/ubuntu.kvm.sh, ou: sudo apt- get install -y libvirt- clients libvirt- daemon- system virtinst qemu- system- x86'
+    'runner.operator_1a3ffa06ec11b7a6' = 'virsh não encontrado no PATH -- os pacotes libvirt/QEMU não estão instalados. Executar install/ubuntu.kvm.sh, ou: sudo apt-get install -y libvirt-clients libvirt-daemon-system virtinst qemu-system-x86'
     'runner.operator_1a5944a737ed4e90' = @(
         'Atualizar a máquina '
         @{
@@ -3739,7 +3716,7 @@
     'runner.operator_1b62f363a67c071e' = 'Salvador de tela ociosoTime is unset (user domain) -- o padrão macOS se aplica (~20 min).'
     'runner.operator_1b782afe8f41a112' = 'defaults write com.utmapp.UTM NSAppSleepDisabled -bool SIM'
     'runner.operator_1b7841e3289bf783' = 'Voltando para uma varredura de texto de users.yml.'
-    'runner.operator_1ba851d822cab45b' = 'em seguida, re- execute; se ele ainda reporta negado, pare e reinicie o terminal'
+    'runner.operator_1ba851d822cab45b' = 'em seguida, re-execute; se ele ainda reporta negado, pare e reinicie o terminal'
     'runner.operator_1be4d809249b202a' = @(
         'users.yml: strict='
         @{
@@ -3756,7 +3733,7 @@
         ' lógico usuário(s) declarado(s).'
     )
     'runner.operator_1bf17ab0244b3137' = @(
-        'erro no set- ntp do timedatectl: '
+        'erro no set-ntp do timedatectl: '
         @{
             'arg' = 'trim'
             'type' = 'detail'
@@ -3792,13 +3769,13 @@
         }
     )
     'runner.operator_1c454b2f57b2a09f' = @(
-        'projectUrl é um arquivo:// URL -- só o host pode resolvê-lo. Os hóspedes que acertarem o caminho tarball-fallback (status service 404 no /yuruna-project- archive.tar.gz) irão tentar ''git clone '
+        'projectUrl é um arquivo:// URL -- só o host pode resolvê-lo. Os convidados que acertarem o caminho tarball-fallback (status service 404 no /yuruna-project-archive.tar.gz) irão tentar ''git clone '
         @{
             'arg' = 'projectUrlConfigured'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' no seu próprio Linux sistema de arquivos e falha. Use um HTTPS/SSH URL os hóspedes podem chegar se você confiar no backback do convidado.'
+        ''' no seu próprio Linux sistema de arquivos e falha. Use um HTTPS/SSH URL os convidados podem chegar se você confiar no backback do convidado.'
     )
     'runner.operator_1c5a3042a31dae5a' = @(
         'Mostrar o sono (atualmente '
@@ -3846,32 +3823,17 @@
         }
         'h, mas sua identidade DHCP ponte não está presa -- ele está segurando o endereço pelo goodwill do servidor DHCP, e um servidor reiniciar ou uma tabela de leasing deviction renumes Ele.'
     )
-    'runner.operator_1caefd7b465819d0' = 'todos os hóspedes'
+    'runner.operator_1caefd7b465819d0' = 'todos os convidados'
     'runner.operator_1cb00ee9f6034d6e' = '-KeepLocalShares: os compartilhamentos e suas contas permanecem publicados para os hosts que ainda os montam.'
     'runner.operator_1cbf528eda6cfdb7' = 'Repair-VncConnection (comprimento em cache limpo, re-handshake de força)'
-    'runner.operator_1cfaa5f7efe3352b' = 'Nenhuma captura pré- automática nesta máquina -- quer Active- TestAutomation não foi executada aqui, ou foi executada antes da captura enviada. As secções de configuração da máquina abaixo reportam as próprias configurações.'
+    'runner.operator_1cfaa5f7efe3352b' = 'Nenhuma captura pré-automática nesta máquina -- quer Enable-TestAutomation não foi executada aqui, ou foi executada antes da captura enviada. As secções de configuração da máquina abaixo reportam as próprias configurações.'
     'runner.operator_1d07d8486807df5b' = @(
-        'A notificação do envio do Yuruna falhou: '
+        'Send-YurunaNotification falhou: '
         @{
             'arg' = 'value'
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_1d0a3ac35890db97' = @(
-        'pool: test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' provisionamento.entreSets='''
-        @{
-            'arg' = 'between'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' ainda não implementado; tratando como ''nenhum''.'
     )
     'runner.operator_1d0efcf0a84c0f0f' = @(
         'pool: intention store atingable ('
@@ -3896,7 +3858,7 @@
         }
         '.'
     )
-    'runner.operator_1d66dd0d87cb6777' = 'Serviço de cache- proxy: detectado (mapa do porto falhou)'
+    'runner.operator_1d66dd0d87cb6777' = 'Serviço de cache-proxy: detectado (mapa do porto falhou)'
     'runner.operator_1da81121991fa2bf' = 'Um novo host.uuid será cunhado no primeiro ciclo.'
     'runner.operator_1dafa4accdcc7f53' = @(
         'Moveu a( s) janela( s) '
@@ -3905,7 +3867,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' para fora do ecrã virtual de volta para o primário.'
+        ' para fora da tela virtual de volta para o primário.'
     )
     'runner.operator_1dd429c10317e9b6' = @(
         'ERRO ['
@@ -3930,7 +3892,7 @@
         }
     )
     'runner.operator_1defe9aa2e99aade' = 'conta -- os avisos acima dizem por quê.'
-    'runner.operator_1e335c9c41a51b2a' = 'Desactivando o bloqueio de ecrã unificado do sysadminctl (precisa da sua senha do macOS Account, que o sudo não pode fornecer)...'
+    'runner.operator_1e335c9c41a51b2a' = 'Desactivando o bloqueio de tela unificado do sysadminctl (precisa da sua senha do macOS Account, que o sudo não pode fornecer)...'
     'runner.operator_1e450b2204f014ac' = @(
         '[ciclo externo '
         @{
@@ -3938,7 +3900,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] re- garantia de serviço de estado após falha interna falhou: '
+        '] nova garantia de serviço de estado após falha interna falhou: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -3946,7 +3908,7 @@
         }
     )
     'runner.operator_1e85bba01269d1fa' = 'Lista de passos:'
-    'runner.operator_1e9af1644d738edc' = 'o cofre -- veja documentos/teste-config.md.'
+    'runner.operator_1e9af1644d738edc' = 'o cofre -- veja docs/test-config.md.'
     'runner.operator_1eadbbca80253986' = @(
         'Porta '
         @{
@@ -3970,7 +3932,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_1ee49d169ec618ee' = 'test.runner.yml: pulando uma entrada testSets sem ''nome''.'
     'runner.operator_1eeace18e9071c6f' = @(
         'VM '''
         @{
@@ -3990,7 +3951,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. Os hóspedes neste interruptor não vêm com nenhuma operadora: o host é inacessível do hóspede, e o endereço de host cozido neste VM''s O seed pode não ser mais o que a máquina responde. A VM é reutilizada como-is -- delete-a para que seja fornecida em um interruptor de trabalho, ou restaure a ligação uplink do switch.'
+        '''. Os convidados neste interruptor não vêm com nenhuma operadora: o host é inacessível do convidado, e o endereço de host cozido neste VM''s O seed pode não ser mais o que a máquina responde. A VM é reutilizada como-is -- delete-a para que seja fornecida em um interruptor de trabalho, ou restaure a ligação uplink do switch.'
     )
     'runner.operator_1f01a0e682e4deda' = @(
         'Baixando imagem para '
@@ -4022,7 +3983,7 @@
     )
     'runner.operator_1fe1d584f0290ac2' = 'pool push: YURUNA RUNTIME DIR / YURUNA LOG DIR não definido; nada a fazer.'
     'runner.operator_1fee4eeedfc3032d' = @(
-        'A visualização inicializada ('''
+        'Initialize-HostDisplay ('''
         @{
             'arg' = 'hostType'
             'type' = 'detail'
@@ -4127,7 +4088,6 @@
         }
         '] pool desejedState=paused -- holding (sem ciclo gerado).'
     )
-    'runner.operator_217d530848e4cda8' = 'test.runner.yml: pulando uma entrada testSets que não é um mapeamento.'
     'runner.operator_218ebb2c80a76597' = @(
         '[ciclo externo '
         @{
@@ -4135,7 +4095,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] armazenamento de piscina completo: '
+        '] armazenamento de grupo completo: '
         @{
             'arg' = 'full'
             'type' = 'detail'
@@ -4206,7 +4166,7 @@
         }
         ' (escala de visualização de 100%)'
     )
-    'runner.operator_21f984bad0cf171b' = 'Configurações atualizadas. Re- execute o Assert- MacHostConditionSet para verificar:'
+    'runner.operator_21f984bad0cf171b' = 'Configurações atualizadas. Re-execute o Assert-MacHostConditionSet para verificar:'
     'runner.operator_22323c8e215f0677' = @(
         'Save-GuestDiagnostic: total transcorrido '
         @{
@@ -4247,7 +4207,7 @@
         's de inatividade (AutoLogOutDelay).'
     )
     'runner.operator_2276f721ecc44594' = 'Iniciar amostragem limitada da máquina'
-    'runner.operator_2284614ab700c9b7' = 'Activar o WindowsOptionalFeature - Online - FeatureName Microsoft- Hyper- V - All'
+    'runner.operator_2284614ab700c9b7' = 'Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All'
     'runner.operator_229f581dd7c7aad2' = @(
         'Diretório de logs: '
         @{
@@ -4271,7 +4231,7 @@
         }
         ').'
     )
-    'runner.operator_22b8204649114e79' = 'A partilha de ficheiros está desligada; habilitando e iniciando o smbd (launchctl)...'
+    'runner.operator_22b8204649114e79' = 'A partilha de arquivos está desligada; habilitando e iniciando o smbd (launchctl)...'
     'runner.operator_22ec2c9b5f0c9a52' = @(
         'O envio da chave VNC falhou: '
         @{
@@ -4290,7 +4250,7 @@
         }
         '.'
     )
-    'runner.operator_23987bbbb4b24ea9' = 'o padrão do Windows, e esta execução não pôde defini- lo para o'
+    'runner.operator_23987bbbb4b24ea9' = 'o padrão do Windows, e esta execução não pôde defini-lo para o'
     'runner.operator_23dbec8c48c57844' = '- VPN caiu (DNS corporativo não mais acessível)'
     'runner.operator_23f66d6a6d12417d' = @(
         'Imagem em cache presente no '
@@ -4326,7 +4286,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_241d50d60bce8e27' = 'Bloqueie até que o hóspede aceite um aperto de mão SSH.'
+    'runner.operator_241d50d60bce8e27' = 'Bloqueie até que o convidado aceite um aperto de mão SSH.'
     'runner.operator_2421d934c8fe2461' = @(
         'Definir o estado do nó aninhado '''
         @{
@@ -4338,13 +4298,13 @@
     )
     'runner.operator_243841d0b52ff7e7' = 'Definir o tipo de início como Automático'
     'runner.operator_243d23ca0fc2d079' = @(
-        'Máquina de evict '
+        'Remover o host '
         @{
             'arg' = 'hostId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' a partir da vista do painel ao vivo (esqueça- máquina)'
+        ' da visualização ativa do painel (forget-host)'
     )
     'runner.operator_243e5b6d3c10c824' = 'Criar pasta de gerenciamento de instantâneos'
     'runner.operator_247d842524300420' = @(
@@ -4392,7 +4352,7 @@
         ' não é um processo Start-TestRunner.ps1. Ignorando.'
     )
     'runner.operator_2506e0e83c402248' = @(
-        'Desactivando o requisito de senha de bloqueio do ecrã, o actualHost (foi '
+        'Desativando a exigência de senha para bloquear a tela em currentHost (anteriormente '
         @{
             'arg' = 'label'
             'type' = 'detail'
@@ -4445,7 +4405,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`n- AllowMirrorSource foi dada, então isso é relatado em vez de falhou."
+        "`n-AllowMirrorSource foi dada, então isso é relatado em vez de falhou."
     )
     'runner.operator_254906044fad17f7' = @(
         'Arquivo de log: '
@@ -4503,7 +4463,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' por dia. drenar o pool depende do período de locação e do tamanho do escopo, que são fatos sobre o servidor DHCP e não são visíveis a partir deste host: em uma locação de horas L cada endereço é mantido horas L, então taxa aproximadamente x L / 24 são mantidos de uma vez. Compare isso com a contagem de licenças gratuitas no servidor antes de tratar isso como um problema de pool. O que é certo a partir daqui é o próprio churn -- um endereço mudando em um relógio quebra cada hóspede atrás Sempre que se mexe.'
+        ' por dia. drenar o pool depende do período de locação e do tamanho do escopo, que são fatos sobre o servidor DHCP e não são visíveis a partir deste host: em uma locação de horas L cada endereço é mantido horas L, então taxa aproximadamente x L / 24 são mantidos de uma vez. Compare isso com a contagem de licenças gratuitas no servidor antes de tratar isso como um problema de pool. O que é certo a partir daqui é o próprio churn -- um endereço mudando em um relógio quebra cada convidado atrás Sempre que se mexe.'
     )
     'runner.operator_258aa0a2968ed154' = 'Restrinja-se ao usuário atual'
     'runner.operator_25aea44ba0131a2a' = 'O bloqueio de inatividade da máquina já está desativado.'
@@ -4529,7 +4489,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' -- os hóspedes anexados lá não vêm com nenhuma operadora, então eles tomam o Switch padrão (NAT + DHCP; LAN-exposed services ride host para a frente de portas). '
+        ''' -- os convidados anexados lá não vêm com nenhuma operadora, então eles tomam o Switch padrão (NAT + DHCP; LAN-exposed services ride host para a frente de portas). '
         @{
             'arg' = 'name2'
             'type' = 'detail'
@@ -4545,7 +4505,7 @@
         }
     )
     'runner.operator_25d5ba063fd07cd5' = @(
-        'Inicializar o HostMetricsExporter ('''
+        'Initialize-HostMetricsExporter ('''
         @{
             'arg' = 'hostType'
             'type' = 'detail'
@@ -4744,7 +4704,7 @@
     )
     'runner.operator_2879ced5085e2e16' = 'networkStorage block não presente -- A replicação do NAS está desligada (opcional).'
     'runner.operator_28891a03368609b9' = @(
-        'Parar-VM '''
+        'Stop-VM '''
         @{
             'arg' = 'vMName'
             'type' = 'detail'
@@ -4753,7 +4713,7 @@
         ''' depois de Ctrl+C não confirmar a parada; o convidado pode ainda estar em execução.'
     )
     'runner.operator_28903f180d50abb4' = @(
-        'O Hyper- V TypeScancodes (texto) falhou: '
+        'O Hyper-V TypeScancodes (texto) falhou: '
         @{
             'arg' = 'value'
             'type' = 'detail'
@@ -4761,7 +4721,7 @@
         }
     )
     'runner.operator_28a938238a1f9f61' = @(
-        'Não foi possível gravar o ficheiro de resultado do ciclo: '
+        'Não foi possível gravar o arquivo de resultado do ciclo: '
         @{
             'arg' = 'outcomeFile'
             'type' = 'detail'
@@ -4793,7 +4753,7 @@
         ' (Amplo do usuário atual).'
     )
     'runner.operator_28e8e9b79ddad7c6' = @(
-        'snippets.yml erro de processamento: '
+        '_snippets.yml erro de processamento: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -4804,7 +4764,7 @@
     'runner.operator_2911629c58691e3f' = 'um ciclo pararia no meio de um prompt de senha que ninguém é'
     'runner.operator_29160309e2dd574e' = '/dev/kvm presente.'
     'runner.operator_29205489a1013ab0' = 'host.windows.hyper-v requer elevação. Re-run Start-TestRunner.ps1 como Administrador.'
-    'runner.operator_292bf0f1ef450037' = 'Invoke-HostRefresh: o hipervisor está a responder; o corredor está morto ou ausente. A execução 1 (reclamação) não é implementada nesta fatia -- inicia- a manualmente: pwsh test/Start-TestRunner.ps1'
+    'runner.operator_292bf0f1ef450037' = 'Invoke-HostRefresh: o hipervisor está respondendo; o corredor está morto ou ausente. A execução 1 (reclamação) não é implementada nesta fatia -- inicia-a manualmente: pwsh test/Start-TestRunner.ps1'
     'runner.operator_29607e704f43acdc' = @(
         'users.yml['
         @{
@@ -4830,7 +4790,7 @@
         }
     )
     'runner.operator_298b67c69aa4a722' = @(
-        'Consumido stile control.cycle- reinstart (idade: '
+        'Consumido stile control.cycle-reinstart (idade: '
         @{
             'arg' = 'cycleRestartAgeSeconds'
             'type' = 'detail'
@@ -4881,7 +4841,7 @@
         }
         ''', de modo que não pôde ser reconstruído.'
     )
-    'runner.operator_2a85bda1cd1209c1' = 'Os hóspedes cuja configuração UTM passa -vnc para QEMU são lidos diretamente fora do framebuffer convidado e não são afetados. Escalar atinge OCR através de capturas de janela UTM: hóspedes que enviam sem -vnc, toque em qualquer hóspede, e Falhas VNC.'
+    'runner.operator_2a85bda1cd1209c1' = 'Convidados cuja configuração UTM passa -vnc ao QEMU são lidos diretamente do framebuffer do convidado e não são afetados. O dimensionamento afeta o OCR nas capturas da janela UTM: convidados sem -vnc, tapOn em qualquer convidado e falhas do VNC.'
     'runner.operator_2a962400b1a920c9' = @(
         'O projeto designado '''
         @{
@@ -4968,14 +4928,6 @@
     )
     'runner.operator_2b0da17830e5ba59' = 'Desligamento solicitado durante a pausa do ciclo. Saindo do ciclo.'
     'runner.operator_2b35fd3a941850be' = 'App Nap congela a linha de UI da UTM, que derruba sua janela do'
-    'runner.operator_2b6254c83f085a18' = @(
-        'validação/escrita test-sets.yml falhou: '
-        @{
-            'arg' = 'error'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'runner.operator_2b64497fe1d6bed5' = @(
         'Apagou a conta mas não conseguiu remover a sua instância de perfil para o SID '
         @{
@@ -5069,13 +5021,13 @@
     )
     'runner.operator_2c4a16c1859a7c76' = 'networkStorage.moveLogsToPoolStorage é verdadeiro, mas poolStorageNetworkPath/poolStorageNetworkUser/poolStorageLocalPath não está todo definido; arquivamento desabilitado.'
     'runner.operator_2c61a83be908ec75' = @(
-        'Aplicação dos clones: os ecrãs ainda estão EXTENDIDOS, não são duplicados ('
+        'Aplicação dos clones: as telas ainda estão EXTENDIDOS, não são duplicados ('
         @{
             'arg' = 'layout'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). O ecrã virtual é primário para que a superfície de captura seja preservada, mas o monitor físico mostra uma área de trabalho separada. Veja docs/host-hyperv.md.'
+        '). A tela virtual é primário para que a superfície de captura seja preservada, mas o monitor físico mostra uma área de trabalho separada. Veja docs/host-hyperv.md.'
     )
     'runner.operator_2c902df97adc2687' = @(
         'Localizado '''
@@ -5098,7 +5050,7 @@
         }
         ' lá antes de falhar o track-up.'
     )
-    'runner.operator_2c9668ebff4efb6d' = 'Configurar a piscinaArmazenamento agora?'
+    'runner.operator_2c9668ebff4efb6d' = 'Configurar poolStorage agora?'
     'runner.operator_2ca8b0421554c457' = 'Nenhuma raiz de armazenamento poderia ser derivada (esta máquina não publica nenhum compartilhamento de yuruna).'
     'runner.operator_2ca94152d51378a0' = @(
         '[ciclo externo '
@@ -5123,13 +5075,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' já é um membro do pool '''
+        ' já pertence ao grupo '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. Uma máquina pertence no máximo a uma piscina -- remova- a primeiro: ./Remove- HostFromPool.ps1 - PoolId '
+        '''. Uma máquina pertence a no máximo um grupo. Remova-a primeiro: ./Remove-HostFromPool.ps1 -PoolId '
         @{
             'arg' = 'poolId'
             'type' = 'detail'
@@ -5280,7 +5232,7 @@
         }
     )
     'runner.operator_2dd32a949870972e' = @(
-        'O Set- HostAlias para '''
+        'O Set-HostAlias para '''
         @{
             'arg' = 'name'
             'type' = 'detail'
@@ -5358,7 +5310,7 @@
     'runner.operator_2eff76aeff36d8bc' = 'Texto VNC enviar: liberando chave(s) ainda realizada após um envio interrompido (guardas contra um preso auto-repetição no convidado).'
     'runner.operator_2f1c7d1f94014e30' = 'Dica (manual): clique com o botão direito do mouse UTM no Dock -> Opções -> Atribuir a -> Todos os Desktops.'
     'runner.operator_2f250144728022eb' = @(
-        'O clone do projeto foi ignorado (- NoProjectClone). Usando o '
+        'O clone do projeto foi ignorado (-NoProjectClone). Usando o '
         @{
             'arg' = 'projectDir'
             'type' = 'detail'
@@ -5383,7 +5335,7 @@
         '''.'
     )
     'runner.operator_2f49bf98e6a47e09' = @(
-        'Nenhuma sonda de rede de hóspedes registrada para '''
+        'Nenhuma sonda de rede de convidados registrada para '''
         @{
             'arg' = 'hostType'
             'type' = 'detail'
@@ -5392,7 +5344,7 @@
         '''.'
     )
     'runner.operator_2fa4cedf7071e22b' = @(
-        'utmctl não encontrado no PATH. O UTM mantém- o dentro do pacote de aplicações, que está no PATH de ninguém. Corrija- o com qualquer um dos seguintes: pwsh test/lab/Enable- TestAutomation.ps1 -- ou -- '
+        'utmctl não encontrado no PATH. O UTM mantém-o dentro do pacote de aplicações, que está no PATH de ninguém. Corrija-o com qualquer um dos seguintes: pwsh test/lab/Enable-TestAutomation.ps1 -- ou -- '
         @{
             'arg' = 'macUtmctlRemediation'
             'type' = 'detail'
@@ -5462,7 +5414,7 @@
         }
         '=1 força-lo através. O ciclo irá correr e pode falhar nele.'
     )
-    'runner.operator_316bf9d86a026e18' = 'Token de laboratório aceito; armazenando a chave de autenticação interna no cofre desta máquina.'
+    'runner.operator_316bf9d86a026e18' = 'Token do laboratório aceito; armazenando a chave de autenticação interna no cofre desta máquina.'
     'runner.operator_3172f88b4ea9f8eb' = @(
         'Não foi possível obter o certificado CA do serviço de cache-proxy após a tentativa(s) '
         @{
@@ -5489,7 +5441,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' commit(s) à frente do upstream (trabalho local desactivado).'
+        ' commit(s) à frente do upstream (trabalho local desativado).'
     )
     'runner.operator_3199b16cc2a02d2f' = 'Guardas pmset estendidas'
     'runner.operator_319b8b8ddbb44d44' = 'A elevação é necessária para:'
@@ -5510,7 +5462,7 @@
         '/host.diagnostics.txt'
     )
     'runner.operator_31d16bf059040025' = 'Uma execução anterior destes scripts sob sudo deixou estado para trás nesta máquina:'
-    'runner.operator_3200a5db7804abee' = 'libvirtd: a unidade libvirtd.service não existe -- libvirt- daemon- system não está instalada. Executar install/ubuntu.kvm.sh, ou: sudo apt- get install - y libvirt- daemon- system libvirt- clients'
+    'runner.operator_3200a5db7804abee' = 'libvirtd: a unidade libvirtd.service não existe -- libvirt-daemon-system não está instalada. Executar install/ubuntu.kvm.sh, ou: sudo apt-get install -y libvirt-daemon-system libvirt-clients'
     'runner.operator_3208bd90808538c6' = @(
         'O relógio da máquina é '
         @{
@@ -5530,7 +5482,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        's). Os hóspedes herdam este relógio ao ligar e são pisados para o meio do arranque em tempo real; um hóspede do Kubernetes aparece com pods a correr mas nunca Pronto e todos os NodePort recusam.'
+        's). Os convidados herdam este relógio ao ligar e são pisados para o meio do arranque em tempo real; um convidado do Kubernetes aparece com pods a correr mas nunca Pronto e todos os NodePort recusam.'
     )
     'runner.operator_322a7712eada0ba2' = @(
         'Nenhuma outra conta nesta máquina pode executá-la, então '''
@@ -5570,13 +5522,19 @@
     )
     'runner.operator_33144fc4aa1c041f' = 'Configurações de nível superior'
     'runner.operator_331c67920b1a4f01' = @(
-        'FAIL target-pool-no-testset: '''
+        'FAIL  target-pool-no-repositories: '''
         @{
             'arg' = 'targetPoolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' é o pool de destino de auto- matrícula e não deve carregar um testSet (ele iria remarcar cada máquina auto- enlaminada). Remova- o ou aponte autoInrollment.targetPoolid para uma máquina diferente piscina.'
+        ''' é o grupo de destino da autoinscrição e não deve conter repositórios (eles redirecionariam todos os hospedeiros autoinscritos). Limpe-os com Set-PoolRepository.ps1 -PoolId '
+        @{
+            'arg' = 'targetPoolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -Clear ou aponte autoEnrollment.targetPoolId para outro grupo.'
     )
     'runner.operator_3355f84da8763f39' = 'transports.yml vazio ou não um mapeamento'
     'runner.operator_3387f09b836c51cc' = @(
@@ -5632,7 +5590,7 @@
         }
         ' é detido por um ouvinte que esta conta não pode ver (um serviço root)'
     )
-    'runner.operator_34557efae38c225b' = 'Os hóspedes configurados no tempo New-VM com esta URL irão voltar para downloads diretos.'
+    'runner.operator_34557efae38c225b' = 'Os convidados configurados no tempo New-VM com esta URL irão voltar para downloads diretos.'
     'runner.operator_346d59852c305e3b' = @(
         'O programa de limpeza não foi encontrado: '
         @{
@@ -5752,7 +5710,7 @@
         }
         '); removendo o destino incompleto e mantendo a pasta local.'
     )
-    'runner.operator_35f52ea8e7416232' = 'loadDiskSnapshot: Restaurar-VMDiskSnapshot não carregado (Yuruna.Host importação faltando).'
+    'runner.operator_35f52ea8e7416232' = 'loadDiskSnapshot: Restore-VMDiskSnapshot não carregado (Yuruna.Host importação faltando).'
     'runner.operator_35fd2fea5f98f145' = 'O branch local está atualizado com o remoto.'
     'runner.operator_36099e5fc006e763' = @(
         'Definir acessibilidade TextScaleFactor para 100 ('
@@ -5764,7 +5722,7 @@
         ' -> 100).'
     )
     'runner.operator_3640b6d07a2b9f5c' = 'Conexão TCP para github.com:443 sucedeu.'
-    'runner.operator_36713d21e973242b' = 'Unregister-SecretVault - Nome <name> # em seguida, excluir sua loja no disco'
+    'runner.operator_36713d21e973242b' = 'Unregister-SecretVault -Name <name> # em seguida, excluir sua loja no disco'
     'runner.operator_367163ea3c6b23bb' = @(
         'FALHAS ('
         @{
@@ -5851,7 +5809,7 @@
         }
         '.'
     )
-    'runner.operator_371e8101f5a8b5d7' = 'Get-VMSwitch □ Nome da lista de formatos, SwitchType, AllowManagementOS, NetAdapterInterfaceDescription'
+    'runner.operator_371e8101f5a8b5d7' = '   Get-VMSwitch | Format-List Name, SwitchType, AllowManagementOS, NetAdapterInterfaceDescription'
     'runner.operator_371f960ea43e6a08' = 'Skipped -- transports.resend não está configurado, então nada neste host fala com api.resend.com.'
     'runner.operator_3731b7cf783246dc' = 'As locações da DHCP foram liberadas antes de serem derrubadas: nenhum convidado foi questionado neste ciclo.'
     'runner.operator_373d4bd06afcd25d' = @(
@@ -5881,7 +5839,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' não está no PATH para esta sessão, por isso o utmctl ainda não irá resolver pelo nome. Adicione- o (está no stock /etc/paths, por isso um PATH editado ou um perfil de shell está a descartá- lo) e inicie um nova concha.'
+        ' não está no PATH para esta sessão, por isso o utmctl ainda não irá resolver pelo nome. Adicione-o (está no stock /etc/paths, por isso um PATH editado ou um perfil de shell está a descartá-lo) e inicie um nova concha.'
     )
     'runner.operator_37783c4be83f2ae9' = @(
         '[ciclo externo '
@@ -5975,16 +5933,7 @@
         }
         '). A chave não é utilizável para as provas de controlo nesta máquina.'
     )
-    'runner.operator_37c6d3d1e44ac68b' = 'Semente da loja de piscina'
-    'runner.operator_37e7a76a3661cead' = @(
-        'O nome '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' é inválido (início alfanumérico minúscula; letras, dígitos, ''.'', '' '', ''-'').'
-    )
+    'runner.operator_37c6d3d1e44ac68b' = 'Semente da loja de grupo'
     'runner.operator_37ec87c9e9d924bd' = @(
         'networkStorage pool: não foi possível mapear a abóbadaKey em users.yml ('
         @{
@@ -6006,7 +5955,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' -- Arquivamento de piscina está desligado (opcional). Popule todos os três para arquivar ciclos terminados para a partilha.'
+        ' -- Arquivamento de grupo está desligado (opcional). Popule todos os três para arquivar ciclos terminados para a partilha.'
     )
     'runner.operator_38846d9c2742bec3' = 'secrets.resend está definido em test.config.yml -- este bloco foi movido para test/status/extension/notification/transports.yml (transports.resend). Mova-o manualmente antes do próximo ciclo.'
     'runner.operator_3897cb6768db5aa5' = @(
@@ -6036,7 +5985,7 @@
         }
         '.password).'
     )
-    'runner.operator_38dba2a38524aa74' = 'Registo Test.HostIO'
+    'runner.operator_38dba2a38524aa74' = 'Registro Test.HostIO'
     'runner.operator_3910eebedaccd757' = @(
         @{
             'arg' = 'source'
@@ -6093,7 +6042,7 @@
         ').'
     )
     'runner.operator_39a7f1d5a0a2a2b7' = @(
-        '[break/continuar] Restaurar- VMDiskSnapshot não carregado; não é possível restaurar o instantâneo '''
+        '[break/continuar] Restore-VMDiskSnapshot não carregado; não é possível restaurar o instantâneo '''
         @{
             'arg' = 'breakSnapshotId'
             'type' = 'detail'
@@ -6136,7 +6085,7 @@
         ' do repositório.'
     )
     'runner.operator_39e2bd9c183f2610' = @(
-        'Read-CachingProxyServiceState: powershell- yaml não importable ('
+        'Read-CachingProxyServiceState: powershell-yaml não importable ('
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -6166,7 +6115,7 @@
         ': já concedido.'
     )
     'runner.operator_3ab94b401b1ddd7f' = @(
-        'Uplink é Wi-Fi ou USB, que Hyper-V não pode ponte; os hóspedes tomar o interruptor padrão (NAT + DHCP) em '
+        'Uplink é Wi-Fi ou USB, que Hyper-V não pode ponte; os convidados tomar o interruptor padrão (NAT + DHCP) em '
         @{
             'arg' = 'iPAddress'
             'type' = 'detail'
@@ -6191,7 +6140,7 @@
     )
     'runner.operator_3b1fcc74c72da88c' = 'abóbada: esta máquina está agora matriculada; as corridas posteriores não precisam de nenhuma chave.'
     'runner.operator_3b5e52665a4e90e0' = @(
-        'Save-GuestDiagnóstico: orçamento total '
+        'Save-GuestDiagnostic: orçamento total '
         @{
             'arg' = 'saveGuestDiagnosticTotalTimeoutSeconds'
             'type' = 'detail'
@@ -6318,8 +6267,8 @@
         }
     )
     'runner.operator_3d611df3f14a3a66' = 'o serviço de status responde no loopback, mas em nenhum dos endereços um convidado é entregue, então a busca do convidado falharia'
-    'runner.operator_3d774626ea2cc3a3' = 'Ver teste/extensão/autenticação/usuários.yml.template para saber como'
-    'runner.operator_3d948aab566ac2da' = '- E se: nada mudou'
+    'runner.operator_3d774626ea2cc3a3' = 'Ver teste/extensão/autenticação/users.yml.template para saber como'
+    'runner.operator_3d948aab566ac2da' = '-WhatIf: nada mudou'
     'runner.operator_3d971e217f190072' = 'Apagar a conta de armazenamento local'
     'runner.operator_3e005e070aefee8b' = @(
         'Retirar a isenção de loopback, mas não foi possível reiniciar o serviço Server ('
@@ -6330,7 +6279,7 @@
         }
         '). Aplica-se na próxima reinicialização.'
     )
-    'runner.operator_3e04ef0941c09bf2' = 'Guardas de pmset estendidas verificadas (sem chaves incorretas em ''pmset - g custom'').'
+    'runner.operator_3e04ef0941c09bf2' = 'Proteções estendidas do pmset verificadas (nenhum valor incorreto em ''pmset -g custom'').'
     'runner.operator_3e0f575b80a127ef' = @(
         @{
             'arg' = 'smsg'
@@ -6422,7 +6371,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Re- execute Test-Config para validar o arquivo migrado.'
+        '. Re-execute Test-Config para validar o arquivo migrado.'
     )
     'runner.operator_3eb81d6ae5a943dd' = @(
         'Os filtros anti-vírus são anexados ao '
@@ -6467,10 +6416,10 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' (usar -Força para regenerar)'
+        ' (usar -Force para regenerar)'
     )
     'runner.operator_3f1222f3734c430b' = @(
-        'Sudo sem senha para o poolStorage mount não está configurado e -NonInteractive foi definido; instale- o manualmente. '
+        'Sudo sem senha para o poolStorage mount não está configurado e -NonInteractive foi definido; instale-o manualmente. '
         @{
             'arg' = 'join'
             'type' = 'detail'
@@ -6510,7 +6459,7 @@
         }
     )
     'runner.operator_3f5e4d13c7518db1' = @(
-        'Send- KeyKvm: virsh send- key '''
+        'Send-KeyKvm: virsh send-key '''
         @{
             'arg' = 'join'
             'type' = 'detail'
@@ -6590,7 +6539,7 @@
         }
         '); pool push desabilitado.'
     )
-    'runner.operator_3fd8d7edc73a5241' = 'Gravar o registo de identidade do host do pool'
+    'runner.operator_3fd8d7edc73a5241' = 'Gravar o registro de identidade do host do pool'
     'runner.operator_3fe39c3d9a1ca872' = @(
         'Canto quente '
         @{
@@ -6613,7 +6562,7 @@
         ')'
     )
     'runner.operator_400083668bb425de' = @(
-        'A máquina de referência '
+        'O host de referência '
         @{
             'arg' = 'referenceHost'
             'type' = 'detail'
@@ -6625,13 +6574,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' nome( s) da chave de configuração aposentada( s). Eles foram traduzidos para esta sincronização; corrige- os na fonte com ''pwsh tools/Update-TestConfigNaming. ps1'' no '
+        ' nome(s) de chave de configuração descontinuado(s). Eles foram convertidos nesta sincronização; corrija-os na origem com "pwsh tools/Update-TestConfigNaming.ps1" em '
         @{
             'arg' = 'referenceHost'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' para cada outra O consumidor também os vê:'
+        ', para que os demais consumidores também recebam a correção:'
     )
     'runner.operator_400de73dc7d7af50' = @(
         'Nenhum keysym VNC para o caracter '''
@@ -6652,7 +6601,7 @@
         }
         '); o registro de ciclo carrega -1 em vez de um número que iria ler como ''nenhum aconteceu''.'
     )
-    'runner.operator_40cead215101a809' = 'Imagem completa.'
+    'runner.operator_40cead215101a809' = 'Get-Image concluído.'
     'runner.operator_40d3da6b76c0b48c' = @(
         'Imagem de referência não encontrada: '
         @{
@@ -6698,19 +6647,13 @@
     'runner.operator_41856668e101e1fc' = 'winget desinstalar --id Microsoft.PowerShell'
     'runner.operator_419f7edb1d5f67bd' = 'loadDiskSnapshot: falta o campo ''id'' necessário.'
     'runner.operator_41a636e6dabd5864' = @(
-        'testSet: '
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' framework='
+        '  repositories: framework='
         @{
             'arg' = 'frameworkUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' project='
+        '  project='
         @{
             'arg' = 'projectUrl'
             'type' = 'detail'
@@ -6741,7 +6684,7 @@
         }
         ' do registro de execução do convidado, verbatim, ao lado da cauda OCR.'
     )
-    'runner.operator_41e429dcda992869' = 'a conta estiver registada como utilizador puramente local do Yuruna,'
+    'runner.operator_41e429dcda992869' = 'a conta estiver registada como usuário puramente local do Yuruna,'
     'runner.operator_41f61f1ccd55022c' = 'Esta é uma recusa de acesso a arquivos, não uma configuração que está desligada: enquanto ela está de pé, re-executando a configuração do host não escreve nada e relata os mesmos dois botões como desativados.'
     'runner.operator_421fff6ff7e395a2' = @(
         'Captura DHCP salva: ./status/log/'
@@ -6784,7 +6727,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Veja documentos/teste-config.md.'
+        '. Veja docs/test-config.md.'
     )
     'runner.operator_42b767e5d0a1d476' = 'Serviço Hyper-V (vmms) não instalado'
     'runner.operator_42cc6832338a82ba' = 'DEVICE, por sua própria ferramenta de administração; nada aqui pode alcançá-los.'
@@ -6839,7 +6782,7 @@
         }
         ' agora está registrado'
     )
-    'runner.operator_43278e033cc67db4' = 'forçar o bloqueio do ecrã; verificar: lista de perfis; perfis mostrar a configuração do tipo'
+    'runner.operator_43278e033cc67db4' = '  bloqueio de tela imposto; verifique: profiles list ; profiles show -type configuration'
     'runner.operator_4333edb4f597ba98' = @(
         'Imagem de erro salva: '
         @{
@@ -6867,7 +6810,7 @@
         }
         '''.'
     )
-    'runner.operator_43e526c4ec3b14eb' = 'Active-TestAutomation atinge as operações a secção 1 proíbe (diálogos de consentimento Grant-assist e PSGallery instala não fechado no modo não-interactivo); ainda não está seguro sem assistência'
+    'runner.operator_43e526c4ec3b14eb' = 'Enable-TestAutomation atinge as operações a secção 1 proíbe (diálogos de consentimento Grant-assist e PSGallery instala não fechado no modo não-interactivo); ainda não está seguro sem assistência'
     'runner.operator_43e66f1b323df1ce' = 'Falta o dispositivo de caracteres /dev/kvm -- kvm.ko não carregado. Tente: ''sudo modprobe kvm  intel'' (Intel) ou ''sudo modprobe kvm  amd'' (AMD).'
     'runner.operator_440852a11f738607' = @(
         'A política está definida, mas a tarefa mais antiga '''
@@ -6893,7 +6836,7 @@
     )
     'runner.operator_448f7135573f0ef3' = 'Corredor externo completou este intervalo de amostragem.'
     'runner.operator_448fe7d7e7ace692' = @(
-        'Configure- o manualmente com: sudo chage - d 0 '
+        'Configure manualmente com: sudo chage -d 0 '
         @{
             'arg' = 'name'
             'type' = 'detail'
@@ -6902,7 +6845,7 @@
     )
     'runner.operator_44963937e5dae96e' = 'DISM não retornou um estado de funcionalidade Hyper-V (DISM.exe precisa do Administrador para consultar o estado de funcionalidade; a verificação rápida da Secção 3 acima já terá marcado elevação se essa for a causa).'
     'runner.operator_449f68b7942ea5c6' = @(
-        'Invoke- CycleLogRotation: não foi possível mover '
+        'Invoke-CycleLogRotation: não foi possível mover '
         @{
             'arg' = 'name'
             'type' = 'detail'
@@ -6960,7 +6903,7 @@
     'runner.operator_4573c62ccdadf85e' = 'Ciclo passado.'
     'runner.operator_4575b87368f13304' = 'Env encaminhado para o interior:'
     'runner.operator_4579f44a5d893c14' = @(
-        'Erro não manuseado da sequência de inversão: '
+        'Erro não tratado em Invoke-Sequence: '
         @{
             'arg' = 'value'
             'type' = 'detail'
@@ -6999,13 +6942,13 @@
     )
     'runner.operator_45ccb6a97d894430' = 'Tipos WinRT não podem ser carregados de PowerShell 7+ (.NET 6+).'
     'runner.operator_45df46c63b590ee5' = @(
-        'abóbada: essa chave de autenticação interna não é a única que o '
+        'cofre: esta chave de autenticação interna não é a mesma que '
         @{
             'arg' = 'referenceHost'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' detém, por isso nenhuma credencial pode ser obtida. Introduza esta máquina com o token Lab do painel (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code> - BounceStatusService) e repetir esta sincronização.'
+        ' possui; por isso, não é possível buscar credenciais. Cadastre este host com o token do laboratório exibido no painel (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code> -BounceStatusService) e execute novamente a sincronização.'
     )
     'runner.operator_45ff11c036d9f937' = @(
         'a chamada de modificação falhou: '
@@ -7019,7 +6962,7 @@
     'runner.operator_460ecc27a1509fd8' = 'recarregando smbd...'
     'runner.operator_46136d6c5cefc867' = '''vmImage. sempreRedownload'' não definido -- padrão para false.'
     'runner.operator_462acb4e4f822430' = @(
-        'Invoke- CycleLogRotation: não foi possível criar o '
+        'Invoke-CycleLogRotation: não foi possível criar o '
         @{
             'arg' = 'historyDir'
             'type' = 'detail'
@@ -7039,7 +6982,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] notificante de piscina: enqueued='
+        '] notificante de grupo: enqueued='
         @{
             'arg' = 'enqueued'
             'type' = 'detail'
@@ -7097,7 +7040,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' é recusado pela piscina -- '
+        ''' é recusado pelo grupo -- '
         @{
             'arg' = 'suppressReason'
             'type' = 'detail'
@@ -7120,34 +7063,10 @@
         }
         '''; a próxima execução varre-a.'
     )
-    'runner.operator_46c19be7e346a6c3' = 'ficheiro de registo aninhado'
-    'runner.operator_46cf3f3b25c7b1d5' = '-O que se: uma execução real pediria para confirmar esta exclusão; -Force responde com antecedência.'
+    'runner.operator_46c19be7e346a6c3' = 'arquivo de registro aninhado'
+    'runner.operator_46cf3f3b25c7b1d5' = '-WhatIf: uma execução real pediria para confirmar esta exclusão; -Force responde com antecedência.'
     'runner.operator_46e3cbe0614b1d51' = 'poolStorage setup: networkPath/networkO usuário não deve conter uma única citação (quebraria a semente convidada). Nada escrito.'
     'runner.operator_46f30de3d812ddd8' = 'Configurações do sistema > Privacidade e segurança > Automação'
-    'runner.operator_4708bb65c7b75b63' = @(
-        'Test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' '
-        @{
-            'arg' = 'action'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' na biblioteca.'
-    )
-    'runner.operator_4727d0d8d58200e7' = @(
-        'test.runner.yml: teste duplicadoSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '''; mantendo o primeiro.'
-    )
     'runner.operator_47371277eaeea492' = @(
         'Não foi possível iniciar o salto do servidor de estado: '
         @{
@@ -7156,7 +7075,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_47513825bfb62345' = 'registro do conjunto: NÃO há respostas registradas do serviço de stash desta máquina. Um projeto que envia o resultado da compilação para o stash não tem onde colocá- lo, e seu ciclo irá parar antes das etapas de provisionamento. Inicie um serviço de stash (Start-StashServiceVM.ps1), corrija o que o pool anuncia, ou coloque um endereço com $env:YURUNA STASH SERVICE HOST.'
+    'runner.operator_47513825bfb62345' = 'registro do grupo: NENHUM serviço stash registrado responde a partir deste host. Um projeto que envia o resultado da compilação para o stash não terá onde armazená-lo, e o ciclo parará antes do provisionamento. Inicie um serviço stash (Start-StashServiceVM.ps1), corrija o serviço anunciado pelo grupo ou defina um endereço com $env:YURUNA_STASH_SERVICE_HOST.'
     'runner.operator_4775b1b7fa5ca368' = @(
         @{
             'arg' = 'label'
@@ -7211,7 +7130,7 @@
     'runner.operator_47b6aec9bf18e688' = 'Parar o trabalhador WinRT OCR'
     'runner.operator_47d0c2e1e976d3e2' = '''repositorys.frameworkUrl'' not set -- links de commit de página de estado podem não funcionar, e o gatilho de quebra de pausa de falha que assiste ao repo de framework será um no-op.'
     'runner.operator_47e0e256f6066364' = @(
-        'systemsetup - set usingnetworktime failed: '
+        'systemsetup -setusingnetworktime falhou: '
         @{
             'arg' = 'trim'
             'type' = 'detail'
@@ -7276,7 +7195,7 @@
         }
         '''s, convertido para este host (o arquivo anterior é backup)'
     )
-    'runner.operator_48a3f144528d5b44' = 'Endereços de hóspedes limitados pela identidade: nenhum hóspede pôde ser verificado neste ciclo.'
+    'runner.operator_48a3f144528d5b44' = 'Endereços de convidados limitados pela identidade: nenhum convidado pôde ser verificado neste ciclo.'
     'runner.operator_48b1d6d4d9dcda06' = @(
         'DNS resolvido ''github.com'' -> '
         @{
@@ -7344,7 +7263,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' da piscina '''
+        ' do grupo '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
@@ -7405,7 +7324,7 @@
         }
         ' s no caso da falha é momentânea ...'
     )
-    'runner.operator_4a166764452f6255' = 'De um PowerShell elevado: Set-Service W32Time - StartupType Automatic; Start-Service W32Time; w32tm /resync /force'
+    'runner.operator_4a166764452f6255' = 'De um PowerShell elevado: Set-Service W32Time -StartupType Automatic; Start-Service W32Time; w32tm /resync /force'
     'runner.operator_4a30b7a4236eecee' = 'Nota: o NAS do laboratório tem contas do mesmo nome, e o cofre deste hospedeiro agora tem senhas ITS.'
     'runner.operator_4a30dc2d3855f67b' = @(
         'Diretório de logs: '
@@ -7668,7 +7587,7 @@
         }
     )
     'runner.operator_4cdd48c5eb786816' = @(
-        'Set- RunnerState: '''
+        'Set-RunnerState: '''
         @{
             'arg' = 'to'
             'type' = 'detail'
@@ -7706,7 +7625,7 @@
     'runner.operator_4d55461626461cca' = 'Criar uma regra de permissão de eco ICMPv4 (todos os perfis)'
     'runner.operator_4d9b7a82ece07c12' = 'Definir o valor da configuração'
     'runner.operator_4dbf665405806d36' = 'App Nap for UTM.app já está desativado.'
-    'runner.operator_4dd9a85836471638' = 'Recuperar esta identidade para este anfitrião?'
+    'runner.operator_4dd9a85836471638' = 'Recuperar esta identidade para este hospedeiro?'
     'runner.operator_4de0fab94997dc0d' = @(
         'A ligação TCP ao api.resend.com:443 falhou: '
         @{
@@ -7723,7 +7642,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_4df966af1ca31c35' = 'Política de Execução - Scope CurrentUser'
+    'runner.operator_4df966af1ca31c35' = 'Get-ExecutionPolicy -Scope CurrentUser'
     'runner.operator_4dfa05bd02a0171f' = @(
         'Auto-retry backoff (padrão yuruna retry): dormindo '
         @{
@@ -7763,7 +7682,7 @@
         ' para vincular.'
     )
     'runner.operator_4e4329f6b3a6f23d' = @(
-        'Serviço de cache- proxy: não detectado -- gravado em '
+        'Serviço de cache-proxy: não detectado -- gravado em '
         @{
             'arg' = 'cachingProxyServiceFile'
             'type' = 'detail'
@@ -7858,7 +7777,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_4f719f0639145301' = 'Gravar o ficheiro de intenção do pool'
+    'runner.operator_4f719f0639145301' = 'Gravar o arquivo de intenção do pool'
     'runner.operator_4f741864aba4d1fd' = 'Criar repositório de intenção de conjunto desprotegido'
     'runner.operator_4f7e838f26c3bf54' = @(
         '[5/'
@@ -7876,7 +7795,7 @@
         's) ...'
     )
     'runner.operator_4fb40cac594a7bbc' = @(
-        '[Projeto Invoke-Test] Passo 1+2: limpar e re-clonar <RepoRoot>/projeto de '
+        '[Invoke-TestProject] Passo 1+2: limpar e re-clonar <RepoRoot>/projeto de '
         @{
             'arg' = 'projectUrl'
             'type' = 'detail'
@@ -7891,7 +7810,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_4fca99e95d9dedef' = 'Gravar o estado de ''caching- proxy- service'''
+    'runner.operator_4fca99e95d9dedef' = 'Gravar o estado de ''caching-proxy-service'''
     'runner.operator_4fe10480f33d691d' = @(
         'Warm-RESUME declinou: '''
         @{
@@ -8036,7 +7955,7 @@
         }
         '); ciclo roda sem proteção de suspensão.'
     )
-    'runner.operator_5186836962e30a5a' = '- Mantenha a conta: esquerda no lugar.'
+    'runner.operator_5186836962e30a5a' = '-KeepAccount: esquerda no lugar.'
     'runner.operator_518a128050a98b0a' = @(
         'captura de perfil de busca e execução pulou: '
         @{
@@ -8085,7 +8004,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ', que nenhum hóspede pode discar, e nenhum endereço de host acessível foi fornecido. O stash VM irá tentar resolver o próprio '''
+        ', que nenhum convidado pode discar, e nenhum endereço de host acessível foi fornecido. O stash VM irá tentar resolver o próprio '''
         @{
             'arg' = 'server'
             'type' = 'detail'
@@ -8155,7 +8074,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ': este anfitrião é um trabalhador no laboratório do '
+        ': este hospedeiro é um trabalhador no laboratório do '
         @{
             'arg' = 'referenceHost'
             'type' = 'detail'
@@ -8164,13 +8083,13 @@
         '.'
     )
     'runner.operator_53abe225fc1d2a82' = @(
-        'registro de piscina: '
+        'registro de grupo: '
         @{
             'arg' = 'count'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' registro(s) de serviço de stash conhecido(s) pela piscina em '
+        ' registro(s) de serviço de stash conhecido(s) pelo grupo em '
         @{
             'arg' = 'aggregatorBase'
             'type' = 'detail'
@@ -8179,19 +8098,19 @@
         '.'
     )
     'runner.operator_53ba34766fd02d32' = @(
-        'host- aliases: '
+        'host-aliases: '
         @{
             'arg' = 'referenceHost'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' não está respondendo ('
+        ' não responde ('
         @{
             'arg' = 'message'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Qualquer nome de armazenamento de rede que não se resolva aqui tem de ser introduzido à mão.'
+        '). Qualquer nome de networkStorage que não possa ser resolvido aqui deve ser informado manualmente.'
     )
     'runner.operator_53eb2318a1df9482' = @(
         'projectUrl='''
@@ -8206,7 +8125,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ') -- a URL em si é acessível, por isso isto é um login para actualizar, não um tipo para caçar. esta máquina foi tentada. Atualizar o login com ONE of, então re- execute: '
+        ') -- a URL em si é acessível, por isso isto é um login para actualizar, não um tipo para caçar. esta máquina foi tentada. Atualizar o login com ONE of, então re-execute: '
         @{
             'arg' = 'remedy'
             'type' = 'detail'
@@ -8239,7 +8158,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' -- seguindo-o (um hóspede re-pedido DHCP sob uma nova identidade enquanto o início da nuvem corre).'
+        ' -- seguindo-o (um convidado re-pedido DHCP sob uma nova identidade enquanto o início da nuvem corre).'
     )
     'runner.operator_5423a5444e3f68bf' = @(
         'Não foi possível gravar '
@@ -8310,7 +8229,7 @@
         '. Perguntas de mobilidade de endereço não se aplicam -- a coisa a ver é por que o endereço continua caindo, que é um link ou evento de renovação em vez de um movimento. este hospedeiro parece saudável é o sintoma esperado.'
     )
     'runner.operator_55110b53e7e30cf1' = 'não construído sobre esta máquina'
-    'runner.operator_55420bdecd564874' = 'Desactivar (sysadminctl - screenLock off)'
+    'runner.operator_55420bdecd564874' = 'Desativar (sysadminctl -screenLock off)'
     'runner.operator_554a120b73560a96' = '[Invoke-TestProject] Etapa 3: desova Invoke-TestRunnerInnerLoop para um ciclo de teste.'
     'runner.operator_55583f4e86287622' = @(
         'Texto '''
@@ -8400,7 +8319,7 @@
         ''' é inválido (espera-se que o uuid do host: ''42'' + 30 hex, com ou sem os traços GUID do painel).'
     )
     'runner.operator_566ac18cb90d8da9' = 'Estado de sincronização do pool de gravação'
-    'runner.operator_568cbdda28254bb2' = 'puled by - WhatIf.'
+    'runner.operator_568cbdda28254bb2' = 'puled by -WhatIf.'
     'runner.operator_5691792ef0c34155' = @(
         'test.config.yml atualizado de '
         @{
@@ -8416,7 +8335,7 @@
         '.'
     )
     'runner.operator_56b13207e8b9d8fb' = @(
-        'Write- RunnerPidFile: outro corredor venceu a corrida do pidfile ('
+        'Write-RunnerPidFile: outro corredor venceu a corrida do pidfile ('
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -8442,8 +8361,8 @@
         }
         ' segundo(s) (domínio usuário).'
     )
-    'runner.operator_56d07230931cc37f' = '- Força: a confirmação é respondida com antecedência -- excluir agora.'
-    'runner.operator_56d1a149071a7036' = 'Saltado. Uma nova host.uuid será cunhada no primeiro ciclo; reconectar o histórico da piscina desta host mais tarde (após uma reimagem) é mais difícil uma vez que um uuid fresco está em uso.'
+    'runner.operator_56d07230931cc37f' = '-Force: a confirmação é respondida com antecedência -- excluir agora.'
+    'runner.operator_56d1a149071a7036' = 'Saltado. Uma nova host.uuid será cunhada no primeiro ciclo; reconectar o histórico do grupo deste host mais tarde (após uma reimagem) é mais difícil uma vez que um uuid fresco está em uso.'
     'runner.operator_56df5838ba31cc1c' = @(
         'Retire o compartilhamento SMB (a pasta '''
         @{
@@ -8549,7 +8468,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_57f65a2ea64a2589' = 'o orçamento acabou com o daemon unbound e o hóspede não construindo'
+    'runner.operator_57f65a2ea64a2589' = 'o orçamento acabou com o daemon unbound e o convidado não construindo'
     'runner.operator_580d457e4f3ef9d8' = @(
         'montado em '
         @{
@@ -8592,7 +8511,7 @@
     )
     'runner.operator_588a227ff4f65891' = 'A janela elevada permanece aberta para que você possa ler o resultado.'
     'runner.operator_588f793a5bce2c4e' = @(
-        'A comparação do esquema- vs- template falhou: '
+        'A comparação do esquema e modelo falhou: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -8658,11 +8577,11 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''), e as outras infra-estruturas não são seguras para mudar sem assistência.'
+        '''), e as outras infraestruturas não são seguras para mudar sem assistência.'
     )
     'runner.operator_59428c9f41167b34' = 'Recusar, horas antes de qualquer coisa culpar um relógio.'
     'runner.operator_595d6cba9e408dc2' = @(
-        'Get- ExtensionHostAddress: o pool não pôde ser perguntado sobre '''
+        'Get-ExtensionHostAddress: o pool não pôde ser perguntado sobre '''
         @{
             'arg' = 'hostType'
             'type' = 'detail'
@@ -8759,7 +8678,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. Corrija a intenção (Remover-HostFromPool / Test- PoolIntent).'
+        '''. Corrija a intenção (Remove-HostFromPool / Test-PoolIntent).'
     )
     'runner.operator_5a198f884eed15db' = 'Ressincronizar contra a fonte de tempo configurada'
     'runner.operator_5a1fbbd3e27b9097' = 'Nesses caminhos, um passo queima todo o seu tempooutSegundos e relata ''padrão não encontrado'' enquanto o frame salvo ainda parece legível.'
@@ -8778,21 +8697,6 @@
             'trust' = 'external'
         }
         ' + primário em (0,0); indicar o( s) outro( s) monitor( s)'
-    )
-    'runner.operator_5a53c6c93a317e74' = @(
-        'test.runner.yml: skipping testSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -- os nomes devem corresponder ao '
-        @{
-            'arg' = 'namePattern'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' (caixa inferior).'
     )
     'runner.operator_5a564e98a029d970' = @(
         'O programa '''
@@ -8819,7 +8723,7 @@
         }
         's (sem operador Continuar; step.timeoutSegundos/YURUNA BREAK MAX SECONDS).'
     )
-    'runner.operator_5ad3f8500420e985' = 'Apagar a pasta de ciclo legado (pré- unificação)'
+    'runner.operator_5ad3f8500420e985' = 'Apagar a pasta de ciclo legado (pré-unificação)'
     'runner.operator_5aeee726766bfcc2' = @(
         'networkStorage stash: servidor SMB '''
         @{
@@ -8851,7 +8755,7 @@
         ' ms)'
     )
     'runner.operator_5b2ab60cf43c713c' = 'Habilitar NTP e ressincronizar'
-    'runner.operator_5b4220329251da21' = 'Os cmdlets Hyper-V / Net* não estão disponíveis -- estado da rede de hóspedes deixado sem controle.'
+    'runner.operator_5b4220329251da21' = 'Os cmdlets Hyper-V / Net* não estão disponíveis -- estado da rede de convidados deixado sem controle.'
     'runner.operator_5b49762d5e7714cc' = 'Pausa do ciclo armada durante o atraso interciclo. A pausar antes do próximo ciclo; à espera de retomar...'
     'runner.operator_5b5842bc02378c5f' = 'Caching-proxy service: none -- guest será baixado diretamente.'
     'runner.operator_5b83be1d49000cd4' = @(
@@ -8873,7 +8777,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''') -- nenhuma re-tentativa de nível de hóspede pode influenciá-la.'
+        ''') -- nenhuma re-tentativa de nível de convidado pode influenciá-la.'
     )
     'runner.operator_5b98a93cb6af39a9' = @(
         '[5/'
@@ -8914,7 +8818,7 @@
         '). Tente: ''sudo systemctl state libvirtd'' e verifique ''systemctl status libvirtd''.'
     )
     'runner.operator_5be04f6e27fb57bc' = @(
-        'Semente de piscina: '''
+        'Semente de grupo: '''
         @{
             'arg' = 'server'
             'type' = 'detail'
@@ -8926,13 +8830,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' neste host, que nenhum hóspede pode discar; cozinhando '
+        ' neste host, que nenhum convidado pode discar; cozinhando '
         @{
             'arg' = 'networkIp'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' (este host, como o hóspede alcança) em vez disso.'
+        ' (este host, como o convidado alcança) em vez disso.'
     )
     'runner.operator_5bf03f38be9705a8' = @(
         'armazenamento: a replicação de '''
@@ -8965,7 +8869,7 @@
     )
     'runner.operator_5c27b4a69c555ca9' = 'Causa comum: host Wi-Fi perambulou para um SSID/subnet diferente no meio do ciclo, ou um cache remoto/cross-host é brevemente lento para aceitar.'
     'runner.operator_5c6a1d8c5466eae1' = @(
-        'powershell- yaml está presente mas não foi possível importar: '
+        'powershell-yaml está presente mas não foi possível importar: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -9023,7 +8927,7 @@
         ''' não aplicado (E se).'
     )
     'runner.operator_5cc65763e73334c7' = @(
-        'Falha ao iniciar o ciclo (não fatal): '
+        'Start-PerfCycle falhou (não fatal): '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -9159,7 +9063,7 @@
     )
     'runner.operator_5da920a2ed6994e4' = 'aplica a política de bloqueio / senha / logout automático, as configurações'
     'runner.operator_5dcd5b979f692173' = 'SequênciaAção + Registros HostIO'
-    'runner.operator_5dd7c992e8f01cbf' = '-E se: apenas visualização, então esta confirmação é ignorada.'
+    'runner.operator_5dd7c992e8f01cbf' = '-WhatIf: apenas visualização, então esta confirmação é ignorada.'
     'runner.operator_5e0f817304f680f9' = @(
         '['
         @{
@@ -9247,7 +9151,7 @@
         ').'
     )
     'runner.operator_5e931217fd513630' = @(
-        'A loja de intenção de piscina ('
+        'A loja de intenção de grupo ('
         @{
             'arg' = 'intentGitUrl'
             'type' = 'detail'
@@ -9262,7 +9166,7 @@
     )
     'runner.operator_5ea26e2a1f29b25e' = 'a descoberta não tem nenhum diretório-alvo para se apropriar.'
     'runner.operator_5eb94d6047f29167' = @(
-        'Inicializar- YurunaEntryPointModuleSet: '
+        'Initialize-YurunaEntryPointModuleSet: '
         @{
             'arg' = 'modName'
             'type' = 'detail'
@@ -9337,7 +9241,7 @@
         }
         ''' não repetido.'
     )
-    'runner.operator_5f6852148be5b528' = 'poolStorage setup: a extensão de autenticação não foi carregada; não foi possível armazenar a senha do SMB. Configure- a manualmente.'
+    'runner.operator_5f6852148be5b528' = 'poolStorage setup: a extensão de autenticação não foi carregada; não foi possível armazenar a senha do SMB. Configure-a manualmente.'
     'runner.operator_5f87f120a40e8157' = @(
         'raiz de armazenamento: '
         @{
@@ -9394,13 +9298,13 @@
         ''''
     )
     'runner.operator_6086c8f7e49eae24' = @(
-        'Não é possível alcançar o libvirt a partir deste processo: '''
+        'Não é possível acessar libvirtd por este processo: '''
         @{
             'arg' = 'me'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "' ESTÁ no 'libvirt'`ngrupo por /etc/group, mas o conjunto de grupos em execução deste shell NÃO inclui`nlibvirt -- então virt-install e virsh atingiram 'Permissão negada' na`n'socket' da libvirt. Um 'login' da área de trabalho nem sempre actualiza o grupo`ndefinir em sistemas systemd-logind com o usuário demorando.`n`nCorrigir (escolha um) e re-executar Start-TestRunner.ps1:`nA. Uma vez, não é necessário desligar:`nsg libvirt - c 'pwsh ./ Start- TestRunner.ps1'`nB. apenas esta concha:`nnewgrp libvirt`npwsh ./Start-TestRunner.ps1`nC. atualizar totalmente (mais confiável):`nreiniciar o sudo"
+        "' consta no grupo 'libvirt'`nem /etc/group, mas os grupos ativos deste shell NÃO incluem libvirt. Por isso,`nvirt-install e virsh recebem 'Permission denied' no socket libvirt. Sair e entrar`nna sessão gráfica nem sempre atualiza os grupos em sistemas systemd-logind com`nprocessos do usuário persistentes.`n`nCorrija (escolha uma opção) e execute Start-TestRunner.ps1 novamente:`n  A. Apenas esta execução, sem sair da sessão:`n       sg libvirt -c 'pwsh ./Start-TestRunner.ps1'`n  B. Apenas este shell:`n       newgrp libvirt`n       pwsh ./Start-TestRunner.ps1`n  C. Atualização completa (mais confiável):`n       sudo reboot"
     )
     'runner.operator_608d47bb8a05be12' = @(
         'usbmmidd .inf não encontrado em '
@@ -9590,7 +9494,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_622d686388181455' = 'Get-NetAdapter □ Nome da tabela de formato, InterfaceDescrição, Estado'
+    'runner.operator_622d686388181455' = '   Get-NetAdapter | Format-Table Name, InterfaceDescription, Status'
     'runner.operator_62308c734fb38a09' = 'salvarDiskSnapshot: faltando o campo ''id'' necessário.'
     'runner.operator_625fcb6b4b3ecfa6' = @(
         'Save-GuestDiagnostic: '''
@@ -9824,7 +9728,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ': a gravação do registo de senhas smbd autentica- se contra (dscl)...'
+        ': a gravação do registro de senhas smbd autentica-se contra (dscl)...'
     )
     'runner.operator_654a4ccaaaba493e' = 'Incorporado no Windows Separar instalação necessária'
     'runner.operator_65723f23878cc607' = @(
@@ -9867,7 +9771,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não foi encontrado sob o repo root servido; o hóspede irá recusar-se a executá-lo (forçado, sem digest). Corrija o caminho ou o mapeamento da raiz servida.'
+        ''' não foi encontrado sob o repo root servido; o convidado irá recusar-se a executá-lo (forçado, sem digest). Corrija o caminho ou o mapeamento da raiz servida.'
     )
     'runner.operator_66329dec7254f2a6' = 'Retirar as partilhas yuruna e recarregar smbd'
     'runner.operator_66496bb81064f596' = @(
@@ -9886,7 +9790,7 @@
         ')'
     )
     'runner.operator_66740d874d3769c0' = @(
-        'O envio do Hyper- V TypeScancodes per- char falhou após '
+        'O envio do Hyper-V TypeScancodes per-char falhou após '
         @{
             'arg' = 'charCount'
             'type' = 'detail'
@@ -9936,7 +9840,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_6751fc93a0d313b1' = 'Limpar o fecho de espaço de armazenamento de piscina-falha'
+    'runner.operator_6751fc93a0d313b1' = 'Limpar o fecho de espaço de armazenamento de falha do grupo'
     'runner.operator_67655409103c7b63' = @(
         @{
             'arg' = 'base'
@@ -9979,7 +9883,7 @@
     )
     'runner.operator_67df53f42f453d4e' = 'poolStorage setup: senha vazia; nada escrito (uma credencial SMB vazia é rejeitada pelo NAS).'
     'runner.operator_67f9991e2652e324' = @(
-        'Invoke-Sequence: Inicialize-YurunaHost falhou na carga do módulo -- chamadas de contrato (Restart-VMConsole, Get-VMScreenshot) irá falhar. Detalhe: '
+        'Invoke-Sequence: Initialize-YurunaHost falhou na carga do módulo -- chamadas de contrato (Restart-VMConsole, Get-VMScreenshot) irá falhar. Detalhe: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -10072,7 +9976,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' (- NoProjectClone).'
+        ' (-NoProjectClone).'
     )
     'runner.operator_6872dfb5a82ac8a9' = 'O painel canônico não carrega nenhum AGGREGATOR BASE PLACEHOLDER. Parece uma cópia já substituída, que iria assar o endereço agregador de um laboratório no painel de outro.'
     'runner.operator_6887723b4475d137' = @(
@@ -10140,13 +10044,13 @@
         '"'
     )
     'runner.operator_68f76316350291c3' = @(
-        'Pool '''
+        'O grupo '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' é o pool de destino de inscrição automática e não deve carregar um testSet; ignorando-o e mantendo os repositórios desta máquina. Corrija a loja de intenções (Test-PoolIntent.ps1 relata isto).'
+        ''' é o grupo de destino da autoinscrição e não deve conter repositórios; eles serão ignorados e os repositórios próprios deste hospedeiro serão mantidos. Corrija o repositório de intenções (Test-PoolIntent.ps1 informa isso).'
     )
     'runner.operator_69026426aeb39009' = 'Perfil de configuração detectado neste Mac. Se algum perfil'
     'runner.operator_69313d3714ef798c' = 'Escreva o registro de saúde do laboratório.'
@@ -10277,7 +10181,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '/ com Get-Image.ps1 + New-VM.ps1 para habilitar este hóspede no '
+        '/ com Get-Image.ps1 + New-VM.ps1 para habilitar este convidado no '
         @{
             'arg' = 'hostType2'
             'type' = 'detail'
@@ -10309,7 +10213,7 @@
         }
         ''': a'
     )
-    'runner.operator_6b74a80cbd7dbcb7' = '1. Validar: teste pwsh/Teste-Config.ps1'
+    'runner.operator_6b74a80cbd7dbcb7' = '  1. Validar:  pwsh test/Test-Config.ps1'
     'runner.operator_6b771250445f1e80' = @(
         'Test.ConfigSync.psm1 não encontrado no '
         @{
@@ -10317,7 +10221,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '; verificação esquema-vs-template pulou.'
+        '; verificação esquema e modelo pulou.'
     )
     'runner.operator_6b84ccbde66f6a97' = 'Arquivo break-active.json'
     'runner.operator_6ba8527c12297fee' = 'fetchAndExecute sobre SSH (sem OCR, sem teclas de E/S host).'
@@ -10363,7 +10267,7 @@
         }
         ').'
     )
-    'runner.operator_6c83f353523e76b4' = 'A activação inactiva do protector de ecrã (currentHost) já está desactivada.'
+    'runner.operator_6c83f353523e76b4' = 'A activação inactiva do protector de tela (currentHost) já está desactivada.'
     'runner.operator_6c8b0e098ab8cc27' = 'Enviando ''config.smoke'' para as extensões de notificação ativa...'
     'runner.operator_6ca71048f9914bc3' = @(
         @{
@@ -10429,11 +10333,11 @@
         }
         ' (para execução interna)'
     )
-    'runner.operator_6d8a75adf6e1fc23' = 'Criar pasta de notificação da piscina'
+    'runner.operator_6d8a75adf6e1fc23' = 'Criar pasta de notificação do grupo'
     'runner.operator_6db2729f4ace52e7' = 'em vez de uma análise YAML. A criação de contas não é afectada.'
-    'runner.operator_6db5fc69aee3d930' = 'Verificar o endereço do hóspede é limitado pela identidade'
+    'runner.operator_6db5fc69aee3d930' = 'Verificar o endereço do convidado é limitado pela identidade'
     'runner.operator_6dd5e87a83027f91' = 'o serviço não tem linha de comando para ler'
-    'runner.operator_6e0d6c63257a47af' = 'Invoke- RemoteDiagnosticsConsole: não foi possível resolver o URL do serviço de estado da máquina; ignorando o caminho da consola.'
+    'runner.operator_6e0d6c63257a47af' = 'Invoke-RemoteDiagnosticsConsole: não foi possível resolver o URL do serviço de estado da máquina; ignorando o caminho da consola.'
     'runner.operator_6e36ede919616409' = @(
         'YURUNA AGGREGATOR READY TIMEOUT SECONDS ('''
         @{
@@ -10531,7 +10435,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_7080fa67fbe7d466' = 'Esta é uma sessão remota, que não consegue manter estas permissões independentemente do que a sessão do ambiente de trabalho tenha sido dada. Os estados abaixo descrevem esta sessão, não aquela que executa o arnês -- re- executado na área de trabalho para obter uma resposta real.'
+    'runner.operator_7080fa67fbe7d466' = 'Esta é uma sessão remota, que não consegue manter estas permissões independentemente do que a sessão do ambiente de trabalho tenha sido dada. Os estados abaixo descrevem esta sessão, não aquela que executa o arnês -- re-executado na área de trabalho para obter uma resposta real.'
     'runner.operator_7091ed0f1d04929b' = @(
         'a remoção do apelido '''
         @{
@@ -10684,7 +10588,7 @@
         '] cofre: verificando a viagem de ida e volta através da mesma resolução que a porta de controle usa ...'
     )
     'runner.operator_72dd796e6196e3b1' = @(
-        'Pool '''
+        'O grupo '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
@@ -10696,7 +10600,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' membro( s). Remova-os primeiro (. / Remova- HostFromPool. ps1) ou passe - Força.'
+        ' membro(s). Remova-os primeiro (./Remove-HostFromPool.ps1) ou use -Force.'
     )
     'runner.operator_72e4140bd951a43f' = @(
         'Visualização virtual '''
@@ -10803,13 +10707,13 @@
     )
     'runner.operator_73b483ef7463dc84' = 'Desativando ''switch to a Space with open windows'' na ativação do aplicativo...'
     'runner.operator_73b5ad8a6dda1ed0' = @(
-        'sysadminctl - resetSenha para '
+        'sysadminctl -resetPasswordFor terminou com o código '
         @{
             'arg' = 'exitCode'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' terminado: '
+        ': '
         @{
             'arg' = 'output'
             'type' = 'detail'
@@ -10973,7 +10877,7 @@
     )
     'runner.operator_74d629322c4c0da8' = 'A tela de bloqueio no currículo já está desabilitada (ou não aplicável).'
     'runner.operator_7545bc97968f08e8' = @(
-        'Perf: a leitura do ficheiro de sequência falhou; a linha de perf não terá a sequênciaContentHash. Path='
+        'Perf: falha ao ler o arquivo de sequência; a linha de desempenho não terá sequenceContentHash. Caminho='
         @{
             'arg' = 'sequencePath'
             'type' = 'detail'
@@ -10986,7 +10890,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_75594d9ffdb15fa0' = 'Ignorando o envio ao vivo (- O SkipSend foi especificado).'
+    'runner.operator_75594d9ffdb15fa0' = 'Ignorando o envio ao vivo (-SkipSend foi especificado).'
     'runner.operator_7576808e0f6a085b' = 'winget não começou e não relatou nenhum erro'
     'runner.operator_75fb42592a454fa3' = @(
         'Nenhuma capacidade de sincronização de relógio registrada para '''
@@ -11015,29 +10919,14 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_764eb138496adb9a' = @(
-        'pool: test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' cycleStrategy='''
-        @{
-            'arg' = 'strategy'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' ainda não implementado; executando ''all''.'
-    )
     'runner.operator_767a42e435b5f2c7' = @(
-        'O agregador selou uma resposta que este cliente não pode abrir. O código foi aceite, pelo que a re- leitura da peça não irá ajudar. Compare a linha PowerShell e OS acima com uma máquina onde a troca tenha sucesso; a CriptographicException aqui significa que a chave derivada difere, o que significa que os dois lados discordam do código, da contagem de iteração ('
+        'O agregador criptografou uma resposta que este cliente não consegue abrir. O código foi aceito; ler o cartão novamente não resolverá. Compare a versão do PowerShell e do sistema operacional acima com as de um host em que a troca funciona. Uma CryptographicException aqui indica que a chave derivada difere: os dois lados discordam do código, da contagem de iterações ('
         @{
             'arg' = 'envelopeIterations'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ') ou da etiqueta ('''
+        ') ou do rótulo ('''
         @{
             'arg' = 'envelopeLabel'
             'type' = 'detail'
@@ -11046,7 +10935,7 @@
         ''').'
     )
     'runner.operator_76a1965f795c7fff' = 'ver docs/network.md, «Pinning the host address».'
-    'runner.operator_76a64f58ea384d2f' = 'A troca funciona a partir desta máquina. Se o Set-LabToken ainda falhar aqui, a diferença é no que faz Depois da troca -- execute-a com - Verbose e compare.'
+    'runner.operator_76a64f58ea384d2f' = 'A troca funciona a partir desta máquina. Se o Set-LabToken ainda falhar aqui, a diferença é no que faz Depois da troca -- execute-a com -Verbose e compare.'
     'runner.operator_76d8c741d7d223ad' = @(
         'Serviço de cache-proxy: YURUNA CACHING PROXY SERVICE IP ('
         @{
@@ -11112,7 +11001,7 @@
     'runner.operator_773fe3cd9e3d3c34' = '== Fonte =='
     'runner.operator_7747dc14e2089beb' = 'a receita de configurações ainda não obedece aos limites da seção 1'
     'runner.operator_775ac9694d358236' = @(
-        'Semente de pool: '''
+        'inicialização do grupo: '''
         @{
             'arg' = 'server'
             'type' = 'detail'
@@ -11124,17 +11013,17 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ', que nenhum hóspede pode marcar, e nenhum endereço de host acessível foi fornecido. A VM de controle de pool irá tentar resolver o '''
+        ', um endereço que nenhum convidado consegue acessar, e nenhum endereço do host acessível aos convidados foi fornecido. A VM pool-control tentará resolver '''
         @{
             'arg' = 'server'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' em si e sua montagem falhará com cifs mount -111. Ver documentos/pool-storage.md.'
+        ''' por conta própria, e a montagem falhará com cifs_mount -111. Veja docs/pool-storage.md.'
     )
     'runner.operator_7769fd67a358d3fe' = '''statusService'' não definido -- status O servidor HTTP será desativado.'
     'runner.operator_7782e9a6cf3f4795' = @(
-        'push da piscina: enviado='
+        'push do grupo: enviado='
         @{
             'arg' = 'sent'
             'type' = 'detail'
@@ -11162,7 +11051,7 @@
     )
     'runner.operator_77a92c1797d58532' = 'link ainda chegando após uma reinicialização.'
     'runner.operator_77ae27be1149eef6' = @(
-        'networkStorage setup: powershell- yaml não está disponível; não é possível escrever '
+        'networkStorage setup: powershell-yaml não está disponível; não é possível escrever '
         @{
             'arg' = 'configPath'
             'type' = 'detail'
@@ -11187,7 +11076,7 @@
         }
         '; verificação de armazenamento de stash pulou.'
     )
-    'runner.operator_780e8a99bfa18090' = 'transporte.yml ilegível este ciclo'
+    'runner.operator_780e8a99bfa18090' = 'transports.yml ilegível este ciclo'
     'runner.operator_78269874b33db2eb' = 'pool CA indisponível (não é possível pino -> não enviar o token)'
     'runner.operator_783976daaabd38c7' = 'Nota: em um proxy de cache NAT-rede cada ciclo instala unidades de encaminhamento systemd com sudo -- você pode ser solicitado para sua senha no meio do ciclo.'
     'runner.operator_784ff212589ae772' = @(
@@ -11309,7 +11198,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_79c2c9d51ebdef1b' = 'o hóspede confirmou que o servidor está ligado; somente este hospedeiro não pode alcançá-lo'
+    'runner.operator_79c2c9d51ebdef1b' = 'o convidado confirmou que o servidor está ligado; somente este hospedeiro não pode alcançá-lo'
     'runner.operator_79de44609e5248d4' = '3. Outras máquinas neste laboratório montar as ações SAME sobre a LAN.'
     'runner.operator_79e483f03ceb4c90' = @(
         'nada se liga :'
@@ -11399,7 +11288,7 @@
         ' para /api/v1/extension-hosts -- descoberta de serviço de extensão é degradada para este host.'
     )
     'runner.operator_7a67605dbaf9e1a4' = 'também o que criou o perfil em que a política é armazenada.'
-    'runner.operator_7a73aae4c295df7d' = 'Limpar o contexto de hóspedes'
+    'runner.operator_7a73aae4c295df7d' = 'Limpar o contexto de convidados'
     'runner.operator_7a9a056cfb0c4479' = @(
         'Senha do bloqueio de tela [atualHost] (atualmente '
         @{
@@ -11428,27 +11317,27 @@
         }
     )
     'runner.operator_7ae10c2dbfdfdadd' = 'cache de veredicto de saúde do laboratório'
-    'runner.operator_7b1819b1b69bac30' = "O alerta de piscina não está configurado neste host.`nSe esta é a máquina que executa os painéis caching-proxy-service +, ele se autoelege como o pool`nalerta notificador -- mas somente uma vez que o transporte é configurado. Adicione um assinante pool.alert para`nteste/estado/extensão/notificação/transportes.yml, por exemplo:`n`nassinantes:`npool.alert:`n- transporte: e-mail`nendereço: you@example.com`n`nAté lá, o pool DEGRADED alertas permanecem visíveis no painel, mas não são entregues."
+    'runner.operator_7b1819b1b69bac30' = "Os alertas do grupo NÃO estão configurados neste host.`nSe este é o host que executa o caching-proxy-service e os painéis, ele se torna`no notificador de alertas do grupo, mas somente depois que o transporte é configurado. Adicione um assinante pool.alert a`ntest/status/extension/notification/transports.yml, por exemplo:`n`n  subscribers:`n    pool.alert:`n      - transport: email`n        address: you@example.com`n`nAté lá, os alertas de grupo DEGRADED ficam visíveis no painel, mas não são enviados."
     'runner.operator_7b20400706381dc6' = @(
-        'Configure- o manualmente com: sudo pwpolicy - u '
+        'Configure manualmente com: sudo pwpolicy -u '
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' - setpolicy ''newPasswordRequired=1'''
+        ' -setpolicy ''newPasswordRequired=1'''
     )
     'runner.operator_7b20fdf5c4b1b05e' = @(
-        'O UTM não está instalado no '
+        'O UTM não está instalado em '
         @{
             'arg' = 'macUtmAppPath'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ', por isso não existe nenhum link utmctl. Instale-o: brew install -- cask utm (ou https://mac.getutm.app).'
+        '; portanto, não há utmctl para vincular. Instale-o: brew install --cask utm (ou https://mac.getutm.app).'
     )
     'runner.operator_7b24fa88b4b5c43b' = @(
-        'Serviço de cache- proxy: detectado, o mapa do porto falhou -- escrito em '
+        'Serviço de cache-proxy: detectado, o mapa do porto falhou -- escrito em '
         @{
             'arg' = 'cachingProxyServiceFile'
             'type' = 'detail'
@@ -11491,7 +11380,7 @@
     )
     'runner.operator_7b76367fda1c3017' = 'Amostrador da máquina indisponível'
     'runner.operator_7b7fd33f97bf5cca' = @(
-        'Read- CachingProxyServiceState: '
+        'Read-CachingProxyServiceState: '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -11608,7 +11497,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' não foi encontrado. Instale UTM: brew install -- cask utm (ou https://mac.getutm.app).'
+        ' não foi encontrado. Instale UTM: brew install --cask utm (ou https://mac.getutm.app).'
     )
     'runner.operator_7d154137c3c42ce0' = @(
         'Parou o serviço de status existente (PID '
@@ -11660,7 +11549,7 @@
         '. O token é armazenado e produz efeito no ciclo seguinte.'
     )
     'runner.operator_7d810c19cbdcdd72' = @(
-        'A extensão da autenticação foi mal- sucedida: '
+        'A extensão da autenticação foi mal-sucedida: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -11678,7 +11567,7 @@
         ' de dados permanece sob:'
     )
     'runner.operator_7d992f9496abac61' = 'boot. Esse passo cai no meio do startup: um convidado Kubernetes aparece'
-    'runner.operator_7da73041a39f4b80' = 'Set-ExecutionPolítica -ExecutionPolítica RemoteSigned -Scope CurrentUser -Force'
+    'runner.operator_7da73041a39f4b80' = 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force'
     'runner.operator_7da85baa92a16593' = 'o exportador de host-metrics é um componente de host do Windows'
     'runner.operator_7db15dd3eb273c11' = @(
         'saveDiskSnapshot: VM renomeada para '''
@@ -11703,14 +11592,14 @@
     )
     'runner.operator_7db4aeb6bf98dc0d' = 'repor o estado anunciado pela última vez'
     'runner.operator_7dbb92d8228f60e2' = @(
-        'Falha no Hyper- V TypeScancodes: '
+        'Falha no Hyper-V TypeScancodes: '
         @{
             'arg' = 'value'
             'type' = 'detail'
             'trust' = 'external'
         }
     )
-    'runner.operator_7dc2dfdbe7267514' = 'Activar o WindowsOptionalFeature - Online - FeatureName Microsoft- Hyper- V - All'
+    'runner.operator_7dc2dfdbe7267514' = 'Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All'
     'runner.operator_7dcdb16b27e44240' = @(
         '[ciclo externo '
         @{
@@ -11720,7 +11609,7 @@
         }
         '] prestes a invocar o pwsh interno'
     )
-    'runner.operator_7dd0aa845d3a93ea' = 'Sem intenção armazenar URL. Passe - IntentGitUrl ou definir pool.intentGitUrl em test.config.yml.'
+    'runner.operator_7dd0aa845d3a93ea' = 'Sem intenção armazenar URL. Passe -IntentGitUrl ou definir pool.intentGitUrl em test.config.yml.'
     'runner.operator_7dd6240c15d45471' = 'requer compatibilidade com o bootstrap e portas de recuperação de pacotes assinadas/auto-suficientes da secção 9; ainda não construídas'
     'runner.operator_7def89dc77aaa4db' = @(
         'Não foi possível gravar a captura de pré-automatização para '
@@ -11735,7 +11624,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). A Automatização de Testes de Desactivação só poderá reverter o que pode provar que foi adicionado.'
+        '). A Disable-TestAutomation só poderá reverter o que pode provar que foi adicionado.'
     )
     'runner.operator_7e50599bce26a067' = @(
         'Não foi possível ler o estado anterior: '
@@ -11805,16 +11694,16 @@
         }
     )
     'runner.operator_7eec910180112557' = @(
-        'O caminho de armazenamento da piscina '''
+        'O caminho de armazenamento do grupo '''
         @{
             'arg' = 'localPath'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não está acessível (NAS não está montado aqui?). Execute isto numa máquina com a partilha da piscina montada, ou os seus registos não poderão ser removidos.'
+        ''' não está acessível (NAS não está montado aqui?). Execute isto numa máquina com a partilha do grupo montada, ou os seus registros não poderão ser removidos.'
     )
     'runner.operator_7f0366c89e03f268' = @(
-        'A escrita atual- action.json falhou após as tentativas do '
+        'A escrita current-action.json falhou após as tentativas do '
         @{
             'arg' = 'attempts'
             'type' = 'detail'
@@ -11834,7 +11723,7 @@
         }
         ')'
     )
-    'runner.operator_7f238877be5d182a' = 'Activar a Partilha de Ficheiros do macOS (SMB)'
+    'runner.operator_7f238877be5d182a' = 'Activar a Partilha de Arquivos do macOS (SMB)'
     'runner.operator_7f2be7f628b6661b' = @(
         'Definir o estado do passo aninhado '''
         @{
@@ -11860,7 +11749,7 @@
         '); o token é armazenado e produz efeito no ciclo seguinte.'
     )
     'runner.operator_7f72e9572bce0b62' = @(
-        'Falha no envio do lote Hyper- V TypeScancodes (Carros '
+        'Falha no envio do lote Hyper-V TypeScancodes (Carros '
         @{
             'arg' = 'charCount'
             'type' = 'detail'
@@ -11911,7 +11800,7 @@
         }
         ''' não é um endereço IPv4 ou IPv6 válido.'
     )
-    'runner.operator_7fd5db2fdbbc0cc5' = 'Restaurar-VMDiskSnapshot by id, então Start-VM.'
+    'runner.operator_7fd5db2fdbbc0cc5' = 'Restore-VMDiskSnapshot by id, então Start-VM.'
     'runner.operator_7fd9fd9e44112055' = @(
         'frescoMatch near miss: '
         @{
@@ -11928,7 +11817,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_802a4b0de5d5f942' = 'Transfira uma infra-estrutura via Register-HostIOProvider em Test.SequenceEngine.psm1,'
+    'runner.operator_802a4b0de5d5f942' = 'Transfira uma infraestrutura via Register-HostIOProvider em Test.SequenceEngine.psm1,'
     'runner.operator_804e070f07e0a11f' = @(
         'FAIL '
         @{
@@ -11956,11 +11845,11 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' não está a responder. A substituir o servidor.'
+        ' não está respondendo. A substituir o servidor.'
     )
     'runner.operator_80631a3ed310d88c' = 'Apagar a conta do sistema operacional existente'
     'runner.operator_8069f016af00b06d' = 'NÃO está ainda vinculado a qualquer identidade corporativa (AD / Entra / etc.).'
-    'runner.operator_806d3ca199c6f400' = 'Liberte o hóspede DHCP leasing / recursos de rede no final da sequência para que o endereço retorne ao pool.'
+    'runner.operator_806d3ca199c6f400' = 'Liberte o convidado DHCP leasing / recursos de rede no final da sequência para que o endereço retorne ao pool.'
     'runner.operator_80e0664397f67e27' = @(
         'A varredura VM de arranque do ciclo levantou um erro ao terminar no caminho de recusa da rede da máquina (continuando a sair). Erro: '
         @{
@@ -12026,7 +11915,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. O serviço credencial do NAS (anfitriões de extensão + rotação de ypool-nas) não está disponível até que o próximo ciclo o garanta.'
+        '. O serviço credencial do NAS (hospedeiros de extensão + rotação de ypool-nas) não está disponível até que o próximo ciclo o garanta.'
     )
     'runner.operator_8200a5d4bfb1f74f' = @(
         'não foi possível tomar posse do '
@@ -12119,7 +12008,7 @@
         ' para ele uma vez, na primeira operação UTM.'
     )
     'runner.operator_82753e898e78dd3f' = @(
-        'Remover-ConvidadoVMQuietly: a remoção de '''
+        'Remove-GuestVMQuietly: a remoção de '''
         @{
             'arg' = 'vMName'
             'type' = 'detail'
@@ -12131,7 +12020,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); continuando (-MelhorEffort).'
+        '); continuando (-BestEffort).'
     )
     'runner.operator_82804c66bfb3bd9a' = @(
         'na nuvem-init em '''
@@ -12165,7 +12054,7 @@
         }
     )
     'runner.operator_82e2d413b8bcacb5' = @(
-        'Credencial de reparação ('
+        'Repair-Credential ('
         @{
             'arg' = 'type'
             'type' = 'detail'
@@ -12289,7 +12178,7 @@
         }
         '.'
     )
-    'runner.operator_84438f498d1117e7' = 'snippets.yml não é um mapa não vazio do nome do trecho -> passos.'
+    'runner.operator_84438f498d1117e7' = '_snippets.yml não é um mapa não vazio do nome do trecho -> passos.'
     'runner.operator_84795985ec3433c6' = @(
         'Cadeia: '
         @{
@@ -12325,13 +12214,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); - Força: voltando a uma pesquisa de texto para a entrada '''
+        '); -Force: voltando a uma pesquisa de texto para a entrada '''
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. Corrigir o ficheiro antes do próximo ciclo -- Test- Config.ps1 irá recusá- lo.'
+        '''. Corrigir o arquivo antes do próximo ciclo -- Test-Config.ps1 irá recusá-lo.'
     )
     'runner.operator_849098729901c662' = 'VM e seus arquivos removidos; marcador e registro atualizados'
     'runner.operator_849afde193574fb0' = 'Armazenamento de laboratório local pronto'
@@ -12374,11 +12263,11 @@
         '%).'
     )
     'runner.operator_857fbb0996330c25' = 'o sudo não está disponível, então o estado do root não pode ser limpo daqui.'
-    'runner.operator_858ff13ef34eb20c' = 'Falta /dev/kvm. Active o VT- x/ SVM no firmware e carregue o módulo kvm.'
+    'runner.operator_858ff13ef34eb20c' = 'Falta /dev/kvm. Active o VT-x/ SVM no firmware e carregue o módulo kvm.'
     'runner.operator_85b11374705e6c08' = 'NOTA: o diretório de tempo de execução não pôde ser resolvido aqui, então a identidade do pool desta máquina não pode ser determinada. Você ainda pode configurar a replicação do NAS; a recuperação/minta é ignorada até que a pasta de tempo de execução esteja disponível.'
     'runner.operator_85f4b92d0b8d1787' = '(Sobes de rede passaram: DNS + TCP/443 para github.com ambos OK, então este não é um problema de conectividade.)'
     'runner.operator_85f5b25c31805a2e' = 'Este ciclo continua. Corrigir o relógio de uma consola que pode'
-    'runner.operator_85f773939904ad98' = '- WhatIf: pulando a solicitação de elevação. Uma execução real precisa de Administrador (Windows) ou sudo (macOS / Ubuntu).'
+    'runner.operator_85f773939904ad98' = '-WhatIf: pulando a solicitação de elevação. Uma execução real precisa de Administrador (Windows) ou sudo (macOS / Ubuntu).'
     'runner.operator_8611bc4c42a9779a' = 'test.config.yml já corresponde à referência (após a conversão); sem reescrita.'
     'runner.operator_862ae0516e939949' = @(
         'projectUrl='''
@@ -12387,11 +12276,11 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não é um ficheiro processável:// URL.'
+        ''' não é um arquivo processável:// URL.'
     )
     'runner.operator_86312bcc38bf3748' = 'não foi possível determinar o usuário atual para conceder sudo sem senha.'
     'runner.operator_8649c146a02ed4b8' = 'Contadores de saída'
-    'runner.operator_865d99d9b774d3ab' = 'A desligar o ficheiro pid e a sair.'
+    'runner.operator_865d99d9b774d3ab' = 'A desligar o arquivo pid e a sair.'
     'runner.operator_8660cf0175a55371' = @(
         'Remover '
         @{
@@ -12421,7 +12310,7 @@
         }
         ''' está em execução.'
     )
-    'runner.operator_874c18fbb1148415' = 'nenhum endereço de serviço de cache- proxy conhecido; pulou'
+    'runner.operator_874c18fbb1148415' = 'nenhum endereço de serviço de cache-proxy conhecido; pulou'
     'runner.operator_8757c94f54a9c89f' = 'atraso de logout automático'
     'runner.operator_876516faaf16bac3' = 'ConvertFrom-Yaml indisponível'
     'runner.operator_87723d817eb7fefc' = 'ter todo o arquivo re-validado como YAML em futuras execuções.'
@@ -12481,7 +12370,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_882454ce86f9f21d' = 'Uma subvenção mais estreita também funciona se você preferir: Privacidade e Segurança > Arquivos e Pastas, onde o UTM aparece como uma linha sob o aplicativo terminal uma vez que ele pediu uma vez. uma que pode ser dada antes da solicitação em vez de apenas depois dela, e porque o Renome-VM edita o mesmo recipiente.'
+    'runner.operator_882454ce86f9f21d' = 'Uma permissão mais restrita também funciona: Privacidade e Segurança > Arquivos e Pastas, onde o UTM aparece sob o aplicativo de terminal após a primeira solicitação. O Acesso Total ao Disco aparece primeiro porque pode ser concedido antes da solicitação e porque Rename-VM edita o mesmo contêiner.'
     'runner.operator_882811c4bc2ae525' = @(
         'CYCLE '
         @{
@@ -12542,9 +12431,9 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        's também, então o hóspede foi encontrado, mas seu daemon não está servindo'
+        's também, então o convidado foi encontrado, mas seu daemon não está servindo'
     )
-    'runner.operator_8876dbd248f20ffb' = 'Falta o pacote: o helper mount.cifs não está instalado. Corrigir: sudo apt- get install -y cifs- utilis'
+    'runner.operator_8876dbd248f20ffb' = 'Pacote ausente: o utilitário mount.cifs não está instalado. Corrija com: sudo apt-get install -y cifs-utils'
     'runner.operator_88f4431aaa292749' = @(
         'cofre da máquina ('
         @{
@@ -12555,7 +12444,7 @@
         ')'
     )
     'runner.operator_88f502760b28fd59' = @(
-        'Invoke- HostRefresh: a sonda do hipervisor é '
+        'Invoke-HostRefresh: a sonda do hipervisor é '
         @{
             'arg' = 'state'
             'type' = 'detail'
@@ -12632,7 +12521,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_8a6b8847ccce49ac' = 'test.runner.yml: ''all'' é reservado para o conjunto de projeto inteiro implícito; pulando o conjunto declarado chamado ''all''.'
     'runner.operator_8a85c0a98b2cb1af' = @(
         '[ciclo externo '
         @{
@@ -12694,7 +12582,7 @@
     'runner.operator_8b08b414d23d6def' = 'Está prestes a criar um novo usuário local do sistema operacional via sudo.'
     'runner.operator_8b09d5f50c489da6' = 'Iniciar o serviço do Windows Server (SMB)'
     'runner.operator_8b0fa5c2b5f17046' = @(
-        'A parada do ecrã está definida como '
+        'A parada da tela está definida como '
         @{
             'arg' = 'join'
             'type' = 'detail'
@@ -12721,7 +12609,7 @@
     )
     'runner.operator_8b5c070b4b3e57dc' = 'Eles precisam de suas entradas hosts apontando para a LAN desta máquina'
     'runner.operator_8b69701262e375fd' = @(
-        'Credencial de reparo: nenhum provedor corresponde a '''
+        'Repair-Credential: nenhum provedor corresponde a '''
         @{
             'arg' = 'target'
             'type' = 'detail'
@@ -12736,7 +12624,7 @@
     )
     'runner.operator_8b6dfab5319382eb' = 'Em seguida, reinicie o terminal e repita o teste.'
     'runner.operator_8b6ee3aa9ee2accc' = @(
-        'Serviço de cache- proxy: detectado, mapa da porta OK, painel='
+        'Serviço de cache-proxy: detectado, mapa da porta OK, painel='
         @{
             'arg' = 'dashboardUrl'
             'type' = 'detail'
@@ -12817,7 +12705,7 @@
         }
         '); nada armazenado.'
     )
-    'runner.operator_8c80c4ba4e9cd7af' = 'Encontradas as regras do bloco TCP que podem sobrepor- se à regra Permitir de estado:'
+    'runner.operator_8c80c4ba4e9cd7af' = 'Encontradas as regras do bloco TCP que podem sobrepor-se à regra Permitir de estado:'
     'runner.operator_8c9ce555fb00a163' = 'Requer powershell.exe (5.1) Funciona diretamente do pwsh'
     'runner.operator_8d1586470c60f1fb' = 'ver os códigos de retorno Msvm Keyboard'
     'runner.operator_8d497fa5c51c5694' = @(
@@ -12955,7 +12843,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_8df0c05badd86279' = 'Um VSwitch Externo ainda pode carregar um hóspede.'
+    'runner.operator_8df0c05badd86279' = 'Um vSwitch externo ainda pode atender a um convidado.'
     'runner.operator_8e05cb247fd2cce6' = @(
         'o serviço não ouve na porta '
         @{
@@ -13012,7 +12900,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ': ficheiro não encontrado ('
+        ': arquivo não encontrado ('
         @{
             'arg' = 'yamlFull'
             'type' = 'detail'
@@ -13111,7 +12999,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não resolve. Endereço IP para mapeá- lo (Enter para pular)'
+        ''' não resolve. Endereço IP para mapeá-lo (Enter para pular)'
     )
     'runner.operator_8f36d24ce01d02c0' = @(
         'Não foi possível garantir uma visualização virtual para '''
@@ -13120,12 +13008,12 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''; a captura de tela/OCR sem cabeça pode falhar. Veja docs/host- hyperv. md.'
+        '''; a captura de tela/OCR sem cabeça pode falhar. Veja docs/host-hyperv.md.'
     )
     'runner.operator_8f85b3fcba9cd85d' = 'Escada de apoio:'
     'runner.operator_8f8e308c2610f013' = 'Gravar a tentativa de instalação da máquina'
     'runner.operator_8f973860bf2a0a66' = @(
-        'sntp - sS '
+        'sntp -sS '
         @{
             'arg' = 'timeServer'
             'type' = 'detail'
@@ -13201,7 +13089,7 @@
         ')'
     )
     'runner.operator_900c7dfb1e5d32e3' = 'Activar a regra de firewall existente'
-    'runner.operator_9012bfc1395ad8f0' = 'qemu- system- x86  64 encontrado no PATH.'
+    'runner.operator_9012bfc1395ad8f0' = 'qemu-system-x86_64 encontrado no PATH.'
     'runner.operator_905cb8b93b701fa9' = @(
         'Não foi possível processar o '
         @{
@@ -13259,7 +13147,7 @@
         ''' não tem esquema reconhecido (http/https/ssh/git/file) e não é um caminho local. Update-ProjectClone falhará no início do ciclo.'
     )
     'runner.operator_90f1184615501062' = @(
-        '- E se: uma execução real seria '
+        '-WhatIf: uma execução real seria '
         @{
             'arg' = 'source'
             'type' = 'detail'
@@ -13370,19 +13258,19 @@
     )
     'runner.operator_9211a1599fcfa2a7' = 'Um script de convidado irm''iex / first-run não é BOM-less ASCII.'
     'runner.operator_922603923910bf11' = @(
-        'O UTM está instalado no '
+        'O UTM está instalado em '
         @{
             'arg' = 'macUtmAppPath'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' mas não carrega o '
+        ', mas o pacote não contém '
         @{
             'arg' = 'macUtmctlBundlePath'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' -- o pacote está incompleto. Reinstale-o: brew reinstall -- cask utm'
+        '. Reinstale-o: brew reinstall --cask utm'
     )
     'runner.operator_922e4c17711e9b26' = @(
         'ERRO NÃO HAPADO no ciclo '
@@ -13413,7 +13301,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ': o dscl não conseguiu defini- lo; voltando ao sysadminctl...'
+        ': o dscl não conseguiu defini-lo; voltando ao sysadminctl...'
     )
     'runner.operator_926e57287853be11' = 'Se este Mac é gerenciado por MDM, um perfil de configuração pode ser'
     'runner.operator_928a02fd91c5d181' = @(
@@ -13458,15 +13346,6 @@
     )
     'runner.operator_92f3da73bdbf3747' = 'Evacuem o laboratório.'
     'runner.operator_92fcfd32f2581e9f' = 'nenhum assinante configurado'
-    'runner.operator_93083a11a290abbd' = @(
-        'pool: test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' esquemaVersion não é 1; pulando-o.'
-    )
     'runner.operator_933b194d28de8e2c' = @(
         'poolStorage: '
         @{
@@ -13594,13 +13473,13 @@
         }
     )
     'runner.operator_945821c2fef42ae6' = @(
-        'A piscina '''
+        'O grupo '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não foi encontrada. Crie- a primeiro: ./New- Pool.ps1 - PoolId '
+        ''' não foi encontrado. Crie-o primeiro: ./New-Pool.ps1 -PoolId '
         @{
             'arg' = 'poolId'
             'type' = 'detail'
@@ -13608,7 +13487,7 @@
         }
     )
     'runner.operator_945bb3e94bf9f06d' = @(
-        'E se: rodasse New- Lab.ps1 -Name '
+        'E se: rodasse New-Lab.ps1 -Name '
         @{
             'arg' = 'labName'
             'type' = 'detail'
@@ -13755,7 +13634,7 @@
         ' assim utmctl está em PATH'
     )
     'runner.operator_966231fe730b28ff' = @(
-        'Send- TextKvm: virsh send-key falhou no char '''
+        'Send-TextKvm: virsh send-key falhou no char '''
         @{
             'arg' = 'ch'
             'type' = 'detail'
@@ -13786,13 +13665,13 @@
     )
     'runner.operator_96c44416adfc3cc0' = 'Instale-o mais tarde com: Install-Module powershell-yaml -Scope CurrentUser'
     'runner.operator_973f6ff9d38d0fc8' = @(
-        'powershell- yaml não está disponível; não é possível escrever '
+        'powershell-yaml não está disponível; não é possível escrever '
         @{
             'arg' = 'configPath'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Instale- o com: Install- Module powershell- yaml - Scope CurrentUser'
+        '. Instale-o com: Install-Module powershell-yaml -Scope CurrentUser'
     )
     'runner.operator_97543922121223f3' = 'Re-run com -AllowMirrorSource para manter um serviço de origem de espelho de propósito.'
     'runner.operator_975a24a1b1bf5b90' = @(
@@ -13834,13 +13713,13 @@
         '''.'
     )
     'runner.operator_976e93edcdcf9ee9' = @(
-        'Inicialize-YurunaHost falhou: '
+        'Initialize-YurunaHost falhou: '
         @{
             'arg' = 'value'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Set vmStart.cachingProxyIp / $Env:YURUNA CACHING PROXY SERVICE IP ou passe -CacheIp para sondar remotamente.'
+        '. Defina vmStart.cachingProxyIp ou $Env:YURUNA_CACHING_PROXY_SERVICE_IP, ou passe -CacheIp para fazer a verificação remota.'
     )
     'runner.operator_978de504882c7705' = @(
         'Armazenou a credencial SMB no cofre em '''
@@ -13944,7 +13823,7 @@
     )
     'runner.operator_99afc5f5196cb53c' = 'O clone do projecto foi actualizado.'
     'runner.operator_99ba6b1738ddcff9' = @(
-        'Falha ao iniciar o ciclo (não fatal): '
+        'Start-PerfCycle falhou (não fatal): '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -13952,7 +13831,7 @@
         }
     )
     'runner.operator_99bf63cc22ad6315' = @(
-        'Falha ao iniciar o VM: '
+        'Falha ao Start-VM: '
         @{
             'arg' = 'errorMessage'
             'type' = 'detail'
@@ -14021,7 +13900,7 @@
         }
     )
     'runner.operator_9a3cb55db2a4a2a2' = @(
-        'Test-CachingProxyServiceDisponível retornado '''
+        'Test-CachingProxyServiceAvailable retornado '''
         @{
             'arg' = 'proxyUrl'
             'type' = 'detail'
@@ -14049,7 +13928,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ': uma sessão remota não pode manter esta concessão nem levantar a sua janela. Execute isto na sessão do ecrã.'
+        ': uma sessão remota não pode manter esta concessão nem levantar a sua janela. Execute isto na sessão da tela.'
     )
     'runner.operator_9aab5a9ac4b0c40a' = @(
         'Os anúncios foram retirados, mas host.registration.json não pôde ser atualizado ('
@@ -14063,7 +13942,7 @@
     'runner.operator_9ab5d23a81ed76a3' = 'Resolvido do test/test.runner.yml no repositório do projeto; a chave guestSequence acima não foi lida.'
     'runner.operator_9ac9c7e924316ac3' = 'Bloqueio da consola no currículo (actualmente activo)'
     'runner.operator_9acdbcef94ff7275' = @(
-        'Desactivar o requisito de senha de bloqueio do ecrã (foi '
+        'Desactivar o requisito de senha de bloqueio da tela (foi '
         @{
             'arg' = 'label'
             'type' = 'detail'
@@ -14134,7 +14013,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' serviço(s) para a piscina: '
+        ' serviço(s) para o grupo: '
         @{
             'arg' = 'join'
             'type' = 'detail'
@@ -14251,7 +14130,7 @@
     'runner.operator_9c4ccff7eb3e57aa' = 'Várias identidades anteriores correspondem a este hardware -- não recuperando automaticamente:'
     'runner.operator_9c5c126bfb40e6f7' = 'Retomar o ciclo de perf da pega publicada'
     'runner.operator_9c627f468ca0a406' = 'Apenas snapshot do Linux'
-    'runner.operator_9c68ac10fb6d1a8e' = 'Alerta de piscina: o transporte de notificação de pool.alert está configurado; este host fornecerá alertas de pool degradados.'
+    'runner.operator_9c68ac10fb6d1a8e' = 'Alerta de grupo: o transporte de notificação de pool.alert está configurado; este host fornecerá alertas de pool degradados.'
     'runner.operator_9c7e07aeec1e2470' = @(
         'Existe uma irmã variável: '
         @{
@@ -14262,7 +14141,7 @@
     )
     'runner.operator_9c87c921239516dc' = '(nenhuma sonda proxy de sistema específica para plataforma neste sistema operacional)'
     'runner.operator_9c9332ea45a6d4d3' = 'O convidado é entregue, em seguida, repetir este script -- ele reconstrui a VM do zero.'
-    'runner.operator_9c9cf7c09b294d90' = 'Copy-FailureArtifactsToStatusLog: nenhuma pasta de ciclo estabelecida (Iniciar-LogFile não é executado?)'
+    'runner.operator_9c9cf7c09b294d90' = 'Copy-FailureArtifactsToStatusLog: nenhuma pasta de ciclo estabelecida (Start-LogFile não é executado?)'
     'runner.operator_9ca518212e68fc8a' = 'test.config.yml não tem entradas ''guestSequence'' -- nada para executar.'
     'runner.operator_9cbd07715695576e' = @(
         'networkStorage pool ['
@@ -14331,9 +14210,9 @@
         }
     )
     'runner.operator_9d268a451a73a838' = 'Passe o caminho da variante explicitamente para corresponder ao comportamento do corredor.'
-    'runner.operator_9d3a2ae3fb5cec6d' = 'Clone do projeto: ignorado (- NoProjectClone); reutilizando o <RepoRoot>/project existente.'
+    'runner.operator_9d3a2ae3fb5cec6d' = 'Clone do projeto: ignorado (-NoProjectClone); reutilizando o <RepoRoot>/project existente.'
     'runner.operator_9d62f276492b34f0' = 'Estado do recurso específico da máquina'
-    'runner.operator_9d6fc2cc7c948ae2' = '(pruning anfitriões aposentados é manual), e uma unidade completa do sistema leva'
+    'runner.operator_9d6fc2cc7c948ae2' = '(pruning hospedeiros aposentados é manual), e uma unidade completa do sistema leva'
     'runner.operator_9d70cd3adcc52aa8' = 'test.config.yml já carrega cada campo de schema atual em ordem canônica; nada a mudar.'
     'runner.operator_9d7be750017c3720' = @(
         'VM renomeado mid-chain: '''
@@ -14376,7 +14255,7 @@
         ', onde o ssh foi autenticado pela última vez.'
     )
     'runner.operator_9ddc89743b60da78' = @(
-        'Não foi possível ler a contagem do ciclo anterior do ficheiro de estado: '
+        'Não foi possível ler a contagem do ciclo anterior do arquivo de estado: '
         @{
             'arg' = 'value'
             'type' = 'detail'
@@ -14435,7 +14314,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_9f57b55a58b15b7c' = 'Send- TextHyperV: o prefixo modificador- reset falhou; continuando sem ele.'
+    'runner.operator_9f57b55a58b15b7c' = 'Send-TextHyperV: o prefixo modificador-reset falhou; continuando sem ele.'
     'runner.operator_9f7c5863216cc042' = @(
         @{
             'arg' = 'step'
@@ -14545,19 +14424,19 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ']: abóbadaKey='''
+        ']: vaultKey='''
         @{
             'arg' = 'vk'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não tem entrada correspondente em abóbada.yml ('
+        ''' não tem entrada correspondente em vault.yml ('
         @{
             'arg' = 'vaultPath'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). O abóbada NUNCA gera automaticamente uma chave fornecida pelo operador. Adicione a senha corporativa manualmente: abóbada.yml -> users.'
+        '). O cofre NUNCA gera automaticamente uma chave fornecida pelo operador. Adicione a senha corporativa manualmente: vault.yml -> users.'
         @{
             'arg' = 'vk'
             'type' = 'detail'
@@ -14566,7 +14445,7 @@
         '.password.'
     )
     'runner.operator_a19fdf9bda60abcf' = @(
-        'O tempo- limite de exibição é definido como '
+        'O tempo-limite de exibição é definido como '
         @{
             'arg' = 'minutes'
             'type' = 'detail'
@@ -14718,7 +14597,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' é construído a partir de `git archive HEAD` e não irá incluí-los. Os hóspedes irão ver conteúdo comprometido enquanto o host executa o código de árvore de trabalho.'
+        ' é construído a partir de `git archive HEAD` e não irá incluí-los. Os convidados irão ver conteúdo comprometido enquanto o host executa o código de árvore de trabalho.'
     )
     'runner.operator_a2f90422a8130ef8' = 'E se: nada foi enviado.'
     'runner.operator_a355b1e1a1867c72' = @(
@@ -14745,7 +14624,7 @@
     )
     'runner.operator_a3a2127faa06053b' = '- Autenticação do GitHub / token expirado'
     'runner.operator_a3d2174b6f0894d4' = @(
-        'erro de processamento de yml no '
+        'Erro ao analisar users.yml em '
         @{
             'arg' = 'usersPath'
             'type' = 'detail'
@@ -14814,7 +14693,7 @@
     'runner.operator_a4150727306b3ee6' = 'Corrigir (necessidades de acesso no local / console -- isto não pode ser reparado'
     'runner.operator_a41b085e2b6f0524' = 'pool CA indisponível (não é possível pino -> não empurrar o token)'
     'runner.operator_a429fea2cd6d1dab' = @(
-        'Hyper- V TypeScancodes retornou '
+        'Hyper-V TypeScancodes retornou '
         @{
             'arg' = 'returnValue'
             'type' = 'detail'
@@ -14852,13 +14731,13 @@
     )
     'runner.operator_a4bcb961c720c665' = '2. Ciclos terminados são arquivados para o pool share (os caminhos são definidos).'
     'runner.operator_a4f38a1452f4234d' = @(
-        'O sono da tela é '''
+        'O tempo para apagar a tela é '''
         @{
             'arg' = 'currentSleep'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' (esperado 0) e o root não é acessível sem uma senha. Execute ''sudo pmset - c displaysleep 0; sudo pmset - b displaysleep 0'' para corrigir.'
+        ''' (esperado: 0), e o root não pode ser acessado sem senha. Execute ''sudo pmset -c displaysleep 0; sudo pmset -b displaysleep 0'' para corrigir.'
     )
     'runner.operator_a505fe65d0a4d0bd' = @(
         'networkStorage pool: o armazenamento da credencial para '''
@@ -14873,7 +14752,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Configure- a manualmente -- veja docs/test- config. md.'
+        '). Configure-a manualmente -- veja docs/test-config.md.'
     )
     'runner.operator_a528ae45427ecf1f' = 'conta, diretório home incluído, e recriá-lo com o'
     'runner.operator_a52dca22e2a172d7' = @(
@@ -14885,7 +14764,7 @@
         }
         '); prosseguir com tentativa de restauração.'
     )
-    'runner.operator_a551655b57821d09' = 'Envio de notificação do Send-Yuruna concluído sem erro.'
+    'runner.operator_a551655b57821d09' = 'Envio de notificação do Send-YurunaNotification concluído sem erro.'
     'runner.operator_a565ade81af18324' = @(
         '''testCycle.recentDisplayCount'' é '
         @{
@@ -14912,25 +14791,25 @@
     )
     'runner.operator_a581e70e444c9b39' = 'waitForText + senha digitada (sensível: redacts in logs).'
     'runner.operator_a597e77782020780' = @(
-        'O servidor '
+        'O serviço '
         @{
             'arg' = 'serviceLabel'
             'type' = 'detail'
             'trust' = 'external'
         }
-        " está a servir, mas foi compilado a partir de um framework DIFERENTE`ninstantâneo do que este alistamento: "
+        " está em execução, mas foi compilado a partir de uma versão DIFERENTE do framework`nda usada neste checkout: "
         @{
             'arg' = 'summary'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ".`nLeia do "
+        ".`nEvidência: "
         @{
             'arg' = 'evidence'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ".`n`nO hóspede obteve a sua fonte na primeira inicialização e construiu uma vez; a versão está carimbada`npara o binário naquele momento e nunca re-ler, então esta VM vai continuar em execução e`nrelatando que construir até que seja reconstruído. Nada na piscina corrige."
+        ".`n`nO convidado obteve o código na primeira inicialização e o compilou uma vez; a versão ficou gravada`nno binário naquele momento e não é relida. Esta VM continuará executando e`nrelatando essa compilação até ser reconstruída. Uma mudança no grupo não corrige isso."
     )
     'runner.operator_a598b092ac269721' = 'poolStorage: networkPath/networkUser contém uma única citação; não assando o stash share.'
     'runner.operator_a5b2e6728ed80b48' = @(
@@ -14962,7 +14841,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' (reconfigurando o estado da quarentena de hóspedes): '
+        ' (reconfigurando o estado da quarentena de convidados): '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -14992,7 +14871,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' mudança( s) de endereço( s) de host dentro dele. Cada endereço que o host se moveu fora de estadias alocados até que sua locação expira, de modo que isso gasta o LAN pool em uma taxa o tempo de locação define. Teste/Teste-Config.ps1'' para o veredito e o remédio. A menos que este anfitrião é um dos que o laboratório renumera de propósito, nesse caso deixe-o ser.'
+        ' mudança(s) do endereço do host durante sua execução. Cada endereço abandonado permanece alocado até o fim da concessão; isso consome os endereços da LAN conforme o prazo da concessão. Execute "pwsh test/Test-Config.ps1" para obter o diagnóstico e a correção. Se o laboratório renumera este host de propósito, ignore o aviso.'
     )
     'runner.operator_a6732496b1fd1e11' = 'membro do grupo ''admin'', que é o que concede sudo.'
     'runner.operator_a68e62c0387fe161' = @(
@@ -15072,19 +14951,19 @@
     'runner.operator_a7b66a70890db579' = 'tarefa programada quando não o fizer.'
     'runner.operator_a7bc16ca8ad50156' = '(ou use ''Configurações do sistema > Usuários e Grupos'')'
     'runner.operator_a7d432e9c0cf6e77' = @(
-        'A piscina '''
+        'O grupo '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' já existe (desejadaState='
+        ''' já existe (desiredState='
         @{
             'arg' = 'desiredState'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); deixada inalterada (- Se Desaparecida).'
+        '); permanece inalterado (-IfMissing).'
     )
     'runner.operator_a80e5f25687bd914' = @(
         'O encaminhamento do lado da máquina para '
@@ -15104,7 +14983,7 @@
     'runner.operator_a8133f2805b1809a' = 'networkStorage on Linux needs passwordless sudo for ''mount''/''umount'' (e ''mkdir'' when localPath is under a root-owned dir like /mnt) -- an /etc/sudoers.d d drop-in. Veja docs/pool-storage.md.'
     'runner.operator_a814bea7a999026d' = '2. reescrever AGGREGATOR BASE PLACEHOLDER para http://<the VM''s own IP>:9400, exatamente como a nuvem-init faz,'
     'runner.operator_a8192b0dd54747ac' = @(
-        'dscl - passwd saiu '
+        'dscl -passwd terminou com o código '
         @{
             'arg' = 'exitCode'
             'type' = 'detail'
@@ -15152,7 +15031,7 @@
     )
     'runner.operator_a85f2b132cd2973e' = 'Nenhum VSwitch Externo pode carregar um convidado e o host não detém nenhum IPv4 ''vEthernet (Default Switch)'', então um convidado criado agora não teria nenhuma rede.'
     'runner.operator_a883b55009624378' = '4. Verifique novamente com: pwsh test/Test-Config.ps1'
-    'runner.operator_a889a69a513cc1af' = 'Inicializar- SudoCache: sudo no PATH; a elevação a jusante falhará.'
+    'runner.operator_a889a69a513cc1af' = 'Initialize-SudoCache: sudo no PATH; a elevação a jusante falhará.'
     'runner.operator_a8ae8ccf83869008' = @(
         'Sequência '''
         @{
@@ -15269,8 +15148,8 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_aaafb05d4ba418b5' = 'Gravar VMDiskSnapshot com uma sequência de identificação local.'
-    'runner.operator_aab0c4b852934709' = 'nenhuma política de execução para esse anfitrião e nada aqui pode dar-lhe'
+    'runner.operator_aaafb05d4ba418b5' = 'Save-VMDiskSnapshot com uma sequência de identificação local.'
+    'runner.operator_aab0c4b852934709' = 'nenhuma política de execução para esse hospedeiro e nada aqui pode dar-lhe'
     'runner.operator_aabcbb7e32e7daf7' = 'Proxy-cache probe puled -- módulo faltando ou host não detectado.'
     'runner.operator_aac480322b602a63' = @(
         @{
@@ -15305,7 +15184,7 @@
         }
         ''' resolve -> entrada do cofre presente.'
     )
-    'runner.operator_ab42c01570126a5f' = 'A chave existente do Yuruna SSH não é utilizável com a frase- senha vazia (fase-passe legada-quoting bug). Regenerando.'
+    'runner.operator_ab42c01570126a5f' = 'A chave existente do Yuruna SSH não é utilizável com a frase-senha vazia (fase-passe legada-quoting bug). Regenerando.'
     'runner.operator_ab6c6159190ac7ff' = @(
         ''''
         @{
@@ -15324,7 +15203,7 @@
     'runner.operator_ab78290b0162b326' = 'Relógio da máquina'
     'runner.operator_ab7b14042d87e157' = 'Nenhum dado é excluído. Arquivos do ciclo, artefatos do stash, o cofre do laboratório e o'
     'runner.operator_ab9e5e9291514fde' = @(
-        'Extensão Configurada na Importação: a área '''
+        'Import-ConfiguredExtension: a área '''
         @{
             'arg' = 'area'
             'type' = 'detail'
@@ -15337,7 +15216,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_abbe8868b3ec0818' = 'Os protectores de ''pmset'' estendidos não são aplicados e o ''root'' não é acessível sem uma senha. Execute- os sozinho antes de iniciar os testes:'
+    'runner.operator_abbe8868b3ec0818' = 'Os protectores de ''pmset'' estendidos não são aplicados e o ''root'' não é acessível sem uma senha. Execute-os sozinho antes de iniciar os testes:'
     'runner.operator_abd1cb1d73ac3d65' = 'Trabalhador WinRT OCR persistente'
     'runner.operator_ac172bafbb64e5ce' = @(
         '[ciclo externo '
@@ -15346,10 +15225,10 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] sintetizado last failure.json (falhaClass=wait timeout) para o watchdog kill para auto-remediação pode repetir.'
+        '] last_failure.json sintetizado (failureClass=wait_timeout) após o encerramento pelo watchdog, para permitir nova tentativa pela correção automática.'
     )
     'runner.operator_ac5925b7ec6e9ced' = @(
-        'O Sync- HostConfiguration terminou o '
+        'O Sync-HostConfiguration terminou o '
         @{
             'arg' = 'syncExit'
             'type' = 'detail'
@@ -15426,12 +15305,13 @@
     )
     'runner.operator_ad0f9b65a3b27ef4' = 'Os requisitos da máquina falharam -- veja a(s) linha(s) [WARN] nesta seção.'
     'runner.operator_ad407a07d1fd523b' = @(
+        '      '
         @{
             'arg' = 'shareName'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ': removendo o ponto de partilha anterior (compartilhamento - r)...'
+        ': removendo o compartilhamento anterior (sharing -r)...'
     )
     'runner.operator_ad68246ca1c72839' = @(
         'Arquivos de sequência carregados + expandidos por trechos OK: '
@@ -15461,13 +15341,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Debug-TestSequência terá como alvo '''
+        '). Debug-TestSequence terá como alvo '''
         @{
             'arg' = 'osKey'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. Passe -Chave para escolher explicitamente.'
+        '''. Passe -GuestKey para escolher explicitamente.'
     )
     'runner.operator_ad81b45f1712b9c6' = @(
         'Essa declaração está no modelo autorizado. Esta execução não adiciona nada a ele; novos itens vão para '
@@ -15528,7 +15408,7 @@
         '.'
     )
     'runner.operator_ae8d65a75135365d' = @(
-        'snippets.yml snippet '''
+        '_snippets.yml snippet '''
         @{
             'arg' = 'snipName'
             'type' = 'detail'
@@ -15583,7 +15463,7 @@
         }
         '.'
     )
-    'runner.operator_aeb2c450546713d2' = 'projectUrl é um caminho local -- os hóspedes não podem resolvê- lo no seu próprio sistema de ficheiros. Use uma URL HTTPS/SSH se os hóspedes precisarem do caminho de clones.'
+    'runner.operator_aeb2c450546713d2' = 'projectUrl é um caminho local -- os convidados não podem resolvê-lo no seu próprio sistema de arquivos. Use uma URL HTTPS/SSH se os convidados precisarem do caminho de clones.'
     'runner.operator_aedd181e3f9cf9c0' = 'OCR-poll abaixo de um prazo e periodicamente pressione uma chave para redesenhar um prompt de um tiro.'
     'runner.operator_aee3b804c4bced6a' = 'lista de captura enquanto a própria VM continua em execução. Um UTM que sai'
     'runner.operator_aef2f9a13448261f' = @(
@@ -15597,7 +15477,7 @@
     )
     'runner.operator_af02ae2f4290672d' = 'Os itens dos hosts não foram escritos, então os nomes do networkStorage ainda se resolvem em seus endereços anteriores e os compartilhamentos do laboratório não serão montados. Execute novamente esta sincronização assim que a elevação tiver sucesso, ou adicione os itens manualmente.'
     'runner.operator_af08cdf0a2ea5eb0' = 'registro do pool: este agregador antecede a listagem por serviço; apenas as áreas que ele resolve são relatadas. Reconstrua o serviço de cache-proxy VM para ver registros recusados aqui.'
-    'runner.operator_af0aca34836ac8bb' = 'pool.enabled é verdadeiro, mas pool.intentGitUrl está vazio -- o corredor não pode puxar a intenção. Defina o URL de repo nu da LAN.'
+    'runner.operator_af0aca34836ac8bb' = 'pool.enabled é true, mas pool.intentGitUrl está vazio -- o runner não pode buscar a intenção. Defina a URL do repositório bare na LAN. Veja docs/pool-storage.md.'
     'runner.operator_af33f0960f92ab46' = @(
         'A sequência '
         @{
@@ -15665,7 +15545,7 @@
         }
         '''...'
     )
-    'runner.operator_afdc01326460cb2c' = 'Gravar o ficheiro de execução pid'
+    'runner.operator_afdc01326460cb2c' = 'Gravar o arquivo de execução pid'
     'runner.operator_afe15df7c41fff0a' = @(
         'Tesseract TSV OCR falhou: '
         @{
@@ -15675,7 +15555,7 @@
         }
     )
     'runner.operator_aff1f890bceeea18' = @(
-        'Não foi possível gravar last  failure.json: '
+        'Não foi possível gravar last_failure.json: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -15701,28 +15581,27 @@
         ' -> 100'
     )
     'runner.operator_b064cd20fb7eddb1' = @(
-        'Esta máquina mudou o endereço '
+        'O endereço deste host mudou '
         @{
             'arg' = 'addressChangeCount'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' vezes em '
+        ' vezes em menos de '
         @{
             'arg' = 'churnWindowMinutes'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' minutos. Os hóspedes estão a reparar as suas coordenadas através do directório da piscina, que funciona mas não é gratuito, e um hóspede sem nenhuma rota para isso diretório não pode recuperar em tudo.'
+        ' minutos. Os convidados estão recuperando os endereços pelo diretório do grupo, o que funciona mas tem custo; um convidado sem acesso a esse diretório não consegue se recuperar.'
         @{
             'arg' = 'hint'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' A menos que este host é um o laboratório continua renumerando de propósito, em que caso deixá-lo ser: o número de mudanças que pousou dentro de cada ciclo é registrado em seu ciclo end Evento. Veja docs/network.md, ''Host address stability''.'
+        ' Se o laboratório renumera este host de propósito, considere isso esperado: o número de mudanças em cada ciclo é registrado no evento cycle_end. Veja docs/network.md, "Host address stability".'
     )
     'runner.operator_b0a52e9a95b6e986' = 'Piso de resolução: nenhum modo de exibição >= 1920x1080 está disponível no primário; OCR pode falhar. Verifique os modos EDID do display virtual.'
-    'runner.operator_b0bf86c31da327e2' = 'Upsert requer -FrameworkUrl e -ProjectUrl (ou passe -Excluir para remover).'
     'runner.operator_b0f17a6c92efa2d7' = @(
         'Define com: sudo passwd '
         @{
@@ -15890,7 +15769,7 @@
         }
     )
     'runner.operator_b3e21ed4f09c30ff' = 'O logout automático após a inatividade já está desativado.'
-    'runner.operator_b401dc408a31017a' = 'Esta máquina não tinha user.yml em tempo de execução, por isso foi semeada do'
+    'runner.operator_b401dc408a31017a' = 'Esta máquina não tinha users.yml em tempo de execução, por isso foi semeada do'
     'runner.operator_b4188041c1c0989b' = 'A propriedade ou identidade do instantâneo não puderam ser verificadas.'
     'runner.operator_b42ca86b5468a010' = 'O Convert-ToPoolWorker precisa de uma sessão elevada: a sincronização grava o arquivo hosts e a remoção remove VMs. Re-run de um PowerShell elevado (Start-Process pwsh -Verb RunAs), ou adicionar -WhatIf para visualizar daqui.'
     'runner.operator_b432098ae43b78c8' = @(
@@ -15914,7 +15793,7 @@
         }
         ').'
     )
-    'runner.operator_b44432b7c8a18687' = 'Piscina de liberaçãoBloqueio de drenagem'
+    'runner.operator_b44432b7c8a18687' = 'Liberar o bloqueio de drenagem de poolStorage'
     'runner.operator_b44c2949a079f8ca' = @(
         @{
             'arg' = 'label'
@@ -15951,7 +15830,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' para Hyper- V'
+        ''' para Hyper-V'
     )
     'runner.operator_b45d8c5faff5d3c4' = '==Verificação de fonte de framework=='
     'runner.operator_b4808071c6833947' = @(
@@ -16001,7 +15880,7 @@
         }
         ' e o disco está inspecionando ou duplicando guest escreve.'
     )
-    'runner.operator_b4a724285b579951' = 'Definir contexto de hóspedes'
+    'runner.operator_b4a724285b579951' = 'Definir contexto de convidados'
     'runner.operator_b4a782ed37d78e1d' = 'Gravar um ciclo morto nos contadores de dados de notificação'
     'runner.operator_b4afbacf3b4e2c0a' = @(
         'Definir o nome da VM como '''
@@ -16057,8 +15936,8 @@
         }
         ' para que o serviço de status possa se vincular.'
     )
-    'runner.operator_b503328ba3bb90e8' = 'Iniciar o ficheiro de registo aninhado'
-    'runner.operator_b50547961ef89534' = 'Não Windows -- O estado da rede de hóspedes Hyper-V não é avaliável aqui.'
+    'runner.operator_b503328ba3bb90e8' = 'Iniciar o arquivo de registro aninhado'
+    'runner.operator_b50547961ef89534' = 'Não Windows -- O estado da rede de convidados Hyper-V não é avaliável aqui.'
     'runner.operator_b54150c020377016' = @(
         'hosts-file aliases'
         @{
@@ -16069,7 +15948,7 @@
         ', e unidades montadas.'
     )
     'runner.operator_b545ce6374221d59' = @(
-        'A sonda de rede de hóspedes não foi completada ('
+        'A sonda de rede de convidados não foi completada ('
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -16104,7 +15983,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_b59a0fa6f31574c0' = 'Mudar para 0 (desactivado)'
+    'runner.operator_b59a0fa6f31574c0' = 'Mudar para 0 (desativado)'
     'runner.operator_b5abb8162943db18' = 'Pesquisado (sem correspondência):'
     'runner.operator_b5dd0e5fc7fa51d3' = @(
         @{
@@ -16187,7 +16066,7 @@
     'runner.operator_b6a05daec9085809' = 'nem o marcador convidado nem o daemon responderam, portanto a versão implantada não pôde ser confirmada'
     'runner.operator_b6bb67156bb6824a' = 'e colocá-lo como utilizável.'
     'runner.operator_b6ebfede650f03bc' = 'Executando em Linux mas faltando /dev/kvm (kvm.ko não carregado ou VT-x/SVM desabilitado).'
-    'runner.operator_b705515c07a5e9a8' = 'Ficheiro de configuração'
+    'runner.operator_b705515c07a5e9a8' = 'Arquivo de configuração'
     'runner.operator_b715acbcf9355372' = @(
         'Módulo não encontrado: '
         @{
@@ -16204,7 +16083,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''; remova- a da Configuração do Sistema > Utilizadores & Grupos.'
+        '''; remova-a da Configuração do Sistema > Usuários & Grupos.'
     )
     'runner.operator_b752ee38cb8d2c81' = 'associação: nenhum pool.intentGitUrl (e nenhum -IntentGitUrl) -- removeu apenas os registros do NAS; os membros do pool não foram tocados.'
     'runner.operator_b767a43bc1c25bbd' = @(
@@ -16293,7 +16172,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' ficheiro(s) validação FALADA.'
+        ' arquivo(s) validação FALADA.'
     )
     'runner.operator_b85fb226033e3953' = 'o daemon respondeu desta máquina'
     'runner.operator_b86ea943b0beb5ed' = 'A amostragem do PDH do Windows não é aplicável neste host.'
@@ -16343,7 +16222,7 @@
         ''' not found in the workload list'
     )
     'runner.operator_b8f7937cfa63542e' = 'A troca está desabilitada nesse agregador: a rotação está desligada, ou o proxy não possui nenhuma chave de autenticação interna para distribuir.'
-    'runner.operator_b911fd964c58192d' = 'Relógio da máquina: ressincroniza- o agora contra o NTP (precisa de Administrador / sudo)? [y/N]'
+    'runner.operator_b911fd964c58192d' = 'Relógio da máquina: ressincroniza-o agora contra o NTP (precisa de Administrador / sudo)? [y/N]'
     'runner.operator_b9316184e6e485e7' = @(
         'Nenhum diretório de sequência encontrado sob '
         @{
@@ -16354,7 +16233,7 @@
         '/sequências ou a árvore de projeto.'
     )
     'runner.operator_b93313785a262cc2' = 'Já configurado -- nada a perguntar:'
-    'runner.operator_b94d536e714a3aba' = 'YURUNA  RUNTIME  DIR desactivado'
+    'runner.operator_b94d536e714a3aba' = 'YURUNA_RUNTIME_DIR não está definido'
     'runner.operator_b94dffb89e2f2cdb' = @(
         'bytes totais diferem: fonte '
         @{
@@ -16397,19 +16276,13 @@
     )
     'runner.operator_b997e21f331391d1' = 'Continuar a correr após a última janela fechada (Manter a correr após a última janelaFechada = SIM)'
     'runner.operator_b9980767ec32acdd' = @(
-        'Pool '''
+        'Grupo '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' testSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''': repositórios sobrepostos (framework='
+        ''': repositórios substituídos (framework='
         @{
             'arg' = 'frameworkUrl'
             'type' = 'detail'
@@ -16421,7 +16294,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); GH TOKEN permanece host-local.'
+        '); GH_TOKEN permanece local do hospedeiro.'
     )
     'runner.operator_b99f17d075e3e4c2' = @(
         'Comparação da imagem: similaridade='
@@ -16463,22 +16336,22 @@
         '. Comece com: sudo systemctl enable -- now libvirtd'
     )
     'runner.operator_b9e2148c39eb8ff7' = @(
-        'Métricas da máquina: nenhum exportador em '''
+        'Métricas do host: não há exportador em '''
         @{
             'arg' = 'hostType'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' e nenhuma maneira de instalar uma ('
+        ''' nem forma automática de instalá-lo ('
         @{
             'arg' = 'reason'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Nada aqui registra por que um convidado foi recusado; execute host/windows.hyper- v/ Enable-TestAutomation.ps1 de um elevado consola.'
+        '). Sem ele, não há registro do motivo da recusa de um convidado. Execute host/windows.hyper-v/Enable-TestAutomation.ps1 em um console elevado.'
     )
-    'runner.operator_b9f6acb318d4ee8c' = 'WinRT (Test- WinRtOcr.ps1) Tesseract (este script)'
-    'runner.operator_ba03da18c56e7e6c' = 'Quando o ecrã estiver em branco, a tela UTM devolve um preto'
+    'runner.operator_b9f6acb318d4ee8c' = 'WinRT (Test-WinRtOcr.ps1) Tesseract (este script)'
+    'runner.operator_ba03da18c56e7e6c' = 'Quando a tela estiver em branco, a tela UTM devolve um preto'
     'runner.operator_ba1fbebc7e7c674e' = @(
         @{
             'arg' = 'rmsg'
@@ -16487,7 +16360,7 @@
         }
         ' (Advisory: copy mode mantém a pasta local, então isso não vai bloquear o ciclo -- corrigir antes de habilitar o modo mover.)'
     )
-    'runner.operator_ba423d49315a4ad5' = 'Ponto de paragem cooperativo; espera pelo operador Continuar ou apagar o ficheiro de marcadores.'
+    'runner.operator_ba423d49315a4ad5' = 'Ponto de paragem cooperativo; espera pelo operador Continuar ou apagar o arquivo de marcadores.'
     'runner.operator_ba76b397e425c192' = 'Remover o manifesto de instantâneo'
     'runner.operator_bab0474eb5290161' = '4. Energia > Desligar exibição -> Nunca (ou executar:'
     'runner.operator_bad2e0cc6cbf2536' = @(
@@ -16531,7 +16404,7 @@
     'runner.operator_bb0ea5e83baa8154' = 'break: YURUNA BREAK DISABLED=1 -- pulando o ponto de interrupção.'
     'runner.operator_bb4af2f3a3025c74' = 'Uma tarefa agendada define a política de execução do ActualUser como'
     'runner.operator_bb588d717338d3d3' = 'A exibição da máquina ou escala de texto não está em 100%.'
-    'runner.operator_bb6100d2550c6776' = 'Remover o marcador de transferência- agente- serviço'
+    'runner.operator_bb6100d2550c6776' = 'Remover o marcador de serviço do agente de download'
     'runner.operator_bb64a99aeac164e1' = @(
         @{
             'arg' = 'step'
@@ -16579,7 +16452,7 @@
         ''' por qualquer rota de descoberta que esta máquina tenha'
     )
     'runner.operator_bbfd1d495162fdc3' = @(
-        'pool: guests.compatibilidade.yml parse falhou ('
+        'pool: guests.compatibility.yml parse falhou ('
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -16595,10 +16468,10 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' não pode ser mantido por uma sessão remota, então este processo não pode confirmá- lo. Execute a partir da sessão de desktop que executa o arnês para obter uma resposta real.'
+        ' não pode ser mantido por uma sessão remota, então este processo não pode confirmá-lo. Execute a partir da sessão de desktop que executa o arnês para obter uma resposta real.'
     )
     'runner.operator_bc30bb4fb49d53bf' = @(
-        'Falha ao definir o conteúdo: '
+        'Set-Content falhou: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -16646,7 +16519,7 @@
         }
         's e nenhum padrão de falha do instalador correspondeu'
     )
-    'runner.operator_bd4f326517a4237a' = 'Não é possível executar o instalador da máquina ou o Active- TestAutomation:'
+    'runner.operator_bd4f326517a4237a' = 'Não é possível executar o instalador da máquina ou o Enable-TestAutomation:'
     'runner.operator_bd50c7a471e9d2ae' = 'Bom para texto curto / UI Melhor para documentos / parágrafos'
     'runner.operator_bd50f33ae3c9b31e' = @(
         'test.config.yml: esquema alterado; levou todos os valores anteriores para o novo layout (arquivo anterior feito backup até '
@@ -16721,7 +16594,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não exporta Send- Notification (procurado para '
+        ''' não exporta Send-Notification (procurado para '
         @{
             'arg' = 'modPath'
             'type' = 'detail'
@@ -16855,27 +16728,6 @@
         }
         ' não foi encontrado.'
     )
-    'runner.operator_c02c29bdd61105ce' = @(
-        'Conjunto de testes "'
-        @{
-            'arg' = 'setName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '": executando '
-        @{
-            'arg' = 'count'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' das sequências do projeto ('
-        @{
-            'arg' = 'join'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ').'
-    )
     'runner.operator_c03297466bf30bf9' = @(
         @{
             'arg' = 'account'
@@ -16894,15 +16746,9 @@
         }
         '). Não foi recuperado.'
     )
-    'runner.operator_c0875435d41486ec' = 'Parar o registo'
+    'runner.operator_c0875435d41486ec' = 'Parar o registro'
     'runner.operator_c11b4fa818b922ab' = @(
-        'Test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' no pool '''
+        'Repositórios definidos no grupo '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
@@ -16955,7 +16801,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. Veja documentos/host- hyperv. md.'
+        '''. Veja docs/host-hyperv.md.'
     )
     'runner.operator_c1b596d7a4419ab5' = 'senha para a nova conta.'
     'runner.operator_c1baf8f3a5c28b39' = 'saveSystemDiagnostic: falta o campo ''id'' necessário.'
@@ -16974,10 +16820,10 @@
         }
         ')'
     )
-    'runner.operator_c1dfab35d5d580a4' = 'recoverFromSnapshot: Restaurar-VMDiskSnapshot ou Start-VM não carregado; não pode recuperar.'
+    'runner.operator_c1dfab35d5d580a4' = 'recoverFromSnapshot: Restore-VMDiskSnapshot ou Start-VM não carregado; não pode recuperar.'
     'runner.operator_c1fc37909bdb27d2' = 'ERRO PLANNER -- ciclo abortado, nenhum convidado será executado.'
     'runner.operator_c20507412394127a' = @(
-        'Corrigir à mão: sudo systemsetup - setusingnetworktime on; sudo sntp -sS '
+        'Corrija manualmente: sudo systemsetup -setusingnetworktime on; sudo sntp -sS '
         @{
             'arg' = 'timeServer'
             'type' = 'detail'
@@ -16997,7 +16843,7 @@
         '''. Saltando replicação.'
     )
     'runner.operator_c2837fa426ae1306' = @(
-        'Tempo- limite de bloqueio de inatividade (atualmente '
+        'Tempo-limite de bloqueio de inatividade (atualmente '
         @{
             'arg' = 'lockTimeoutSeconds'
             'type' = 'detail'
@@ -17020,7 +16866,7 @@
         's)'
     )
     'runner.operator_c28697ef783ec9f0' = @(
-        'Falha ao parar- VMForce para '''
+        'Falha ao Stop-VMForce para '''
         @{
             'arg' = 'name'
             'type' = 'detail'
@@ -17058,7 +16904,7 @@
     'runner.operator_c29ff5bcd747258c' = 'Invoke-RemoteDiagnosticsConsole: console echo não corresponde ao comando digitado; limpando a linha e retipagem uma vez.'
     'runner.operator_c2c0b7df689c0667' = 'relatório do relógio da máquina'
     'runner.operator_c2f406962277a0e6' = 'solicitará uma nova senha.'
-    'runner.operator_c2f83ae6c19216a6' = 'ficheiro de registo'
+    'runner.operator_c2f83ae6c19216a6' = 'arquivo de registro'
     'runner.operator_c32a98a17ba89dd9' = 'e utilizável, e a cópia de Yuruna ainda bate.'
     'runner.operator_c3450b84a855bad6' = 'requer uma receita modular-daemon validada (virtqemud et al.); ainda não construída'
     'runner.operator_c35b2e556a3ef075' = @(
@@ -17120,21 +16966,21 @@
         '.'
     )
     'runner.operator_c4446d75c72cc1be' = @(
-        'O arquivo hosts mapeia '
+        'O arquivo hosts associa '
         @{
             'arg' = 'join'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' para '
+        ' a '
         @{
             'arg' = 'address'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ', mas o resolvedor desta máquina ainda está respondendo com o endereço anterior. Qualquer coisa conectando a esses nomes agora atinge o servidor que eles costumavam significar, não este. Flush a cache e retry (macOS: sudo dscacheutil - flushcache; sudo killall - HUP mDNSResponder).'
+        ', mas o resolvedor desta máquina ainda retorna o endereço anterior. As conexões para esses nomes chegam ao servidor anterior. Limpe o cache e tente novamente (macOS: sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder).'
     )
-    'runner.operator_c447c852d17ccf2c' = 'Esta sessão não pode ser rápida e -Força não foi passada; nada foi mudado.'
+    'runner.operator_c447c852d17ccf2c' = 'Esta sessão não pode ser rápida e -Force não foi passada; nada foi mudado.'
     'runner.operator_c4508e97d7d7bd45' = 'último ciclo como saudável.'
     'runner.operator_c458b9ad926bc49e' = @(
         'A captura diagnóstica da máquina de arranque do ciclo falhou: '
@@ -17147,7 +16993,7 @@
     'runner.operator_c458fd938809ccbc' = 'Set-MacHostConditionSet só é suportado no macOS.'
     'runner.operator_c4724445e88b669f' = 'Instalar com o apt-get'
     'runner.operator_c4a7a6bd503e6bb6' = @(
-        'Processo env HTTP(S) PROXY routes external requests via '
+        'A variável de ambiente HTTP(S)_PROXY encaminha solicitações externas por '
         @{
             'arg' = 'effHost'
             'type' = 'detail'
@@ -17159,7 +17005,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' but the caching-proxy service under test is '
+        ', mas o serviço caching-proxy em teste está em '
         @{
             'arg' = 'resolvedIp'
             'type' = 'detail'
@@ -17171,7 +17017,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' -- Downloads Start-TestRunner (Get-Image.ps1, guest package gotches) irá tunelar através do '
+        '. Os downloads de Start-TestRunner (Get-Image.ps1 e pacotes dos convidados) passarão por '
         @{
             'arg' = 'effHost'
             'type' = 'detail'
@@ -17183,7 +17029,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ', não o proxy que você está testando. Stale env de antes do mais recente - SetHostProxy.'
+        ', e não pelo proxy em teste. A variável de ambiente está desatualizada desde o último -SetHostProxy.'
     )
     'runner.operator_c4a809d3c92bbba1' = @(
         'Gravar o endereço da máquina '
@@ -17266,7 +17112,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Habilite a partir do PowerShell elevado: Active-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All (então reinicie).'
+        '. Habilite a partir do PowerShell elevado: Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All (então reinicie).'
     )
     'runner.operator_c5c26de7d212a326' = @(
         'Tempo de inatividade do protetor de tela [atualHost] (atualmente '
@@ -17360,7 +17206,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. O cofre de laboratório é texto simples -- corrija isso antes de copiá- lo em qualquer lugar.'
+        '. O cofre de laboratório é texto simples -- corrija isso antes de copiá-lo em qualquer lugar.'
     )
     'runner.operator_c6c3099b644345dc' = @(
         'Host-action '''
@@ -17438,7 +17284,7 @@
         }
     )
     'runner.operator_c73196311e501c79' = @(
-        'Endereços de hóspedes limitados pela identidade: '
+        'Endereços de convidados limitados pela identidade: '
         @{
             'arg' = 'unbounded'
             'type' = 'detail'
@@ -17511,21 +17357,6 @@
             'trust' = 'external'
         }
         ': habilitando o tipo de hash SMB-NT (pwpolicy)...'
-    )
-    'runner.operator_c83a08264595d72a' = @(
-        'pool: a análise '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' falhou ('
-        @{
-            'arg' = 'message'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '); ignorando- a.'
     )
     'runner.operator_c83f88602397b5a8' = @(
         'Tampa traseira: '
@@ -17602,7 +17433,7 @@
         ' s.'
     )
     'runner.operator_c8d9262bf2ef85c0' = @(
-        'Desactivar a activação do protector de ecrã inactivo (foi '
+        'Desactivar a activação do protector de tela inactivo (foi '
         @{
             'arg' = 'label'
             'type' = 'detail'
@@ -17629,7 +17460,7 @@
         ') -- não pode comparar esquema; o corredor irá carregar test.config.yml como-is.'
     )
     'runner.operator_c94df17cd3a4e1b3' = @(
-        'Definir a proveniência como nome de ficheiro='''
+        'Definir a proveniência como nome de arquivo='''
         @{
             'arg' = 'filename'
             'type' = 'detail'
@@ -17665,7 +17496,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_c95d4cb31f7e15f2' = 'disciplina do relógio anfitrião (W32Time)'
+    'runner.operator_c95d4cb31f7e15f2' = 'disciplina do relógio hospedeiro (W32Time)'
     'runner.operator_c99546cd0b6770c1' = 'Em seguida, defina networkStorage.* para apontar para ele e armazenar as senhas em'
     'runner.operator_c99a6c2b38ea775d' = @(
         'nmcli não consegue ler a ligação '''
@@ -17683,7 +17514,7 @@
     )
     'runner.operator_c99eebdec002d085' = 'Este endereço queimou o seu orçamento de tentativa de erro. Espere pela janela passar em vez de tentar novamente.'
     'runner.operator_c9a0622a7c0cf589' = @(
-        'Teste.HostContract.psm1 não encontrado em: '
+        'Test.HostContract.psm1 não encontrado em: '
         @{
             'arg' = 'hostModPath'
             'type' = 'detail'
@@ -17718,7 +17549,7 @@
         ' segundos, então este ciclo continua de qualquer forma.'
     )
     'runner.operator_c9ff158c02757ab8' = @(
-        'Falha na execução do clone/resolução do ecrã (não fatal): '
+        'Falha na execução do clone/resolução da tela (não fatal): '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -17771,7 +17602,7 @@
     'runner.operator_cb9b171ea807c530' = 'Endereço de serviço de cache-proxy (a máquina cujo painel mostra o token Lab)'
     'runner.operator_cbacfa5c4ab203be' = 'resposta para Administrador / sudo -- run from the repo root:'
     'runner.operator_cbeb78ddd2cd7816' = @(
-        'Nenhum armazenamento de piscina no '
+        'Nenhum armazenamento de grupo no '
         @{
             'arg' = 'configPath'
             'type' = 'detail'
@@ -17873,11 +17704,11 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' no ficheiro de máquinas...'
+        ' no arquivo de máquinas...'
     )
     'runner.operator_cd8ce1605493d871' = '== Sonda de serviço Yuruna caching-proxy =='
     'runner.operator_cdaca8b5f8db383b' = @(
-        'Host guest-network: degradado, mas utilizável -- os hóspedes tomam o caminho '''
+        'Host guest-network: degradado, mas utilizável -- os convidados tomam o caminho '''
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -17925,7 +17756,7 @@
         }
         ') NÃO responde /healthz deste host, embora o pool ainda o anuncie. Um ciclo entregue este endereço irá parar em seu aquecimento -- verifique esse stash VM, ou a rota deste hospedeiro.'
     )
-    'runner.operator_ce1e07b67cff6083' = 'Amostra de hóspedes incompleta; ver artefato'
+    'runner.operator_ce1e07b67cff6083' = 'Amostra de convidados incompleta; ver artefato'
     'runner.operator_ce67c4c9f3cfdb1a' = @(
         'Permissão '
         @{
@@ -17997,7 +17828,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. O servidor está a servir; só esta verificação não pôde ler a sua origem. Compare a versão na interface de serviço com '
+        '. O servidor está atendendo; só esta verificação não pôde ler a sua origem. Compare a versão na interface de serviço com '
         @{
             'arg' = 'version'
             'type' = 'detail'
@@ -18062,7 +17893,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); instale- a manualmente. '
+        '); instale-a manualmente. '
         @{
             'arg' = 'join'
             'type' = 'detail'
@@ -18121,7 +17952,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não é um token de laboratório: espera-se o código de 6 caracteres (letras/dígitos minúsculas) do painel de máquinas Yuruna''s ''Token de Lab'' azulejo.'
+        ''' não é um token do laboratório: espera-se o código de 6 caracteres (letras/dígitos minúsculas) do painel de máquinas Yuruna''s ''Token de Lab'' azulejo.'
     )
     'runner.operator_cfcc5664cd584b70' = @(
         'projetoUrl resolve para o repo git local: '
@@ -18147,7 +17978,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' ainda existe após a remoção. Remova- o manualmente: os seus ficheiros pertencem a um ID que já não existe.'
+        ' ainda existe após a remoção. Remova-o manualmente: os seus arquivos pertencem a um ID que já não existe.'
     )
     'runner.operator_d032f928223f6a19' = 'O diretório runtime não pôde ser resolvido, então o que este host anuncia para o pool não pode ser lido -- ele pode continuar reivindicando serviços que ele não executa mais.'
     'runner.operator_d042e67680b63d87' = @(
@@ -18268,21 +18099,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_d164f2ba2a2136ac' = @(
-        'pool: nenhum convidado executável para o conjunto de testes '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' neste host ('
-        @{
-            'arg' = 'hostType'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '); ignorando-o.'
-    )
     'runner.operator_d168a5486eb59de2' = 'WinINet (Configurações de Internet HKCU):'
     'runner.operator_d18200873cd315db' = 'SKIPPED: powershell.exe não disponível (não-Windows ou não instalado).'
     'runner.operator_d18a4be8cbf64ef3' = 'NAS ainda não montado (a drenagem monta-o; tente novamente o próximo ciclo)'
@@ -18296,7 +18112,7 @@
         '); procedendo com tentativa de restauração.'
     )
     'runner.operator_d1a8b606d415b200' = @(
-        'Serviço de cache- proxy: configurado no '
+        'Serviço de cache-proxy: configurado no '
         @{
             'arg' = 'configuredCacheIp'
             'type' = 'detail'
@@ -18310,7 +18126,7 @@
         }
     )
     'runner.operator_d1c18cc7ccfc3eb0' = @(
-        'Desactivando a activação do protector de ecrã, o actualHost (foi '
+        'Desativando a ativação automática do protetor de tela em currentHost (anteriormente '
         @{
             'arg' = 'label'
             'type' = 'detail'
@@ -18319,17 +18135,17 @@
         ')...'
     )
     'runner.operator_d1c2444b71ef8fde' = @(
-        'Não foi possível gravar o ficheiro de resultado do ciclo: '
+        'Não foi possível gravar o arquivo de resultado do ciclo: '
         @{
             'arg' = 'message'
             'type' = 'detail'
             'trust' = 'external'
         }
     )
-    'runner.operator_d1cad15ad73fa685' = 'Módulo de instalação (Amplitude do utilizador actual)'
+    'runner.operator_d1cad15ad73fa685' = 'Install-Module (escopo CurrentUser)'
     'runner.operator_d1d328d999fc31cf' = 'Digite um comando + Enter e aguarde por um padrão de completamento fresco.'
     'runner.operator_d2018d2fd5d50e44' = 'Para reproduzir com diagnósticos completos:'
-    'runner.operator_d20e469ddee7bf32' = 'Configurações atualizadas. Re- execute o Assert-HostConditionSet para verificar:'
+    'runner.operator_d20e469ddee7bf32' = 'Configurações atualizadas. Re-execute o Assert-HostConditionSet para verificar:'
     'runner.operator_d21c646000412c32' = @(
         'Reembolso do token do laboratório em '
         @{
@@ -18357,7 +18173,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_d2c6af70339c9e86' = 'Sequências de referência das acções de E/S da máquina esta máquina não tem infra- estrutura para:'
+    'runner.operator_d2c6af70339c9e86' = 'Sequências de referência das acções de E/S da máquina esta máquina não tem infraestrutura para:'
     'runner.operator_d2c7267220080f85' = @(
         'Não foi possível persistir vmStart.cachingProxyIp ('
         @{
@@ -18395,7 +18211,7 @@
         }
     )
     'runner.operator_d326284fec834a78' = 'Toda a máquina está desligada, não só o laboratório.'
-    'runner.operator_d3562959a11587fe' = 'UTM é sandboxed, então as configurações que o mantêm acordado e vivo após sua última janela ao vivo em seu recipiente ao invés de em ~/Library/Preferences, e o macOS gates um acesso a dados de outro recipiente. `defaults` não pode ler nem escrever com.utmapp.UTM -- ambas as chamadas falham com "Não foi possível escrever domínio ...; saindo" -- então os botões do App Nap e da última janela não podem ser aplicados, e o Rename-VM não pode editar UTM''s Lista de registos.'
+    'runner.operator_d3562959a11587fe' = 'UTM é sandboxed, então as configurações que o mantêm acordado e vivo após sua última janela ao vivo em seu recipiente ao invés de em ~/Library/Preferences, e o macOS gates um acesso a dados de outro recipiente. `defaults` não pode ler nem escrever com.utmapp.UTM -- ambas as chamadas falham com "Não foi possível escrever domínio ...; saindo" -- então os botões do App Nap e da última janela não podem ser aplicados, e o Rename-VM não pode editar UTM''s Lista de registros.'
     'runner.operator_d36520d366e5684b' = @(
         'Ponte DHCP identidade: '
         @{
@@ -18479,7 +18295,7 @@
         }
     )
     'runner.operator_d3e602c92cee0b04' = 'Autorização de acessibilidade não concedida para este terminal -- Os cliques do CGEventPost serão deixados em silêncio.'
-    'runner.operator_d43ef9ad8699ec93' = 'A senha do bloqueio do ecrã já está desactivada.'
+    'runner.operator_d43ef9ad8699ec93' = 'A senha do bloqueio da tela já está desactivada.'
     'runner.operator_d44064f7e7fd1609' = 'Mover os registros para o armazenamento do pool (deletar a pasta local após o arquivamento)?'
     'runner.operator_d451371262f4e3e2' = 'Nenhum serviço de cache-proxy este nome da máquina respondeu em : 9400; pass -CachingProxyService <address>.'
     'runner.operator_d45436b6c49fe8e7' = @(
@@ -18527,7 +18343,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não devolveu nenhum registo de estado.'
+        ''' não devolveu nenhum registro de estado.'
     )
     'runner.operator_d4f9111adb74121b' = 'Definir como 0 (nenhum)'
     'runner.operator_d552afeac836d6d7' = @(
@@ -18546,7 +18362,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Persista um PNG nesse caminho (um por ponto de verificação no schore.json) ou remova o ponto de verificação.'
+        '. Persista um PNG nesse caminho (um por ponto de verificação no schedule.json) ou remova o ponto de verificação.'
     )
     'runner.operator_d59d71dd492c6417' = @(
         @{
@@ -18616,7 +18432,7 @@
     'runner.operator_d6134caca4a97b11' = 'não foi possível localizar o executável ''pwsh'' em execução, pelo que não foi possível iniciar o Clear-LocalLabStorage.ps1'
     'runner.operator_d6203ffc40b56597' = 'Configuração da hortelã por máquina CA'
     'runner.operator_d63204d143ea3d13' = 'ERRO: a sincronização git falhou'
-    'runner.operator_d65393848cb9de2a' = '* systemctl daemon-reload + activar/desactivar essas unidades (Add-PortMap / Remover-PortMap)'
+    'runner.operator_d65393848cb9de2a' = '* systemctl daemon-reload + activar/desactivar essas unidades (Add-PortMap / Remove-PortMap)'
     'runner.operator_d65c1830c2c11e5f' = @(
         'Canto quente '''
         @{
@@ -18731,7 +18547,7 @@
         }
         '; a digitação está oculta)'
     )
-    'runner.operator_d7ba04fc3114a17e' = 'Configurar tempo- limite de exibição para Nunca (AC e DC)...'
+    'runner.operator_d7ba04fc3114a17e' = 'Configurar tempo-limite de exibição para Nunca (AC e DC)...'
     'runner.operator_d7dcddaba0a5b0ef' = @(
         'Comprometido localmente, mas NÃO empurrado para o remoto -- a mudança não é durável e um comando de administração posterior irá descartá-lo: '
         @{
@@ -18796,7 +18612,7 @@
         ' s); deixando o passo correr.'
     )
     'runner.operator_d8523930547c291e' = @(
-        'Erro ao gravar com oClickMarker: '
+        'Save-ScreenshotWithClickMarker falhou: '
         @{
             'arg' = 'value'
             'type' = 'detail'
@@ -18828,13 +18644,13 @@
         }
     )
     'runner.operator_d8ab32eec20a65a2' = @(
-        'poolStorage setup: Set- Password falhou ('
+        'poolStorage setup: Set-Password falhou ('
         @{
             'arg' = 'message'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Configure- o manualmente antes dos arquivos do primeiro ciclo.'
+        '). Configure-o manualmente antes dos arquivos do primeiro ciclo.'
     )
     'runner.operator_d8c8c432b7e3764d' = @(
         '[Invoke-TestProject] Passo 3: ciclo interno terminou com o código '
@@ -18902,13 +18718,13 @@
         }
     )
     'runner.operator_d9b7f7780d748cd8' = @(
-        'recuperar- e- executar o backback: '''
+        'recuperar-e-executar o backback: '''
         @{
             'arg' = 'rel'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' difere do HEAD, de modo que o fallback do GitHub não pode corresponder à sua digest. Nocivo enquanto o serviço de estado da máquina é acessível (o hóspede obtém a árvore de trabalho); se não for, commit e push -- ou traga o serviço de status de volta.'
+        ''' difere do HEAD, de modo que o fallback do GitHub não pode corresponder à sua digest. Nocivo enquanto o serviço de estado da máquina é acessível (o convidado obtém a árvore de trabalho); se não for, commit e push -- ou traga o serviço de status de volta.'
     )
     'runner.operator_d9c25172b9533b74' = @(
         'Inicializar o ciclo de perf '
@@ -18952,7 +18768,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_da650bd0ef8da5a0' = 'Host.registration.json atualizado (este host deixa o painel dentro de uma pesquisa agregadora).'
+    'runner.operator_da650bd0ef8da5a0' = 'host.registration.json atualizado (este host deixa o painel dentro de uma pesquisa agregadora).'
     'runner.operator_da7462e09d82ae0b' = @(
         'Nenhuma resposta do '
         @{
@@ -19115,7 +18931,7 @@
         ''' -- verificação dos requisitos de pulo.'
     )
     'runner.operator_dc4be49860381c3d' = @(
-        'Configure- o manualmente com: usuário de rede '
+        'Configure-o manualmente com: usuário de rede '
         @{
             'arg' = 'name'
             'type' = 'detail'
@@ -19179,9 +18995,9 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' -- a espera foi sondando um endereço que este hóspede nunca teve'
+        ' -- a espera foi sondando um endereço que este convidado nunca teve'
     )
-    'runner.operator_dcfd0bcfa41c2f11' = 'Test-CachingProxyServiceDisponível não retornou nenhum cache. Ou o Start-CachingProxyServiceVM.ps1 não foi executado, ou o cache VM não está ouvindo em 3128.'
+    'runner.operator_dcfd0bcfa41c2f11' = 'Test-CachingProxyServiceAvailable não retornou nenhum cache. Ou o Start-CachingProxyServiceVM.ps1 não foi executado, ou o cache VM não está ouvindo em 3128.'
     'runner.operator_dd0c755911af00a8' = 'Digite uma string de texto + Enter, com uma pausa de drenagem.'
     'runner.operator_dd530193911d7db3' = @(
         'Record address basal '
@@ -19238,7 +19054,7 @@
         }
     )
     'runner.operator_ddf3d89de65f28bb' = 'Plataforma não suportada. Somente o macOS (UTM), Windows (Hyper-V) e Linux (KVM/libvirt) são suportados.'
-    'runner.operator_ddfdfd1aaf528d2e' = 'qemu- system- x86  64 não encontrado -- o pacote QEMU não está instalado. Execute install/ ubuntu. kvm.sh, ou: sudo apt- get install - y qemu- system- x86'
+    'runner.operator_ddfdfd1aaf528d2e' = 'qemu-system-x86_64 não encontrado; o pacote QEMU não está instalado. Execute install/ubuntu.kvm.sh ou: sudo apt-get install -y qemu-system-x86'
     'runner.operator_de26ff0465d44866' = @(
         @{
             'arg' = 'action'
@@ -19267,8 +19083,8 @@
         ': criando a conta (sysadminctl)...'
     )
     'runner.operator_dea2daf647b24f47' = 'já em execução'
-    'runner.operator_deb5472371b9e101' = '[2] Tentando Adicionar Tipo com referência WinRT de pwsh...'
-    'runner.operator_debb68d8c02481c1' = 'Nenhum histórico de endereços a verificar ainda: é gravado pelo serviço de estado desta máquina, que nunca começou aqui. O primeiro ciclo inicia- o automaticamente quando o statusService.enabled mantém o seu padrão -- nada a fazer agora. A host deliberadamente executado com o serviço de status desativado permanece desmedido por essa escolha.'
+    'runner.operator_deb5472371b9e101' = '[2] Tentando Add-Type com referência WinRT de pwsh...'
+    'runner.operator_debb68d8c02481c1' = 'Nenhum histórico de endereços a verificar ainda: é gravado pelo serviço de estado desta máquina, que nunca começou aqui. O primeiro ciclo inicia-o automaticamente quando o statusService.enabled mantém o seu padrão -- nada a fazer agora. A host deliberadamente executado com o serviço de status desativado permanece desmedido por essa escolha.'
     'runner.operator_decd1af5026954d6' = @(
         'À espera do serviço pool-agregator no '
         @{
@@ -19334,15 +19150,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_df1608b653f0dd73' = @(
-        'test.runner.yml: skipping testSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -- ele não lista sequências.'
-    )
     'runner.operator_df5b48ab664f3b9b' = 'winget não está disponível para esta conta, por isso o pacote exportador não pode ser adquirido a partir daqui'
     'runner.operator_df7ed91aac9f4403' = @(
         'RecupereFromSnapshot: snapshot '''
@@ -19383,7 +19190,7 @@
         }
     )
     'runner.operator_dfd19c97aaa9ff6e' = 'Invoke-HostRefresh: hipervisor responsivo e um corredor está presente -- no-op verificado.'
-    'runner.operator_dfd80a749d4fee8f' = 'Adicionar Get-Image.ps1 + New-VM.ps1 sob esse caminho para habilitar este hóspede, ou'
+    'runner.operator_dfd80a749d4fee8f' = 'Adicionar Get-Image.ps1 + New-VM.ps1 sob esse caminho para habilitar este convidado, ou'
     'runner.operator_dfe205f918802162' = @(
         'Send-TextKvm: nenhum código chave para o caracter '''
         @{
@@ -19528,7 +19335,7 @@
         ''' não pousou; OCR continua esperando.'
     )
     'runner.operator_e10e72b69afe78cd' = @(
-        'Stop- ConcurrentVM: ainda em execução após uma paragem forçada: '
+        'Stop-ConcurrentVM: ainda em execução após uma paragem forçada: '
         @{
             'arg' = 'join'
             'type' = 'detail'
@@ -19648,7 +19455,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. Gravando- o para que uma máquina estável seja distinguível de uma não vigiada.'
+        '''. Gravando-o para que uma máquina estável seja distinguível de uma não vigiada.'
     )
     'runner.operator_e1cc816e5df1c676' = @(
         'instalado '
@@ -19707,7 +19514,7 @@
         }
         ' para que os ciclos desinteressados nunca precisem de uma senha (o sudo pode pedir uma vez)...'
     )
-    'runner.operator_e23879fc293cffdb' = 'Desactivar o ecrã de bloqueio ao reiniciar do sono...'
+    'runner.operator_e23879fc293cffdb' = 'Desactivar a tela de bloqueio ao reiniciar do sono...'
     'runner.operator_e23d469e44d81f4b' = @(
         'Falha na rotação do ciclo (não fatal; o ciclo continua): '
         @{
@@ -19794,22 +19601,22 @@
         '):'
     )
     'runner.operator_e2c15f417bac228f' = @(
-        'Wait- YurunaAggregatorReady: o agregador no '
+        'Wait-YurunaAggregatorReady: o agregador em '
         @{
             'arg' = 'baseUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' respondeu /healthz, mas nenhuma reivindicação configurada resolve para ele, de modo que o URL da semente ainda está vazio. Defina o vmStart.cachingProxyIp (ou $env:YURUNA CACHING PROXY SERVICE IP) para '
+        ' respondeu em /healthz, mas nenhuma configuração aponta para ele; portanto, a URL de inicialização ainda está vazia. Defina vmStart.cachingProxyIp (ou $env:YURUNA_CACHING_PROXY_SERVICE_IP) como '
         @{
             'arg' = 'proxyAddress'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' e tentar novamente.'
+        ' e tente novamente.'
     )
     'runner.operator_e2c9fb708e765fa2' = @(
-        'máquina do esquecimento: o agregador não despejou o '
+        'forget-host: o agregador não removeu '
         @{
             'arg' = 'shownHostId'
             'type' = 'detail'
@@ -19821,7 +19628,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). O painel limpa por si só após a máquina do agregador TTL (- host-ttl, por omissão 24h).'
+        '). O painel se atualizará após o TTL do host no agregador (-host-ttl, padrão de 24 h).'
     )
     'runner.operator_e2e4c1d2a97c7116' = @(
         'inner '''
@@ -19838,7 +19645,7 @@
     'runner.operator_e3274d8030cf75c8' = 'Definir o tipo de arranque como Automático'
     'runner.operator_e32f750d74cf5f68' = 'RUNNER NOT STARTED -- elevação necessária'
     'runner.operator_e3487a152e2f3308' = '1. As pastas e as contas de compartilhamento já estão em vigor nesta máquina;'
-    'runner.operator_e34abeb2a0f88379' = 'Revalidar diretamente: teste pwsh/Teste-Config.ps1'
+    'runner.operator_e34abeb2a0f88379' = '  Validar novamente:                  pwsh test/Test-Config.ps1'
     'runner.operator_e368b715ba81e0c6' = 'Instalar (driver de palco assinado)'
     'runner.operator_e36c8213e9fb2e41' = @(
         'Definir quarentena para '''
@@ -19850,7 +19657,7 @@
         ''''
     )
     'runner.operator_e36eb642e8f00a48' = @(
-        'O projeto de atualização do último cicloClone removeu o clone anterior e então o ''git clone '
+        'O Update-ProjectClone removeu o clone anterior e então o ''git clone '
         @{
             'arg' = 'projectUrlConfigured'
             'type' = 'detail'
@@ -19859,7 +19666,7 @@
         ''' falhou, deixando uma pasta de destino vazia. O serviço de status irá 404 /yuruna-project-archive.tar.gz e os convidados irão cair para seu próprio clone do mesmo URL. Delete esta pasta e corrija repositórios.projectUrl antes de executar novamente.'
     )
     'runner.operator_e375cb38fde2d093' = 'Definir como 0 (Nunca) via sudo pmset'
-    'runner.operator_e378492dce49f390' = 'abuble.yml não está presente (esperado; criado no início do ciclo).'
+    'runner.operator_e378492dce49f390' = 'vault.yml não está presente (esperado; criado no início do ciclo).'
     'runner.operator_e386d473d982ffc7' = @(
         'Necessário porque '
         @{
@@ -19918,7 +19725,7 @@
     )
     'runner.operator_e4221568eb65462c' = 'Escreva a redeStorage pool + stash values'
     'runner.operator_e44d1c53aa9fba0b' = 'ou retirar a ação necessária da sequência YAMLs.'
-    'runner.operator_e45625b8aae24091' = '-E se: nada foi mudado, então não há estado final para verificar.'
+    'runner.operator_e45625b8aae24091' = '-WhatIf: nada foi mudado, então não há estado final para verificar.'
     'runner.operator_e490c341fb85216e' = @(
         'nmcli saiu '
         @{
@@ -19974,7 +19781,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_e4ef019adc61cf69' = 'Nada anunciado; este anfitrião afirma não ter serviço.'
+    'runner.operator_e4ef019adc61cf69' = 'Nada anunciado; este hospedeiro afirma não ter serviço.'
     'runner.operator_e51b92ce884c8a7d' = 'Configurações do sistema > Privacidade e segurança > Acessibilidade'
     'runner.operator_e52a9d11af803a64' = @(
         'Gravar a sequência preâmbulo-estalar '
@@ -19998,7 +19805,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '; verificação de piscina pulou.'
+        '; verificação de grupo pulou.'
     )
     'runner.operator_e56662ca69d3b0f1' = @(
         '(início do ciclo interno -- hora local: '
@@ -20013,7 +19820,7 @@
     'runner.operator_e5743a075034e8df' = 'Nenhum serviço de cache-proxy os nomes desta máquina responderam em : 9400 (e o promting está desativado); pass -CachingProxyService <address>.'
     'runner.operator_e597192263582942' = 'test.runner.yml mistura uma sequência de orquestração com sequências por pessoa; que não é suportada em um ciclo. Divida-as em configurações de corredor separadas.'
     'runner.operator_e5e2b6cb5e0446ce' = @(
-        'Falha na consulta de funcionalidades do DISM Hyper- V: '
+        'Falha na consulta de funcionalidades do DISM Hyper-V: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -20127,7 +19934,7 @@
     'runner.operator_e7ccc3250e90b5a0' = 'Verificação rápida:'
     'runner.operator_e7cfc0e93e3d317b' = 'winget install --id Microsoft.PowerShell --scope machine'
     'runner.operator_e7d251348e22eeb5' = @(
-        'Mostrar o tempo- limite AC (atualmente '
+        'Mostrar o tempo-limite AC (atualmente '
         @{
             'arg' = 'minutes'
             'type' = 'detail'
@@ -20163,7 +19970,7 @@
     )
     'runner.operator_e8a392f69b5b09a9' = 'Armazenamento nesta máquina? teste pwsh/lab/New-LocalLabStorage.ps1 faz esse passo para você.'
     'runner.operator_e8c42e2c1af2dc6b' = @(
-        'Último registo de recolha e execução gravado: ./status/log/'
+        'Último registro de recolha e execução gravado: ./status/log/'
         @{
             'arg' = 'cycleBase'
             'type' = 'detail'
@@ -20223,7 +20030,7 @@
         '''.'
     )
     'runner.operator_ea6267baeb75b8d8' = @(
-        'estado/extensão/notificação/transportes.yml em falta e nenhum modelo encontrado em '
+        'status/extension/notification/transports.yml não foi encontrado e não há modelo em '
         @{
             'arg' = 'notificationTmplPath'
             'type' = 'detail'
@@ -20256,7 +20063,7 @@
         }
         ''''
     )
-    'runner.operator_ead629360c99f444' = 'atualizar o índice do pacote (apt- get update)...'
+    'runner.operator_ead629360c99f444' = 'atualizar o índice do pacote (apt-get update)...'
     'runner.operator_eae57e0cb1c43db1' = 'repositórios.projectUrl está vazio - ignorando o clone do projeto (usando o projeto na árvore/).'
     'runner.operator_eb02c2b5ad84571f' = @(
         'Armazenamento esta máquina serve: '
@@ -20347,7 +20154,7 @@
         }
         ' min permanecem em pausa.'
     )
-    'runner.operator_eb9468440861e598' = 'Unicidade de membro do PASS: nenhum anfitrião está em mais de uma piscina.'
+    'runner.operator_eb9468440861e598' = 'PASS associação exclusiva: nenhum host pertence a mais de um grupo.'
     'runner.operator_eb97d7107fd767ed' = @(
         'Re-autenticar através do fornecedor '
         @{
@@ -20356,7 +20163,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_eb9b3983cb632707' = 'Registo Test.VncProvider'
+    'runner.operator_eb9b3983cb632707' = 'Registro Test.VncProvider'
     'runner.operator_ebc4945da644f501' = 'UTM.app não está configurado para sobreviver a um ciclo não vigiado.'
     'runner.operator_ebc4e292986adc76' = @(
         'loadDiskSnapshot: Start-VM não carregado; não é possível iniciar '''
@@ -20399,7 +20206,7 @@
         }
     )
     'runner.operator_ec7e0200dab2628f' = 'O relógio da máquina ainda está desligado após a tentativa de sincronização. Verifique a fonte de tempo da máquina antes de iniciar um ciclo.'
-    'runner.operator_ec9e341ad6d6e62a' = 'Por isso faz efeito no próximo registo da conta.'
+    'runner.operator_ec9e341ad6d6e62a' = 'Por isso faz efeito no próximo registro da conta.'
     'runner.operator_eca5cda0ca30d7a8' = @(
         'CPUs lógicas = '
         @{
@@ -20421,7 +20228,7 @@
     )
     'runner.operator_ecc35158d6b76576' = 'Recuperação automática: quando o passo anterior falhar, restaure um instantâneo e inicie a VM.'
     'runner.operator_ecd5d1376e4d1d84' = @(
-        'Remove- HostDisplay ('''
+        'Remove-HostDisplay ('''
         @{
             'arg' = 'hostType'
             'type' = 'detail'
@@ -20594,7 +20401,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' sem compromisso(s). O hóspede é servido como ''git archive HEAD'', de modo que o daemon '
+        ' sem compromisso(s). O convidado é servido como ''git archive HEAD'', de modo que o daemon '
         @{
             'arg' = 'serviceLabel'
             'type' = 'detail'
@@ -20635,7 +20442,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_ee4abed5e7b99f8a' = 'Não existe nenhum caminho de rede para qualquer hóspede nesta máquina.'
+    'runner.operator_ee4abed5e7b99f8a' = 'Não existe nenhum caminho de rede para qualquer convidado nesta máquina.'
     'runner.operator_ee4aeeca3723b96a' = 'Migrar a chave de configuração aposentada'
     'runner.operator_ee4f9562277e1df3' = @(
         'O '
@@ -20646,7 +20453,7 @@
         }
         ': git fetch falhou (offline, ou o comando não é acessível a partir desta máquina); não é possível determinar o atraso.'
     )
-    'runner.operator_ee55e336902ccaa1' = 'Ainda não existe nenhum vSwitch Externo; o driver cria um sob demanda quando um hóspede pede um caminho ponteado.'
+    'runner.operator_ee55e336902ccaa1' = 'Ainda não existe nenhum vSwitch Externo; o driver cria um sob demanda quando um convidado pede um caminho ponteado.'
     'runner.operator_ee6735a83a074220' = @(
         'ERRO: Arquivo não encontrado: '
         @{
@@ -20671,9 +20478,9 @@
         ')'
     )
     'runner.operator_eeb6776b5bd64d89' = 'Tipo de máquina desconhecido -- a pilha de filtro de armazenamento não foi verificada.'
-    'runner.operator_eec555746509c9a5' = 'poolStorage setup puled (sem console interativo). Executar Active-TestAutomation em um terminal para configurar a replicação do NAS + recuperar a identidade do pool deste host.'
+    'runner.operator_eec555746509c9a5' = 'poolStorage setup puled (sem console interativo). Executar Enable-TestAutomation em um terminal para configurar a replicação do NAS + recuperar a identidade do pool deste host.'
     'runner.operator_eed973f8cf3a5ccb' = 'registro de pegada de endereço convidado'
-    'runner.operator_eef349268384cc8a' = '[break/continuar] Restaurar- VMDiskSnapshot retornou $false; continuando de qualquer forma.'
+    'runner.operator_eef349268384cc8a' = '[break/continuar] Restore-VMDiskSnapshot retornou $false; continuando de qualquer forma.'
     'runner.operator_ef115e3df621bb89' = @(
         'Não foi possível parar o '''
         @{
@@ -20689,19 +20496,19 @@
         }
     )
     'runner.operator_ef1995d6348801eb' = @(
-        'vault: nenhuma chave de autenticação interna está disponível, então a credencial '''
+        'cofre: nenhuma chave de autenticação interna está disponível; por isso, a credencial '''
         @{
             'arg' = 'user'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não pode ser obtida a partir do '
+        ''' não pode ser buscada em '
         @{
             'arg' = 'referenceHost'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Introduza esta máquina (teste de pwsh/lab/Set-LabToken.ps1 -LabToken <dashboard-code>) ou passe -Internal AuthKey.'
+        '. Cadastre este host (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code>) ou passe -InternalAuthKey.'
     )
     'runner.operator_ef4dd40477e237ea' = @(
         'A contagem de arquivos difere: fonte '
@@ -20762,7 +20569,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''': a elevação para o apelido anterior não foi concedida. Mapeá- la manualmente com '''
+        ''': a elevação para o apelido anterior não foi concedida. Mapeá-la manualmente com '''
         @{
             'arg' = 'target'
             'type' = 'detail'
@@ -20902,7 +20709,7 @@
         }
         '.'
     )
-    'runner.operator_f1b830d931bbb3a1' = 'Fonte de base, revisão de checkout ou identidade de hóspede alterada.'
+    'runner.operator_f1b830d931bbb3a1' = 'Fonte de base, revisão de checkout ou identidade de convidado alterada.'
     'runner.operator_f1c4363daf483d7c' = @(
         'test.config.yml reconciliado com o modelo: '
         @{
@@ -20938,13 +20745,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "' é o pool de destino de matrícula automática e não pode transportar um conjunto de testes.`nAs máquinas pousam lá automaticamente e continuam a executar o seu próprio projectoUrl; atribuindo um`nAqui remarcaria silenciosamente todos os hospedeiros do laboratório.`nPara dar a estes hosts um projeto, crie outro pool e atribua os hosts a ele:`n./New-Pool.ps1 -PoolId <name>`n./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>`nTest/pool/Set-PoolTestSet.ps1 -PoolId <name> -Nome "
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' -FrameworkUrl '
+        "' é o grupo de destino da autoinscrição e não pode conter repositórios.`n  Os hospedeiros chegam a ele automaticamente e continuam executando o próprio projectUrl; definir um`n  framework e um projeto aqui redirecionaria silenciosamente todos os hospedeiros autoinscritos do laboratório.`n  Para dar um projeto a esses hospedeiros, crie outro grupo e atribua os hospedeiros a ele:`n    ./New-Pool.ps1 -PoolId <name>`n    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>`n    ./Set-PoolRepository.ps1 -PoolId <name> -FrameworkUrl "
         @{
             'arg' = 'frameworkUrl'
             'type' = 'detail'
@@ -20958,13 +20759,13 @@
         }
     )
     'runner.operator_f1e69844d12e14d2' = @(
-        'recuperar- e- executar backback: não foi possível resolver um repo+commit do GitHub para '''
+        'recuperar-e-executar backback: não foi possível resolver um repo+commit do GitHub para '''
         @{
             'arg' = 'repoRoot'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' (repositórios.frameworkUrl / git remoto / HEAD). Se o serviço de estado da máquina não for acessível, o hóspede não tem retrocesso e irá recusar-se a adivinhar noutro repositório.'
+        ''' (repositórios.frameworkUrl / git remoto / HEAD). Se o serviço de estado da máquina não for acessível, o convidado não tem retrocesso e irá recusar-se a adivinhar noutro repositório.'
     )
     'runner.operator_f2261fdec6afa6d4' = @(
         'pool registry: '
@@ -21044,7 +20845,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' min, mas apenas em um único endereço. Nenhuma locação está sendo vazada e o pool não está drenando, então o endereço em si não é o problema -- algo está redefinindo este link em um relógio, e cada hóspede por trás dele perde o fio cada vez que nada renumera. Isso é invisível em um registro de hóspedes, O que mostra apenas a falha.'
+        ' min, mas apenas em um único endereço. Nenhuma locação está sendo vazada e o pool não está drenando, então o endereço em si não é o problema -- algo está redefinindo este link em um relógio, e cada convidado por trás dele perde o fio cada vez que nada renumera. Isso é invisível em um registro de convidados, O que mostra apenas a falha.'
     )
     'runner.operator_f318cb1504904b80' = @(
         'Sonda de rede para '''
@@ -21056,7 +20857,7 @@
         ''' retornou sem registro de status.'
     )
     'runner.operator_f32f00842fbdbf46' = @(
-        'Reset-ConvidadoTtyPrompt: console tty restauration não pousou (Ctrl-C sent='
+        'Reset-GuestTtyPrompt: console tty restauration não pousou (Ctrl-C sent='
         @{
             'arg' = 'interrupted'
             'type' = 'detail'
@@ -21068,7 +20869,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); o hóspede ainda pode manter uma linha parcial que o texto do próximo passo irá estender.'
+        '); o convidado ainda pode manter uma linha parcial que o texto do próximo passo irá estender.'
     )
     'runner.operator_f333ab0d208b4279' = @(
         'networkStorage stash: a pasta alvo existe mas a montagem '''
@@ -21148,7 +20949,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' é mantida por um processo que esta conta não pode parar. Libertando- a precisa de root (você pode ser solicitado para sua senha)...'
+        ' é mantida por um processo que esta conta não pode parar. Libertando-a precisa de root (você pode ser solicitado para sua senha)...'
     )
     'runner.operator_f3bed31426207a13' = @(
         '[ciclo externo '
@@ -21242,15 +21043,15 @@
         }
     )
     'runner.operator_f4ce3623f58ca8ac' = @(
-        'PASS target-pool-no-testset: '''
+        'PASS  target-pool-no-repositories: '''
         @{
             'arg' = 'targetPoolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não carrega testeSet.'
+        ''' não contém repositórios.'
     )
-    'runner.operator_f4faadbd7e5c2c6a' = 'O tempo- limite de exibição (DC) já está definido como Nunca.'
+    'runner.operator_f4faadbd7e5c2c6a' = 'O tempo-limite de exibição (DC) já está definido como Nunca.'
     'runner.operator_f5182563134ccc5d' = 'drop-in sem senha aplica-se apenas ao Linux (macOS/Windows mounts não precisam de sudo).'
     'runner.operator_f51bf94661f91a03' = @(
         'Pausa do ciclo liberada após '
@@ -21276,7 +21077,7 @@
         }
         ' não tem ''sequência:'' para invocar.'
     )
-    'runner.operator_f5355ca99920de09' = 'Não deixá- lo em arquivos de texto abertos ou histórico de shell.'
+    'runner.operator_f5355ca99920de09' = 'Não deixá-lo em arquivos de texto abertos ou histórico de shell.'
     'runner.operator_f5675f4c1c4608a9' = @(
         'abóbada: '''
         @{
@@ -21304,7 +21105,7 @@
     )
     'runner.operator_f5be34e2fa47f964' = 'Hyper-V Virtual Machine Management service (vmms) não está funcionando.'
     'runner.operator_f5bedf160134ef94' = 'Reiniciar para zero'
-    'runner.operator_f5c0e102b6efe224' = 'ficheiro de máquinas'
+    'runner.operator_f5c0e102b6efe224' = 'arquivo de máquinas'
     'runner.operator_f5d13a74fd026605' = 'Caching-proxy service: um track-up de caching-proxy-service detém o lock -- diferindo a atualização do mapa de portas deste ciclo para ele.'
     'runner.operator_f604a60885fe8ac0' = @(
         'Instalado '
@@ -21313,7 +21114,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Tentando novamente a montagem pré- voo...'
+        '. Tentando novamente a montagem pré-voo...'
     )
     'runner.operator_f62563beddeea65d' = @(
         'A configuração não foi encontrada ou é inparsável: '
@@ -21352,8 +21153,8 @@
         ') -- pausa final.'
     )
     'runner.operator_f65d44a26e9ca81d' = 'Desactivar o bloqueio da inactividade da máquina...'
-    'runner.operator_f669f22210b44d93' = 'indisponível por omissão; requer uma etiqueta/domínio/proprietário específicos para a versão do sistema operacional verificada com testes de garantia'
-    'runner.operator_f67e91959f7d5ea3' = 'nenhum IP de ''caching- proxy- service'' (não é possível alcançar o agregador)'
+    'runner.operator_f669f22210b44d93' = 'indisponível por padrão; requer uma etiqueta/domínio/proprietário específicos para a versão do sistema operacional verificada com testes de garantia'
+    'runner.operator_f67e91959f7d5ea3' = 'nenhum IP de ''caching-proxy-service'' (não é possível alcançar o agregador)'
     'runner.operator_f6a1e5218fec9db1' = @(
         'Plano de ciclo: entradas '
         @{
@@ -21384,7 +21185,7 @@
         }
         's.'
     )
-    'runner.operator_f70223166f852c07' = 'Este é o token de laboratório de 6 caracteres do painel, não uma chave de autenticação interna -- resgatando-a para a chave ...'
+    'runner.operator_f70223166f852c07' = 'Este é o token do laboratório de 6 caracteres do painel, não uma chave de autenticação interna -- resgatando-a para a chave ...'
     'runner.operator_f74d9ff6d340a6a8' = @(
         'Aguardando até '
         @{
@@ -21400,8 +21201,8 @@
         }
         ' a ser concedido...'
     )
-    'runner.operator_f7abf3e2e6a0aa21' = 'Feito: esta máquina já não serve a sua própria piscina e armazenamento stash.'
-    'runner.operator_f800e4f0336cbe99' = 'Garantir a existência de dir de ecrã de ciclo'
+    'runner.operator_f7abf3e2e6a0aa21' = 'Concluído: esta máquina não serve mais seu próprio grupo nem o armazenamento stash.'
+    'runner.operator_f800e4f0336cbe99' = 'Garantir a existência de dir de tela de ciclo'
     'runner.operator_f812696e3639649c' = @(
         @{
             'arg' = 'title'
@@ -21509,7 +21310,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_f86fd5765e14a20b' = 'efeito no próximo registo da conta.'
+    'runner.operator_f86fd5765e14a20b' = 'efeito no próximo registro da conta.'
     'runner.operator_f89c2e068682b179' = @(
         'substituir pelo endereço que respondeu ('
         @{
@@ -21535,7 +21336,7 @@
         ''' -- pulando a cadeia basal (caminho quente).'
     )
     'runner.operator_f8a43d6f86299328' = @(
-        'Verifique o registo de erros do servidor: '
+        'Verifique o registro de erros do servidor: '
         @{
             'arg' = 'err'
             'type' = 'detail'
@@ -21543,7 +21344,7 @@
         }
     )
     'runner.operator_f8a9850aa3fba4f6' = @(
-        'Usuários de sementes.yml de '
+        'users.yml de '
         @{
             'arg' = 'template'
             'type' = 'detail'
@@ -21575,7 +21376,7 @@
         '''.'
     )
     'runner.operator_f8ed754bec9a4f32' = 'presente para responder, e a página de status iria continuar relatando o'
-    'runner.operator_f91fa6f03cfc81e6' = 'Validando a máquina convertida (teste/teste-Config.ps1) ...'
+    'runner.operator_f91fa6f03cfc81e6' = '  Validando o host convertido (test/Test-Config.ps1)...'
     'runner.operator_f9451eb8ca95adac' = @(
         'Arquivo de configuração encontrado: '
         @{
@@ -21642,7 +21443,7 @@
         ''' -- captura de tela é dissociada do monitor físico.'
     )
     'runner.operator_f9c8c814665f1484' = '3. Lock Screen > Requer senha após protetor de tela -> OFF'
-    'runner.operator_f9fad05d7af1ebdb' = '- Wi-Fi desactivado / SSID largado / Wi-Fi desactivado no Gerenciador de Dispositivos'
+    'runner.operator_f9fad05d7af1ebdb' = '- Wi-Fi desativado / SSID largado / Wi-Fi desativado no Gerenciador de Dispositivos'
     'runner.operator_fa10410dc0050ce8' = @(
         'métricas de agregadores inalcançáveis ('
         @{
@@ -21653,7 +21454,7 @@
         ')'
     )
     'runner.operator_fa266442ac782dfe' = @(
-        '... ainda à espera do serviço de agrupamento de piscinas ('
+        '... ainda à espera do serviço de agrupamento de grupos ('
         @{
             'arg' = 'mins'
             'type' = 'detail'
@@ -21749,8 +21550,8 @@
     )
     'runner.operator_fc89504fc8d2deab' = 'perfis mostram a configuração do tipo'
     'runner.operator_fc89ba8b6dd7e701' = 'Mapeamento de usuários de autenticação (users.yml)'
-    'runner.operator_fc8f368b71282373' = 'Wait- ForConsoleChange: nenhuma pasta de captura disponível; não é possível confirmar.'
-    'runner.operator_fc8ff78e8d43540a' = 'Credencial Yuruna já dá para fora. Passe - PromptForPassword para definir um novo.'
+    'runner.operator_fc8f368b71282373' = 'Wait-ForConsoleChange: nenhuma pasta de captura disponível; não é possível confirmar.'
+    'runner.operator_fc8ff78e8d43540a' = 'Credencial Yuruna já dá para fora. Passe -PromptForPassword para definir um novo.'
     'runner.operator_fca25ad3ba618f96' = @(
         'O SSH alcançou '''
         @{
@@ -21785,7 +21586,7 @@
         '.'
     )
     'runner.operator_fcce2b9faeb7759a' = 'UTM.app já permanece em execução após sua última janela fechar.'
-    'runner.operator_fcef8dbc96090ed0' = 'Os hóspedes tiram este relógio do seu RTC virtual ao ligar, e'
+    'runner.operator_fcef8dbc96090ed0' = 'Os convidados tiram este relógio do seu RTC virtual ao ligar, e'
     'runner.operator_fcf1765cc01fc14c' = 'Retirar o anúncio da extensão'
     'runner.operator_fcf2add51fb533eb' = @(
         'Usando o último bem persistiu CA para '
@@ -21863,7 +21664,7 @@
         }
     )
     'runner.operator_fe29288706c2ad6c' = @(
-        'Write- StatusJson: não foi possível gravar o documento de estado para '
+        'Write-StatusJson: não foi possível gravar o documento de estado para '
         @{
             'arg' = 'file'
             'type' = 'detail'
@@ -21871,7 +21672,7 @@
         }
     )
     'runner.operator_fe2c5d57673db03c' = @(
-        'Unicidade de membro FAIL: host '
+        'FAIL associação exclusiva: o host '
         @{
             'arg' = 'h'
             'type' = 'detail'
@@ -21889,7 +21690,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' (uma máquina pertence no máximo a uma piscina).'
+        ''' (cada host pertence a no máximo um grupo).'
     )
     'runner.operator_fe40f9dec8593d1a' = 'Serviço de cache-proxy: não detectado (os convidados vão baixar diretamente do Ubuntu mirrors)'
     'runner.operator_fe5a00f1761237fd' = @(
@@ -22010,12 +21811,12 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não possui nenhum estado de rede de hóspedes Hyper-V para verificar.'
+        ''' não possui nenhum estado de rede de convidados Hyper-V para verificar.'
     )
     'runner.operator_fedf2a012ff69145' = 'Criado test.config.yml a partir do modelo.'
     'runner.operator_fef8036135271420' = 'networkStorage pool: a senha contém uma única citação -- a montagem do host funciona, mas as sementes de VM convidadas não podem cozinhá-la. Mude-a no NAS para evitar citações, retrocessos e separadores YAML/shell.'
     'runner.operator_fef93ef33a3fbad6' = @(
-        'Remove-ConvidadoVMQuietly: '''
+        'Remove-GuestVMQuietly: '''
         @{
             'arg' = 'vMName'
             'type' = 'detail'
@@ -22062,7 +21863,7 @@
     'runner.operator_ff67962efb5a7e60' = 'Um serviço de demolição não completou; re-executar este script é seguro e retoma de onde parou.'
     'runner.operator_ff747670f88f9812' = 'bloqueio de tela do macOS / sono de exibição'
     'runner.operator_ff92239af931f841' = @(
-        'dscl - criar autenticaçãoAutoridade saída '
+        'dscl -create AuthenticationAuthority terminou com o código '
         @{
             'arg' = 'exitCode'
             'type' = 'detail'
@@ -22084,8 +21885,8 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_ffda3e4cb15ba9b3' = 'Nenhum prefixo de nome VM utilizável: - Prefixo resolvido para nada. Passe um prefixo explícito (um prefixo vazio corresponderia a cada VM na máquina).'
-    'runner.operator_ffdf0ec57b7c1018' = 'networkStorage stash* não completamente definido -- o serviço de stash está desligado (opcional). Defina stashStorageNetworkPath / stashStorageNetworkUser / stashStorageLocalPath para habilitá- lo.'
+    'runner.operator_ffda3e4cb15ba9b3' = 'Nenhum prefixo de nome VM utilizável: -Prefix resolvido para nada. Passe um prefixo explícito (um prefixo vazio corresponderia a cada VM na máquina).'
+    'runner.operator_ffdf0ec57b7c1018' = 'networkStorage stash* não completamente definido -- o serviço de stash está desligado (opcional). Defina stashStorageNetworkPath / stashStorageNetworkUser / stashStorageLocalPath para habilitá-lo.'
     'runner.operator_fff1ea06a82dafb8' = @(
         'netsh winhttp show proxy falhou: '
         @{
@@ -22112,134 +21913,208 @@
             'trust' = 'external'
         }
     )
+    'runner.pool_intent_library_removed' = 'test-sets.yml removido do repositório de intenções; nada o lê.'
+    'runner.pool_intent_schema_already_current' = @(
+        'A intenção do grupo já está em schemaVersion '
+        @{
+            'arg' = 'version'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '; nada a migrar.'
+    )
+    'runner.pool_intent_schema_migrated' = @(
+        'Intenção do grupo migrada de schemaVersion '
+        @{
+            'arg' = 'from'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' para '
+        @{
+            'arg' = 'to'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ', com commit e push realizados.'
+    )
+    'runner.pool_intent_schema_outdated' = @(
+        'FAIL  schema-version: pools.yml está em schemaVersion '
+        @{
+            'arg' = 'found'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', mas este checkout lê schemaVersion '
+        @{
+            'arg' = 'expected'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '. Execute test/pool/Update-PoolIntentSchema.ps1 uma vez para migrar o repositório de intenções.'
+    )
+    'runner.pool_intent_schema_unsupported' = @(
+        'pools.yml está em schemaVersion '
+        @{
+            'arg' = 'version'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ', mais recente do que este checkout lê ('
+        @{
+            'arg' = 'expected'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '). Atualize este checkout antes de alterar a intenção do grupo.'
+    )
+    'runner.pool_repositories_cleared' = @(
+        'Repositórios removidos do grupo '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''; seus membros executam os próprios repositórios configurados a partir do próximo ciclo.'
+    )
+    'runner.pool_repositories_url_invalid' = @(
+        '-'
+        @{
+            'arg' = 'parameter'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' deve ser uma URL não vazia, sem espaços em branco nem caracteres de controle, e não pode começar com ''-''.'
+    )
+    'runner.pool_status_repositories_none' = '  repositórios: (nenhum)'
     'runner.prior_runner_cleanup_action' = "Ação: parando-o e rodando`nRemove-TestVMFiles.ps1 antes de iniciar"
-    'runner.process_start_record_write_action' = 'Write a process start-time record'
-    'runner.readiness_ack_remove_action' = 'Remove a stale refresh readiness acknowledgment'
-    'runner.readiness_ack_write_action' = 'Write the refresh readiness acknowledgment'
+    'runner.process_start_record_write_action' = 'Gravar um registro de hora de início do processo'
+    'runner.readiness_ack_remove_action' = 'Remover uma confirmação de prontidão de atualização obsoleta'
+    'runner.readiness_ack_write_action' = 'Gravar a confirmação de prontidão da atualização'
     'runner.refresh_barrier_held' = @(
-        'Resumed after host refresh '
+        'Retomado após a atualização do hospedeiro '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': held by '
+        ': retido por '
         @{
             'arg' = 'controls'
             'type' = 'text'
             'trust' = 'internal'
         }
-        '. Release them from the status page; no VM is created or changed until then.'
+        '. Libere-os na página de status; nenhuma VM é criada ou alterada até lá.'
     )
     'runner.refresh_barrier_released' = @(
-        'Held controls released after '
+        'Controles retidos liberados após '
         @{
             'arg' = 'seconds'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' s; the resumed cycle continues.'
+        ' s; o ciclo retomado continua.'
     )
-    'runner.refresh_capability_unverified_macos' = 'Runner reclamation and restart are not qualified on macOS yet: the ps process table and the detached launch are tested with fixtures only.'
-    'runner.refresh_capability_unverified_windows' = 'Runner reclamation and restart are not qualified on Windows yet: the CIM process table, single-process termination and the reparent hop are tested with fixtures only.'
+    'runner.refresh_capability_unverified_macos' = 'A recuperação e a reinicialização do runner ainda não são qualificadas no macOS: a tabela de processos do ps e a execução desanexada são testadas apenas com fixtures.'
+    'runner.refresh_capability_unverified_windows' = 'A recuperação e a reinicialização do runner ainda não são qualificadas no Windows: a tabela de processos CIM, o encerramento de processo único e o salto de reatribuição de pai são testados apenas com fixtures.'
     'runner.refresh_cycle_held' = @(
-        '[outer cycle '
+        '[ciclo externo '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] the inner stopped at '
+        '] o interno parou em '
         @{
             'arg' = 'site'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' because a host refresh holds this host; nothing was changed.'
+        ' porque uma atualização do hospedeiro retém este hospedeiro; nada foi alterado.'
     )
     'runner.refresh_gate_blocks_start' = @(
-        'Start-TestRunner: host refresh '
+        'Start-TestRunner: a atualização do hospedeiro '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' holds this host''s runner (gate '
+        ' retém o runner deste hospedeiro (portão '
         @{
             'arg' = 'state'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); not starting a second runner. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.'
+        '); um segundo runner não será iniciado. Aguarde a conclusão ou retome com test/lab/Invoke-HostRefresh.ps1 -Resume.'
     )
     'runner.refresh_gate_hold' = @(
-        '[outer cycle '
+        '[ciclo externo '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] host refresh '
+        '] a atualização do hospedeiro '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' holds the runner (gate '
+        ' retém o runner (portão '
         @{
             'arg' = 'state'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); no cycle starts until it releases.'
+        '); nenhum ciclo inicia até a liberação.'
     )
     'runner.refresh_gate_orphaned' = @(
-        '[outer cycle '
+        '[ciclo externo '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] host refresh '
+        '] a atualização do hospedeiro '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' left the runner held (gate '
+        ' deixou o runner retido (portão '
         @{
             'arg' = 'state'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ') and its worker is no longer running. Run test/lab/Invoke-HostRefresh.ps1 -Resume to finish its recovery.'
+        ') e seu worker não está mais em execução. Execute test/lab/Invoke-HostRefresh.ps1 -Resume para concluir a recuperação.'
     )
     'runner.refresh_gate_released' = @(
-        '[outer cycle '
+        '[ciclo externo '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] the host-refresh gate released the runner; cycles resume.'
+        '] o portão de atualização do hospedeiro liberou o runner; os ciclos são retomados.'
     )
     'runner.refresh_gate_unreadable' = @(
-        '[outer cycle '
+        '[ciclo externo '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] the host-refresh gate record could not be read ('
+        '] não foi possível ler o registro do portão de atualização do hospedeiro ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); the runner stays held until test/lab/Invoke-HostRefresh.ps1 -Resume resolves it.'
+        '); o runner permanece retido até que test/lab/Invoke-HostRefresh.ps1 -Resume o resolva.'
     )
     'runner.refresh_gate_write_action' = @(
-        'Write the host-refresh runner gate ('
+        'Gravar o portão do runner da atualização do hospedeiro ('
         @{
             'arg' = 'state'
             'type' = 'identifier'
@@ -22248,22 +22123,22 @@
         ')'
     )
     'runner.refresh_handoff_complete' = @(
-        '[outer cycle '
+        '[ciclo externo '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] readiness verified for host refresh '
+        '] prontidão verificada para a atualização do hospedeiro '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '; leaving the refresh gate.'
+        '; saindo do portão de atualização.'
     )
     'runner.refresh_handoff_complete_action' = @(
-        'Complete a host-refresh runner handoff ('
+        'Concluir uma transferência do runner na atualização do hospedeiro ('
         @{
             'arg' = 'verdict'
             'type' = 'identifier'
@@ -22272,7 +22147,7 @@
         ')'
     )
     'runner.refresh_handoff_issue_action' = @(
-        'Issue a host-refresh runner handoff token ('
+        'Emitir um token de transferência do runner na atualização do hospedeiro ('
         @{
             'arg' = 'purpose'
             'type' = 'identifier'
@@ -22281,79 +22156,79 @@
         ')'
     )
     'runner.refresh_handoff_unverified' = @(
-        '[outer cycle '
+        '[ciclo externo '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] readiness for host refresh '
+        '] não foi possível verificar a prontidão para a atualização do hospedeiro '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' could not be verified ('
+        ' ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); the runner stays held.'
+        '); o runner permanece retido.'
     )
     'runner.refresh_launch_record_skipped' = @(
-        'Start-TestRunner: the runner launch record was not written ('
+        'Start-TestRunner: o registro de inicialização do runner não foi gravado ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); a host refresh cannot restart this runner, and asks the operator to start it instead.'
+        '); uma atualização do hospedeiro não pode reiniciar este runner e pede ao operador que o inicie.'
     )
     'runner.refresh_preflight_cycle' = @(
-        '[outer cycle '
+        '[ciclo externo '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] refresh preflight only: no git pull, VM change or control sweep in this cycle.'
+        '] apenas verificação prévia da atualização: sem git pull, alteração de VM ou varredura de controles neste ciclo.'
     )
     'runner.refresh_preflight_failed' = @(
-        'Refresh preflight failed ('
+        'A verificação prévia da atualização falhou ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); nothing was changed and the runner stays held.'
+        '); nada foi alterado e o runner permanece retido.'
     )
     'runner.refresh_preflight_ready' = @(
-        'Refresh preflight ready for request '
+        'Verificação prévia da atualização pronta para a solicitação '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '; waiting for the refresh worker to release the runner.'
+        '; aguardando o worker de atualização liberar o runner.'
     )
     'runner.refresh_preflight_released' = @(
-        'Refresh preflight ended ('
+        'Verificação prévia da atualização encerrada ('
         @{
             'arg' = 'outcome'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); exiting so the runner can continue.'
+        '); saindo para que o runner possa continuar.'
     )
     'runner.refresh_preflight_result' = @(
-        '[outer cycle '
+        '[ciclo externo '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] refresh preflight cycle finished with exit code '
+        '] o ciclo de verificação prévia da atualização terminou com código de saída '
         @{
             'arg' = 'exitCode'
             'type' = 'integer'
@@ -22361,7 +22236,7 @@
         }
         '.'
     )
-    'runner.refresh_resume_action' = 'Restart the runner after a host refresh'
+    'runner.refresh_resume_action' = 'Reiniciar o runner após uma atualização do hospedeiro'
     'runner.refresh_resume_record_refused' = @(
         'Start-TestRunner: '
         @{
@@ -22369,71 +22244,71 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' is '
+        ' está '
         @{
             'arg' = 'state'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '; a refresh resume never takes over or deletes a live or unknown runner record.'
+        '; uma retomada de atualização nunca assume nem exclui um registro de runner ativo ou desconhecido.'
     )
     'runner.refresh_resume_started' = @(
-        'Start-TestRunner: resuming after host refresh '
+        'Start-TestRunner: retomando após a atualização do hospedeiro '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '; operator pauses, holds and restart requests are preserved.'
+        '; pausas, retenções e solicitações de reinício do operador são preservadas.'
     )
-    'runner.refresh_resume_switch_pair' = 'Start-TestRunner: -RefreshResume and -RefreshHandoffToken must be given together; not starting.'
+    'runner.refresh_resume_switch_pair' = 'Start-TestRunner: -RefreshResume e -RefreshHandoffToken devem ser informados juntos; não iniciando.'
     'runner.refresh_resume_token_refused' = @(
-        'Start-TestRunner: the refresh handoff was refused ('
+        'Start-TestRunner: a transferência da atualização foi recusada ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); not starting.'
+        '); não iniciando.'
     )
     'runner.refresh_site_gated' = @(
-        'Cycle ended before '
+        'Ciclo encerrado antes de '
         @{
             'arg' = 'site'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': host refresh '
+        ': a atualização do hospedeiro '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' holds this host (gate '
+        ' retém este hospedeiro (portão '
         @{
             'arg' = 'state'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '). Nothing was changed; the runner waits for the refresh.'
+        '). Nada foi alterado; o runner aguarda a atualização.'
     )
     'runner.refresh_status_ensure_skipped' = @(
-        '[outer cycle '
+        '[ciclo externo '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] status-service re-ensure skipped: a host refresh holds this host.'
+        '] nova garantia do status-service ignorada: uma atualização do hospedeiro retém este hospedeiro.'
     )
     'runner.refresh_trigger_call_failed' = @(
-        'Automatic host-refresh call at '
+        'A chamada automática de atualização do hospedeiro em '
         @{
             'arg' = 'site'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' failed and was skipped: '
+        ' falhou e foi ignorada: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -22441,7 +22316,7 @@
         }
     )
     'runner.runner_process_signal_action' = @(
-        'Signal a verified runner process ('
+        'Enviar sinal a um processo de runner verificado ('
         @{
             'arg' = 'signal'
             'type' = 'identifier'
@@ -22449,8 +22324,8 @@
         }
         ')'
     )
-    'runner.runner_record_remove_action' = 'Remove a runner record proven dead or recycled'
-    'runner.runner_stream_remove_action' = 'Remove an old restarted-runner stream file'
+    'runner.runner_record_remove_action' = 'Remover um registro de runner comprovadamente inativo ou reciclado'
+    'runner.runner_stream_remove_action' = 'Remover um arquivo de fluxo antigo de runner reiniciado'
     'runner.sequence_completed' = @(
         '[Todos os passos '
         @{
@@ -22560,7 +22435,7 @@
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ''' failed (exit '
+        ''' falhou (saída '
         @{
             'arg' = 'exitCode'
             'type' = 'integer'
@@ -22568,26 +22443,26 @@
         }
         ').'
     )
-    'runner.service_census_tick_should_process' = 'Probe the service endpoints and merge the results into the service census'
+    'runner.service_census_tick_should_process' = 'Sondar os endpoints do serviço e mesclar os resultados no censo de serviços'
     'runner.service_census_unreadable' = @(
         @{
             'arg' = 'script'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': the service census at '
+        ': não foi possível ler agora o censo de serviços em '
         @{
             'arg' = 'path'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ' could not be read just now ('
+        ' ('
         @{
             'arg' = 'reason'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); nothing was changed. Retry; if it keeps failing, check the file''s permissions and the disk.'
+        '); nada foi alterado. Tente novamente; se continuar falhando, verifique as permissões do arquivo e o disco.'
     )
     'runner.service_census_unusable' = @(
         @{
@@ -22595,23 +22470,23 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': the service census at '
+        ': não foi possível usar o censo de serviços em '
         @{
             'arg' = 'path'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ' could not be used ('
+        ' ('
         @{
             'arg' = 'reason'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); service start and stop scripts refuse until it is repaired or moved aside. Nothing was changed.'
+        '); os scripts de início e parada de serviço recusam até que seja reparado ou movido. Nada foi alterado.'
     )
-    'runner.service_census_update_should_process' = 'Merge service observations into the service census'
+    'runner.service_census_update_should_process' = 'Mesclar observações de serviço no censo de serviços'
     'runner.service_lockset_should_process' = @(
-        'Take the operation locks of services '
+        'Obter os bloqueios de operação dos serviços '
         @{
             'arg' = 'keys'
             'type' = 'identifier'
@@ -22624,28 +22499,28 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': another start or stop of service '''
+        ': outro início ou parada do serviço '''
         @{
             'arg' = 'key'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ''' still holds its operation lock (newest recorded request: '
+        ''' ainda mantém seu bloqueio de operação (solicitação registrada mais recente: '
         @{
             'arg' = 'detail'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        '). Retry after it finishes; nothing was changed.'
+        '). Tente novamente após a conclusão; nada foi alterado.'
     )
     'runner.service_operation_complete_should_process' = @(
-        'Record the result of the '
+        'Registrar o resultado da operação '
         @{
             'arg' = 'operation'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' of service '''
+        ' do serviço '''
         @{
             'arg' = 'key'
             'type' = 'identifier'
@@ -22659,25 +22534,25 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': the operation lock of service '''
+        ': não foi possível obter o bloqueio de operação do serviço '''
         @{
             'arg' = 'key'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ''' could not be taken ('
+        ''' ('
         @{
             'arg' = 'reason'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); nothing was changed. Check that '
+        '); nada foi alterado. Verifique se '
         @{
             'arg' = 'path'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ' is writable, has free space and belongs to this user, then retry.'
+        ' permite gravação, tem espaço livre e pertence a este usuário; depois tente novamente.'
     )
     'runner.service_operation_refused' = @(
         @{
@@ -22685,25 +22560,25 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': the '
+        ': a operação '
         @{
             'arg' = 'operation'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' of service '''
+        ' do serviço '''
         @{
             'arg' = 'key'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ''' was not started ('
+        ''' não foi iniciada ('
         @{
             'arg' = 'reason'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); nothing was changed.'
+        '); nada foi alterado.'
     )
     'runner.service_operation_result_unrecorded' = @(
         @{
@@ -22711,40 +22586,40 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': the result of the '
+        ': não foi possível registrar o resultado da operação '
         @{
             'arg' = 'operation'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' of service '''
+        ' do serviço '''
         @{
             'arg' = 'key'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ''' could not be recorded ('
+        ''' ('
         @{
             'arg' = 'reason'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); the census keeps the pending request.'
+        '); o censo mantém a solicitação pendente.'
     )
     'runner.service_operation_should_process' = @(
-        'Record the '
+        'Registrar a solicitação de '
         @{
             'arg' = 'operation'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' request for service '''
+        ' do serviço '''
         @{
             'arg' = 'key'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ''' and take its operation lock'
+        ''' e obter o bloqueio da operação'
     )
     'runner.service_operation_superseded' = @(
         @{
@@ -22752,143 +22627,143 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': a newer '
+        ': uma solicitação '
         @{
             'arg' = 'newerOperation'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' request for service '''
+        ' mais recente do serviço '''
         @{
             'arg' = 'key'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ''' was recorded while this '
+        ''' foi registrada durante esta operação '
         @{
             'arg' = 'operation'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' was in progress; the newer request stands.'
+        '; a solicitação mais recente prevalece.'
     )
     'runner.service_poolcontrol_pid_unverified' = @(
-        'The pool-control marker names pid '
+        'O marcador de controle do grupo indica o pid '
         @{
             'arg' = 'pid'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ', but that process could not be verified as the host-side pool-control service ('
+        ', mas não foi possível verificar que esse processo é o serviço de controle do grupo no hospedeiro ('
         @{
             'arg' = 'reason'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); it was left running.'
+        '); ele foi mantido em execução.'
     )
     'runner.service_poolcontrol_stop_incomplete' = @(
-        'Stop-PoolControlServiceVM.ps1: the stop is incomplete; pid '
+        'Stop-PoolControlServiceVM.ps1: a parada está incompleta; o pid '
         @{
             'arg' = 'pid'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' was left running, so the pool-control marker was kept and the stop request stays open. Stop that process by hand, then re-run.'
+        ' foi mantido em execução, portanto o marcador de controle do grupo foi mantido e a solicitação de parada continua aberta. Encerre esse processo manualmente e execute novamente.'
     )
-    'runner.service_restore_deadline_exhausted' = 'the shared deadline ran out before this service was checked'
+    'runner.service_restore_deadline_exhausted' = 'o prazo compartilhado se esgotou antes da verificação deste serviço'
     'runner.service_restore_endpoint_stale' = @(
-        'the guest answers at '
+        'o convidado responde em '
         @{
             'arg' = 'address'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ', but its advertised endpoint still names '
+        ', mas o endpoint anunciado ainda indica '
         @{
             'arg' = 'advertised'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '; the advertisement was not changed'
+        '; o anúncio não foi alterado'
     )
     'runner.service_restore_endpoint_unanswered' = @(
-        'the guest answers at '
+        'o convidado responde em '
         @{
             'arg' = 'address'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '; its advertised endpoint '
+        '; o endpoint anunciado '
         @{
             'arg' = 'advertised'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' did not answer'
+        ' não respondeu'
     )
     'runner.service_restore_health_unverified' = @(
-        'running; :'
+        'em execução; :'
         @{
             'arg' = 'healthPort'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' did not answer at '
+        ' não respondeu em '
         @{
             'arg' = 'address'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' within '
+        ' em '
         @{
             'arg' = 'seconds'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        's'
+        ' s'
     )
     'runner.service_restore_identity_ambiguous' = @(
-        'its deployed identity is ambiguous ('
+        'a identidade implantada é ambígua ('
         @{
             'arg' = 'ambiguity'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); not started'
+        '); não iniciado'
     )
     'runner.service_restore_intended_stopped' = @(
-        'stopped on purpose by an explicit '
+        'parado de propósito por uma solicitação explícita de '
         @{
             'arg' = 'operation'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' request; not started'
+        '; não iniciado'
     )
     'runner.service_restore_intent_unreadable' = @(
-        'its start and stop requests could not be read ('
+        'não foi possível ler as solicitações de início e parada ('
         @{
             'arg' = 'reason'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); not started'
+        '); não iniciado'
     )
     'runner.service_restore_lock_unavailable' = @(
-        'its operation lock under '
+        'não foi possível obter o bloqueio da operação em '
         @{
             'arg' = 'path'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ' could not be taken ('
+        ' ('
         @{
             'arg' = 'reason'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); not started'
+        '); não iniciado'
     )
     'runner.service_restore_lock_unavailable_report' = @(
         @{
@@ -22896,13 +22771,13 @@
             'type' = 'text'
             'trust' = 'internal'
         }
-        ': VM '''
+        ': a VM '''
         @{
             'arg' = 'vmName'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ''' was not started: '
+        ''' não foi iniciada: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -22910,67 +22785,67 @@
         }
         '.'
     )
-    'runner.service_restore_no_address' = 'running, but no address could be resolved; health was not verified'
+    'runner.service_restore_no_address' = 'em execução, mas nenhum endereço pôde ser resolvido; a integridade não foi verificada'
     'runner.service_restore_not_a_guest' = @(
-        'runs as a host process (pid '
+        'executa como processo do hospedeiro (pid '
         @{
             'arg' = 'pid'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '); there is no VM to restore'
+        '); não há VM a restaurar'
     )
-    'runner.service_restore_operation_busy' = 'a start or stop of this service is in progress; not started'
-    'runner.service_restore_operation_unowned' = 'the caller''s operation ownership does not cover this service; not started'
+    'runner.service_restore_operation_busy' = 'um início ou parada deste serviço está em andamento; não iniciado'
+    'runner.service_restore_operation_unowned' = 'a posse da operação do chamador não abrange este serviço; não iniciado'
     'runner.service_restore_state_unknown' = @(
         @{
             'arg' = 'displayName'
             'type' = 'text'
             'trust' = 'internal'
         }
-        ': VM '''
+        ': não foi possível confirmar o estado da VM '''
         @{
             'arg' = 'vmName'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ''' state could not be confirmed ('
+        ''' ('
         @{
             'arg' = 'reason'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); it was neither started nor rebuilt.'
+        '); ela não foi iniciada nem recriada.'
     )
     'runner.service_stop_final_state_unexpected' = @(
-        'VM '''
+        'Estado final da VM '''
         @{
             'arg' = 'vmName'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ''' final state: '
+        ''': '
         @{
             'arg' = 'finalState'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' (expected absent after removal). Inspect it with the host''s tooling, then re-run Stop-CachingProxyServiceVM.ps1.'
+        ' (esperado: ausente após a remoção). Inspecione-a com as ferramentas do hospedeiro e execute Stop-CachingProxyServiceVM.ps1 novamente.'
     )
     'runner.start_cycle_worker_cleanup_failed' = @(
-        'Start-cycle '
+        'Início de ciclo '
         @{
             'arg' = 'operationId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': Remove-TestVMFiles.ps1 ended with exit code '
+        ': Remove-TestVMFiles.ps1 terminou com código de saída '
         @{
             'arg' = 'exitCode'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' (timed out: '
+        ' (tempo esgotado: '
         @{
             'arg' = 'timedOut'
             'type' = 'identifier'
@@ -22978,9 +22853,9 @@
         }
         ').'
     )
-    'runner.start_cycle_worker_clear_action' = 'Clear the pause and lab-hold controls and request a cycle restart'
+    'runner.start_cycle_worker_clear_action' = 'Limpar os controles de pausa e de retenção do laboratório e solicitar a reinicialização do ciclo'
     'runner.start_cycle_worker_completed' = @(
-        'Start-cycle '
+        'Início de ciclo '
         @{
             'arg' = 'operationId'
             'type' = 'identifier'
@@ -22992,7 +22867,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' (runner: '
+        ' (executor: '
         @{
             'arg' = 'action'
             'type' = 'identifier'
@@ -23001,13 +22876,13 @@
         ').'
     )
     'runner.start_cycle_worker_refused' = @(
-        'Start-cycle '
+        'Início de ciclo '
         @{
             'arg' = 'operationId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': nothing was changed ('
+        ': nada foi alterado ('
         @{
             'arg' = 'reason'
             'type' = 'detail'
@@ -23016,22 +22891,22 @@
         ').'
     )
     'runner.start_cycle_worker_runner_unknown' = @(
-        'Start-cycle '
+        'Início de ciclo '
         @{
             'arg' = 'operationId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': the runner''s state is unknown after cleanup, so no runner was started; the cycle restart request was written, so a running runner still restarts its cycle.'
+        ': o estado do executor é desconhecido após a limpeza, então nenhum executor foi iniciado; a solicitação de reinício do ciclo foi gravada, então um executor em execução ainda reinicia o ciclo.'
     )
     'runner.start_cycle_worker_spawn_failed' = @(
-        'Start-cycle '
+        'Início de ciclo '
         @{
             'arg' = 'operationId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': the runner could not be started ('
+        ': não foi possível iniciar o executor ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -23044,7 +22919,7 @@
         'selector' = 'mode'
         'variants' = @{
             'bounded' = @(
-                'Update-StashServiceMarkerEndereço: '''
+                'Update-StashServiceMarkerAddress: '''
                 @{
                     'arg' = 'vmName'
                     'type' = 'detail'
@@ -23071,7 +22946,7 @@
                 's. Publicá-lo não confirmado -- se o link de esconderijo do painel está morto, Esta morada é a razão.'
             )
             'other' = @(
-                'Update-StashServiceMarkerEndereço: '''
+                'Update-StashServiceMarkerAddress: '''
                 @{
                     'arg' = 'vmName'
                     'type' = 'detail'
@@ -23100,14 +22975,14 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' -- esta máquina não irá anunciar uma alteração de endereço na pasta da piscina até ao próximo início do serviço de estado. Detalhes: '
+        ' -- esta máquina não irá anunciar uma alteração de endereço na pasta do grupo até ao próximo início do serviço de estado. Detalhes: '
         @{
             'arg' = 'logPath'
             'type' = 'detail'
             'trust' = 'external'
         }
     )
-    'runner.status_forwarder_sudo_unavailable' = 'Root- downing caching- proxy forwarder detectado e esta execução não é interativa, então não pode ser parada: o sudo não tem autorização ao vivo. Execute ''sudo- v'' e re- execute, ou pare- o manualmente. Continuando sem ela.'
+    'runner.status_forwarder_sudo_unavailable' = 'Foi detectado um encaminhador caching-proxy pertencente ao root. Como esta execução não é interativa, ela não pode pará-lo: sudo não tem uma autorização ativa. Execute ''sudo -v'' e tente novamente ou pare-o manualmente. Prosseguindo sem ele.'
     'runner.status_lan_clients_time_out' = @(
         'http://localhost:'
         @{
@@ -23115,7 +22990,7 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '/status/ works, but LAN clients hitting http://'
+        '/status/ funciona, mas clientes da LAN que acessam http://'
         @{
             'arg' = 'address'
             'type' = 'identifier'
@@ -23127,46 +23002,46 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '/status/ will time out.'
+        '/status/ terão o tempo esgotado.'
     )
     'runner.status_refresh_safe_existing_ready' = @(
-        'Status service PID '
+        'O status service de PID '
         @{
             'arg' = 'processId'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' already answers on port '
+        ' já responde na porta '
         @{
             'arg' = 'port'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '; the refresh-safe start left it running.'
+        '; o início seguro para atualização o manteve em execução.'
     )
     'runner.status_refresh_safe_not_ready' = @(
-        'The status service started as PID '
+        'O status service foi iniciado com PID '
         @{
             'arg' = 'processId'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' but did not answer within '
+        ', mas não respondeu em '
         @{
             'arg' = 'seconds'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' seconds; it was left running.'
+        ' segundos; ele foi mantido em execução.'
     )
     'runner.status_refresh_safe_partial' = @(
-        'Refresh-safe start of the status service on port '
+        'O início seguro para atualização do status service na porta '
         @{
             'arg' = 'port'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' changed nothing: '
+        ' não alterou nada: '
         @{
             'arg' = 'outcome'
             'type' = 'identifier'
@@ -23181,7 +23056,7 @@
         ').'
     )
     'runner.status_refresh_safe_refused' = @(
-        'Start-StatusService.ps1 -RefreshSafe refused: '
+        'Start-StatusService.ps1 -RefreshSafe recusado: '
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -23190,7 +23065,7 @@
         '.'
     )
     'runner.status_refresh_safe_result_unwritable' = @(
-        'The refresh-safe start could not write its result record to '
+        'O início seguro para atualização não pôde gravar seu registro de resultado em '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -23199,19 +23074,19 @@
         '.'
     )
     'runner.status_refresh_safe_started' = @(
-        'Status service started as PID '
+        'O status service foi iniciado com PID '
         @{
             'arg' = 'processId'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' on port '
+        ' na porta '
         @{
             'arg' = 'port'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' (refresh-safe start).'
+        ' (início seguro para atualização).'
     )
     'runner.status_restart_changed_head' = @(
         'Reiniciando o serviço de status (PID '
@@ -23252,9 +23127,9 @@
         }
         '): atual HEAD desconhecido.'
     )
-    'runner.status_worker_directory_prepare_action' = 'Prepare the private worker directory'
-    'runner.status_worker_state_write_action' = 'Publish the worker state record'
-    'runner.transcript_title' = 'Registo do corredor de testes Yuruna'
+    'runner.status_worker_directory_prepare_action' = 'Preparar o diretório privado do worker'
+    'runner.status_worker_state_write_action' = 'Publicar o registro de estado do worker'
+    'runner.transcript_title' = 'Registro do corredor de testes Yuruna'
     'runner.vault_retired_entries' = @(
         'removido '
         @{

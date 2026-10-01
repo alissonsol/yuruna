@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427d5433-30b3-40c0-aa3e-59e31c0c828b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,7 +134,7 @@ if (-not (Test-Path -LiteralPath $localPath)) {
 $runtimeDir  = Initialize-YurunaRuntimeDir
 $ownUuidFile = Join-Path $runtimeDir 'host.uuid'
 if (Test-Path -LiteralPath $ownUuidFile) {
-    $ownUuid = (Get-Content -Raw -LiteralPath $ownUuidFile).Trim()
+    $ownUuid = ([string](Get-Content -Raw -LiteralPath $ownUuidFile)).Trim()
     if ($ownUuid -and ($ownUuid -ieq $HostId) -and -not $Force) {
         Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7385349d84f77b6d' -Arguments @{ shownHostId = "$shownHostId" }) -ErrorAction Continue
         exit $ExitFailure
@@ -203,14 +203,13 @@ if (Test-Path -LiteralPath $legacyRoot) {
 }
 
 # --- REGION: Strip membership from every pool (needs the writable intent store)
-$t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
+$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+$t = $open.Target
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b752ee38cb8d2c81')
+} elseif (-not $open.Ok) {
+    Write-Warning $open.Error
 } else {
-    $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-    if (-not $open.Ok) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7d60c40c2ee69f28' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" })
-    } else {
         $doc          = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
         $changedPools = [System.Collections.Generic.List[string]]::new()
         foreach ($pool in @($doc['pools'])) {
@@ -224,17 +223,10 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
         if ($changedPools.Count -eq 0) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ab09d4d54d248346' -Arguments @{ shownHostId = "$shownHostId" }) -InformationAction Continue
         } elseif ($PSCmdlet.ShouldProcess("pools.yml [$($changedPools -join ', ')]", (Format-YurunaOperatorMessage -Key 'runner.operator_8660cf0175a55371' -Arguments @{ hostId = "$HostId" }))) {
-            $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
-            if (-not $save.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_9c27a25b6843707d' -Arguments @{ error = "$($save.Error)" }) -ErrorAction Continue; exit $ExitFailure }
-            $pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: purge host $HostId from members[]" -Confirm:$false
-            if (-not $pub.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_493d8875345272bb' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue; exit $ExitFailure }
-            if (-not $pub.Pushed) {
-                Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_6374c70e057ee77d' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue
-                exit $ExitFailure
-            }
+            $pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: purge host $HostId from members[]" -Confirm:$false
+            if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
             [void]$removed.Add("pool membership  [$($changedPools -join ', ')]")
         }
-    }
 }
 
 # --- REGION: Evict from the live dashboard view (aggregator forget-host, best-effort)
@@ -268,6 +260,7 @@ try {
         if (Get-Command Read-CachingProxyServiceState -ErrorAction SilentlyContinue) {
             try { $st = Read-CachingProxyServiceState; if ($st -and $st.ipAddress) { $proxyIp = [string]$st.ipAddress } } catch { $null = $_ }
         }
+        if ([string]::IsNullOrWhiteSpace($proxyIp) -and $cfg.vmStart.cachingProxyIp) { $proxyIp = [string]$cfg.vmStart.cachingProxyIp }
         if ([string]::IsNullOrWhiteSpace($proxyIp) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) { $proxyIp = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() }
 
         if ([string]::IsNullOrWhiteSpace($token)) {

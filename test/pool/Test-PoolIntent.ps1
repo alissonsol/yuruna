@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421a5b0c-c7c1-4612-9a9e-d61b0c836775
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,11 +21,14 @@
     Validate every file in the pool intent store against its schema. Read-only.
 .DESCRIPTION
     Pool admin CLI / CI gate. Clones/pulls the intent store and validates
-    pools.yml (schema v2) and guests.compatibility.yml (when present) against
-    test/schemas/*, and enforces the cross-pool invariant that a host belongs to
-    at most one pool. Exit 0 when all valid, 1 on any error. Never writes. Run
-    before relying on freshly-authored intent (the runners pull whatever is
-    committed, so a malformed file would silently misconfigure the whole pool).
+    pools.yml (schema v3) and guests.compatibility.yml (when present) against
+    test/schemas/*, enforces the cross-pool invariant that a host belongs to at
+    most one pool, and checks that the auto-enrollment target pool carries no
+    repositories. pools.yml is judged as stored: a store below schemaVersion 3
+    gets one schema-version finding that names test/pool/Update-PoolIntentSchema.ps1.
+    Exit 0 when all valid, 1 on any error. Never writes. Run before relying on
+    freshly-authored intent (the runners pull whatever is committed, so a
+    malformed file would silently misconfigure the whole pool).
 .EXAMPLE
     test/pool/Test-PoolIntent.ps1 -IntentGitUrl /var/lib/yuruna/pool-intent.git
 #>
@@ -61,13 +64,9 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 Import-Module powershell-yaml -ErrorAction Stop
 
 # --- REGION: Open the intent store
-$t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
-if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') -ErrorAction Continue
-    exit $ExitFailure
-}
-$open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" }) -ErrorAction Continue; exit $ExitFailure }
+$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+$t = $open.Target
+if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Report
 $failures = 0
@@ -76,7 +75,27 @@ $failures = 0
 # pool unconfigured. guests.compatibility.yml is optional
 # (Test-YurunaPoolIntentFile SKIPs it when absent).
 $poolsPath = Join-Path $t.IntentDir 'pools.yml'
-if (-not (Test-YurunaPoolIntentFile -Path $poolsPath -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required)) { $failures++ }
+# The version is read raw, never through Read-YurunaPoolsDoc: that path upgrades
+# in memory, so an outdated store would read as current. An absent
+# schemaVersion reads as 2, the rule ConvertTo-PoolIntentSchemaV3 applies. A
+# file that is missing or will not parse is left to Test-YurunaPoolIntentFile.
+$storedVersion = $null
+if (Test-Path -LiteralPath $poolsPath) {
+    try {
+        $stored = Get-Content -Raw -LiteralPath $poolsPath | ConvertFrom-Yaml -Ordered
+        if ($stored -is [System.Collections.IDictionary]) { $storedVersion = if ($stored.Contains('schemaVersion')) { $stored['schemaVersion'] } else { 2 } }
+    } catch { $storedVersion = $null }
+}
+$storedIsInteger = ($storedVersion -is [int]) -or ($storedVersion -is [long])
+$schemaOutdated  = $storedIsInteger -and ($storedVersion -lt 3)
+$schemaCurrent   = $storedIsInteger -and ($storedVersion -eq 3)
+if ($schemaOutdated) {
+    # One finding that names the fix. Validating an outdated store against the
+    # v3 schema, or checking the v3 target-pool rule on it, would only restate
+    # the same cause as a second failure or pass vacuously.
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.pool_intent_schema_outdated' -Arguments @{ found = "$storedVersion"; expected = 3 })
+    $failures++
+} elseif (-not (Test-YurunaPoolIntentFile -Path $poolsPath -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required)) { $failures++ }
 if (-not (Test-YurunaPoolIntentFile -Path (Join-Path $t.IntentDir 'guests.compatibility.yml') -SchemaName 'guests.compatibility.schema.yml' -Label 'guests.compatibility.yml')) { $failures++ }
 
 # Cross-pool invariant: a host belongs to AT MOST one pool. The schema cannot
@@ -100,21 +119,22 @@ if (Test-Path -LiteralPath $poolsPath) {
         if ($dupes -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_eb9468440861e598') -InformationAction Continue }
         else { $failures += $dupes }
 
-        # The auto-enrollment target pool must carry NO test-set. This is the
-        # AUTHORITATIVE check: the CLI refuses and the UI disables, but only
+        # The auto-enrollment target pool must carry NO repositories. This is
+        # the AUTHORITATIVE check: the CLI refuses and the UI disables, but only
         # this one catches a hand-edited file or a store written by an older
         # release. It is a cross-field constraint (a pool named by ANOTHER
-        # field), which JSON Schema cannot express.
+        # field), which JSON Schema cannot express. It is defined against the
+        # v3 shape, so it runs only on a store at schemaVersion 3.
         #
         # A violation FAILS rather than being silently stripped: stripping it
         # would change what a lab is running without anyone deciding to.
         $targetPoolId = if ($poolsDoc['autoEnrollment']) { [string]$poolsDoc['autoEnrollment']['targetPoolId'] } else { '' }
-        if ($targetPoolId) {
+        if ($schemaCurrent -and $targetPoolId) {
             $violations = 0
             foreach ($p in @($poolsDoc['pools'])) {
                 if ($p -isnot [System.Collections.IDictionary]) { continue }
                 if ([string]$p['poolId'] -ne $targetPoolId) { continue }
-                if ($p['testSet']) {
+                if ($p.Contains('repositories')) {
                     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_331c67920b1a4f01' -Arguments @{ targetPoolId = "$targetPoolId" })
                     $violations++
                 }

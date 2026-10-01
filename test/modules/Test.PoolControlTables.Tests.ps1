@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b9fcf3-37e5-4fd0-a90c-1f76b45c64a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,9 +22,9 @@
     header controls that sort them, and the column count each page's own
     "nothing here" row has to span.
 .DESCRIPTION
-    Four pages (Assign, Hosts, Pools, Test sets) each pair a static <thead>
-    with a script that builds the rows, and the two halves have to agree on
-    facts no runtime error reports:
+    Two pages (Hosts, Pools) each pair a static <thead> with a script that
+    builds the rows, and the two halves have to agree on facts no runtime
+    error reports:
 
       - a header sorts on a KEY, and the row builder has to publish a value
         under that key -- a typo sorts every row as a blank instead, which
@@ -51,12 +51,10 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 
 # One entry per page that carries a sortable table, with the script that builds
 # its rows. Hosts sorts from its own comparator (hardware columns are numbers
-# read from a second endpoint); the other three go through Y.sortTable.
+# read from a second endpoint); Pools goes through Y.sortTable.
 $script:tables = @(
-    @{ Page = 'Assign'; Html = 'index.html'; Script = 'assets/index.js' }
     @{ Page = 'Hosts'; Html = 'hosts.html'; Script = 'assets/hosts.js' }
     @{ Page = 'Pools'; Html = 'pools.html'; Script = 'assets/pools.js' }
-    @{ Page = 'Test sets'; Html = 'test-sets.html'; Script = 'assets/test-sets.js' }
 ) | ForEach-Object {
     $html = Get-Content -Raw -LiteralPath (Join-Path $web $_.Html)
     $heads = [regex]::Matches($html, '(?s)<thead>(.*?)</thead>')
@@ -77,7 +75,7 @@ $script:common = (Get-Content -Raw -LiteralPath (Join-Path $repo 'test/extension
 Describe 'pool-control tables: sortable headers and a row counter' {
 
     It 'finds one table per page to check' {
-        Assert-Equal -Expected 4 -Actual $script:tables.Count 'the page list did not load'
+        Assert-Equal -Expected 2 -Actual $script:tables.Count 'the page list did not load'
         $findings = @()
         foreach ($t in $script:tables) {
             if ($t.Heads.Count -ne 1) { $findings += "$($t.Page): $($t.Heads.Count) <thead> blocks, expected exactly 1" }

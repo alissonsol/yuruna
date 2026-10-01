@@ -26,6 +26,7 @@ properties:
         - inputText
         - inputTextAndEnter
         - loadDiskSnapshot
+        - recoverFromSnapshot
         - networkRelease
         - passwdPrompt
         - pressKey
@@ -35,12 +36,14 @@ properties:
         - sshExec
         - sshFetchAndExecute
         - sshWaitReady
+        - startVm
         - takeScreenshot
         - tapOn
         - typeAndEnter
         - waitForAndEnter
         - waitForSeconds
         - waitForText
+        - waitForTextWithNudge
     additionalProperties:
       type: string
       minLength: 1

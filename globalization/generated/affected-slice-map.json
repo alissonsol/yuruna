@@ -359,6 +359,9 @@
         "code:host_refresh.unqualified:producer:test/modules/Test.HostRefreshAuth.psm1",
         "code:host_refresh.unqualified:producer:test/modules/Test.StatusControlRoute.psm1",
         "code:host_refresh.unqualified:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.unsupported_field:producer:test/extension/extension-sdk/strictjson/strings.go",
+        "code:host_refresh.unsupported_field:producer:test/extension/pool-control-service/server/internal/httpsrv/hostrefresh.go",
+        "code:host_refresh.unsupported_field:producer:test/extension/pool-control-service/server/internal/httpsrv/mcp.go",
         "code:host_refresh.unsupported_field:producer:test/modules/Test.StatusControlRoute.psm1",
         "code:host_refresh.unsupported_host:producer:test/modules/Test.HostRefresh.psm1",
         "code:host_refresh.unsupported_host:producer:test/service/Start-StatusService.ps1",
@@ -1469,7 +1472,7 @@
       "path": "test/extension/pool-aggregator-service/main.go",
       "code": "aggregator.unauthorized",
       "role": "producer",
-      "matchCount": 2
+      "matchCount": 1
     },
     {
       "id": "code:aggregator.unknown_or_expired_lab_token:producer:test/extension/pool-aggregator-service/main.go",
@@ -3578,6 +3581,33 @@
       "matchCount": 3
     },
     {
+      "id": "code:host_refresh.unsupported_field:producer:test/extension/extension-sdk/strictjson/strings.go",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/strictjson/strings.go",
+      "code": "host_refresh.unsupported_field",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.unsupported_field:producer:test/extension/pool-control-service/server/internal/httpsrv/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/hostrefresh.go",
+      "code": "host_refresh.unsupported_field",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.unsupported_field:producer:test/extension/pool-control-service/server/internal/httpsrv/mcp.go",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/mcp.go",
+      "code": "host_refresh.unsupported_field",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
       "id": "code:host_refresh.unsupported_field:producer:test/modules/Test.StatusControlRoute.psm1",
       "finding": "catalog-boundaries-host-refresh",
       "source": "code-registry",
@@ -4430,7 +4460,7 @@
       "path": "test/service/Start-StatusService.ps1",
       "code": "status.api_write_failed_detail_c07681e1",
       "role": "producer",
-      "matchCount": 3
+      "matchCount": 4
     },
     {
       "id": "code:status.api_yaml_parse_failed_detail_363d5cf4:producer:test/service/Start-StatusService.ps1",
@@ -4886,6 +4916,12 @@
     },
     {
       "wireCode": "host_refresh.failed",
+      "path": "automation/Yuruna.Common.psm1",
+      "matchCount": 3,
+      "reason": "Virtualization-service action and native-process outcomes; not host-refresh worker verdicts."
+    },
+    {
+      "wireCode": "host_refresh.failed",
       "path": "host/macos.utm/guest.windows.11/Get-Image.ps1",
       "matchCount": 1,
       "reason": "Download-agent fetch outcome for the Windows image; not a host-refresh verdict."
@@ -4911,7 +4947,7 @@
     {
       "wireCode": "host_refresh.failed",
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "matchCount": 10,
+      "matchCount": 9,
       "reason": "KVM driver virtualization start-action result and systemd unit state; the refresh module folds driver results into its own rung outcomes, so this is not a host-refresh verdict."
     },
     {
@@ -4923,7 +4959,7 @@
     {
       "wireCode": "host_refresh.failed",
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "matchCount": 4,
+      "matchCount": 3,
       "reason": "Hyper-V driver virtualization start-action result; the refresh module folds driver results into its own rung outcomes, so this is not a host-refresh verdict."
     },
     {
@@ -5090,21 +5126,9 @@
     },
     {
       "wireCode": "host_refresh.failed",
-      "path": "test/service/Stop-DownloadAgentServiceVM.ps1",
+      "path": "test/service/Stop-ExtensionService.ps1",
       "matchCount": 1,
-      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
-    },
-    {
-      "wireCode": "host_refresh.failed",
-      "path": "test/service/Stop-PoolControlServiceVM.ps1",
-      "matchCount": 1,
-      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
-    },
-    {
-      "wireCode": "host_refresh.failed",
-      "path": "test/service/Stop-StashServiceVM.ps1",
-      "matchCount": 1,
-      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+      "reason": "Service-operation completion after a failed VM or process stop; not a host-refresh worker verdict."
     },
     {
       "wireCode": "host_refresh.failed",
@@ -5157,7 +5181,7 @@
     {
       "wireCode": "host_refresh.idle",
       "path": "test/status/yuruna.common.js",
-      "matchCount": 7,
+      "matchCount": 6,
       "reason": "Runner status class and banner state; the Config page reads no host-refresh state other than recovery_pending."
     },
     {
@@ -5247,7 +5271,7 @@
     {
       "wireCode": "host_refresh.missing",
       "path": "test/modules/Test.SequenceHandler.psm1",
-      "matchCount": 2,
+      "matchCount": 1,
       "reason": "Sequence check status, diagnostic outcome and failure-class fallbacks; not a host-refresh value."
     },
     {
@@ -5403,7 +5427,7 @@
     {
       "wireCode": "host_refresh.refused",
       "path": "automation/Yuruna.Common.psm1",
-      "matchCount": 3,
+      "matchCount": 7,
       "reason": "TCP connect outcome (reachable, refused, timeout); not a host-refresh state or verdict."
     },
     {
@@ -5459,12 +5483,6 @@
       "path": "test/modules/Test.RunnerInnerLoop.psm1",
       "matchCount": 1,
       "reason": "Caching-proxy TCP connect outcome; not a host-refresh state or verdict."
-    },
-    {
-      "wireCode": "host_refresh.refused",
-      "path": "test/modules/Test.ServiceCensus.psm1",
-      "matchCount": 2,
-      "reason": "Service census lock mapping, operation intent result, desired service state or hosting mode; the census never reads or writes a host-refresh record."
     },
     {
       "wireCode": "host_refresh.refused",
@@ -5619,19 +5637,19 @@
     {
       "wireCode": "host_refresh.running",
       "path": "test/service/Start-DownloadAgentServiceVM.ps1",
-      "matchCount": 2,
+      "matchCount": 1,
       "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.running",
       "path": "test/service/Start-PoolControlServiceVM.ps1",
-      "matchCount": 2,
+      "matchCount": 1,
       "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.running",
       "path": "test/service/Start-StashServiceVM.ps1",
-      "matchCount": 2,
+      "matchCount": 1,
       "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
     },
     {
@@ -5672,6 +5690,12 @@
     },
     {
       "wireCode": "host_refresh.unavailable",
+      "path": "automation/Yuruna.Common.psm1",
+      "matchCount": 1,
+      "reason": "Process identity liveness when the local process cannot be measured; not the host-refresh capability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
       "path": "globalization/kernel/yuruna.first-usable.js",
       "matchCount": 2,
       "reason": "Clock-source label when no monotonic clock exists; not the host-refresh availability."
@@ -5697,7 +5721,7 @@
     {
       "wireCode": "host_refresh.unavailable",
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "matchCount": 5,
+      "matchCount": 4,
       "reason": "Guest display verdict and virtualization start-action result of the Hyper-V driver; not the host-refresh availability."
     },
     {
@@ -5799,7 +5823,7 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "automation/Yuruna.Common.psm1",
-      "matchCount": 7,
+      "matchCount": 14,
       "reason": "On-link, segment and address-in-use verdicts for an address that could not be classified; not the host-refresh state."
     },
     {
@@ -5841,7 +5865,7 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "matchCount": 36,
+      "matchCount": 37,
       "reason": "libvirt domain, process and unit states that could not be read; not the host-refresh state."
     },
     {
@@ -6009,13 +6033,13 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.HostRefreshIntent.psm1",
-      "matchCount": 16,
+      "matchCount": 12,
       "reason": "Process liveness, spawn-gate state and runner readiness; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.HostRefreshTrigger.psm1",
-      "matchCount": 12,
+      "matchCount": 9,
       "reason": "Process liveness, pool desired-state and token fallbacks; not the host-refresh state."
     },
     {
@@ -6117,7 +6141,7 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.ServiceVm.psm1",
-      "matchCount": 12,
+      "matchCount": 13,
       "reason": "Service VM lock reason, virtual machine state and hosting-mode fallback; not a host-refresh value."
     },
     {
@@ -6152,45 +6176,15 @@
     },
     {
       "wireCode": "host_refresh.unknown",
-      "path": "test/service/Start-DownloadAgentServiceVM.ps1",
-      "matchCount": 1,
-      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
-    },
-    {
-      "wireCode": "host_refresh.unknown",
-      "path": "test/service/Start-PoolControlServiceVM.ps1",
-      "matchCount": 1,
-      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
-    },
-    {
-      "wireCode": "host_refresh.unknown",
-      "path": "test/service/Start-StashServiceVM.ps1",
-      "matchCount": 1,
-      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
-    },
-    {
-      "wireCode": "host_refresh.unknown",
       "path": "test/service/Stop-CachingProxyServiceVM.ps1",
       "matchCount": 2,
       "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.unknown",
-      "path": "test/service/Stop-DownloadAgentServiceVM.ps1",
+      "path": "test/service/Stop-ExtensionService.ps1",
       "matchCount": 1,
-      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
-    },
-    {
-      "wireCode": "host_refresh.unknown",
-      "path": "test/service/Stop-PoolControlServiceVM.ps1",
-      "matchCount": 1,
-      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
-    },
-    {
-      "wireCode": "host_refresh.unknown",
-      "path": "test/service/Stop-StashServiceVM.ps1",
-      "matchCount": 1,
-      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+      "reason": "Final VM or process state when a stop cannot be confirmed; not host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -6203,6 +6197,12 @@
       "path": "test/Test-Config.ps1",
       "matchCount": 1,
       "reason": "macOS TCC grant state in the configuration report; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "tools/tests/low_helpers.ps1",
+      "matchCount": 1,
+      "reason": "Fixture exception text for an unclassified HTTP error; not host-refresh state."
     },
     {
       "wireCode": "repository_access.denied",
@@ -6221,6 +6221,12 @@
       "path": "tools/Export-GeneratedPages.ps1",
       "matchCount": 2,
       "reason": "The exporter writes deterministic reference-page fixture data and does not consume a live repository-access boundary."
+    },
+    {
+      "wireCode": "repository_access.denied",
+      "path": "tools/tests/stop_process_contracts.ps1",
+      "matchCount": 1,
+      "reason": "Fixture process lookup that is denied access; not a repository-access verdict."
     },
     {
       "wireCode": "repository_access.readable",
@@ -6259,7 +6265,7 @@
     "openBlockerCount": 0,
     "displayOnlyCount": 10,
     "catalogBoundaryCount": 11,
-    "consumerCount": 405,
-    "literalExclusionCount": 252
+    "consumerCount": 408,
+    "literalExclusionCount": 248
   }
 }

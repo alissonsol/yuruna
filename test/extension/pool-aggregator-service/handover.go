@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -192,10 +191,7 @@ func (s *poolState) handleHandoverHost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "host handover is not configured", http.StatusServiceUnavailable)
 		return
 	}
-	const bearer = "Bearer "
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, bearer) || subtle.ConstantTimeCompare([]byte(auth[len(bearer):]), []byte(s.authToken)) != 1 {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if !s.requireInternalBearer(w, r) {
 		return
 	}
 	var body struct {
@@ -231,16 +227,10 @@ func (s *poolState) handleHandoverHost(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, `{"ok":true,"oldHostId":%q,"newHostId":%q}`, body.OldHostID, body.NewHostID)
 }
 
-// handleHostAliases lets clients query all historical IDs that now belong to
-// one current host. Raw Loki records and archive links remain addressable.
-func (s *poolState) handleHostAliases(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("hostId")
-	if !validForgetHostID(id) {
-		http.Error(w, "hostId must be a 42-prefixed host ID", http.StatusBadRequest)
-		return
-	}
-	id = strings.ToLower(id)
+// hostAliasIDs returns the canonical identity and sorted historical IDs.
+func (s *poolState) hostAliasIDs(id string) (string, []string) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	canonical := canonicalHostID(s.handovers, id)
 	ids := []string{canonical}
 	for old := range s.handovers {
@@ -248,8 +238,20 @@ func (s *poolState) handleHostAliases(w http.ResponseWriter, r *http.Request) {
 			ids = append(ids, old)
 		}
 	}
-	s.mu.Unlock()
 	sort.Strings(ids)
+	return canonical, ids
+}
+
+// handleHostAliases lets clients query historical IDs belonging to one current
+// host so raw Loki records and archive links remain addressable.
+func (s *poolState) handleHostAliases(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("hostId")
+	if !validForgetHostID(id) {
+		http.Error(w, "hostId must be a 42-prefixed host ID", http.StatusBadRequest)
+		return
+	}
+	id = strings.ToLower(id)
+	canonical, ids := s.hostAliasIDs(id)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(struct {
@@ -265,10 +267,7 @@ func (s *poolState) handleHostHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "history access is not configured", http.StatusServiceUnavailable)
 		return
 	}
-	const bearer = "Bearer "
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, bearer) || subtle.ConstantTimeCompare([]byte(auth[len(bearer):]), []byte(s.authToken)) != 1 {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if !s.requireInternalBearer(w, r) {
 		return
 	}
 	id, window := r.URL.Query().Get("hostId"), r.URL.Query().Get("range")
@@ -284,16 +283,7 @@ func (s *poolState) handleHostHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Loki is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	s.mu.Lock()
-	canonical := canonicalHostID(s.handovers, id)
-	ids := []string{canonical}
-	for old := range s.handovers {
-		if canonicalHostID(s.handovers, old) == canonical {
-			ids = append(ids, old)
-		}
-	}
-	s.mu.Unlock()
-	sort.Strings(ids)
+	canonical, ids := s.hostAliasIDs(id)
 	// time.ParseDuration does not recognize days, although 7d and 30d are
 	// supported by the pool statistics API and exposed to operators here.
 	durations := map[string]time.Duration{

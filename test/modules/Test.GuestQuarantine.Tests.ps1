@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42aadd98-3c26-4f0c-9a81-eaa6c787aaa2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,8 +23,7 @@
     pure skip/release decision, the schema-valid guest_quarantined event, the
     state-file round-trip, and the read->decide->apply->emit orchestration.
 .DESCRIPTION
-    Assertions are throw-based inside It blocks so the file runs under the
-    OS-bundled Pester 3.4 (no Install-Module needed) and under Pester 5+.
+    Assertions are throw-based inside It blocks so the file runs under Pester 5+.
     Test.EventSchema is imported (it auto-loads Test.FailureTaxonomy) so the
     event builder can be validated against the real schema; the guest_quarantined
     emit path is exercised through a global Send-CycleEventSafely stub.

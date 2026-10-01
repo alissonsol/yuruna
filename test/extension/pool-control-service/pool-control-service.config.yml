@@ -19,5 +19,6 @@ service:
   markerBaseUrlKey: poolControlServiceBaseUrl
   beaconInterval: 2m
   # Everything this service mutates IS pool configuration: which pools exist,
-  # which hosts belong to them, which test set each one runs.
+  # which hosts belong to them, which framework and project repositories each
+  # one runs.
   writeGate: lab-token

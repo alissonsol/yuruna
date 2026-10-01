@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b8e14c-5d27-4a93-8c60-71fe2a0db339
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -113,6 +113,41 @@ Describe 'the tracked suite baseline protects what actually runs' {
         $run = Invoke-BaselineGate -BaselinePath $fixture
         Assert-Equal -Expected 1 -Actual $run.Code -Because $run.Output
         Assert-Match 'per-suite entries sum to' $run.Output 'the gate must show both numbers'
+    }
+
+    It 'fails on a hand-edited <Kind>, and names the suite and the field' -TestCases @(
+        @{ Kind = 'platform floor for an unknown platform'; Field = @{ platformTotal = @{ solaris = 1 } }; Finding = "names an unknown platform 'solaris'" }
+        @{ Kind = 'platform floor of zero'; Field = @{ platformTotal = @{ macos = 0 } }; Finding = 'platformTotal.macos is not a positive whole number' }
+        @{ Kind = 'platform floor given as text'; Field = @{ platformTotal = @{ macos = '6' } }; Finding = 'platformTotal.macos is not a positive whole number' }
+        @{ Kind = 'platform floor that is not an object'; Field = @{ platformTotal = 6 }; Finding = 'platformTotal is not an object' }
+        @{ Kind = 'suite timeout given as text'; Field = @{ timeoutSeconds = 'soon' }; Finding = 'timeoutSeconds is not a positive whole number' }
+        @{ Kind = 'suite timeout of zero'; Field = @{ timeoutSeconds = 0 }; Finding = 'timeoutSeconds is not a positive whole number' }
+    ) {
+        param($Kind, $Field, $Finding)
+        Assert-True ($Field.Count -gt 0) 'each case must edit at least one field'
+        # A row the runner reads on every run: a malformed optional field must fail here, in CI.
+        $suite = 'test/modules/Test.StatusFirewall.Tests.ps1'
+        $fixture = New-BaselineFixture -Edit {
+            param($r)
+            foreach ($name in $Field.Keys) { $r.suites[$suite][$name] = $Field[$name] }
+            return $r
+        }
+        $run = Invoke-BaselineGate -BaselinePath $fixture
+        Assert-Equal -Expected 1 -Actual $run.Code -Because "$Kind`n$($run.Output)"
+        Assert-Match ([regex]::Escape($suite)) $run.Output 'the finding must name the suite'
+        Assert-Match ([regex]::Escape($Finding)) $run.Output "the finding must say what is wrong with the $Kind"
+    }
+
+    It 'takes a well-formed platform floor and suite timeout without a finding' {
+        $suite = 'test/modules/Test.StatusFirewall.Tests.ps1'
+        $fixture = New-BaselineFixture -Edit {
+            param($r)
+            $r.suites[$suite].platformTotal = @{ macos = 6; windows = 11 }
+            $r.suites[$suite].timeoutSeconds = 600
+            return $r
+        }
+        $run = Invoke-BaselineGate -BaselinePath $fixture
+        Assert-True ($run.Output -notmatch 'platformTotal|timeoutSeconds') "no finding is expected about a well-formed field: $($run.Output)"
     }
 
     It 'refuses a baseline recorded over a failing run' {

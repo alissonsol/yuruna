@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.27
+  Version: 2026.09.30
   --- REGION: https://yuruna.link/42fa6f45-0018
   --- REGION: https://yuruna.link/42fa6f45-001d
   --- REGION: https://yuruna.link/42fa6f45-0019
@@ -235,7 +235,7 @@ header.app {
   padding: .55rem 1rem;
   padding: .55rem max(1rem, env(safe-area-inset-right)) .55rem max(1rem, env(safe-area-inset-left));
 }
-/* Space flex children with margins, not `gap` (flex gap is Safari/iOS 14.5+ only). */
+/* Keep the first header item flush with the edge while spacing later items. */
 header.app > * + * { margin-left: 1rem; }
 /* Service name with its version stacked underneath, so the two read as one
    identity block rather than two unrelated header items. */
@@ -330,8 +330,7 @@ textarea#footer-ip-list {
   scrollbar-width: none;
 }
 textarea#footer-ip-list::-webkit-scrollbar { display: none; }
-/* body class (not :has()) so the fixed-footer clearance works on Firefox and
-   iOS Safari < 15.4, which predate :has(). */
+/* The page class makes the fixed-footer clearance explicit on pages that need it. */
 body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
 
 /* The in-flow footer of a page with no data feed of its own (create, detail).
@@ -357,19 +356,22 @@ footer.app a { color: var(--chrome-muted); }
 @media (max-width: 600px) {
   .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); font-size: 16px; }
   .menu-button .menu-label { display: none; }
-  .menu-panel a { padding: .65rem .6rem; }
+  .menu-panel a { min-height: var(--touch-min); padding: .65rem .6rem; line-height: 1.7; }
+  #footer-bar .linkish { display: inline-flex; align-items: center; justify-content: center; min-height: var(--touch-min); min-width: var(--touch-min); }
   header.app .btn { padding: .4rem .6rem; font-size: .85rem; }
   #footer-bar {
     padding-left: .5rem; padding-left: max(.5rem, env(safe-area-inset-left));
     padding-right: .5rem; padding-right: max(.5rem, env(safe-area-inset-right));
     flex-wrap: wrap;
   }
-  /* #footer-ips claims its own row here, so the bar is two rows tall and the
-     3rem single-row reserve above no longer clears it -- the last rows of a
-     table and the "Load more" button end up under the fixed bar. Only bites
-     where the home-indicator inset adds to the bar height. */
+  /* The IP field claims its own row. Reserve space for the touch-height
+     controls below it so a fixed footer cannot cover the last table row. */
   #footer-ips { flex-basis: 100%; max-width: 100%; }
-  body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
+  body.has-footer-bar main { padding-bottom: 6.5rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); }
+}
+@media (pointer: coarse) {
+  .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); }
+  .menu-panel a { min-height: var(--touch-min); line-height: 1.7; }
 }
 /* Footer controls that read as text. Both are real <button>s: the refresh was
    an <a href="#"> that never navigated -- announced as a link, behaving as a
@@ -385,17 +387,12 @@ footer.app a { color: var(--chrome-muted); }
 /* --------------------------------------------------------------------------
    The right-to-left mirror for the chrome above.
 
-   The chrome states each physical side and restates it here for the
-   direction the page actually has. Logical properties would say it once, and
-   the Safari 16 floor has them, but the block is compared byte for byte
-   across the stylesheets that carry it, so switching it means changing every
-   copy at once. Only the sides are mirrored: sizes, colors and the tick glyph
-   are the same in both directions.
+   The safe-area insets are physical, so the chrome states each side for the
+   page's reading direction. Only the sides are mirrored: sizes, colors and
+   the tick glyph are the same in both directions.
 
-   These rules live inside the chrome block because the chrome is shared. Every
-   stylesheet carrying the block carries them byte for byte, which the chrome
-   identity test enforces -- a mirror in one service and not another is how the
-   same header comes out mirrored on one page and not the next.
+   These rules live in the shared chrome block so every service presents the
+   same header direction.
    -------------------------------------------------------------------------- */
 [dir="rtl"] header.app > * + * { margin-left: 0; margin-right: 1rem; }
 [dir="rtl"] .menu-button .menu-icon + .menu-label { margin-left: 0; margin-right: .4rem; }
@@ -407,11 +404,13 @@ footer.app a { color: var(--chrome-muted); }
    the physical left still needs the physical left inset, but the padding that
    opens the row's reading edge moves to the other side. Plain value first, as
    every env()/max() declaration here does, so the floor keeps the fallback. */
+@media (max-width: 600px) {
 [dir="rtl"] #footer-bar {
   padding-left: .5rem;
   padding-left: max(.5rem, env(safe-area-inset-left));
   padding-right: .5rem;
   padding-right: max(.5rem, env(safe-area-inset-right));
+}
 }
 
 /* === end page chrome ====================================================== */
@@ -517,8 +516,8 @@ button {
      - tables are wrapped in .table-wrap (overflow-x: auto) by each
        page; the floor below keeps the table itself responsive when no
        wrapper is in place.
-   Grid layout for guest cards is opt-in via @supports so iOS 9 Safari
-   (which lacks grid) falls back to the original block flow. */
+   Guest cards keep block flow as the readable base layout; the grid rule
+   below gives the supported browsers explicit tracks. */
 @media (max-width: 600px) {
   main {
     max-width: 100% !important;
@@ -532,13 +531,8 @@ button {
   #banner { flex-wrap: wrap; }
 }
 
-/* Responsive sequence/guest-card grid. iOS 9 Safari lacks grid; without the
-   @supports guard the block-flow fallback (one card per row) kicks in
-   automatically. The legacy grid-row-gap longhand (NOT the shorthand
-   `gap:`) covers Safari 10.1-11.x, which have grid but lack the unified
-   row-gap. The list
-   holds .sequence-card in the per-sequence view and bare .guest-card in the
-   flat fallback, so both are reset here. */
+/* The grid lists .sequence-card in the per-sequence view and bare .guest-card
+   in the flat view, so both kinds need the same narrow-screen track rule. */
 @supports (display: grid) {
   #sequence-list {
     display: grid;

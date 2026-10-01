@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 423d0049-66c7-0030-82c2-71d35a16ab27
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
     'aggregator.help_display_language' = 'שפת תצוגה: auto או הגדרת אזור נתמכת'
     'aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083' = 'מספר המארחים השונים שחייבים להיכשל בתוך -cross-host-window כדי לפתוח אירוע תקלה בכלל המאגר'
     'aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1' = 'הסירו מארח מתצוגת המאגר לאחר שחלף פרק זמן זה מאז הקשר האחרון; מצב מניעת הכפילויות שלו לכל מחזור נשמר שעה נוספת כדי שמארח שמופיע מחדש לא ייספר פעמיים, וקישורים עמוקים ללוח הבקרה ממשיכים לפעול במשך לפחות 24h בכל מקרה. מוני pass⁦/fail⁩ המצטברים אינם מתאפסים בעקבות זאת -- השתמשו בפקודה POST ⁦/api/v1/forget-host⁩'
-    'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = 'קובץ המכיל את אסימון האימות המשותף הנדרש עבור POST ⁦/ingest⁩; במצב empty⁦/absent/empty-file⁩ -> הנתיב ⁦/ingest⁩ מושבת (לעולם אינו נתיב כתיבה ללא אימות)'
+    'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = 'קובץ המכיל את אסימון ה-Bearer המשותף הנדרש עבור ⁦POST /ingest⁩, ⁦POST /api/v1/forget-host⁩, ⁦POST /api/v1/handover-host⁩ ו-⁦GET /api/v1/host-history⁩; אם הנתיב ריק, הקובץ חסר או הקובץ ריק, פעולות אלה מושבתות (אין נתיב בקרה ללא אימות)'
     'aggregator.help_loki_push_api_url_c89d9321' = 'כתובת URL של ממשק הדחיפה של Loki'
     'aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f' = 'בעת ההפעלה, שחזרו את ספירות המחזורים מתוך Loki עבור חלון זמן זה לאחור (0 להשבתה)'
     'aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc' = 'פתחו אירוע תקלה לאחר מספר זה של מחזורים שנכשלו בתוך -incident-window'

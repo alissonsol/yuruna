@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42dda1b3-cdbb-4dbc-89d4-7c6e5d485304
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,10 +38,15 @@ function Resolve-LocaleSupportFile {
     param([string]$Root, [string]$Relative)
     if ([string]::IsNullOrWhiteSpace($Relative) -or $Relative -match '(^[\\/]|\\|(^|/)\.\.(/|$)|:)') { throw 'Locale support input requires a confined relative path.' }
     $path = Join-Path $Root $Relative
+    if (-not $script:VerifiedLocaleAncestors) { $script:VerifiedLocaleAncestors = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal) }
     $cursor = [IO.Path]::GetFullPath($path)
+    $isLeaf = $true
     while ($cursor) {
+        if (-not $isLeaf -and $script:VerifiedLocaleAncestors.Contains($cursor)) { break }
         $entry = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
         if ($entry -and ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Linked locale support input: $path" }
+        if (-not $isLeaf -and $entry) { [void]$script:VerifiedLocaleAncestors.Add($cursor) }
+        $isLeaf = $false
         $cursor = Split-Path -Parent $cursor
     }
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing locale support input: $Relative" }
@@ -127,7 +132,7 @@ function Assert-LocaleSupportCandidate {
         Assert-LocaleSupportTree -Root $Root -Expected $FrameworkTreeHash
         Assert-LocaleSupportTree -Root $ProjectRoot -Expected $ProjectTreeHash
     }
-    return @{ supported = @($manifest.locales.Keys | Where-Object { $manifest.locales[$_].status -ceq 'supported' } | Sort-Object)
+    return [ordered]@{ supported = @($manifest.locales.Keys | Where-Object { $manifest.locales[$_].status -ceq 'supported' } | Sort-Object)
         localeManifestSha256 = $manifestHash; catalogSetSha256 = (Get-FileHash $setPath -Algorithm SHA256).Hash.ToLowerInvariant()
         frameworkTree = $FrameworkTreeHash; projectTree = $ProjectTreeHash }
 }

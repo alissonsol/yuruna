@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,12 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 $commonModulePath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
 
+$hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
+if ($hostCores -lt 4) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
+    exit 1
+}
+
 Write-Verbose "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_73905e18abf967cb')
@@ -94,28 +100,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 # --- REGION: Remove existing VM
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
-$existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-if ($existingVM) {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" })
-    Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    try {
-        Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
-    } catch {
-        # A half-removed VM (locked vhdx, permission, etc.) would trip
-        # the next New-VM call with "already exists" and the outer loop
-        # has no signal to recover. Dump live Hyper-V state so the
-        # operator can clean orphan disks before retrying.
-        $diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
-            Format-List Name, State, Status, Generation, Path | Out-String
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1c714189825ec0e2' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)"; diag = "$diag" })
-    }
-    # Hyper-V can return Remove-VM success while leaving a ghost entry;
-    # a second Get-VM is the only reliable post-condition.
-    if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_634b857addaa8df5' -Arguments @{ vMName = "$VMName" })
-    }
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_86f314067f7955de' -Arguments @{ vMName = "$VMName" })
-}
+Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
@@ -182,22 +167,7 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42'
 
 # --- REGION: https://yuruna.link/42e220c4-0004
 # Select the switch before resolving the host address reachable through it.
-$switchName = Get-OrCreateYurunaExternalSwitch
-if (-not $switchName) {
-    $switchName = 'Default Switch'
-    if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
-        # --- REGION: https://yuruna.link/42e220c4-0004
-        # Verify the fallback exists; prefer non-External switches when bridging is unavailable.
-        $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
-            Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
-            Select-Object -First 1
-        if ($substituteSwitch) {
-            $switchName = $substituteSwitch.Name
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_38edbb4cc8da6eb6' -Arguments @{ switchName = "$switchName" })
-        }
-    }
-    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_6ec7fa5a08a2eb27' -Arguments @{ switchName = "$switchName" })
-}
+$switchName = Resolve-HyperVGuestSwitch
 
 # Yuruna host (status service) IP+port baked into the seed for the dev
 # iteration loop. Guest scripts read /etc/yuruna/host.env (written by
@@ -247,11 +217,6 @@ Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 # --- REGION: https://yuruna.link/42fa6f45-0015
-$hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
-if ($hostCores -lt 4) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
-    exit 1
-}
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 

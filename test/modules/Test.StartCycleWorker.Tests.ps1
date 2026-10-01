@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42de8e40-1c77-40c0-96f2-3a5e144992e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -161,9 +161,11 @@ function Invoke-StartCycleWorker {
         [int]$CleanupTimeoutSeconds = 120
     )
     $saved = @{}
-    foreach ($name in @('HOME', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_TEST_STUB_DIR')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    foreach ($name in @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_TEST_STUB_DIR')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
     try {
+        # Windows derives the home directory from USERPROFILE, not HOME.
         $env:HOME = $Scratch.Home
+        $env:USERPROFILE = $Scratch.Home
         $env:YURUNA_RUNTIME_DIR = $Scratch.Runtime
         $env:YURUNA_LOG_DIR = $Scratch.Log
         $env:YURUNA_TEST_STUB_DIR = $Scratch.Stub

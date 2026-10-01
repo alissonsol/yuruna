@@ -103,6 +103,10 @@ func (s *Server) reconcile() {
 			continue
 		}
 		for _, rec := range group {
+			if pruned >= maxReconcilePerPass {
+				log.Printf("reconcile: stopped at the %d-row cap; the next pass continues", maxReconcilePerPass)
+				return
+			}
 			if stashFilesPresent(entries, rec.ID) {
 				continue
 			}

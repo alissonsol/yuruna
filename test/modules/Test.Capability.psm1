@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a4a080-e1cd-4a2a-98ba-ffdbe804c002
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -226,11 +226,8 @@ function Add-SequenceActionFromStep {
     # after a retry power-cycles a VM, so every reachable verb counts toward
     # capability preflight even when the recovery path is cold.
     #
-    # $Verbs is NOT marked Mandatory: an empty HashSet trips the
-    # parameter binder's "Cannot bind argument because it is an empty
-    # collection" check (pwsh treats any non-null IEnumerable that
-    # yields zero items as "no value"). The caller always supplies a
-    # set; missing here would throw on first .Add().
+    # $Verbs is not Mandatory because an empty HashSet trips the binder's
+    # empty-collection check. Missing or empty input exits before .Add().
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
         '', Justification = 'Mutates the caller-supplied HashSet only; no externally observable state.')]
@@ -434,7 +431,7 @@ function Write-HostRegistrationRecord {
         # pool.state.json (null when the pool authored none). Forwarded verbatim so the
         # aggregator parses the thresholds; a null/absent gating tells it to observe the
         # pool's gauges but never page it.
-        # poolGuid: the pool's stable 42-GUID (the dashboard "Pool ID"), carried
+        # poolGuid: the pool's stable 42-GUID, carried
         # alongside poolId in pool.state.json. Advertised so the aggregator can
         # label host_info with it. null when unpooled.
         $poolId   = $null
@@ -491,27 +488,23 @@ function Write-HostRegistrationRecord {
                 Write-Verbose 'activeExtensions: Test.ExtensionService not loadable; this host advertises no extension services this write.'
             }
         } catch { Write-Verbose "activeExtensions: $($_.Exception.Message)" }
-        # projectUrl / projectCommit / testSets: what this host's CURRENT project
-        # offers, so the pool-control service can build its library of assignable
-        # test sets without ever cloning a project itself -- the host already has
-        # the clone, and its GH_TOKEN never has to leave it.
+        # projectUrl / projectCommit: the project this host's last cycle cloned,
+        # published as host facts next to its identity, so a registration reader
+        # learns what a member runs without cloning anything -- the host already
+        # has the clone, and its GH_TOKEN never has to leave it.
         #
-        # Read from runtime markers + the project clone that the cycle already
-        # produced; file I/O and one already-imported planner call only, matching
-        # this function's resolution policy. Every branch is best-effort: a
-        # project that cannot be read simply reports nothing, because a
-        # discovery nicety must never be able to fail a registration write.
+        # Read from the project clone that the cycle already produced; local git
+        # reads only, matching this function's resolution policy. Best-effort: a
+        # clone that cannot be read reports nulls, because these facts must never
+        # be able to fail a registration write.
         #
         # NOTE (ordering): this record is written in Phase 0, BEFORE the pooled
-        # repos override and the project clone refresh. So these three fields
-        # describe the project as of the PREVIOUS cycle's clone. That is
-        # acceptable for a discovery offer -- the set list changes only when a
-        # project commits -- but it is why the board can lag one cycle behind a
-        # brand-new assignment.
-        $projectUrl = $null; $projectCommit = $null; $projectTestSets = @()
+        # repos override and the project clone refresh, so both fields describe
+        # the PREVIOUS cycle's clone. After a pool's Project URL changes, the
+        # first registration still names the old project.
+        $projectUrl = $null; $projectCommit = $null
         try {
             $projectDir = Join-Path (Split-Path -Parent $runtimeDir) 'project'
-            $repoRootForProject = Split-Path -Parent (Split-Path -Parent $runtimeDir)
             if (Test-Path -LiteralPath (Join-Path $projectDir '.git')) {
                 $u = & git -C $projectDir config --get remote.origin.url 2>$null
                 if ($LASTEXITCODE -eq 0 -and $u) {
@@ -523,31 +516,7 @@ function Write-HostRegistrationRecord {
                 $c = & git -C $projectDir rev-parse --short HEAD 2>$null
                 if ($LASTEXITCODE -eq 0 -and $c) { $projectCommit = "$c".Trim() }
             }
-            if (Get-Command Get-ProjectTestSet -ErrorAction SilentlyContinue) {
-                # -WarningAction SilentlyContinue: malformed optional labels are
-                # already warned about at cycle start; repeating them on every
-                # registration write would be noise.
-                $sets = Get-ProjectTestSet -RepoRoot $repoRootForProject -WarningAction SilentlyContinue
-                $projectTestSets = @(foreach ($s in $sets) {
-                    $testSet = [ordered]@{
-                        name        = [string]$s['name']
-                        displayName = [string]$s['displayName']
-                        description = [string]$s['description']
-                        sequences   = @($s['sequences'])
-                    }
-                    # Carry the complete validated map. Locale is a property of
-                    # the HTTP reader, not of this background registration
-                    # write; resolving here would freeze every later browser to
-                    # the service account's process culture.
-                    foreach ($mapKey in @('displayNameLocalized', 'descriptionLocalized')) {
-                        if ($s.Contains($mapKey) -and $s[$mapKey] -is [System.Collections.IDictionary]) {
-                            $testSet[$mapKey] = $s[$mapKey]
-                        }
-                    }
-                    $testSet
-                })
-            }
-        } catch { Write-Verbose "project test-set discovery: $($_.Exception.Message)" }
+        } catch { Write-Verbose "project facts: $($_.Exception.Message)" }
         # projectAccess: the result of this host's last probe of a POOL-ASSIGNED
         # projectUrl (Test.RunnerInnerLoop writes the marker). Absent on an
         # unpooled host, or on a pooled host whose pool assigned nothing.
@@ -604,7 +573,6 @@ function Write-HostRegistrationRecord {
             extensionTargets = $extensionTargets
             projectUrl       = $projectUrl
             projectCommit    = $projectCommit
-            testSets         = $projectTestSets
             projectAccess    = $projectAccess
             network          = $network
             runId           = [string]$global:__YurunaRunId

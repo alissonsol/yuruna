@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427e5cfa-1fd6-4fde-89f5-c7a1f409aa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,9 +25,9 @@
     The status listener handles one request at a time, and the diagnostic
     script reaches system_profiler, scutil, lsof, helm, the hypervisor client
     and more -- any one of which can take minutes or never return. Run inside
-    the listener, one slow call parked every route, including the read-only
+    the listener, one slow call would park every route, including the read-only
     status pages an operator uses to see whether the host is alive at all. The
-    listener now only launches this worker and answers "pending" until the
+    listener only launches this worker and answers "pending" until the
     worker's state file says the run finished.
 
     Single flight: the worker takes the directory's lock without waiting, and

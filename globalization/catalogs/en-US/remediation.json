@@ -152,7 +152,7 @@
       "lifecycle": "active"
     },
     "remediation.operator_2b9a82d1d78b3138": {
-      "message": "project_access_denied on {vmName}: the pool assigned this host a projectUrl its git credential cannot read (private repo, or a token without access). No retry can succeed -- the credential is host-local and the assignment was made elsewhere -- so this never enters the backoff. Distinct from bootstrap_sync, where the host's OWN project failed to clone: here the fix belongs to whoever assigned the pool's test-set.",
+      "message": "project_access_denied on {vmName}: the pool assigned this host a projectUrl its git credential cannot read (private repo, or a token without access). No retry can succeed -- the credential is host-local and the assignment was made elsewhere -- so this never enters the backoff. Distinct from bootstrap_sync, where the host's OWN project failed to clone: here the fix belongs to whoever set the pool's project URL.",
       "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
       "lifecycle": "active",
       "placeholders": {
@@ -1090,7 +1090,7 @@
       "lifecycle": "active"
     },
     "remediation.operator_f279084b2eb96f2c": {
-      "message": "Or reassign the pool to a test-set whose project every member can read",
+      "message": "Or set the pool's project URL to a repository every member can read",
       "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
       "lifecycle": "active"
     },

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 """Update only the pool-host metric filter; validate and roll back failed reloads.
@@ -8,6 +8,7 @@ See https://yuruna.link/429f3d06-0046. This helper is invoked by the host's
 Sync-PoolHostMetricsOnProxy.ps1; it never installs packages or rebuilds the VM.
 """
 import base64
+import fcntl
 import os
 from pathlib import Path
 import re
@@ -49,7 +50,10 @@ def reload_state(url):
 
 
 def run(command):
-    subprocess.run(command, check=True, timeout=15, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    result = subprocess.run(command, timeout=15, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if result.returncode:
+        detail = result.stdout.strip()
+        raise RuntimeError(f"{command[0]} exited {result.returncode}: {detail}")
 
 
 def reload_and_confirm(previous, systemctl, url):
@@ -64,6 +68,14 @@ def reload_and_confirm(previous, systemctl, url):
 
 
 def synchronize(path, retention, promtool="promtool", systemctl="systemctl", url="http://127.0.0.1:9090/metrics"):
+    # All writers must honor this sibling lock: POSIX rename has no atomic
+    # compare-and-replace against an uncooperative external editor.
+    with path.with_name(path.name + ".yuruna.lock").open("a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        return _synchronize_locked(path, retention, promtool, systemctl, url)
+
+
+def _synchronize_locked(path, retention, promtool, systemctl, url):
     original = path.read_bytes()
     candidate = update_filter(original.decode(), retention).encode()
     if candidate == original:
@@ -94,10 +106,10 @@ def synchronize(path, retention, promtool="promtool", systemctl="systemctl", url
         os.replace(candidate_path, path)
         replaced = True
         reload_and_confirm(previous, systemctl, url)
-        backup_path.unlink()
-        return "UPDATED: pool-host metric filter validated and reload acknowledged."
     except BaseException as error:
         if replaced and backup_path:
+            if path.read_bytes() != candidate:
+                raise RuntimeError("Prometheus configuration changed after installation; preserving the foreign change and recovery backup: " + str(backup_path)) from error
             os.replace(backup_path, path)
             try:
                 try:
@@ -114,6 +126,13 @@ def synchronize(path, retention, promtool="promtool", systemctl="systemctl", url
             candidate_path.unlink()
         if backup_path and backup_path.exists() and not replaced:
             backup_path.unlink()
+
+    # Cleanup cannot roll back an update already acknowledged by Prometheus.
+    try:
+        backup_path.unlink()
+    except OSError as error:
+        print(f"WARNING: acknowledged update retained backup {backup_path}: {error}", file=sys.stderr)
+    return "UPDATED: pool-host metric filter validated and reload acknowledged."
 
 
 def interrupted(signum, _frame):

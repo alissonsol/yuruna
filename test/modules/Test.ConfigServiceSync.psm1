@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1304,7 +1304,7 @@ function Sync-ConfigSyncVaultCredential {
             if ($hasEntry) {
                 try { $current = [string](Get-Password -Username $user) } catch { $current = '' }
             }
-            if ($hasEntry -and $current -eq $password) {
+            if ($hasEntry -and [string]::Equals($current, $password, [StringComparison]::Ordinal)) {
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_579dcdc19a4bffcf' -Arguments @{ user = "$user"; referenceHost = "$ReferenceHost" }) -InformationAction Continue
                 & $record $user $resolvedKey 'already-matches' (Format-YurunaOperatorMessage -Key 'configsync.operator_6c4892a60072cac0' -Arguments @{ referenceHost = "$ReferenceHost" })
                 continue
@@ -1593,7 +1593,7 @@ function Sync-HostConfiguration {
     $currentYaml = if (Test-Path -LiteralPath $configPath) { [string](Get-Content -Raw -LiteralPath $configPath) } else { $null }
     $wrote = $false
     $backupPath = $null
-    if ($yaml -eq $currentYaml) {
+    if ([string]::Equals($yaml, $currentYaml, [StringComparison]::Ordinal)) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8611bc4c42a9779a') -InformationAction Continue
     } elseif ($PSCmdlet.ShouldProcess($configPath, (Format-YurunaOperatorMessage -Key 'runner.operator_26170942123e2fb5' -Arguments @{ referenceHost = "$ReferenceHost" }))) {
         if ($local) {

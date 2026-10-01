@@ -67,7 +67,14 @@ var stubBodies = map[stubKind][2]string{
 
 func newFidoStub(t *testing.T, kind stubKind) *fidoStub {
 	t.Helper()
-	dir := t.TempDir()
+	// cmd.exe splits its command line at '=', so the stub cannot live under a
+	// directory named after a subtest such as prior=""; a neutral name is safe on
+	// every platform.
+	dir, err := os.MkdirTemp("", "fidostub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	bodies := stubBodies[kind]
 	name, body, interp := "Fido-stub.sh", bodies[1], []string{"/bin/sh"}
 	if runtime.GOOS == "windows" {
@@ -286,11 +293,11 @@ func TestVirtioWinResolvesToThePinnedArchiveURLWithoutTouchingTheNetwork(t *test
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	const want = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.285-1/virtio-win-0.1.285.iso"
+	const want = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302.iso"
 	if got.SourceURL != want {
 		t.Fatalf("SourceURL = %q, want the pinned archive URL %q", got.SourceURL, want)
 	}
-	if got.UpstreamFilename != "virtio-win-0.1.285.iso" {
+	if got.UpstreamFilename != "virtio-win-0.1.302.iso" {
 		t.Fatalf("UpstreamFilename = %q", got.UpstreamFilename)
 	}
 	if !strings.Contains(got.SourceURL, "/archive-virtio/") {
@@ -602,5 +609,20 @@ func TestAServableWindowsEntrySurvivesFidoGoingAway(t *testing.T) {
 	}
 	if res.RefreshInFlight || a.flights.Len() != 0 {
 		t.Fatal("no refresh may be started for a family whose resolver cannot run")
+	}
+}
+
+func TestHeadOfKeepsCompleteUTF8Boundary(t *testing.T) {
+	for _, c := range []struct {
+		text  string
+		limit int
+		want  string
+	}{
+		{"abcdef", 3, "abc..."}, {"éclair", 2, "é..."}, {"😀tail", 2, "..."},
+		{"a😀tail", 5, "a😀..."}, {"abc", 0, ""}, {"abc", -1, ""},
+	} {
+		if got := headOf(c.text, c.limit); got != c.want {
+			t.Errorf("headOf(%q, %d) = %q, want %q", c.text, c.limit, got, c.want)
+		}
 	}
 }

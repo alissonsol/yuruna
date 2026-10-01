@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,12 +134,9 @@ function Test-TcpReachable {
     .SYNOPSIS
         Bounded TCP reachability probe that always disposes its socket.
     .DESCRIPTION
-        BeginConnect + a WaitOne timeout so a black-holed host fails in TimeoutMs
-        instead of the OS default. Returns $true on connect, $false on timeout or a
-        refused connection. The TcpClient is disposed in a finally so no path -- a
-        timeout, a refused connection, or a throw -- leaks the socket handle for the
-        life of this long-running validator process. The two near-identical GitHub and
-        Resend probes differ only in host name, so both route through here.
+        Delegates the bounded probe and socket disposal to Test-TcpConnectOutcome.
+        Returns $true on connect and $false on timeout or refusal. The GitHub
+        and Resend probes differ only in host name, so both route through here.
     #>
     [OutputType([bool])]
     param(
@@ -147,17 +144,7 @@ function Test-TcpReachable {
         [int]$Port = 443,
         [int]$TimeoutMs = 5000
     )
-    $tcp = [System.Net.Sockets.TcpClient]::new()
-    try {
-        $ar = $tcp.BeginConnect($HostName, $Port, $null, $null)
-        if ($ar.AsyncWaitHandle.WaitOne($TimeoutMs, $false) -and $tcp.Connected) {
-            $tcp.EndConnect($ar)
-            return $true
-        }
-        return $false
-    } finally {
-        $tcp.Dispose()
-    }
+    return [bool](Test-TcpConnectOutcome -IpAddress $HostName -Port $Port -TimeoutMs $TimeoutMs).Reachable
 }
 
 function ConvertTo-YurunaBool {
@@ -1363,11 +1350,12 @@ if (-not (Test-Path $seqResolveMod)) {
         Get-ChildItem -LiteralPath $sd -File -Filter '*.yml' -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -notin @('_snippets.yml', 'actions.yml') } |
             ForEach-Object {
+                $sequenceFile = $_
                 try {
-                    $null = Read-SequenceFile -Path $_.FullName -NoCache
+                    $null = Read-SequenceFile -Path $sequenceFile.FullName -NoCache
                     $seqOk++
                 } catch {
-                    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_e77f47f87173b4b2' -Arguments @{ name = "$($_.Name)"; message = "$($_.Exception.Message)" }) -FullPath $_.FullName
+                    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_e77f47f87173b4b2' -Arguments @{ name = "$($sequenceFile.Name)"; message = "$($_.Exception.Message)" }) -FullPath $sequenceFile.FullName
                 }
             }
         # Shape-check the snippet library in this dir even when no sequence

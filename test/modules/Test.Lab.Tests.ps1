@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d9232d-ca85-4467-9819-14ed428ab4b9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,11 +99,11 @@ Describe 'New-YurunaPoolIntentStore' {
         $created.Created | Should -Be $true
         (& git -C $store symbolic-ref --short HEAD) | Should -Be 'main'
     }
-    It 'seeds pools.yml at schemaVersion 2' {
-        # A store seeded at 1 READS fine -- nothing validates on read -- and then
-        # fails every write at schema validation, so the UI looks healthy right up
-        # until the operator creates a pool.
-        ((& git -C $store show main:pools.yml) -join "`n") | Should -Match 'schemaVersion:\s*2'
+    It 'seeds pools.yml at schemaVersion 3' {
+        # A store seeded at an older version READS fine -- nothing validates on
+        # read -- and then fails every write at schema validation, so the UI looks
+        # healthy right up until the operator creates a pool.
+        ((& git -C $store show main:pools.yml) -join "`n") | Should -Match 'schemaVersion:\s*3'
     }
     It 'sets core.fileMode false so a NAS mount does not look like a permission change' {
         (& git -C $store config core.fileMode) | Should -Be 'false'
@@ -132,7 +132,7 @@ Describe 'New-Lab writes a usable lab vault' {
     BeforeAll {
     $stamp = [Guid]::NewGuid().ToString('N').Substring(0, 8)
     $script:work = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-lab-v-$stamp")
-    $labName = 'pester-lab'
+    $labName = "pester-lab-$stamp"
     $script:vault = Join-Path $script:testRoot "status/extension/authentication/lab.$labName.vault.yml"
     # Credential names unique to this run. The subject here is what New-Lab
     # GENERATES, and the default names (yuruna-pool / yuruna-stash) are exactly

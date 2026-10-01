@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4277ce69-f7e3-434d-85c2-cf1468b28b01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -753,11 +753,7 @@ function Test-HostIdentityInteractive {
     [CmdletBinding()]
     [OutputType([bool])]
     param()
-    try {
-        if (-not [Environment]::UserInteractive) { return $false }
-        if ([Console]::IsInputRedirected) { return $false }
-    } catch { return $false }
-    return $true
+    return (Test-YurunaCanPrompt)
 }
 
 # The GUID-dashed spelling of a host uuid, for the lines below that put a FULL
@@ -831,12 +827,8 @@ function Set-PoolStorageConfigValue {
         # A leftover deprecated kill switch is dropped as the document is rewritten,
         # so a host configured here does not keep tripping the config-gate advisory.
         if ($doc['pool'] -is [System.Collections.IDictionary]) { $doc['pool'].Remove('networkReplicate') }
-        $yaml = ConvertTo-Yaml $doc
-        $wrote = $false
-        if (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue) {
-            $wrote = [bool](Write-YurunaStateFile -Path $ConfigPath -Content $yaml -Confirm:$false)
-        }
-        if (-not $wrote) { [System.IO.File]::WriteAllText($ConfigPath, $yaml, [System.Text.UTF8Encoding]::new($false)) }
+        Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1') -Global -DisableNameChecking
+        if (-not (Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $doc -Confirm:$false)) { return $false }
         if (Get-Command Clear-TestConfigCache -ErrorAction SilentlyContinue) { Clear-TestConfigCache }
         return $true
     } catch {
@@ -1142,7 +1134,7 @@ function Invoke-PoolStorageSetupAndReclaim {
                 # written is the CANDIDATE's own value, never the typed string: the
                 # id in the record is the one the pool history is keyed on.
                 $match = $decision.candidates | Where-Object { ($_.uuid -ieq $picked) -or ((Format-HostIdentityUuid -Uuid $_.uuid) -ieq $picked) } | Select-Object -First 1
-                if ($match) { Set-ReclaimedHostUuid -UuidFile $uuidFile -Uuid $match.uuid }
+                if ($match) { $null = Set-ReclaimedHostUuid -UuidFile $uuidFile -Uuid $match.uuid }
                 else { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f4ccee8da7de8804' -Arguments @{ picked = "$picked" }) }
             } else {
                 Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_1da81121991fa2bf')
@@ -1153,7 +1145,7 @@ function Invoke-PoolStorageSetupAndReclaim {
             Write-HostIdentityLine ((Format-YurunaOperatorMessage -Key 'runner.operator_cd0c45e03e65ccc2'))
             Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_2d7d6f40554e10fc' -FormatValues ((Format-HostIdentityUuid -Uuid $c.uuid), $c.hostname, $c.lastSeenUtc, $c.score, ($c.matchedFields -join ',')) -FormatBindings @{ uuid = '0'; hostname = '1'; lastSeenUtc = '2'; score = '3'; join = '4' })
             if (Read-HostIdentityConfirm -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_4dd9a85836471638') -DefaultYes:$false) {
-                Set-ReclaimedHostUuid -UuidFile $uuidFile -Uuid $c.uuid
+                $null = Set-ReclaimedHostUuid -UuidFile $uuidFile -Uuid $c.uuid
             } else {
                 Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_21045e9951574fe7')
             }

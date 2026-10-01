@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c1c329-52af-4255-9e3b-0caf47235605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -187,7 +187,7 @@ function Invoke-SequenceActionHandler {
     <#
     .SYNOPSIS
         Invoke the registered Handler scriptblock for an action. Returns
-        the Handler's [bool] result. Throws when the action is not
+        the Handler's raw result for the engine's strict boolean validation. Throws when the action is not
         registered or has no Handler -- callers check with
         Test-SequenceActionHasHandler before calling so an unknown or
         Handler-less verb fails the step rather than throwing here.
@@ -201,7 +201,7 @@ function Invoke-SequenceActionHandler {
     $entry = & $script:SequenceActionRegistry.Get $Name
     if (-not $entry)         { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_d4288d81f5c5acb3' -Arguments @{ name = "$Name" }) }
     if (-not $entry.Handler) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_44419ed3590574a4' -Arguments @{ name = "$Name" }) }
-    return [bool](& $entry.Handler $Context)
+    return (& $entry.Handler $Context)
 }
 
 function Get-SequenceAction {

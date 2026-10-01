@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"yuruna.com/test/extension/extension-sdk/jsonbody"
 )
 
 // ProtocolVersion is the MCP revision this package speaks. It is pinned rather
@@ -260,16 +261,12 @@ func (s *Server) Handler() http.HandlerFunc {
 			http.Error(w, "MCP is served over POST", http.StatusMethodNotAllowed)
 			return
 		}
-		body, err := io.ReadAll(io.LimitReader(r.Body, MaxRequestBytes))
-		if err != nil {
-			writeRPC(w, rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: CodeParse, Message: "could not read the request body"}})
-			return
-		}
 		var req rpcRequest
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := jsonbody.Decode(r.Body, &req, MaxRequestBytes, false); err != nil {
 			writeRPC(w, rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: CodeParse, Message: "request is not JSON"}})
 			return
 		}
+
 		if req.JSONRPC != "2.0" {
 			writeRPC(w, rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{
 				Code: CodeInvalidRequest, Message: `every message must carry "jsonrpc":"2.0"`}})

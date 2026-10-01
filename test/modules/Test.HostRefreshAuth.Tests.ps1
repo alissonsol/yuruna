@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425947a5-2f05-4cc4-9b4d-22107bbf34be
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,7 @@ BeforeAll {
     $script:ModulePath = Join-Path $here 'Test.HostRefreshAuth.psm1'
     $script:ScriptPath = [IO.Path]::Combine($script:RepoRoot, 'test', 'lab', 'Set-HostRefreshCredential.ps1')
     Import-Module $script:ModulePath -Force -Global -DisableNameChecking
+    Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -Global -DisableNameChecking
 
     $vectorPath = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'extension-sdk', 'hostrefresh', 'testdata', 'vectors.json')
     $script:Vectors = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($vectorPath))
@@ -53,7 +54,9 @@ BeforeAll {
     [byte[]]$script:GoldenKey = Get-YurunaHostRefreshHostKey -AuthorityKey $script:Authority -HostId $script:Vectors.versioned.hostId
     $script:GoldenHost = $script:Vectors.versioned.hostId
     $script:GoldenRequest = $script:Vectors.versioned.requestId
-    $script:TempRoot = New-YurunaTestTempDir -Prefix 'yuruna-hrauth'
+    # The child reports its physical working directory, and macOS reaches the
+    # temp root through /var -> /private/var, so the fixture root is canonical.
+    $script:TempRoot = (Resolve-YurunaCanonicalPath -Path (New-YurunaTestTempDir -Prefix 'yuruna-hrauth')).Path
 
     function ConvertTo-TestBase64Url {
         [CmdletBinding()]

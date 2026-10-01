@@ -185,11 +185,27 @@ func (s *Store) appendAudit(e AuditEntry) {
 
 // writeStatus persists one snapshot; it runs under ioMu and never touches mu.
 func (s *Store) writeStatus(snap Status) error {
-	tmp := filepath.Join(s.dir, "status.json.tmp")
 	dst := filepath.Join(s.dir, "status.json")
-	b, _ := json.MarshalIndent(snap, "", "  ")
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	b, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return errors.New("status encode: " + err.Error())
+	}
+	f, err := os.CreateTemp(s.dir, ".status.json.tmp-*")
+	if err != nil {
+		return errors.New("status create: " + err.Error())
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.Write(b); err != nil {
+		f.Close()
 		return errors.New("status write: " + err.Error())
+	}
+	if err := f.Chmod(0o644); err != nil {
+		f.Close()
+		return errors.New("status chmod: " + err.Error())
+	}
+	if err := f.Close(); err != nil {
+		return errors.New("status close: " + err.Error())
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		return errors.New("status rename: " + err.Error())

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -236,6 +236,9 @@ function Connect-VNC {
         connection. Returns $null on handshake failure.
     #>
     param([string]$VMName, [int]$Port = 0)
+    if ($script:CachedVncVM -eq $VMName -and $script:CachedVnc -and $script:CachedVnc.Connected) {
+        return $script:CachedVnc
+    }
     # Resolve the per-VM VNC port. Hardcoding 5900 across every VM let the
     # capture path silently grab whichever QEMU bound it first, so the
     # producer (config.plist.template) and consumers (this module +
@@ -258,9 +261,6 @@ function Connect-VNC {
         } else {
             $Port = $script:DefaultVncPort
         }
-    }
-    if ($script:CachedVncVM -eq $VMName -and $script:CachedVnc -and $script:CachedVnc.Connected) {
-        return $script:CachedVnc
     }
     Disconnect-VNC
     try {
@@ -545,13 +545,78 @@ function Send-TextVNC {
     }
 }
 
-# --- REGION: AXUIElement keystroke transport (Accessibility API)
-# NOT USED in the dispatcher chain. Kept for reference/future use.
-# AXUIElementPostKeyboardEvent targets UTM by PID and reports success, but
-# UTM's SwiftUI VM display view does not route Accessibility keyboard events
-# to the virtual machine's keyboard -- keys silently vanish.
-# If a future UTM version fixes this, re-enable in Send-Key/Send-Text.
-# Uses the same macOS virtual key codes as the AppleScript/CGEvent functions.
+# --- REGION: UTM JXA keyboard transport and AXUI reference helpers
+# The shared JXA preamble below is used by the live UTM key and chord paths.
+# AXUIElementPostKeyboardEvent remains a reference helper only: UTM's SwiftUI
+# display does not route those Accessibility events to the guest keyboard.
+
+$script:UtmJxaRaisePreamble = @'
+ObjC.import('CoreGraphics');
+
+var se = Application('System Events');
+var utm = Application('UTM');
+utm.activate();
+delay(0.3);
+var proc = se.processes['UTM'];
+proc.frontmost = true;
+var wins = proc.windows();
+var found = false;
+for (var i = 0; i < wins.length; i++) {
+    if (wins[i].name().indexOf(__VMNAME__) >= 0) {
+        wins[i].actions['AXRaise'].perform();
+        found = true;
+        break;
+    }
+}
+if (!found) {
+    'window_not_found';
+} else {
+    delay(0.3);
+    var src = $.CGEventSourceCreate(1);  // kCGEventSourceStateHIDSystemState
+
+
+'@
+
+function Invoke-OsaScriptFile {
+    <#
+    .SYNOPSIS
+        Runs temporary macOS automation with a deadline and guaranteed cleanup.
+    .PARAMETER Script
+        The complete automation source.
+    .PARAMETER Language
+        JavaScript or AppleScript.
+    .PARAMETER TimeoutSeconds
+        The wall-clock cap for native execution.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$Script, [ValidateSet('JavaScript', 'AppleScript')][string]$Language = 'JavaScript', [int]$TimeoutSeconds = 120)
+    $temporary = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-osa-' + [IO.Path]::GetRandomFileName())
+    try {
+        [IO.File]::WriteAllText($temporary, $Script, [Text.UTF8Encoding]::new($false))
+        if (-not (Get-Command Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -Force -Verbose:$false
+        }
+        $probe = Invoke-BoundedNativeCommand -FilePath 'osascript' -ArgumentList @('-l', $Language, $temporary) -TimeoutSeconds $TimeoutSeconds
+        if (-not (Test-BoundedNativeResultComplete -Result $probe) -or $probe.ExitCode -ne 0) {
+            Write-Verbose "osascript did not complete successfully: $($probe.StdErr)"
+            return ''
+        }
+        return $probe.StdOut.Trim()
+    } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+}
+
+function Get-UtmJxaRaisePreamble {
+    <# .SYNOPSIS
+        Inserts a literal JSON window name into the shared UTM raise preamble.
+    .PARAMETER VMName
+        The literal UTM VM name.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$VMName)
+    return $script:UtmJxaRaisePreamble.Replace('__VMNAME__', (ConvertTo-Json -InputObject $VMName -Compress))
+}
 
 function Send-KeyAXUI {
     <#
@@ -581,13 +646,7 @@ var err2 = $.AXUIElementPostKeyboardEvent(axApp, 0, $code, false);
 (err1 === 0 && err2 === 0) ? 'ok' : 'axui_error:' + err1 + ',' + err2;
 "@
 
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_axui_$([System.IO.Path]::GetRandomFileName()).js")
-    try {
-        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
-        $result = & osascript -l JavaScript $tmpFile 2>&1
-    } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
+    $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
     Write-Debug "      AXUI key='$KeyName' code=$code result=$result"
     return ("$result" -eq "ok")
 }
@@ -651,13 +710,7 @@ __KEYCALLS__
     $jxaScript = $jxaTemplate -replace '__DELAY__', $delaySeconds `
                               -replace '__KEYCALLS__', $keyCalls.ToString()
 
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_axui_$([System.IO.Path]::GetRandomFileName()).js")
-    try {
-        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
-        $result = & osascript -l JavaScript $tmpFile 2>&1
-    } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
+    $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
     Write-Debug "      AXUI text: $result"
     return ("$result" -eq "ok")
 }
@@ -795,37 +848,9 @@ function Send-ChordUTM {
     $baseCode = [int]$chord[1]
     $modFlag  = [int]$chord[2]
 
-    # The template is assembled with -replace, whose REPLACEMENT string is
-    # substitution-aware ($&, $1), so any value spliced in must carry no
-    # replacement metacharacters. The three keycode placeholders are coerced
-    # to [int] above, so they never can. The VM name is a string and is
-    # escaped just below -- for the JavaScript string literal (backslash,
-    # single quote) AND for -replace itself ($ doubled), so a name containing
-    # $& or $1 is inserted literally rather than reinterpreted.
-    $jxaTemplate = @'
-ObjC.import('CoreGraphics');
-
-var se = Application('System Events');
-var utm = Application('UTM');
-utm.activate();
-delay(0.3);
-var proc = se.processes['UTM'];
-proc.frontmost = true;
-var wins = proc.windows();
-var found = false;
-for (var i = 0; i < wins.length; i++) {
-    if (wins[i].name().indexOf('__VMNAME__') >= 0) {
-        wins[i].actions['AXRaise'].perform();
-        found = true;
-        break;
-    }
-}
-if (!found) {
-    'window_not_found';
-} else {
-    delay(0.3);
-    var src = $.CGEventSourceCreate(1);  // kCGEventSourceStateHIDSystemState
-
+    # Get-UtmJxaRaisePreamble escapes the VM name for JavaScript. Replace()
+    # inserts only integer keycodes and never interprets $& or $1 as captures.
+    $jxaTemplate = (Get-UtmJxaRaisePreamble -VMName $VMName) + "`n" + @'
     function sendChord(modKeyCode, modFlag, keyCode) {
         var modDn = $.CGEventCreateKeyboardEvent(src, modKeyCode, true);
         $.CGEventSetFlags(modDn, modFlag);
@@ -855,19 +880,9 @@ if (!found) {
     'ok';
 }
 '@
-    $safeJxaVMName = $VMName -replace '\\', '\\\\' -replace "'", "\'" -replace '\$', '$$$$'
-    $jxaScript = $jxaTemplate -replace '__VMNAME__', $safeJxaVMName `
-                              -replace '__MODCODE__', $modCode `
-                              -replace '__MODFLAG__', $modFlag `
-                              -replace '__BASECODE__', $baseCode
+    $jxaScript = $jxaTemplate.Replace('__MODCODE__', [string]$modCode).Replace('__MODFLAG__', [string]$modFlag).Replace('__BASECODE__', [string]$baseCode)
 
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).js")
-    try {
-        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
-        $result = & osascript -l JavaScript $tmpFile 2>&1
-    } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
+    $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
     Write-Debug "      JXA CGEvent chord='$KeyName': $result"
     return ("$result" -eq "ok")
 }
@@ -916,13 +931,7 @@ tell application "System Events"
 end tell
 return "window_not_found"
 "@
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).applescript")
-    try {
-        [System.IO.File]::WriteAllText($tmpFile, $appleScript)
-        $result = & osascript $tmpFile 2>&1
-    } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
+    $result = Invoke-OsaScriptFile -Script $appleScript -Language AppleScript
     Write-Debug "      AppleScript: $result"
     return ("$result" -eq "ok")
 }
@@ -994,7 +1003,7 @@ function Send-TextKvm {
     foreach ($ch in $Text.ToCharArray()) {
         $codes = $script:KvmCharKeyMap["$ch"]
         if (-not $codes) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dfe205f918802162' -Arguments @{ ch = "$ch"; x2 = "$([byte][char]$ch | ForEach-Object { $_.ToString('X2') })" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dfe205f918802162' -Arguments @{ ch = "$ch"; x2 = "$([int][char]$ch | ForEach-Object { $_.ToString('X4') })" })
             continue
         }
         # Splat the chord onto the virsh command line: with `&` the array
@@ -1075,7 +1084,7 @@ function Send-TextHyperV {
         foreach ($ch in $Text.ToCharArray()) {
             $entry = $script:CharScanCodes["$ch"]
             if (-not $entry) {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5f9af4fdfbb52214' -Arguments @{ ch = "$ch"; x2 = "$([byte][char]$ch | ForEach-Object { $_.ToString('X2') })" })
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5f9af4fdfbb52214' -Arguments @{ ch = "$ch"; x2 = "$([int][char]$ch | ForEach-Object { $_.ToString('X4') })" })
                 continue
             }
             $scan = [byte]$entry[0]
@@ -1225,32 +1234,9 @@ function Send-TextUTM {
     }
     Write-Debug "      UTM text send (JXA CGEvent + HID-system shift): $charIndex chars total, $shiftedCount shifted, charDelay=${CharDelayMs}ms"
 
-    $jxaTemplate = @'
-ObjC.import('CoreGraphics');
-
-var se = Application('System Events');
-var utm = Application('UTM');
-utm.activate();
-delay(0.3);
-var proc = se.processes['UTM'];
-proc.frontmost = true;
-var wins = proc.windows();
-var found = false;
-for (var i = 0; i < wins.length; i++) {
-    if (wins[i].name().indexOf('__VMNAME__') >= 0) {
-        wins[i].actions['AXRaise'].perform();
-        found = true;
-        break;
-    }
-}
-if (!found) {
-    'window_not_found';
-} else {
-    delay(0.3);
-    var kShiftKeyCode = 56;          // Left Shift physical key
-    var kShiftFlag    = 0x00020000;  // kCGEventFlagMaskShift
-    var src = $.CGEventSourceCreate(1);  // kCGEventSourceStateHIDSystemState
-
+    $jxaTemplate = (Get-UtmJxaRaisePreamble -VMName $VMName) + "`n" + @'
+    var kShiftKeyCode = 56;
+    var kShiftFlag = 0x00020000;
     function sendKey(keyCode, shift) {
         if (shift) {
             // Press physical Left Shift down first; flag is set on the
@@ -1292,18 +1278,9 @@ __KEYCALLS__
     'ok';
 }
 '@
-    $safeJxaVMName = $VMName -replace '\\', '\\\\' -replace "'", "\'"
-    $jxaScript = $jxaTemplate -replace '__VMNAME__', $safeJxaVMName `
-                              -replace '__DELAY__', $delaySeconds `
-                              -replace '__KEYCALLS__', $keyCalls.ToString()
+    $jxaScript = $jxaTemplate.Replace('__DELAY__', $delaySeconds.ToString([Globalization.CultureInfo]::InvariantCulture)).Replace('__KEYCALLS__', $keyCalls.ToString())
 
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).js")
-    try {
-        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
-        $result = & osascript -l JavaScript $tmpFile 2>&1
-    } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
+    $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
     Write-Debug "      JXA CGEvent: $result"
     return ("$result" -eq "ok")
 }

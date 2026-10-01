@@ -415,3 +415,72 @@ func TestAnnounceSucceedsWithoutLokiConfigured(t *testing.T) {
 		t.Fatalf("status = %d, want 2xx when the pool runs without Loki", rec.Code)
 	}
 }
+
+func TestForeignGoodbyeIsNotPersisted(t *testing.T) {
+	pushes := 0
+	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { pushes++; w.WriteHeader(http.StatusNoContent) }))
+	defer loki.Close()
+	s := newPoolState("default", 8080)
+	s.httpClient, s.lokiURL = loki.Client(), loki.URL
+	s.announce[announceKey(testHostID, stashArea)] = &announceView{HostId: testHostID, Area: stashArea, sourceIP: "10.0.0.7"}
+	body := fmt.Sprintf(`{"hostId":%q,"active":false}`, testHostID)
+	if r := postAnnounce(s, "10.0.0.99:5555", body); r.Code != http.StatusNoContent {
+		t.Fatalf("foreign goodbye: %d", r.Code)
+	}
+	if pushes != 0 {
+		t.Fatalf("ignored goodbye was persisted %d times", pushes)
+	}
+	if r := postAnnounce(s, "10.0.0.7:5555", body); r.Code != http.StatusNoContent {
+		t.Fatalf("owner goodbye: %d", r.Code)
+	}
+	if pushes != 1 {
+		t.Fatalf("owner goodbye was not persisted: %d", pushes)
+	}
+}
+
+func TestReplayedAnnounceIsHistoricalUntilLiveBeacon(t *testing.T) {
+	s := newPoolState("default", 8080)
+	now := time.Now().UTC()
+	line := fmt.Sprintf(`{"hostId":%q,"area":"stash-service","target":"http://10.0.0.7","active":true}`, testHostID)
+	s.applyAnnounceLines([][][2]string{{{fmt.Sprint(now.UnixNano()), line}}}, now)
+	entry := s.announce[announceKey(testHostID, stashArea)]
+	if entry.sourceIP != "" {
+		t.Fatalf("replay invented live ownership: %s", entry.sourceIP)
+	}
+	if rank := extensionSourceRank(extensionHostEntry{Source: extSourceAnnounce, confirmed: entry.sourceIP != ""}); rank != 2 {
+		t.Fatalf("historical rank = %d", rank)
+	}
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	if entry.sourceIP != "10.0.0.7" {
+		t.Fatalf("live beacon did not bind owner: %s", entry.sourceIP)
+	}
+}
+
+func TestHostAnnounceUsesReplayablePresenceStream(t *testing.T) {
+	var received struct {
+		Streams []struct {
+			Stream map[string]string `json:"stream"`
+			Values [][2]string       `json:"values"`
+		} `json:"streams"`
+	}
+	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer loki.Close()
+	if err := pushHostAnnounce(loki.Client(), loki.URL, "default", testHostID, "http://10.0.0.7:8080", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if len(received.Streams) != 1 || received.Streams[0].Stream["src"] != "presence" {
+		t.Fatalf("unreplayable stream: %+v", received)
+	}
+	s := newPoolState("default", 8080)
+	if n := s.applyPresenceLines([][][2]string{received.Streams[0].Values}, time.Now().UTC()); n != 1 {
+		t.Fatalf("presence did not replay: %d", n)
+	}
+	if s.hosts[testHostID].CurrentIP != "10.0.0.7" {
+		t.Fatal("replayed address changed")
+	}
+}

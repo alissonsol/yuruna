@@ -7,6 +7,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -106,7 +107,14 @@ func parseLine(line string, s *stats) (Entry, bool) {
 	}
 	ts, tsErr := strconv.ParseFloat(m[1], 64)
 	bytes, bytesErr := strconv.ParseInt(m[4], 10, 64)
-	if tsErr != nil || bytesErr != nil {
+	invalidTS := tsErr != nil || math.IsNaN(ts) || math.IsInf(ts, 0) || ts < 0 || ts >= 253402300800 // exclusive year 10000
+	if invalidTS {
+		ts = 0
+	}
+	if bytesErr != nil {
+		bytes = 0
+	}
+	if invalidTS || bytesErr != nil {
 		// The line matched the logformat shape but a numeric field would
 		// not parse (most plausibly a "-" bytes value). Keep the row with
 		// a zero fallback rather than dropping it, but count the miss so a
@@ -151,7 +159,13 @@ func handleJSON(r *ring) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		_ = json.NewEncoder(w).Encode(r.snapshot())
+		data, err := json.Marshal(r.snapshot())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("[]\n"))
+			return
+		}
+		_, _ = w.Write(append(data, '\n'))
 	}
 }
 

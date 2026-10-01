@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4277d76d-71f9-4057-a9d2-4d6341c5dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -398,6 +398,6 @@ AfterAll {
     # discovery, before any It, so a trailing Remove-Item would delete the
     # folder the tests are about to use.
     Remove-Item -LiteralPath $TtyTestRoot -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath Function:\global:Send-Key  -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath Function:\global:Send-Text -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Function:\Send-Key  -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Function:\Send-Text -ErrorAction SilentlyContinue
 }

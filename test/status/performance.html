@@ -17,7 +17,7 @@
     body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 
     #perf-recalc {
-      margin-left: auto;
+      margin-inline-start: auto;
       flex: 0 0 auto;
       border-radius: .375rem;
       font-weight: 600;
@@ -80,7 +80,7 @@
     .cycle-row  { margin-bottom: .45rem; }
     .cycle-row-head {
       display: flex; align-items: baseline; justify-content: space-between;
-      position: sticky; left: 0; z-index: 1; background: var(--bg-elevated);
+      position: sticky; inset-inline-start: 0; z-index: 1; background: var(--bg-elevated);
       font-family: var(--font-mono); font-size: .6875rem; margin-bottom: .1rem;
     }
     .cycle-link {
@@ -88,7 +88,7 @@
       color: var(--link-strong); text-decoration: underline dotted;
     }
     .cycle-link.nolink { color: var(--fg-muted); text-decoration: none; cursor: default; }
-    .cycle-dur { flex: 0 0 auto; margin-left: .5rem; color: var(--fg-muted); }
+    .cycle-dur { flex: 0 0 auto; margin-inline-start: .5rem; color: var(--fg-muted); }
     .cycle-dur.fail { color: var(--fail-fg); font-weight: 600; }
     svg.cycle-flame { width: 100%; height: auto; max-width: none; display: block; }
     .cycle-flame .flame-cell          { stroke: rgba(0,0,0,.22); stroke-width: .5; }

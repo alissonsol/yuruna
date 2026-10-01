@@ -1,11 +1,11 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package httpsrv serves the pool-control-service UI (3 static pages) and the JSON API
-// that drives it. It mirrors the stash-service httpsrv: static pages + a strict
-// CSP, all dynamic data over /api/*, and mutating endpoints that relay the
-// pool-admin CLIs' outcome (a failed push surfaces as a UI error, never a
-// silent success).
+// Package httpsrv serves the pool-control-service operator UI (board, hosts,
+// pools, scan, diagnostics) and the JSON API that drives it. It mirrors the
+// stash-service httpsrv: static pages + a strict CSP, all dynamic data over
+// /api/*, and mutating endpoints that relay the pool-admin CLIs' outcome (a
+// failed push surfaces as a UI error, never a silent success).
 package httpsrv
 
 import (
@@ -36,12 +36,11 @@ type IntentAPI interface {
 	NewPool(ctx context.Context, poolID, displayName, desiredState string) intent.Result
 	RemovePool(ctx context.Context, poolID string, force bool) intent.Result
 	SetDesiredState(ctx context.Context, poolID, state string) intent.Result
-	AddHost(ctx context.Context, poolID, hostID string) intent.Result
+	AddHost(ctx context.Context, poolID, hostID string, moveExisting ...bool) intent.Result
 	RemoveHost(ctx context.Context, poolID, hostID string, exclude ...bool) intent.Result
 	MoveHostIdentity(ctx context.Context, oldID, newID string) intent.Result
-	AssignTestSet(ctx context.Context, poolID, name, frameworkURL, projectURL string) intent.Result
-	SetTestSetDef(ctx context.Context, name, frameworkURL, projectURL string) intent.Result
-	DeleteTestSetDef(ctx context.Context, name string) intent.Result
+	SetPoolRepositories(ctx context.Context, poolID, frameworkURL, projectURL string) intent.Result
+	ClearPoolRepositories(ctx context.Context, poolID string) intent.Result
 }
 
 // Options configures the server.

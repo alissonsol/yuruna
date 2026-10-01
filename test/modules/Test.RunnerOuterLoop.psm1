@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -239,8 +239,8 @@ function Get-OuterPoolTestCycleOverride {
         null pool / no config / no testCycle, so a no-pool host overlays
         nothing (identical to single-host). Reads straight off the pool
         object -- not pool.manifest.json -- so a pool that authors a
-        testCycle override WITHOUT test-sets still applies it (the manifest
-        is deleted when a pool has no test-sets).
+        testCycle override WITHOUT repositories still applies it (the manifest
+        is deleted when a pool carries no repositories).
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -255,6 +255,59 @@ function Get-OuterPoolTestCycleOverride {
     $out = @{}
     foreach ($k in $tc.Keys) { $out[[string]$k] = $tc[$k] }
     return $out
+}
+
+function Get-OuterTimeoutValue {
+    <#
+    .SYNOPSIS
+        Read a named testCycle timeout from test.config.yml for the next spawn.
+    .DESCRIPTION
+        An operator can edit between cycles without restarting the outer.
+        A positive per-pool config.testCycle override wins over local config,
+        which wins over the supplied default.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'The plural is the unit, not a collection: a duration is named <name>Seconds so a bare number can never be read in the wrong unit (docs/design/naming.md). Singularizing to Second would read as one second.')]
+    param(
+        [Parameter(Mandatory)][string]$Key,
+        [Parameter(Mandatory)][int]$Minimum,
+        [Parameter(Mandatory)][string]$MessageKey,
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][int]$DefaultSeconds,
+        # Per-pool config.testCycle overrides (from Get-OuterPoolTestCycleOverride).
+        # An override here WINS over test.config.yml (precedence: pool > config >
+        # default). Empty @{} for a no-pool host -> identical to single-host.
+        [Parameter()][hashtable]$PoolTestCycleOverride = @{}
+    )
+    # -NoCache so a mid-cycle operator edit (the "lower stepTimeout for
+    # the next cycle" workflow documented in test/README.md) takes effect
+    # at the spawn boundary even if Read-TestConfig's mtime-keyed cache
+    # hasn't noticed yet on a low-resolution filesystem.
+    $cfg = Read-TestConfig -Path $ConfigPath -NoCache
+    $v = Get-TestConfigValue -Config $cfg -Path ("testCycle." + $Key)
+    $result = $DefaultSeconds
+    # TryParse rather than a bare [int] cast: this is re-read on EVERY cycle, so
+    # a typo in a mid-run edit would throw from inside the cycle and take the
+    # outer runner down over a tuning knob -- a runner that stops without saying
+    # why, which is exactly what the watchdog work exists to prevent. Warn and
+    # keep the default instead.
+    if ($null -ne $v) {
+        $i = 0
+        if ([int]::TryParse("$v".Trim(), [ref]$i)) {
+            if ($i -ge $Minimum) { $result = $i }
+        } else {
+            Write-Warning (Format-YurunaOperatorMessage -Key $MessageKey -Arguments @{ v = "$v"; defaultSeconds = "$DefaultSeconds" })
+        }
+    }
+    if ($PoolTestCycleOverride.ContainsKey($Key)) {
+        $p = 0
+        if ([int]::TryParse("$($PoolTestCycleOverride[$Key])".Trim(), [ref]$p) -and $p -ge $Minimum) {
+            $result = $p
+        }
+    }
+    return $result
 }
 
 function Get-OuterStepTimeoutSeconds {
@@ -278,33 +331,7 @@ function Get-OuterStepTimeoutSeconds {
         # default). Empty @{} for a no-pool host -> identical to single-host.
         [Parameter()][hashtable]$PoolTestCycleOverride = @{}
     )
-    # -NoCache so a mid-cycle operator edit (the "lower stepTimeout for
-    # the next cycle" workflow documented in test/README.md) takes effect
-    # at the spawn boundary even if Read-TestConfig's mtime-keyed cache
-    # hasn't noticed yet on a low-resolution filesystem.
-    $cfg = Read-TestConfig -Path $ConfigPath -NoCache
-    $v = Get-TestConfigValue -Config $cfg -Path 'testCycle.stepTimeoutSeconds'
-    $result = $DefaultSeconds
-    # TryParse rather than a bare [int] cast: this is re-read on EVERY cycle, so
-    # a typo in a mid-run edit would throw from inside the cycle and take the
-    # outer runner down over a tuning knob -- a runner that stops without saying
-    # why, which is exactly what the watchdog work exists to prevent. Warn and
-    # keep the default instead.
-    if ($null -ne $v) {
-        $i = 0
-        if ([int]::TryParse("$v".Trim(), [ref]$i)) {
-            if ($i -gt 0) { $result = $i }
-        } else {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_353411c243b6e1c7' -Arguments @{ v = "$v"; defaultSeconds = "$DefaultSeconds" })
-        }
-    }
-    if ($PoolTestCycleOverride.ContainsKey('stepTimeoutSeconds')) {
-        $p = 0
-        if ([int]::TryParse("$($PoolTestCycleOverride['stepTimeoutSeconds'])".Trim(), [ref]$p) -and $p -gt 0) {
-            $result = $p
-        }
-    }
-    return $result
+    return Get-OuterTimeoutValue -Key stepTimeoutSeconds -Minimum 1 -MessageKey 'runner.operator_353411c243b6e1c7' @PSBoundParameters
 }
 
 function Get-OuterPreambleTimeoutSeconds {
@@ -335,35 +362,7 @@ function Get-OuterPreambleTimeoutSeconds {
         [Parameter(Mandatory)][int]$DefaultSeconds,
         [Parameter()][hashtable]$PoolTestCycleOverride = @{}
     )
-    # -NoCache for the same reason as Get-OuterStepTimeoutSeconds: an operator
-    # edit must take effect at the next spawn boundary, not whenever the
-    # mtime-keyed cache happens to notice.
-    $cfg = Read-TestConfig -Path $ConfigPath -NoCache
-    $v = Get-TestConfigValue -Config $cfg -Path 'testCycle.preambleTimeoutSeconds'
-    $result = $DefaultSeconds
-    # TryParse, not a [int] cast. This is re-read on EVERY cycle, so a typo in a
-    # mid-run edit of test.config.yml would otherwise throw from inside the cycle
-    # and take the outer runner down over a tuning knob -- the "stops without
-    # saying why" failure this bound exists to prevent. Warn and keep the
-    # default instead: the operator gets a loud, per-cycle line and the host
-    # keeps testing.
-    # -ge 0, not -gt 0: 0 is the meaningful "no tighter bound" opt-out, so it
-    # must be distinguishable from an absent key (which takes the default).
-    if ($null -ne $v) {
-        $i = 0
-        if ([int]::TryParse("$v".Trim(), [ref]$i)) {
-            if ($i -ge 0) { $result = $i }
-        } else {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c8d5e682839053d0' -Arguments @{ v = "$v"; defaultSeconds = "$DefaultSeconds" })
-        }
-    }
-    if ($PoolTestCycleOverride.ContainsKey('preambleTimeoutSeconds')) {
-        $p = 0
-        if ([int]::TryParse("$($PoolTestCycleOverride['preambleTimeoutSeconds'])".Trim(), [ref]$p) -and $p -ge 0) {
-            $result = $p
-        }
-    }
-    return $result
+    return Get-OuterTimeoutValue -Key preambleTimeoutSeconds -Minimum 0 -MessageKey 'runner.operator_c8d5e682839053d0' @PSBoundParameters
 }
 
 function Get-OuterAutoRemediation {
@@ -865,7 +864,7 @@ function Invoke-OuterPoolStorageMove {
             return $null
         }
         $line = "[outer cycle $Cycle] poolStorage move: moved=$($summary.moved) deleted=$($summary.deleted) pending=$($summary.pending) spaceShort=$($summary.spaceShort) in ${elapsed}s"
-        Write-Output $line
+        Write-Information $line -InformationAction Continue
         Write-OuterLog $line
         if ($summary.error -and -not $summary.spaceShort) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7bd332a2612f01a9' -Arguments @{ cycle = "$Cycle"; error = "$($summary.error)" })
@@ -941,16 +940,38 @@ function Write-PoolStorageSpaceFailureRecord {
     }
 }
 
-<#
-.SYNOPSIS
-Sends the cycle-failure notification for a full share, at most once per consecutive-failure streak. Best-effort.
-.DESCRIPTION
-Gated on a runtime flag rather than sent every time: the pre-spawn refusal repeats
-every hour for as long as the share stays full, and an unbounded stream of identical
-"pool storage is full" mails is how an operator learns to filter the channel that
-also carries real failures. The flag clears on the next run that finds room.
-#>
+function Send-OuterCycleFailureNotification {
+    <#
+    .SYNOPSIS
+        Load the optional notification transport and send prepared failure data.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$SubjectSuffix, [string]$GuestKey, [string]$StepName, [string]$ErrorMessage,
+        [Parameter(Mandatory)]$EventData)
+    if (-not (Get-Command Send-CycleFailureNotification -ErrorAction SilentlyContinue)) {
+        $module = Join-Path $PSScriptRoot 'Test.Notify.psm1'
+        if (Test-Path -LiteralPath $module) { Import-Module $module -Global -ErrorAction SilentlyContinue -Verbose:$false }
+    }
+    if (-not (Get-Command Send-CycleFailureNotification -ErrorAction SilentlyContinue)) { return $false }
+    $hostType = ''
+    if (Get-Command Get-HostType -ErrorAction SilentlyContinue) {
+        try { $hostType = [string](Get-HostType) } catch { Write-Verbose $_.Exception.Message }
+    }
+    Send-CycleFailureNotification -HostType $hostType -SubjectSuffix $SubjectSuffix -GuestKey $GuestKey `
+        -StepName $StepName -ErrorMessage $ErrorMessage -EventData $EventData -ErrorAction SilentlyContinue | Out-Null
+    return $true
+}
+
 function Send-PoolStorageSpaceNotification {
+    <#
+    .SYNOPSIS
+        Latches and sends the storage-space alert for the current failure streak.
+    .DESCRIPTION
+        The pre-spawn refusal repeats hourly while the share stays full. A
+        runtime latch limits identical mail to once per failure streak and
+        clears after the next run that finds room.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -967,16 +988,7 @@ function Send-PoolStorageSpaceNotification {
     # hourly refusal, which is the flood this gate exists to prevent.
     try { [System.IO.File]::WriteAllText($flag, (Get-Date).ToUniversalTime().ToString('o')) } catch { Write-Verbose "space-fail latch: $($_.Exception.Message)" }
     try {
-        if (-not (Get-Command Send-CycleFailureNotification -ErrorAction SilentlyContinue)) {
-            $nm = Join-Path $PSScriptRoot 'Test.Notify.psm1'
-            if (Test-Path -LiteralPath $nm) { Import-Module $nm -Global -ErrorAction SilentlyContinue }
-        }
-        if (Get-Command Send-CycleFailureNotification -ErrorAction SilentlyContinue) {
-            $hostType = ''
-            if (Get-Command Get-HostType -ErrorAction SilentlyContinue) {
-                try { $hostType = [string](Get-HostType) } catch { $null = $_ }
-            }
-            # EventData is passed PRE-BUILT: the helper's own fallback builder reads
+        # EventData is passed PRE-BUILT: the helper's own fallback builder reads
             # last_failure.json out of the cycle folder, which this process does not
             # have, and would ship failureClass 'unknown' for a failure whose whole
             # point is its class.
@@ -988,10 +1000,9 @@ function Send-PoolStorageSpaceNotification {
                 description  = $Message
                 cycle        = $Cycle
             }
-            Send-CycleFailureNotification -HostType $hostType -SubjectSuffix (Format-YurunaOperatorMessage -Key 'runner.operator_127885b6f7dcb1b0') `
+            Send-OuterCycleFailureNotification -SubjectSuffix (Format-YurunaOperatorMessage -Key 'runner.operator_127885b6f7dcb1b0') `
                 -GuestKey '(poolStorage)' -StepName (Format-YurunaOperatorMessage -Key 'runner.operator_e25bada6bbd913eb') -ErrorMessage $Message `
-                -EventData $eventData -ErrorAction SilentlyContinue
-        }
+                -EventData $eventData | Out-Null
         return $true
     } catch {
         Write-Verbose "Send-PoolStorageSpaceNotification: $($_.Exception.Message)"
@@ -1182,16 +1193,7 @@ function Update-RunnerCrashGating {
         $streakNote = if ($StallStreak -gt 1) { " This is the ${StallStreak}th consecutive cycle to stall in the same phase, so it is a standing condition on this host rather than a passing one." } else { '' }
         $message = (Format-YurunaOperatorMessage -Key 'runner.operator_62f77591834076f9' -Arguments @{ exitCode = "$ExitCode"; where = "$where"; streakNote = "$streakNote" })
         try {
-            if (-not (Get-Command Send-CycleFailureNotification -ErrorAction SilentlyContinue)) {
-                $notifyModule = Join-Path $PSScriptRoot 'Test.Notify.psm1'
-                if (Test-Path -LiteralPath $notifyModule) { Import-Module $notifyModule -Global -ErrorAction SilentlyContinue }
-            }
-            if (Get-Command Send-CycleFailureNotification -ErrorAction SilentlyContinue) {
-                $hostType = ''
-                if (Get-Command Get-HostType -ErrorAction SilentlyContinue) {
-                    try { $hostType = [string](Get-HostType) } catch { $null = $_ }
-                }
-                # Built here rather than left to the helper's fallback, which
+            # Built here rather than left to the helper's fallback, which
                 # recovers its fields from the cycle folder's failure record --
                 # a cycle killed in the preamble never created one.
                 $eventData = [ordered]@{
@@ -1202,11 +1204,10 @@ function Update-RunnerCrashGating {
                     description  = $message
                     cycle        = $Cycle
                 }
-                Send-CycleFailureNotification -HostType $hostType -SubjectSuffix (Format-YurunaOperatorMessage -Key 'runner.operator_4c698a30b7a49186') `
+            $sent = Send-OuterCycleFailureNotification -SubjectSuffix (Format-YurunaOperatorMessage -Key 'runner.operator_4c698a30b7a49186') `
                     -GuestKey '(preamble)' -StepName $(if ($StalledPhase) { $StalledPhase } else { (Format-YurunaOperatorMessage -Key 'runner.operator_8c401a9e37de2b10') }) `
-                    -ErrorMessage $message -EventData $eventData -ErrorAction SilentlyContinue
-                $result.Alerted = $true
-            }
+                    -ErrorMessage $message -EventData $eventData
+            $result.Alerted = [bool]$sent
         } catch {
             Write-Verbose "Update-RunnerCrashGating: notification failed (best-effort): $($_.Exception.Message)"
         }
@@ -1687,8 +1688,8 @@ function Invoke-RunnerOuterCycle {
         if ($preSpawnSpace -and -not $preSpawnSpace.ok) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e3e3d086b168105e' -Arguments @{ cycle = "$cycle"; message = "$($preSpawnSpace.message)" })
             Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_1716ae7775fbc1fc' -Arguments @{ cycle = "$cycle"; message = "$($preSpawnSpace.message)" })
-            Write-PoolStorageSpaceFailureRecord -Message $preSpawnSpace.message -Stage 'PoolStorageSpaceCheck' -Cycle $cycle
-            Send-PoolStorageSpaceNotification -Message $preSpawnSpace.message -Cycle $cycle
+            $null = Write-PoolStorageSpaceFailureRecord -Message $preSpawnSpace.message -Stage 'PoolStorageSpaceCheck' -Cycle $cycle -Confirm:$false
+            $null = Send-PoolStorageSpaceNotification -Message $preSpawnSpace.message -Cycle $cycle -Confirm:$false
             if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
                 $null = Set-RunnerState -To 'fault' -Reason 'pool storage full' -Confirm:$false
             }
@@ -1824,8 +1825,17 @@ function Invoke-RunnerOuterCycle {
                 # same reason as the relaunch flag: a value left in $env: would make a
                 # later INTERACTIVE run in this shell silently refuse to prompt.
                 $env:YURUNA_NONINTERACTIVE = '1'
-                & $State.PwshExe @($State.ArgList)
-                $exitCode = $LASTEXITCODE
+                # Native stdout belongs to the console even when a caller
+                # captures this function's typed result. Descendant services
+                # must never inherit a PowerShell success-stream pipe.
+                $innerStart = [Diagnostics.ProcessStartInfo]::new([string]$State.PwshExe)
+                $innerStart.UseShellExecute = $false
+                foreach ($argument in @($State.ArgList)) { $innerStart.ArgumentList.Add([string]$argument) }
+                $innerProcess = [Diagnostics.Process]::Start($innerStart)
+                try {
+                    $innerProcess.WaitForExit()
+                    $exitCode = $innerProcess.ExitCode
+                } finally { $innerProcess.Dispose() }
             } catch {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_76f2bf2d6b02efd3' -Arguments @{ cycle = "$cycle"; value = "$_" })
                 $innerSpawnFailed = $true
@@ -1951,19 +1961,11 @@ function Invoke-RunnerOuterCycle {
             if ((-not $psMoveMode) -and (Test-Path -LiteralPath $drainScript)) {
                 $hid = if (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) { [string](Get-YurunaHostId) } else { '' }
                 $drainErr = Join-Path $env:YURUNA_RUNTIME_DIR 'poolstorage.drain.err'
-                if ($IsWindows) {
-                    $drainStdin = Join-Path $env:YURUNA_RUNTIME_DIR 'poolstorage.drain.stdin.empty'
-                    if (-not (Test-Path -LiteralPath $drainStdin)) { [System.IO.File]::WriteAllBytes($drainStdin, [byte[]]@()) }
-                    $drainOut = Join-Path $env:YURUNA_RUNTIME_DIR 'poolstorage.drain.out'
-                    $scriptQuoted = '"' + $drainScript + '"'
-                    Start-Process -FilePath $State.PwshExe `
-                        -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", $scriptQuoted, "-HostId", $hid `
-                        -RedirectStandardInput  $drainStdin `
-                        -RedirectStandardOutput $drainOut `
-                        -RedirectStandardError  $drainErr | Out-Null
-                } else {
-                    & bash -c "set -m; nohup '$($State.PwshExe)' -NoProfile -File '$drainScript' -HostId '$hid' </dev/null >/dev/null 2>'$drainErr' & echo `$!" | Out-Null
-                }
+                Import-Module (Join-Path $PSScriptRoot 'Test.InnerSpawn.psm1') -Global -DisableNameChecking
+                $launch = Start-YurunaDetachedProcess -FilePath $drainScript -ArgumentList @('-HostId', $hid) `
+                    -WorkingDirectory $State.RepoRoot -StdOutPath (Join-Path $env:YURUNA_RUNTIME_DIR 'poolstorage.drain.out') `
+                    -StdErrPath $drainErr -PrivateDirectory $env:YURUNA_RUNTIME_DIR -Confirm:$false
+                if (-not $launch.Launched) { throw "pool storage drain launch failed: $($launch.Reason)" }
             }
         } catch {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_42325e069d98407d' -Arguments @{ cycle = "$cycle"; message = "$($_.Exception.Message)" })
@@ -1984,22 +1986,12 @@ function Invoke-RunnerOuterCycle {
             if (Test-Path -LiteralPath $pushScript) {
                 $phid = if (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) { [string](Get-YurunaHostId) } else { '' }
                 $pushErr = Join-Path $env:YURUNA_RUNTIME_DIR 'poolpush.forwarder.err'
-                if ($IsWindows) {
-                    $pushStdin = Join-Path $env:YURUNA_RUNTIME_DIR 'poolpush.forwarder.stdin.empty'
-                    if (-not (Test-Path -LiteralPath $pushStdin)) { [System.IO.File]::WriteAllBytes($pushStdin, [byte[]]@()) }
-                    $pushOut = Join-Path $env:YURUNA_RUNTIME_DIR 'poolpush.forwarder.out'
-                    $pushScriptQuoted = '"' + $pushScript + '"'
-                    $pushProc = Start-Process -FilePath $State.PwshExe `
-                        -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", $pushScriptQuoted, "-HostId", $phid `
-                        -RedirectStandardInput  $pushStdin `
-                        -RedirectStandardOutput $pushOut `
-                        -RedirectStandardError  $pushErr `
-                        -PassThru
-                } else {
-                    $spawned = & bash -c "set -m; nohup '$($State.PwshExe)' -NoProfile -File '$pushScript' -HostId '$phid' </dev/null >/dev/null 2>'$pushErr' & echo `$!"
-                    $parsedPid = 0
-                    if ([int]::TryParse("$spawned".Trim(), [ref]$parsedPid)) { $pushPid = $parsedPid }
-                }
+                Import-Module (Join-Path $PSScriptRoot 'Test.InnerSpawn.psm1') -Global -DisableNameChecking
+                $launch = Start-YurunaDetachedProcess -FilePath $pushScript -ArgumentList @('-HostId', $phid) `
+                    -WorkingDirectory $State.RepoRoot -StdOutPath (Join-Path $env:YURUNA_RUNTIME_DIR 'poolpush.forwarder.out') `
+                    -StdErrPath $pushErr -PrivateDirectory $env:YURUNA_RUNTIME_DIR -Confirm:$false
+                if (-not $launch.Launched) { throw "pool push forwarder launch failed: $($launch.Reason)" }
+                $pushPid = [int]$launch.FinalPid
             }
         } catch {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1543e1c089df9fda' -Arguments @{ cycle = "$cycle"; message = "$($_.Exception.Message)" })
@@ -2614,21 +2606,7 @@ function Stop-ProcessTree {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][int]$ProcessId)
-    if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", (Format-YurunaOperatorMessage -Key 'runner.operator_ed5c9d2fcb476c82'))) { return }
-    try {
-        if ($IsWindows) {
-            & taskkill /PID $ProcessId /T /F 2>&1 | Out-Null
-        } else {
-            & pkill -TERM -P $ProcessId 2>&1 | Out-Null
-            Start-Sleep -Milliseconds 500
-            # Full path, not the bare name: `kill` is also a PowerShell alias for
-            # Stop-Process, which would target the wrong thing on a host where the
-            # alias wins name resolution.
-            & '/bin/kill' -TERM $ProcessId 2>&1 | Out-Null
-        }
-    } catch {
-        Write-Verbose "Stop-ProcessTree($ProcessId) swallowed: $($_.Exception.Message)"
-    }
+    if ($PSCmdlet.ShouldProcess([string]$ProcessId, 'Stop process tree')) { Stop-YurunaProcessTree -ProcessId $ProcessId -Confirm:$false }
 }
 
 function Invoke-OuterCycleDispatch {
@@ -2690,9 +2668,12 @@ function Invoke-OuterCycleDispatch {
         $State['RefreshPreflightTokenId']   = if ($dispatch.Mode -eq 'preflight') { $dispatch.TokenId } else { $null }
         $State['RefreshPreflightPurpose']   = if ($dispatch.Mode -eq 'preflight') { $dispatch.Purpose } else { $null }
         $State['RefreshPreflightRequestId'] = if ($dispatch.Mode -eq 'preflight') { $dispatch.RequestId } else { $null }
-        $inProcess = Invoke-RunnerOuterCycle -State $State -Cycle $Cycle
-        $inProcessResult = @($inProcess | Where-Object { $_ -is [pscustomobject] -and $_.PSObject.Properties['Outcome'] }) | Select-Object -Last 1
-        if (-not $inProcessResult) { return $inProcess }
+        # The cycle's own return value is the verdict; its recorded result is the fallback for a
+        # path that returned nothing. Capturing it also keeps it out of this function's output,
+        # where it would turn the single result into an array.
+        $cycleReturned = @(Invoke-RunnerOuterCycle -State $State -Cycle $Cycle) | Where-Object { $null -ne $_ } | Select-Object -Last 1
+        $inProcessResult = if ($cycleReturned) { $cycleReturned } else { Get-LastOuterCycleResult }
+        if (-not $inProcessResult) { return [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 1 } }
         return [pscustomobject]@{
             Outcome = $inProcessResult.Outcome; ExitCode = $inProcessResult.ExitCode; CycleGeneration = $cycleGeneration
             Refresh = $dispatch.Mode; Cycle = $null; Gate = $null; Handoff = $validated
@@ -2822,12 +2803,22 @@ function Invoke-OuterCycleDispatch {
     # implausibly short ones are reclassified, and they are reported loudly as
     # their own thing rather than folded into either verdict.
     $ranForSeconds = [int]((Get-Date) - $spawnedAt).TotalSeconds
-    if (-not $reportedOutcome -and $childExit -ne 0 -and $ranForSeconds -lt $script:CycleAbortSeconds) {
+    if (Test-YurunaCycleAborted -ReportedOutcome $reportedOutcome -ChildExit $childExit -RanForSeconds $ranForSeconds) {
         Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_9120a71c591dce9f' -Arguments @{ cycle = "$Cycle"; childExit = "$childExit"; ranForSeconds = "${ranForSeconds}" }))
         Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_28086350fb4a3aee' -Arguments @{ cycle = "$Cycle"; childExit = "$childExit"; ranForSeconds = "${ranForSeconds}" })
         return [pscustomobject]@{ Outcome = 'cycle-aborted'; ExitCode = $childExit; CycleGeneration = $reportedGeneration; Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated }
     }
     return [pscustomobject]@{ Outcome = $outcome; ExitCode = $childExit; CycleGeneration = $reportedGeneration; Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated }
+}
+
+function Test-YurunaCycleAborted {
+    <# .SYNOPSIS
+    Classifies an unexplained early nonzero child exit using the runner threshold.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([bool]$ReportedOutcome, [int]$ChildExit, [double]$RanForSeconds)
+    return (-not $ReportedOutcome -and $ChildExit -ne 0 -and $RanForSeconds -lt $script:CycleAbortSeconds)
 }
 
 function Invoke-RunnerOuterLoop {
@@ -3015,7 +3006,7 @@ function Invoke-RunnerOuterLoop {
                 'cycle-aborted' { $State.InnerSpawnErrorSleepSeconds }
                 default         { 30 }
             }
-            Wait-OuterInterruptible -Seconds $holdSeconds -ShutdownState $State.ShutdownState
+            $null = Wait-OuterInterruptible -Seconds $holdSeconds -ShutdownState $State.ShutdownState
             continue
         }
         # One console line per finished cycle. Between the startup banner and
@@ -3342,7 +3333,7 @@ function Invoke-RunnerOuterLoop {
         }
     }
 }
-Export-ModuleMember -Function `
+Export-ModuleMember -Function Test-YurunaCycleAborted, `
     Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, Invoke-OuterNetworkGit, `
     Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutSeconds, Get-OuterPreambleTimeoutSeconds, Get-OuterProjectUrl, `
     Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoStatusServiceForwarded, `

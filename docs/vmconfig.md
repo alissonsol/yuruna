@@ -63,7 +63,7 @@ handing the result to `genisoimage` (KVM), `hdiutil makehybrid`
 | `CA_CERT_BASE64_PLACEHOLDER` | macos.utm only -- host-fetched CA, base64-embedded | Empty when CA fetch failed; HTTPS apt then bypasses the cache. |
 | `YURUNA_STATUS_SERVICE_IP_PLACEHOLDER` | Best-effort host IP discovery | Becomes `/etc/yuruna/host.env` and the `yuruna-host` `/etc/hosts` entry. |
 | `YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER` | `test/test.config.yml:statusService.port` (default 8080) | Same. |
-| `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_VERSIONS_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` / `YURUNA_NETWORK_BASE64_PLACEHOLDER` / `YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER` | Auto-populated from `Get-YurunaGuestScriptBase64` | The five `automation/*.sh` guest helpers, embedded as base64 `write_files` entries. |
+| `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_VERSIONS_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` / `YURUNA_NETWORK_BASE64_PLACEHOLDER` / `YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER` | Auto-populated from `Get-YurunaGuestScriptBase64` | The five `automation/*.sh` guest helpers, embedded as base64 `write_files` entries. The seeds also install the `yfe` launcher at `/usr/local/bin/yfe`. |
 | `YURUNA_HOST_ID_PLACEHOLDER` | Auto-populated from `$env:YURUNA_RUNTIME_DIR/host.uuid` | The host identity a guest quotes when it has to find its way back to a host whose address moved. Empty when the lab has no pool directory, which is a supported outcome. A caller that already resolved the id (the service-VM seeds) passes it and wins. |
 | `YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER` | Auto-populated from `$env:YURUNA_CACHING_PROXY_SERVICE_IP` | Same locate path; empty when the variable is unset. |
 | `YURUNA_GITHUB_REPO_PLACEHOLDER` / `YURUNA_GITHUB_REF_PLACEHOLDER` / `GH_TOKEN_PLACEHOLDER` / `YURUNA_FRAMEWORK_URL_PLACEHOLDER` / `YURUNA_PROJECT_URL_PLACEHOLDER` | Auto-populated from `Get-YurunaGitHubSource` against `-RepoRoot` | Repo slug + HEAD commit of the checkout this host is serving, the token that opens it when private, and the framework/project clone URLs a guest cut off from the host still needs. Empty fields mean "no GitHub fallback is possible"; templates that do not carry these tokens never consume them. |
@@ -1094,6 +1094,9 @@ All five `automation/*.sh` helpers land in the canonical
   address. Seeded rather than fetched because it is what decides where
   the guest fetches code from.
 
+The Ubuntu and Amazon Linux seeds also install the `yfe` launcher at
+`/usr/local/bin/yfe` from `YURUNA_FETCH_CONTEXT_BASE64_PLACEHOLDER`.
+
 They are read at seed-build time by the host-side `New-VM.ps1`,
 base64-encoded, and embedded as cloud-init `write_files:` content, so
 they are on disk before any provisioning script runs. Single source of
@@ -1168,12 +1171,33 @@ of being lost when the installer drops to a shell.
 Bucket layout on the status service:
 `installer-fail/<hostname>/<UTC-timestamp>/<file>`.
 
+Capture `mounts-at-failure.txt` before the network probes or uploads can delay
+the investigation. It records the installer's mount IDs and propagation, process
+names and wait channels, process references into `/target` (including file
+descriptor mount IDs and relevant mounts in each holder's namespace), the
+target mount tree, mount namespaces, and `fuser` /
+`lsof` candidates for `/target/run`. It never unmounts filesystems or kills their
+holders. Process arguments and environments are omitted. The filesystem-wide
+holder probes can also report users of another bind mount of the same filesystem;
+correlate them with the mount IDs and process references before assigning blame.
+
+Each probe has a three-second timeout, a one-second kill grace period, and a
+128 KiB retained-output limit. Missing tools, nonzero exits, truncation, and
+timeouts are recorded in the snapshot; if `timeout` is unavailable, probes are
+skipped. No packages are installed on the failure path. The capture happens
+after the installer aborts, so a transient holder may already have exited.
+
 Capture the network snapshot before attempting any file upload. The ordinary
 installer logs can be absent, while route state still distinguishes a guest
 that lost its default route from an available route whose remote endpoint
 refused or timed out. Upload `curtin-errors.tar` as well: curtin can preserve
 its useful logs only inside that archive when the separately named files were
 never written.
+
+The error hook also prints `/log/installer-fail/<hostname>/<UTC-timestamp>/` to
+the console. These uploads are separate from the cycle's guest diagnostic
+folder, and remain useful when that diagnostic times out. Open the printed
+bucket directly to retrieve the snapshots and `curtin-errors.tar`.
 
 <a id="429f3d06-0030"></a>
 
@@ -1324,13 +1348,13 @@ squidclient (/usr/bin/squidclient) ships in squid-common (already pulled in by s
 
 Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301); Grafana on :3000 (anonymous Viewer). squid-exporter has no apt package and no stable GitHub release-asset URL, so golang-go is pulled in just long enough to `go install` it; both build tools are purged at the end of runcmd (~400 MB reclaimed). The compiled binary stays.
 
-loki + promtail back the "Recent 100 requests" Grafana panel -- Prometheus stores only aggregates, so per-request client IP / target URL are not available there. Promtail tails /var/log/squid/yuruna_access.log (squid's custom `logformat yuruna` stream) and ships to Loki on localhost:3100. Both come from apt.grafana.com (same repo as grafana) -- no extra source needed.
+loki + alloy back the "Recent 100 requests" Grafana panel -- Prometheus stores only aggregates, so per-request client IP / target URL are not available there. Alloy tails /var/log/squid/yuruna_access.log (squid's custom `logformat yuruna` stream) and ships to Loki on localhost:3100. Both come from apt.grafana.com (same repo as grafana) -- no extra source needed.
 
 <a id="429f3d06-0039"></a>
 
-### Package acl for promtail log read
+### Package acl for alloy log read
 
-acl: needed by the post-zot setfacl step that grants promtail read access on /var/log/zot/zot.log (zot writes mode 0600, so group-read alone isn't enough -- promtail can't tail it without an ACL).
+acl: needed by the post-zot setfacl step that grants alloy read access on /var/log/zot/zot.log (zot writes mode 0600, so group-read alone isn't enough -- alloy can't tail it without an ACL).
 
 <a id="429f3d06-003a"></a>
 
@@ -1372,7 +1396,7 @@ unattended-upgrades enable flags. Both timers (apt-daily.timer + apt-daily-upgra
 
 ### Pool intent store over read-only HTTP
 
-Pool intent store: serve the bare git repo READ-ONLY over the LAN via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull http://<proxy>/pool-intent.git to learn pool membership + desiredState. The repo holds only NON-SECRET intent (pools.yml / test-sets / guests.compatibility); writes go through the admin CLI on the proxy (a local/file:// path), never this HTTP route. RFC1918 only, mirroring the cachemgr access policy.
+Pool intent store: serve the bare git repo READ-ONLY over the LAN via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull http://<proxy>/pool-intent.git to learn pool membership, desiredState and each pool's repositories. The repo holds only NON-SECRET intent (pools.yml / guests.compatibility.yml); writes go through the admin CLI on the proxy (a local/file:// path), never this HTTP route. RFC1918 only, mirroring the cachemgr access policy.
 
 The `Alias` points at the pool NAS, not a proxy-local copy: the pool-control-service daemon runs on its own VM and can only PUSH to a location it mounts, and this share is the one both it and this proxy mount read-write. Pointing apache at the same bytes keeps one store, so an operator writing intent in the UI and a runner pulling it cannot diverge. The route 404s while the NAS is unmounted, which is the honest answer; a stale local copy would hide the outage from every runner.
 
@@ -1607,24 +1631,24 @@ An optional `-ProxyAddress` overrides the configured caching-proxy address. The 
 
 ### Loki tiered retention
 
-Loki: loopback-only (same 0.0.0.0 default as Prometheus). Tiered retention: 30d for transitions (src=cycle) + incidents (src=incident) -- the dashboard's count_over_time Pass/Fail + incident history span a month -- and 7d for per-step events (src=event), the recent-focused drill-down (caps disk). Pre-written here because cloud-init's --force-confold preserves it through package upgrades.
+The seed binds Loki to 127.0.0.1:3100 and Prometheus to 127.0.0.1:9090, overriding their 0.0.0.0 defaults. Tiered retention: 30d for transitions (src=cycle) + incidents (src=incident) -- the dashboard's count_over_time Pass/Fail + incident history span a month -- and 7d for per-step events (src=event), the recent-focused drill-down (caps disk). Pre-written here because cloud-init's --force-confold preserves it through package upgrades.
 
 <a id="429f3d06-0048"></a>
 
-### Promtail timestamp only labels
+### Alloy timestamp only labels
 
-Promtail: only timestamp in labels (client IP/URL in labels = stream explosion); positions.yaml on disk so reboots don't re-tail; /var/lib/promtail created in runcmd because the deb postinst doesn't always create it.
+Alloy sets a `job` label for each source and parses event timestamps without labeling client IPs or URLs. The seed pins 1.20.0, validates `/etc/alloy/config.alloy`, stops the legacy Promtail service, and imports its saved offsets once. Persistent Alloy component state prevents replay after restart. See [collector migration](caching.md#loki--alloy-boot-order-traps).
 
 **Keep zot sync errors.** The JSON stage can encounter sync-extension records without an HTTP `path`; those records explain upstream retry and failure delays even when the eventual manifest request logs a successful response. The template supplies `NO_HTTP_PATH` for missing paths, and the drop stage removes only `/metrics` self-scrapes. The sentinel is retained, not dropped, so slow successful requests keep their underlying failure evidence.
 
 <a id="429f3d06-0049"></a>
 
-### Promtail supplementary groups drop-in
+### Alloy supplementary groups drop-in
 
-Promtail drop-in: SupplementaryGroups grants read on the upstream access logs:
+Alloy drop-in: SupplementaryGroups grants read on the upstream access logs:
 - proxy:  /var/log/squid/yuruna_access.log (proxy:proxy 640)
 - zot:    /var/log/zot/zot.log             (zot:zot     640)
-Can't use Group= -- the promtail postinst falls back to `nogroup` (no `promtail` group created), so referencing it would fail.
+The service runs as the package's `alloy` user; retain both supplementary groups and the Zot file/default ACLs.
 
 <a id="429f3d06-004a"></a>
 
@@ -1738,7 +1762,7 @@ Beyond the datasource rebind above, the rewriter carries a numbered repair pass.
 
 **5.7) Label-equality to label-regex for multi+includeAll variables.** Upstream 20501 ships the HTTP Method Latency heatmap with `zot_http_method_latency_seconds_bucket{method="$http_method"}` while `http_method` is declared `multi: true, includeAll: true, hide: 2`. With Grafana's default URL (`var-http_method=$__all`) and Prometheus's pipe formatter, `$http_method` substitutes to `GET|HEAD` -- but `method="GET|HEAD"` is a LITERAL string equality and returns zero series, so the heatmap renders "No data" forever, and `hide: 2` removes the toolbar dropdown so a user cannot reach a working state by hand. The pass walks every panel expression and switches `label="$var"` to `label=~"$var"` for each multi+all variable in the dashboard, covering future ones used in `=` position too.
 
-**Storage lock latency panel replacement.** The upstream "Storage lock latency" heatmap (panel 47) does not render under Grafana 13: the Prometheus data path returns valid `le`-labeled frames, but the legacy-heatmap migration leaves this panel blank, and neither stripping its `repeat: "storageName"`, nor normalizing `target.format` to heatmap, nor cloning render fields from a working sibling heatmap (panel 30) fixes it. The rewriter REPLACES the panel with a timeseries showing P50/P90/P99 of the same metric via `histogram_quantile`, split by `lockType`: strictly more informative (the numbers are readable off the legend), and timeseries is Grafana's most battle-tested panel type. Panels are matched by query content, not panel id, so an upstream re-numbering does not break this.
+**Storage lock latency panel replacement.** The upstream "Storage lock latency" heatmap (panel 47) does not render under Grafana 13: the Prometheus data path returns valid `le`-labeled frames, but the legacy-heatmap migration leaves this panel blank, and neither stripping its `repeat: "storageName"`, nor normalizing `target.format` to heatmap, nor cloning render fields from a working sibling heatmap (panel 30) fixes it. The rewriter REPLACES the panel with a timeseries showing P50/P90/P99 of the same metric via `histogram_quantile`, split by `lockType`: strictly more informative (the numbers are readable off the legend), and timeseries is Grafana's most battle-tested panel type. Panels are matched by query content, not panel id, so an upstream renumbering does not break this.
 
 The installer marks the imported board with the `community` tag, which the brand stamper reads. The rewritten stable `yuruna-` UID identifies the dashboard but cannot distinguish upstream content from a Yuruna-authored board.
 
@@ -1780,7 +1804,7 @@ Yuruna hosts dashboard. INLINED (like squid.json) so it deploys from the local u
 
 ### Yuruna hosts dashboard panel autofit
 
-Panel heights are fixed in dashboard JSON, and one fixed height per row does not scale across pool sizes. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting (Prometheus + Loki on loopback), recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. Only the three per-host panels move: the summary tiles across the top -- including "Lab token" (panel id 18), which folds in the collector's own health -- are a fixed 4 units tall and the stack starts at their bottom edge, read off the dashboard rather than assumed, because [the brand banner](#grafana-dashboard-brand-tile) sits above them and moves them down. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
+Panel heights are fixed in dashboard JSON, and one fixed height per row does not scale across pool sizes. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting through Prometheus on loopback, recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. Only the three per-host panels move: the summary tiles across the top -- including "Lab token" (panel id 18), which folds in the collector's own health -- are a fixed 4 units tall and the stack starts at their bottom edge, read off the dashboard rather than assumed, because [the brand banner](#grafana-dashboard-brand-tile) sits above them and moves them down. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
 
 <a id="429f3d06-0057"></a>
 
@@ -1824,7 +1848,7 @@ Runs zot as an unprivileged service user with ProtectSystem=strict + ReadWritePa
 
 networkStorage pool (ypool-nas) service replication: config + SMB credential + the timer-driven rsync of observability data to the NAS. All values are baked by New-VM.ps1 from the host's networkStorage pool config + vault (empty / REPLICATE=false when off).
 
-The replication job copies Loki, Prometheus, and Grafana observability data into `<mount>/hosts/<hostId>/services/caching-proxy-service/`, beside the host's `test-cycles/` directory. Rebuildable Squid/zot caches and Promtail's tail cursor are excluded. The job is best effort and publishes mount/copy status at `/ypool-nas-status` for diagnosis without SSH. Older `<hostId>/services/` roots are not read automatically; recovery from them is a manual operation described in [pool storage](pool-storage.md).
+The replication job copies Loki, Prometheus, and Grafana observability data into `<mount>/hosts/<hostId>/services/caching-proxy-service/`, beside the host's `test-cycles/` directory. Rebuildable Squid/zot caches and Alloy's tail cursor are excluded. The job is best effort and publishes mount/copy status at `/ypool-nas-status` for diagnosis without SSH. Older `<hostId>/services/` roots are not read automatically; recovery from them is a manual operation described in [pool storage](pool-storage.md).
 
 `yuruna-config-fetch.sh pool` owns the mount and rotated mTLS-fetched credential. Replication triggers a best-effort refresh before checking `mountpoint -q`; `findmnt --target` can incorrectly accept the enclosing root filesystem when the NAS itself is not mounted.
 
@@ -1879,7 +1903,7 @@ Four traps this script encodes:
   -- known-good by construction.
 - **No `iocharset=utf8`.** `nls_utf8` is absent on the minimal cloud
   kernel and the mount fails with `error(79)`. The on-disk names are
-  ASCII, so the option is simply omitted.
+  ASCII, so the option is omitted.
 
 `printf %s` writes the password literally, with no shell re-parsing, so
 vault special characters survive into the cifs credentials file intact.
@@ -2086,7 +2110,7 @@ Armed here, primed after the zot install below: a first run against a registry t
 
 ### Enable caching-proxy-parser service
 
-caching-proxy-parser-service fails closed (the binary may not be present if the build above failed); `|| true` keeps the rest of runcmd going so loki+promtail+grafana still come up.
+caching-proxy-parser-service fails closed (the binary may not be present if the build above failed); `|| true` keeps the rest of runcmd going so loki+alloy+grafana still come up.
 
 <a id="429f3d06-0078"></a>
 
@@ -2142,9 +2166,9 @@ networkStorage pool (ypool-nas) service replication: enable the timer only when 
 
 <a id="429f3d06-007f"></a>
 
-### Verify promtail supplementary groups
+### Verify alloy supplementary groups
 
-Verify promtail picked up BOTH supplementary groups. The drop-in writes "SupplementaryGroups=proxy zot"; missing either keeps the corresponding Recent-100 panel empty. The check must verify each group explicitly: grepping only for `proxy` lets a missing `zot` group slip past observability.
+Verify alloy picked up BOTH supplementary groups. The drop-in writes "SupplementaryGroups=proxy zot"; missing either keeps the corresponding Recent-100 panel empty. The check must verify each group explicitly: grepping only for `proxy` lets a missing `zot` group slip past observability.
 
 <a id="429f3d06-0080"></a>
 
@@ -2253,7 +2277,7 @@ A **mismatch aborts** the install and leaves nothing behind. A hashes file that 
 
 ### Fido pinned tag and hash
 
-Fido is pinned to the same tagged release and verified against the same SHA-256 the host scripts pin (`host/*/guest.windows.11/Get-Image.ps1`). Fido runs with the daemon's privileges, so an unpinned moving ref would be an unchecked remote-code hop; a hash mismatch therefore leaves **no file behind** rather than an unverified one.
+Fido is pinned to the same tagged release and verified against the same SHA-256 the macOS and Hyper-V host scripts pin (`host/macos.utm/guest.windows.11/Get-Image.ps1` and `host/windows.hyper-v/guest.windows.11/Get-Image.ps1`). Fido runs with the daemon's privileges, so an unpinned moving ref would be an unchecked remote-code hop; a hash mismatch therefore leaves **no file behind** rather than an unverified one.
 
 Like the PowerShell step this is best effort, and the step's last line names the resulting state outright -- because "the agent never serves Windows 11" and "the agent is fine, this lab just has no Fido" look identical from a host.
 
@@ -2513,6 +2537,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

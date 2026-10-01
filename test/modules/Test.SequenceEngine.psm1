@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -341,7 +341,7 @@ function Find-TextLocation {
     Import-Module (Join-Path $modulesDir "Test.Tesseract.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
 
     try {
-        $boxes = Get-TesseractWordBox -ImagePath $ImagePath
+        $boxes = @(Get-TesseractWordBox -ImagePath $ImagePath | ForEach-Object { $_ })
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_afe15df7c41fff0a' -Arguments @{ value = "$_" })
         return $null
@@ -970,6 +970,54 @@ function Test-RecentOcrFramesMatch {
     return $true -in $engineMatches
 }
 
+function Save-EngineOcrSidecar {
+    <#
+    .SYNOPSIS
+        Save each engine's text and match status beside its captured frame.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ScreenshotPath, [Parameter(Mandatory)]$EngineResults,
+        [switch]$VerboseSummary)
+    $sections = [Collections.Generic.List[string]]::new()
+    foreach ($name in $EngineResults.Keys) {
+        $engine = $EngineResults[$name]
+        $text = [string]$engine.Text
+        $status = if ($engine.Matched) { "MATCH '$($engine.MatchedPattern)'" } else { 'no match' }
+        if ($VerboseSummary) {
+            $snippet = if ($text.Length -le 120) { $text } else { '...' + $text.Substring($text.Length - 120) }
+            Write-Verbose "      [$name] $status | $snippet"
+        }
+        $sections.Add("== $name ($status) ==")
+        $sections.Add($text)
+        $sections.Add('')
+    }
+    Save-OcrSidecar -ScreenshotPath $ScreenshotPath -Sections $sections
+}
+
+function Set-OcrMatchSinceStepStart {
+    <#
+    .SYNOPSIS
+        Re-decide OCR against newly printed lines without filtering diagnostic evidence.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Updates only in-memory OCR observations; no external state is changed.')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)]$Result, [Parameter(Mandatory)][string[]]$Pattern,
+        [Parameter(Mandatory)][ref]$Baseline, [int]$TailLines, [switch]$NoSegmentMatch,
+        [switch]$RequireCombinedMatch)
+    if ($null -eq $Baseline.Value) { $Baseline.Value = [string[]]@(Get-ConsoleLineSignature -Text ([string]$Result.AnyText)) }
+    $text = Select-ConsoleTextSinceBaseline -Text ([string]$Result.AnyText) -BaselineSignature $Baseline.Value -TailLines $TailLines
+    $matched = $false
+    if ($text) {
+        foreach ($candidate in $Pattern) {
+            if (Test-OCRMatch -Text $text -Pattern $candidate -NoSegmentMatch:$NoSegmentMatch) { $matched = $true; break }
+        }
+    }
+    if ($Result.Match -and -not $matched) { Write-Verbose 'The sought text is present only in the step-start baseline; still waiting.' }
+    $Result.Match = $matched -and (-not $RequireCombinedMatch -or $Result.Match)
+    return @{ Match = $matched; Text = $text }
+}
+
 function Wait-ForText {
     <#
     .SYNOPSIS
@@ -996,6 +1044,8 @@ function Wait-ForText {
     .OUTPUTS
         [bool] $true on positive match; $false on timeout or anti-pattern hit.
     #>
+    [CmdletBinding()]
+    [OutputType([bool])]
     param(
         # HostType is accepted but ignored at the dispatch level: the
         # host driver's own Get-VMScreenshot resolves the per-host
@@ -1142,7 +1192,7 @@ function Wait-ForText {
     # Test-CombinedOcrMatch call crashes with "Get-EnabledOcrProvider is not
     # recognized".
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Global -ErrorAction SilentlyContinue -Verbose:$false
 
     $enabledEngines = Get-EnabledOcrProvider
     $combineMode = Get-OcrCombineMode
@@ -1210,6 +1260,7 @@ function Wait-ForText {
     # keystroke. Consumed unconditionally, even by a wait that will not use it,
     # so it can only ever describe the wait immediately before this one.
     $carriedBaseline = Get-CarriedConsoleBaseline -VMName $VMName
+    $earlyBaseline = $carriedBaseline
     if ($SinceStepStart -and $carriedBaseline) {
         $sinceBaseline = $carriedBaseline
         Write-Verbose "      Wait-ForText: carrying $($sinceBaseline.Count) console line(s) from the previous wait as the baseline; '$($Pattern[0])' will be matched against anything printed since then."
@@ -1302,13 +1353,7 @@ function Wait-ForText {
             # OCR output (per-engine sections, written further below).
             # Delete the .txt whenever we evict its .png so the two stay
             # in lockstep -- otherwise orphan .txt files accumulate.
-            $rawQueue.Enqueue($rawScreenPath)
-            while ($rawQueue.Count -gt $historySize) {
-                $evict = $rawQueue.Dequeue()
-                $txtSibling = [System.IO.Path]::ChangeExtension($evict, '.txt')
-                Remove-Item -Path $evict -Force -ErrorAction SilentlyContinue
-                if (Test-Path $txtSibling) { Remove-Item -Path $txtSibling -Force -ErrorAction SilentlyContinue }
-            }
+            Add-OcrHistoryFrame -Queue $rawQueue -Path $rawScreenPath -Limit $historySize
 
             # OCR is fed the raw capture as-is -- no preprocessing. Do not
             # reintroduce a vertical-line / grayscale / invert / contrast-
@@ -1323,17 +1368,7 @@ function Wait-ForText {
                     # -- FreshMatch mode: only check the last N lines --
                     $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines -NoSegmentMatch:$NoSegmentMatch
 
-                    $ocrSections = [System.Collections.Generic.List[string]]::new()
-                    foreach ($eName in $result.EngineResults.Keys) {
-                        $er = $result.EngineResults[$eName]
-                        $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
-                        $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
-                        Write-Verbose "      [$eName] $status | $snippet"
-                        $ocrSections.Add("== $eName ($status) ==")
-                        $ocrSections.Add($er.Text)
-                        $ocrSections.Add('')
-                    }
-                    Save-OcrSidecar -ScreenshotPath $rawScreenPath -Sections $ocrSections
+                    Save-EngineOcrSidecar -ScreenshotPath $rawScreenPath -EngineResults $result.EngineResults -VerboseSummary
 
                     if ($result.AnyText) { $lastOcrText = $result.AnyText }
                     $lastEngineResults = $result.EngineResults
@@ -1345,24 +1380,7 @@ function Wait-ForText {
                     # failure artifacts and the stall detectors all need the
                     # screen as it actually is.
                     if ($SinceStepStart) {
-                        # Filtering the very frame the baseline was taken from
-                        # leaves nothing, by construction -- which is exactly
-                        # right: that frame IS what was already there.
-                        if ($null -eq $sinceBaseline) {
-                            $sinceBaseline = [string[]]@(Get-ConsoleLineSignature -Text ([string]$result.AnyText))
-                            Write-Verbose "      Wait-ForText: $($sinceBaseline.Count) console line(s) were already on screen; '$patternLabel' will be matched only against lines printed after this."
-                        }
-                        $matchText = Select-ConsoleTextSinceBaseline -Text ([string]$result.AnyText) -BaselineSignature $sinceBaseline -TailLines $sinceTailLines
-                        $sinceMatch = $false
-                        if ($matchText) {
-                            foreach ($p in $Pattern) {
-                                if (Test-OCRMatch -Text $matchText -Pattern $p -NoSegmentMatch:$NoSegmentMatch) { $sinceMatch = $true; break }
-                            }
-                        }
-                        if ($result.Match -and -not $sinceMatch) {
-                            Write-Verbose "      Wait-ForText: '$patternLabel' reads somewhere on screen, but on no line printed since this step began -- still waiting."
-                        }
-                        $result.Match = $sinceMatch -and ($combineMode -ne 'And' -or $result.Match)
+                        $null = Set-OcrMatchSinceStepStart -Result $result -Pattern $Pattern -Baseline ([ref]$sinceBaseline) -TailLines $sinceTailLines -NoSegmentMatch:$NoSegmentMatch -RequireCombinedMatch:($combineMode -eq 'And')
                     }
 
                     if ($result.Match) {
@@ -1374,17 +1392,7 @@ function Wait-ForText {
                     # -- Non-FreshMatch mode: accumulate text, check for pattern --
                     $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -NoSegmentMatch:$NoSegmentMatch
 
-                    $ocrSections = [System.Collections.Generic.List[string]]::new()
-                    foreach ($eName in $result.EngineResults.Keys) {
-                        $er = $result.EngineResults[$eName]
-                        $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
-                        $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
-                        Write-Verbose "      [$eName] $status | $snippet"
-                        $ocrSections.Add("== $eName ($status) ==")
-                        $ocrSections.Add($er.Text)
-                        $ocrSections.Add('')
-                    }
-                    Save-OcrSidecar -ScreenshotPath $rawScreenPath -Sections $ocrSections
+                    Save-EngineOcrSidecar -ScreenshotPath $rawScreenPath -EngineResults $result.EngineResults -VerboseSummary
 
                     # Re-decide the combiner's verdict against the step-start
                     # baseline, rather than handing the combiner a filtered
@@ -1392,26 +1400,8 @@ function Wait-ForText {
                     # else this loop does with it: the anti-pattern scan, the
                     # failure artifacts and the stall detectors all need the
                     # screen as it actually is.
-                    $matchText = [string]$result.AnyText
                     if ($SinceStepStart) {
-                        # Filtering the very frame the baseline was taken from
-                        # leaves nothing, by construction -- which is exactly
-                        # right: that frame IS what was already there.
-                        if ($null -eq $sinceBaseline) {
-                            $sinceBaseline = [string[]]@(Get-ConsoleLineSignature -Text ([string]$result.AnyText))
-                            Write-Verbose "      Wait-ForText: $($sinceBaseline.Count) console line(s) were already on screen; '$patternLabel' will be matched only against lines printed after this."
-                        }
-                        $matchText = Select-ConsoleTextSinceBaseline -Text ([string]$result.AnyText) -BaselineSignature $sinceBaseline -TailLines $sinceTailLines
-                        $sinceMatch = $false
-                        if ($matchText) {
-                            foreach ($p in $Pattern) {
-                                if (Test-OCRMatch -Text $matchText -Pattern $p -NoSegmentMatch:$NoSegmentMatch) { $sinceMatch = $true; break }
-                            }
-                        }
-                        if ($result.Match -and -not $sinceMatch) {
-                            Write-Verbose "      Wait-ForText: '$patternLabel' reads somewhere on screen, but on no line printed since this step began -- still waiting."
-                        }
-                        $result.Match = $sinceMatch
+                        $null = Set-OcrMatchSinceStepStart -Result $result -Pattern $Pattern -Baseline ([ref]$sinceBaseline) -TailLines $sinceTailLines -NoSegmentMatch:$NoSegmentMatch
                     }
 
                     if ($result.AnyText) {
@@ -1594,6 +1584,7 @@ function Wait-ForText {
             # and keeps the full matcher; these are matched against every guest
             # in the fleet, so they are held to evidence that sits on one line.
             $strictFailurePattern = @{}
+            if ($null -eq $earlyBaseline) { $earlyBaseline = [string[]]@(Get-ConsoleLineSignature -Text $lastOcrText) }
             if ($EarlyFailurePattern.Count -gt 0 -and $elapsed -le $EarlyFailureSeconds) {
                 foreach ($efp in $EarlyFailurePattern) {
                     $activeFailurePattern += $efp
@@ -1603,7 +1594,10 @@ function Wait-ForText {
             if ($activeFailurePattern.Count -gt 0 -and $lastOcrText) {
                 foreach ($fp in $activeFailurePattern) {
                     if ([string]::IsNullOrWhiteSpace($fp)) { continue }
-                    if (Test-OCRMatch -Text $lastOcrText -Pattern $fp -NoSegmentMatch:([bool]$strictFailurePattern[$fp])) {
+                    $failureText = if ($strictFailurePattern[$fp]) {
+                        Select-ConsoleTextSinceBaseline -Text $lastOcrText -BaselineSignature $earlyBaseline
+                    } else { $lastOcrText }
+                    if (Test-OCRMatch -Text $failureText -Pattern $fp -NoSegmentMatch:([bool]$strictFailurePattern[$fp])) {
                         $script:Fail.WaitForTextMatchedFailurePattern = $fp
                         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_62980faa8cb2736d' -Arguments @{ fp = "$fp"; elapsed = "${elapsed}"; timeoutSeconds = "${TimeoutSeconds}" })
                         if ($lastCapturePath -and (Test-Path $lastCapturePath)) {
@@ -1846,7 +1840,7 @@ function Wait-ForConsoleChange {
     if ($HostType) { Write-Debug "Wait-ForConsoleChange: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     if (-not (Get-Command Get-EnabledOcrProvider -ErrorAction SilentlyContinue)) {
-        Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+        Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Global -ErrorAction SilentlyContinue -Verbose:$false
     }
     $baseline  = Get-ConsoleTextSignature -Text $BaselineText
     # Same guarded re-assert Wait-ForText makes: a nested -Force import elsewhere
@@ -2075,15 +2069,25 @@ function Select-SequenceStepWindow {
     return @($Steps[($from - 1)..($to - 1)])
 }
 
-# The VM name in effect when the most recent Invoke-Sequence returned, including
-# a mid-sequence saveDiskSnapshot rename. Chain callers read this after each
-# sequence so the next one targets the renamed VM -- one shared mechanism for
-# both the inner runner's Start-Guest* loops and Debug-TestSequence's chain runner.
+function Get-ScreenHistorySize {
+    <#
+    .SYNOPSIS
+        Returns the bounded screen history size used by the sequence engine.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+    return [Math]::Clamp([int]$script:DefaultScreenHistorySize, 1, 240)
+}
+
 function Get-SequenceFinishedVMName {
     <#
     .SYNOPSIS
         Returns the VM name in effect when the most recent Invoke-Sequence
         returned, including any mid-sequence saveDiskSnapshot rename.
+    .DESCRIPTION
+        Chain callers read this after each sequence so the next one targets
+        the renamed VM in both the inner runner and Debug-TestSequence.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -2813,7 +2817,7 @@ function Invoke-Sequence {
                 # /yuruna-repo). fetchAndExecute/sshFetchAndExecute use it to
                 # hash the working-tree copy of the script the guest is about to
                 # fetch, so the guest can verify the bytes before running them.
-                RepoRoot              = $repoRoot
+                RepoRoot              = $script:repoRoot
                 ExpandVariable        = ${function:Expand-Variable}
                 # Step-default param resolution lives in each handler
                 # scriptblock; these mirror the engine's $script:Default*
@@ -3049,21 +3053,14 @@ function Invoke-Sequence {
     $script:Fail.WaitForTextPatternsSought     = [string[]]@()
     $result = & $invokeStepBlock -Steps $steps -StepOffset ([Math]::Max(0, $StartStep - 1))
     if (-not $result) {
-        # Capture a screenshot now unless the failed verb already saved one
-        # in its own failure path (avoids overwriting the verb's richer,
-        # in-context frame with a later capture). Which verbs self-capture
-        # is declared per-verb via the CapturesOwnFailureScreenshot registry
-        # flag (Register-SequenceAction), so a new self-capturing verb opts
-        # out here at its registration rather than editing this engine site.
-        # Use the DEEPEST failed action's name -- after retry-exhausted, that's the inner
-        # action, not 'retry' itself.
-        $failedVerbSelfCaptures = $false
-        if (-not [string]::IsNullOrEmpty([string]$script:Fail.LastFailedAction)) {
-            $failedVerbEntry = Get-SequenceAction -Name ([string]$script:Fail.LastFailedAction)
-            if ($failedVerbEntry) { $failedVerbSelfCaptures = [bool]$failedVerbEntry.CapturesOwnFailureScreenshot }
-        }
-        if (-not $failedVerbSelfCaptures) {
-            $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
+        # Keep the exact frame saved by the failed attempt; recapture only
+        # when no frame from this step exists.
+        $VMName = [string]$script:SequenceFinishedVMName
+        $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
+        $failureScreen = Get-Item -LiteralPath $failScreenPath -ErrorAction SilentlyContinue
+        $freshFailureScreen = $failureScreen -and $script:Fail.LastFailedStepStartedUtc -and
+            $failureScreen.LastWriteTimeUtc -ge $script:Fail.LastFailedStepStartedUtc
+        if (-not $freshFailureScreen) {
             $captured = Get-VMScreenshot -VMName $VMName -OutFile $failScreenPath
             # Confirm the file landed before advertising it: Get-VMScreenshot can
             # report truthy without writing the file, so verify it is on disk
@@ -3178,6 +3175,7 @@ function Invoke-Sequence {
     # weight, since the remediation dispatcher already maps 'unknown' to
     # pause-and-inspect.
     try {
+        $VMName = [string]$script:SequenceFinishedVMName
         $failRec = New-SequenceFailureRecord -Reason 'crash' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $sourceStepCount -CrashError $_
         # Atomic, best-effort: a reader must never see a truncated crash record.
         $null = Write-YurunaStateFile -Path (Join-Path $logDir "last_failure.json") -Content ($failRec.File | ConvertTo-Json -Depth 6) -Confirm:$false
@@ -3229,8 +3227,8 @@ function Invoke-Sequence {
 # failure-state store. -- Test.SequenceEngine.psm1
 
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
-    Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Save-OcrSidecar, Write-ProgressTick, `
-    Select-SequenceStepWindow, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
+    Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Save-EngineOcrSidecar, Save-OcrSidecar, Write-ProgressTick, `
+    Select-SequenceStepWindow, Get-ScreenHistorySize, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
     Get-ConsoleFloodVerdict, Invoke-GuestSequenceList, Get-ConsoleTextSignature, `
     Get-ConsoleLineSignature, Select-ConsoleTextSinceBaseline, `
     Set-CarriedConsoleBaseline, Get-CarriedConsoleBaseline, Clear-CarriedConsoleBaseline, `

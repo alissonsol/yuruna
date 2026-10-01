@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -86,11 +86,6 @@ __yhl_livecheck() {
 }
 
 # --- REGION: https://yuruna.link/4220a755-0030
-# Refuse an address that is wrong on its face, before spending a probe on
-# it. A directory answer is a claim from another machine about where a third
-# machine lives; loopback and link-local are the two forms that would
-# resolve locally and appear to work while pointing at nothing -- loopback
-# at this guest itself, link-local at whatever answers first on the segment.
 # Coordinates become shell assignments in host.env. Accept only literal
 # dotted IPv4 and a decimal TCP port before any persistence or export.
 __yhl_valid_endpoint() {
@@ -105,6 +100,9 @@ __yhl_valid_endpoint() {
 
 __yhl_plausible() {
     local url="$1" hostpart port
+    # A directory answer claims where another machine lives. Reject loopback
+    # and link-local before probing: both may appear to work at this guest
+    # while pointing somewhere other than the host.
     # The directory advertises an origin, never userinfo, paths, queries or
     # fragments. Even a reachable URL is untrusted input to the shell file.
     [[ "$url" =~ ^https?://([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]{1,5})?/?$ ]] || return 1

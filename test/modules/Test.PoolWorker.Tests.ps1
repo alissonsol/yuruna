@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42297400-7548-4b09-b1c9-29bdec98ce18
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,8 +22,7 @@
     service VMs a standalone-to-worker conversion retires, which hosts-file
     aliases it drops, and whether the end state is actually a worker.
 .DESCRIPTION
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4 and
-    Pester 5+. Every rule under test takes its facts as parameters, so no
+    Throw-based assertions so the file runs under Pester 5+. Every rule under test takes its facts as parameters, so no
     hypervisor, no reference host, and no lab are required.
 
     The cases that matter most are the REFUSALS. Each rule here guards a failure

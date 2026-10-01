@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f0b9d3-7c48-4a21-b5e6-08c9d13f7a25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,9 @@
 
     It also checks the record against itself. The totals block is what a release
     report quotes, so a totals line that does not equal the sum of the per-suite
-    entries is a report that says something the evidence does not.
+    entries is a report that says something the evidence does not. Optional
+    platformTotal floors and timeoutSeconds values must be positive whole
+    numbers; platform names must be known.
 
     This gate DISCOVERS; it does not run the tests. Discovery is the runner's
     own `-ListOnly` path, so there is one definition of what a suite is rather
@@ -168,6 +170,33 @@ if ($baseline.totals) {
     }
 } else {
     $findings.Add('the baseline records no totals, so a release report has nothing to quote')
+}
+
+# Two optional row fields are edited by hand and read by every run of the runner: a
+# per-platform test-count floor and a per-suite timeout. A malformed one has to fail
+# here, not as a runner crash on a host nobody was watching.
+function Test-PositiveCount {
+    param($Value)
+    return (($Value -is [int] -or $Value -is [long]) -and $Value -ge 1)
+}
+foreach ($property in $baseline.suites.PSObject.Properties) {
+    $row = $property.Value
+    if ($row.PSObject.Properties['platformTotal']) {
+        if ($row.platformTotal -isnot [Management.Automation.PSCustomObject]) {
+            $findings.Add("$($property.Name): platformTotal is not an object of per-platform floors")
+        } else {
+            foreach ($floor in $row.platformTotal.PSObject.Properties) {
+                if ($floor.Name -cnotin @('windows', 'linux', 'macos')) {
+                    $findings.Add("$($property.Name): platformTotal names an unknown platform '$($floor.Name)' (windows, linux or macos)")
+                } elseif (-not (Test-PositiveCount $floor.Value)) {
+                    $findings.Add("$($property.Name): platformTotal.$($floor.Name) is not a positive whole number")
+                }
+            }
+        }
+    }
+    if ($row.PSObject.Properties['timeoutSeconds'] -and -not (Test-PositiveCount $row.timeoutSeconds)) {
+        $findings.Add("$($property.Name): timeoutSeconds is not a positive whole number")
+    }
 }
 
 if ($findings.Count -eq 0) {

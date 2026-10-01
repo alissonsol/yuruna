@@ -4,9 +4,9 @@
   "locale": "zh-CN",
   "messages": {
     "runner.assigned_project_denied": {
-      "sourceHash": "973aad94da3ad2ca808b76cd97b1acc2ba3767b11893cd09c957c296a7844dc1",
+      "sourceHash": "d7b901eea3b94371f397dda3e8223826f398314ff2b25fa6ebd93fcb2be60700",
       "origin": "machine",
-      "message": "池分配了此宿主机无法读取的项目。\n  项目：{project}\n  分配来源：池“{pool}”，测试集“{testSet}”\n  git：{detail}\n  解决方法（二选一）：授予此宿主机的GH_TOKEN访问该仓库的权限，\n                或将池重新分配给所有成员都能读取的项目。"
+      "message": "池分配了此宿主机无法读取的项目。\n  项目：{project}\n  分配来源：池“{pool}”\n  git：{detail}\n  解决方法（二选一）：授予此宿主机的GH_TOKEN访问该仓库的权限，\n                或将池的项目 URL 设置为所有成员都能读取的仓库。"
     },
     "runner.boot_recovery_preserved_controls": {
       "sourceHash": "a641900f3f6d83251042f9608e88e23a3b0bbc889b80f7f0479d5dd3321359ac",
@@ -1053,11 +1053,6 @@
       "origin": "machine",
       "message": "存在“statusService”块（enabled={enabled}，port={port}）。"
     },
-    "runner.operator_05b0d534849b3a19": {
-      "sourceHash": "242094501599eafc87901bc69a2805010c96204e581b43e8869dbd268b9d896f",
-      "origin": "machine",
-      "message": "池：测试集“{name}”没有序列；正在跳过。"
-    },
     "runner.operator_05c7282e24926d99": {
       "sourceHash": "4a5262a13370e605bd2d79b6ae5012812be03664181dbd1b1b67d13811bff8a1",
       "origin": "machine",
@@ -1178,11 +1173,6 @@
       "origin": "machine",
       "message": "无法重写{serviceName}服务命令行（sc.exe退出码{code}）；将保留原有收集器。"
     },
-    "runner.operator_09419d31a82de2e4": {
-      "sourceHash": "0d1589533a69e84cf47a305256509a973fcaee89f07b604d4304a834485b2f4d",
-      "origin": "machine",
-      "message": "池：找不到测试集清单：{path}"
-    },
     "runner.operator_097d3c2b155e207c": {
       "sourceHash": "7e385b1005fa50fc6ddace1864b204bc6e5fa2f6845d2835f48197f89dc6dd5a",
       "origin": "machine",
@@ -1298,11 +1288,6 @@
       "origin": "machine",
       "message": "  已将损坏的副本保存在：{dst}"
     },
-    "runner.operator_1ee49d169ec618ee": {
-      "sourceHash": "b422648d85d2a97c0085c331366420fb9609d3d1fb3dc86a7b9f59d0b2b4b683",
-      "origin": "machine",
-      "message": "test.runner.yml：正在跳过缺少'name'的testSets条目。"
-    },
     "runner.operator_1eeace18e9071c6f": {
       "sourceHash": "a96bc55d17bac41bd9512b0c46fc10746f1dd112660376b7ef29a509452ce78c",
       "origin": "machine",
@@ -1402,11 +1387,6 @@
       "sourceHash": "fe5fed867bd3ddfaacfeb41f0954d01ace4b6a73a4842e0be06f61036c5fd85f",
       "origin": "machine",
       "message": "［外层周期{cycle}］池desiredState=paused——正在等待（未启动周期）。"
-    },
-    "runner.operator_217d530848e4cda8": {
-      "sourceHash": "9e20a12a797add74bcfcc85c44f8cb493f615843a0279ab982d565d985ce8849",
-      "origin": "machine",
-      "message": "test.runner.yml：正在跳过非映射类型的testSets条目。"
     },
     "runner.operator_218ebb2c80a76597": {
       "sourceHash": "9429b9adaf33cd0f3a033babd3e3d13e72ea0aba88bb31a3a29d8794945226be",
@@ -2633,11 +2613,6 @@
       "origin": "machine",
       "message": "Send-YurunaNotification失败：{value}"
     },
-    "runner.operator_1d0a3ac35890db97": {
-      "sourceHash": "75f45dd5a71c89a04ebb4b78476a8c6ebea1462420f29bd17fb3646019a0d5d9",
-      "origin": "machine",
-      "message": "池：测试集“{name}”的provisioning.betweenSets='{between}'尚未实现；按'none'处理。"
-    },
     "runner.operator_1d0efcf0a84c0f0f": {
       "sourceHash": "4048e425525c4bc697c2220257c03b2e4ce76f0f8226714c58a520cd3448c0aa",
       "origin": "machine",
@@ -3208,16 +3183,6 @@
       "origin": "machine",
       "message": "系统设置 > 隐私与安全性 > 自动化"
     },
-    "runner.operator_4708bb65c7b75b63": {
-      "sourceHash": "cbc7caaf5b20bcfd5a55b88fd01f1f02dce4743a12d93d619ee5e0dd5be2f88d",
-      "origin": "machine",
-      "message": "库中的测试集“{name}”：{action}。"
-    },
-    "runner.operator_4727d0d8d58200e7": {
-      "sourceHash": "c42c3c59c9c8889db0862bb11d75a76d817b977c470ade20ad968cab016e973b",
-      "origin": "machine",
-      "message": "test.runner.yml：testSet“{name}”重复；保留第一个。"
-    },
     "runner.operator_47371277eaeea492": {
       "sourceHash": "f9dc1a5fc96a3e3b3d78f3f0cc7f2e0886bae0d2a22e55f94aec7b31015857a8",
       "origin": "machine",
@@ -3339,7 +3304,7 @@
       "message": "  参考宿主机{referenceHost}正在提供其配置。"
     },
     "runner.operator_493d8875345272bb": {
-      "sourceHash": "1544dec0b26af501b584c5dedf3d6d014f79cad97c655b6e703815663ad6be4f",
+      "sourceHash": "39e59d251a127be332c167898426ad2400588c6114de105945d2b2fa051ea087",
       "origin": "machine",
       "message": "提交失败：{error}"
     },
@@ -3709,9 +3674,9 @@
       "message": "顶层设置"
     },
     "runner.operator_331c67920b1a4f01": {
-      "sourceHash": "9157fcd075ce353f00a4e2cfeedb3a909c9f314d8e87eda98c7a18c169898cf0",
+      "sourceHash": "b37059283d93c3954d6da86d46abac4a0a6d826e6f3f4f8636cc32b676076b10",
       "origin": "machine",
-      "message": "失败  target-pool-no-testset：'{targetPoolId}'是自动注册的目标池，不能包含testSet（它会改变所有自动注册宿主机的指向）。请移除该设置，或将autoEnrollment.targetPoolId指向其他池。"
+      "message": "失败  target-pool-no-repositories：'{targetPoolId}'是自动注册的目标池，不能包含仓库（它们会改变所有自动注册宿主机的指向）。请使用 Set-PoolRepository.ps1 -PoolId {targetPoolId} -Clear 清除，或将autoEnrollment.targetPoolId指向其他池。"
     },
     "runner.operator_3355f84da8763f39": {
       "sourceHash": "5720dd82527b6580ac96ea0eea46c5d628b232587f3ed02dd240f19f498b69da",
@@ -3942,11 +3907,6 @@
       "sourceHash": "122e770e780ee6284cb8ae27d073a9c5ed622c115c91c9105d1c87471f94e165",
       "origin": "machine",
       "message": "初始化池意图存储"
-    },
-    "runner.operator_37e7a76a3661cead": {
-      "sourceHash": "d6942096f638592c5af5b4ec1c3a90550c8df2dbe2a88fa075d59f2fef429d92",
-      "origin": "machine",
-      "message": "测试集名称'{name}'无效（须以小写字母或数字开头；可包含字母、数字、'.'、'_'、'-'）。"
     },
     "runner.operator_37ec87c9e9d924bd": {
       "sourceHash": "8ef78f3164acbad1e05350094ff6ccb8ca80c3665b58069d65b937c52bc91915",
@@ -4642,11 +4602,6 @@
       "sourceHash": "68501cbc9bc3b380ea76b37cd48482d8790433cddbbb6c85c932c29df3009866",
       "origin": "machine",
       "message": "设置为{cloneW}x{cloneH}并将主显示器置于(0,0)；排列其他显示器"
-    },
-    "runner.operator_5a53c6c93a317e74": {
-      "sourceHash": "7366ff0bdbfddcfa358df9d73558628da580e130915822016b98a68d6f03d577",
-      "origin": "machine",
-      "message": "test.runner.yml：跳过testSet“{name}”——名称必须匹配{namePattern}（小写）。"
     },
     "runner.operator_5a564e98a029d970": {
       "sourceHash": "3e00e63a02012046cd55944bd38a62c304ac8ae6f159633a4ac85180da029c28",
@@ -5899,9 +5854,9 @@
       "message": "请使用以下命令手动验证：  net localgroup \"{name}\""
     },
     "runner.operator_68f76316350291c3": {
-      "sourceHash": "8760965987d70d6380e8f0472656d3310308c902498854ef0b852288e9992d02",
+      "sourceHash": "23bfc420ad7e8b635ca875f11af25ee92b674880eb11bf0fcd44f5908a1345ce",
       "origin": "machine",
-      "message": "池“{poolId}”是自动注册的目标池，不得包含testSet；将忽略该设置并保留此宿主机自身的仓库。请修正意图存储（Test-PoolIntent.ps1会报告此问题）。"
+      "message": "池“{poolId}”是自动注册的目标池，不得包含仓库；将忽略这些仓库并保留此宿主机自身的仓库。请修正意图存储（Test-PoolIntent.ps1会报告此问题）。"
     },
     "runner.operator_69026426aeb39009": {
       "sourceHash": "c3b966a85df8946665854828cf6916a3683e2987973ac6356dda31b0c20fee44",
@@ -6483,11 +6438,6 @@
       "origin": "machine",
       "message": "  Windows NTLM环回豁免 -> {exemption}"
     },
-    "runner.operator_764eb138496adb9a": {
-      "sourceHash": "bda4b6ed2317cc2d3ca7a5e4c70513df4af61662741cde12432c79d0a99701fb",
-      "origin": "machine",
-      "message": "池：测试集“{name}”的cycleStrategy='{strategy}'尚未实现；正在运行'all'。"
-    },
     "runner.operator_767a42e435b5f2c7": {
       "sourceHash": "7713ba1e3db2ec0bfad3c8268ff6a37831603ef6bafb89de5c7c0fb7b42d490d",
       "origin": "machine",
@@ -7057,11 +7007,6 @@
       "sourceHash": "42fd6fbec550ba2daa0d6174fd8dc9f2102493878e908e61e660499327641fbe",
       "origin": "machine",
       "message": "[外层周期{cycle}] 池同步错误（非致命）：{message}"
-    },
-    "runner.operator_8a6b8847ccce49ac": {
-      "sourceHash": "d1c824df984325b4820478de7fd5f2890e952bf03abcffde9ba4b7e524f0bcef",
-      "origin": "machine",
-      "message": "test.runner.yml：'all'保留用于隐式的整个项目集合；跳过声明的名为'all'的集合。"
     },
     "runner.operator_8a85c0a98b2cb1af": {
       "sourceHash": "055e0171f7c8e190d8b2993fb4dae6cbadac23dc93740e0fab96b648760d8162",
@@ -8473,11 +8418,6 @@
       "origin": "machine",
       "message": "未配置订阅者"
     },
-    "runner.operator_93083a11a290abbd": {
-      "sourceHash": "c53d405fd75a6be14a751a9ec4c4779c538052a861ee4b7cbb2672ab91760760",
-      "origin": "machine",
-      "message": "池：测试集“{name}”的schemaVersion不是1；正在跳过。"
-    },
     "runner.operator_933b194d28de8e2c": {
       "sourceHash": "2870b40416444b9e2cf6ef543c1c9095cd61bc3752ec93c22c40a6b4f69126d5",
       "origin": "machine",
@@ -8874,9 +8814,9 @@
       "message": "关闭最后一个窗口后继续运行（KeepRunningAfterLastWindowClosed = YES）"
     },
     "runner.operator_b9980767ec32acdd": {
-      "sourceHash": "9fd8b727956fa512b181e529a57eda1198a1eb58a1e47c8525013b9b5fe219ea",
+      "sourceHash": "10e452d2a663d0f9262fcfd588bb4f741644e643c93ea97c715b6ede192cd212",
       "origin": "machine",
-      "message": "池“{poolId}”的testSet“{name}”：已覆盖仓库设置（framework={frameworkUrl}, project={projectUrl}）；GH_TOKEN仍仅保存在宿主机本地。"
+      "message": "池“{poolId}”：已覆盖仓库设置（framework={frameworkUrl}, project={projectUrl}）；GH_TOKEN仍仅保存在宿主机本地。"
     },
     "runner.operator_b99f17d075e3e4c2": {
       "sourceHash": "9bf66d0cc5231d60ee6bd57696224b34c5505333ad0bdcae52132e8748f12989",
@@ -9158,11 +9098,6 @@
       "origin": "machine",
       "message": "[{callerName}] 已跳过周期前配置检查：找不到{gateScript}。"
     },
-    "runner.operator_c02c29bdd61105ce": {
-      "sourceHash": "082d99a6e5d281bcf444861a0041a2c485519448d564cd82cd0afe88d76cd0be",
-      "origin": "machine",
-      "message": "池测试集“{setName}”：正在运行项目中的{count}个序列（{join}）。"
-    },
     "runner.operator_c03297466bf30bf9": {
       "sourceHash": "509ac5e4da09079d07dc3f0727115d2a63001ae7d983a397496869c3b9726179",
       "origin": "machine",
@@ -9184,9 +9119,9 @@
       "message": "停止日志记录"
     },
     "runner.operator_c11b4fa818b922ab": {
-      "sourceHash": "ca13b3f8f1806a36ad36b0927b1acf66a711b27650f4ec17bd15636e4aa7e2aa",
+      "sourceHash": "bcee1f2e3a6702cfc5fe9c9ae66c418afd5a165d83fe87b4fb7107725cc7d907",
       "origin": "machine",
-      "message": "已在池“{poolId}”上设置测试集“{name}”（frameworkUrl={frameworkUrl}, projectUrl={projectUrl}）。"
+      "message": "已在池“{poolId}”上设置仓库（frameworkUrl={frameworkUrl}, projectUrl={projectUrl}）。"
     },
     "runner.operator_c13dcea8b437ce0f": {
       "sourceHash": "0c62a07f268619b983740c94605ffd129ddf88a49052f3066302bf9e52490df3",
@@ -9342,11 +9277,6 @@
       "sourceHash": "d5fda38e94ed4f1a371f8a1cd3d9e5636c296e5bb2840fd4990d57ee276b636c",
       "origin": "machine",
       "message": "最低分辨率要求：主显示器没有>= 1920x1080的可用显示模式；OCR可能失败。请检查虚拟显示器的EDID模式。"
-    },
-    "runner.operator_b0bf86c31da327e2": {
-      "sourceHash": "5c7cc43d50b798905390234a2b60f40bf2f8173dc45a5f6c9f16ec52dc91fa4a",
-      "origin": "machine",
-      "message": "更新或插入需要-FrameworkUrl和-ProjectUrl（或传入-Delete以删除）。"
     },
     "runner.operator_b0f17a6c92efa2d7": {
       "sourceHash": "28212a415f3b9be6d5ddc271857b03646777945b9ea695bfb3d0230be69f6430",
@@ -10513,11 +10443,6 @@
       "origin": "machine",
       "message": "      {name}：正在启用SMB-NT哈希类型（pwpolicy）……"
     },
-    "runner.operator_c83a08264595d72a": {
-      "sourceHash": "1ee94fd7bd0e1ec73f82da656fe8b33c2b2a142a3f1002dac7f93a0ff4b81be0",
-      "origin": "machine",
-      "message": "池：测试集“{name}”解析失败（{message}）；正在跳过。"
-    },
     "runner.operator_c83f88602397b5a8": {
       "sourceHash": "0ceb12b95780720970ed91d4301584e7c16d8563c69df1ba2e31a0ca64a613b7",
       "origin": "machine",
@@ -10938,11 +10863,6 @@
       "origin": "machine",
       "message": "已从模板初始化配置文件：{templatePath} -> {configPath}"
     },
-    "runner.operator_d164f2ba2a2136ac": {
-      "sourceHash": "3578f69505f978656ea5c72a725a9c94246c10f895c6de4e072e7d509eecad72",
-      "origin": "machine",
-      "message": "池：此宿主机（{hostType}）上没有可运行测试集“{name}”的客户机；正在跳过该测试集。"
-    },
     "runner.operator_d18200873cd315db": {
       "sourceHash": "1a1860f07ccbc7b21eb06718c153e1ab7259d516b7cea3678ec22772f8fcbb66",
       "origin": "machine",
@@ -11249,7 +11169,7 @@
       "message": "正在将显示器超时设为“从不”（交流电和直流电供电）……"
     },
     "runner.operator_d7dcddaba0a5b0ef": {
-      "sourceHash": "3cddaec69471fcbc139aa292cccc88cb575b8b19b3643ca19e122d556352a762",
+      "sourceHash": "7b17e8fb919a62dfd0dad463bb6a50a1cdf9197da803dc5171da82a96b12b4a7",
       "origin": "machine",
       "message": "已在本地提交，但尚未推送至远程——此更改未被持久保存，后续管理命令将丢弃它：{error}"
     },
@@ -11807,11 +11727,6 @@
       "sourceHash": "3bf87abebb15703445d4e86087ea6a22936bb66ba38a8fa2b1d98c3f1b2a5e4e",
       "origin": "machine",
       "message": "GitHub访问凭据需要刷新。\n  git无法向远程仓库进行身份验证：\n    {remote}\n  缓存的GitHub凭据缺失或已过期，因此执行'git fetch' / 'git pull'时会\n  阻塞在交互式登录提示处（导致无人值守的运行器挂起）。\n  请使用以下任一方式刷新登录，然后重新运行：\n{options}{said}"
-    },
-    "runner.operator_df1608b653f0dd73": {
-      "sourceHash": "1e2e063dcdd71ee907eb902ec37ff5717a18459ed5fb198d8a44aff4d8f16aab",
-      "origin": "machine",
-      "message": "test.runner.yml：跳过testSet“{name}”——其中未列出任何序列。"
     },
     "runner.operator_df5b48ab664f3b9b": {
       "sourceHash": "bb37b1e646cbb7f2c7477afcb189b9db3d57df353024d9ab9a840cf9854bd6fc",
@@ -13314,9 +13229,9 @@
       "message": "  已认领回池标识：{u}（已写入runtime/host.uuid）。"
     },
     "runner.operator_f1dc62bfb0f61720": {
-      "sourceHash": "fcfa39bd5617035abca4bd16fcac69f3f017eb866b44b260efb4e82525850af6",
+      "sourceHash": "a343b45b124b23e191b05f93f473754941e7cd02f9cb55cbb2d3ac13fe91b5a4",
       "origin": "machine",
-      "message": "“{poolId}”是自动注册的目标池，不能配置测试集。\n  宿主机会自动加入该池，并继续运行各自的projectUrl；在此分配测试集\n  会在无提示的情况下将实验室中每台自动注册的宿主机指向其他项目。\n  要为这些宿主机指定项目，请创建另一个池并将宿主机分配到该池：\n    ./New-Pool.ps1 -PoolId <name>\n    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>\n    test/pool/Set-PoolTestSet.ps1 -PoolId <name> -Name {name} -FrameworkUrl {frameworkUrl} -ProjectUrl {projectUrl}"
+      "message": "“{poolId}”是自动注册的目标池，不能包含仓库。\n  宿主机会自动加入该池，并继续运行各自的projectUrl；在此设置\n  框架和项目会在无提示的情况下将实验室中每台自动注册的宿主机指向其他项目。\n  要为这些宿主机指定项目，请创建另一个池并将宿主机分配到该池：\n    ./New-Pool.ps1 -PoolId <name>\n    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>\n    ./Set-PoolRepository.ps1 -PoolId <name> -FrameworkUrl {frameworkUrl} -ProjectUrl {projectUrl}"
     },
     "runner.operator_f1e69844d12e14d2": {
       "sourceHash": "e4f8d486b6b83e15942813d57a09c4f6a695679ee3981e7cef3b1a5668d3954d",
@@ -13449,9 +13364,9 @@
       "message": "projectUrl='{projectUrlConfigured}'：ls-remote抛出异常——{message}"
     },
     "runner.operator_f4ce3623f58ca8ac": {
-      "sourceHash": "b6780e6e5efa1aac02c524d7d1e4ad7f6711978131dbca97a0f7e8b7c2360122",
+      "sourceHash": "840cd64470be476d9ae69a87be18dba1d148de141f356af63f0b424d492fc3fc",
       "origin": "machine",
-      "message": "通过  target-pool-no-testset：“{targetPoolId}”未配置testSet。"
+      "message": "通过  target-pool-no-repositories：“{targetPoolId}”不包含仓库。"
     },
     "runner.operator_f4faadbd7e5c2c6a": {
       "sourceHash": "b5caeca6a6028d044e3428cb4c46d3adedc9153a745a578c274073a6690dafb7",
@@ -13843,11 +13758,6 @@
       "origin": "machine",
       "message": " App Nap会冻结UTM的用户界面线程，导致其窗口从中移除"
     },
-    "runner.operator_2b6254c83f085a18": {
-      "sourceHash": "61b993b3f6972158f4fd24dbe6a2234ec62abe28fef2c85124725c261834d913",
-      "origin": "machine",
-      "message": "test-sets.yml验证或写入（validation/write）失败：{error}"
-    },
     "runner.operator_2c61a83be908ec75": {
       "sourceHash": "7845918aacedffdefc3ba20993a75e52a22412bf0f18c2ffdffe4655ab246fab",
       "origin": "machine",
@@ -13914,9 +13824,9 @@
       "message": "       执行：winget uninstall --id Microsoft.PowerShell"
     },
     "runner.operator_41a636e6dabd5864": {
-      "sourceHash": "87d9a8b96e256d311c2dc00523ba263d4d1ed6f28336a93f96a8074e04c2edd7",
+      "sourceHash": "147f0e188e4c37076e54f4618f56499d2357232fa4d3aa0d8c23e8023e7abfd3",
       "origin": "machine",
-      "message": "  测试集testSet: {name}  框架framework={frameworkUrl}  项目project={projectUrl}"
+      "message": "  仓库：framework={frameworkUrl}  project={projectUrl}"
     },
     "runner.operator_429270c31c75cd44": {
       "sourceHash": "a24de428b5715da6279b8923e7e54e0727902f54a617ae145e62b268b4292df4",
@@ -14174,7 +14084,7 @@
       "message": "机器组成的实验室，或承载实验室共享服务的机器。"
     },
     "runner.operator_945821c2fef42ae6": {
-      "sourceHash": "c9236d142059ee210fa007730d66e4be36c51a0148e68cd207be433ee5fddbff",
+      "sourceHash": "7e73d2715ed7a1c3a64afc3caf8b4e3fa1f11c2e8c7f2c13cb39639fbfdab9d0",
       "origin": "machine",
       "message": "未找到池'{poolId}'。请先创建：./New-Pool.ps1 -PoolId {poolId}"
     },
@@ -14189,7 +14099,7 @@
       "message": "test.config.yml包含旧版通知设置（secrets.resend / notification.toEmailAddress），这些设置已移至 test/status/extension/notification/transports.yml. 请在下一个周期之前，将 test/extension/notification/transports.yml.template 复制到 test/status/extension/notification/transports.yml 并填写 transports.resend + subscribers，否则通知将不执行任何操作且不报错。"
     },
     "runner.operator_9c27a25b6843707d": {
-      "sourceHash": "10b39f1ddc70fcb3258d610a8846043715580376f8431ff8455d6ce8338050a6",
+      "sourceHash": "b630084717d1456a14c8c5489f627df5ba6a098313b8373360a27049efe4b67c",
       "origin": "machine",
       "message": "pools.yml验证/写入（validation/write）失败：{error}"
     },
@@ -14512,6 +14422,46 @@
       "sourceHash": "2beb7ea6b0e58f4c516b2cfb52f691f7ef2ece18dcb8382d03c2b759b08bd486",
       "origin": "machine",
       "message": "启用实验室暂停标志"
+    },
+    "runner.pool_intent_library_removed": {
+      "sourceHash": "8b5fbe91e444d74e0c9668ac19738c10751759309bb9bd0dda43de4cc2407f27",
+      "origin": "machine",
+      "message": "已从意图存储中移除 test-sets.yml；没有任何内容读取它。"
+    },
+    "runner.pool_intent_schema_already_current": {
+      "sourceHash": "933cdad0654bdc22f40984a3e64354f38f2cb9f8778ebb52db752a732b5a0a3d",
+      "origin": "machine",
+      "message": "池意图已是 schemaVersion {version}；无需迁移。"
+    },
+    "runner.pool_intent_schema_migrated": {
+      "sourceHash": "726b5eb0e80e1f40acd1d2bcc3744580425d32229f4bd88b4ee316685fd7952c",
+      "origin": "machine",
+      "message": "池意图已从 schemaVersion {from} 迁移到 {to}，并已提交和推送。"
+    },
+    "runner.pool_intent_schema_outdated": {
+      "sourceHash": "070a4902f23022f1ddd52a110648b70efc0e324a8ac79c23b37b6056ba8f688d",
+      "origin": "machine",
+      "message": "失败  schema-version：pools.yml 为 schemaVersion {found}，但此检出版本读取的是 schemaVersion {expected}。请运行一次 test/pool/Update-PoolIntentSchema.ps1 以迁移意图存储。"
+    },
+    "runner.pool_intent_schema_unsupported": {
+      "sourceHash": "04195b778b65f59f17b9e8e71fbf9d81cd8de107f8b890ad1ba426efe2284c9d",
+      "origin": "machine",
+      "message": "pools.yml 为 schemaVersion {version}，比此检出版本可读取的版本（{expected}）更新。请先更新此检出版本，再更改池意图。"
+    },
+    "runner.pool_repositories_cleared": {
+      "sourceHash": "78a6c077f136f16db4c7028aec97a338eb23cad75db5f3b386a2fa4c073eae91",
+      "origin": "machine",
+      "message": "已清除池“{poolId}”上的仓库；其成员将从下一个周期起运行各自配置的仓库。"
+    },
+    "runner.pool_repositories_url_invalid": {
+      "sourceHash": "519eed34dc52d3dd12d72a75381a0c03764660b857fa91eff358d89138d6d268",
+      "origin": "machine",
+      "message": "-{parameter} 必须是不含空白字符或控制字符的非空 URL，且不得以“-”开头。"
+    },
+    "runner.pool_status_repositories_none": {
+      "sourceHash": "ba09e285015095696e7737f41af1223eac0d588f498b9065b12ef0243dffc2e2",
+      "origin": "machine",
+      "message": "  仓库：（无）"
     }
   }
 }

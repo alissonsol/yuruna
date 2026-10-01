@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/42dc5bb9-0010
@@ -51,7 +51,7 @@ benchmark_phase() {
     printf '\nphase=%s utc=%s\n' "$phase" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
     printf 'beforeUptime='; cat /proc/uptime
     TIMEFORMAT='elapsedSeconds=%3R userSeconds=%3U systemSeconds=%3S'
-    { time timeout --foreground --kill-after=5 "$benchmark_timeout" "$@"; } 2>&1
+    { time timeout --kill-after=5 "$benchmark_timeout" "$@"; } 2>&1
     code=$?
     printf 'afterUptime='; cat /proc/uptime
     printf 'phase=%s exitCode=%s\n' "$phase" "$code"

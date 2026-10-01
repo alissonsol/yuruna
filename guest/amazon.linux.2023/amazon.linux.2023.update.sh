@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -33,6 +33,7 @@ export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 
 # --- REGION: Re-read host coordinates per use
 # See https://yuruna.link/4220a755-004d
+if ! command -v yuruna_host_env >/dev/null 2>&1; then
 yuruna_host_env() {
     [ -r /etc/yuruna/host.env ] || return 1
     # shellcheck disable=SC1091
@@ -47,6 +48,7 @@ yuruna_host_relocate() {
     /usr/local/lib/yuruna/yuruna-host-locate.sh >/dev/null || return 1
     yuruna_host_env
 }
+fi
 
 # --- REGION: Point dnf at the caching proxy
 # See https://yuruna.link/42f6b05f-000d
@@ -126,6 +128,9 @@ if ! command -v pwsh >/dev/null 2>&1; then
     exit 1
   fi
 
+  if command -v yuruna_install_pwsh_tarball >/dev/null 2>&1; then
+    yuruna_install_pwsh_tarball "$ARCH"
+  else
   # Follow the latest-release redirect without consuming GitHub API quota.
   PS_TAG=$(curl_retry -fsSLI -o /dev/null -w '%{url_effective}' \
     "https://github.com/PowerShell/PowerShell/releases/latest")
@@ -170,6 +175,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
   sudo chmod +x /opt/microsoft/powershell/7/pwsh
   sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
   rm -f /tmp/powershell.tar.gz
+  fi
 fi
 pwsh --version
 
@@ -318,6 +324,9 @@ fi
 # --- REGION: Materialize the yuruna framework and project repos
 # See https://yuruna.link/4220a755-004d
 # See https://yuruna.link/42e220c4-000e
+if command -v yuruna_materialize_repositories >/dev/null 2>&1; then
+  yuruna_materialize_repositories "$REAL_HOME" "$REAL_USER" "$FRAMEWORK_URL" "$PROJECT_URL"
+else
 if [ ! -d "$REAL_HOME/yuruna" ]; then
   HOST_OK=false
   for host_attempt in 1 2; do
@@ -410,11 +419,16 @@ fi
 # Tarball extraction and any sudo'd cleanup may have left root-owned files.
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
+fi
+
 # --- REGION: Wait for network convergence
 # See https://yuruna.link/4220a755-0014
 # Settle the link (max 30 s, never fatal) before the first host->guest SSH.
 echo ""
 echo -e "\e[1;36m==== Wait for network convergence ====\e[0m"
+if command -v yuruna_wait_network >/dev/null 2>&1; then
+  yuruna_wait_network
+else
 if systemctl is-active --quiet NetworkManager && command -v nm-online >/dev/null 2>&1; then
   nm-online -q -t 30 || echo "WARNING: nm-online did not report 'online' within 30s; continuing."
 elif systemctl is-active --quiet systemd-networkd; then
@@ -435,6 +449,8 @@ elif systemctl is-active --quiet systemd-networkd; then
   fi
 else
   echo "WARNING: no active NetworkManager/systemd-networkd to wait on; continuing."
+fi
+
 fi
 
 # --- REGION: https://yuruna.link/42e220c4-000e

@@ -3,7 +3,7 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
 
-  The operator board: how is each pool doing, and give a pool a test set.
+  The operator board: how is each pool doing.
   Built for a phone first -- one column, big targets, no table.
 
   Script and style ship as same-origin /assets files, NOT inline: the CSP served
@@ -32,10 +32,8 @@
       </button>
       <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="pool.pages">
         <a href="/" aria-current="page" data-i18n="pool.board">Board</a>
-        <a href="/assign" data-i18n="pool.assign">Assign</a>
         <a href="/hosts" data-i18n="pool.hosts">Hosts</a>
         <a href="/pools" data-i18n="pool.pools">Pools</a>
-        <a href="/test-sets" data-i18n="pool.test_sets">Test sets</a>
         <a href="/scan" data-i18n="pool.scan">Scan</a>
         <a href="/diagnostics" data-i18n="pool.diagnostics">Diagnostics</a>
         <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener" data-i18n="pool.guide">Guide</a>
@@ -43,9 +41,9 @@
     </div>
   </header>
 
-  <!-- Reads are open, so the board renders for anyone on the LAN. The Lab-token
-       prompt is built by Y.unlock at the moment a change is attempted, which is
-       the same prompt every other page in this service shows. -->
+  <!-- Reads are open, so the board renders for anyone on the LAN. It changes
+       nothing itself: a pool is edited on the Pools page, which asks for the
+       Lab token at the moment a change is attempted. -->
 
   <main id="board" hidden>
     <h1 data-i18n="pool.board">Board</h1>
@@ -64,19 +62,6 @@
     <div id="cards"></div>
     <p id="empty" role="status" class="muted" hidden data-i18n="pool.no_pools_yet_create_one_from_menu_pools">No pools yet. Create one from Menu &rarr; Pools.</p>
   </main>
-
-  <!-- Confirmation. The failure mode here is a mis-tap, so the blast radius is
-       spelled out before anything is written. -->
-  <div id="confirm" class="sheet" hidden>
-    <div class="sheet-box" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
-      <h2 id="confirm-title" data-i18n="pool.assign_test_set">Assign test set?</h2>
-      <p id="confirm-body"></p>
-      <div class="sheet-actions">
-        <button id="confirm-cancel" class="ghost" data-i18n="pool.cancel">Cancel</button>
-        <button id="confirm-ok" data-i18n="pool.assign">Assign</button>
-      </div>
-    </div>
-  </div>
 
   <footer id="footer-bar">
     <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>

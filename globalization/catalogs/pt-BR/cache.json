@@ -89,7 +89,7 @@
     },
     "cache.no_upstream_explanation": {
       "sourceHash": "5fbc3c835b1beac6ee195d3cc371bea3e7630e93dfa9962b8d7f956d22587be2",
-      "message": "Esta 'cache' está no modo não- upstream. O objeto abaixo não é armazenado localmente, e esta 'cache' não irá obtê- lo."
+      "message": "Esta 'cache' está no modo não-upstream. O objeto abaixo não é armazenado localmente, e esta 'cache' não irá obtê-lo."
     },
     "cache.no_upstream_instruction": {
       "sourceHash": "4ac9aa7faa848f3f16410382e57f5d0f41bf3cf56d92468cf5c8dd126a895ab3",
@@ -121,11 +121,11 @@
     },
     "cache.pause_auto_refresh": {
       "sourceHash": "7a861c87ee5c14f9150632df83ed8c00ace0078c00a4086f71729136540c861b",
-      "message": "Pausar a actualização automática"
+      "message": "Pausar a atualização automática"
     },
     "cache.pool_control_service": {
       "sourceHash": "3c818967c36187e2501a872dba0a1c5adabd02adae592f961e148e5dac00223e",
-      "message": "Serviço de controlo de piscinas"
+      "message": "Serviço de controlo de grupos"
     },
     "cache.prewarm_held": {
       "sourceHash": "2395023ad7ef2e692bb4a917b3f69f4bb4c2778b0c76a550452985dc417f173b",
@@ -133,7 +133,7 @@
     },
     "cache.prewarm_last_run": {
       "sourceHash": "a2233c682af974ed56ff70174d69ff8f3ee1c9b27d57d20997c41bc548fc5481",
-      "message": "pré- aquecimento última execução"
+      "message": "pré-aquecimento última execução"
     },
     "cache.reachable": {
       "sourceHash": "ced5610c44526099a955c8458cd6a2fe970c7954f8f2296166155fa100f26b66",
@@ -153,11 +153,11 @@
     },
     "cache.refresh_failed_the_values_below_are_from_the_last_successful_read": {
       "sourceHash": "cdce8912d786f2e93320fab81443b23819b799595023ac8bedcdfeb7be50c444",
-      "message": "A atualização falhou. Os valores abaixo são da última leitura bem- sucedida."
+      "message": "A atualização falhou. Os valores abaixo são da última leitura bem-sucedida."
     },
     "cache.registry": {
       "sourceHash": "8dde2b52c498c4ce8bfe9203f8b2f500ce0ae804051ae37d4e318c6d6abbb08b",
-      "message": "Registo"
+      "message": "Registro"
     },
     "cache.registry_http": {
       "sourceHash": "f8ef335bc99fb1d8d8dcba3c37a2c44dc939a903b8cb32371aa6b478c90e0542",

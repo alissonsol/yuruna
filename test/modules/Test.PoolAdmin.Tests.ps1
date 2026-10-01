@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a44cb3-b163-4c40-bb54-44dd8119924a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,14 +52,14 @@ $script:LookupDoc = [ordered]@{ schemaVersion = 1; pools = @(
 
 Describe 'Test-YurunaPoolDocValid (schema validation)' {
     It 'accepts a valid pools doc' {
-        $doc = [ordered]@{ schemaVersion = 2; pools = @(
+        $doc = [ordered]@{ schemaVersion = 3; pools = @(
             [ordered]@{ poolId = 'lab'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; members = @('42abcdef0123456789abcdef01234567'); desiredState = 'run' }
         ) }
         $r = Test-YurunaPoolDocValid -Doc $doc -SchemaName 'pools.schema.yml'
         Assert-True $r.Ok "valid doc should pass: $($r.Errors -join '; ')"
     }
     It 'rejects a bad poolId and an unknown desiredState' {
-        $bad = [ordered]@{ schemaVersion = 2; pools = @([ordered]@{ poolId = 'NOT VALID'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; desiredState = 'banana' }) }
+        $bad = [ordered]@{ schemaVersion = 3; pools = @([ordered]@{ poolId = 'NOT VALID'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; desiredState = 'banana' }) }
         $r = Test-YurunaPoolDocValid -Doc $bad -SchemaName 'pools.schema.yml'
         # Only assert when Test-Json is present (older PS degrades to parse-only Ok).
         if (Get-Command Test-Json -ErrorAction SilentlyContinue) {
@@ -73,13 +73,28 @@ Describe 'Test-YurunaPoolDocValid (schema validation)' {
             Assert-False $r.Ok 'missing schemaVersion must fail'
         }
     }
-    It 'validates a v2 pool doc with a repo-triple testSet' {
-        $good = [ordered]@{ schemaVersion = 2; pools = @([ordered]@{
+    It 'validates a v3 pool doc with a repositories pair' {
+        $good = [ordered]@{ schemaVersion = 3; pools = @([ordered]@{
             poolId = 'lab'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'
-            members = @(); testSet = [ordered]@{ name = 'p'; frameworkUrl = 'https://x/f'; projectUrl = 'https://x/p' }
+            members = @(); repositories = [ordered]@{ frameworkUrl = 'https://x/f'; projectUrl = 'https://x/p' }
         }) }
         $r = Test-YurunaPoolDocValid -Doc $good -SchemaName 'pools.schema.yml'
-        Assert-True $r.Ok "valid v2 pool should pass: $($r.Errors -join '; ')"
+        Assert-True $r.Ok "valid v3 pool should pass: $($r.Errors -join '; ')"
+    }
+    It 'rejects a v3 pool doc with a testSet, a half pair, an empty URL or schemaVersion 2' {
+        if (-not (Get-Command Test-Json -ErrorAction SilentlyContinue)) { return }
+        $guid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'
+        $badPools = [ordered]@{
+            'testSet'        = [ordered]@{ poolId = 'lab'; poolGuid = $guid; testSet = [ordered]@{ name = 'p'; frameworkUrl = 'https://x/f'; projectUrl = 'https://x/p' } }
+            'half pair'      = [ordered]@{ poolId = 'lab'; poolGuid = $guid; repositories = [ordered]@{ frameworkUrl = 'https://x/f' } }
+            'empty URL'      = [ordered]@{ poolId = 'lab'; poolGuid = $guid; repositories = [ordered]@{ frameworkUrl = 'https://x/f'; projectUrl = '' } }
+            'extra property' = [ordered]@{ poolId = 'lab'; poolGuid = $guid; repositories = [ordered]@{ name = 'p'; frameworkUrl = 'https://x/f'; projectUrl = 'https://x/p' } }
+        }
+        foreach ($name in @($badPools.Keys)) {
+            $bad = [ordered]@{ schemaVersion = 3; pools = @($badPools[$name]) }
+            Assert-False (Test-YurunaPoolDocValid -Doc $bad -SchemaName 'pools.schema.yml').Ok "$name must fail"
+        }
+        Assert-False (Test-YurunaPoolDocValid -Doc ([ordered]@{ schemaVersion = 2; pools = @() }) -SchemaName 'pools.schema.yml').Ok 'schemaVersion 2 must fail'
     }
 }
 
@@ -88,7 +103,7 @@ Describe 'Read-YurunaPoolsDoc (default-empty)' {
         $d = New-TempDir
         try {
             $doc = Read-YurunaPoolsDoc -IntentDir $d
-            Assert-Equal -Expected 2 -Actual $doc['schemaVersion'] -Because 'default schemaVersion'
+            Assert-Equal -Expected 3 -Actual $doc['schemaVersion'] -Because 'default schemaVersion'
             Assert-Equal -Expected 0 -Actual @($doc['pools']).Count -Because 'default empty pools'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
@@ -154,9 +169,9 @@ Describe 'Initialize-YurunaPoolIntentStorePath (seed a writable store that was n
             Assert-True $r.Created 'created the store'
             Assert-True (Test-Path -LiteralPath (Join-Path $store 'refs')) 'a bare repository is on disk'
             # The seeded pools.yml is what makes the store openable AND writable:
-            # a store seeded at schemaVersion 1 reads fine and fails every write.
+            # a store seeded at an older schemaVersion reads fine and fails every write.
             $doc = & git -C $store show 'main:pools.yml' 2>$null
-            Assert-True ("$doc" -match 'schemaVersion:\s*2') 'seeded at schemaVersion 2'
+            Assert-True ("$doc" -match 'schemaVersion:\s*3') 'seeded at schemaVersion 3'
         } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'leaves an existing store untouched' {

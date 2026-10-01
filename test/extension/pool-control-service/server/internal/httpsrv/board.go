@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/pool"
@@ -53,35 +52,15 @@ type boardCard struct {
 	// idle pool must never read as catastrophically failing -- nor as a
 	// reassuring 100%.
 	SuccessPct *float64 `json:"successPct"`
-	// TestSet is the assigned set's key; TestSetLabel is what a human reads,
-	// resolved from the discovery cache when a project declared a displayName.
-	TestSet      string `json:"testSet"`
-	TestSetLabel string `json:"testSetLabel"`
-	// AssignAllowed is false for the auto-enrollment target pool, which is
-	// structurally forbidden from carrying a test-set. The UI disables the
-	// control and shows AssignDisabledDetail, rather than silently omitting it.
-	// This is prose, deliberately not the `reason` machine token used by error
-	// envelopes. Keeping the two fields distinct prevents a browser from ever
-	// branching on a sentence or rendering a code as if it were a sentence.
-	AssignAllowed        bool   `json:"assignAllowed"`
-	AssignDisabledDetail string `json:"assignDisabledDetail"`
-	// Blocked lists members that cannot read the assigned project. Advisory:
+	// FrameworkURL and ProjectURL are the repositories every member runs from
+	// its next cycle. Both empty means each member runs the repositories it
+	// configured for itself, which is always the case on the auto-enrollment
+	// target pool: its runners ignore a pair stored there.
+	FrameworkURL string `json:"frameworkUrl"`
+	ProjectURL   string `json:"projectUrl"`
+	// Blocked lists members that cannot read the pool's project. Advisory:
 	// the board flags the pool, nothing changes state automatically.
 	Blocked []string `json:"blocked"`
-}
-
-// boardOffer is one assignable test set, as the picker shows it.
-type boardOffer struct {
-	Name         string   `json:"name"`
-	DisplayName  string   `json:"displayName"`
-	Description  string   `json:"description"`
-	FrameworkURL string   `json:"frameworkUrl"`
-	ProjectURL   string   `json:"projectUrl"`
-	Sequences    []string `json:"sequences"`
-	// Request-local merge state, never serialized. A translated label learned
-	// from the project must not be replaced by an English-only library fallback.
-	displayLocalized     bool
-	descriptionLocalized bool
 }
 
 // intentDoc is the shape Get-PoolIntent.ps1 emits.
@@ -92,23 +71,13 @@ type intentDoc struct {
 		PoolGUID string   `json:"poolGuid"`
 		Display  string   `json:"displayName"`
 		Members  []string `json:"members"`
-		TestSet  *struct {
-			Name         string   `json:"name"`
-			FrameworkURL string   `json:"frameworkUrl"`
-			ProjectURL   string   `json:"projectUrl"`
-			Sequences    []string `json:"sequences"`
-		} `json:"testSet"`
+		// Repositories is nil when the pool carries none, and then every
+		// member runs its own configured repositories.
+		Repositories *struct {
+			FrameworkURL string `json:"frameworkUrl"`
+			ProjectURL   string `json:"projectUrl"`
+		} `json:"repositories"`
 	} `json:"pools"`
-	TestSets []struct {
-		Name                 string            `json:"name"`
-		DisplayName          string            `json:"displayName"`
-		DisplayNameLocalized map[string]string `json:"displayNameLocalized"`
-		Description          string            `json:"description"`
-		DescriptionLocalized map[string]string `json:"descriptionLocalized"`
-		FrameworkURL         string            `json:"frameworkUrl"`
-		ProjectURL           string            `json:"projectUrl"`
-		Sequences            []string          `json:"sequences"`
-	} `json:"testSets"`
 	AutoEnrollment struct {
 		Enabled      bool     `json:"enabled"`
 		TargetPoolID string   `json:"targetPoolId"`
@@ -125,16 +94,7 @@ type hostRegistration struct {
 	Hostname string `json:"hostname"`
 	// HostType is the prefixed form ("host.ubuntu.kvm"), the same value the
 	// aggregator carries in pool-status.
-	HostType   string `json:"hostType"`
-	ProjectURL string `json:"projectUrl"`
-	TestSets   []struct {
-		Name                 string            `json:"name"`
-		DisplayName          string            `json:"displayName"`
-		DisplayNameLocalized map[string]string `json:"displayNameLocalized"`
-		Description          string            `json:"description"`
-		DescriptionLocalized map[string]string `json:"descriptionLocalized"`
-		Sequences            []string          `json:"sequences"`
-	} `json:"testSets"`
+	HostType      string `json:"hostType"`
 	ProjectAccess *struct {
 		URL    string `json:"url"`
 		Status string `json:"status"`
@@ -142,107 +102,8 @@ type hostRegistration struct {
 	} `json:"projectAccess"`
 }
 
-const (
-	projectDisplayNameMax = 160
-	projectDescriptionMax = 2000
-	projectLocaleMapMax   = 16
-)
-
-// The manifest is the spelling authority for the pseudo tags too. Plocm is a
-// deliberately manifest-declared five-letter subtag, so the generic BCP 47
-// casing algorithm alone would spell it qps-plocm and reject the generated
-// Wave-1 fixture. Build this immutable lookup once, not once per board read.
-var declaredProjectLocaleTags = func() map[string]string {
-	manifest := i18n.DefaultManifest()
-	result := make(map[string]string, len(manifest.Data))
-	for tag := range manifest.Data {
-		result[strings.ToLower(tag)] = tag
-	}
-	return result
-}()
-
-func canonicalProjectLocaleTag(tag string) string {
-	canonical := i18n.CanonicalTag(tag, 35)
-	if canonical == "" {
-		return ""
-	}
-	if declared, ok := declaredProjectLocaleTags[strings.ToLower(canonical)]; ok {
-		return declared
-	}
-	return canonical
-}
-
-func validProjectText(value string, maxRunes int) bool {
-	return utf8.ValidString(value) && strings.TrimSpace(value) != "" &&
-		utf8.RuneCountInString(value) <= maxRunes
-}
-
-func validProjectLocaleMap(values map[string]string, maxRunes int) bool {
-	if len(values) < 1 || len(values) > projectLocaleMapMax {
-		return false
-	}
-	for tag, value := range values {
-		canonical := canonicalProjectLocaleTag(tag)
-		if canonical == "" || tag != canonical || canonical == "en-US" ||
-			!validProjectText(value, maxRunes) {
-			return false
-		}
-	}
-	return true
-}
-
-// localizedProjectText applies the additive project-map read rule. Only an
-// exact resolved tag wins; the required English scalar remains the fallback
-// for an old project, a missing translation, and the default locale. Both the
-// scalar and map came from an unauthenticated host registration, so this is a
-// trust boundary as well as a locale lookup: an invalid scalar invalidates its
-// additive map, and one invalid map entry invalidates the complete map.
-func localizedProjectText(fallback string, values map[string]string, maxRunes int, locale i18n.Context) (string, bool) {
-	if !validProjectText(fallback, maxRunes) {
-		return "", false
-	}
-	if locale.ResolvedTag != "" && locale.ResolvedTag != "en-US" {
-		if validProjectLocaleMap(values, maxRunes) {
-			value, ok := values[locale.ResolvedTag]
-			if !ok {
-				return fallback, false
-			}
-			return value, true
-		}
-	}
-	return fallback, false
-}
-
-// projectSlug turns a projectUrl into the library-name prefix. Discovered set
-// names are project-scoped by construction (`<slug>.<setName>`) because the
-// library upserts on `name` ALONE and every project reports an implicit set
-// called "all" -- a bare name would have one project's "all" overwrite another's,
-// silently retargeting a library row at an unrelated repo.
-func projectSlug(projectURL string) string {
-	s := strings.TrimSuffix(strings.TrimSpace(projectURL), ".git")
-	if u, err := url.Parse(s); err == nil && u.Path != "" {
-		s = strings.Trim(u.Path, "/")
-	}
-	s = strings.ToLower(s)
-	var b strings.Builder
-	prevDash := false
-	for _, r := range s {
-		switch {
-		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
-			b.WriteRune(r)
-			prevDash = false
-		default:
-			if !prevDash && b.Len() > 0 {
-				b.WriteByte('-')
-				prevDash = true
-			}
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
-
-// handleBoard serves the board's whole payload: the cards, the offers, and the
-// range actually used. One request so a phone does a single round trip.
+// handleBoard serves the board's whole payload: the cards and the range
+// actually used. One request so a phone does a single round trip.
 func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 	locale := i18n.FromRequest(r)
 	if locale.ResolvedTag == "" {
@@ -258,8 +119,9 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Intent first: it is the authority for which cards exist, and the board is
-	// still useful (and still assignable) when the aggregator is unreachable.
+	// Intent first: it is the authority for which cards exist and what each
+	// pool runs, and the board is still useful when the aggregator is
+	// unreachable.
 	doc, err := s.readIntentDoc(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -267,8 +129,8 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Stats are best-effort. A dead aggregator grays the NUMBERS; it must never
-	// stop an operator assigning work, because assignment goes through the
-	// intent CLIs and has no aggregator dependency at all.
+	// hide the cards, because which pools exist and which repositories they run
+	// come from the intent store, with no aggregator dependency at all.
 	var stats aggPoolStats
 	statsErr := ""
 	if err := s.pool.Get(r.Context(), "/api/v1/pool-stats?range="+url.QueryEscape(window), &stats); err != nil {
@@ -289,9 +151,9 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		baseURLOf[h.HostID] = h.BaseURL
 	}
 
-	// Discovery: read each reporting host's registration DIRECTLY. The
-	// aggregator decodes that record into a closed struct and would discard
-	// testSets[] at unmarshal, so relaying through it is not an option.
+	// Project access: read each reporting host's registration DIRECTLY. The
+	// aggregator does not carry a host's projectAccess, so relaying through it
+	// is not an option.
 	//
 	// Fanned out under one shared read budget, like every other pool-wide read
 	// here. Served one host at a time, a lab holding a few unreachable machines
@@ -303,80 +165,22 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 			ids = append(ids, hid)
 		}
 	}
-	// Sorted, so two hosts declaring the same test-set name resolve to the same
-	// winner on every read: the merge below is last-writer-wins, and map order
-	// is not an order.
-	sort.Strings(ids)
 	regCtx, cancelRegs := context.WithTimeout(r.Context(), hostReadBudget)
 	defer cancelRegs()
 	regs := eachMember(ids, func(hostID string) *hostRegistration {
 		var reg hostRegistration
 		if err := s.pool.GetURL(regCtx, strings.TrimSuffix(baseURLOf[hostID], "/")+"/runtime/host.registration.json", &reg); err != nil {
-			// A host that did not answer offers nothing; its pool still renders,
+			// A host that did not answer flags nothing; its pool still renders,
 			// with the numbers the aggregator already reported for it.
 			return nil
 		}
 		return &reg
 	})
-
-	offers := map[string]boardOffer{}
-	accessDenied := map[string]bool{} // hostId -> cannot read its assigned project
-	labelFor := map[string]string{}   // library key -> human label
+	accessDenied := map[string]bool{} // hostId -> cannot read the pool's project
 	for i, reg := range regs {
-		if reg == nil {
-			continue
-		}
-		if reg.ProjectAccess != nil && reg.ProjectAccess.Status == "denied" {
+		if reg != nil && reg.ProjectAccess != nil && reg.ProjectAccess.Status == "denied" {
 			accessDenied[ids[i]] = true
 		}
-		slug := projectSlug(reg.ProjectURL)
-		if slug == "" {
-			continue
-		}
-		for _, ts := range reg.TestSets {
-			key := slug + "." + ts.Name
-			label, displayLocalized := localizedProjectText(ts.DisplayName, ts.DisplayNameLocalized, projectDisplayNameMax, locale)
-			if label == "" {
-				label = key
-			}
-			description, descriptionLocalized := localizedProjectText(ts.Description, ts.DescriptionLocalized, projectDescriptionMax, locale)
-			offers[key] = boardOffer{
-				Name: key, DisplayName: label, Description: description,
-				ProjectURL: reg.ProjectURL, Sequences: ts.Sequences,
-				displayLocalized: displayLocalized, descriptionLocalized: descriptionLocalized,
-			}
-		}
-	}
-	// Library entries an operator authored are offers too, and they carry the
-	// framework url the discovered ones cannot know.
-	for _, ts := range doc.TestSets {
-		o := offers[ts.Name]
-		o.Name = ts.Name
-		libraryDisplay, libraryDisplayLocalized := localizedProjectText(ts.DisplayName, ts.DisplayNameLocalized, projectDisplayNameMax, locale)
-		if libraryDisplay != "" && (libraryDisplayLocalized || !o.displayLocalized) {
-			o.DisplayName = libraryDisplay
-			o.displayLocalized = libraryDisplayLocalized
-		} else if o.DisplayName == "" {
-			o.DisplayName = ts.Name
-		}
-		libraryDescription, libraryDescriptionLocalized := localizedProjectText(ts.Description, ts.DescriptionLocalized, projectDescriptionMax, locale)
-		if libraryDescription != "" && (libraryDescriptionLocalized || !o.descriptionLocalized) {
-			o.Description = libraryDescription
-			o.descriptionLocalized = libraryDescriptionLocalized
-		}
-		if ts.FrameworkURL != "" {
-			o.FrameworkURL = ts.FrameworkURL
-		}
-		if ts.ProjectURL != "" {
-			o.ProjectURL = ts.ProjectURL
-		}
-		if len(ts.Sequences) > 0 {
-			o.Sequences = ts.Sequences
-		}
-		offers[ts.Name] = o
-	}
-	for name, offer := range offers {
-		labelFor[name] = offer.DisplayName
 	}
 
 	target := strings.TrimSpace(doc.AutoEnrollment.TargetPoolID)
@@ -384,7 +188,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 	for _, p := range doc.Pools {
 		c := boardCard{
 			PoolID: p.PoolID, PoolGUID: p.PoolGUID, Display: p.Display,
-			HostsTotal: len(p.Members), AssignAllowed: true,
+			HostsTotal: len(p.Members),
 		}
 		if c.Display == "" {
 			c.Display = p.PoolID
@@ -404,43 +208,22 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 			pct := 100 * float64(c.Passed) / float64(c.Total)
 			c.SuccessPct = &pct
 		}
-		if p.TestSet != nil {
-			c.TestSet = p.TestSet.Name
-			c.TestSetLabel = labelFor[p.TestSet.Name]
-			if c.TestSetLabel == "" {
-				c.TestSetLabel = p.TestSet.Name
-			}
-		}
-		if target != "" && p.PoolID == target {
-			c.AssignAllowed = false
-			c.AssignDisabledDetail = Translate(locale, "pool.diagnostic_auto_enrollment_assignment", nil)
+		// The target pool's runners ignore a stored pair and keep their own
+		// repositories, so its card must not name a project they do not run.
+		if p.Repositories != nil && (target == "" || p.PoolID != target) {
+			c.FrameworkURL = p.Repositories.FrameworkURL
+			c.ProjectURL = p.Repositories.ProjectURL
 		}
 		cards = append(cards, c)
 	}
 	sort.Slice(cards, func(i, j int) bool { return cards[i].PoolID < cards[j].PoolID })
 
-	names := make([]string, 0, len(offers))
-	for n := range offers {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	offerList := make([]boardOffer, 0, len(names))
-	for _, n := range names {
-		offerList = append(offerList, offers[n])
-	}
-
-	// The project labels in this representation were selected from the request's
-	// locale maps. Keep a shared cache from handing those selected values to a
-	// reader in another language; no-store remains the stricter storage policy,
-	// while these headers still describe the response correctly to every client.
-	i18n.Apply(w.Header(), locale)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
 		"range":      window,
 		"computedAt": stats.ComputedAt,
 		"statsError": statsErr,
 		"cards":      cards,
-		"offers":     offerList,
 	})
 }
 
@@ -668,7 +451,7 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	// a page of their own, because "which machines does this lab have" is one
 	// question: a host that answers on the subnet but registered with nobody is
 	// the one an operator most needs to see next to the ones that did.
-	rows = append(rows, discoveredRows(s.discovered.List(), seen, seenBase)...)
+	rows = append(rows, discoveredRows(s.discovered.List(), seen, seenBase, hostnamesVisible)...)
 	// Address, not host id, for the discovered rows that have no id: sorting on
 	// an empty string would herd them all to one end regardless of where they
 	// live on the network.
@@ -723,14 +506,9 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "unchanged": true})
 		return
 	}
-	if current != "" {
-		if r2 := s.intent.RemoveHost(r.Context(), current, body.HostID); !r2.OK {
-			writeErr(w, http.StatusInternalServerError, firstNonEmpty(r2.Error, r2.Stderr, "remove failed"))
-			return
-		}
-	}
-
-	s.relay(w, "move-host", body.HostID, s.intent.AddHost(r.Context(), body.PoolID, body.HostID))
+	// Destination validation, old membership removal and destination insertion
+	// share one pools.yml publication. A failed add cannot publish a removal.
+	s.relay(w, "move-host", body.HostID, s.intent.AddHost(r.Context(), body.PoolID, body.HostID, true))
 }
 
 // handleAdoptRekey hands membership to the live ID, persists an identity alias,

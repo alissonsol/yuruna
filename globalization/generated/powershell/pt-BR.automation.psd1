@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421267e3-f5fa-3558-ead4-2600d7d08c6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -206,9 +206,9 @@
         }
         's -- retornando resultados parciais/vazios)'
     )
-    'automation.operator_02f5964499aac6c9' = 'Tomadas de ouvido (ss - tulpn)'
+    'automation.operator_02f5964499aac6c9' = 'Sockets em escuta (ss -tulpn)'
     'automation.operator_0309d6a5040c85c6' = @(
-        'REGISTO: o cache não serviu um manifesto dentro de '
+        'REGISTRO: o cache não serviu um manifesto dentro de '
         @{
             'arg' = 'registryCapSec'
             'type' = 'detail'
@@ -246,7 +246,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_04cb0b06ab0deedb' = 'gerenciamento-OS vNIC: ausente'
+    'automation.operator_04cb0b06ab0deedb' = 'gerenciamento do sistema operacional vNIC: ausente'
     'automation.operator_05b17216b940ff6d' = 'Conjuntos de Estado (todos os espaços de nomes)'
     'automation.operator_06024f72c4a294e2' = 'Para um NAS ou um servidor de arquivos separado, pare agora e responda esta pergunta de forma diferente:'
     'automation.operator_06926d1d2c8038fd' = 'sobras de um interruptor que uma vez ponteou o mesmo NIC; o vivo é escolhido por alias'
@@ -330,7 +330,7 @@
     )
     'automation.operator_0b45180c32513386' = 'Entradas (todos os espaços de nomes)'
     'automation.operator_0b62c1c9d3cf7476' = @(
-        'Novo-WindowsGuestBootstrap: requisitou o script convidado faltando: '
+        'New-WindowsGuestBootstrap: requisitou o script convidado faltando: '
         @{
             'arg' = 'locatePath'
             'type' = 'detail'
@@ -347,7 +347,7 @@
         ').'
     )
     'automation.operator_0b8563c838574b32' = 'Re-run Without -Rebuild: o proxy caching surgiu, e re-running com ele paga'
-    'automation.operator_0c0b6c2779c42621' = '(Skip-ProjectGaps)'
+    'automation.operator_0c0b6c2779c42621' = '(-SkipProjectGaps)'
     'automation.operator_0e79617cabbe97da' = '/var/log/installer/ (lista de pastas privilegiadas)'
     'automation.operator_0feb9b01ffd492f4' = @(
         'Recurso '''
@@ -384,7 +384,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Continuando sem - OutFile.'
+        '. Continuando sem -OutFile.'
     )
     'automation.operator_115fdbece1d774ee' = @(
         'O manifesto da versão não foi encontrado: '
@@ -407,7 +407,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Esta execução não é afetada, mas não há nenhum arquivo de resposta para configurar a próxima máquina com. Se existir e for de propriedade do root, remova- o (sudo rm '''
+        '). Esta execução não é afetada, mas não há nenhum arquivo de resposta para configurar a próxima máquina com. Se existir e for de propriedade do root, remova-o (sudo rm '''
         @{
             'arg' = 'answerOut'
             'type' = 'detail'
@@ -446,7 +446,7 @@
     )
     'automation.operator_11dfac53e0602112' = 'essas contas e permissões têm que ser criadas nesse dispositivo, por suas próprias ferramentas.'
     'automation.operator_1228b31b1ce78688' = @(
-        'ERRO DE get-module: '
+        'ERRO DE Get-Module: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -478,7 +478,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_1309c3acc622dab5' = 'Pods (todos os espaços de nomes, - o wide)'
+    'automation.operator_1309c3acc622dab5' = 'Pods (todos os espaços de nomes, -o wide)'
     'automation.operator_13444d1232596727' = @(
         'Namespace '''
         @{
@@ -675,7 +675,7 @@
         }
         ' é desconhecido.'
     )
-    'automation.operator_1cb63907b21a7688' = '-> Verifique com: ls -l $(comando -v leme); versão do leme -- short'
+    'automation.operator_1cb63907b21a7688' = '-> Verifique com: ls -l $(command -v helm); helm version --short'
     'automation.operator_1cdaae68f0f030a5' = @(
         '(cache não publica nenhuma página de saúde no '
         @{
@@ -726,7 +726,7 @@
         ')'
     )
     'automation.operator_2259884669944bfb' = '(nem resolvectl nem systemd-resolve encontrado -- systemd-resolved provavelmente não em uso)'
-    'automation.operator_227db199c3c8f906' = '-- AVISO: ARM SUBSCRIPTION ID não está definido e ''az account show'' não retornou nenhuma assinatura; o provedor de Azurerm falhará na hora do plano até que um seja fornecido.'
+    'automation.operator_227db199c3c8f906' = '-- AVISO: ARM_SUBSCRIPTION_ID não está definido e ''az account show'' não retornou nenhuma assinatura; o provedor de Azurerm falhará na hora do plano até que um seja fornecido.'
     'automation.operator_22827d1698f66f24' = @(
         'A pasta de componentes não foi encontrada: '
         @{
@@ -734,7 +734,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`nUsado no ficheiro: "
+        "`nUsado no arquivo: "
         @{
             'arg' = 'componentsFile'
             'type' = 'detail'
@@ -742,7 +742,7 @@
         }
     )
     'automation.operator_228896e3eb28a705' = 'exatamente como eles são, e nada é copiado deles, então o armazenamento criado'
-    'automation.operator_231522de7ad0c540' = '(nenhuma entrada crítica/erro do registo do sistema nas últimas 1h)'
+    'automation.operator_231522de7ad0c540' = '(nenhuma entrada crítica/erro do registro do sistema nas últimas 1h)'
     'automation.operator_23355db5f693b7ef' = @(
         'Servidor : '
         @{
@@ -781,7 +781,7 @@
         }
     )
     'automation.operator_250f4d20840b7daf' = '-> Kubelet não está activo.'
-    'automation.operator_26f9c3d0c529d327' = "yuruna clear [project  root] [config  subfolder]`nLimpar os recursos para uma dada configuração."
+    'automation.operator_26f9c3d0c529d327' = "yuruna clear [project_root] [config_subfolder]`nLimpar os recursos para uma dada configuração."
     'automation.operator_27627383486fd63c' = '(nenhuma VM registada na Hyper-V)'
     'automation.operator_27c29d60062fde4f' = @(
         '(imagens de doca retornadas saída '
@@ -800,9 +800,9 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_287506e0d1314af9' = 'Até que (1) seja escrito, o "pool alvo não carrega nenhum conjunto de testes" guarda não está armado para'
+    'automation.operator_287506e0d1314af9' = 'Até que (1) seja gravado, a proteção ''o grupo de destino não contém repositórios'' não fica armada para'
     'automation.operator_29759c8a58f5d70a' = @(
-        'ERRO do repositório Get- PS: '
+        'ERRO do Get-PSRepository: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -849,7 +849,7 @@
         }
         ' lógico'
     )
-    'automation.operator_2b40950464027594' = 'Autenticação dockerhub: definir YURUNA DOCKER HUB USERNAME e YURUNA DOCKER HUB PASSWORD env vars para habilitar o login do Docker Hub.'
+    'automation.operator_2b40950464027594' = 'Autenticação dockerhub: definir YURUNA_DOCKER_HUB_USERNAME e YURUNA_DOCKER_HUB_PASSWORD env vars para habilitar o login do Docker Hub.'
     'automation.operator_2bc578a9fce34264' = '(nenhuma entrada -- nenhum convidado MAC foi visto nesta ponte)'
     'automation.operator_2bcf3d5983bd68a0' = @(
         'Pasta de configuração não encontrada ou ambígua: '
@@ -861,7 +861,7 @@
     )
     'automation.operator_2bd5e3cda8731457' = '(virsh está presente mas não respondeu nada -- nenhum qemu:///system acessível)'
     'automation.operator_2becfac1438e0c34' = 'O pool e o stash partilham desta máquina.'
-    'automation.operator_2beedb6fff0f94ac' = 'Não foi possível determinar o tipo de máquina. Só são suportados o macOS (UTM), o Windows (Hyper- V) e o Linux (KVM/libvirt).'
+    'automation.operator_2beedb6fff0f94ac' = 'Não foi possível determinar o tipo de máquina. Só são suportados o macOS (UTM), o Windows (Hyper-V) e o Linux (KVM/libvirt).'
     'automation.operator_2c034a64269ac7d5' = @(
         'tofu output -json retornou vazio para o recurso '''
         @{
@@ -904,7 +904,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_2dfbf02a6050f367' = 'Até que as terras de reconstrução, buscar-e-execute.sh vai silenciosamente cair'
+    'automation.operator_2dfbf02a6050f367' = 'Até que as terras de reconstrução, fetch-and-execute.sh vai silenciosamente cair'
     'automation.operator_2e15c2e53d3f7ff5' = '(sem linhas eth0/netvsc/carrier/RA no buffer de anel de kernel)'
     'automation.operator_2ef2b00d42a09705' = @(
         'REGISTRO: o cache serve sua página de saúde, mas nenhum documento métrico no '
@@ -1095,7 +1095,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' tofu.tfstate ficheiro(s) presente(s) mas não leme no PATH; não pode verificar)'
+        ' tofu.tfstate arquivo(s) presente(s) mas não leme no PATH; não pode verificar)'
     )
     'automation.operator_3a0c224edeb697d8' = @(
         'Falha ao '
@@ -1159,7 +1159,7 @@
         's; os resultados abaixo podem estar incompletos.'
     )
     'automation.operator_3a9c0f6767b77dc5' = @(
-        'YURUNA STATUS SERVICE IP faltando ou vazio no '
+        'YURUNA_STATUS_SERVICE_IP faltando ou vazio no '
         @{
             'arg' = 'hostEnvFile'
             'type' = 'detail'
@@ -1168,13 +1168,13 @@
     )
     'automation.operator_3ae794313d668573' = 'sonda de compilação: OK (binário produzido; Vision OCR caminho rápido pode construir)'
     'automation.operator_3afa1715b4f04e1b' = @(
-        'host.env: YURUNA STATUS SERVICE IP='
+        'host.env: YURUNA_STATUS_SERVICE_IP='
         @{
             'arg' = 'hostIp'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' YURUNA STATUS SERVICE PORT='
+        ' YURUNA_STATUS_SERVICE_PORT='
         @{
             'arg' = 'hostPort'
             'type' = 'detail'
@@ -1192,7 +1192,7 @@
     )
     'automation.operator_3bc6d2f5edbf00c0' = '-> Leme de reinstalação: https://helm.sh/docs/intro/install/'
     'automation.operator_3c1dd62a526940d8' = 'HELM: leme não instalado (ou não no PATH / não executável).'
-    'automation.operator_3c44577797e2dd05' = 'Catálogo de registo local (sonda http://localhost:5000/v2/_catalog)'
+    'automation.operator_3c44577797e2dd05' = 'Catálogo de registro local (sonda http://localhost:5000/v2/_catalog)'
     'automation.operator_3c501632d2ed2862' = @(
         'O endereço MAC '''
         @{
@@ -1233,7 +1233,7 @@
         '% em todos os processadores lógicos (>=90).'
     )
     'automation.operator_3d926ec2c9a14019' = @(
-        'Nome de utilizador : '
+        'Nome de usuário : '
         @{
             'arg' = 'userName'
             'type' = 'detail'
@@ -1323,7 +1323,7 @@
     )
     'automation.operator_4272d9bd74626ac9' = 'Heurística 2: espaços de nomes declarados em falta no cluster'
     'automation.operator_428373fe65b0a16b' = @(
-        'Retentar/Temperar/Erro de ligação em linhas de captura delimitadas: '
+        'Retry/Timeout/Connection-error em linhas de captura delimitadas: '
         @{
             'arg' = 'count'
             'type' = 'detail'
@@ -1354,7 +1354,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_43fd2598d28c6a0d' = 'armazenamento vai sobre ele. Uma quota de piscina cresce sem limite (pruning aposentado'
+    'automation.operator_43fd2598d28c6a0d' = 'armazenamento vai sobre ele. Uma quota de grupo cresce sem limite (pruning aposentado'
     'automation.operator_44307ca3abfeb77b' = 'O contexto de origem não pode estar em branco'
     'automation.operator_44b14d5da1878689' = @(
         'Apenas '
@@ -1483,7 +1483,7 @@
                     'type' = 'detail'
                     'trust' = 'external'
                 }
-                ' de memória de hóspedes'
+                ' de memória de convidados'
                 @{
                     'arg' = 'list'
                     'type' = 'detail'
@@ -1567,7 +1567,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. A fase de cargas de trabalho ou não implantou um gráfico que usa essas imagens, ou o gráfico renderizou- as com um diferente prefixo de registro (verifique componentesRegistry.registryLocalização em resources.output.yml). Uma imagem que só serve como uma etapa de compilação é esperada aqui e não é propriamente uma lacuna de implantação.'
+        '. A fase de cargas de trabalho ou não implantou um gráfico que usa essas imagens, ou o gráfico renderizou-as com um diferente prefixo de registro (verifique componentesRegistry.registryLocalização em resources.output.yml). Uma imagem que só serve como uma etapa de compilação é esperada aqui e não é propriamente uma lacuna de implantação.'
     )
     'automation.operator_4ba3081aa0af2a76' = '(toda a janela é a votação deste arnês -- nada mais foi registrado)'
     'automation.operator_4bcda64ddc713b3c' = @(
@@ -1661,8 +1661,8 @@
         }
         ''': deve ser um tamanho positivo.'
     )
-    'automation.operator_4e5c913a3ad57e31' = 'Erros recentes no registo do sistema (últimos 1h, 25 mais recentes)'
-    'automation.operator_4eeea39bff48dea5' = 'powershell- yaml é necessário. Instale- o com: Install- Module -Name powershell- yaml'
+    'automation.operator_4e5c913a3ad57e31' = 'Erros recentes no registro do sistema (últimos 1h, 25 mais recentes)'
+    'automation.operator_4eeea39bff48dea5' = 'powershell-yaml é necessário. Instale-o com: Install-Module -Name powershell-yaml'
     'automation.operator_4f49b26ecda1d965' = @(
         'KUBE: o espaço de nomes '''
         @{
@@ -1741,10 +1741,10 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' definir um cliente puxa. Cada imagem em falta é copiada a montante enquanto o hóspede aguarda o seu pedido manifesto, que custa minutos cada um e sobrevive a um orçamento de passo de provisionamento -- enquanto cada vida e leitura manifesta acima permanece verde.'
+        ' definir um cliente puxa. Cada imagem em falta é copiada a montante enquanto o convidado aguarda o seu pedido manifesto, que custa minutos cada um e sobrevive a um orçamento de passo de provisionamento -- enquanto cada vida e leitura manifesta acima permanece verde.'
     )
     'automation.operator_538dbbedc6313351' = '- Então tente novamente este cheque.'
-    'automation.operator_53d63125deb58dff' = '- esta máquina é agora o único ponto de falha para o armazenamento da piscina;'
+    'automation.operator_53d63125deb58dff' = '- esta máquina é agora o único ponto de falha para o armazenamento do grupo;'
     'automation.operator_545f599c8329b23f' = @(
         '/etc/hosts mapeia yuruna-host para '
         @{
@@ -1752,7 +1752,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ', mas YURUNA STATUS SERVICE IP é '
+        ', mas YURUNA_STATUS_SERVICE_IP é '
         @{
             'arg' = 'hostIp'
             'type' = 'detail'
@@ -1804,8 +1804,8 @@
         }
     )
     'automation.operator_57118242879db9a9' = 'alterações de iteração no host NÃO serão visíveis neste convidado.'
-    'automation.operator_57e9b1596ecdf272' = '(SkipDocker)'
-    'automation.operator_58e0bb2082b9b937' = 'Foram encontradas sobras de propriedade da raiz, mas nenhuma delas bloqueia esta execução; continuando. O bloco acima lista- as.'
+    'automation.operator_57e9b1596ecdf272' = '(-SkipDocker)'
+    'automation.operator_58e0bb2082b9b937' = 'Foram encontradas sobras de propriedade da raiz, mas nenhuma delas bloqueia esta execução; continuando. O bloco acima lista-as.'
     'automation.operator_58ff80ccf6e0d414' = @(
         'Arquivo de resposta não encontrado: '
         @{
@@ -1816,7 +1816,7 @@
     )
     'automation.operator_5916ef3813bf8149' = 'KUBECTL: o kubectl não está instalado ou não está no PATH.'
     'automation.operator_5957b44c1fb2ab86' = @(
-        'Yuruna.Component.Registry: Yuruna.CredencialProvider.psm1 não encontrado no '
+        'Yuruna.Component.Registry: Yuruna.CredentialProvider.psm1 não encontrado no '
         @{
             'arg' = 'credentialProviderModulePath'
             'type' = 'detail'
@@ -1840,9 +1840,9 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_5b2ea4673a88ff6f' = "recursos yuruna [project  root] [config  subfolder]`nLança recursos usando OpenTofu como helper."
+    'automation.operator_5b2ea4673a88ff6f' = "yuruna resources [project_root] [config_subfolder]`nLança recursos usando OpenTofu como helper."
     'automation.operator_5b61d37259974d2f' = @(
-        'http proxy é '
+        'http_proxy é '
         @{
             'arg' = 'plainProxyUrl'
             'type' = 'detail'
@@ -1929,8 +1929,8 @@
         }
     )
     'automation.operator_5e0cc0356ca62c91' = 'Heurística 1: estado de tofu sem liberação de leme'
-    'automation.operator_5e3e34e68522ecb2' = 'Nada mudou (-E se).'
-    'automation.operator_5f419145bd02451c' = '/var/log/installer/autoinstall- user-data (apenas metadados; credenciais de sementes omitidas)'
+    'automation.operator_5e3e34e68522ecb2' = 'Nada mudou (-WhatIf).'
+    'automation.operator_5f419145bd02451c' = '/var/log/installer/autoinstall-user-data (apenas metadados; credenciais de sementes omitidas)'
     'automation.operator_5f4da68a8a0470cb' = @(
         'LINUX: dmesg mostra '
         @{
@@ -1938,9 +1938,9 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' OOM- killer event(s) -- a pressão da memória matou um processo.'
+        ' OOM-killer event(s) -- a pressão da memória matou um processo.'
     )
-    'automation.operator_5fda31960d8c149a' = 'df - P (sistemas de ficheiros locais, formato POSIX 1K- block)'
+    'automation.operator_5fda31960d8c149a' = 'df -P (sistemas de arquivos locais, formato POSIX 1K-block)'
     'automation.operator_60108482ffac31eb' = '-> Executar ''kubectl obter nós'' manualmente para investigar.'
     'automation.operator_601b6a8a371d20bf' = @(
         'NÃO concedido no '
@@ -1973,7 +1973,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '% utilizado (1 - MemDisponível/MemTotal)'
+        '% utilizado (1 - MemAvailable/MemTotal)'
     )
     'automation.operator_60747ca0849cfbc6' = 'Não foi possível determinar o tipo de máquina. Só são suportados o macOS (UTM), o Windows (Hyper-V) e o Linux (KVM/libvirt).'
     'automation.operator_607a7ca5cfe89be1' = @(
@@ -1991,7 +1991,7 @@
         }
         ': um cabeçalho repetido sobrescreveria silenciosamente a carga útil anterior.'
     )
-    'automation.operator_60bde44af83103ca' = 'VMs hiper-V (se presentes)'
+    'automation.operator_60bde44af83103ca' = 'VMs Hyper-V (se presentes)'
     'automation.operator_60e4e2f2dbcc4366' = 'Importar Test.HostContract + instalar powershell-yaml + PSScriptAnalyzer'
     'automation.operator_6122beada92e6164' = @(
         'PROVISÃO: '
@@ -2162,7 +2162,7 @@
         '); o resto desta execução é apenas para consoles.'
     )
     'automation.operator_69ccbdc3edf66706' = 'Árvore de processo de corredor Yuruna (descendentes de inner.pid/runner.pid)'
-    'automation.operator_6a25d0419bde0a78' = 'estatísticas de docker -- no- stream (contêineres em execução)'
+    'automation.operator_6a25d0419bde0a78' = 'docker stats --no-stream (contêineres em execução)'
     'automation.operator_6adf8d997a5873b0' = @(
         '--- '
         @{
@@ -2199,7 +2199,7 @@
         }
         ' -- skipping endpoint sondas)'
     )
-    'automation.operator_6f0c94761254ca79' = 'Origem do espelho de pacotes (direct -- sem http  proxy no env)'
+    'automation.operator_6f0c94761254ca79' = 'Origem do espelho de pacotes (direct -- sem http_proxy no env)'
     'automation.operator_6f2d0aef178bf1b3' = '(sem erros na última hora)'
     'automation.operator_6fc61f0366ccc45e' = @(
         @{
@@ -2242,7 +2242,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' -- a aplicação foi bem- sucedida, mas todos os blocos de saída avaliados para vazio. O provisionador null  resource sob '
+        ''' -- a aplicação foi bem-sucedida, mas todos os blocos de saída avaliados para vazio. O provisionador null_resource sob '
         @{
             'arg' = 'templateFolder'
             'type' = 'detail'
@@ -2279,11 +2279,11 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '; kernel.dmesg restrict pode ser 1 -- rerun como root para o buffer de anel do kernel)'
+        '; kernel.dmesg_restrict pode ser 1 -- rerun como root para o buffer de anel do kernel)'
     )
     'automation.operator_71acf9bf9963db93' = 'Soquetes de escuta (ss -tuln, primeiras 200 linhas)'
     'automation.operator_71e456ef5ba1bbde' = @(
-        '(O processo Win32 Get-CimInstance falhou: '
+        '(Get-CimInstance Win32_Process falhou: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -2302,8 +2302,8 @@
         ' tofu.tfstate arquivo(s) presente(s), mas leme tem 0 lançamentos em todos os espaços de nomes -- a fase de cargas de trabalho parece ter sido ignorada ou saiu 0 sem chamar Set-Workload. Verifique os arquivos helm.stderr.log acima e as últimas linhas do script.'
     )
     'automation.operator_72e28a58e0301f9b' = '-> Implementações de gráficos não podem ser executadas sem ele.'
-    'automation.operator_72e2cb646e4c4115' = 'NETWORK: tcpdump não possui CAP  NET  RAW, então um hóspede que não consegue obter uma locação DHCP não deixa nenhuma evidência de fio. Conceda-a: sudo setcap cap  net  raw, cap  net  admin=eip $(command - v tcpdump)'
-    'automation.operator_7381c2ff7b092be4' = 'Nenhum http  proxy está definido, então estes vão diretamente. Os hóspedes obtêm os mesmos objetos através do proxy de cache; uma falha direta aqui significa a origem em si, não a cache.'
+    'automation.operator_72e2cb646e4c4115' = 'NETWORK: tcpdump não possui CAP_NET_RAW, então um convidado que não consegue obter uma locação DHCP não deixa nenhuma evidência de fio. Conceda-a: sudo setcap cap_net_raw,cap_net_admin=eip $(command -v tcpdump)'
+    'automation.operator_7381c2ff7b092be4' = 'Nenhum http_proxy está definido, então estes vão diretamente. Os convidados obtêm os mesmos objetos através do proxy de cache; uma falha direta aqui significa a origem em si, não a cache.'
     'automation.operator_748e4216448e7f0d' = @(
         'Painel de máquinas Yuruna: http://'
         @{
@@ -2321,7 +2321,7 @@
     'automation.operator_74cd64678d9ced5d' = 'O serviço de estado da máquina não é acessível. A correção suportada é reconstruir'
     'automation.operator_74de2e28a089729b' = 'libvirt guest networks (folhas, pontes, dnsmasq)'
     'automation.operator_7547f4a3d66ac1fb' = @(
-        'REGISTO: a própria sonda manifesto do cache não obteve resposta dentro de '
+        'REGISTRO: a própria sonda manifesto do cache não obteve resposta dentro de '
         @{
             'arg' = 'probeCap'
             'type' = 'detail'
@@ -2451,7 +2451,7 @@
         }
         ''' não é uma folha { valor: ... }; usando seu valor bruto. Verifique a forma resources.output.yml se inesperada.'
     )
-    'automation.operator_78d2e6388bf62f89' = '(o Kubectl não pôde listar as imagens da página; não foi possível cruzar o catálogo de registo)'
+    'automation.operator_78d2e6388bf62f89' = '(o Kubectl não pôde listar as imagens da página; não foi possível cruzar o catálogo de registro)'
     'automation.operator_796c5d30f7816aa9' = @(
         'EXITCODE: '
         @{
@@ -2476,7 +2476,7 @@
     )
     'automation.operator_7a6f4736fc5e969c' = 'Outra viagem.'
     'automation.operator_7a8a2cc13729acb4' = @(
-        'Autenticação docker-generic: definir YURUNA REGISTRY USERNAME e YURUNA REGISTRY PASSWORD env vars para habilitar o login para '''
+        'Autenticação docker-generic: definir YURUNA_REGISTRY_USERNAME e YURUNA_REGISTRY_PASSWORD env vars para habilitar o login para '''
         @{
             'arg' = 'registryHost'
             'type' = 'detail'
@@ -2529,9 +2529,9 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' (correspondências YURUNA STATUS SERVICE IP).'
+        ' (correspondências YURUNA_STATUS_SERVICE_IP).'
     )
-    'automation.operator_806ec1c40ae4b734' = 'DOCKER: daemon não acessível (a informação do doca foi mal- sucedida).'
+    'automation.operator_806ec1c40ae4b734' = 'DOCKER: daemon não acessível (a informação do doca foi mal-sucedida).'
     'automation.operator_80a91c7136b5ea24' = @(
         @{
             'arg' = 'setting'
@@ -2578,9 +2578,9 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_82c987150223392e' = 'O Docker não está a correr ou não é saudável.'
+    'automation.operator_82c987150223392e' = 'O Docker não está em execução ou não é saudável.'
     'automation.operator_83e94a134a825b6e' = @(
-        'YURUNA STATUS SERVICE PORT faltando ou vazio no '
+        'YURUNA_STATUS_SERVICE_PORT faltando ou vazio no '
         @{
             'arg' = 'hostEnvFile'
             'type' = 'detail'
@@ -2620,7 +2620,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_86af45ab06fb8dac' = 'system profiler SPDisplaysDataType (truncado)'
+    'automation.operator_86af45ab06fb8dac' = 'system_profiler SPDisplaysDataType (truncado)'
     'automation.operator_86ef52add548f1a6' = @(
         'Corrigir '
         @{
@@ -2670,7 +2670,7 @@
     )
     'automation.operator_883c24367a7311b4' = '(dacker info probe cronometrado após 5s -- daemon provavelmente encravado)'
     'automation.operator_88570e5c6483f2df' = '(Jornalctl não disponível)'
-    'automation.operator_886762e8e63ddc51' = '(Get-VMswitch não disponível -- Ferramentas de gerenciamento Hyper-V não instaladas)'
+    'automation.operator_886762e8e63ddc51' = '(Get-VMSwitch não disponível -- Ferramentas de gerenciamento Hyper-V não instaladas)'
     'automation.operator_886b6f5d510a69fb' = @(
         'Não encontrado pasta global: '
         @{
@@ -2733,7 +2733,7 @@
         }
         ' container(s)'
     )
-    'automation.operator_8aa84a9f7af375bd' = 'SWIFT: swiftc não pode produzir um binário -- o caminho rápido Vision OCR está em baixo (ocr vision slowpath). Correção usual: reinstalar as Ferramentas de Linha de Comando (xcode-select --install) ou repontá- las (sudo xcode-select -s <developer dir>).'
+    'automation.operator_8aa84a9f7af375bd' = 'SWIFT: swiftc não pode produzir um binário -- o caminho rápido Vision OCR está em baixo (ocr_vision_slowpath). Correção usual: reinstalar as Ferramentas de Linha de Comando (xcode-select --install) ou repontá-las (sudo xcode-select -s <developer dir>).'
     'automation.operator_8b1cc72a282b2b00' = @(
         @{
             'arg' = 'v2'
@@ -2770,7 +2770,7 @@
         ').'
     )
     'automation.operator_8b8f2d24872ecf9a' = @(
-        'Sobreposição do ficheiro não encontrado: '
+        'Sobreposição do arquivo não encontrado: '
         @{
             'arg' = 'overlayPath'
             'type' = 'detail'
@@ -2778,7 +2778,7 @@
         }
     )
     'automation.operator_8c7476793d8974ca' = '(no /etc/cni/net.d -- Kubernetes não configurado aqui)'
-    'automation.operator_8cc3b54d17ecd066' = "cargas de trabalho do yuruna [project  root] [config  subfolder]`nCarregar cargas de trabalho usando o Helm como ajudante."
+    'automation.operator_8cc3b54d17ecd066' = "yuruna workloads [project_root] [config_subfolder]`nCarregar cargas de trabalho usando o Helm como ajudante."
     'automation.operator_8deabd038eb2770d' = 'CLUSTER: Nenhum nó pronto relatado.'
     'automation.operator_8e17815082cb03cd' = @(
         '-- Inicializando: '
@@ -2795,7 +2795,7 @@
         }
     )
     'automation.operator_8e214cf40db4bf91' = 'DOCKER: tempo limite da sonda (dacker info --format json não retornou dentro de 5s).'
-    'automation.operator_8e387ee6ac99f4e6' = 'Origem do espelho de pacotes (rota http proxy GET/cache)'
+    'automation.operator_8e387ee6ac99f4e6' = 'Origem do espelho de pacotes (rota http_proxy GET/cache)'
     'automation.operator_8e9c512867ac6ba2' = '(analisar sistema não em PATH)'
     'automation.operator_8ea0ca42f7ecc9f7' = @(
         'MUDANÇA <iface> : '
@@ -2856,9 +2856,9 @@
     'automation.operator_91db0522b1d981fb' = 'networkctl status --all'
     'automation.operator_926bc2ef75b29511' = 'Diagnóstico completo.'
     'automation.operator_92b000bbc8fbfa86' = 'comando docker não encontrado no PATH (ou presente, mas não executável).'
-    'automation.operator_92cf51282b025cb1' = 'Este hóspede não tem a configuração do host yuruna.'
+    'automation.operator_92cf51282b025cb1' = 'Este convidado não tem a configuração do host yuruna.'
     'automation.operator_92d670bc7925ddf3' = @(
-        'Falha na descarga do apt- config: '
+        'Falha na descarga do apt-config: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -2905,16 +2905,16 @@
         ' curto'
     )
     'automation.operator_94449206290537fc' = '(tabelos não em PATH)'
-    'automation.operator_94793b409f5adbb8' = '(no /var/log/yuruna -- guest update.sh não foi executado, ou seu wrapper pwsh retry foi ignorado)'
+    'automation.operator_94793b409f5adbb8' = '(no /var/log/yuruna -- guest update.sh não foi executado, ou seu wrapper pwsh_retry foi ignorado)'
     'automation.operator_94cff3770e209f03' = 'Heuristic 3: cluster Pronto, mas sem pods de espaço de usuário'
     'automation.operator_9504b598bf631fce' = @(
-        'REGISTO: o cache pull-through no '
+        'REGISTRO: o cache pull-through no '
         @{
             'arg' = 'registryBase'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' não respondeu /v2/ -- os hóspedes puxam apenas dele, então cada imagem puxada nesta máquina falha até que ela volte.'
+        ' não respondeu /v2/ -- os convidados puxam apenas dele, então cada imagem puxada nesta máquina falha até que ela volte.'
     )
     'automation.operator_951861044b696fe1' = @(
         'O endereço MAC '''
@@ -2989,7 +2989,7 @@
         }
     )
     'automation.operator_990b0100f26b0d55' = 'Mover para um NAS mais tarde é uma repetição da etapa de armazenamento, não uma reconstrução.'
-    'automation.operator_9911832dfc6a1a02' = '(o directório existe mas está vazio -- nenhuma acção pwsh retry foi executada ainda)'
+    'automation.operator_9911832dfc6a1a02' = '(o diretório existe mas está vazio -- nenhuma acção pwsh_retry foi executada ainda)'
     'automation.operator_9928c4ddab42f536' = @(
         @{
             'arg' = 'cloudPath'
@@ -2999,14 +2999,14 @@
         ' (lida, cauda 200)'
     )
     'automation.operator_99a7029eb87427d9' = @(
-        'Cargas de trabalho nulas ou vazias no ficheiro: '
+        'Cargas de trabalho nulas ou vazias no arquivo: '
         @{
             'arg' = 'workloadsFile'
             'type' = 'detail'
             'trust' = 'external'
         }
     )
-    'automation.operator_99c6f7bd7b0f53a1' = 'topo - l 1 (cabeçalho PCU)'
+    'automation.operator_99c6f7bd7b0f53a1' = 'top -l 1 (cabeçalho PCU)'
     'automation.operator_99f43b55d16c10d9' = @(
         'Carga % : '
         @{
@@ -3017,9 +3017,9 @@
     )
     'automation.operator_9a08e978373feffe' = '-> Executar ''kubectl obter nós'' manualmente; o cluster não relata nós scheduláveis.'
     'automation.operator_9a305d78bd89da96' = 'Este laboratório usa ações LOCAL nesta máquina.'
-    'automation.operator_9a7a2b89b445e955' = 'Ficheiros completos de *.stderr.log sob yuruna repo root (verbatim, para tofu/helm/kubectl/docker post-mortem)'
+    'automation.operator_9a7a2b89b445e955' = 'Arquivos completos de *.stderr.log sob yuruna repo root (verbatim, para tofu/helm/kubectl/docker post-mortem)'
     'automation.operator_9a85e0c370a533d9' = @(
-        'gerenciamento- OS vNIC: presente ('
+        'gerenciamento do sistema operacional vNIC: presente ('
         @{
             'arg' = 'join'
             'type' = 'detail'
@@ -3032,7 +3032,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_9aae0dfbbf78d36e' = '2. inicie o servidor de controle de piscina com -- auto-enroll'
+    'automation.operator_9aae0dfbbf78d36e' = '2. inicie o servidor de controle de grupo com --auto-enroll'
     'automation.operator_9afc6dc3fd49c033' = @(
         '(caminhada descendente em '
         @{
@@ -3068,7 +3068,7 @@
         ' -- nenhuma fase produziu saída aqui)'
     )
     'automation.operator_9da6aea5b3ca9c8c' = '-> Instalar kubectl: https://kubernetes.io/docs/tasks/tools/'
-    'automation.operator_9dcd9b109c2d9e64' = '(o ficheiro está vazio)'
+    'automation.operator_9dcd9b109c2d9e64' = '(o arquivo está vazio)'
     'automation.operator_9e426b0a65404260' = @(
         'KUBE: '
         @{
@@ -3076,7 +3076,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' Eventos de alerta presentes (ver kubectl get events - A).'
+        ' Eventos de alerta presentes (ver kubectl get events -A).'
     )
     'automation.operator_9e80c4507aa91ce1' = @(
         'INSTALL: subiquity  send update disparado pelo menos '
@@ -3256,7 +3256,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Esta conta pode não ser um administrador local; adicione- a a partir de uma que é, volte a iniciar sessão e volte a executar: pwsh '
+        '). Esta conta pode não ser um administrador local; adicione-a a partir de uma que é, volte a iniciar sessão e volte a executar: pwsh '
         @{
             'arg' = 'pSCommandPath'
             'type' = 'detail'
@@ -3393,8 +3393,8 @@
         }
         ')'
     )
-    'automation.operator_a8f43a580cdc14d3' = 'Rota padrão + interfaces (netstat - nr lumina; ifconfig brief)'
-    'automation.operator_a96e14d3e499c9a0' = '(sem ficheiros)'
+    'automation.operator_a8f43a580cdc14d3' = 'Rota padrão + interfaces (netstat -nr | head; ifconfig brief)'
+    'automation.operator_a96e14d3e499c9a0' = '(sem arquivos)'
     'automation.operator_aa4ec3163ff01d87' = '(lsof not in PATH)'
     'automation.operator_aa6008fc30719924' = @(
         'Este checkout veio de '''
@@ -3433,7 +3433,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] variáveis em falta[''installName''] no ficheiro: '
+        '] variáveis em falta[''installName''] no arquivo: '
         @{
             'arg' = 'workloadsFile'
             'type' = 'detail'
@@ -3448,7 +3448,7 @@
         }
         ' PERDIDA: nenhuma versão detectada (tool ausente ou a sonda falhou).'
     )
-    'automation.operator_abe933a8d836ad06' = 'dmesg grep -iE ''et0''netvsc''hv  o porta-aviões'' é o ''aceit ra'' NEWLINK'' (últimos 80 jogos)'
+    'automation.operator_abe933a8d836ad06' = 'dmesg | grep -iE ''eth0|netvsc|hv_|carrier|link is|accept_ra|NEWLINK'' (últimas 80 ocorrências)'
     'automation.operator_ac0d79bc35b11ca4' = '(direto TCP/443 a 8.8.8.8 recusado pelo filtro de saída local; nenhum http(s)  proxy no env -- sondas de endpoint de salto)'
     'automation.operator_ac1256277a04aa2e' = @(
         'YURUNA: '
@@ -3457,23 +3457,23 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' error/ fail/ warning lines across .yuruna/ working folders (veja a secção acima do Projecto YURUNA)'
+        ' error/fail/warning lines across .yuruna/ working folders (veja a secção acima do Projecto YURUNA)'
     )
     'automation.operator_ac19e0a29d150ada' = '(ip not in PATH -- não pode enumerar dispositivos de ponte)'
     'automation.operator_ac4b5b8a5b1fb746' = 'LINUX: /etc/resolv.conf está faltando -- a resolução do nome falhará.'
     'automation.operator_ac55f29eb491874d' = '(sem arranque anterior, ou sem entradas de aviso+)'
     'automation.operator_acf06d0797fb527b' = '-> A troca está ligada. O Kubernetes requer que a troca seja desactivada:'
-    'automation.operator_acfdc6c69e5739b9' = 'O pré- voo em tempo de execução falhou; não foi enviada nenhuma carga de trabalho.'
+    'automation.operator_acfdc6c69e5739b9' = 'O pré-voo em tempo de execução falhou; não foi enviada nenhuma carga de trabalho.'
     'automation.operator_ad4c01d36493a583' = '-- floresta de processo completo (primeiras 250 linhas) --'
     'automation.operator_ad5cd796383abcb2' = 'NIC vinculado: (não avaliável)'
     'automation.operator_ad9c42ff8e5e7995' = @(
-        'Resolução-CloudInitPlaceholder: template ainda contém placeholder(s) não resolvido(s) após a substituição: '
+        'Resolve-CloudInitPlaceholder: template ainda contém placeholder(s) não resolvido(s) após a substituição: '
         @{
             'arg' = 'join'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Adicione-os a - Substituição (com valor vazio se intencional) ou passe -PermitidoNão resolvido.'
+        '. Adicione-os a -Replacement (com valor vazio se intencional) ou passe -AllowedUnresolved.'
     )
     'automation.operator_add466496962fbf6' = @(
         'YURUNA: '
@@ -3600,7 +3600,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_b4b7d067da09b239' = 'a VM convidada do anfitrião:'
+    'automation.operator_b4b7d067da09b239' = 'a VM convidada do hospedeiro:'
     'automation.operator_b5362b267131b912' = 'O diretório de saída já existe; escolha um novo diretório para preservar evidências anteriores.'
     'automation.operator_b5e24639de15386d' = '-> Depois de instalar, execute: mkcert -install'
     'automation.operator_b5ed33d7f546a531' = '(lsmod não em PATH)'
@@ -3629,7 +3629,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' -- os hóspedes instalam e atualizam este caminho, então uma falha aqui quebra as instalações do sistema operacional antes de qualquer convidado o diagnóstico pode ser executado.'
+        ' -- os convidados instalam e atualizam este caminho, então uma falha aqui quebra as instalações do sistema operacional antes de qualquer convidado o diagnóstico pode ser executado.'
     )
     'automation.operator_b67daf1100c845ef' = @(
         'YURUNA: arquivo VERSION do projeto faltando ou vazio no '
@@ -3684,13 +3684,13 @@
         }
     )
     'automation.operator_b882a1d97c6d1e64' = @(
-        'REGISTO: o orçamento de pull compartido a montante está esgotado (0 de '
+        'REGISTRO: o orçamento de pull compartido a montante está esgotado (0 de '
         @{
             'arg' = 'limit'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Cada hóspede por trás deste IP de saída se baseia nele, e o pull-through retries upstream antes de responder, por isso a exaustão superfícies para um hóspede como um cache que parou de responder a tempo ao invés de como um erro de limite de taxa.'
+        '). Cada convidado por trás deste IP de saída se baseia nele, e o pull-through retries upstream antes de responder, por isso a exaustão superfícies para um convidado como um cache que parou de responder a tempo ao invés de como um erro de limite de taxa.'
     )
     'automation.operator_b89ad48331af1923' = @(
         'Secção «'
@@ -3708,7 +3708,7 @@
     )
     'automation.operator_b8a3a38bd4c24074' = '(sem registro no http://localhost:5000 -- isto é normal nas máquinas que não usam o fluxo localhost)'
     'automation.operator_b8d9c8f44a701dc0' = @(
-        '(a pesquisa foi mal- sucedida: '
+        '(a pesquisa foi mal-sucedida: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -3752,7 +3752,7 @@
         '''.'
     )
     'automation.operator_ba98150f5b113567' = @(
-        'Componentes nulos ou vazios no ficheiro: '
+        'Componentes nulos ou vazios no arquivo: '
         @{
             'arg' = 'componentsFile'
             'type' = 'detail'
@@ -3774,7 +3774,7 @@
         ''' não é uma porta TCP válida; caindo para padrão.'
     )
     'automation.operator_bb0c3d93bfb12851' = 'Nenhuma entrada LTS encontrada no nodejs.org/dist/index.json.'
-    'automation.operator_bb12775978dc7d56' = "yuruna valida [project  root] [config  subfolder]`nValidar os ficheiros de configuração."
+    'automation.operator_bb12775978dc7d56' = "yuruna validate [project_root] [config_subfolder]`nValidar os arquivos de configuração."
     'automation.operator_bbbaa5da661ba342' = 'A verificação da conectividade de rede falhou: O tráfego de saída para a sub-rede local /24 é restrito por regras de firewall.'
     'automation.operator_bbf65c9184e07ba9' = @(
         'Versão para servidor : '
@@ -3803,7 +3803,7 @@
         ')'
     )
     'automation.operator_bd1e95a93c4cad8e' = 'Informação do docker (campos selecionados)'
-    'automation.operator_bd1f98629ef68eb5' = 'Captura de fio DHCP (tcpdump CAP NET RAW)'
+    'automation.operator_bd1f98629ef68eb5' = 'Captura de fio DHCP (tcpdump CAP_NET_RAW)'
     'automation.operator_bd3dcda0a121faa1' = @(
         @{
             'arg' = 'deviceID'
@@ -3836,7 +3836,7 @@
         }
     )
     'automation.operator_bd5b8edfeeb6c8d5' = @(
-        'REGISTO: A própria sonda manifesta do cache não teve sucesso'
+        'REGISTRO: A própria sonda manifesta do cache não teve sucesso'
         @{
             'arg' = 'else'
             'type' = 'detail'
@@ -3845,17 +3845,17 @@
         '. As imagens resolvem um manifesto primeiro, então eles falham aqui, mesmo que cada verificação de acessibilidade passe.'
     )
     'automation.operator_bd923b6990ccc65e' = @(
-        '(Get- VMSwitch falhou: '
+        '(Get-VMSwitch falhou: '
         @{
             'arg' = 'message'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '; necessita de função Hyper- V + elevação)'
+        '; necessita de função Hyper-V + elevação)'
     )
     'automation.operator_bdb8150b986b7b72' = '(sem aviso + entradas nas últimas 6 horas, ou unidade não presente)'
     'automation.operator_bdbf233b751e53a0' = 'Feito, com algo ainda desconhecido:'
-    'automation.operator_be35048de6a6280c' = 'status do início da nuvem -- long'
+    'automation.operator_be35048de6a6280c' = 'cloud-init status --long'
     'automation.operator_be415be6232790f3' = 'O comando Windows PowerShell (elevado) sugeriu:'
     'automation.operator_beb381d52a393ad5' = '(networkctl não em PATH)'
     'automation.operator_bec7da8072d14157' = '(as imagens da doca da sonda foram desligadas após os 5s -- daemon provavelmente encravado)'
@@ -3868,7 +3868,7 @@
         }
     )
     'automation.operator_bf1c637eb978cee4' = '(detalhes por plataforma: SO desconhecido)'
-    'automation.operator_bf62fc801f72e42d' = 'contas OS locais, um servidor SMB, partilhas, aliases de ficheiros de hosts e unidades montadas.'
+    'automation.operator_bf62fc801f72e42d' = 'contas OS locais, um servidor SMB, partilhas, aliases de arquivos de hosts e unidades montadas.'
     'automation.operator_bfcbf1a3d4f19f5d' = @(
         'Última .yuruna/ write : '
         @{
@@ -3884,7 +3884,7 @@
         }
         ' min há)'
     )
-    'automation.operator_c05e152dacede6aa' = 'dmesg - T (últimas 100 linhas, com OOM scan)'
+    'automation.operator_c05e152dacede6aa' = 'dmesg -T (últimas 100 linhas, com OOM scan)'
     'automation.operator_c08c4959cc86f9f1' = @(
         '(Get-VM falhou: '
         @{
@@ -3892,7 +3892,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '; necessita de função Hyper- V + elevação)'
+        '; necessita de função Hyper-V + elevação)'
     )
     'automation.operator_c0d772dace958bda' = '(a tabela do vizinho está vazia -- nada foi resolvido recentemente em qualquer interface)'
     'automation.operator_c1183a01da877148' = 'CLUSTER: Não foi possível obter o estado do nó.'
@@ -3931,7 +3931,7 @@
         }
         ' quando um host é conhecido por carregar a compilação mais recente.'
     )
-    'automation.operator_c53fba62e994e87a' = 'gar Autenticação: ''gcloud'' CLI não no PATH; não pode executar ''gcloud auth print- access- token''.'
+    'automation.operator_c53fba62e994e87a' = 'gar Autenticação: ''gcloud'' CLI não no PATH; não pode executar ''gcloud auth print-access-token''.'
     'automation.operator_c5d7264ec6630cba' = '==Verificação de Execução: ALL OK=='
     'automation.operator_c61cf155a222f155' = @(
         'memória: '
@@ -3975,7 +3975,7 @@
         ').'
     )
     'automation.operator_c6903487e18366b6' = @(
-        'component.project não pode ser nulo ou vazio no ficheiro: '
+        'component.project não pode ser nulo ou vazio no arquivo: '
         @{
             'arg' = 'componentsFile'
             'type' = 'detail'
@@ -3996,7 +3996,7 @@
         ''': espera-se uma contagem de bytes inteiros ou um número com um sufixo KB/MB/GB/TB (por exemplo, 34359738368, 32768MB, 32GB).'
     )
     'automation.operator_c954ba96bb4cba77' = @(
-        'ERRO DO PROVIDOR DE get-package: '
+        'ERRO DO Get-PackageProvider: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -4012,7 +4012,7 @@
         }
         ' : (não instalado)'
     )
-    'automation.operator_cb3a96dd4251d42c' = 'ecr Autenticação: ''aws'' CLI não no PATH; não pode executar ''aws ecr get-login- password''.'
+    'automation.operator_cb3a96dd4251d42c' = 'ecr Autenticação: ''aws'' CLI não no PATH; não pode executar ''aws ecr get-login-password''.'
     'automation.operator_cb7cb002c87ecc4f' = 'Um laboratório controla tudo isto, por isso a única alavanca que resta é a memória da máquina.'
     'automation.operator_cc08dcc24c89ccb5' = @(
         @{
@@ -4069,9 +4069,9 @@
         '''.'
     )
     'automation.operator_cd9e1527d1f146c7' = 'libertações do leme (todos os espaços de nomes)'
-    'automation.operator_ce09531d5eab7838' = 'New-NetFirewallRule - DisplayName ''Permitir Subnet Local'' -Direction Outbound -Action Allow -RemoteAddress LocalSubnet'
+    'automation.operator_ce09531d5eab7838' = 'New-NetFirewallRule -DisplayName ''Permitir Subnet Local'' -Direction Outbound -Action Allow -RemoteAddress LocalSubnet'
     'automation.operator_ce3524d480509234' = @(
-        'Atualização do leme --install -- atômico '''
+        'helm upgrade --install --atomic '''
         @{
             'arg' = 'installName'
             'type' = 'detail'
@@ -4131,7 +4131,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`nUsado no ficheiro: "
+        "`nUsado no arquivo: "
         @{
             'arg' = 'resourcesFile'
             'type' = 'detail'
@@ -4149,7 +4149,7 @@
     )
     'automation.operator_d2b8e5f19799eb58' = '/var/log/yuruna/ (dir listing)'
     'automation.operator_d2c774924094e180' = 'docker ps -a (todos os recipientes)'
-    'automation.operator_d2d4c3349fa9c41f' = 'KUBECTL: o kubectl não pode ligar- se ao conjunto Kubernetes.'
+    'automation.operator_d2d4c3349fa9c41f' = 'KUBECTL: o kubectl não pode ligar-se ao conjunto Kubernetes.'
     'automation.operator_d334c6088d89072e' = @(
         'EVENTOS: '
         @{
@@ -4160,7 +4160,7 @@
         '+ Eventos de erro do sistema na última hora.'
     )
     'automation.operator_d34d1a36cb2cfedc' = @(
-        'NETWORK: pacote- espelho obter sobre '
+        'NETWORK: pacote espelhado obter sobre '
         @{
             'arg' = 'plainPathLabel'
             'type' = 'detail'
@@ -4257,8 +4257,8 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_d67ba5d3e55b2ade' = 'Nenhum http proxy no env, por isso não há máquina de cache para derivar -- os hóspedes tomam a rota de registro a partir dessa mesma variável.'
-    'automation.operator_d6e66216138554de' = 'kubectl obter nós - o largo'
+    'automation.operator_d67ba5d3e55b2ade' = 'Nenhum http_proxy no env, por isso não há máquina de cache para derivar -- os convidados tomam a rota de registro a partir dessa mesma variável.'
+    'automation.operator_d6e66216138554de' = 'kubectl get nodes -o wide'
     'automation.operator_d700912928a3d5ac' = @(
         'YURUNA: '
         @{
@@ -4274,7 +4274,7 @@
         }
     )
     'automation.operator_d7469332f7ce8f65' = '(sem dispositivos de ponte nesta máquina)'
-    'automation.operator_d76c7f8316e11dcf' = 'Rota do registo de contentores (cache OCI pull-through)'
+    'automation.operator_d76c7f8316e11dcf' = 'Rota do registro de contentores (cache OCI pull-through)'
     'automation.operator_d7820c1435d6f83d' = @(
         '-- Criando: '
         @{
@@ -4521,7 +4521,7 @@
     'automation.operator_d984bd8b6c4ca252' = 'Câmara da memória não verificada'
     'automation.operator_d9b96add0edcb040' = 'Rota padrão'
     'automation.operator_d9c1fd0b30efa8fb' = 'Servidor : (inalcançável)'
-    'automation.operator_daa53807f586eaba' = 'gerenciamento-OS vNIC: (não avaliável)'
+    'automation.operator_daa53807f586eaba' = 'gerenciamento do sistema operacional vNIC: (não avaliável)'
     'automation.operator_daf5c05adf2266a4' = @(
         '(... '
         @{
@@ -4601,7 +4601,7 @@
     )
     'automation.operator_dd0de2a2eaf244da' = '-> Executar (pode requerer privilégios elevados): mkcert -install'
     'automation.operator_dde796c9dd1d2e34' = @(
-        '(ps - axo falhou: '
+        '(ps -axo falhou: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -4610,7 +4610,7 @@
         ')'
     )
     'automation.operator_de05acb3122a8284' = 'um pool meramente NAMED default -- o guard liga-se ao autoInrollment.targetPoolId.'
-    'automation.operator_de580b5b7b4a75be' = 'A gravação do host terminou antes que um instantâneo de hóspedes sobreposto pudesse ser capturado.'
+    'automation.operator_de580b5b7b4a75be' = 'A gravação do host terminou antes que um instantâneo de convidados sobreposto pudesse ser capturado.'
     'automation.operator_df08720fd08e0df4' = @(
         'setup.type deve ser ''standalone'' ou ''lab'' (tem '''
         @{
@@ -4658,7 +4658,7 @@
         ''' -- NO pod refere'
     )
     'automation.operator_e06cc5e640fcddaf' = '(sem tomadas de escuta relatadas)'
-    'automation.operator_e0765f1e2dfb2c75' = "componentes yuruna [project  root] [config  subfolder]`nCrie e empurre componentes para o registro."
+    'automation.operator_e0765f1e2dfb2c75' = "yuruna components [project_root] [config_subfolder]`nCrie e empurre componentes para o registro."
     'automation.operator_e08ec6745a750a1d' = @(
         'saída tofu -json ('
         @{
@@ -4703,8 +4703,8 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_e1a9e5fe4f68be46' = '(SkipKube)'
-    'automation.operator_e22147108d6ae87f' = '(nenhum VERSION CODENAME encontrado: sondando índices de diretório, que uma cache pode responder sem atingir a origem)'
+    'automation.operator_e1a9e5fe4f68be46' = '(-SkipKube)'
+    'automation.operator_e22147108d6ae87f' = '(nenhum VERSION_CODENAME encontrado: sondando índices de diretório, que uma cache pode responder sem atingir a origem)'
     'automation.operator_e288495c99f6fc3b' = 'Docker CLI presente, mas daemon inacessível.'
     'automation.operator_e2efc72fae64b6d2' = 'Culpa (top 20):'
     'automation.operator_e3409ddcbcaf5655' = 'não apenas o laboratório. Definir storage.localRoot em um arquivo de resposta para colocá-lo'
@@ -4845,14 +4845,14 @@
         '''). Seu commit HEAD pode não existir lá, nesse caso o backback 404s.'
     )
     'automation.operator_edef6b8e8e995aea' = @(
-        'Teste.HostContract.psm1 não encontrado em: '
+        'Test.HostContract.psm1 não encontrado em: '
         @{
             'arg' = 'modulePath'
             'type' = 'detail'
             'trust' = 'external'
         }
     )
-    'automation.operator_ee4c81412b67b1c2' = 'Especifique GuestAddress e GuestUser para incluir um instantâneo de hóspedes.'
+    'automation.operator_ee4c81412b67b1c2' = 'Especifique GuestAddress e GuestUser para incluir um instantâneo de convidados.'
     'automation.operator_ee5948b70f314800' = '-> Verifique seu kubeconfig com: kubectl config view'
     'automation.operator_ee81fd4c1b5a982c' = @(
         'Segredos : '
@@ -4911,7 +4911,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_f250b44132d70fac' = 'O início do WPR ultrapassou o seu prazo; não foi possível confirmar o registo da propriedade. Inspecione o estado do WPR antes de iniciar outro rastreio.'
+    'automation.operator_f250b44132d70fac' = 'O início do WPR ultrapassou o seu prazo; não foi possível confirmar o registro da propriedade. Inspecione o estado do WPR antes de iniciar outro rastreio.'
     'automation.operator_f2c81ff0219bedfa' = 'Top 10 de memória'
     'automation.operator_f30d376c3b6737d6' = 'Clear-Configuration: forward resources.yml validation failed; proceed with riverdown from resources.output.yml anyway (source config may have drifted from implaption).'
     'automation.operator_f36a3040f1c5e565' = 'Registry: registro local em :5000 é acessível, mas seu catálogo está vazio -- nenhuma imagem foi empurrada (ou o armazenamento do registro foi reiniciado).'
@@ -4966,19 +4966,19 @@
     )
     'automation.operator_f6931515ec49fa8a' = 'então corra AQUI (o código gira a cada minuto, então leia-o na hora):'
     'automation.operator_f6bd22fdf471e472' = @(
-        'O resultado do tofu - json falhou para o recurso '''
+        'tofu output -json falhou para o recurso '''
         @{
             'arg' = 'resourceName'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' (sair do '
+        ''' (código de saída '
         @{
             'arg' = 'outputExit'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Inspecione o '
+        '). Inspecione '
         @{
             'arg' = 'tofuLogFile'
             'type' = 'detail'
@@ -4986,11 +4986,11 @@
         }
         '.'
     )
-    'automation.operator_f6c3acdbc6bb49a8' = '(nenhuma configuração de registo de docker/contentor encontrada nesta máquina)'
+    'automation.operator_f6c3acdbc6bb49a8' = '(nenhuma configuração de registro de docker/containerd encontrada nesta máquina)'
     'automation.operator_f72a73ef3f898934' = '(Skipped: precisa de diárioctl e de uma máquina libvirt)'
     'automation.operator_f779d2d738d724fe' = 'cloud-init analyse culp (top 25)'
     'automation.operator_f7b74149a97de81d' = @(
-        'Requisitos nulos ou vazios no ficheiro: '
+        'Requisitos nulos ou vazios no arquivo: '
         @{
             'arg' = 'requirementsFile'
             'type' = 'detail'
@@ -5005,9 +5005,9 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_f7d6f1dda37c2a27' = 'NETWORK: o tcpdump não está instalado; um hóspede que não consiga obter uma locação DHCP não deixará evidência de fio. Instale o tcpdump e conceda- o: sudo setcap cap net  raw, cap net admin=eip $(command - v tcpdump)'
+    'automation.operator_f7d6f1dda37c2a27' = 'NETWORK: o tcpdump não está instalado; um convidado que não consiga obter uma locação DHCP não deixará evidência de fio. Instale o tcpdump e conceda-o: sudo setcap cap_net_raw,cap_net_admin=eip $(command -v tcpdump)'
     'automation.operator_f8d085009c4c8200' = '(sem interruptores virtuais definidos)'
-    'automation.operator_f92f81ef8113846a' = 'journalctl - u systemd- resolved -- desde ''15 min ago'' (corta DNS)'
+    'automation.operator_f92f81ef8113846a' = 'journalctl -u systemd-resolved --since ''15 min ago'' (corta DNS)'
     'automation.operator_f95d3804292ed206' = @(
         '(sem resources.output.yml em '
         @{
@@ -5068,7 +5068,7 @@
         ' para o erro subjacente (muitas vezes um 5x do registry.opentofu.org ou uma verificação do provedor desfasamento).'
     )
     'automation.operator_fac07c9b40638bff' = @(
-        'Novo-WindowsGuestBootstrap: template obrigatório faltando: '
+        'New-WindowsGuestBootstrap: template obrigatório faltando: '
         @{
             'arg' = 'templatePath'
             'type' = 'detail'
@@ -5113,7 +5113,7 @@
     )
     'automation.operator_fc543d57e6ae8eda' = 'Tomadas TCP estabelecidas com temporizadores (ss -tnpo)'
     'automation.operator_fcbd291003607027' = @(
-        '(O sistema Get- WinEvent falhou: '
+        '(O sistema Get-WinEvent falhou: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -5146,9 +5146,9 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' para o erro subjacente (muitas vezes um provedor de recursos nulos retornando não- zero, ou um programa de fonte de dados falha).'
+        ' para o erro subjacente (muitas vezes um provisionador null_resource retornando não-zero, ou um programa de fonte de dados falha).'
     )
-    'automation.operator_fd2a582c09e3d15d' = 'journalctl - b - 1 - p warning -- no- pager (PREVIOUS boot -- geralmente a inicialização de instalação; head 60 + tail 60)'
+    'automation.operator_fd2a582c09e3d15d' = 'journalctl -b -1 -p warning --no-pager (PREVIOUS boot -- geralmente a inicialização de instalação; head 60 + tail 60)'
     'automation.operator_fddd431669f34dca' = @(
         'Nome da máquina : '
         @{

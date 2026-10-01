@@ -51,7 +51,7 @@
     }
     .host-refresh-title { font-size: .8125rem; margin: 0 0 .25rem; }
     .host-refresh-note  { color: var(--fg-muted); margin: 0 0 .5rem; max-width: 72ch; line-height: 1.4; }
-    .host-refresh-actions > * + * { margin-left: .5rem; }
+    .host-refresh-actions > * + * { margin-inline-start: .5rem; }
     .host-refresh-status { min-height: 1.25rem; margin-top: .5rem; color: var(--fg-muted); }
     .host-refresh-status.error { color: var(--fail-fg); }
     .host-refresh-status.ok    { color: var(--pass-fg); }
@@ -68,8 +68,8 @@
       display: flex;
       background: var(--bg-elevated);
     }
-    #config-footer > * + * { margin-left: .5rem; }
-    #config-footer > #config-discard { margin-left: auto; }
+    #config-footer > * + * { margin-inline-start: .5rem; }
+    #config-footer > #config-discard { margin-inline-start: auto; }
     .config-btn {
       border-radius: .375rem;
       font-weight: 600;
@@ -99,7 +99,7 @@
       display: flex; align-items: center;
       padding: .15rem .25rem;
     }
-    .tree-row > * + * { margin-left: .5rem; }
+    .tree-row > * + * { margin-inline-start: .5rem; }
     .tree-row:hover { background: var(--bg-hover); }
     .tree-toggle {
       width: 1rem; flex-shrink: 0; cursor: pointer;
@@ -122,9 +122,9 @@
       text-transform: uppercase; letter-spacing: .05em;
     }
     .tree-children {
-      margin-left: 1.25rem;
-      border-left: 1px dashed var(--border);
-      padding-left: .5rem;
+      margin-inline-start: 1.25rem;
+      border-inline-start: 1px dashed var(--border);
+      padding-inline-start: .5rem;
     }
     .tree-children.collapsed { display: none; }
 
@@ -175,15 +175,13 @@
       flex: 1; min-width: 0;
       display: flex; flex-direction: column;
     }
-    /* Margin idiom instead of flex `gap` (Safari 14.1 / iOS 14.5+ only) to hold
-       the iOS baseline: column container -> margin-top on subsequent children;
-       row containers -> margin-left. */
+    /* Following controls get spacing while each row starts flush with its edge. */
     .cache-ip-wrap > * + * { margin-top: .25rem; }
     .cache-ip-envrow {
       display: flex; align-items: center;
       font-size: .75rem;
     }
-    .cache-ip-envrow > * + * { margin-left: .5rem; }
+    .cache-ip-envrow > * + * { margin-inline-start: .5rem; }
     .cache-ip-envlabel {
       color: var(--fg-muted);
       font-family: var(--font-mono);
@@ -198,7 +196,7 @@
     .cache-ip-input-row {
       display: flex; align-items: center;
     }
-    .cache-ip-input-row > * + * { margin-left: .4rem; }
+    .cache-ip-input-row > * + * { margin-inline-start: .4rem; }
     .cache-ip-mark {
       flex: 0 0 auto;
       display: inline-flex; align-items: center; justify-content: center;
@@ -266,7 +264,7 @@
       pointer-events: none;
     }
     .ydd-menu {
-      position: absolute; top: 100%; left: 0;
+      position: absolute; top: 100%; inset-inline-start: 0;
       z-index: 100;
       background: var(--bg-elevated);
       border: 1px solid var(--border-input); border-radius: .25rem;
@@ -292,7 +290,7 @@
     .tree-bool {
       display: inline-flex; align-items: center;
     }
-    .tree-bool > * + * { margin-left: .5rem; }
+    .tree-bool > * + * { margin-inline-start: .5rem; }
     .tree-bool-switch {
       position: relative; display: inline-block;
       width: 2.4rem; height: 1.2rem;

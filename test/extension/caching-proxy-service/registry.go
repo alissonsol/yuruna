@@ -44,10 +44,10 @@ type zotCatalog struct {
 }
 
 type registryReader struct {
-	baseURL   string // zot, e.g. http://127.0.0.1:5000
-	metaURL   string // the VM's :80, which serves /zot-meta
-	stateRoot string // /var/lib/yuruna, when this daemon can see it
-	http      *http.Client
+	baseURL    string // zot, e.g. http://127.0.0.1:5000
+	metaURL    string // the VM's :80, which serves /zot-meta
+	stateRoot  string // /var/lib/yuruna, when this daemon can see it
+	httpClient *http.Client
 }
 
 func newRegistryReader(baseURL, metaURL, stateRoot string, timeout time.Duration) *registryReader {
@@ -57,7 +57,7 @@ func newRegistryReader(baseURL, metaURL, stateRoot string, timeout time.Duration
 		stateRoot: stateRoot,
 		// Same reason as the squid client: an inherited http_proxy would route a
 		// read of the mirror through the cache sitting in front of it.
-		http: &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil}},
+		httpClient: &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil}},
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *registryReader) state(locales ...i18n.Context) RegistryState {
 		out.Error = render("cache.registry_unconfigured", nil)
 		return out
 	}
-	resp, err := r.http.Get(r.baseURL + "/v2/_catalog")
+	resp, err := r.httpClient.Get(r.baseURL + "/v2/_catalog")
 	if err != nil {
 		out.Error = err.Error()
 		return out
@@ -105,7 +105,7 @@ func (r *registryReader) readCanary(out *RegistryState) {
 	if r.metaURL == "" {
 		return
 	}
-	resp, err := r.http.Get(r.metaURL + "/zot-meta")
+	resp, err := r.httpClient.Get(r.metaURL + "/zot-meta")
 	if err != nil {
 		return
 	}

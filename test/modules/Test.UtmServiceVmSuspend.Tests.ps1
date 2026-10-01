@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4219b525-eda6-4092-a1ab-0224926173fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,8 +38,7 @@
     -- a capture that happens after the quit reads an empty set, and a
     knob applied without a matching capture entry is never restored.
 
-    Throw-based assertions so the file runs under the OS-bundled Pester
-    3.4 and Pester 5+. No macOS needed: every case reads source text.
+    Throw-based assertions so the file runs under Pester 5+. No macOS needed: every case reads source text.
     Run: pwsh -NoProfile -File test/modules/Test.UtmServiceVmSuspend.Tests.ps1
 #>
 
@@ -77,10 +76,8 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
     It 'captures the running service VMs BEFORE it quits UTM' {
         # utmctl can only answer while UTM is up. A capture moved below the
         # quit reads an empty set, the resume loop then has nothing to do,
-        # and the services stay suspended with no warning at all -- the
-        # failure looks exactly like the bug being fixed. The capture is the
-        # inventory record, so a listing that failed is told apart from an
-        # empty one before anything is quit.
+        # and the services stay suspended. The inventory record distinguishes
+        # a failed listing from an empty one before anything is quit.
         $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
         $captureAt = $body.IndexOf('Get-UtmRunningVmInventory')
         $quitAt    = $body.IndexOf('Stop-UtmApplication')

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d7e0b4-3a91-4c6f-8b25-1e9d6f4a7c80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -191,7 +191,7 @@ AfterAll {
     Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
     Get-Module -Name 'Yuruna.Host' -All | Remove-Module -Force -ErrorAction SilentlyContinue
     if ($script:HyperVStub) { Remove-Module -ModuleInfo $script:HyperVStub -Force -ErrorAction SilentlyContinue }
-    if ($script:ServiceStub) { Remove-Item -Path 'Function:\global:Get-Service' -ErrorAction SilentlyContinue }
+    if ($script:ServiceStub) { Remove-Item -Path 'Function:\Get-Service' -ErrorAction SilentlyContinue }
 }
 
 Describe 'Hyper-V probe child scripts' {

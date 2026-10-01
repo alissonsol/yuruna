@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -297,6 +297,7 @@ if ($NoStatusService)                           { $innerParams['NoStatusService'
 if ($PSBoundParameters.ContainsKey('logLevel')) { $innerParams['logLevel'] = $logLevel }
 $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $innerParams
 
+$previousRelaunch = $env:YURUNA_RUNNER_RELAUNCH
 $env:YURUNA_RUNNER_RELAUNCH = '1'
 
 $innerExit = 0
@@ -306,6 +307,8 @@ try {
 } catch {
     Stop-WithReason -Code $ExitFailure -Step 'Step 3 (spawn inner)' `
         -Reason "Could not invoke inner pwsh ($pwshExe): $($_.Exception.Message)"
+} finally {
+    $env:YURUNA_RUNNER_RELAUNCH = $previousRelaunch
 }
 
 Write-Output ''

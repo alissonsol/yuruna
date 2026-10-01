@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     Builds a libvirt VM that boots the Ubuntu 26.04 cloud image and runs
     Squid 7 on port 3128 plus an SSL-bump listener on 3129. Cloud-init
     (NoCloud seed) installs squid-openssl + apache2 +
-    Prometheus + Grafana + loki + promtail + caching-proxy-parser-service,
+    Prometheus + Grafana + loki + alloy + caching-proxy-parser-service,
     pre-warms linux-firmware through the proxy, then flips into
     `offline_mode on` so guest installs against this proxy work fully
     disconnected from the internet.
@@ -131,21 +131,9 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
+Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 $virshUri = 'qemu:///system'
-$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
-Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
-# --- REGION: https://yuruna.link/42d69dfa-001e
-$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
-    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
-Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
-$domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
-if ($LASTEXITCODE -ne 0) {
-    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d43d0cab95add9be' -Arguments @{ vMName = "$VMName"; join = "$($domainNames -join '; ')" })
-}
-if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
-    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9174df31c5ee6350' -Arguments @{ vMName = "$VMName"; dominfo = "$dominfo" })
-}
+Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
 # See https://yuruna.link/42e220c4-0004
@@ -221,13 +209,7 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1') -Global -For
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
-$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
-$serviceLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
-    'auto'
-} else {
-    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
-}
-if (-not $serviceLanguage) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = "$languageRaw" }) }
+$serviceLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 
 # --- REGION: Pool storage replication
@@ -501,87 +483,8 @@ if ($networkName -eq 'default') {
     }
 }
 
-# --- REGION: Create and configure the libvirt domain (virt-install)
-# See https://yuruna.link/42e220c4-0004
-# Keep guest reboots inside QEMU so the persistent service restarts normally.
-$arch = (& uname -m).Trim()
-
-# Ubuntu 26.04 may not be in the host's osinfo-db yet. Probe what
-# virt-install accepts and fall back through ubuntu24.04 -> linux2022
-# generic. Same pattern as guest.ubuntu.server.24/New-VM.ps1.
-$osVariant = 'linux2022'
-$osList = & virt-install --osinfo list 2>$null
-if ($LASTEXITCODE -eq 0) {
-    $canonicalIds = @($osList | ForEach-Object {
-        $first = ("$_".Trim() -split '[\s,]', 2)[0]
-        ($first -replace ',$', '').Trim()
-    } | Where-Object { $_ })
-    foreach ($candidate in @('ubuntu26.04', 'ubuntu24.04', 'ubuntu22.04')) {
-        if ($canonicalIds -contains $candidate) { $osVariant = $candidate; break }
-    }
-    if ($osVariant -eq 'linux2022') {
-        Write-Verbose "osinfo-db has no 'ubuntu26.04'/'ubuntu24.04'/'ubuntu22.04' entry; using 'linux2022' generic variant."
-    }
-}
-
-# --- REGION: https://yuruna.link/42f6b05f-0040
-# RAM comes from the caller, paired with squid's cache_mem by
-# Get-CachingProxyMemoryProfile -- the two are budgeted against each other
-# and swap is masked, so undersizing is an unrecoverable OOM. The default
-# below is the beacon pairing, matched across all three hosts. 4 vCPU.
-# --- REGION: https://yuruna.link/42fa6f45-0015
-$hostCores = [int](& nproc --all)
-if ($hostCores -lt 4) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
-    exit 1
-}
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-
-# --- REGION: https://yuruna.link/4220a755-000a
-$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
-Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
-
-$installArgs = @(
-    '--connect',    $virshUri,
-    '--name',       $VMName,
-    '--memory',     "$MemoryMb",
-    '--vcpus',      "$vmCores",
-    '--cpu',        'host-passthrough',
-    '--os-variant', $osVariant,
-    '--disk',       "path=$diskImg,format=qcow2,bus=virtio",
-    '--disk',       "path=$seedImg,device=cdrom",
-    # ",mac=" pins the NIC's MAC so an operator DHCP reservation keyed to
-    # it gives the cache VM a known, stable IP across rebuilds; empty
-    # $MacAddress keeps virt-install's per-run random MAC.
-    '--network',    ("network=$networkName,model=virtio" + $(if ($MacAddress) { ",mac=$MacAddress" } else { ",mac=$YurunaGuestMac" })),
-    '--graphics',   'vnc,listen=127.0.0.1',
-    # qemu-guest-agent socket: lets `virsh domifaddr --source agent`
-    # query the guest's IPv4 directly when the host can't observe DHCP
-    # (i.e. on a bridged network where the host isn't the DHCP server).
-    # The guest-side qemu-guest-agent package is installed via cloud-init.
-    '--channel',    'unix,target_type=virtio,name=org.qemu.guest_agent.0',
-    '--events',     'on_reboot=restart',
-    '--noautoconsole',
-    '--import'
-)
-# aarch64 has no BIOS option in QEMU, so UEFI is mandatory.
-# x86_64 cloud images boot fine with the libvirt default (i440fx + SeaBIOS)
-# from the qcow2's hybrid GRUB MBR, so no --boot uefi here for x86_64
-# (avoids the NVRAM-empty fallback issue described at
-# https://yuruna.link/42d69dfa-0009).
-if ($arch -eq 'aarch64') {
-    $installArgs += @('--machine', 'virt', '--boot', 'uefi')
-}
-
-Write-Verbose "virt-install $($installArgs -join ' ')"
-$virtInstallOutput = & virt-install @installArgs 2>&1
-$virtInstallExit = $LASTEXITCODE
-$virtInstallOutput | ForEach-Object { Write-Verbose "$_" }
-if ($virtInstallExit -ne 0) {
-    $virtInstallOutput | ForEach-Object { Write-Output "$_" }
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d74692e9db12304f' -Arguments @{ virtInstallExit = "$virtInstallExit" })
-    exit 1
-}
+# --- REGION: Create and configure the libvirt domain
+if (-not (New-KvmServiceDomain -VMName $VMName -DiskPath $diskImg -SeedPath $seedImg -NetworkName $networkName -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false)) { exit 1 }
 
 # --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue

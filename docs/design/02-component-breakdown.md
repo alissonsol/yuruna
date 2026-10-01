@@ -93,9 +93,8 @@ flowchart LR
     test-notify-psm1["Notifications"]
     start-testrunner-ps1 --> test-sequencerunner-psm1
     test-sequencerunner-psm1 --> test-ocrengine-psm1
-    start-testrunner-ps1 --> start-statusservice-ps1
+    start-testrunner-ps1 -->|starts status| start-statusservice-ps1
     start-testrunner-ps1 --> test-pool
-    start-testrunner-ps1 --> test-extension
     start-testrunner-ps1 --> test-notify-psm1
 ```
 
@@ -114,6 +113,11 @@ Sources and aggregate membership:
 The extension aggregate exceeds seven implementations, so it stays collapsed
 here. The service topology and individual runtime exchanges are expanded in
 [Data flows](03-data-flows.md) and [Deployment](06-deployment.md).
+The runner starts the status service; the caching-proxy launcher starts the
+host configuration service through
+[Start-CachingProxyServiceVM](../../test/service/Start-CachingProxyServiceVM.ps1).
+Other extension daemons have their own launch paths, so the extension box is
+an inventory item rather than a direct runner dependency.
 
 Runner supervision also groups
 [Test.SingleInstance](../../test/modules/Test.SingleInstance.psm1),

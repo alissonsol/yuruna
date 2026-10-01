@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42869a92-a8d2-410d-9364-cdfba1a4ed8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,10 +57,16 @@ function Invoke-BashRoundTrip {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.StandardOutputEncoding = [Text.Encoding]::UTF8
-    $start.ArgumentList.Add('-c')
-    $start.ArgumentList.Add($Source)
+    # The Cygwin runtime behind Windows bash re-parses the command line and strips single
+    # quotes, so the source travels on stdin there and on the command line elsewhere.
+    if ($IsWindows) { $start.RedirectStandardInput = $true; $start.StandardInputEncoding = [Text.UTF8Encoding]::new($false); $start.ArgumentList.Add('-s') }
+    else { $start.ArgumentList.Add('-c'); $start.ArgumentList.Add($Source) }
     $process = [Diagnostics.Process]::Start($start)
     try {
+        if ($IsWindows) {
+            $process.StandardInput.Write($Source + [char]10)
+            $process.StandardInput.Close()
+        }
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit(10000)) { $process.Kill($true); throw 'Bash round-trip timed out.' }
@@ -262,7 +268,7 @@ Describe 'VNC sends never leave a key held in the guest' {
         # write is the exact shape seen in production -- the press landed in
         # the guest, the release never did, and 'b' auto-repeated forever.
         Reset-KeyRecording -FailAt 4
-        Assert-True ((Send-TextVNC -VMName 'vm' -Text 'ab' -CharDelayMs 0 -WarningAction SilentlyContinue) -eq $false) `
+        Assert-True ((Send-TextVNC -VMName 'vm' -Text 'ab' -CharDelayMs 0 3>$null) -eq $false) `
             'an interrupted send must report failure'
         Assert-True ((Get-HeldKeySym).Count -eq 0) "interrupted send left keys held: $(Get-HeldKeySym)"
     }
@@ -270,21 +276,21 @@ Describe 'VNC sends never leave a key held in the guest' {
     It 'releases Shift too when the send dies inside a shifted character' {
         # 'A' emits down(Shift) down(a) up(a) up(Shift); fail the 3rd write.
         Reset-KeyRecording -FailAt 3
-        Send-TextVNC -VMName 'vm' -Text 'A' -CharDelayMs 0 -WarningAction SilentlyContinue | Out-Null
+        Send-TextVNC -VMName 'vm' -Text 'A' -CharDelayMs 0 3>$null | Out-Null
         Assert-True ((Get-HeldKeySym).Count -eq 0) "shifted interrupt left keys held: $(Get-HeldKeySym)"
     }
 
     It 'releases the key when a single Send-KeyVNC dies mid-pair' {
         # This is the path that sends Enter after every typed command.
         Reset-KeyRecording -FailAt 2
-        Send-KeyVNC -VMName 'vm' -KeyName 'Enter' -WarningAction SilentlyContinue | Out-Null
+        Send-KeyVNC -VMName 'vm' -KeyName 'Enter' 3>$null | Out-Null
         Assert-True ((Get-HeldKeySym).Count -eq 0) "interrupted Enter left keys held: $(Get-HeldKeySym)"
     }
 
     It 'releases both halves when a chord dies between the base press and release' {
         # CtrlU emits down(Ctrl) down(u) up(u) up(Ctrl); fail the 3rd write.
         Reset-KeyRecording -FailAt 3
-        Send-KeyVNC -VMName 'vm' -KeyName 'CtrlU' -WarningAction SilentlyContinue | Out-Null
+        Send-KeyVNC -VMName 'vm' -KeyName 'CtrlU' 3>$null | Out-Null
         Assert-True ((Get-HeldKeySym).Count -eq 0) "interrupted chord left keys held: $(Get-HeldKeySym)"
     }
 }

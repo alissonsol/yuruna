@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d44e40-22d7-4ce0-9ba2-dca8905a4b80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,8 +22,7 @@
     on-link netmask arithmetic, the interface-table parser, the dhcpd_leases
     selector, and the seeded-hostname reader.
 .DESCRIPTION
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4 and
-    Pester 5+. Every case is driven from in-memory fixture text or a throwaway
+    Throw-based assertions so the file runs under Pester 5+. Every case is driven from in-memory fixture text or a throwaway
     directory -- no VM, no /var/db/dhcpd_leases, no ifconfig invocation -- so the
     parsers stay testable on a host with no guests running.
     Run: Invoke-Pester -Path test/modules/Test.LeaseDiscovery.Tests.ps1

@@ -8,15 +8,6 @@ package catalog
 // string so the package carries no init cost until a caller decodes it.
 const DataqpsPlocpool = `{
   "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "[Á ƥóóļ ğřóúƥš ħóšţš úñďéř á šţáƀļé Ƥóóļ ÍĎ (ĞÚÍĎ); á ħóšţ ƀéļóñğš ţó áţ ɱóšţ óñé ƥóóļ. Ƥóóļ Šţáţúš řéáďš ŵħáţ ţħé ɱéɱƀéřš ářé ďóíñğ ñóŵ — çħóóšíñğ á ṽáļúé áƥƥļíéš íţ ţó éṽéřý ɱéɱƀéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.a_pool_s_members_are_meant_to_be_configured_alike_to_copy_one_pee": [
-    "[* Á ƥóóļ'š ɱéɱƀéřš ářé ɱéáñţ ţó ƀé çóñƒíğúřéď áļíķé. Ţó çóƥý óñé ƥééř'š çóñƒíğúřáţíóñ óñţó áñóţħéř ħóšţ, řúñ óñ ţħáţ ħóšţ: ",
-    {
-      "arg": "command1",
-      "type": "token",
-      "trust": "internal"
-    },
-    " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
   "pool.a_scan_of_value1_is_already_running_following_that_one": [
     "[Á šçáñ óƒ ",
     {
@@ -26,7 +17,6 @@ const DataqpsPlocpool = `{
     },
     " íš áļřéáďý řúññíñğ; ƒóļļóŵíñğ ţħáţ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.a_test_set_is_a_framework_project_repo_pair_gh_token_is_not_store": "[Á ţéšţ šéţ íš á ƒřáɱéŵóřķ + ƥřóĵéçţ řéƥó ƥáíř. ĞĦ_ŢÓĶÉÑ íš ñóţ šţóřéď ħéřé — íţ šţáýš ħóšţ-ļóçáļ óñ éáçħ ħóšţ'š test.config.yml / ṽáúļţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.actions": "[Áçţíóñš ~~~]",
   "pool.add_host_failed_value1": [
     "[Áďď ħóšţ ƒáíļéď: ",
@@ -115,56 +105,19 @@ const DataqpsPlocpool = `{
     "? ~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "pool.asks_every_address_in_the_network_for_a_yuruna_host_status_servic": "[Ášķš éṽéřý áďďřéšš íñ ţħé ñéţŵóřķ ƒóř á Ýúřúñá ħóšţ šţáţúš šéřṽíçé áñď áďďš ţħé óñéš\n      ţħáţ áñšŵéř ţó ţħé ɱóñíţóřéď ħóšţš — ƥóóļéď óř ñóţ, éñřóļļéď óř ñóţ.\n      Šçáññíñğ çħáñğéš ñóţħíñğ óñ ţħé ħóšţš ţħéɱšéļṽéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.assign": "[Áššíğñ ~~~]",
-  "pool.assign_failed_value1": [
-    "[Áššíğñ ƒáíļéď: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ~~~~~~~~~~]"
-  ],
-  "pool.assign_test_set": "[Áššíğñ ţéšţ šéţ? ~~~~~~~]",
-  "pool.assign_test_set_50fb7bbc": "[Áššíğñ ţéšţ šéţ ~~~~~~]",
-  "pool.assign_test_sets_to_pools": "[Áššíğñ ţéšţ šéţš ţó ƥóóļš ~~~~~~~~~~]",
-  "pool.assign_value1_to_value2": [
-    "[Áššíğñ \"",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "\" ţó ",
-    {
-      "arg": "value2",
-      "type": "detail",
-      "trust": "external"
-    },
-    "? ~~~~~~~~~~~~]"
-  ],
-  "pool.assign_yuruna_pool_control": "[Áššíğñ — Ýúřúñá Ƥóóļ Çóñţřóļ ~~~~~~~~~~~~]",
-  "pool.assigned_value1_to_pool_value2": [
-    "[Áššíğñéď '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' ţó ƥóóļ '",
-    {
-      "arg": "value2",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'. ~~~~~~~~~~~~~~~~]"
-  ],
   "pool.board": "[Ƀóářď ~~]",
+  "pool.board_live_numbers_unavailable": [
+    "[Ļíṽé ñúɱƀéřš úñáṽáíļáƀļé (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). ~~~~~~~~~~~~~~~]"
+  ],
   "pool.board_yuruna_pool_control": "[Ƀóářď — Ýúřúñá Ƥóóļ Çóñţřóļ ~~~~~~~~~~~]",
   "pool.cancel": "[Çáñçéļ ~~~]",
-  "pool.change_test_set": "[Çħáñğé ţéšţ šéţ... ~~~~~~~~]",
   "pool.check": "[Çħéçķ ~~]",
-  "pool.choose_a_test_set": "[(çħóóšé á ţéšţ šéţ) ~~~~~~~~]",
   "pool.command1_scans_command2_through_command3_a_smaller_prefix_number_": [
     "[",
     {
@@ -213,15 +166,6 @@ const DataqpsPlocpool = `{
   "pool.continue": "[Çóñţíñúé ~~~~]",
   "pool.control": "[Çóñţřóļ ~~~]",
   "pool.cores": "[Çóřéš ~~]",
-  "pool.could_not_assign_value1": [
-    "[Çóúļď ñóţ áššíğñ: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ~~~~~~~~~~~]"
-  ],
   "pool.could_not_collect_diagnostics_value1": [
     "[Çóúļď ñóţ çóļļéçţ ďíáğñóšţíçš: ",
     {
@@ -240,15 +184,6 @@ const DataqpsPlocpool = `{
     },
     " ~~~~~~~~~~~~~~~]"
   ],
-  "pool.could_not_load_pool_intent_value1": [
-    "[Çóúļď ñóţ ļóáď ƥóóļ íñţéñţ: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ~~~~~~~~~~~~~~~]"
-  ],
   "pool.could_not_load_pools_value1": [
     "[Çóúļď ñóţ ļóáď ƥóóļš: ",
     {
@@ -257,15 +192,6 @@ const DataqpsPlocpool = `{
       "trust": "external"
     },
     " ~~~~~~~~~~~~]"
-  ],
-  "pool.could_not_load_test_sets_value1": [
-    "[Çóúļď ñóţ ļóáď ţéšţ šéţš: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ~~~~~~~~~~~~~~]"
   ],
   "pool.could_not_load_the_board_value1_retrying_on_the_next_refresh": [
     "[Çóúļď ñóţ ļóáď ţħé ƀóářď: ",
@@ -305,7 +231,6 @@ const DataqpsPlocpool = `{
     "'. ~~~~~~~~~~]"
   ],
   "pool.cycles": "[çýçļéš ~~~]",
-  "pool.delete": "[Ďéļéţé ~~~]",
   "pool.delete_failed_value1": [
     "[Ďéļéţé ƒáíļéď: ",
     {
@@ -334,24 +259,6 @@ const DataqpsPlocpool = `{
     },
     "'? Ţħíš çáññóţ ƀé úñďóñé. ~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.delete_test_set_value1": [
-    "[Ďéļéţé ţéšţ šéţ ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ~~~~~~~~~~]"
-  ],
-  "pool.delete_test_set_value1_this_cannot_be_undone": [
-    "[Ďéļéţé ţéšţ šéţ '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'? Ţħíš çáññóţ ƀé úñďóñé. ~~~~~~~~~~~~~~~~~~~~]"
-  ],
   "pool.deleted_pool_value1": [
     "[Ďéļéţéď ƥóóļ '",
     {
@@ -360,15 +267,6 @@ const DataqpsPlocpool = `{
       "trust": "external"
     },
     "'. ~~~~~~~~~~]"
-  ],
-  "pool.deleted_value1": [
-    "[Ďéļéţéď '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'. ~~~~~~~~]"
   ],
   "pool.detail": "[Ďéţáíļ ~~~]",
   "pool.diagnostic_auto_enrollment_assignment": "[Ħóšţš ļáñď ħéřé áúţóɱáţíçáļļý áñď ķééƥ řúññíñğ ţħéíř óŵñ ƥřóĵéçţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
@@ -594,8 +492,6 @@ const DataqpsPlocpool = `{
   "pool.display_name": "[Ďíšƥļáý ñáɱé ~~~~~]",
   "pool.duration": "[ďúřáţíóñ ~~~~]",
   "pool.each_of_the_four_numbers_must_be_0_to_255": "[Éáçħ óƒ ţħé ƒóúř ñúɱƀéřš ɱúšţ ƀé 0 ţó 255. ~~~~~~~~~~~~~~~~~]",
-  "pool.each_pool_tests_one_test_set_a_framework_project_repo_pair_gh_tok": "[Éáçħ ƥóóļ ţéšţš óñé ţéšţ šéţ (á ƒřáɱéŵóřķ + ƥřóĵéçţ řéƥó ƥáíř).\n      ĞĦ_ŢÓĶÉÑ šţáýš ħóšţ-ļóçáļ — ñéṽéř šţóřéď íñ ƥóóļ íñţéñţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.edit": "[Éďíţ ~~]",
   "pool.empty": "[(éɱƥţý) ~~~]",
   "pool.enrollment_target": [
     "[",
@@ -953,7 +849,7 @@ const DataqpsPlocpool = `{
           "type": "integer",
           "trust": "internal"
         },
-        " ħóšţ çáññóţ řéáď ţħé áššíğñéď ƥřóĵéçţ. Ğřáñţ íţš ţóķéñ áççéšš, óř áššíğñ á ďíƒƒéřéñţ ţéšţ šéţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+        " ħóšţ çáññóţ řéáď ţħé áššíğñéď ƥřóĵéçţ. Ğřáñţ íţš ţóķéñ áççéšš, óř šéţ á ƥřóĵéçţ ÚŘĻ óñ ţħé Ƥóóļš ƥáğé ţħáţ éṽéřý ɱéɱƀéř çáñ řéáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
       ],
       "other": [
         "[",
@@ -962,7 +858,7 @@ const DataqpsPlocpool = `{
           "type": "integer",
           "trust": "internal"
         },
-        " ħóšţš çáññóţ řéáď ţħé áššíğñéď ƥřóĵéçţ. Ğřáñţ íţš ţóķéñ áççéšš, óř áššíğñ á ďíƒƒéřéñţ ţéšţ šéţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+        " ħóšţš çáññóţ řéáď ţħé áššíğñéď ƥřóĵéçţ. Ğřáñţ íţš ţóķéñ áççéšš, óř šéţ á ƥřóĵéçţ ÚŘĻ óñ ţħé Ƥóóļš ƥáğé ţħáţ éṽéřý ɱéɱƀéř çáñ řéáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
       ]
     }
   },
@@ -1002,7 +898,7 @@ const DataqpsPlocpool = `{
       ]
     }
   },
-  "pool.hosts_switch_assigned": {
+  "pool.hosts_switch_own_projects": {
     "kind": "plural",
     "selector": "count",
     "variants": {
@@ -1013,7 +909,7 @@ const DataqpsPlocpool = `{
           "type": "integer",
           "trust": "internal"
         },
-        " ħóšţ ŵíļļ šŵíţçħ ţó ţħé áššíğñéď ƥřóĵéçţ óñ ţħéíř ñéẋţ çýçļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+        " ħóšţ ŵíļļ ğó ƀáçķ ţó íţš óŵñ ƥřóĵéçţ óñ íţš ñéẋţ çýçļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
       ],
       "other": [
         "[",
@@ -1022,7 +918,7 @@ const DataqpsPlocpool = `{
           "type": "integer",
           "trust": "internal"
         },
-        " ħóšţš ŵíļļ šŵíţçħ ţó ţħé áššíğñéď ƥřóĵéçţ óñ ţħéíř ñéẋţ çýçļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+        " ħóšţš ŵíļļ ğó ƀáçķ ţó ţħéíř óŵñ ƥřóĵéçţš óñ ţħéíř ñéẋţ çýçļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
       ]
     }
   },
@@ -1083,21 +979,10 @@ const DataqpsPlocpool = `{
     " ~~~~~~~~]"
   ],
   "pool.listen_addr": "[ļíšţéñ áďďř ~~~~~]",
-  "pool.live_numbers_unavailable_value1_assigning_still_works": [
-    "[Ļíṽé ñúɱƀéřš úñáṽáíļáƀļé (",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "). Áššíğñíñğ šţíļļ ŵóřķš. ~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
   "pool.loaded": "[Ļóáďéď: ~~~]",
   "pool.loading_hosts": "[Ļóáďíñğ ħóšţš... ~~~~~~~]",
   "pool.loading_pools": "[Ļóáďíñğ ƥóóļš... ~~~~~~~]",
-  "pool.loading_test_sets": "[Ļóáďíñğ ţéšţ šéţš... ~~~~~~~~]",
   "pool.lowercase_dns_safe": "[ļóŵéřçášé, ďñš-šáƒé ~~~~~~~~]",
-  "pool.members": "[Ɱéɱƀéřš * ~~~~]",
   "pool.members_1044a4c0": "[Ɱéɱƀéřš ~~~]",
   "pool.memory": "[Ɱéɱóřý ~~~]",
   "pool.menu": "[Ɱéñú ~~]",
@@ -1153,18 +1038,14 @@ const DataqpsPlocpool = `{
   ],
   "pool.moves": "[ɱóṽéš ~~]",
   "pool.name": "[Ñáɱé ~~]",
-  "pool.name_frameworkurl_and_projecturl_are_all_required": "[ñáɱé, ƒřáɱéŵóřķÚřļ áñď ƥřóĵéçţÚřļ ářé áļļ řéʠúířéď. ~~~~~~~~~~~~~~~~~~~~~]",
   "pool.network": "[Ñéţŵóřķ ~~~]",
   "pool.never_enrolled_a_lab_token_run_set_labtoken_ps1_on_the_host": "[Ñéṽéř éñřóļļéď á ļáƀ ţóķéñ -- řúñ Set-LabToken.ps1 óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.no_hosts_discovered_yet": "[Ñó ħóšţš ďíšçóṽéřéď ýéţ. ~~~~~~~~~~]",
   "pool.no_id_reported": "[(ñó íď řéƥóřţéď) ~~~~~~~]",
-  "pool.no_pools_defined_create_one_on_the_pools_page": "[Ñó ƥóóļš ďéƒíñéď. Çřéáţé óñé óñ ţħé Ƥóóļš ƥáğé. ~~~~~~~~~~~~~~~~~~~]",
   "pool.no_pools_yet": "[Ñó ƥóóļš ýéţ. ~~~~~~]",
   "pool.no_pools_yet_create_one_from_menu_pools": "[Ñó ƥóóļš ýéţ. Çřéáţé óñé ƒřóɱ Ɱéñú → Ƥóóļš. ~~~~~~~~~~~~~~~~~~]",
   "pool.no_scan_has_run_yet": "[Ñó šçáñ ħáš řúñ ýéţ. ~~~~~~~~]",
-  "pool.no_test_sets_yet": "[Ñó ţéšţ šéţš ýéţ. ~~~~~~~]",
   "pool.none": "[(ñóñé) ~~~]",
-  "pool.not": "[ñóţ ~~]",
   "pool.not_answered_yet_or_the_proxy_holds_no_token_of_its_own": "[Ñóţ áñšŵéřéď ýéţ, óř ţħé ƥřóẋý ħóļďš ñó ţóķéñ óƒ íţš óŵñ. ~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.not_cidr_notation_write_an_address_a_slash_and_a_prefix_length_19": "[Ñóţ ÇÍĎŘ ñóţáţíóñ. Ŵříţé áñ áďďřéšš, á šļášħ, áñď á ƥřéƒíẋ ļéñğţħ: 192.168.7.0/24. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.nothing_new_every_yuruna_host_in_that_range_was_already_monitored": "[Ñóţħíñğ ñéŵ. Éṽéřý Ýúřúñá ħóšţ íñ ţħáţ řáñğé ŵáš áļřéáďý ɱóñíţóřéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
@@ -1196,7 +1077,6 @@ const DataqpsPlocpool = `{
   "pool.paused_after_cycle_and_step": "[Ƥáúšéď áƒţéř çýçļé áñď šţéƥ ~~~~~~~~~~~]",
   "pool.persisted_health": "[Ƥéřšíšţéď ħéáļţħ ~~~~~~~]",
   "pool.persistence_disabled": "[(ƥéřšíšţéñçé ďíšáƀļéď) ~~~~~~~~~]",
-  "pool.pick_a_test_set_first_define_one_on_the_test_sets_page": "[Ƥíçķ á ţéšţ šéţ ƒířšţ (ďéƒíñé óñé óñ ţħé Ţéšţ šéţš ƥáğé). ~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.pid": "[ƥíď ~~]",
   "pool.platform": "[ƥļáţƒóřɱ ~~~~]",
   "pool.pool": "[Ƥóóļ ~~]",
@@ -1347,9 +1227,65 @@ const DataqpsPlocpool = `{
       "project": "[Ţħíš ħóšţ ħáš ñó ƥřóĵéçţ řéƥóšíţóřý áñď ñóñé çóñƒíğúřéď, óř íţ ħáš ñóţ áñšŵéřéď ýéţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
     }
   },
+  "pool.repositories_both_or_neither": "[Éñţéř ƀóţħ á ƒřáɱéŵóřķ ÚŘĻ áñď á ƥřóĵéçţ ÚŘĻ, óř ļéáṽé ƀóţħ éɱƥţý ţó çļéář ţħéɱ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.repositories_clear": "[Çļéář ~~]",
+  "pool.repositories_clear_label": [
+    "[Çļéář ţħé ƒřáɱéŵóřķ áñď ƥřóĵéçţ ÚŘĻš óƒ ƥóóļ ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.repositories_cleared": [
+    "[Çļéářéď ţħé ƒřáɱéŵóřķ áñď ƥřóĵéçţ ÚŘĻš óƒ ƥóóļ ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ". Íţš ħóšţš řúñ ţħéíř óŵñ ƥřóĵéçţš ƒřóɱ ţħéíř ñéẋţ çýçļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.repositories_framework_label": [
+    "[Ƒřáɱéŵóřķ ÚŘĻ ƒóř ƥóóļ ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ~~~~~~~~~~~~]"
+  ],
+  "pool.repositories_project_label": [
+    "[Ƥřóĵéçţ ÚŘĻ ƒóř ƥóóļ ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ~~~~~~~~~~~]"
+  ],
+  "pool.repositories_save": "[Šáṽé ~~]",
+  "pool.repositories_save_label": [
+    "[Šáṽé ţħé ƒřáɱéŵóřķ áñď ƥřóĵéçţ ÚŘĻš óƒ ƥóóļ ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.repositories_saved": [
+    "[Šáṽéď ţħé ƒřáɱéŵóřķ áñď ƥřóĵéçţ ÚŘĻš óƒ ƥóóļ ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ". ~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "pool.result": "[Řéšúļţ ~~~]",
   "pool.row_number": "[Řóŵ ñúɱƀéř ~~~~]",
-  "pool.run": "[řúñ ~~]",
   "pool.running": "[Řúññíñğ:  ~~~~]",
   "pool.running_checks": "[Řúññíñğ çħéçķš... ~~~~~~~]",
   "pool.runtime_environment": "[Řúñţíɱé éñṽířóñɱéñţ ~~~~~~~~]",
@@ -1361,16 +1297,6 @@ const DataqpsPlocpool = `{
       "trust": "external"
     },
     " ~~~~~~~~~]"
-  ],
-  "pool.save_test_set": "[Šáṽé ţéšţ šéţ ~~~~~~]",
-  "pool.saved_test_set_value1": [
-    "[Šáṽéď ţéšţ šéţ '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'. ~~~~~~~~~~~]"
   ],
   "pool.scan": "[Šçáñ ~~]",
   "pool.scan_a_network_for_yuruna_hosts": "[Šçáñ á ñéţŵóřķ ƒóř Ýúřúñá ħóšţš ~~~~~~~~~~~~~]",
@@ -1542,7 +1468,6 @@ const DataqpsPlocpool = `{
   "pool.service_user": "[šéřṽíçé úšéř ~~~~~]",
   "pool.show_hostnames": "[Šħóŵ ħóšţñáɱéš ~~~~~~]",
   "pool.started_at": "[šţářţéď áţ ~~~~]",
-  "pool.state": "[Šţáţé ~~]",
   "pool.state_dir": "[šţáţé ďíř ~~~~]",
   "pool.state_fail": "[ƒáíļ ~~]",
   "pool.state_idle": "[íďļé ~~]",
@@ -1663,26 +1588,6 @@ const DataqpsPlocpool = `{
       ]
     }
   },
-  "pool.test_set_for_pool_value1": [
-    "[Ţéšţ šéţ ƒóř ƥóóļ ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ~~~~~~~~~~~]"
-  ],
-  "pool.test_set_label": [
-    "[Ţéšţ šéţ ƒóř ",
-    {
-      "arg": "name",
-      "type": "text",
-      "trust": "external"
-    },
-    " ~~~~~~~~]"
-  ],
-  "pool.test_sets": "[Ţéšţ šéţš ~~~~]",
-  "pool.test_sets_yuruna_pool_control": "[Ţéšţ šéţš — Ýúřúñá Ƥóóļ Çóñţřóļ ~~~~~~~~~~~~~]",
   "pool.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti": "[Ţħé 6-çħářáçţéř çóďé óñ ţħé Ýúřúñá ħóšţš ďášħƀóářď'š Ļáƀ ţóķéñ ţíļé. Á çóďé ýóú ħáṽé ĵúšţ řéáď šţáýš ṽáļíď ƒóř áƀóúţ ţħřéé ɱíñúţéš, šó ţħéřé íš ñó ñééď ţó řúšħ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.the_exact_command_its_exit_code_and_both_streams_verbatim_the_poo": "[Ţħé éẋáçţ çóɱɱáñď, íţš éẋíţ çóďé, áñď ƀóţħ šţřéáɱš ṽéřƀáţíɱ. Ţħé ƥóóļ-áďɱíñ ÇĻÍš řéƥóřţ ƒáíļúřéš áš ĴŠÓÑ óñ šţďóúţ, šó šţďóúţ íš úšúáļļý ŵħéřé ţħé řéáļ ɱéššáğé íš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.the_hosts_own_projects": "[ţħé ħóšţš' óŵñ ƥřóĵéçţš ~~~~~~~~~~]",
@@ -1732,15 +1637,6 @@ const DataqpsPlocpool = `{
       "trust": "external"
     },
     "'. ~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "pool.value1_host_s": [
-    "[",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ħóšţ(š) ~~~~~~~]"
   ],
   "pool.value1_of_value2_checks_failing_pool_control_service_value3_value": [
     "[",

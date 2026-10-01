@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42000a1f-befc-4d18-abeb-86563a85b9be
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -186,7 +186,8 @@ AfterAll {
     foreach ($dir in $script:Created) { Remove-YurunaTestTempDir $dir }
 }
 
-Describe 'startup and the module closure' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'startup and the module closure' -Skip:$IsWindows {
     It 'resolves every command the worker needs, from its recorded module, in a clean process' {
         $fixture = New-EntryEnvironment
         $command = @"
@@ -247,7 +248,8 @@ foreach (`$row in @(Get-HostRefreshRequiredCommand -HostType `$hostType)) {
     }
 }
 
-Describe 'preview and a healthy executing run' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'preview and a healthy executing run' -Skip:$IsWindows {
     It 'previews with exit 0, one plan object and not a single byte written' {
         $fixture = New-EntryEnvironment
         $before = @(Get-TreeListing -Path $fixture.Home, $fixture.Runtime, $fixture.Log, $fixture.Tmp)
@@ -287,7 +289,8 @@ Describe 'preview and a healthy executing run' {
     }
 }
 
-Describe 'configuration resolution' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'configuration resolution' -Skip:$IsWindows {
     It 'canonicalizes an explicit configuration reached through a link' {
         $fixture = New-EntryEnvironment
         $alias = Join-Path $fixture.Base 'alias'
@@ -346,7 +349,8 @@ Describe 'the libvirt group relaunch' {
     }
 }
 
-Describe 'serialization and crash recovery' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'serialization and crash recovery' -Skip:$IsWindows {
     It 'refuses a second run while the first holds the lifetime lock' {
         $barrier = 'barrier.' + [Guid]::NewGuid().ToString('N')
         $fixture = New-EntryEnvironment -Probe "if [ ! -e `"`$TMPDIR/../work/$barrier`" ]; then touch `"`$TMPDIR/../work/$barrier`"; sleep 8; fi`nexit 0`n"
@@ -443,7 +447,8 @@ Describe 'serialization and crash recovery' {
     }
 }
 
-Describe 'the exit adapter and the caller''s session' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'the exit adapter and the caller''s session' -Skip:$IsWindows {
     It 'exits explicitly and restores an in-process caller''s preferences and environment' {
         $fixture = New-EntryEnvironment
         $command = @"

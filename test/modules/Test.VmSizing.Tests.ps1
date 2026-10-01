@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a296aa-3108-4ad0-928d-3bf246b2d537
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -124,12 +124,17 @@ Describe 'vm-sizing -- guest New-VM.ps1 declares and applies the overrides' {
     It 'resolves memory through ConvertTo-MemoryStartupBytes: <name>' -TestCases $script:guestCase {
         param($name, $path)
         $src = Get-Content -Raw -LiteralPath $path
+        # A guest script that delegates to its host's shared Ubuntu builder applies the sizing there.
+        $shared = Join-Path (Split-Path -Parent (Split-Path -Parent $path)) 'modules/New-UbuntuServerVM.ps1'
+        if ($src -match 'New-UbuntuServerVM\.ps1' -and (Test-Path -LiteralPath $shared)) { $src = Get-Content -Raw -LiteralPath $shared }
         Assert-True ($src -match 'ConvertTo-MemoryStartupBytes\s+\$MemoryStartupBytes') `
             "$name must normalize `$MemoryStartupBytes via the shared helper"
     }
     It 'guards the cores override on a non-empty -Cores: <name>' -TestCases $script:guestCase {
         param($name, $path)
         $src = Get-Content -Raw -LiteralPath $path
+        $shared = Join-Path (Split-Path -Parent (Split-Path -Parent $path)) 'modules/New-UbuntuServerVM.ps1'
+        if ($src -match 'New-UbuntuServerVM\.ps1' -and (Test-Path -LiteralPath $shared)) { $src = Get-Content -Raw -LiteralPath $shared }
         Assert-True ($src -match [regex]::Escape('if ($Cores) {')) `
             "$name must only override vCPU count when -Cores was actually passed"
         Assert-True ($src -match [regex]::Escape('$vmCores = $coresInt')) `

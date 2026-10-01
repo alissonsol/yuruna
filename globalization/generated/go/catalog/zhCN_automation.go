@@ -740,7 +740,7 @@ const DatazhCNautomation = `{
       "trust": "external"
     }
   ],
-  "automation.operator_287506e0d1314af9": "在写入（1）之前，“目标池未包含测试集”防护尚未对以下对象启用",
+  "automation.operator_287506e0d1314af9": "在写入（1）之前，“目标池不包含仓库”防护尚未对以下对象启用",
   "automation.operator_29759c8a58f5d70a": [
     "Get-PSRepository错误：",
     {

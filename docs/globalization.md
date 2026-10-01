@@ -17,11 +17,12 @@ not by itself enable a runtime language.
 ## Choosing a language
 
 The `language` setting in `test/test.config.yml` defaults to `auto`. An explicit
-supported language locks the run to that language. Automatic selection uses a
-validated browser preference, the HTTP `Accept-Language` header, then the
-process UI culture, with English as the fallback. Unsupported values never
-load arbitrary files. The effective context is fixed for a run or request so
-its page, log, and transcript use the same choice.
+supported language locks the run to that language. For served pages, automatic
+selection uses the HTTP `Accept-Language` header, then English; no persisted
+browser preference is currently supplied. For a command without an HTTP
+request, it uses the process UI culture, then English. Unsupported values
+never load arbitrary files. The effective context is fixed for a run or
+request so its page, log, and transcript use the same choice.
 
 Expanded (`qps-Ploc`) and mirrored (`qps-Plocm`) pseudo-locales are development
 checks, not supported translations. Service deployments must explicitly allow

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42efc002-974e-471c-8e46-0a144dd8c8fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,11 +85,11 @@ Describe 'PowerShell source indents with spaces' {
         foreach ($rel in $script:Sources) {
             $full = Join-Path $script:RepoRoot $rel
             $covered = $null
-            $lines = Get-Content -LiteralPath $full
+            $lines = [IO.File]::ReadAllLines($full)
             $n = 0
             foreach ($line in $lines) {
                 $n++
-                if ($line -notmatch '^\t') { continue }
+                if (-not $line.StartsWith("`t", [StringComparison]::Ordinal)) { continue }
                 if ($null -eq $covered) { $covered = Get-HereStringLine -Path $full }
                 if ($covered.Contains($n)) { continue }   # fixture data, not indentation
                 $offenders.Add("${rel}:${n}")

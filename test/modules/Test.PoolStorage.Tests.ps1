@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42697c34-7060-4995-8ce1-baeb7bd4bbd6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -444,7 +444,7 @@ Describe 'Set-PoolStorageSudoers (interactive drop-in installer)' {
         # This guard is specifically about the non-Linux path; on Linux the
         # behavior is environment-dependent (probe + ShouldProcess) and is
         # covered by the -WhatIf test below.
-        if ($IsLinux) { return }
+        if ($IsLinux) { Set-ItResult -Skipped -Because 'requires the non-Linux unsupported branch'; return }
         $r = Set-PoolStorageSudoers
         Assert-Equal -Expected 'unsupported' -Actual $r.Action -Because 'only Linux needs the sudo mount drop-in'
     }
@@ -816,19 +816,11 @@ Describe 'Test-PoolStorageWriteProbe (a mount-table entry is not proof the mount
         }
     }
     It 'treats an unresponsive share as unusable rather than waiting on it' {
-        # The cap IS the answer for a wedged mount, so it must be enforced: a
-        # 1s budget against a body that sleeps past it has to come back false,
-        # promptly, instead of blocking the caller.
-        $dir = Join-Path ([IO.Path]::GetTempPath()) ('yrn-probe-slow-' + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $dir
-        try {
-            $sw = [Diagnostics.Stopwatch]::StartNew()
-            $r = Test-PoolStorageWriteProbe -Path $dir -TimeoutSeconds 1
-            $sw.Stop()
-            # A local temp dir answers instantly, so this asserts the budget is
-            # honored as a CAP, never as a delay.
-            Assert-True $r.Ok 'a responsive path still passes under a tight cap'
-            Assert-True ($sw.Elapsed.TotalSeconds -lt 15) "returned promptly ($([int]$sw.Elapsed.TotalSeconds)s)"
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        Mock Invoke-PoolStorageBoundedScript -ModuleName Test.PoolStorage { @{ TimedOut = $true; ExitCode = 124; Stdout = ''; Stderr = '' } }
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        $result = Test-PoolStorageWriteProbe -Path $TestDrive -TimeoutSeconds 1
+        Assert-False $result.Ok 'a timed out write probe is unusable'
+        Assert-True ($timer.Elapsed.TotalSeconds -lt 2) 'timeout classification itself must return promptly'
+        Should -Invoke Invoke-PoolStorageBoundedScript -ModuleName Test.PoolStorage -Times 1 -Exactly
     }
 }

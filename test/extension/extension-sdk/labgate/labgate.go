@@ -18,13 +18,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"yuruna.com/test/extension/extension-sdk/internal/gatethrottle"
 
 	"yuruna.com/test/extension/extension-sdk/controlproof"
 	"yuruna.com/test/extension/extension-sdk/i18n"
@@ -143,8 +143,9 @@ type Gate struct {
 	// signKey signs session cookies. Generated at startup: a restart
 	// invalidating sessions is an acceptable cost for never persisting a key,
 	// and it means a state directory on a shared mount never holds a secret.
-	signKey []byte
-	fails   map[string][]time.Time
+	signKey   []byte
+	fails     map[string][]time.Time
+	lastSweep time.Time
 }
 
 // New builds a Gate. It never fails: a gate that could not generate a signing
@@ -284,32 +285,15 @@ func (g *Gate) throttled(ip string) bool {
 func (g *Gate) recordFail(ip string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	// Sweep every source, not just this one. Login is reachable without any
-	// credential, so a caller cycling source addresses would otherwise leave one
-	// permanent map entry per address it ever failed from -- unbounded growth
-	// driven entirely from outside.
-	cutoff := time.Now().Add(-FailWindow)
-	for known := range g.fails {
-		g.keepRecent(known, cutoff)
-	}
-	g.fails[ip] = append(g.fails[ip], time.Now())
+	// Sweep other sources at most once per window so rotating source addresses
+	// cannot grow the failure map without bound.
+	gatethrottle.Record(g.fails, ip, time.Now(), FailWindow, &g.lastSweep)
 }
 
 // keepRecent drops this source's expired attempts, and the source itself once it
 // has none left. Must be called with the lock held.
 func (g *Gate) keepRecent(ip string, cutoff time.Time) []time.Time {
-	kept := g.fails[ip][:0]
-	for _, t := range g.fails[ip] {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	if len(kept) == 0 {
-		delete(g.fails, ip)
-		return nil
-	}
-	g.fails[ip] = kept
-	return kept
+	return gatethrottle.KeepRecent(g.fails, ip, cutoff)
 }
 
 // Verdict is what the aggregator said about a submitted code. "Rejected" and
@@ -441,8 +425,13 @@ type Session struct {
 	MutationsOpen bool `json:"mutationsOpen"`
 }
 
-// Session reports which ways through the gate exist right now and whether this
-// device is already through one.
+// HandleSession reports the gate capabilities and authentication state for a service version.
+func (g *Gate) HandleSession(w http.ResponseWriter, r *http.Request, version string) {
+	sess := g.Session(r)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": sess.OK, "labToken": sess.LabToken, "bearer": sess.Bearer, "authed": sess.Authed, "configured": sess.Configured, "mutationsOpen": sess.MutationsOpen, "version": version})
+}
+
+// Session reports which ways through the gate exist and whether this device is authenticated.
 func (g *Gate) Session(r *http.Request) Session {
 	authed := g.Authed(r)
 	return Session{
@@ -635,14 +624,7 @@ func (g *Gate) RequireBearer(next http.HandlerFunc) http.HandlerFunc {
 // ClientIP is the throttling and audit key. net.SplitHostPort keeps the brackets
 // off an IPv6 literal, so the key is the address; splitting on the last colon by
 // hand would chop a port-less IPv6 address at a colon inside the literal.
-func ClientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		// A RemoteAddr with no port at all is already the host.
-		return r.RemoteAddr
-	}
-	return host
-}
+func ClientIP(r *http.Request) string { return gatethrottle.ClientIP(r) }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

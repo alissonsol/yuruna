@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 422650f8-dbc0-42cf-8dcf-e365f9c7de11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,7 @@
     message prefix (fallback for an untagged throw), so the sequence catch
     re-throws it instead of counting a cycle-restart as a crash.
 
-    Throw-based assertions so the file runs under OS-bundled Pester 3.4 / 4 / 5+.
+    Throw-based assertions so the file runs under Pester 5+.
 #>
 
 BeforeDiscovery {
@@ -65,12 +65,6 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 # per-verb cases are carried into each It as -TestCases data rather than closed
 # over from the generating foreach -- the loop variable does not survive the pass
 # boundary, and a $null verb would silently exercise the empty-name path.
-
-# Original literal annotation gate plus the bounded-nudge OCR sibling.
-
-# Original literal screenshot-skip gate plus the bounded-nudge OCR sibling.
-# sshWaitReady writes a screenshot on its slow path but was NOT in the skip
-# list -- the engine still captures for it, so its flag stays off.
 
 # Source guard: the literal list pattern must not reappear alongside the flag read.
 $script:engineText = Get-Content -Raw $enginePsm
@@ -144,6 +138,8 @@ Describe 'UsesWaitSignals flag matches the former failure-label annotation verb 
 }
 
 Describe 'CapturesOwnFailureScreenshot flag matches the former screenshot-skip verb set' {
+    # sshWaitReady writes a screenshot on its slow path but was not in the
+    # skip list: the engine still captures, so the flag stays off.
 
     foreach ($verb in $script:selfCapture) {
         It "sets CapturesOwnFailureScreenshot on '$verb'" -TestCases @(@{ verb = $verb }) {
@@ -204,8 +200,10 @@ Describe 'Engine reads the flags, not literal verb-name lists' {
         Assert-True ($script:engineText -match 'UsesWaitSignals') 'engine must read the UsesWaitSignals flag'
         Assert-True ($script:engineText -notmatch "action -eq 'sshWaitReady'") 'the literal sshWaitReady annotation gate must be gone'
     }
-    It 'no longer gates the screenshot skip on a literal fetchAndExecute chain' {
-        Assert-True ($script:engineText -match 'CapturesOwnFailureScreenshot') 'engine must read the CapturesOwnFailureScreenshot flag'
+    It 'does not gate the screenshot skip on a literal fetchAndExecute chain' {
+        # The engine keeps the frame a failed step already saved by comparing its write time with the
+        # step's start, so no verb list is needed; the registry flag stays as the declared contract.
+        Assert-True ($script:engineText -match 'LastFailedStepStartedUtc') 'engine must decide from the freshness of the failed step''s frame'
         Assert-True ($script:engineText -notmatch 'LastFailedAction -ne "fetchAndExecute"') 'the literal fetchAndExecute screenshot-skip gate must be gone'
     }
 }

@@ -176,7 +176,6 @@
         { "id": "groupBy", "options": { "fields": {
           "canonicalHostId": { "aggregations": [], "operation": "groupby" },
           "control": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
-          "poolGuid": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
           "version": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
           "commit": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
           "status": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
@@ -199,7 +198,6 @@
             "renameByName": {
               "canonicalHostId": "Host ID",
               "control (lastNotNull)": "Control",
-              "poolGuid (lastNotNull)": "Pool ID",
               "hostType (lastNotNull)": "Type",
               "version (lastNotNull)": "Version",
               "commit (lastNotNull)": "Commit",
@@ -217,20 +215,19 @@
             "indexByName": {
               "canonicalHostId": 0,
               "control (lastNotNull)": 1,
-              "poolGuid (lastNotNull)": 2,
-              "version (lastNotNull)": 3,
-              "commit (lastNotNull)": 4,
-              "status (lastNotNull)": 5,
-              "hostType (lastNotNull)": 6,
-              "Value #D (sum)": 7,
-              "Value #C (sum)": 8,
-              "Value #B (lastNotNull)": 9,
-              "cycleStartUtc (lastNotNull)": 10,
-              "baseUrl (lastNotNull)": 11,
-              "cycleFolderUrl (lastNotNull)": 12,
-              "commitUrl (lastNotNull)": 13,
-              "projectCommitUrl (lastNotNull)": 14,
-              "hostIdDashed (lastNotNull)": 15
+              "version (lastNotNull)": 2,
+              "commit (lastNotNull)": 3,
+              "status (lastNotNull)": 4,
+              "hostType (lastNotNull)": 5,
+              "Value #D (sum)": 6,
+              "Value #C (sum)": 7,
+              "Value #B (lastNotNull)": 8,
+              "cycleStartUtc (lastNotNull)": 9,
+              "baseUrl (lastNotNull)": 10,
+              "cycleFolderUrl (lastNotNull)": 11,
+              "commitUrl (lastNotNull)": 12,
+              "projectCommitUrl (lastNotNull)": 13,
+              "hostIdDashed (lastNotNull)": 14
             }
           }
         }

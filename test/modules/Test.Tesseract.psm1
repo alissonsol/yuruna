@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42570333-9ac2-4031-a0fd-695d1459461e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -234,7 +234,7 @@ function Get-TesseractWordBox {
         System.Collections.Hashtable[]. Each entry: @{ text; x; y; w; h; conf }.
     #>
     [CmdletBinding()]
-    [OutputType([System.Collections.Hashtable[]])]
+    [OutputType([System.Collections.Hashtable[]], [object[]])]
     param(
         [Parameter(Mandatory=$true)]
         [string]$ImagePath
@@ -291,7 +291,7 @@ function Get-TesseractWordBox {
             conf = [int]$cols[10]
         })
     }
-    return $boxes.ToArray()
+    return ,$boxes.ToArray()
 }
 
 Export-ModuleMember -Function Find-Tesseract, Get-TesseractInstallGuidance, Assert-TesseractInstalled, Invoke-TesseractOcr, Get-TesseractWordBox

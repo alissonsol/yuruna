@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4276263e-b3ef-4219-b17d-1c87a3cfa238
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,6 +131,9 @@ function Get-YhlHttpString {
         } while ($read -gt 0 -and $total -lt $script:MaxResponseBytes)
         return [System.Text.Encoding]::UTF8.GetString($buffer, 0, $total)
     } catch {
+        if ($_.Exception -is [Net.WebException] -and $_.Exception.Response) {
+            $_.Exception.Response.Dispose()
+        }
         return $null
     } finally {
         if ($stream)   { $stream.Dispose() }
@@ -162,18 +165,19 @@ function Test-YhlPlausibleBaseUrl {
     machine lives. Loopback and link-local are the two forms that would
     resolve locally and appear to work while pointing at nothing -- loopback
     at this guest itself, link-local at whatever answers first on the
-    segment.
+    segment. Only a literal dotted IPv4 origin with a decimal TCP port may
+    become a coordinate in host.env, as in the shell resolver.
 #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$BaseUrl)
     if ([string]::IsNullOrWhiteSpace($BaseUrl)) { return $false }
-    $parsed = $null
-    if (-not [System.Uri]::TryCreate($BaseUrl, [System.UriKind]::Absolute, [ref]$parsed)) { return $false }
-    if ($parsed.Scheme -notin @('http', 'https')) { return $false }
-    $hostName = $parsed.Host
-    if ([string]::IsNullOrWhiteSpace($hostName)) { return $false }
-    if ($hostName -eq 'localhost' -or $hostName -eq '::1') { return $false }
+    if (-not ($BaseUrl -cmatch '^https?://(?<host>(?:[0-9]{1,3}\.){3}[0-9]{1,3})(?::(?<port>[0-9]{1,5}))?/?$')) { return $false }
+    $hostName = $Matches['host']
+    foreach ($octet in $hostName.Split('.')) {
+        if ([int]$octet -gt 255) { return $false }
+    }
+    if ($Matches['port'] -and ([int]$Matches['port'] -lt 1 -or [int]$Matches['port'] -gt 65535)) { return $false }
     if ($hostName -match '^127\.' -or $hostName -eq '0.0.0.0') { return $false }
     if ($hostName -match '^169\.254\.') { return $false }
     if ($hostName -match '^(22[4-9]|23[0-9])\.') { return $false }

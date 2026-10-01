@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4240031a-e567-4a6d-aba2-bb96dd5753f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,7 +101,7 @@ Describe 'payload-unavailable reasons (cross-language)' {
         # guest-script failure as a transient shortage and hand it to a retry.
         Assert-True ($script:shSrc -match '\(exit %d\)') 'the producer still reports a real non-zero script exit'
         foreach ($r in $script:reasons) {
-            Assert-True ($r -ne '(exit ') 'a real script exit must not be treated as a missing payload'
+            Assert-True (-not '(exit 7)'.Contains([string]$r, [StringComparison]::Ordinal)) 'a real script exit must not be treated as a missing payload'
         }
     }
 

@@ -401,3 +401,16 @@ func TestAllocatorAsWiredRefusesAnIDAnOlderRowOwns(t *testing.T) {
 		t.Fatal("the allocator handed back an id an older row owns")
 	}
 }
+
+func TestSCPRejectsTruncatedControl(t *testing.T) {
+	for _, wire := range []string{"C0644 1 unfinished", "T123 0 456", "D0755 0 folder\n"} {
+		t.Run(wire, func(t *testing.T) {
+			s := newTestServer(t, true)
+			ch := &testChannel{in: bytes.NewReader([]byte(wire))}
+			s.runCommand(ch, "scp -rt /fixture", "fixture", "127.0.0.1:12345")
+			if code, sent := ch.exit(); !sent || code == 0 {
+				t.Fatalf("truncated transfer exited %d (sent=%v)", code, sent)
+			}
+		})
+	}
+}

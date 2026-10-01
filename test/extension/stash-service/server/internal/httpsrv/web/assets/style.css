@@ -146,7 +146,7 @@ header.app {
   padding: .55rem 1rem;
   padding: .55rem max(1rem, env(safe-area-inset-right)) .55rem max(1rem, env(safe-area-inset-left));
 }
-/* Space flex children with margins, not `gap` (flex gap is Safari/iOS 14.5+ only). */
+/* Keep the first header item flush with the edge while spacing later items. */
 header.app > * + * { margin-left: 1rem; }
 /* Service name with its version stacked underneath, so the two read as one
    identity block rather than two unrelated header items. */
@@ -241,8 +241,7 @@ textarea#footer-ip-list {
   scrollbar-width: none;
 }
 textarea#footer-ip-list::-webkit-scrollbar { display: none; }
-/* body class (not :has()) so the fixed-footer clearance works on Firefox and
-   iOS Safari < 15.4, which predate :has(). */
+/* The page class makes the fixed-footer clearance explicit on pages that need it. */
 body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
 
 /* The in-flow footer of a page with no data feed of its own (create, detail).
@@ -268,19 +267,22 @@ footer.app a { color: var(--chrome-muted); }
 @media (max-width: 600px) {
   .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); font-size: 16px; }
   .menu-button .menu-label { display: none; }
-  .menu-panel a { padding: .65rem .6rem; }
+  .menu-panel a { min-height: var(--touch-min); padding: .65rem .6rem; line-height: 1.7; }
+  #footer-bar .linkish { display: inline-flex; align-items: center; justify-content: center; min-height: var(--touch-min); min-width: var(--touch-min); }
   header.app .btn { padding: .4rem .6rem; font-size: .85rem; }
   #footer-bar {
     padding-left: .5rem; padding-left: max(.5rem, env(safe-area-inset-left));
     padding-right: .5rem; padding-right: max(.5rem, env(safe-area-inset-right));
     flex-wrap: wrap;
   }
-  /* #footer-ips claims its own row here, so the bar is two rows tall and the
-     3rem single-row reserve above no longer clears it -- the last rows of a
-     table and the "Load more" button end up under the fixed bar. Only bites
-     where the home-indicator inset adds to the bar height. */
+  /* The IP field claims its own row. Reserve space for the touch-height
+     controls below it so a fixed footer cannot cover the last table row. */
   #footer-ips { flex-basis: 100%; max-width: 100%; }
-  body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
+  body.has-footer-bar main { padding-bottom: 6.5rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); }
+}
+@media (pointer: coarse) {
+  .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); }
+  .menu-panel a { min-height: var(--touch-min); line-height: 1.7; }
 }
 /* Footer controls that read as text. Both are real <button>s: the refresh was
    an <a href="#"> that never navigated -- announced as a link, behaving as a
@@ -296,17 +298,12 @@ footer.app a { color: var(--chrome-muted); }
 /* --------------------------------------------------------------------------
    The right-to-left mirror for the chrome above.
 
-   The chrome states each physical side and restates it here for the
-   direction the page actually has. Logical properties would say it once, and
-   the Safari 16 floor has them, but the block is compared byte for byte
-   across the stylesheets that carry it, so switching it means changing every
-   copy at once. Only the sides are mirrored: sizes, colors and the tick glyph
-   are the same in both directions.
+   The safe-area insets are physical, so the chrome states each side for the
+   page's reading direction. Only the sides are mirrored: sizes, colors and
+   the tick glyph are the same in both directions.
 
-   These rules live inside the chrome block because the chrome is shared. Every
-   stylesheet carrying the block carries them byte for byte, which the chrome
-   identity test enforces -- a mirror in one service and not another is how the
-   same header comes out mirrored on one page and not the next.
+   These rules live in the shared chrome block so every service presents the
+   same header direction.
    -------------------------------------------------------------------------- */
 [dir="rtl"] header.app > * + * { margin-left: 0; margin-right: 1rem; }
 [dir="rtl"] .menu-button .menu-icon + .menu-label { margin-left: 0; margin-right: .4rem; }
@@ -318,11 +315,13 @@ footer.app a { color: var(--chrome-muted); }
    the physical left still needs the physical left inset, but the padding that
    opens the row's reading edge moves to the other side. Plain value first, as
    every env()/max() declaration here does, so the floor keeps the fallback. */
+@media (max-width: 600px) {
 [dir="rtl"] #footer-bar {
   padding-left: .5rem;
   padding-left: max(.5rem, env(safe-area-inset-left));
   padding-right: .5rem;
   padding-right: max(.5rem, env(safe-area-inset-right));
+}
 }
 
 /* === end page chrome ====================================================== */
@@ -480,15 +479,11 @@ table.stashes th button.sort {
   background: none; border: 0; margin: 0;
   font: inherit; color: inherit; cursor: pointer;
   display: inline-flex; align-items: center;
-  /* A two-character header ("ID") gives a 14x20 box with no padding, under the
-     24x24 minimum on both axes -- and the neighboring header starts close
-     enough that the undisturbed-circle exception cannot be claimed either. The
-     padding buys the target, and the negative inline margins cancel it on
-     both sides so the label does not move. */
+  /* A two-character header ("ID") needs room around its caret to be usable.
+     Negative inline margins keep the label aligned with its column. */
   min-height: 24px; padding: 0 0.25rem; margin-inline: -0.25rem;
 }
-/* The caret is spaced with its own margin rather than the button's `gap`: flex
-   gap needs Safari 14.5, and below it the arrow would sit against the label. */
+/* The caret's margin keeps its spacing independent of the header label width. */
 table.stashes th button.sort::after { content: '\2195'; font-size: 0.8em; opacity: 0.35; margin-inline-start: 0.3rem; }
 table.stashes th button.sort:hover { color: var(--fg-primary); }
 table.stashes th button.sort:hover::after { opacity: 0.7; }
@@ -506,11 +501,8 @@ table.stashes th[aria-sort="descending"] button.sort::after { content: '\25BC'; 
 .badge.local { background: var(--pass-bg); color: var(--pass-fg); }
 
 .card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-/* The stash metadata list. Two aligned columns where CSS Grid is available
-   (Safari 10.1+), and the browser baseline gets the same pairs stacked -- a
-   label over its value, which is what a <dl> reads as with no layout at all.
-   The fallback is the base rule so nothing below the floor inherits a
-   half-applied grid. */
+/* The stash metadata list uses aligned pairs in grid layout. Its base block
+   flow still reads as a label followed by its value. */
 .kv { font-size: 0.9rem; }
 .kv dt { color: var(--fg-muted); }
 .kv dd { margin: 0 0 0.5rem; font-family: var(--mono); word-break: break-all; }
@@ -549,8 +541,7 @@ form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0
    pages that asks the operator for something, and it appears above content that
    renders whether or not it is answered. */
 .login { border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem; margin-bottom: 1rem; background: var(--bg-elevated); }
-/* Margins, not `gap`: flex gap needs Safari 14.5, and below it the field and
-   its button would touch. */
+/* Margins keep wrapped fields and buttons apart without moving the row edge. */
 .login .row { display: flex; flex-wrap: wrap; align-items: center; }
 .login .row > * { margin-block: 0.25rem; margin-inline: 0 0.5rem; }
 .login .row > *:last-child { margin-inline-end: 0; }
@@ -574,7 +565,9 @@ form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0
      primary controls shifts the page. Desktop density is untouched. */
   .toolbar input[type="search"], .toolbar input[type="text"], .toolbar select,
   form.create input[type="text"], form.create textarea { font-size: 16px; }
-  /* The tab switcher is a <button>, so it picks up the shared --touch-min rule
-     above; this keeps its own flex centering at the phone breakpoint. */
+  .btn.compact { min-height: var(--touch-min); min-width: var(--touch-min); }
+  table.stashes th.pick input, table.stashes td.pick input { width: var(--touch-min); height: var(--touch-min); }
+  table.stashes th button.sort { min-height: var(--touch-min); min-width: var(--touch-min); }
+  /* Give the tab switcher a touch-sized target while keeping flex centering. */
   .tab { min-height: var(--touch-min); display: flex; align-items: center; }
 }

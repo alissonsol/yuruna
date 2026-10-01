@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
+	"yuruna.com/test/extension/extension-sdk/jsonbody"
 
 	"pool-control-service/internal/config"
 	"pool-control-service/internal/intent"
@@ -74,14 +76,14 @@ func (s *Server) routes() http.Handler {
 	// gate as moving one by hand -- which is what an operator would otherwise
 	// have to do, twice, from two ids read off a table.
 	mux.HandleFunc("POST /api/pool/adopt-rekey", s.gate.Require(s.handleAdoptRekey))
-	mux.HandleFunc("POST /api/pool/testset", s.gate.Require(s.handleAssign))
+	// Setting or clearing a pool's repositories repoints every member's next
+	// cycle, so it takes the same gate as every other pool-configuration write.
+	mux.HandleFunc("POST /api/pool/repositories", s.gate.Require(s.handleSetPoolRepositories))
 	// Scanning is gated with the changes, not with the reads: it adds hosts to
 	// what this daemon monitors, and it aims a burst of connection attempts at
 	// a network the caller names.
 	mux.HandleFunc("POST /api/scan", s.gate.Require(s.handleScanStart))
 	mux.HandleFunc("POST /api/scan/forget", s.gate.Require(s.handleScanForget))
-	mux.HandleFunc("POST /api/testset", s.gate.Require(s.handleSetTestSet))
-	mux.HandleFunc("DELETE /api/testset", s.gate.Require(s.handleDeleteTestSet))
 
 	// MCP over the same surface. Not wrapped in gate.Require: the protocol
 	// decides per TOOL, so read-only tools keep the exposure of the open
@@ -93,12 +95,9 @@ func (s *Server) routes() http.Handler {
 	// its own lab-token prompt from /api/session. Gating the HTML too would mean
 	// serving a 401 body a browser cannot act on.
 	mux.HandleFunc("GET /pools", s.servePage("pools.html"))
-	mux.HandleFunc("GET /test-sets", s.servePage("test-sets.html"))
 	mux.HandleFunc("GET /scan", s.servePage("scan.html"))
 	mux.HandleFunc("GET /diagnostics", s.servePage("diagnostics.html"))
 	mux.HandleFunc("GET /hosts", s.servePage("hosts.html"))
-	// Assign lives at /assign, not "/": the root slot serves the board.
-	mux.HandleFunc("GET /assign", s.servePage("index.html"))
 	mux.HandleFunc("GET /{$}", s.servePage("board.html"))
 	// Negotiation wraps everything so one request resolves its language once.
 	// A page and the API calls it then makes must not each decide separately:
@@ -138,6 +137,7 @@ func (s *Server) relay(w http.ResponseWriter, action, target string, res intent.
 			detail = firstNonEmpty(res.Error, res.Stderr, "")
 		}
 		s.state.Record(time.Now(), state.AuditEntry{
+			Publish: true,
 			TimeUTC: time.Now().UTC().Format(time.RFC3339),
 			Action:  action, Target: target, OK: res.OK, Detail: detail,
 		})
@@ -212,8 +212,7 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 
 // --- REGION: Request decoding
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, config.MaxRequestBytes)
-	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+	if err := jsonbody.Decode(r.Body, dst, config.MaxRequestBytes, false); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return false
 	}
@@ -227,7 +226,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "pool intent read failed"))
 		return
 	}
-	// Get-PoolIntent.ps1 already emits a {ok,pools,testSets} JSON object; relay it.
+	// Get-PoolIntent.ps1 already emits a {ok,pools,autoEnrollment} JSON object; relay it.
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = io.WriteString(w, strings.TrimSpace(res.Stdout))
@@ -289,37 +288,60 @@ func (s *Server) handleRemoveHost(w http.ResponseWriter, r *http.Request) {
 	s.relay(w, "remove-host", poolID, s.intent.RemoveHost(r.Context(), poolID, hostID, true))
 }
 
-func (s *Server) handleAssign(w http.ResponseWriter, r *http.Request) {
-	var body struct{ PoolID, Name, FrameworkURL, ProjectURL string }
+// handleSetPoolRepositories sets or clears the framework and project
+// repositories every member of a pool runs from its next cycle.
+//
+// Both URLs set, or both empty to clear: one URL alone is refused, because a
+// runner overriding only one repository would pair a framework with a project
+// it was never tested against. The values reach pwsh as separate argv entries,
+// so the checks here are not about shell quoting. They exist because the
+// Pools page makes free text the normal way in: a value that starts with '-'
+// would bind as a parameter name, and whitespace or a control character in a
+// URL is always a paste accident the CLI could only report less clearly.
+func (s *Server) handleSetPoolRepositories(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		PoolID       string `json:"poolId"`
+		FrameworkURL string `json:"frameworkUrl"`
+		ProjectURL   string `json:"projectUrl"`
+	}
 	if !decode(w, r, &body) {
 		return
 	}
-	if body.PoolID == "" || body.Name == "" || body.FrameworkURL == "" || body.ProjectURL == "" {
-		writeErr(w, http.StatusBadRequest, "poolId, name, frameworkURL and projectURL are required")
+	poolID := strings.TrimSpace(body.PoolID)
+	frameworkURL := strings.TrimSpace(body.FrameworkURL)
+	projectURL := strings.TrimSpace(body.ProjectURL)
+	if poolID == "" {
+		writeErr(w, http.StatusBadRequest, "poolId is required")
 		return
 	}
-	s.relay(w, "assign-testset", body.PoolID, s.intent.AssignTestSet(r.Context(), body.PoolID, body.Name, body.FrameworkURL, body.ProjectURL))
+	if (frameworkURL == "") != (projectURL == "") {
+		writeErr(w, http.StatusBadRequest, "frameworkUrl and projectUrl must both be set, or both be empty to clear them")
+		return
+	}
+	if !safeRepositoryURL(frameworkURL) || !safeRepositoryURL(projectURL) {
+		writeErr(w, http.StatusBadRequest, "frameworkUrl and projectUrl must not contain whitespace or control characters, and must not start with '-'")
+		return
+	}
+	if frameworkURL == "" {
+		s.relay(w, "clear-repositories", poolID, s.intent.ClearPoolRepositories(r.Context(), poolID))
+		return
+	}
+	s.relay(w, "set-repositories", poolID, s.intent.SetPoolRepositories(r.Context(), poolID, frameworkURL, projectURL))
 }
 
-func (s *Server) handleSetTestSet(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Name, FrameworkURL, ProjectURL string }
-	if !decode(w, r, &body) {
-		return
+// safeRepositoryURL reports whether an already-trimmed value may be handed to
+// the pool-admin CLI as a repository URL. Empty passes: the caller decides
+// what an empty pair means.
+func safeRepositoryURL(v string) bool {
+	if strings.HasPrefix(v, "-") {
+		return false
 	}
-	if body.Name == "" || body.FrameworkURL == "" || body.ProjectURL == "" {
-		writeErr(w, http.StatusBadRequest, "name, frameworkURL and projectURL are required")
-		return
+	for _, r := range v {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return false
+		}
 	}
-	s.relay(w, "set-testset", body.Name, s.intent.SetTestSetDef(r.Context(), body.Name, body.FrameworkURL, body.ProjectURL))
-}
-
-func (s *Server) handleDeleteTestSet(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	s.relay(w, "delete-testset", name, s.intent.DeleteTestSetDef(r.Context(), name))
+	return true
 }
 
 func firstNonEmpty(vals ...string) string {

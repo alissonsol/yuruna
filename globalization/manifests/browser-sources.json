@@ -76,20 +76,12 @@
       "surface": "pool control pools"
     },
     {
-      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/index.html",
-      "surface": "pool control overview"
-    },
-    {
       "path": "test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html",
       "surface": "pool control diagnostics"
     },
     {
       "path": "test/extension/pool-control-service/server/internal/httpsrv/web/scan.html",
       "surface": "pool control scan"
-    },
-    {
-      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html",
-      "surface": "pool control test sets"
     },
     {
       "path": "test/extension/download-agent-service/server/internal/httpsrv/web/index.html",

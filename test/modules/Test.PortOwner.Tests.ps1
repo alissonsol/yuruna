@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 422c5625-91a1-43b2-91dd-a1303b05e3a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     HttpListener bind-probe (Test-PortListenerFree) and the classifier
     (Resolve-PortOrphan) that decides Free / Recovered / Conflict.
 .DESCRIPTION
-    Throw-based assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
+    Throw-based assertions for Pester 5+.
     The "held port" cases bind a real HttpListener in-process so the detection
     is exercised without spawning another user's server; -WhatIf keeps the
     orphan-reclaim path from stopping the (self-owned) holder during the test.

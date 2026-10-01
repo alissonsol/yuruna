@@ -279,6 +279,9 @@ func (e *Engine) probeOne(ctx context.Context, ip string, known map[string]struc
 		return
 	}
 	host.Address = ip
+	e.mu.Lock()
+	host.FoundBy = e.cur.Trigger
+	e.mu.Unlock()
 	// BaseURL is left exactly as the prober reported it, empty included: only
 	// the prober knows which port answered, and a base assembled here would be
 	// a guess. The pages render a host with no base as plain text rather than
@@ -286,6 +289,9 @@ func (e *Engine) probeOne(ctx context.Context, ip string, known map[string]struc
 	// like a host that is down.
 
 	_, elsewhere := known[host.Key()]
+	if !elsewhere {
+		_, elsewhere = known[host.BaseURL]
+	}
 	if !elsewhere {
 		_, elsewhere = known[host.Address]
 	}

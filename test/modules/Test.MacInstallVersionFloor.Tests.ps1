@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4207f1a4-6b1e-4c0a-9a05-9b2a1f6c3d77
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -307,7 +307,8 @@ requirement_key_command curl
     }
 }
 
-Describe 'bring_tools_to_required_versions' {
+# Runs POSIX stand-in executables and shell installers that Windows cannot launch.
+Describe 'bring_tools_to_required_versions' -Skip:$IsWindows {
     It 'repairs each failing tool once per pass and stops when the check comes back clean' {
         # PowerShell and AES-GCM are two lines about one runtime: repairing that
         # runtime twice in a pass would install the same build twice and report
@@ -316,6 +317,7 @@ Describe 'bring_tools_to_required_versions' {
 # The check runs inside a process substitution, so its side effects land in a
 # subshell -- the count of which check this is has to live on disk.
 FLOOR_STATE="$(mktemp)"
+trap 'rm -f "$FLOOR_STATE"' EXIT
 printf '0\n' > "$FLOOR_STATE"
 requirement_issue_line() {
   local n

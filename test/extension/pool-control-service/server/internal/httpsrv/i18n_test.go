@@ -304,7 +304,7 @@ func TestEveryEmbeddedLocaleIsDeclared(t *testing.T) {
 func TestEveryDeliveredLocaleHasCompleteImmutableBrowserCatalog(t *testing.T) {
 	srv := newLocaleServer(t, Options{AllowPseudoLocale: true})
 	for _, locale := range availableLocales() {
-		for _, route := range []string{"/", "/assign", "/hosts", "/pools", "/test-sets", "/scan", "/diagnostics"} {
+		for _, route := range []string{"/", "/hosts", "/pools", "/scan", "/diagnostics"} {
 			response := get(t, srv, route, map[string]string{"Accept-Language": locale})
 			html := body(t, response)
 			if response.StatusCode != 200 || response.Header.Get("Content-Language") != locale || !strings.Contains(html, `lang="`+locale+`"`) {

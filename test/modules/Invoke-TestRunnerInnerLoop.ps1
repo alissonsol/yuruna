@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -502,9 +502,8 @@ if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
 # other, so a foreign concurrent VM can split the test guests onto a
 # different bridge from the host's vmnet gateway and break the cloud-init
 # host-proxy URL baked into seed.iso. Refuse at cycle start if a foreign VM
-# is running. The caching-proxy-service VM is exempt inside Assert-NoConcurrentUtmVm
-# (it is a dependency the guests consume, reachable on the shared bridge),
-# so a running cache no longer blocks the cycle.
+# is running. Service VMs are exempt inside Assert-NoConcurrentUtmVm because
+# the cycle consumes them; their presence does not block a guest run.
 # Stop first, refuse second. A leftover guest from a cycle that died before
 # its teardown is the common case here, and refusing over it strands the
 # host: the sweep that would remove it only runs once a cycle starts. Issue

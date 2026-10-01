@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42e19a4c-5b73-4c81-9f26-3d0a8b7e6c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,11 +62,7 @@ $script:Runtimes = @(
     'test/extension/extension-sdk/webui/assets/yuruna.core.js'
 )
 
-$script:Chrome = $null
-foreach ($n in @('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser')) {
-    $c = Get-Command $n -ErrorAction SilentlyContinue
-    if ($c) { $script:Chrome = $c.Source; break }
-}
+$script:Chrome = Get-YurunaTestBrowser
 
 $script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-kernel-" + [Guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $script:Sandbox -Force
@@ -187,13 +183,7 @@ Describe 'every runtime writes a value the same way' {
             $pagePath = Join-Path $script:Sandbox "agree-$name.html"
             [IO.File]::WriteAllText($pagePath, $page)
 
-            $dom = & $script:Chrome --headless --disable-gpu --no-sandbox `
-                --virtual-time-budget=5000 --dump-dom "file://$pagePath" 2>$null | Out-String
-
-            # Read the element, never the whole dump. --dump-dom echoes the
-            # page's own inline script back, so a sentinel searched for across
-            # the dump always finds the line that would have written it.
-            $m = [regex]::Match($dom, '(?s)<pre id="out">(.*?)</pre>')
+            $m = Invoke-YurunaTestBrowserResult -Browser $script:Chrome -Path $pagePath
             if (-not $m.Success) {
                 $findings += "$rel rendered no output at all, so its parse failed"
                 continue
@@ -265,9 +255,7 @@ window.beforePseudoAsset = {
 '@
         $path = Join-Path $script:Sandbox 'late-catalog.html'
         [IO.File]::WriteAllText($path, $page)
-        $dom = & $script:Chrome --headless --disable-gpu --no-sandbox `
-            --virtual-time-budget=5000 --dump-dom "file://$path" 2>$null | Out-String
-        $match = [regex]::Match($dom, '(?s)<pre id="out">(.*?)</pre>')
+        $match = Invoke-YurunaTestBrowserResult -Browser $script:Chrome -Path $path
         Assert-True $match.Success 'the late-catalog page rendered no result'
         $text = [Net.WebUtility]::HtmlDecode($match.Groups[1].Value)
         Assert-True ($text.Contains('beforeLocale=qps-Ploc')) `
@@ -341,10 +329,7 @@ window.beforePseudoAsset = {
         $pagePath = Join-Path $script:Sandbox 'no-formatters.html'
         [IO.File]::WriteAllText($pagePath, $page)
 
-        $dom = & $script:Chrome --headless --disable-gpu --no-sandbox `
-            --virtual-time-budget=5000 --dump-dom "file://$pagePath" 2>$null | Out-String
-
-        $m = [regex]::Match($dom, '(?s)<pre id="out">(.*?)</pre>')
+        $m = Invoke-YurunaTestBrowserResult -Browser $script:Chrome -Path $pagePath
         Assert-True $m.Success 'the page rendered nothing, so the runtime failed to parse'
 
         $findings = @()

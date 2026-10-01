@@ -5,8 +5,8 @@
 
 # Standalone SMOKE TEST of the stash daemon build + launch on a vanilla
 # Ubuntu guest (no NAS seed -> local-fallback storage); NOT the production
-# bring-up (Start-StashServiceVM + cloud-init) and NOT wired into automated
-# test-sets -- run it manually.
+# bring-up (Start-StashServiceVM + cloud-init) and NOT listed in any
+# test.runner.yml -- run it manually.
 
 # The deploy is the LAST step on purpose: ubuntu.server.26.stash-service.sh
 # masks the OS sshd and rebinds :22 to the Yuruna Stash daemon, any later

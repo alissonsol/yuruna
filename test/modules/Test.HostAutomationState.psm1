@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4292f906-bf44-485f-9134-f35f5dced880
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -261,6 +261,22 @@ function Invoke-CaptureRead {
     }
 }
 
+function Get-LinuxAutomationGsetting {
+    <# .SYNOPSIS
+        Returns the single capture, apply, and restore table for GNOME settings.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param()
+    return @(
+        ,@('org.gnome.settings-daemon.plugins.power', 'sleep-inactive-ac-type', 'nothing')
+        ,@('org.gnome.settings-daemon.plugins.power', 'sleep-inactive-battery-type', 'nothing')
+        ,@('org.gnome.desktop.session', 'idle-delay', 'uint32 0')
+        ,@('org.gnome.desktop.screensaver', 'lock-enabled', 'false')
+        ,@('org.gnome.settings-daemon.plugins.power', 'idle-dim', 'false')
+    )
+}
+
 function Get-LinuxPreAutomationState {
 <#
 .SYNOPSIS
@@ -277,13 +293,7 @@ function Get-LinuxPreAutomationState {
 
     $knobs = @{}
     $haveGsettings = [bool](Get-Command -Name 'gsettings' -ErrorAction SilentlyContinue)
-    foreach ($t in @(
-        @('org.gnome.settings-daemon.plugins.power', 'sleep-inactive-ac-type'),
-        @('org.gnome.settings-daemon.plugins.power', 'sleep-inactive-battery-type'),
-        @('org.gnome.desktop.session',               'idle-delay'),
-        @('org.gnome.desktop.screensaver',           'lock-enabled'),
-        @('org.gnome.settings-daemon.plugins.power', 'idle-dim')
-    )) {
+    foreach ($t in (Get-LinuxAutomationGsetting)) {
         $schema = $t[0]; $key = $t[1]
         $knobs["gsettings/$schema/$key"] = Invoke-CaptureRead -Name "gsettings $schema $key" -Reader {
             if (-not $haveGsettings) { return $null }
@@ -884,6 +894,7 @@ function Invoke-HostKnobRestore {
     $preview = Test-HostRestorePreviewOnly -Cmdlet $Cmdlet
 
     if (-not $knob.present) {
+        if ($knob.note) { $Skipped.Add("$Description (capture was unreadable; left unchanged: $($knob.note))"); return }
         if (-not $Absent) { $Skipped.Add("$Description (nothing was set before; left as it is)"); return }
         # "Absent" is the same answer a reader gives when it could not read the
         # knob, so it is only safe to act on when the reader that produced it is
@@ -1112,6 +1123,6 @@ Export-ModuleMember -Function ConvertFrom-YurunaPowerSettingIndex, Get-HostAutom
     Test-HostRestorePreviewOnly, Read-HostAutomationState, Save-HostAutomationState,
     Get-HostOsVersionStamp, Get-HostAutomationOsDrift,
     Get-LinuxPreAutomationState, Get-MacPreAutomationState, Get-WindowsPreAutomationState,
-    Get-HostAutomationKnob, Assert-SafeToDisable, Write-DisableManualStep,
+    Get-LinuxAutomationGsetting, Get-HostAutomationKnob, Assert-SafeToDisable, Write-DisableManualStep,
     Invoke-HostKnobRestore, Write-DisableReport, Get-PoolStorageManualTeardown,
     Stop-YurunaServiceVMSet, Write-DisableCommonEpilogue

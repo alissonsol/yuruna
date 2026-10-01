@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42236cc8-c3f9-4b02-a1e7-01d2a329be23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,9 @@
     Stable hostId to add (runtime/host.uuid, 42-prefixed 32-hex). The GUID-dashed
     spelling every panel and UI reveals a full id in is accepted too, so a value
     copied off one works as pasted.
+.PARAMETER MoveExisting
+    Remove this host from another pool before adding it to PoolId. Without this
+    switch, existing membership in another pool is refused.
 .EXAMPLE
     ./Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01234567
 .EXAMPLE
@@ -41,7 +44,8 @@ param(
     [Parameter(Mandatory)][string]$PoolId,
     [Parameter(Mandatory)][string]$HostId,
     [string]$IntentGitUrl,
-    [string]$IntentDir
+    [string]$IntentDir,
+    [switch]$MoveExisting
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -71,28 +75,29 @@ $HostId = $canonicalHostId
 $shownHostId = Format-YurunaHostId -HostId $HostId
 
 # --- REGION: Open the intent store
-$t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
-if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') -ErrorAction Continue
-    exit $ExitFailure
-}
-$open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" }) -ErrorAction Continue; exit $ExitFailure }
+$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+$t = $open.Target
+if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if (-not $pool) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_945821c2fef42ae6' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue; exit $ExitFailure }
 
-# One pool per host: reject if this hostId is already a member of a DIFFERENT pool.
+# One pool per host: reject membership in another pool unless -MoveExisting
+# explicitly removes that membership first.
 foreach ($p in @($doc['pools'])) {
     if (($p -is [System.Collections.IDictionary]) -and ([string]$p['poolId'] -ne $PoolId) -and (@($p['members']) -contains $HostId)) {
+        if ($MoveExisting) {
+            $p['members'] = @($p['members'] | Where-Object { $_ -and [string]$_ -ne $HostId })
+            continue
+        }
         Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_2cbc230f4adcaeac' -Arguments @{ shownHostId = "$shownHostId"; poolId = "$($p['poolId'])" }) -ErrorAction Continue
         exit $ExitFailure
     }
 }
 
-$members = @($pool['members'])
+$members = @($pool['members'] | Where-Object { $_ })
 if ($members -contains $HostId) {
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_824e13f7776d01ec' -Arguments @{ shownHostId = "$shownHostId"; poolId = "$PoolId" }) -InformationAction Continue
     exit $ExitOk
@@ -100,14 +105,8 @@ if ($members -contains $HostId) {
 $pool['members'] = @($members + $HostId)
 
 # --- REGION: Save, commit and push
-$save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
-if (-not $save.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_9c27a25b6843707d' -Arguments @{ error = "$($save.Error)" }) -ErrorAction Continue; exit $ExitFailure }
-$pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: add $HostId to $PoolId" -Confirm:$false
-if (-not $pub.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_493d8875345272bb' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue; exit $ExitFailure }
-if (-not $pub.Pushed) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_d7dcddaba0a5b0ef' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue
-    exit $ExitFailure
-}
+$pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: add $HostId to $PoolId" -Confirm:$false
+if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
 
 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bba4a8e964d8063d' -Arguments @{ shownHostId = "$shownHostId"; poolId = "$PoolId" }) -InformationAction Continue
 exit $ExitOk

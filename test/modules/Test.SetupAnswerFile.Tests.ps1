@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427bf883-f57a-449e-98af-a9cec3b9704c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,7 +43,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
     it: setup.ps1 is an orchestrator that changes the machine, and none of that
     is needed to check a schema.
 
-    Throw-based assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
+    Throw-based assertions for Pester 5+.
     Run with:  Invoke-Pester -Path test/modules/Test.SetupAnswerFile.Tests.ps1
 #>
 

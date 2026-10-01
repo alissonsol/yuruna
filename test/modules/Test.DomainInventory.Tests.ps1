@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fa3c81-6d07-4b29-95e8-1c04a7b6f2d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,7 +104,7 @@ Describe 'the inventory measures the tree it ships with' {
         $project = $doc.domains | Where-Object domain -EQ 'project-config'
         Assert-Equal -Expected 28 -Actual $project.files `
             'the reachable project YAML set changed without an inventory decision'
-        Assert-Equal -Expected 105 -Actual $project.englishScalars `
+        Assert-Equal -Expected 89 -Actual $project.englishScalars `
             'the structured reader did not find the current English display fields'
         # How many scalars carry a translation is a census: it moves every time a
         # locale is delivered, and pinning it turns each delivery into a test
@@ -124,7 +124,7 @@ Describe 'the inventory measures the tree it ships with' {
             'YAML field accounting is absent or still based on source-code literals'
 
         $named = @($project.inventoryFiles)
-        Assert-True ($named -contains 'test/test.runner.yml') 'the project test-set labels are not inventoried'
+        Assert-True ($named -contains 'test/test.runner.yml') 'the project runner file is not inventoried'
         Assert-True ($named -contains 'template/config/localhost/components.yml') `
             'an official template configuration map is not protected by the inventory'
         Assert-True ($named -contains 'example/website/config/localhost/components.yml') `
@@ -199,13 +199,13 @@ Describe 'the inventory measures the tree it ships with' {
         $framework = Join-Path $TestDrive 'framework-candidate'
         $project = Join-Path $TestDrive 'project-candidate'
         New-Item -ItemType Directory -Path (Join-Path $framework 'test/status') -Force | Out-Null
-        New-Item -ItemType Directory -Path (Join-Path $project 'test') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $project 'template/test') -Force | Out-Null
         & git -C $framework init --quiet
         & git -C $project init --quiet
         [IO.File]::WriteAllText((Join-Path $framework 'test/status/candidate.ps1'),
             "Write-Output 'This untracked operator message is visible.'`n")
-        [IO.File]::WriteAllText((Join-Path $project 'test/test.runner.yml'),
-            "testSets:`n  - name: candidate`n    displayName: Untracked candidate display name`n")
+        [IO.File]::WriteAllText((Join-Path $project 'template/test/candidate.yml'),
+            "description: Untracked candidate display name`n")
         foreach ($relative in @(
                 'README.md', 'template/README.md', 'example/README.md',
                 'example/website/README.md', 'example/text-to-sql/README.md',
@@ -227,7 +227,7 @@ Describe 'the inventory measures the tree it ships with' {
             'the untracked framework source was invisible to the candidate inventory'
         Assert-True ([int]$status.candidates -ge 1) `
             'the untracked framework prose did not reach the inventory count'
-        Assert-True (@($config.inventoryFiles) -ccontains 'test/test.runner.yml') `
+        Assert-True (@($config.inventoryFiles) -ccontains 'template/test/candidate.yml') `
             'the untracked reachable project YAML was invisible to the candidate inventory'
         Assert-Equal -Expected 1 -Actual $config.englishScalars `
             'the untracked project display field was not parsed'
@@ -243,11 +243,11 @@ Describe 'the inventory measures the tree it ships with' {
         & git -C $framework init --quiet
         & git -C $project init --quiet
         [IO.File]::WriteAllText((Join-Path $project 'test/test.runner.yml'),
-            "testSets:`n  - name: candidate`n    displayName: Hooked candidate display name`n")
+            "sequences:`n  - candidate`n")
         # A path only the framework's index holds; read through that index,
         # the project would list a file it does not have.
         New-Item -ItemType Directory -Path (Join-Path $framework 'template/test') -Force | Out-Null
-        [IO.File]::WriteAllText((Join-Path $framework 'template/test/framework-only.yml'), "testSets: []`n")
+        [IO.File]::WriteAllText((Join-Path $framework 'template/test/framework-only.yml'), "sequences: []`n")
         & git -C $framework add -- template/test/framework-only.yml
         foreach ($relative in @(
                 'README.md', 'template/README.md', 'example/README.md',

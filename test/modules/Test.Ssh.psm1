@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -903,79 +903,22 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         if (-not $ipEverDiscovered -and $target -and $target -ne $VMName -and (Test-IpAddress $target)) {
             $ipEverDiscovered = $true
         }
-        $psi = [System.Diagnostics.ProcessStartInfo]::new()
-        $psi.FileName               = 'ssh'
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError  = $true
-        $psi.UseShellExecute        = $false
-        $psi.CreateNoWindow         = $true
-        # ArgumentList (.NET 5+) handles per-arg quoting -- no shell
-        # interpolation, no double-quote-inside-double-quote hazard for
-        # paths with spaces in $key.
-        $psi.ArgumentList.Add('-i'); $psi.ArgumentList.Add($key)
-        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('BatchMode=yes')
-        foreach ($hk in (Get-YurunaSshHostKeyOption)) { $psi.ArgumentList.Add($hk) }
-        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('ConnectTimeout=5')
-        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('ServerAliveInterval=3')
-        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('ServerAliveCountMax=2')
-        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('LogLevel=ERROR')
-        $psi.ArgumentList.Add("$user@$target")
-        $psi.ArgumentList.Add('echo yuruna-ssh-ready')
-
-        $proc = $null
-        try {
-            $proc = [System.Diagnostics.Process]::Start($psi)
-        } catch {
-            $lastError = "Process.Start('ssh') threw: $($_.Exception.Message)"
-            $remainingSeconds = ($deadline - (Get-Date)).TotalSeconds
-            if ($remainingSeconds -gt 0) { Start-Sleep -Seconds ([Math]::Min([double]$thisPollSeconds, $remainingSeconds)) }
-            continue
-        }
-        # Read both streams asynchronously to avoid the classic "child
-        # blocks on a full pipe while we wait for it to exit" deadlock.
-        # ReadToEndAsync returns a Task; we read .Result AFTER WaitForExit
-        # confirms the streams are closed.
-        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-        $stderrTask = $proc.StandardError.ReadToEndAsync()
-        # Cap this probe at the smaller of the fixed per-probe cap and the time
-        # left to the overall deadline, so the final probe cannot push past
-        # TimeoutSeconds -- WaitForExit is otherwise a flat probeCapSeconds no
-        # matter how little budget remains. Doubles throughout so [Math]::Min/Max
-        # never bind the (int,int) overload on a large millisecond value.
-        $probeMs    = [int][Math]::Max([double]0, [Math]::Min([double]($probeCapSeconds * 1000), ($deadline - (Get-Date)).TotalMilliseconds))
-        $completed  = $proc.WaitForExit($probeMs)
-        $stdoutText = ''
-        $stderrText = ''
-        $exit       = -1
-        if ($completed) {
-            $stdoutText = $stdoutTask.Result
-            $stderrText = $stderrTask.Result
-            $exit       = [int]$proc.ExitCode
-        } else {
-            # Hung probe -- kill the process tree so the leaked ssh
-            # doesn't accumulate across iterations. .Kill($true) is
-            # the .NET 5+ "kill entire process tree" call.
-            try { $proc.Kill($true) } catch { Write-Verbose "Process.Kill failed: $($_.Exception.Message)" }
+        $probeArguments = @('-i', $key, '-o', 'BatchMode=yes') + @(Get-YurunaSshHostKeyOption) +
+            @('-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=3', '-o', 'ServerAliveCountMax=2',
+                '-o', 'LogLevel=ERROR', "$user@$target", 'echo yuruna-ssh-ready')
+        $probeMs = [int][Math]::Max([double]0, [Math]::Min([double]($probeCapSeconds * 1000), ($deadline - (Get-Date)).TotalMilliseconds))
+        $probeDeadline = New-YurunaDeadline -TotalMilliseconds $probeMs
+        $probe = Invoke-BoundedNativeCommand -FilePath 'ssh' -ArgumentList $probeArguments -TimeoutSeconds $probeCapSeconds -Deadline $probeDeadline
+        $completed = Test-BoundedNativeResultComplete -Result $probe
+        $stdoutText = [string]$probe.StdOut
+        $stderrText = [string]$probe.StdErr
+        $exit = [int]$probe.ExitCode
+        if (-not $probe.Started -and -not $probe.DeadlineExhausted) {
+            $lastError = "Process.Start('ssh') threw: $($probe.StartError)"
+        } elseif (-not $completed) {
             $probeSeconds = [Math]::Round($probeMs / 1000.0, 1)
-            # Three shapes, and the third is why the elapsed figure cannot be
-            # printed unconditionally. A full-cap wait is a genuine post-TCP
-            # hang. A partial one means the overall deadline landed mid-probe.
-            # But the cap is the budget left when the probe STARTS, and
-            # resolving the guest address plus launching ssh can outlast the
-            # sliver a clamped poll left behind -- so the cap can be zero, or
-            # round to it, and "timed out after 0s" then denies the very thing
-            # it reports. Every branch keeps the "probe timed out" token:
-            # Get-SshReadinessFailureCause matches on it, and it is also what
-            # marks this text as carrying no verdict about the target.
-            $lastError = if ($probeMs -ge $probeCapSeconds * 1000) {
-                "probe timed out after ${probeSeconds}s (ssh hung post-TCP; process killed)"
-            } elseif ($probeSeconds -le 0) {
-                "probe timed out with no budget to run in: the ${TimeoutSeconds}s wait was already spent when ssh started, so nothing was ever asked of the target (process killed)"
-            } else {
-                "probe timed out after ${probeSeconds}s (overall ${TimeoutSeconds}s deadline reached mid-probe; process killed)"
-            }
+            $lastError = "probe timed out after ${probeSeconds}s (bounded process or pipe drain; overall ${TimeoutSeconds}s deadline)"
         }
-        $proc.Dispose()
         if ($completed) {
             $resultText = ($stdoutText + $stderrText)
             if ($exit -eq 0 -and $resultText -match "yuruna-ssh-ready") {
@@ -1081,30 +1024,16 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         # the worst place to block).
         Write-Verbose "  --- verbose handshake follows ---"
         try {
-            $vpsi = [System.Diagnostics.ProcessStartInfo]::new()
-            $vpsi.FileName = 'ssh'
-            $vpsi.RedirectStandardOutput = $true
-            $vpsi.RedirectStandardError  = $true
-            $vpsi.UseShellExecute = $false
-            foreach ($a in @('-v', '-i', $key,
-                    '-o', 'BatchMode=yes') +
-                    (Get-YurunaSshHostKeyOption) +
-                    @('-o', 'ConnectTimeout=5',
-                    "$user@$lastTarget", 'echo yuruna-ssh-ready')) {
-                $vpsi.ArgumentList.Add($a)
-            }
-            $vproc = [System.Diagnostics.Process]::Start($vpsi)
-            $voTask = $vproc.StandardOutput.ReadToEndAsync()
-            $veTask = $vproc.StandardError.ReadToEndAsync()
-            if ($vproc.WaitForExit($probeCapSeconds * 1000)) {
-                foreach ($line in (($voTask.Result + $veTask.Result) -split "`r?`n")) {
+            $verboseArguments = @('-v', '-i', $key, '-o', 'BatchMode=yes') + @(Get-YurunaSshHostKeyOption) +
+                @('-o', 'ConnectTimeout=5', "$user@$lastTarget", 'echo yuruna-ssh-ready')
+            $verboseProbe = Invoke-BoundedNativeCommand -FilePath 'ssh' -ArgumentList $verboseArguments -TimeoutSeconds $probeCapSeconds
+            if (Test-BoundedNativeResultComplete -Result $verboseProbe) {
+                foreach ($line in (([string]$verboseProbe.StdOut + [string]$verboseProbe.StdErr) -split "`r?`n")) {
                     if ($line.Trim()) { Write-Verbose "    [ssh -v] $($line.TrimEnd())" }
                 }
             } else {
-                try { $vproc.Kill($true) } catch { Write-Verbose "verbose-dump Kill failed: $($_.Exception.Message)" }
-                Write-Verbose "    [ssh -v] verbose handshake exceeded ${probeCapSeconds}s (ssh hung post-TCP; killed)."
+                Write-Verbose "    [ssh -v] verbose handshake exceeded its bounded process/pipe budget (${probeCapSeconds}s)."
             }
-            $vproc.Dispose()
         } catch { Write-Verbose "  verbose dump failed: $($_.Exception.Message)" }
         Write-Verbose "  --- end verbose handshake ---"
     }
@@ -1125,36 +1054,42 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # the caller falls back to the console rung, so those stay soft.
     $failureClass = if ($cause -eq 'password_expired') { 'credential_expired' } else { 'network_timeout' }
     $severity     = if ($cause -eq 'password_expired') { 'hard' } else { 'soft' }
-    Send-CycleEventSafely -EventRecord @{
-        timestamp        = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-        event            = 'ssh_handshake_failed'
-        target           = [string]$lastTarget
-        user             = [string]$user
-        privateKey       = [string]$key
-        attempts         = [int]$attempts
-        timeoutSeconds   = [int]$TimeoutSeconds
-        pollSeconds      = [int]$PollSeconds
-        probeCapSeconds  = [int]$probeCapSeconds
-        lastError        = [string]$lastError
-        cause            = [string]$cause
-        ipDiscovered     = [bool]$ipEverDiscovered
-        # Whether anything ever replied at that address. An address that was
-        # discovered and never answered is the shape where the address's
-        # provenance is worth reading before the network is.
-        ipAnswered       = [bool]$ipEverAnswered
-        # Which probe's words the cause was read from, and those words. The
-        # last probe is routinely the one killed at the deadline, and a killed
-        # probe says nothing about the target; when that happens the cause
-        # comes from the most recent probe the target answered, and carrying
-        # that text here keeps the record readable on its own.
-        causeReadFrom    = [string]$evidence.source
-        answeredError    = [string]$lastAnsweredError
-        # Host-driver run state at the last sample ('' when no driver is
-        # loaded): lets a reader separate "VM down" from every network-shaped
-        # cause without reconstructing it from host diagnostics.
-        vmState          = [string]$vmState
-        failureClass     = [string]$failureClass
-        severity         = [string]$severity
+    # The diagnostic worker runs in its own process without Test.Log, and this
+    # path is exactly where it lands when the guest never got an address. An
+    # unguarded call throws there and aborts the whole diagnostic ladder, so the
+    # event is best-effort and the $false return stays the real signal.
+    if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+        Send-CycleEventSafely -EventRecord @{
+            timestamp        = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+            event            = 'ssh_handshake_failed'
+            target           = [string]$lastTarget
+            user             = [string]$user
+            privateKey       = [string]$key
+            attempts         = [int]$attempts
+            timeoutSeconds   = [int]$TimeoutSeconds
+            pollSeconds      = [int]$PollSeconds
+            probeCapSeconds  = [int]$probeCapSeconds
+            lastError        = [string]$lastError
+            cause            = [string]$cause
+            ipDiscovered     = [bool]$ipEverDiscovered
+            # Whether anything ever replied at that address. An address that was
+            # discovered and never answered is the shape where the address's
+            # provenance is worth reading before the network is.
+            ipAnswered       = [bool]$ipEverAnswered
+            # Which probe's words the cause was read from, and those words. The
+            # last probe is routinely the one killed at the deadline, and a killed
+            # probe says nothing about the target; when that happens the cause
+            # comes from the most recent probe the target answered, and carrying
+            # that text here keeps the record readable on its own.
+            causeReadFrom    = [string]$evidence.source
+            answeredError    = [string]$lastAnsweredError
+            # Host-driver run state at the last sample ('' when no driver is
+            # loaded): lets a reader separate "VM down" from every network-shaped
+            # cause without reconstructing it from host diagnostics.
+            vmState          = [string]$vmState
+            failureClass     = [string]$failureClass
+            severity         = [string]$severity
+        }
     }
     return $false
 }
@@ -1413,6 +1348,10 @@ a short evidence capture; ordinary calls initialize the harness key as needed.
 Retain up to 524288 characters per stream from a timed-out client. Collection
 and cleanup share the command timeout. Ordinary commands retain at most 64 MiB
 per stream; incomplete output is explicitly reported instead of silently used.
+.PARAMETER MaxCapturedChars
+Characters to retain per stream, overriding both defaults above. A command
+whose complete output is longer than the cap is reported as truncated and
+unsuccessful, so a caller that expects large output must set a cap above it.
 .OUTPUTS
 System.Collections.Hashtable with keys: success (bool), exitCode (int),
 output (string), addressResolved (bool), transportLost (bool).
@@ -1436,7 +1375,8 @@ with a different owner, that is likewise invisible in the exit status.
         [string]$DetachToken = '',
         [string]$ResolvedAddress,
         [string]$PrivateKeyPath,
-        [switch]$PreservePartialOutputOnTimeout
+        [switch]$PreservePartialOutputOnTimeout,
+        [ValidateRange(4096, 67108864)][int]$MaxCapturedChars
     )
     # Not $user: PowerShell variable names are case-insensitive, so that would
     # be the same storage as the $User parameter and read as a self-assignment.
@@ -1505,6 +1445,9 @@ with a different owner, that is likewise invisible in the exit status.
     for ($attempt = 1; $attempt -le $maxAttempt; $attempt++) {
         if ($attempt -gt 1) {
             if ($detached) {
+                $remainingMs = [int][math]::Max(0, ($deadlineUtc - [datetime]::UtcNow).TotalMilliseconds)
+                if ($remainingMs -le 0) { break }
+                Start-Sleep -Milliseconds ([math]::Min(1000, $remainingMs))
                 # No reap wait on the attach path. The orphaned command is the
                 # entire point -- it is still running and still producing the
                 # output this attach is going to collect -- so waiting for the
@@ -1613,7 +1556,8 @@ with a different owner, that is likewise invisible in the exit status.
                 }
             }
         }
-        $captureLimit = if ($PreservePartialOutputOnTimeout) { 524288 } else { 67108864 }
+        $captureLimit = if ($PSBoundParameters.ContainsKey('MaxCapturedChars')) { $MaxCapturedChars }
+            elseif ($PreservePartialOutputOnTimeout) { 524288 } else { 67108864 }
         $native = Invoke-BoundedNativeCommand -FilePath 'ssh' -ArgumentList $sshArguments `
             -TimeoutSeconds ([Math]::Max(1, $attemptTimeout)) -MaxCapturedChars $captureLimit -StreamEncoding ([Text.Encoding]::UTF8)
         $stdoutText = [string]$native.StdOut
@@ -2146,6 +2090,30 @@ System.String. An IPv4 address, or '' when the guest could not be identified.
     return ''
 }
 
+function New-ServiceVmRecoveredEndpoint {
+    <#
+    .SYNOPSIS
+        Copies readiness observations into a new record for a confirmed address.
+    .PARAMETER Endpoint
+        The observations from the original readiness wait.
+    .PARAMETER Address
+        The newly confirmed address.
+    .PARAMETER WaitedSeconds
+        Fallback duration when the original record is absent.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Constructs an in-memory readiness record; no external state is changed.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param($Endpoint, [Parameter(Mandatory)][string]$Address, [int]$WaitedSeconds = 0)
+    $values = [ordered]@{}
+    if ($Endpoint) { foreach ($property in $Endpoint.PSObject.Properties) { $values[$property.Name] = $property.Value } }
+    $values.Ready = $true; $values.Address = $Address; $values.Unreachable = $false; $values.StillBuilding = $false
+    if (-not $values.Contains('WaitedSeconds')) { $values.WaitedSeconds = $WaitedSeconds }
+    $values.AddressChanges = [int]$values.AddressChanges + 1
+    $values.ObservedState = 'confirmed serving at the recovered guest address'
+    return [pscustomobject]$values
+}
+
 function Confirm-ServiceVmAtRecoveredAddress {
 <#
 .SYNOPSIS
@@ -2488,5 +2456,5 @@ final observation, in words) and Reachability.
     }
 }
 
-Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-SshReadinessFailureCause, Test-SshEndpointAnswered, Select-SshReadinessEvidence, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
+Export-ModuleMember -Function New-ServiceVmRecoveredEndpoint, Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-SshReadinessFailureCause, Test-SshEndpointAnswered, Select-SshReadinessEvidence, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
     Set-ProvenGuestAddress, Get-ProvenGuestAddress, Clear-ProvenGuestAddress, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp, Get-ServiceVmObservedState, Get-ServiceVmReadinessVerdict, Format-GuestSshDiagnosticHint, Resolve-GuestDiagnosticAddress, Confirm-ServiceVmAtRecoveredAddress, Wait-YurunaServiceVmDaemon

@@ -6375,7 +6375,7 @@ const DataheILhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "/⁩  (הקצאה / מאגרים / ערכות בדיקה)"
+    "/⁩  (לוח / מארחים / מאגרים)"
   ],
   "host.operator_bba21c5cbbc83755": [
     "virt-install --print-xml נכשל (קוד יציאה ",

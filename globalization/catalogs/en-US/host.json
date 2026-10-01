@@ -9015,7 +9015,7 @@
       "lifecycle": "active"
     },
     "host.operator_bb96ec06f5e4f923": {
-      "message": "  UI:       http://{dockIp}/  (Assign / Pools / Test sets)",
+      "message": "  UI:       http://{dockIp}/  (Board / Hosts / Pools)",
       "description": "Whole Write-Output message in host/windows.hyper-v/guest.pool-control-service/New-VM.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {

@@ -231,7 +231,7 @@ func TestScanPageServed(t *testing.T) {
 	}
 	// Every page carries the menu, so the item has to be on all of them, and
 	// ahead of Diagnostics.
-	for _, path := range []string{"/", "/assign", "/hosts", "/pools", "/test-sets", "/scan", "/diagnostics"} {
+	for _, path := range []string{"/", "/hosts", "/pools", "/scan", "/diagnostics"} {
 		body := getText(t, srv.URL+path)
 		scan := strings.Index(body, `href="/scan"`)
 		diag := strings.Index(body, `href="/diagnostics"`)
@@ -407,7 +407,7 @@ func TestAdoptRekeyMovesMembershipToTheLiveId(t *testing.T) {
 	// The dead id holds the membership; the live one is in no pool, which is
 	// exactly the state that costs the pool a member.
 	const doc = `{"ok":true,"autoEnrollment":{"targetPoolId":""},
-      "pools":[{"poolId":"lab","poolGuid":"42l","members":["42dead"]}],"testSets":[]}`
+      "pools":[{"poolId":"lab","poolGuid":"42l","members":["42dead"]}]}`
 	fake := &boardIntent{doc: doc}
 	s := New(fake, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
 	srv := httptest.NewServer(s.Handler())
@@ -556,5 +556,38 @@ func TestAdoptRekeyReportsAggregatorFailureWithoutForgettingOldRow(t *testing.T)
 	}
 	if len(fake.calls) != 1 || fake.calls[0] != "MoveHostIdentity:42dead:42live" {
 		t.Fatalf("membership update was not atomic: %v", fake.calls)
+	}
+}
+
+func TestDiscoveredHostnamesRequireUnlockedReads(t *testing.T) {
+	s := New(&boardIntent{doc: `{"ok":true,"pools":[]}`}, Options{Version: "test", AuthToken: testBearer, StateDir: t.TempDir()})
+	s.discovered.Add(discovery.Host{Address: "192.168.7.9", BaseURL: "http://192.168.7.9:8080", HostID: "example", Hostname: "private-machine-name"}, time.Now())
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	for _, path := range []string{"/api/hosts", "/api/scan"} {
+		for _, unlocked := range []bool{false, true} {
+			req, err := http.NewRequest("GET", srv.URL+path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if unlocked {
+				req.Header.Set("Authorization", "Bearer "+testBearer)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), "private-machine-name") != unlocked {
+				t.Fatalf("%s unlocked=%v: %s", path, unlocked, b)
+			}
+		}
+	}
+	if got := s.discovered.List()[0].Hostname; got != "private-machine-name" {
+		t.Fatalf("redaction changed stored state: %q", got)
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1486,8 +1486,9 @@ function Set-MacHostConditionSet {
         $label = if (-not $ssIdleRead) { 'unset -- macOS default applies' } else { "$($ssIdle.Trim())s" }
         if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_cdde6c87572b7ecf' -Arguments @{ label = "$label" }), (Format-YurunaOperatorMessage -Key 'runner.operator_b59a0fa6f31574c0'))) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c8d9262bf2ef85c0' -Arguments @{ label = "$label" })
-            & defaults write com.apple.screensaver idleTime -int 0 | Out-Null
-            $changed = $true
+            if (Confirm-MacDefaultWrite -DefaultsArgs @('com.apple.screensaver', 'idleTime') -WriteType '-int' -WriteValue '0' -ExpectRead '0') {
+                $changed = $true
+            } else { $unmet.Add('screensaver idleTime') }
         }
     }
 
@@ -1502,8 +1503,9 @@ function Set-MacHostConditionSet {
         $label = if (-not $askPwRead) { 'unset -- macOS default applies' } else { "$($askPw.Trim())" }
         if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_2af7f51cb4e29b22' -Arguments @{ label = "$label" }), "Disable (askForPassword -> 0)")) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9acdbcef94ff7275' -Arguments @{ label = "$label" })
-            & defaults write com.apple.screensaver askForPassword -int 0 | Out-Null
-            $changed = $true
+            if (Confirm-MacDefaultWrite -DefaultsArgs @('com.apple.screensaver', 'askForPassword') -WriteType '-int' -WriteValue '0' -ExpectRead '0') {
+                $changed = $true
+            } else { $unmet.Add('screensaver askForPassword') }
         }
     }
 
@@ -1520,8 +1522,9 @@ function Set-MacHostConditionSet {
         $label = if (-not $ssIdleHostRead) { 'unset -- macOS default applies' } else { "$($ssIdleHost.Trim())s" }
         if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_c5c26de7d212a326' -Arguments @{ label = "$label" }), (Format-YurunaOperatorMessage -Key 'runner.operator_b59a0fa6f31574c0'))) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d1c18cc7ccfc3eb0' -Arguments @{ label = "$label" })
-            & defaults -currentHost write com.apple.screensaver idleTime -int 0 | Out-Null
-            $changed = $true
+            if (Confirm-MacDefaultWrite -DefaultsArgs @('-currentHost', 'com.apple.screensaver', 'idleTime') -WriteType '-int' -WriteValue '0' -ExpectRead '0') {
+                $changed = $true
+            } else { $unmet.Add('screensaver -currentHost idleTime') }
         }
     }
 
@@ -1535,8 +1538,9 @@ function Set-MacHostConditionSet {
         $label = if (-not $askPwHostRead) { 'unset -- macOS default applies' } else { "$($askPwHost.Trim())" }
         if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_7a9a056cfb0c4479' -Arguments @{ label = "$label" }), "Disable (askForPassword -> 0)")) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2506e0e83c402248' -Arguments @{ label = "$label" })
-            & defaults -currentHost write com.apple.screensaver askForPassword -int 0 | Out-Null
-            $changed = $true
+            if (Confirm-MacDefaultWrite -DefaultsArgs @('-currentHost', 'com.apple.screensaver', 'askForPassword') -WriteType '-int' -WriteValue '0' -ExpectRead '0') {
+                $changed = $true
+            } else { $unmet.Add('screensaver -currentHost askForPassword') }
         }
     }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42f3d4d7-d8b5-4931-a70a-4825cc9dc2b2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,7 @@
     Both crash shapes are covered: a folder carrying the `.incomplete` suffix
     WITH its marker file, and one whose marker is already gone (the rename
     failed after the marker was removed). Throw-based assertions so the file
-    runs under the OS-bundled Pester 3.4 and under Pester 5+.
+    runs under Pester 5+.
 #>
 
 BeforeAll {

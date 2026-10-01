@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 422c7a57-c395-4a3c-9648-066af9dbee1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,7 +114,7 @@ if (-not (Test-Path -LiteralPath $winIso)) {
                 Remove-Item $agentStagingFile -Force -ErrorAction SilentlyContinue
                 $agentResult = Request-DownloadAgentImage -BaseUrl $agentBaseUrl -HostType 'ubuntu.kvm' `
                     -ImageKey 'guest.windows.11' -Arch 'amd64' -Variant 'stable' `
-                    -StagingPath $agentStagingFile -DeadlineSeconds 7200
+                    -StagingPath $agentStagingFile -DeadlineSeconds 7200 -ExpectedFilenamePattern '(?i)^(?!.*arm).+'
             } catch {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ebf285f00d214782' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
                 $agentResult = $null
@@ -170,7 +170,7 @@ $ErrorActionPreference = 'Stop'
 # --- REGION: virtio-win ISO: Fedora's hosted bundle (signed)
 # See https://yuruna.link/42e220c4-0003
 # Use the archived HTTPS URL to avoid downgrade redirects in the convenience URL.
-$virtioUrl = 'https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.285-1/virtio-win-0.1.285.iso'
+$virtioUrl = 'https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302.iso'
 
 # The KVM host driver brings the skip-if-same-source guard + sentinel writer
 # (Test-DownloadAlreadyCurrent / Write-ImageSentinel, the shared 4-line filename +

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d76e1e-670d-4849-af41-08ce879f3532
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,10 +46,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
-    function Describe { param([string]$Name, [scriptblock]$Fixture) Write-Output "Describe: $Name"; & $Fixture }
-    function It       { param([string]$Name, [scriptblock]$Test)    & $Test; Write-Output "    [pass] $Name" }
-}
+
+
+if (-not (Get-Command -Name BeforeAll -ErrorAction SilentlyContinue)) { throw 'This suite requires Pester; run it with Invoke-Pester or Invoke-TestSuite.ps1.' }
 
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
@@ -409,7 +408,7 @@ Describe 'Enter-/Exit-PoolStorageDrainLock (single instance across BOTH invocati
         try {
             $lock = Join-Path $f.RuntimeDir 'poolstorage.drain.lock'
             # A PID that cannot be running, with a start time that cannot match.
-            Set-Content -LiteralPath $lock -Value (@{ pid = 999999; startUtc = '2000-01-01T00:00:00.0000000Z' } | ConvertTo-Json -Compress)
+            Set-Content -LiteralPath $lock -Value (@{ pid = 999999; startedAt = '2000-01-01T00:00:00.0000000Z' } | ConvertTo-Json -Compress)
             Assert-True (Enter-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir) 'stale lock reclaimed rather than blocking archiving forever'
             $null = Exit-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir -Confirm:$false
         } finally { Clear-MoveFixture $f }

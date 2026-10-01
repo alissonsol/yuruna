@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425dfdd4-fd92-4c1a-9012-e60152b4c11b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,7 +101,10 @@ Describe 'A refused connection is not an unreachable one' {
         # it ever consumed the budget the two failures would be indistinguishable
         # to a reader, which is the state this replaced.
         $r = Test-TcpConnectOutcome -IpAddress '127.0.0.1' -Port (Get-ClosedLoopbackPort) -TimeoutMs 3000
-        Assert-True ($r.ElapsedMs -lt 1500) "a refusal returned in $($r.ElapsedMs) ms, well under the 3000 ms budget"
+        # The Windows stack retransmits the SYN to a closed loopback port before it
+        # reports the refusal, so the answer arrives after about two seconds there.
+        $ceiling = if ($IsWindows) { 2600 } else { 1500 }
+        Assert-True ($r.ElapsedMs -lt $ceiling) "a refusal returned in $($r.ElapsedMs) ms, well under the 3000 ms budget"
     }
 
     It 'reports a silent address as a timeout, bounded by the deadline' {
@@ -174,9 +177,13 @@ Describe 'A cache is confirmed to stay up before a cycle commits to it' {
         # anywhere in the window were enough, a restart that happened to answer
         # once between two failures would pass the gate -- which is the bug.
         $body = (Get-Content -Raw (Join-Path $TcpRepoRoot 'test/modules/Test.CachingProxyService.psm1'))
-        $fn = [regex]::Match($body, '(?ms)^function Wait-CachingProxyServiceSettled\b.*?\n\}').Value
+        # The run logic lives in the shared port waiter, which both the proxy and the registry legs call.
+        $fn = [regex]::Match($body, '(?ms)^function Wait-PortConsecutiveSuccess\b.*?\n\}').Value
         Assert-True ($fn -match '\$consecutive\s*=\s*0') 'a miss resets the run'
-        Assert-True ($fn -match '\$consecutive\s*-ge\s*\$RequiredConsecutive') 'and the verdict is the run length'
+        Assert-True ($fn -match '\$consecutive\s*-ge\s*\$Required') 'and the verdict is the run length'
+        $caller = [regex]::Match($body, '(?ms)^function Wait-CachingProxyServiceSettled\b.*?\n\}').Value
+        Assert-True ($caller -match 'Wait-PortConsecutiveSuccess') 'the settle wait uses the shared consecutive waiter'
+        Assert-True ($caller -match '\$consecutive\s*=\s*\$result\.Consecutive') 'and reports the run length it observed'
     }
 }
 

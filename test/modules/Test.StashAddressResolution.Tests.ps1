@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42393379-b183-472a-aafb-3e90a62215aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,8 +39,7 @@
     never the newest of a name, never a singleton, and never one whose
     address answers.
 
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4
-    and Pester 5+. Get-VMIp and Test-StashServiceHost are substituted, so no
+    Throw-based assertions so the file runs under Pester 5+. Get-VMIp and Test-StashServiceHost are substituted, so no
     VM, no network, and no macOS are required.
     Run: pwsh -NoProfile -File test/modules/Test.StashAddressResolution.Tests.ps1
 #>

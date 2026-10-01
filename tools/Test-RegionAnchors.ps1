@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 427a25a9-d3c8-4ce6-b877-b396666875b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -153,15 +153,7 @@ function Get-HeadingSlug {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Heading)
-
-    $t = $Heading
-    # Inline markup contributes its text, not its punctuation.
-    $t = [regex]::Replace($t, '`([^`]*)`', '$1')
-    $t = [regex]::Replace($t, '\*\*?([^*]*)\*\*?', '$1')
-    $t = [regex]::Replace($t, '\[([^\]]*)\]\([^)]*\)', '$1')
-    $t = $t.ToLowerInvariant()
-    $t = [regex]::Replace($t, '[^\p{L}\p{Nd}_ -]', '')
-    return $t.Replace(' ', '-')
+    return (Get-GitHubHeadingSlug -Heading $Heading)
 }
 
 $anchorCache = @{}
@@ -284,7 +276,7 @@ foreach ($candidateFile in $candidateFiles) {
     $rel = $candidateFile.Relative
     $full = $candidateFile.FullName
     $display = $candidateFile.Display
-    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+    if (-not [IO.File]::Exists($full)) { continue }
     # A closed review record states what was true when it was written, so its
     # pointers are history rather than something to keep working.
     #
@@ -306,6 +298,7 @@ foreach ($candidateFile in $candidateFiles) {
     $lineNo = 0
     foreach ($line in ($text -split "`n")) {
         $lineNo++
+        if (-not $line.Contains('yuruna.link/', [StringComparison]::Ordinal)) { continue }
         foreach ($m in $pointer.Matches($line)) {
             $checked++
             $slug   = $m.Groups[1].Value

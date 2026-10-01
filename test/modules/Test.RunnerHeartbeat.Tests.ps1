@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42fba86f-4ea4-4dbf-82c2-0ea57b04218c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     halts it, and that the error counter starts clean.
 .DESCRIPTION
     Uses a short timer period so the test runs in well under a second. Throw-based
-    assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
+    assertions for Pester 5+.
 #>
 
 BeforeAll {
@@ -57,6 +57,20 @@ Describe 'Start/Stop-RunnerHeartbeat' {
             Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
         }
     }
+    It 'stops the static timer after a forced module reload' {
+        $path = Join-Path $TestDrive 'reload.heartbeat'
+        try {
+            Start-RunnerHeartbeat -Path $path -DueMs 20 -PeriodMs 20
+            Start-Sleep -Milliseconds 100
+            Import-Module (Join-Path $here 'Test.RunnerHeartbeat.psm1') -Force -DisableNameChecking
+            Stop-RunnerHeartbeat
+            Start-Sleep -Milliseconds 80
+            $stopped = (Get-Item -LiteralPath $path).LastWriteTimeUtc
+            Start-Sleep -Milliseconds 120
+            (Get-Item -LiteralPath $path).LastWriteTimeUtc | Should -Be $stopped
+        } finally { Stop-RunnerHeartbeat }
+    }
+
     It 'Stop is idempotent (safe to call when not started / twice)' {
         Stop-RunnerHeartbeat
         Stop-RunnerHeartbeat   # must not throw

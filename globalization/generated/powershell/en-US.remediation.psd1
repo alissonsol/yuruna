@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42566df9-1f3e-a604-b789-3ec5dfc0e347
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,7 +87,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ': the pool assigned this host a projectUrl its git credential cannot read (private repo, or a token without access). No retry can succeed -- the credential is host-local and the assignment was made elsewhere -- so this never enters the backoff. Distinct from bootstrap_sync, where the host''s OWN project failed to clone: here the fix belongs to whoever assigned the pool''s test-set.'
+        ': the pool assigned this host a projectUrl its git credential cannot read (private repo, or a token without access). No retry can succeed -- the credential is host-local and the assignment was made elsewhere -- so this never enters the backoff. Distinct from bootstrap_sync, where the host''s OWN project failed to clone: here the fix belongs to whoever set the pool''s project URL.'
     )
     'remediation.operator_2be2a7b55fde9058' = 'Reconcile the repo, then re-run the cycle'
     'remediation.operator_2d28084c0bea1d81' = 'Fix the underlying script'
@@ -573,7 +573,7 @@
     'remediation.operator_f0a29d5f6e38b4ec' = 'To run without it, pin an address with $env:YURUNA_EXTENSION_HOST_<AREA>, or set testCycle.labHealth.enabled to false to stop holding for any service'
     'remediation.operator_f0fd4b357ed63f38' = 'Confirm the prior cycle freed host CPU / memory (no orphaned VM holding resources)'
     'remediation.operator_f170c655d3aa9ec7' = 'If the failure repeats, capture screen+OCR artifacts under the cycle folder and pause for inspection'
-    'remediation.operator_f279084b2eb96f2c' = 'Or reassign the pool to a test-set whose project every member can read'
+    'remediation.operator_f279084b2eb96f2c' = 'Or set the pool''s project URL to a repository every member can read'
     'remediation.operator_f4ded9a21116febc' = 'Confirm the host/<host>/<guest> folder exists for every planned guest'
     'remediation.operator_f65f2f5b0c183dc5' = 'Restore the last known-good snapshot for the VM'
     'remediation.operator_f9f5cd6dabda9dc0' = 'Check the host-side lease / neighbor source the driver reads for a stale or missing entry'

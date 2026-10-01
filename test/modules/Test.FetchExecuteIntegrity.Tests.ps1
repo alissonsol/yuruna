@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,6 +65,19 @@ function Get-GitHubSourceFixture {
     return $dir
 }
 
+function Invoke-BashDriver {
+    <#
+        Runs a script under the host bash and returns its exit status and trimmed
+        output. PowerShell on Windows ends text piped to a native command with
+        CRLF, so the last line reaches bash with a stray CR: a final `fi` becomes
+        a word bash never closes ("unexpected end of file"). A trailing comment
+        line takes that CR and leaves every real line as written.
+    #>
+    param([string]$BashPath, [string]$Script)
+    $output = (($Script + "`n#") | & $BashPath -s | Out-String).Trim()
+    return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+}
+
 # Exercise the production context builder without importing host I/O modules.
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
@@ -79,6 +92,11 @@ $sample = 'guest/ubuntu.server.26/ubuntu.server.26.update.sh'
 $script:sampleHash = (Get-FileHash -LiteralPath (Join-Path $repoRoot $sample) -Algorithm SHA256).Hash.ToLowerInvariant()
 $script:retryHash = (Get-FileHash -LiteralPath (Join-Path $repoRoot 'automation/yuruna-retry.sh') -Algorithm SHA256).Hash.ToLowerInvariant()
 $script:fetchContext = @{ Step = @{}; RepoRoot = $repoRoot; StepInvocationId = 'step-123'; SequenceInvocationId = 'sequence-456' }
+# The guest context script keeps state in an associative array, which needs
+# bash 4. It runs on Linux guests; the stock macOS /bin/bash is 3.2 and stops
+# at that line, so the cases that run it under the host's bash skip there.
+$hostBash = Get-Command bash -ErrorAction SilentlyContinue
+$script:hostBashHasAssociativeArrays = [bool]$hostBash -and ((& $hostBash.Source -c 'declare -A probe 2>/dev/null && echo yes') -eq 'yes')
 }
 
 Describe 'Get-FetchExecutionContext (host-side integrity binding)' {
@@ -124,12 +142,29 @@ Describe 'Get-FetchExecutionContext (host-side integrity binding)' {
         $result.Fields.Contains('EXEC_REQUIRE_SHA256') | Should -BeFalse
     }
     It 'keeps the configured token out of the context and launch' {
-        $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine "fetch-and-execute.sh $sample" -WarningAction SilentlyContinue
-        $configured = (Get-YurunaGitHubSource -RepoRoot $repoRoot).Token
-        if ($configured) {
-            $result.Command | Should -Not -Match ([regex]::Escape($configured))
-            [Text.Encoding]::UTF8.GetString($result.Bytes) | Should -Not -Match ([regex]::Escape($configured))
-        }
+        # A throwaway checkout carries a synthetic token, so the case does not
+        # depend on a secret configured on the host that runs the suite.
+        $token = 'ghp_' + ('Yz9' * 12)
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-token-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        try {
+            foreach ($relative in @($sample, 'automation/yuruna-retry.sh')) {
+                $target = Join-Path $dir $relative
+                $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target)
+                Copy-Item -LiteralPath (Join-Path $repoRoot $relative) -Destination $target
+            }
+            $null = New-Item -ItemType Directory -Force -Path (Join-Path $dir 'test')
+            Set-Content -LiteralPath (Join-Path $dir 'test/test.config.yml') -Value "repositories:`n  frameworkUrl: https://github.com/example/framework`n  ghToken: `"$token`"`n"
+            & git -C $dir init --quiet 2>&1 | Out-Null
+            & git -C $dir remote add origin 'https://github.com/example/framework' 2>&1 | Out-Null
+            & git -C $dir add -A 2>&1 | Out-Null
+            & git -C $dir -c user.email='t@example.invalid' -c user.name='t' commit -qm 'seed' 2>&1 | Out-Null
+            (Get-YurunaGitHubSource -RepoRoot $dir).Token | Should -BeExactly $token -Because 'the fixture must actually configure the token'
+            $context = @{ Step = @{}; RepoRoot = $dir; StepInvocationId = 'step-123'; SequenceInvocationId = 'sequence-456' }
+            $result = Get-FetchExecutionContext -Context $context -CommandLine "fetch-and-execute.sh $sample" -WarningAction SilentlyContinue
+            $result.Command | Should -Not -Match ([regex]::Escape($token))
+            $result.Launch | Should -Not -Match ([regex]::Escape($token))
+            [Text.Encoding]::UTF8.GetString($result.Bytes) | Should -Not -Match ([regex]::Escape($token))
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'preserves the sensitive-step profile opt-out and full invocation IDs' {
         $context = @{ Step = @{ sensitive = $true }; RepoRoot = $repoRoot; StepInvocationId = 'step-sensitive-123'; SequenceInvocationId = 'sequence-sensitive-456' }
@@ -208,6 +243,7 @@ Describe 'Get-FetchExecutionContext (host-side integrity binding)' {
     It 'executes the host-built preparation and launch without changing Unicode or shell quoting' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
         if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        if (-not $script:hostBashHasAssociativeArrays) { Set-ItResult -Skipped -Because 'the host bash predates 4.0 (no associative arrays); the context script targets a Linux guest'; return }
         $command = "printf '%s|' `"it's`"; printf '%s' 'caf$([char]0x00e9)'"
         $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine $command
         $driver = @'
@@ -216,13 +252,20 @@ export HOME=$(mktemp -d)
 trap 'rm -rf -- "$HOME"' EXIT
 yfe() { bash automation/yuruna-fetch-context.sh "$@"; }
 '@ + "`n$($result.Command)"
-        $output = ($driver | & $bash.Source -s | Out-String).Trim()
-        $LASTEXITCODE | Should -Be 0
-        $output | Should -BeExactly ("it's|caf" + [char]0x00e9)
+        # Native output is decoded with the console code page (OEM on Windows), which
+        # would turn the UTF-8 bytes of the accented letter into mojibake.
+        $priorEncoding = [Console]::OutputEncoding
+        try {
+            [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+            $run = Invoke-BashDriver -BashPath $bash.Source -Script $driver
+        } finally { [Console]::OutputEncoding = $priorEncoding }
+        $run.ExitCode | Should -Be 0
+        $run.Output | Should -BeExactly ("it's|caf" + [char]0x00e9)
     }
     It 'keeps the private context mask out of the launched guest command' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
         if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        if (-not $script:hostBashHasAssociativeArrays) { Set-ItResult -Skipped -Because 'the host bash predates 4.0 (no associative arrays); the context script targets a Linux guest'; return }
         foreach ($mask in @('0022', '0027')) {
             $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine 'umask'
             $driver = @'
@@ -231,9 +274,9 @@ export HOME=$(mktemp -d)
 trap 'rm -rf -- "$HOME"' EXIT
 yfe() { bash automation/yuruna-fetch-context.sh "$@"; }
 '@ + "`numask $mask`n$($result.Command)"
-            $output = ($driver | & $bash.Source -s | Out-String).Trim()
-            $LASTEXITCODE | Should -Be 0
-            $output | Should -BeExactly $mask
+            $run = Invoke-BashDriver -BashPath $bash.Source -Script $driver
+            $run.ExitCode | Should -Be 0
+            $run.Output | Should -BeExactly $mask
         }
     }
 }

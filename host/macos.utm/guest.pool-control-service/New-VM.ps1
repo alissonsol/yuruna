@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d0ee91-af77-4d3c-9e22-94d5edbc7661
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -161,13 +161,7 @@ if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
-$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
-$poolControlLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
-    'auto'
-} else {
-    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
-}
-if (-not $poolControlLanguage) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = "$languageRaw" }) }
+$poolControlLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # --- REGION: https://yuruna.link/42e220c4-0004
@@ -217,81 +211,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
-$TemplatePath = Join-Path $ScriptDir "config.plist.template"
-if (-not (Test-Path $TemplatePath)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
-    exit 1
-}
-
-$VmUuid  = [guid]::NewGuid().ToString().ToUpper()
-$DiskId  = [guid]::NewGuid().ToString().ToUpper()
-$SeedId  = [guid]::NewGuid().ToString().ToUpper()
-# --- REGION: https://yuruna.link/4220a755-000a
-$MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
-
-Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
+New-UtmServiceBundleConfiguration -TemplatePath (Join-Path $ScriptDir 'config.plist.template') -BundlePath $UtmDir -VMName $VMName -NetworkMode $NetworkMode -MemoryMb 2048 -Confirm:$false
 $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 
-# Bridge interface: resolve from default-route NIC.
-$BridgeInterface = $null
-try {
-    $routeOut = & '/sbin/route' -n get default 2>$null
-    foreach ($line in $routeOut) {
-        if ($line -match 'interface:\s*(\S+)') { $BridgeInterface = $matches[1]; break }
-    }
-} catch {
-    Write-Verbose "route -n get default failed: $($_.Exception.Message)"
-}
-if (-not $BridgeInterface) {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_15685f8ad1d8fea6')
-    $BridgeInterface = 'en0'
-}
-if ($NetworkMode -eq 'Shared') {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_32870f9d0f1c87c4' -Arguments @{ bridgeInterface = "$BridgeInterface" })
-} else {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_32469d88df49b475' -Arguments @{ bridgeInterface = "$BridgeInterface" })
-}
-
-# --- REGION: https://yuruna.link/42fa6f45-0015
-# See https://yuruna.link/42fa6f45-0016
-$hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
-if ($hostCores -lt 4) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
-    exit 1
-}
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-
-$PlistContent = (Get-Content -Raw $TemplatePath) `
-    -replace '__VM_NAME__',            $VMName `
-    -replace '__VM_UUID__',            $VmUuid `
-    -replace '__MAC_ADDRESS__',        $MacAddress `
-    -replace '__NETWORK_MODE__',       $NetworkMode `
-    -replace '__DISK_IDENTIFIER__',    $DiskId `
-    -replace '__DISK_IMAGE_NAME__',    'disk.qcow2' `
-    -replace '__SEED_IDENTIFIER__',    $SeedId `
-    -replace '__SEED_IMAGE_NAME__',    'seed.iso' `
-    -replace '__VNC_DISPLAY__',        "$VncDisplay" `
-    -replace '__CPU_COUNT__',          "$vmCores" `
-    -replace '__MEMORY_SIZE__',        '2048'
-
-# Bridged mode needs the physical NIC name; Shared NAT carries no
-# BridgedInterface key (matches the sibling Shared templates), so drop the
-# key/value entirely in that mode.
-if ($NetworkMode -eq 'Shared') {
-    $PlistContent = $PlistContent -replace "(?m)^[ \t]*<key>BridgedInterface</key>\r?\n[ \t]*<string>__BRIDGE_INTERFACE__</string>\r?\n", ''
-} else {
-    $PlistContent = $PlistContent -replace '__BRIDGE_INTERFACE__', $BridgeInterface
-}
-
-Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
-
-$lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$lintOutput" })
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e25e0303ffb73b' -Arguments @{ utmDir = "$UtmDir" })
-    exit 1
-}
-Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
 # --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue

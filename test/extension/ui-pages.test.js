@@ -50,10 +50,8 @@ function webDir(service) {
 // --- REGION: Pages and required content
 const PAGES = [
   { service: 'pool-control-service', file: 'board.html', fills: 'cards', reveals: 'board' },
-  { service: 'pool-control-service', file: 'index.html', fills: 'pool-rows' },
   { service: 'pool-control-service', file: 'hosts.html', fills: 'host-rows' },
   { service: 'pool-control-service', file: 'pools.html', fills: 'pool-rows' },
-  { service: 'pool-control-service', file: 'test-sets.html', fills: 'ts-rows' },
   { service: 'pool-control-service', file: 'scan.html', fills: 'host-rows' },
   { service: 'pool-control-service', file: 'diagnostics.html', fills: 'check-rows' },
   { service: 'stash-service', file: 'index.html', fills: 'rows' },
@@ -75,13 +73,11 @@ const ROUTES = [
   ['/api/login', { ok: true }],
   ['/api/state', {
     ok: true,
-    pools: [{ poolId: 'default', poolGuid: HOST, displayName: 'Default', members: [HOST], desiredState: 'run', testSet: { name: 'smoke', frameworkUrl: 'https://f.test', projectUrl: 'https://p.test' } }],
-    testSets: [{ name: 'smoke', frameworkUrl: 'https://f.test', projectUrl: 'https://p.test' }]
+    pools: [{ poolId: 'default', poolGuid: HOST, displayName: 'Default', members: [HOST], desiredState: 'run', repositories: { frameworkUrl: 'https://f.test', projectUrl: 'https://p.test' } }]
   }],
   ['/api/board', {
     ok: true,
-    cards: [{ poolId: 'default', displayName: 'Default', hostsTotal: 2, hostsReporting: 2, successPct: 100, total: 9, failed: 0, testSet: 'smoke', assignAllowed: true, blocked: [] }],
-    offers: [{ name: 'smoke', displayName: 'Smoke', frameworkUrl: 'https://f.test', projectUrl: 'https://p.test' }]
+    cards: [{ poolId: 'default', displayName: 'Default', hostsTotal: 2, hostsReporting: 2, successPct: 100, total: 9, failed: 0, frameworkUrl: 'https://f.test', projectUrl: 'https://p.test', blocked: [] }]
   }],
   ['/api/pool/host-control', { ok: true, pools: { default: { state: 'ready', hosts: [{ hostId: HOST, ok: true, state: 'ready' }] } } }],
   ['/api/hosts/facts', { ok: true, hosts: {} }],
@@ -140,13 +136,13 @@ function bodyFor(url, state) {
     if (p === route) {
       const copy = JSON.parse(JSON.stringify(body));
       if (state === 'empty') {
-        for (const name of ['pools', 'hosts', 'testSets', 'cards', 'offers', 'images', 'stashes', 'checks']) if (Array.isArray(copy[name])) copy[name] = [];
+        for (const name of ['pools', 'hosts', 'cards', 'images', 'stashes', 'checks']) if (Array.isArray(copy[name])) copy[name] = [];
         if (copy.diagnostics) copy.diagnostics.recentErrors = [];
         if (copy.total) copy.total = 0;
       }
       if (state === 'hostile') {
         const attack = 'cafe\u0301-茶-😀-عربي-\u2069\u202e<img onerror=alert(1)>.txt';
-        for (const rows of ['hosts', 'images', 'stashes', 'pools', 'cards', 'testSets']) {
+        for (const rows of ['hosts', 'images', 'stashes', 'pools', 'cards']) {
           if (Array.isArray(copy[rows])) copy[rows].forEach(row => { if (!row || typeof row !== 'object') return; row.hostname=attack; row.originalFilename=attack; row.displayName=attack; });
         }
         if (Array.isArray(copy.images)) copy.images.forEach(row => {

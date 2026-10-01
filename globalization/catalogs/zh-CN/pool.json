@@ -59,11 +59,11 @@
       "message": "宿主机"
     },
     "pool.hosts_project_denied": {
-      "sourceHash": "92a4452049275757339ba41be24a516ba70c109ec6468291343dd48046ca11a9",
+      "sourceHash": "37f80205b2d8ec1e519f2e485d9ef29ffe33604ab85d3344efbcdd4bfe2d6e39",
       "origin": "machine",
       "plural": {
         "variants": {
-          "other": "{count}台宿主机无法读取分配的项目。请为其令牌授予访问权限，或分配其他测试集。"
+          "other": "{count}台宿主机无法读取分配的项目。请为其令牌授予访问权限，或在“池”页面设置所有成员都能读取的项目 URL。"
         }
       }
     },
@@ -73,15 +73,6 @@
       "plural": {
         "variants": {
           "other": "{count}台宿主机 - {reporting}台正在上报"
-        }
-      }
-    },
-    "pool.hosts_switch_assigned": {
-      "sourceHash": "e71a469a67616d4d126c56f9cae30159260f5b824f7e50967e51eb479592e07a",
-      "origin": "machine",
-      "plural": {
-        "variants": {
-          "other": "{count}台宿主机将在下一个周期切换到分配的项目。"
         }
       }
     },
@@ -139,11 +130,6 @@
       "origin": "machine",
       "message": "监听地址"
     },
-    "pool.live_numbers_unavailable_value1_assigning_still_works": {
-      "sourceHash": "d9c7902188a26ba4292db8340e143260356e1daeee2a361a2d3a760bb20fdcd9",
-      "origin": "machine",
-      "message": "实时数据不可用（{value1}）。仍可进行分配。"
-    },
     "pool.loaded": {
       "sourceHash": "741f300c96ce9a027fe06b7d0207c323e7de41497d524a18d62a6dbd9f4a6a2a",
       "origin": "machine",
@@ -159,20 +145,10 @@
       "origin": "machine",
       "message": "正在加载池……"
     },
-    "pool.loading_test_sets": {
-      "sourceHash": "cbf9b3513420fdfe0b98454b09bc12b85548cd77585896a32285764116963979",
-      "origin": "machine",
-      "message": "正在加载测试集……"
-    },
     "pool.lowercase_dns_safe": {
       "sourceHash": "d61a70f34c481a7e37aa68fa18f2c2fe15c3ad824bf4f32db323cdd83f2076cc",
       "origin": "machine",
       "message": "小写，符合DNS命名规则"
-    },
-    "pool.members": {
-      "sourceHash": "1d722f1a14476d67c3058af7988784dec721b2f173841a7a96510bc6d9e4e4cf",
-      "origin": "machine",
-      "message": "成员 *"
     },
     "pool.members_1044a4c0": {
       "sourceHash": "7dc484ec1fade183035cc135fed1ded910e8365e40f1d86d34780bd2d8313b50",
@@ -229,11 +205,6 @@
       "origin": "machine",
       "message": "名称"
     },
-    "pool.name_frameworkurl_and_projecturl_are_all_required": {
-      "sourceHash": "43177ae91e3e2d6321416c314a33e29e21ee5a732d1fd2a4a23b1f1db4cb7c87",
-      "origin": "machine",
-      "message": "name、frameworkUrl和projectUrl均为必填项。"
-    },
     "pool.network": {
       "sourceHash": "4c594028823790e9b918cf77c1d57c63dc116767aa9e9131f9a2c82529f8383c",
       "origin": "machine",
@@ -254,11 +225,6 @@
       "origin": "machine",
       "message": "（未上报标识符）"
     },
-    "pool.no_pools_defined_create_one_on_the_pools_page": {
-      "sourceHash": "996eec3a439889f81546b932975af9096f46491b456fb18637b5f28c24ee917a",
-      "origin": "machine",
-      "message": "尚未定义池。请在“池”页面创建一个。"
-    },
     "pool.no_pools_yet": {
       "sourceHash": "63d036ecce9b950adb5fcc71be8883865a3e3b7612a08144e9151dd42063adea",
       "origin": "machine",
@@ -274,20 +240,10 @@
       "origin": "machine",
       "message": "尚未运行过扫描。"
     },
-    "pool.no_test_sets_yet": {
-      "sourceHash": "fd0939b7535ed6984fa25f6d98631e253324d57744438963fbab544ca03503d1",
-      "origin": "machine",
-      "message": "暂无测试集。"
-    },
     "pool.none": {
       "sourceHash": "2484b0bc0cb9df9e3106ef9226610bfc42f6a4ac3c85b7d546abf85a249a7d42",
       "origin": "machine",
       "message": "（无）"
-    },
-    "pool.not": {
-      "sourceHash": "0737b59dee75bab046bb480fca77900c63df5b68a39429fa07cd523c62d359cd",
-      "origin": "machine",
-      "message": "不"
     },
     "pool.not_answered_yet_or_the_proxy_holds_no_token_of_its_own": {
       "sourceHash": "9f0408906203ad78e6cc146222d3fe075d1d426b8ce441d64c07ea849817ded5",
@@ -364,11 +320,6 @@
       "origin": "machine",
       "message": "（持久化已禁用）"
     },
-    "pool.pick_a_test_set_first_define_one_on_the_test_sets_page": {
-      "sourceHash": "93390951d55f5c1596d0fc499ccccc46a5ae133f9ce80672e9f9dfbc8052f464",
-      "origin": "machine",
-      "message": "请先选择测试集（在“测试集”页面定义一个）。"
-    },
     "pool.platform": {
       "sourceHash": "ed74f0b2f3bc8e239d62812a9c5b7d13d109faa4b0304459b2413e3d0adaa3b1",
       "origin": "machine",
@@ -385,7 +336,7 @@
       "message": "宿主机{value1}所属的池"
     },
     "pool.pool_id": {
-      "sourceHash": "6acbea34a9dc928695c78876236eb51d19bf5bb71328ad7054ff62f091c228b6",
+      "sourceHash": "2ddb98a6bb6aa9b7ced34366c8d18266dbc75d2aa14be64f2f7c8bdac3642a0e",
       "origin": "machine",
       "message": "池ID"
     },
@@ -460,7 +411,7 @@
       "message": "项目"
     },
     "pool.project_url": {
-      "sourceHash": "1cddd1bd15820a418037fb88cb4900a6d73ebc1de085a425992e9c5058b9386d",
+      "sourceHash": "e612f09d969eec24c19020650bbe78930aa0881a80cd1d3b5fc734a83fc52099",
       "origin": "machine",
       "message": "项目URL"
     },
@@ -484,25 +435,10 @@
       "origin": "machine",
       "message": "删除池“{value1}”后无法撤销。确认删除吗？"
     },
-    "pool.delete_test_set_value1": {
-      "sourceHash": "8351c5d971bb5bf3de677a24e4aab5a1d2c154fc33187a107c99649fc8fb4750",
-      "origin": "machine",
-      "message": "删除测试集{value1}"
-    },
-    "pool.delete_test_set_value1_this_cannot_be_undone": {
-      "sourceHash": "27620c0f6fad6fc91b589996631a54d31872d946f8e63179bbacb6bda6f190c7",
-      "origin": "machine",
-      "message": "删除测试集“{value1}”后无法撤销。确认删除吗？"
-    },
     "pool.deleted_pool_value1": {
       "sourceHash": "a1c61d04b2513385fc5678b176f1e56545febafed9d77962f0003f968b9413b0",
       "origin": "machine",
       "message": "已删除池“{value1}”。"
-    },
-    "pool.deleted_value1": {
-      "sourceHash": "4f0c457b1978ed09c5973364ddb6a9acf717e3b71cb3bc08bcc703ccdeed07ab",
-      "origin": "machine",
-      "message": "已删除“{value1}”。"
     },
     "pool.detail": {
       "sourceHash": "13c67f165a99f51ea57d705a5ff9b9437a65ec20fc9890c3af14264787915db1",
@@ -744,16 +680,6 @@
       "origin": "machine",
       "message": "四个数字中的每个数字都必须在0到255之间。"
     },
-    "pool.each_pool_tests_one_test_set_a_framework_project_repo_pair_gh_tok": {
-      "sourceHash": "7a269ad3359357e101b3937ec8c44cf0524f071a46891f26a006f0f78f9a660e",
-      "origin": "machine",
-      "message": "每个池测试一个测试集（一个框架仓库与一个项目仓库的组合）。\n      GH_TOKEN保留在宿主机本地，绝不存储在池意图中。"
-    },
-    "pool.edit": {
-      "sourceHash": "3672cb3db18f15074e109b1c7249860333dd2d0e808dedbeabc7f0870a86e394",
-      "origin": "machine",
-      "message": "编辑"
-    },
     "pool.empty": {
       "sourceHash": "b97c86f0a878738294469c5f5260ad7d1eda7fbd1c0ae3946602586e0630786a",
       "origin": "machine",
@@ -840,7 +766,7 @@
       "message": "框架"
     },
     "pool.framework_project": {
-      "sourceHash": "3e7cde38e3d8a4c61d221ecdd2d5cf72aace8f57eda84493afdca641215185c7",
+      "sourceHash": "09739aa46febea7b1054add6724b231a1fd466686c7862e5e2eb46ecc898f7a0",
       "origin": "machine",
       "message": "框架 / 项目"
     },
@@ -850,7 +776,7 @@
       "message": "框架修订版本"
     },
     "pool.framework_url": {
-      "sourceHash": "d89c21ae65eb26f841f79d134b6162632d2c06727bebf8a4db9350120ba20fd1",
+      "sourceHash": "2ec22042f47e161d0e326257f807598fbaa57263288a5b811fc293334eb59fee",
       "origin": "machine",
       "message": "框架URL"
     },
@@ -969,20 +895,10 @@
       "origin": "machine",
       "message": "池使用固定的池ID（GUID）将宿主机分组；每台宿主机最多属于一个池。池状态显示成员当前正在执行的操作，选择一个值会将其应用于所有成员。"
     },
-    "pool.a_pool_s_members_are_meant_to_be_configured_alike_to_copy_one_pee": {
-      "sourceHash": "07ef6caa49bbb7fdfcd5fad600745ea9697fc371b2b5d087160cfd6ac387212a",
-      "origin": "machine",
-      "message": "* 池内成员应采用相同配置。要将一个对等成员的配置复制到另一台宿主机，请在目标宿主机上运行：{command1}"
-    },
     "pool.a_scan_of_value1_is_already_running_following_that_one": {
       "sourceHash": "0f6169c3deb90a4611e8c178d3275cd964ec7f6d873340dd004d2b64ee04716f",
       "origin": "machine",
       "message": "对{value1}的扫描已在运行；正在跟踪该扫描。"
-    },
-    "pool.a_test_set_is_a_framework_project_repo_pair_gh_token_is_not_store": {
-      "sourceHash": "d2bb049e4ccbdc5d04b819e836db38e9dbf08855877d5089af2e64132f0686ca",
-      "origin": "machine",
-      "message": "测试集由框架和项目仓库配对组成。GH_TOKEN不存储在此处，而是保留在各宿主机本地的test.config.yml / 保管库中。"
     },
     "pool.actions": {
       "sourceHash": "df8e786bc0b25329d4c3f3baaf2a4f90cd0ceec36b064d8a848fb58dec9f00df",
@@ -1034,46 +950,6 @@
       "origin": "machine",
       "message": "向网络中的每个地址查询Yuruna宿主机status service，并将有响应的宿主机\n      添加到监控列表，无论其是否属于池、是否已登记。\n      扫描不会更改宿主机本身。"
     },
-    "pool.assign": {
-      "sourceHash": "e15fbd2b39b64817bcb783feb58a4fa1de4a0fd25d38e6abda181c5fb6e050b1",
-      "origin": "machine",
-      "message": "分配"
-    },
-    "pool.assign_failed_value1": {
-      "sourceHash": "f4cd6a27ca330a5f9df4395f242e4e662e036c6b37d1f3d57001a81892518390",
-      "origin": "machine",
-      "message": "分配失败：{value1}"
-    },
-    "pool.assign_test_set": {
-      "sourceHash": "2a9081d4287419263729b3e5a6437ab376a774ddb3f1c74127995d189dbef387",
-      "origin": "machine",
-      "message": "分配测试集？"
-    },
-    "pool.assign_test_set_50fb7bbc": {
-      "sourceHash": "b7edb96d8068d9428ed87a97646e25d17d0ccf0f0404f5327adc8924bd127d7d",
-      "origin": "machine",
-      "message": "分配测试集"
-    },
-    "pool.assign_test_sets_to_pools": {
-      "sourceHash": "afd0be2245f4ec71b016d7b774249dd53b36f40bc613c459f36f227552d13e03",
-      "origin": "machine",
-      "message": "将测试集分配给池"
-    },
-    "pool.assign_value1_to_value2": {
-      "sourceHash": "3195773e64425fca0ef292fe63ea9692d382f9ad4a408ee50bcccacdc5a75901",
-      "origin": "machine",
-      "message": "将“{value1}”分配给{value2}？"
-    },
-    "pool.assign_yuruna_pool_control": {
-      "sourceHash": "955045e34d0ddb76234e50ddd14d90c8fd5078f0866f7e5d2bd0b21cf39d72a9",
-      "origin": "machine",
-      "message": "分配——Yuruna池控制"
-    },
-    "pool.assigned_value1_to_pool_value2": {
-      "sourceHash": "1e878c0f4ccf08e65049f79112cbaf54bd9ad53b3042a471b886580cfa492948",
-      "origin": "machine",
-      "message": "已将“{value1}”分配给池“{value2}”。"
-    },
     "pool.board": {
       "sourceHash": "3780e851a9e0840d1fbb36c3cd10e9a43b59a1457aa13bad56d2f8ee4395471b",
       "origin": "machine",
@@ -1089,20 +965,10 @@
       "origin": "machine",
       "message": "取消"
     },
-    "pool.change_test_set": {
-      "sourceHash": "9b3f0ab1df062be42ecb9c708a3a7485d62ef797dc7d3f83243b20c58c8c2c4e",
-      "origin": "machine",
-      "message": "更改测试集……"
-    },
     "pool.check": {
       "sourceHash": "b2f60af8778d573ce720efc525d45db3e7dd120939790c223c27defa36911065",
       "origin": "machine",
       "message": "检查"
-    },
-    "pool.choose_a_test_set": {
-      "sourceHash": "3f14bf55f12143d14d09b0fedf8f7a5cb6747c13c718b749d7380fc263983229",
-      "origin": "machine",
-      "message": "（选择测试集）"
     },
     "pool.command1_scans_command2_through_command3_a_smaller_prefix_number_": {
       "sourceHash": "0b776a24cb7630a730ce41342b90f45eee40f59d50e8657761efba6bfc9fbec1",
@@ -1124,11 +990,6 @@
       "origin": "machine",
       "message": "核心数"
     },
-    "pool.could_not_assign_value1": {
-      "sourceHash": "7bae810d24e76fc0108ef7ae4ef298e3e54f3155b4757a2d7d7f160022340c1d",
-      "origin": "machine",
-      "message": "无法分配：{value1}"
-    },
     "pool.could_not_collect_diagnostics_value1": {
       "sourceHash": "dca18e3945ca88267c4eaf88deff9bd63651f20281ffa7bc2b602fe9acfd3966",
       "origin": "machine",
@@ -1139,20 +1000,10 @@
       "origin": "machine",
       "message": "无法移除该宿主机的记录：{value1}"
     },
-    "pool.could_not_load_pool_intent_value1": {
-      "sourceHash": "93bc81b47e0e9ae7ead0d995531fea60e9186965ff937de3f35e783c242e3430",
-      "origin": "machine",
-      "message": "无法加载池的预期配置：{value1}"
-    },
     "pool.could_not_load_pools_value1": {
       "sourceHash": "ad31a05fdc27a5451b4285f2a02f1952d8d32becc427b678fd2aa39b8b0b4886",
       "origin": "machine",
       "message": "无法加载池：{value1}"
-    },
-    "pool.could_not_load_test_sets_value1": {
-      "sourceHash": "c9678b1b31094053dbb6a27f076aba5bf9048d3b5d936090cf4f38f200d2c2f8",
-      "origin": "machine",
-      "message": "无法加载测试集：{value1}"
     },
     "pool.could_not_load_the_board_value1_retrying_on_the_next_refresh": {
       "sourceHash": "72ff04c8807151dff2e4373580761e5a41570ac955e6439e5909919dfd358637",
@@ -1183,11 +1034,6 @@
       "sourceHash": "a5f910167a6fa2f22f8389c03860e489740bf91ff1b8e31c0f58f13613c70467",
       "origin": "machine",
       "message": "周期"
-    },
-    "pool.delete": {
-      "sourceHash": "100b6e138aa3dcd170dd0ab4cfb55e1d7ed47d019f7a863d3280d6bab874806d",
-      "origin": "machine",
-      "message": "删除"
     },
     "pool.delete_failed_value1": {
       "sourceHash": "76aad103e2df27e6a73c305d65c31a15081b1860683a38429c639c7011f339dd",
@@ -1282,11 +1128,6 @@
       "origin": "machine",
       "message": "行号"
     },
-    "pool.run": {
-      "sourceHash": "19d62be6918c768c5240188dddad7dedbd83038a9fdd7ca97cd4645839ff27a2",
-      "origin": "machine",
-      "message": "运行"
-    },
     "pool.running": {
       "sourceHash": "5068f0a28be3a1e5a56a948a9a9fc9231b71fa9173cbf8590164eb0523bf18da",
       "origin": "machine",
@@ -1303,19 +1144,9 @@
       "message": "运行时环境"
     },
     "pool.save_failed_value1": {
-      "sourceHash": "845906241a225d931239c43cb2a71c3dfaaad85b21cb6f68118f67e277d86e9f",
+      "sourceHash": "a49b4fe1befe2f8a1b6bea406a31c6443c65b5cd30df14b9a40c052dbadf9146",
       "origin": "machine",
       "message": "保存失败：{value1}"
-    },
-    "pool.save_test_set": {
-      "sourceHash": "b5a3083e05848cf8891052513456f1a193c1ecaaa669b288cd93f3e03b710597",
-      "origin": "machine",
-      "message": "保存测试集"
-    },
-    "pool.saved_test_set_value1": {
-      "sourceHash": "a6127439fc900936ef5ea5febc17a1d010bb2a1946e9631c6eb3720b843c3439",
-      "origin": "machine",
-      "message": "已保存测试集“{value1}”。"
     },
     "pool.scan": {
       "sourceHash": "5814b584af7fbd322b0e5dcde9ebfcc4b068bb1d984d4cd15cf715fc1fa399df",
@@ -1384,11 +1215,6 @@
       "sourceHash": "3320efb45678a1e143255f63e327684f562c954e13eae6deb8b37e05358164bd",
       "origin": "machine",
       "message": "启动时间"
-    },
-    "pool.state": {
-      "sourceHash": "c8bd428abae2c84c3c4c29497190b51021217447aa40495006bcab1467437969",
-      "origin": "machine",
-      "message": "状态"
     },
     "pool.state_dir": {
       "sourceHash": "e65093e1bbb2bf9fc84227adc8c9d48f53cdd80c3eea9134a0326ef0a39e9020",
@@ -1482,26 +1308,6 @@
           "other": "每隔{count}秒自动扫描一次{network}，查询端口{port}。"
         }
       }
-    },
-    "pool.test_set_for_pool_value1": {
-      "sourceHash": "da8c175fe56f96720e3ea8656265610639205a808158640de742bb0a75ff6d83",
-      "origin": "machine",
-      "message": "池{value1}的测试集"
-    },
-    "pool.test_set_label": {
-      "sourceHash": "bbbe7b9dae0605e0d113e34fa693c7ff1376a225e0c06946e873ec22a4b3a4e8",
-      "origin": "machine",
-      "message": "{name}的测试集"
-    },
-    "pool.test_sets": {
-      "sourceHash": "73174d7def560e5fc764a58d942c0a1ba44549f58dafc07d71c64e50090e1a31",
-      "origin": "machine",
-      "message": "测试集"
-    },
-    "pool.test_sets_yuruna_pool_control": {
-      "sourceHash": "a0164e02d14f4ca30a40ee2c1b105dadbbe7b2408ceb53550ab30761ed91ffb6",
-      "origin": "machine",
-      "message": "测试集 — Yuruna Pool Control"
     },
     "pool.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti": {
       "sourceHash": "94afc11b01b999bdbf39b2d47abba0ddf7374f3023282b5093975a0bb9f7f028",
@@ -1613,11 +1419,6 @@
       "origin": "machine",
       "message": "{value1}：已应用到池“{value3}”中的{value2}台宿主机。"
     },
-    "pool.value1_host_s": {
-      "sourceHash": "0bd6adfdf5cd52d91aa7acee8160cb14d3cf5f5d99a39b9faafc31e6d2e36d48",
-      "origin": "machine",
-      "message": "{value1}台宿主机"
-    },
     "pool.value1_of_value2_checks_failing_pool_control_service_value3_value": {
       "sourceHash": "4a9fc9001d9dc6a45d1c8714d893d52d6c137292846786e1efe306bdcfcea972",
       "origin": "machine",
@@ -1722,6 +1523,65 @@
       "sourceHash": "977a7ed38614f607331e7fc68e63e24e72d964fe95bfb86588bcfb588ce7ec49",
       "origin": "machine",
       "message": "Go运行时"
+    },
+    "pool.board_live_numbers_unavailable": {
+      "sourceHash": "1f20844d68c5c193d166e7a0c448cd3525ef8910cdb3f69e759b8fda636e0768",
+      "origin": "machine",
+      "message": "实时数据不可用（{detail}）。"
+    },
+    "pool.hosts_switch_own_projects": {
+      "sourceHash": "e59830a93c7de8f7bf1b269b051fc7747942f6a128617f79b356d34d2366ef2d",
+      "origin": "machine",
+      "plural": {
+        "variants": {
+          "other": "{count}台宿主机将在下一个周期恢复使用各自的项目。"
+        }
+      }
+    },
+    "pool.repositories_both_or_neither": {
+      "sourceHash": "a2a497e706ba082c4398cbce541dc683b825dbdddf7f144cc15cf1d3e6580d9c",
+      "origin": "machine",
+      "message": "请同时输入框架 URL 和项目 URL，或将两者都留空以清除。"
+    },
+    "pool.repositories_clear": {
+      "sourceHash": "7e2ced638ce43e592847ba955029b2c4f19530e8ba8ceedc9bc28d47ff019073",
+      "origin": "machine",
+      "message": "清除"
+    },
+    "pool.repositories_clear_label": {
+      "sourceHash": "011a1220da183a155fc50f15f5c5e98fc1a7daf943119db336420477c3733eb4",
+      "origin": "machine",
+      "message": "清除池 {pool} 的框架 URL 和项目 URL"
+    },
+    "pool.repositories_cleared": {
+      "sourceHash": "32bf298b2283796bcc36da96619e58db1b4f432284f63e0ce4492ccdd89535e8",
+      "origin": "machine",
+      "message": "已清除池 {pool} 的框架 URL 和项目 URL。其宿主机将从下一个周期起运行各自的项目。"
+    },
+    "pool.repositories_framework_label": {
+      "sourceHash": "1f8807f0c2099d7c33ab303d8cd26e83413879c0a270413c5d7995238eec33b3",
+      "origin": "machine",
+      "message": "池 {pool} 的框架 URL"
+    },
+    "pool.repositories_project_label": {
+      "sourceHash": "d18acad860117e9212b0b9450b870578bdd088620e0c93426845b361b52cc685",
+      "origin": "machine",
+      "message": "池 {pool} 的项目 URL"
+    },
+    "pool.repositories_save": {
+      "sourceHash": "241d1a008c7c72cfec18ff47620f0cf66662632610675b284250d5cf5e56b6e3",
+      "origin": "machine",
+      "message": "保存"
+    },
+    "pool.repositories_save_label": {
+      "sourceHash": "33344e7f0d2ea7cb00a5c36e93ddd56825a75119ad72fe609c641dc6efd6c31f",
+      "origin": "machine",
+      "message": "保存池 {pool} 的框架 URL 和项目 URL"
+    },
+    "pool.repositories_saved": {
+      "sourceHash": "c104ef3bb18ad72245077d4b4d8d33d9c747d4de0acddccc27cedf31486f9bcc",
+      "origin": "machine",
+      "message": "已保存池 {pool} 的框架 URL 和项目 URL。"
     }
   }
 }

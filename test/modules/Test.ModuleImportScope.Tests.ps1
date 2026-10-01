@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4290efe6-0b47-4573-a67c-44f74ba35a69
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -234,13 +234,6 @@ Recorded, not cleared.
         Reason = @'
 Loads Test.StatusFirewall so host setup applies the same create/enable/rebuild
 rule the status service self-heals with. Recorded, not cleared.
-'@
-    }
-    @{
-        File = 'test/modules/Test.Log.psm1'; Function = 'Get-CycleScreenDir'; Max = 1
-        Reason = @'
-Reached only when neither a cycle folder nor YURUNA_LOG_DIR is set, to establish
-a log directory. Recorded, not cleared.
 '@
     }
     @{

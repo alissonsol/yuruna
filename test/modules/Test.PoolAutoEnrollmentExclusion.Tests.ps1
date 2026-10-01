@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42ea8af8-5cff-4141-a7b1-74224e2ce4d0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,6 +18,9 @@ BeforeAll {
     $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)
     # Run the actual parameter contract and all validation/mutation/save code in
     # a child. Only git transport and entrypoint discovery are fixture stubs.
+    # The stubs replace the two store commands the script itself calls: a
+    # function defined in the script's own scope shadows the imported one, while
+    # a stub for a command the MODULE calls internally would never be reached.
     $helper = @'
 $ErrorActionPreference = 'Stop'
 Import-Module '__ADMIN__' -Force -DisableNameChecking
@@ -26,13 +29,14 @@ Import-Module powershell-yaml
 $ExitOk = 0
 $ExitFailure = 1
 function Format-YurunaHostId { param($HostId) return $HostId }
-function Resolve-YurunaPoolAdminTarget { param($IntentGitUrl, $IntentDir) return @{ IntentGitUrl = 'fixture'; IntentDir = $IntentDir } }
-function Open-YurunaPoolIntent { param($IntentGitUrl, $IntentDir, $Confirm) return @{ Ok = $true } }
-function Publish-YurunaPoolIntent {
-    param($IntentDir, $Message, $Confirm)
-    if (Test-Path (Join-Path $IntentDir 'publish.fail')) { return @{ Ok = $false; Error = 'fixture publication refused' } }
+function Open-YurunaPoolAdminStore { param($IntentGitUrl, $IntentDir, $Confirm) return @{ Ok = $true; Target = @{ IntentGitUrl = 'fixture'; IntentDir = $IntentDir }; Error = '' } }
+function Publish-YurunaPoolDocChange {
+    param($IntentDir, $RelPath, $Doc, $SchemaName, $Message, $Confirm)
+    if (Test-Path (Join-Path $IntentDir 'publish.fail')) { return @{ Ok = $false; Pushed = $false; Error = 'fixture publication refused' } }
+    $saved = Save-YurunaPoolDoc -IntentDir $IntentDir -RelPath $RelPath -Doc $Doc -SchemaName $SchemaName -Confirm:$false
+    if (-not $saved.Ok) { return @{ Ok = $false; Pushed = $false; Error = $saved.Error } }
     Add-Content -LiteralPath (Join-Path $IntentDir 'published') -Value $Message
-    return @{ Ok = $true; Pushed = $true }
+    return @{ Ok = $true; Pushed = $true; Error = '' }
 }
 '@
     $helper = $helper.Replace('__ADMIN__', (Join-Path $PSScriptRoot 'Test.PoolAdmin.psm1').Replace("'", "''")).Replace('__GLOBAL__', (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1').Replace("'", "''"))
@@ -66,6 +70,10 @@ Describe 'durable auto-enrollment exclusions' {
         Assert-False ($saved.pools[0].members -contains $script:hostId)
         Assert-True ($saved.pools[0].members -contains $script:peerId)
         Assert-True ($saved.autoEnrollment.excluded -contains $script:hostId)
+        # The v2 fixture is written back at schemaVersion 3: every admin write
+        # persists the upgrade Read-YurunaPoolsDoc applies.
+        Assert-Equal 3 $saved.schemaVersion
+        Assert-Equal "pool: exclude $($script:hostId) from auto-enrollment" (Get-Content -Raw (Join-Path $dir 'published')).Trim()
         if ($Policy) {
             Assert-True ($saved.autoEnrollment.excluded -contains $script:peerId)
             Assert-True $saved.autoEnrollment.enabled
@@ -82,6 +90,7 @@ Describe 'durable auto-enrollment exclusions' {
         $saved = Get-Content -Raw (Join-Path $dir 'pools.yml') | ConvertFrom-Yaml
         Assert-False ($saved.pools[0].members -contains $script:hostId)
         Assert-False $saved.ContainsKey('autoEnrollment')
+        Assert-Equal "pool: remove $($script:hostId) from lab" (Get-Content -Raw (Join-Path $dir 'published')).Trim()
     }
     It 'reports a publication refusal instead of promising a durable exclusion' {
         $dir = New-ExclusionFixture

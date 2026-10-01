@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -125,8 +125,13 @@ function Invoke-Gate {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$Script, [string[]]$Arguments = @())
     $path = Join-Path $script:RepoRoot $Script
+    $key = $Script + '|' + (ConvertTo-Json -InputObject @($Arguments | Where-Object { $_ -ne '-Quiet' }) -Compress)
+    if (-not (Get-Variable -Name ReadOnlyGateResults -Scope Script -ErrorAction SilentlyContinue)) { $script:ReadOnlyGateResults = @{} }
+    if ($script:ReadOnlyGateResults.ContainsKey($key)) { return $script:ReadOnlyGateResults[$key] }
     $output = & $script:PowerShell -NoProfile -File $path @Arguments 2>&1 | Out-String
-    return @{ Code = $LASTEXITCODE; Output = $output }
+    $result = @{ Code = $LASTEXITCODE; Output = $output }
+    if ($result.Code -eq 0 -and $Arguments.Count -eq @($Arguments | Where-Object { $_ -eq '-Quiet' }).Count) { $script:ReadOnlyGateResults[$key] = $result }
+    return $result
 }
 
 function Get-PrivateNameOrigin {
@@ -190,6 +195,10 @@ function Invoke-EnabledProductMatrix {
     [CmdletBinding()]
     param()
     if ($script:EnabledProductMatrixPassed) { return }
+    $matrixBefore = @{}
+    foreach ($file in Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'globalization/generated') -File -Recurse) {
+        $matrixBefore[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    }
     foreach ($path in @('test/status', 'test/extension')) {
         $result = Invoke-Gate -Script 'tools/Invoke-JsTest.ps1' -Arguments @('-Path', $path, '-Quiet')
         Assert-Equal 0 $result.Code $result.Output
@@ -199,6 +208,10 @@ function Invoke-EnabledProductMatrix {
             'test/modules/Test.StatusServiceLocale.Tests.ps1', 'test/modules/Test.ProjectLocaleMap.Tests.ps1')) {
         Invoke-ProductGlobalizationCheck -Kind Pester -Path $path
     }
+    foreach ($file in $matrixBefore.Keys) {
+        Assert-True ([string]::Equals($matrixBefore[$file], (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash, [StringComparison]::Ordinal)) "runtime rendering mutated $file"
+    }
+    $script:ProductMatrixImmutableEvidence = $matrixBefore
     $script:EnabledProductMatrixPassed = $true
 }
 
@@ -562,7 +575,7 @@ Describe 'one registry names every browser source' {
         foreach ($page in $registered) {
             if ($tracked -notcontains $page) { $findings += "$page has a disposition but is not a tracked page" }
         }
-        Assert-Equal -Expected 17 -Actual $tracked.Count `
+        Assert-Equal -Expected 15 -Actual $tracked.Count `
             'the current shipped HTML census changed; classify the new surface deliberately'
         Assert-NoFinding $findings 'the performance manifest can become incomplete without failing'
     }
@@ -656,7 +669,7 @@ Describe 'the shipped surface stays inside its budget' {
         $baseline = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path))
         Assert-True ($baseline.assets.PSObject.Properties.Name.Count -ge 10) `
             'the baseline records too few assets to describe the shipped surface'
-        Assert-Equal -Expected 17 -Actual $baseline.pages.PSObject.Properties.Name.Count `
+        Assert-Equal -Expected 15 -Actual $baseline.pages.PSObject.Properties.Name.Count `
             'each tracked page needs a budget row or an explicit exclusion'
         foreach ($asset in $baseline.assets.PSObject.Properties) {
             Assert-StringEqual -Expected 'deterministic-gzip-estimate' `
@@ -1031,7 +1044,8 @@ Describe 'the generated artifacts match their sources' {
         # The honest half. A gate that cannot reach the project is not a gate
         # the project passes, and reporting it as N/A with a reason is the
         # difference between coverage and the appearance of it.
-        $result = Invoke-Gate -Script 'tools/Invoke-CrossRepoGate.ps1'
+        # An explicit mode keeps this run apart from the cached -Quiet run of the same tool, whose output omits the table when every gate passes.
+        $result = Invoke-Gate -Script 'tools/Invoke-CrossRepoGate.ps1' -Arguments @('-Mode', 'changed-domain')
         if ($result.Code -eq 2) {
             Set-ItResult -Skipped -Because 'a cross-repository gate could not run on this host'
             return
@@ -1300,6 +1314,7 @@ Describe 'enabled production locales use the complete product matrix' {
         }
         Assert-True ($before.Count -gt 0) 'there are no generated production catalog bytes'
         Invoke-EnabledProductMatrix
+        Assert-True ($script:ProductMatrixImmutableEvidence.Count -gt 0) 'immutable evidence must surround actual product rendering'
         foreach ($file in $before.Keys) {
             Assert-StringEqual $before[$file] (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash `
                 "runtime rendering mutated $file"
@@ -1308,5 +1323,50 @@ Describe 'enabled production locales use the complete product matrix' {
             $result = Invoke-Gate -Script $tool -Arguments @('-Quiet')
             Assert-Equal 0 $result.Code $result.Output
         }
+    }
+}
+
+Describe 'local gate cache and immutable rendering regressions' {
+    BeforeEach {
+        $script:FixturePriorRoot = $script:RepoRoot
+        $script:FixturePriorPowerShell = $script:PowerShell
+        $script:FixturePriorCache = $script:ReadOnlyGateResults
+        $script:FixturePriorMatrix = $script:EnabledProductMatrixPassed
+        $script:RepoRoot = Join-Path $TestDrive 'fixture-root'
+        [void][IO.Directory]::CreateDirectory((Join-Path $script:RepoRoot 'globalization/generated'))
+        $script:ReadOnlyGateResults = @{}
+        $script:EnabledProductMatrixPassed = $false
+    }
+    AfterEach {
+        $script:RepoRoot = $script:FixturePriorRoot
+        $script:PowerShell = $script:FixturePriorPowerShell
+        $script:ReadOnlyGateResults = $script:FixturePriorCache
+        $script:EnabledProductMatrixPassed = $script:FixturePriorMatrix
+    }
+    It 'caches only successful read-only gates and preserves argument identity' {
+        $script:FixtureCalls = 0
+        $script:FixtureCode = 0
+        function Invoke-ReviewGateProcess { $script:FixtureCalls++; $global:LASTEXITCODE = $script:FixtureCode; 'fixture output' }
+        $script:PowerShell = 'Invoke-ReviewGateProcess'
+        $null = Invoke-Gate -Script fixture.ps1 -Arguments @('-Quiet')
+        $null = Invoke-Gate -Script fixture.ps1
+        $script:FixtureCalls | Should -Be 1
+        $null = Invoke-Gate -Script fixture.ps1 -Arguments @('-Update')
+        $null = Invoke-Gate -Script fixture.ps1 -Arguments @('-Update')
+        $script:FixtureCalls | Should -Be 3
+        $null = Invoke-Gate -Script fixture.ps1 -Arguments @('-Root', 'different')
+        $script:FixtureCalls | Should -Be 4
+        $script:FixtureCode = 23
+        $null = Invoke-Gate -Script failed.ps1
+        $null = Invoke-Gate -Script failed.ps1
+        $script:FixtureCalls | Should -Be 6
+    }
+    It 'detects generated catalog mutation caused by product rendering' {
+        $script:FixtureCatalog = Join-Path $script:RepoRoot 'globalization/generated/catalog.json'
+        [IO.File]::WriteAllText($script:FixtureCatalog, '{"before":true}')
+        function Invoke-Gate { param($Script, $Arguments) [void]$Script; [void]$Arguments; return @{ Code = 0; Output = '' } }
+        function Invoke-ProductGlobalizationCheck { param($Kind, $Path) [void]$Kind; [void]$Path; [IO.File]::WriteAllText($script:FixtureCatalog, '{"mutated":true}') }
+        { Invoke-EnabledProductMatrix } | Should -Throw '*runtime rendering mutated*'
+        $script:EnabledProductMatrixPassed | Should -BeFalse
     }
 }

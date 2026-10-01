@@ -4,12 +4,8 @@
    Operator board. Phone first: one column, >=44px targets, no horizontal
    scroll at 320px. Honors the device's light/dark preference.
 
-   Spacing between flex children is margins, never `gap`: flex `gap` needs
-   Safari 14.1 / iOS 14.5 and Firefox 63, and it fails silently below those
-   (the items simply touch). A feature query cannot rescue it either, because
-   `@supports (gap: 1rem)` is true on Safari 12-14.0 for grid while flex gap is
-   still unimplemented. Grid gaps are declared twice, `grid-gap` first, which
-   covers Safari 10.1-11.x. */
+   Flex children use margins so the first card stays flush with its container
+   and each following card has a predictable gutter when the row wraps. */
 
 /* No bottom padding here: the shared `body.has-footer-bar main` rule in
    style.css already reserves the strip the fixed footer bar sits in, and
@@ -65,48 +61,27 @@
 .counts .n { display: block; font-size: 1.25rem; font-weight: 600; }
 .counts .k { font-size: 0.8rem; opacity: 0.7; }
 
-.assigned { font-size: 0.95rem; margin: 0 0 0.6rem; }
+/* The running line can carry a raw project URL, which has no break points: it
+   wraps anywhere rather than pushing the card past a phone's width. */
+.assigned { font-size: 0.95rem; margin: 0 0 0.6rem; overflow-wrap: anywhere; }
 .assigned .none { opacity: 0.6; }
 
-.card select {
-  width: 100%; min-height: 44px; font-size: 1rem; padding: 0 0.6rem;
-  border-radius: 10px; border: 1px solid var(--control-edge, #6b7280);
-  background: var(--bg, #fff); color: inherit;
-}
-.card .locked { font-size: 0.9rem; opacity: 0.7; margin: 0; }
 .card .blocked {
   margin: 0.6rem 0 0; padding: 0.5rem 0.7rem; border-radius: 8px;
   background: #ffebe9; color: #82071e; font-size: 0.85rem;
 }
 
-/* Confirmation sheet: bottom-anchored on a phone, where thumbs are. */
-/* `display:flex` here would beat the user-agent `[hidden] { display: none }`,
-   which is why style.css carries the `!important` [hidden] guard: without it
-   this full-viewport overlay renders on load and swallows every tap. */
-.sheet { position: fixed; top: 0; inset-inline-end: 0; bottom: 0; inset-inline-start: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; z-index: 10; }
-.sheet-box { width: 100%; background: var(--bg, #fff); border-radius: 16px 16px 0 0; padding: 1.25rem; padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
-.sheet-box h2 { margin: 0 0 0.6rem; font-size: 1.1rem; }
-.sheet-box p { margin: 0 0 1.1rem; line-height: 1.45; }
-.sheet-actions { display: flex; }
-.sheet-actions button { flex: 1 1 0; min-height: 46px; font-size: 1rem; border-radius: 10px; cursor: pointer; }
-.sheet-actions button + button { margin-inline-start: 0.75rem; }
-.sheet-actions .ghost { background: transparent; border: 1px solid var(--line, #d0d7de); color: inherit; }
-
 @media (min-width: 46rem) {
-  .sheet { align-items: center; justify-content: center; }
-  .sheet-box { max-width: 26rem; border-radius: 16px; }
-  /* Wrapped flex is the layout the browser baseline gets: below CSS Grid
-     (Safari 10.1) a grid rule degrades to block flow, which would show a single
-     column on a landscape tablet -- readable, but a quarter of the board.
-     Spacing is the cards' own margins, never `gap`, per the note at the top. */
+  /* Wrapped flex keeps several cards across a tablet when the grid rule below
+     is unavailable; card margins provide the gutters in that layout. */
   #cards { display: flex; flex-wrap: wrap; align-items: flex-start; }
   #cards > .card { flex: 1 1 20rem; }
   /* The wait indicator is not a card: it spans the whole line so it sits under
      the middle of the board rather than in the first column. */
   #cards .loading { flex: 1 1 100%; }
 
-  /* Real tracks where they exist. Grid gaps are declared twice, `grid-gap`
-     first, which covers Safari 10.1-11.x. */
+  /* Grid tracks give the cards equal columns while the loading state spans
+     the whole board. Both gap declarations keep their spacing identical. */
   @supports (display: grid) {
     #cards {
       display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
@@ -125,7 +100,6 @@
    keyed off --bg / --line / --fg follows the scheme from style.css, which every
    page in this service now shares. */
 @media (prefers-color-scheme: dark) {
-  .sheet-box { background: #111827; }
   .stats-banner { background: #78350f; color: #fde68a; }
   .card .blocked { background: #7f1d1d; color: #fecaca; }
   .hero.good .pct { color: #4ade80; }

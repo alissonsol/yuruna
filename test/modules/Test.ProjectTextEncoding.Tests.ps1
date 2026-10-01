@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 429d4a61-8f23-43b6-b470-31e2d9f875ac
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@ function New-EncodingFixture {
         [IO.File]::WriteAllText($full, "text`n", [Text.UTF8Encoding]::new($false))
     }
     [IO.File]::WriteAllText((Join-Path $root 'test/test.runner.yml'),
-        "testSets:`n  smoke:`n    displayName: Smoke test`n", [Text.UTF8Encoding]::new($false))
+        "sequences:`n  - smoke`n", [Text.UTF8Encoding]::new($false))
     & git -C $root init -q
     & git -C $root add -A
 

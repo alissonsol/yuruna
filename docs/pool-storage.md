@@ -139,6 +139,10 @@ map a non-empty `vaultKey` and `Set-Password` it.
 
 ```
 <poolStorageLocalPath>/
+  pool-intent.git/                           # bare pool intent repository
+  pool-control-service/
+    audit.jsonl                             # pool-control UI/API mutations
+    status.json                             # last-write / heartbeat snapshot
   hosts/
     info.<hostId>.yml                       # host registry (uuid + fingerprint)
     <hostId>/
@@ -477,7 +481,7 @@ CIFS-mounts the share, and an hourly `ypool-nas-replicate.timer` rsyncs the data
 - **Replicated:** `loki` + `prometheus` via `rsync -a` (crash-consistent, additive);
   `grafana` via `sqlite3 .backup` of the live `grafana.db` (a plain rsync of an open
   WAL sqlite can restore corrupt) plus an rsync of the rest. **Excluded:** squid +
-  zot (caches), promtail (tail cursor).
+  zot (caches), alloy (tail cursor).
 - **Account (`networkStorage.poolStorageNetworkUser`).** The proxy mounts with the **single**
   `poolStorageNetworkUser` -- the same account the host uses for cycle replication, with no
   separate guest credential. **Operator prerequisite:** scope `poolStorageNetworkUser`
@@ -680,7 +684,7 @@ pwsh -NoProfile -File ./test/modules/Invoke-PoolStorageDrain.ps1 -HostId '<hostI
 
 The script resolves the mode from config, so a hand-run on a move-mode host moves
 (and deletes) exactly as the runner would. It takes the same single-instance lock,
-so it is safe to run while the runner is going -- one of the two simply waits for the
+so it is safe to run while the runner is going -- one of the two waits for the
 next cycle.
 
 or call the function directly after importing the module set
@@ -780,7 +784,7 @@ or storage.
 
 <a id="428405a0-0014"></a>
 
-## Pool harness -- membership, intent, and test-set execution
+## Pool harness -- membership, intent, and assigned-project execution
 
 The **pool-control service plane** -- creating pools, adding hosts, assigning already-developed
 test sequences, and operating the fleet -- is documented step by step in
@@ -788,14 +792,16 @@ test sequences, and operating the fleet -- is documented step by step in
 page covers only the NAS replication of pool observability data described above.
 
 In brief: the operator authors slow-changing **intent** (pool membership +
-`desiredState` + assigned test-sets) into a small **git repo on the caching-proxy-service**
-(`/var/lib/yuruna/pool-intent.git`, served read-only over HTTP). Each runner pulls it at
-cycle start, finds its pool by locating its `hostId` in `members[]`, and -- when the pool
-has assigned test-sets -- drives the cycle from them instead of its local
-`test.runner.yml` (decentralized: each host runs only the guests it can, skipping the
-rest, trusting another member to cover them). Everything is best-effort and default-off:
-an unreachable store, an unpooled host, or a pool with no test-sets all fall back to
-single-host behavior. The intent repo holds only **non-secret** files; no credential is
+`desiredState` + the pool's framework and project repositories) into a small **git repo
+on the caching-proxy-service** (`/mnt/ypool-nas/pool-intent.git`, served read-only over
+HTTP). Each runner pulls it at cycle start, finds its pool by locating its `hostId` in
+`members[]`, and -- when the pool carries repositories -- switches to that framework and
+project for the cycle and runs the project's own `test.runner.yml` instead of its local
+one (decentralized: members do not coordinate, each runs the whole plan, and no
+runner reads `guests.compatibility.yml` to narrow it). Everything is best-effort
+and default-off: an unreachable store, an unpooled host, or a pool with no
+repositories all fall back to single-host behavior. The intent repo holds only
+**non-secret** files; no credential is
 ever routed through it.
 
 ---
@@ -804,6 +810,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

@@ -4,14 +4,14 @@
 
 Runbook de subida para um laboratório Yuruna: várias máquinas
 compartilhando um caching-proxy-service, armazenamento de grupo e de
-stash apoiado em NAS e um serviço pool-control, organizadas em grupos e
-com conjuntos de testes atribuídos.
+stash apoiado em NAS e um serviço pool-control, organizadas em grupos que
+executam, cada um, seus próprios repositórios de framework e de projeto.
 
 A [Seção A: Início rápido](#seção-a-início-rápido) é a sequência
 completa de comandos -- primeiro os serviços compartilhados, depois
 máquina por máquina. A [Seção B: Aprofundamento](#seção-b-aprofundamento)
 explica cada etapa. O guia termina com um exemplo prático de
-[divisão em dois grupos](#dois-pools-executando-dois-conjuntos-de-testes-diferentes).
+[divisão em dois grupos](#dois-grupos-executando-dois-projetos-diferentes).
 
 Pré-requisito: toda máquina do laboratório concluiu o
 [guia do operador](../operator.md) até A.2 (conectada como o usuário de
@@ -267,8 +267,9 @@ ciclos deste hospedeiro ([B.7](#b7-cada-máquina-adicional)).
 
 Quando o `Invoke-TestProject`
 estiver verde, abra a interface do serviço pool-control em
-`http://<pool-control-service-vm-ip>/`, adicione o hospedeiro a um grupo,
-atribua um conjunto de testes e então:
+`http://<pool-control-service-vm-ip>/`, adicione o hospedeiro a um grupo na
+página `/hosts`, defina a URL do framework e a URL do projeto desse grupo
+na página `/pools` e então:
 
 ```
 pwsh test/Start-TestRunner.ps1
@@ -509,8 +510,8 @@ pwsh test/service/Start-PoolControlServiceVM.ps1
 ```
 
 Sobe a VM `yuruna-pool-control-service` -- interface do operador + API
-para a intenção do grupo: criar grupos, adicionar hospedeiros, atribuir
-conjuntos de testes. Elevado no Windows, sem elevação no macOS. Em um
+para a intenção do grupo: criar grupos, adicionar hospedeiros, definir
+os repositórios de cada grupo. Elevado no Windows, sem elevação no macOS. Em um
 hospedeiro macOS com Wi-Fi ela é compilada em UTM Shared NAT
 ([B.4](#b4-iniciar-o-serviço-stash)) e encaminhada -- os pares abrem
 `http://<host-lan-ip>:8081/` (os encaminhamentos por serviço nunca
@@ -656,9 +657,10 @@ credencial do GitHub, leitura do primeiro relatório de validação):
 5. **Entre em um grupo e receba atribuições** -- abra a interface do
    serviço pool-control em `http://<pool-control-service-vm-ip>/`
    (linkada como "Pool-control service" na tabela Extension hosts do
-   painel "Yuruna hosts" do Grafana), adicione este hospedeiro a um grupo e
-   atribua um conjunto de testes. Equivalente na CLI:
-   `test/pool/Add-HostToPool.ps1` + `test/pool/Set-PoolTestSet.ps1`
+   painel "Yuruna hosts" do Grafana), adicione este hospedeiro a um grupo
+   na página `/hosts` e defina a URL do framework e a URL do projeto
+   desse grupo na página `/pools`. Equivalente na CLI:
+   `test/pool/Add-HostToPool.ps1` + `test/pool/Set-PoolRepository.ps1`
    ([pool-admin.md](../pool-admin.md)). Depois inicie
    `pwsh test/Start-TestRunner.ps1`.
 
@@ -731,7 +733,7 @@ topo da [Seção A](#seção-a-início-rápido):
 
 <a id="dois-pools-executando-dois-conjuntos-de-testes-diferentes"></a>
 
-## Dois grupos executando dois conjuntos de testes diferentes
+## Dois grupos executando dois projetos diferentes
 
 Um exemplo prático: um laboratório, dois grupos de hospedeiros, cada um
 executando um corpo diferente de testes. Os nomes são apenas exemplos.
@@ -746,23 +748,16 @@ recebe.
 
 <a id="42383647-0015"></a>
 
-### 1. Definir os dois conjuntos de testes
+### 1. Escolher os repositórios de framework e de projeto de cada grupo
 
-Um conjunto de testes é um **par** nomeado de repositórios de framework
-e de projeto: um membro em grupo substitui as URLs de `repositories.*`
-por ele durante o ciclo e executa o plano `test.runner.yml` do projeto
-atribuído. Dois corpos de testes, portanto, significam dois
+Cada grupo executa um **par** de repositórios de framework e de
+projeto: um membro em grupo substitui as URLs de `repositories.*` pelo
+par do grupo durante o ciclo e executa o plano `test.runner.yml` desse
+projeto. Dois corpos de testes, portanto, significam dois
 repositórios de projeto -- ou dois branches ou forks de um só. O
 `GH_TOKEN` nunca é guardado na intenção do grupo; ele permanece local ao
-hospedeiro.
-
-Registre os dois pares na biblioteca de conjuntos de testes do
-armazenamento de intenção:
-
-```powershell
-pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name testset1 -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
-pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name testset2 -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
-```
+hospedeiro. Nada é registrado de antemão: o passo 4 define cada par
+diretamente no seu grupo.
 
 <a id="42383647-0016"></a>
 
@@ -776,7 +771,7 @@ pwsh test/pool/New-Pool.ps1 -PoolId poolb -DisplayName 'Pool B' -IntentGitUrl <i
 ```
 
 `-PoolId` é permanente -- o `New-Pool.ps1` cunha um `poolGuid` estável
-para ele (o "Pool ID" do painel), então renomear depois significa um
+para ele, então renomear depois significa um
 grupo novo e bifurca o histórico de telemetria.
 
 <a id="42383647-0017"></a>
@@ -797,17 +792,19 @@ pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -IntentGit
 
 <a id="4-atribuir-um-conjunto-de-testes-a-cada-pool"></a>
 
-### 4. Atribuir um conjunto de testes a cada grupo
+### 4. Definir as URLs de framework e de projeto de cada grupo
 
 ```powershell
-pwsh test/pool/Set-PoolTestSet.ps1 -PoolId poola -Name testset1 -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
-pwsh test/pool/Set-PoolTestSet.ps1 -PoolId poolb -Name testset2 -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId poola -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId poolb -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
 ```
 
-Um grupo contém exatamente um `testSet`; atribuir substitui o anterior.
-Os membros não dividem o trabalho: cada membro de `poola` clona
-`<project-a-url>` e executa o plano completo dele, reportando sob o
-grupo.
+Na interface do pool-control, digite as mesmas duas URLs nas duas caixas
+de cada grupo na página `/pools` -- a URL do framework na caixa de cima,
+a URL do projeto na de baixo -- e salve. Um grupo contém exatamente um
+par; defini-lo substitui o anterior. Os membros não dividem o trabalho:
+cada membro de `poola` clona `<project-a-url>` e executa o plano completo
+dele, reportando sob o grupo.
 
 <a id="42383647-0019"></a>
 
@@ -820,11 +817,11 @@ pwsh test/pool/Get-PoolStatus.ps1  -PoolId poolb -IntentGitUrl <intent-url>
 ```
 
 O `Test-PoolIntent.ps1` também impõe a regra de um grupo por hospedeiro; o
-`Get-PoolStatus.ps1` mostra os membros, o `desiredState` e o conjunto de
-testes atribuído. Nenhum dos dois sonda as URLs dos repositórios -- um
+`Get-PoolStatus.ps1` mostra os membros, o `desiredState` e as URLs de
+framework e de projeto do grupo. Nenhum dos dois sonda as URLs dos repositórios -- um
 erro de digitação só aparece quando o próximo ciclo de um membro clona.
-Cada executor puxa a intenção no início do ciclo, então as atribuições
-entram em vigor no ciclo seguinte, sem reiniciar nada.
+Cada executor puxa a intenção no início do ciclo, então uma mudança
+entra em vigor no ciclo seguinte, sem reiniciar nada.
 
 <a id="42383647-001a"></a>
 
@@ -861,6 +858,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.27
+Última revisão: 2026.09.30
 
 Voltar para [Yuruna](../../README.md)

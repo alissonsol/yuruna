@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42b84cc3-7873-4cc2-800e-3d90a4776081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,8 +46,8 @@ $spiceDownloadUrl = "https://getutm.app/downloads/utm-guest-tools-latest.iso"
 # privileges, so an unpinned moving ref is an unchecked remote-code hop.
 # Refresh on a new Fido release: bump the tag in the URL and replace the hash
 # with the new file's (Get-FileHash -Algorithm SHA256).Hash.
-$fidoUrl = "https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1"
-$fidoSha256 = "24c86067fa399d2fd75ef0693a2ec79ca8db162827f808caac03541cbf640c13"
+$fidoUrl = "https://raw.githubusercontent.com/pbatard/Fido/v1.71/Fido.ps1"
+$fidoSha256 = "6481e40d3cf100c79b281942d0d1c7f6d111397be296fec867a56cbe368ebdf9"
 $languageFilter = "English"
 
 # Fido is external code on its own release cadence, never enlistment content: a
@@ -128,7 +128,7 @@ if (-not $windowsOk) {
                 Remove-Item $agentStagingFile -Force -ErrorAction SilentlyContinue
                 $agentResult = Request-DownloadAgentImage -BaseUrl $agentBaseUrl -HostType 'macos.utm' `
                     -ImageKey 'guest.windows.11' -Arch 'arm64' -Variant 'stable' `
-                    -StagingPath $agentStagingFile -DeadlineSeconds 7200
+                    -StagingPath $agentStagingFile -DeadlineSeconds 7200 -ExpectedFilenamePattern '(?i)arm'
             } catch {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57d6aa65fdb2331b' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
                 $agentResult = $null
@@ -347,7 +347,7 @@ if (-not $spiceOk) {
 
 # --- REGION: Completion
 Write-Output ""
-if ($windowsOk -and $spiceOk) {
+if ($windowsOk) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_04e1429d924ce2b6')
     exit 0
 } else {

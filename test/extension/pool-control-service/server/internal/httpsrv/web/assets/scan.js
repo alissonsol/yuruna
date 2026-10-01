@@ -141,6 +141,7 @@
 
   function renderHostsMeasured(hosts) {
     var body = $('host-rows');
+    if (Y.holdRepaint(body, load)) { return; }
     body.textContent = '';
     if (!hosts || !hosts.length) {
       body.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '7', class: 'muted', text: window.YurunaI18n.t("pool.no_hosts_discovered_yet") })]));

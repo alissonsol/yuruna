@@ -17,14 +17,14 @@ stateDiagram-v2
     idle --> fault: Recover stale run
     cycle_start --> in_cycle: Spawn inner
     cycle_start --> paused: Pool or refresh hold
-    cycle_start --> fault: Startup failure
+    cycle_start --> fault: Storage full
     in_cycle --> cycle_end: Success or refresh gate
     in_cycle --> fault: Failure or watchdog
     cycle_end --> idle: Complete cycle
     fault --> paused: Failure backoff
     fault --> idle: Recovery or refresh handoff
     paused --> cycle_start: Recheck pool intent
-    paused --> idle: Restart trigger
+    paused --> idle: Backoff exit
 ```
 
 Sources: [Test.RunnerState](../../test/modules/Test.RunnerState.psm1) defines
@@ -32,7 +32,9 @@ these six persisted names and their adjacency map;
 [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1) performs
 the transitions. The diagram has six named states and one initial marker.
 State aliases use underscores for Mermaid grammar compatibility; displayed
-names retain the exact source spelling.
+names retain the exact source spelling. A framework pull error or failed inner
+spawn takes a short retry hold without the fault and failure-backoff path; a
+pool-storage space failure takes the `cycle-start` to `fault` edge.
 
 `runner.state.json` records the current state, and
 `runner_state_transition` NDJSON events record changes. The validator warns
@@ -71,6 +73,7 @@ stateDiagram-v2
     invoke_guest_provision_iteration --> copy_failure_artifacts_to_status_log: Provisioning failure
     test_start_guest_os_psm1 --> complete_cycle_run: Sequence chain passes
     test_start_guest_os_psm1 --> copy_failure_artifacts_to_status_log: Step fails
+    test_start_guest_os_psm1 --> remove_cycle_teardown_orphan_vm: Restart requested
     copy_failure_artifacts_to_status_log --> complete_cycle_run: Record available evidence
     complete_cycle_run --> remove_cycle_teardown_orphan_vm: Finish cycle
     remove_cycle_teardown_orphan_vm --> invoke_runner_inner_cycle: Best-effort sweep
@@ -97,6 +100,9 @@ cycle completion still attempts a prefix cleanup sweep before delaying or
 pausing. Shutdown, provider errors, and watchdog termination can leave
 survivors for the next cycle's orphan sweep. Watchdog termination returns to
 the supervisor's fault path even if inner finalization never ran.
+The restart-request edge abbreviates the inner runner's abort finalization and
+best-effort VM removal before the supervisor starts another cycle; it does not
+count as a watchdog crash.
 
 The outer worker also handles completed-cycle storage. With pool move mode
 enabled, a failed archive move can turn a successful inner exit into a failed

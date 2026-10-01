@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 425548c6-683c-4519-9712-2f32b36e15e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -373,8 +373,9 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
     $answer = Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_78bb755d4fa4c047' -Arguments @{ suggested = "$suggested" })
     $Root = if ([string]::IsNullOrWhiteSpace($answer)) { $suggested } else { $answer.Trim() }
 }
-$Root = $Root.Trim().TrimEnd('\', '/')
+$Root = $Root.Trim()
 if ([string]::IsNullOrWhiteSpace($Root)) { throw "A storage root is required." }
+$Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
 
 if ([string]::IsNullOrWhiteSpace($LabName)) {
     # New-Lab constrains the name to the pool-id charset so a lab and a pool can

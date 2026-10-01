@@ -29,7 +29,7 @@
       }
     },
     "runner.assigned_project_denied": {
-      "message": "The pool assigned a project this host cannot read.\n  Project: {project}\n  Assigned by: pool '{pool}', test-set '{testSet}'\n  git: {detail}\n  Fix (either): grant this host's GH_TOKEN access to that repo,\n                or reassign the pool to a project every member can read.",
+      "message": "The pool assigned a project this host cannot read.\n  Project: {project}\n  Assigned by: pool '{pool}'\n  git: {detail}\n  Fix (either): grant this host's GH_TOKEN access to that repo,\n                or set the pool's project URL to a repository every member can read.",
       "description": "Whole operator report; all condition decisions use the separate status and failure-class fields.",
       "lifecycle": "active",
       "placeholders": {
@@ -42,11 +42,6 @@
           "type": "detail",
           "trust": "external",
           "example": "pool"
-        },
-        "testSet": {
-          "type": "detail",
-          "trust": "external",
-          "example": "testSet"
         },
         "detail": {
           "type": "detail",
@@ -2623,16 +2618,8 @@
       }
     },
     "runner.operator_05b0d534849b3a19": {
-      "message": "pool: test-set '{name}' has no sequences; skipping.",
       "description": "Whole Write-Warning message in test/modules/Test.PoolPlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$name"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_05c7282e24926d99": {
       "message": "The '{user}' credential cannot be fetched from the reference host -- {error}",
@@ -2902,16 +2889,8 @@
       }
     },
     "runner.operator_09419d31a82de2e4": {
-      "message": "pool: test-set manifest not found: {path}",
       "description": "Whole Write-Warning message in test/modules/Test.PoolPlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "path": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$path"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_097d3c2b155e207c": {
       "message": "no stale SMB drive mappings (every mapped server name still resolves).",
@@ -5189,21 +5168,8 @@
       }
     },
     "runner.operator_1d0a3ac35890db97": {
-      "message": "pool: test-set '{name}' provisioning.betweenSets='{between}' not yet implemented; treating as 'none'.",
       "description": "Whole Write-Warning message in test/modules/Test.PoolPlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$name"
-        },
-        "between": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$between"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_1d0efcf0a84c0f0f": {
       "message": "pool: intent store reachable ({plUrl}).",
@@ -5352,9 +5318,8 @@
       }
     },
     "runner.operator_1ee49d169ec618ee": {
-      "message": "test.runner.yml: skipping a testSets entry with no 'name'.",
       "description": "Whole Write-Warning message in test/modules/Test.SequencePlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active"
+      "lifecycle": "tombstone"
     },
     "runner.operator_1eeace18e9071c6f": {
       "message": "VM '{vMName}' is attached to switch '{reuseSwitchName}', which reports '{reuseVerdict}'. Guests on this switch come up with no carrier: the host is unreachable from the guest, and the host address baked into this VM's seed may no longer be the one the host answers on. The VM is reused as-is -- delete it so it is provisioned onto a working switch, or restore the switch's uplink binding.",
@@ -5583,9 +5548,8 @@
       }
     },
     "runner.operator_217d530848e4cda8": {
-      "message": "test.runner.yml: skipping a testSets entry that is not a mapping.",
       "description": "Whole Write-Warning message in test/modules/Test.SequencePlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active"
+      "lifecycle": "tombstone"
     },
     "runner.operator_218ebb2c80a76597": {
       "message": "[outer cycle {cycle}] pool storage full: {full}",
@@ -6785,16 +6749,8 @@
       "lifecycle": "active"
     },
     "runner.operator_2b6254c83f085a18": {
-      "message": "test-sets.yml validation/write failed: {error}",
       "description": "Whole Write-Error message in test/pool/Set-PoolTestSetDefinition.ps1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "error": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$($save.Error)"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_2b64497fe1d6bed5": {
       "message": "Deleted the account but could not remove its profile instance for SID {id}: {message}",
@@ -7661,7 +7617,7 @@
       "lifecycle": "active"
     },
     "runner.operator_331c67920b1a4f01": {
-      "message": "FAIL  target-pool-no-testset: '{targetPoolId}' is the auto-enrollment target pool and must not carry a testSet (it would repoint every auto-enrolled host). Remove it, or point autoEnrollment.targetPoolId at a different pool.",
+      "message": "FAIL  target-pool-no-repositories: '{targetPoolId}' is the auto-enrollment target pool and must not carry repositories (they would repoint every auto-enrolled host). Clear them with Set-PoolRepository.ps1 -PoolId {targetPoolId} -Clear, or point autoEnrollment.targetPoolId at a different pool.",
       "description": "Whole Write-Warning message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -8227,16 +8183,8 @@
       "lifecycle": "active"
     },
     "runner.operator_37e7a76a3661cead": {
-      "message": "Test-set name '{name}' is invalid (lowercase alphanumeric start; letters, digits, '.', '_', '-').",
       "description": "Whole Write-Error message in test/pool/Set-PoolTestSetDefinition.ps1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Name"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_37ec87c9e9d924bd": {
       "message": "networkStorage pool: could not map the vaultKey in users.yml ({message}); storing under '{vaultKey}' anyway.",
@@ -9192,24 +9140,19 @@
       "lifecycle": "active"
     },
     "runner.operator_41a636e6dabd5864": {
-      "message": "  testSet: {name}  framework={frameworkUrl}  project={projectUrl}",
+      "message": "  repositories: framework={frameworkUrl}  project={projectUrl}",
       "description": "Whole Write-Information message in test/pool/Get-PoolStatus.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "[string]$ts['name']"
-        },
         "frameworkUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "[string]$ts['frameworkUrl']"
+          "example": "[string]$repositories['frameworkUrl']"
         },
         "projectUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "[string]$ts['projectUrl']"
+          "example": "[string]$repositories['projectUrl']"
         }
       }
     },
@@ -9807,33 +9750,12 @@
       "lifecycle": "active"
     },
     "runner.operator_4708bb65c7b75b63": {
-      "message": "Test-set '{name}' {action} in the library.",
       "description": "Whole Write-Information message in test/pool/Set-PoolTestSetDefinition.ps1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Name"
-        },
-        "action": {
-          "type": "detail",
-          "trust": "external",
-          "example": "${action}"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_4727d0d8d58200e7": {
-      "message": "test.runner.yml: duplicate testSet '{name}'; keeping the first.",
       "description": "Whole Write-Warning message in test/modules/Test.SequencePlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$name"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_47371277eaeea492": {
       "message": "Status-server bounce could not start: {message}",
@@ -10081,7 +10003,7 @@
     },
     "runner.operator_493d8875345272bb": {
       "message": "Commit failed: {error}",
-      "description": "Whole Write-Error message in test/pool/Set-PoolTestSetDefinition.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "description": "Whole Write-Error message returned by Publish-YurunaPoolDocChange in test/modules/Test.PoolAdmin.psm1 and shown by every pool-admin CLI; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "error": {
@@ -12126,21 +12048,8 @@
       }
     },
     "runner.operator_5a53c6c93a317e74": {
-      "message": "test.runner.yml: skipping testSet '{name}' -- names must match {namePattern} (lower-case).",
       "description": "Whole Write-Warning message in test/modules/Test.SequencePlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$name"
-        },
-        "namePattern": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$namePattern"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_5a564e98a029d970": {
       "message": "Host-action '{name}' script not found: {scriptPath}",
@@ -14034,7 +13943,7 @@
       }
     },
     "runner.operator_68f76316350291c3": {
-      "message": "Pool '{poolId}' is the auto-enrollment target pool and must not carry a testSet; ignoring it and keeping this host's own repositories. Fix the intent store (Test-PoolIntent.ps1 reports this).",
+      "message": "Pool '{poolId}' is the auto-enrollment target pool and must not carry repositories; ignoring them and keeping this host's own repositories. Fix the intent store (Test-PoolIntent.ps1 reports this).",
       "description": "Whole Write-Warning message in test/modules/Test.PoolSync.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -15301,21 +15210,8 @@
       }
     },
     "runner.operator_764eb138496adb9a": {
-      "message": "pool: test-set '{name}' cycleStrategy='{strategy}' not yet implemented; running 'all'.",
       "description": "Whole Write-Warning message in test/modules/Test.PoolPlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$name"
-        },
-        "strategy": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$strategy"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_767a42e435b5f2c7": {
       "message": "The aggregator sealed a reply this client cannot open. The code was accepted, so re-reading the tile will not help. Compare the PowerShell and OS line above against a host where the exchange succeeds; a CryptographicException here means the derived key differs, which means the two sides disagree on the code, the iteration count ({envelopeIterations}) or the label ('{envelopeLabel}').",
@@ -17640,9 +17536,8 @@
       }
     },
     "runner.operator_8a6b8847ccce49ac": {
-      "message": "test.runner.yml: 'all' is reserved for the implicit whole-project set; skipping the declared set named 'all'.",
       "description": "Whole Write-Warning message in test/modules/Test.SequencePlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active"
+      "lifecycle": "tombstone"
     },
     "runner.operator_8a85c0a98b2cb1af": {
       "message": "[outer cycle {cycle}] pool desiredState=drain -- requesting shutdown at the cycle boundary.",
@@ -18809,16 +18704,8 @@
       "lifecycle": "active"
     },
     "runner.operator_93083a11a290abbd": {
-      "message": "pool: test-set '{name}' schemaVersion is not 1; skipping it.",
       "description": "Whole Write-Warning message in test/modules/Test.PoolPlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Name"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_933b194d28de8e2c": {
       "message": "poolStorage: {localPath} is mounted but not answering; releasing the dead mount before remounting.",
@@ -19005,7 +18892,7 @@
     },
     "runner.operator_945821c2fef42ae6": {
       "message": "Pool '{poolId}' not found. Create it first: ./New-Pool.ps1 -PoolId {poolId}",
-      "description": "Whole Write-Error message in test/pool/Set-PoolTestSet.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "description": "Whole Write-Error message in the pool-admin CLIs test/pool/Set-PoolRepository.ps1, test/pool/Add-HostToPool.ps1 and test/pool/Set-PoolDesiredState.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "poolId": {
@@ -19937,7 +19824,7 @@
     },
     "runner.operator_9c27a25b6843707d": {
       "message": "pools.yml validation/write failed: {error}",
-      "description": "Whole Write-Error message in test/pool/Set-PoolTestSet.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "description": "Whole Write-Error message returned by Publish-YurunaPoolDocChange in test/modules/Test.PoolAdmin.psm1 and shown by every pool-admin CLI; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "error": {
@@ -21975,9 +21862,8 @@
       "lifecycle": "active"
     },
     "runner.operator_b0bf86c31da327e2": {
-      "message": "Upsert requires -FrameworkUrl and -ProjectUrl (or pass -Delete to remove).",
       "description": "Whole Write-Error message in test/pool/Set-PoolTestSetDefinition.ps1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active"
+      "lifecycle": "tombstone"
     },
     "runner.operator_b0f17a6c92efa2d7": {
       "message": "     Set it with:  sudo passwd {accountName}",
@@ -22975,7 +22861,7 @@
       "lifecycle": "active"
     },
     "runner.operator_b9980767ec32acdd": {
-      "message": "Pool '{poolId}' testSet '{name}': repositories overridden (framework={frameworkUrl}, project={projectUrl}); GH_TOKEN stays host-local.",
+      "message": "Pool '{poolId}': repositories overridden (framework={frameworkUrl}, project={projectUrl}); GH_TOKEN stays host-local.",
       "description": "Whole Write-Information message in test/modules/Test.RunnerInnerLoop.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -22984,20 +22870,15 @@
           "trust": "external",
           "example": "[string]$poolManifestForRepos['poolId']"
         },
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "[string]$poolTestSet['name']"
-        },
         "frameworkUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "[string]$poolTestSet['frameworkUrl']"
+          "example": "[string]$poolRepositories['frameworkUrl']"
         },
         "projectUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "[string]$poolTestSet['projectUrl']"
+          "example": "[string]$poolRepositories['projectUrl']"
         }
       }
     },
@@ -23630,26 +23511,8 @@
       }
     },
     "runner.operator_c02c29bdd61105ce": {
-      "message": "Pool test-set '{setName}': running {count} of the project's sequences ({join}).",
       "description": "Whole Write-Output message in test/modules/Test.RunnerInnerLoop.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "setName": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$setName"
-        },
-        "count": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$($script:PoolSubset.Count)"
-        },
-        "join": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$($script:PoolSubset -join ', ')"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_c03297466bf30bf9": {
       "message": "      {account}: refused by the SMB server; rebuilding the account and retrying...",
@@ -23686,15 +23549,10 @@
       "lifecycle": "active"
     },
     "runner.operator_c11b4fa818b922ab": {
-      "message": "Test-set '{name}' set on pool '{poolId}' (frameworkUrl={frameworkUrl}, projectUrl={projectUrl}).",
-      "description": "Whole Write-Information message in test/pool/Set-PoolTestSet.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "message": "Repositories set on pool '{poolId}' (frameworkUrl={frameworkUrl}, projectUrl={projectUrl}).",
+      "description": "Whole Write-Information message in test/pool/Set-PoolRepository.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Name"
-        },
         "poolId": {
           "type": "detail",
           "trust": "external",
@@ -24575,21 +24433,8 @@
       }
     },
     "runner.operator_c83a08264595d72a": {
-      "message": "pool: test-set '{name}' parse failed ({message}); skipping it.",
       "description": "Whole Write-Warning message in test/modules/Test.PoolPlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Name"
-        },
-        "message": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$($_.Exception.Message)"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_c83f88602397b5a8": {
       "message": "  Backoff cap:  {failurePauseMaxSeconds} min",
@@ -25614,21 +25459,8 @@
       }
     },
     "runner.operator_d164f2ba2a2136ac": {
-      "message": "pool: no runnable guest for test-set '{name}' on this host ({hostType}); skipping it.",
       "description": "Whole Write-Warning message in test/modules/Test.PoolPlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$name"
-        },
-        "hostType": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$HostType"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_d168a5486eb59de2": {
       "message": "  WinINet (HKCU Internet Settings):",
@@ -26293,7 +26125,7 @@
     },
     "runner.operator_d7dcddaba0a5b0ef": {
       "message": "Committed locally but NOT pushed to the remote -- the change is not durable and a later admin command will discard it: {error}",
-      "description": "Whole Write-Error message in test/pool/Set-PoolTestSetDefinition.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "description": "Whole Write-Error message returned by Publish-YurunaPoolDocChange in test/modules/Test.PoolAdmin.psm1 and shown by every pool-admin CLI; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "error": {
@@ -27104,16 +26936,8 @@
       }
     },
     "runner.operator_df1608b653f0dd73": {
-      "message": "test.runner.yml: skipping testSet '{name}' -- it lists no sequences.",
       "description": "Whole Write-Warning message in test/modules/Test.SequencePlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$name"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_df5b48ab664f3b9b": {
       "message": "winget is not available to this account, so the exporter package cannot be acquired from here",
@@ -29377,19 +29201,14 @@
       }
     },
     "runner.operator_f1dc62bfb0f61720": {
-      "message": "'{poolId}' is the auto-enrollment target pool and cannot carry a test-set.\n  Hosts land there automatically and keep running their own projectUrl; assigning one\n  here would silently repoint every auto-enrolled host in the lab.\n  To give these hosts a project, create another pool and assign the hosts to it:\n    ./New-Pool.ps1 -PoolId <name>\n    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>\n    test/pool/Set-PoolTestSet.ps1 -PoolId <name> -Name {name} -FrameworkUrl {frameworkUrl} -ProjectUrl {projectUrl}",
-      "description": "Whole Write-Error message in test/pool/Set-PoolTestSet.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "message": "'{poolId}' is the auto-enrollment target pool and cannot carry repositories.\n  Hosts land there automatically and keep running their own projectUrl; setting a\n  framework and project here would silently repoint every auto-enrolled host in the lab.\n  To give these hosts a project, create another pool and assign the hosts to it:\n    ./New-Pool.ps1 -PoolId <name>\n    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>\n    ./Set-PoolRepository.ps1 -PoolId <name> -FrameworkUrl {frameworkUrl} -ProjectUrl {projectUrl}",
+      "description": "Whole Write-Error message in test/pool/Set-PoolRepository.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "poolId": {
           "type": "detail",
           "trust": "external",
           "example": "$PoolId"
-        },
-        "name": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Name"
         },
         "frameworkUrl": {
           "type": "detail",
@@ -29768,7 +29587,7 @@
       }
     },
     "runner.operator_f4ce3623f58ca8ac": {
-      "message": "PASS  target-pool-no-testset: '{targetPoolId}' carries no testSet.",
+      "message": "PASS  target-pool-no-repositories: '{targetPoolId}' carries no repositories.",
       "description": "Whole Write-Information message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -30985,6 +30804,103 @@
           "example": "cycle 12 started"
         }
       }
+    },
+    "runner.pool_intent_library_removed": {
+      "message": "Removed test-sets.yml from the intent store; nothing reads it.",
+      "description": "Whole Write-Information message in test/pool/Update-PoolIntentSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active"
+    },
+    "runner.pool_intent_schema_already_current": {
+      "message": "Pool intent is already at schemaVersion {version}; nothing to migrate.",
+      "description": "Whole Write-Information message in test/pool/Update-PoolIntentSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "version": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        }
+      }
+    },
+    "runner.pool_intent_schema_migrated": {
+      "message": "Pool intent migrated from schemaVersion {from} to {to}, committed and pushed.",
+      "description": "Whole Write-Information message in test/pool/Update-PoolIntentSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "from": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        },
+        "to": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        }
+      }
+    },
+    "runner.pool_intent_schema_outdated": {
+      "message": "FAIL  schema-version: pools.yml is schemaVersion {found}, but this checkout reads schemaVersion {expected}. Run test/pool/Update-PoolIntentSchema.ps1 once to migrate the intent store.",
+      "description": "Whole Write-Warning message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "found": {
+          "type": "detail",
+          "trust": "external",
+          "example": "2"
+        },
+        "expected": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        }
+      }
+    },
+    "runner.pool_intent_schema_unsupported": {
+      "message": "pools.yml is schemaVersion {version}, which is newer than this checkout reads ({expected}). Update this checkout before changing pool intent.",
+      "description": "Whole Write-Error message in test/pool/Update-PoolIntentSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "version": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        },
+        "expected": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        }
+      }
+    },
+    "runner.pool_repositories_cleared": {
+      "message": "Repositories cleared on pool '{poolId}'; its members run their own configured repositories from their next cycle.",
+      "description": "Whole Write-Information message in test/pool/Set-PoolRepository.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "poolId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "lab"
+        }
+      }
+    },
+    "runner.pool_repositories_url_invalid": {
+      "message": "-{parameter} must be a non-empty URL with no whitespace or control characters, and it must not start with '-'.",
+      "description": "Whole Write-Error message in test/pool/Set-PoolRepository.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "parameter": {
+          "type": "token",
+          "trust": "internal",
+          "example": "FrameworkUrl"
+        }
+      }
+    },
+    "runner.pool_status_repositories_none": {
+      "message": "  repositories: (none)",
+      "description": "Whole Write-Information message in test/pool/Get-PoolStatus.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active"
     },
     "runner.prior_runner_cleanup_action": {
       "description": "Complete operator message; stable codes and external details remain separate from translated wording.",

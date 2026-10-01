@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42cf1a35-c982-4816-bdc9-94893388e752
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,8 @@
          (or Invoke-Pester -Path test/modules/Test.StorageTransition.Tests.ps1)
 #>
 
+if (-not (Get-Command -Name BeforeAll -ErrorAction SilentlyContinue)) { throw 'This suite requires Pester; run it with Invoke-Pester or Invoke-TestSuite.ps1.' }
+
 BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
@@ -55,11 +57,7 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 # functions. Defined only when the real ones are absent; every fixture is
 # computed at file scope, so the immediate-run shim and Pester's
 # discovery-then-run split observe the same state.
-if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
-    function Describe { param([string]$Name, [scriptblock]$Fixture) Write-Output "Describe: $Name"; & $Fixture }
-    function Context  { param([string]$Name, [scriptblock]$Fixture) Write-Output "  Context: $Name"; & $Fixture }
-    function It       { param([string]$Name, [scriptblock]$Test)    & $Test; Write-Output "    [pass] $Name" }
-}
+
 
 # --- REGION: Fixtures
 # The two worlds that look alike. A NAS layout puts a directory inside a share

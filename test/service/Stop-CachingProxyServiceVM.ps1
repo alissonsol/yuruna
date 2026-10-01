@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42008bcd-66da-4584-84a4-c4454a7f8958
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -189,7 +189,7 @@ if ($IsMacOS) {
         foreach ($pf in (Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue)) {
             $fp = (Get-Content $pf.FullName -Raw).Trim()
             if ($fp -as [int]) {
-                $owner = (& '/bin/ps' -p $fp -o 'user=' 2>$null).Trim()
+                $owner = ([string](& '/bin/ps' -p $fp -o 'user=' 2>$null)).Trim()
                 if ($owner -eq 'root') { $hasRootForwarder = $true; break }
             }
         }

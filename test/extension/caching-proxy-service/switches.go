@@ -137,8 +137,8 @@ func (d *daemon) reconfigure() error {
 	return nil
 }
 
-// runCommand is the real exec, injected so tests never touch a squid.
-func runCommand(name string, args ...string) (string, error) {
+// runCommandUnbounded is the real exec, injected so tests never touch a squid.
+func runCommandUnbounded(name string, args ...string) (string, error) {
 	out, err := exec.Command(name, args...).CombinedOutput()
 	return string(out), err
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42536ec8-4d7e-4727-b52e-55f7f0ca8688
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,8 +93,15 @@ function Get-SeedFileContent {
 # python3 runs the guest script here exactly as the VM would. It is the same
 # interpreter the proxy's own dashboard tooling needs, so a host without one
 # cannot check this; say so rather than passing silently.
-$script:Python = (Get-Command python3 -CommandType Application -ErrorAction SilentlyContinue |
-    Select-Object -First 1)
+# A candidate must answer --version: the Windows Store alias for python3 resolves
+# as an application yet exits 9009 without running anything.
+$script:Python = @('python3', 'python') | ForEach-Object {
+        Get-Command $_ -CommandType Application -ErrorAction SilentlyContinue
+    } | Where-Object {
+        $version = & $_.Source --version 2>&1
+        $LASTEXITCODE -eq 0 -and "$version" -match '^Python 3'
+    } | Select-Object -First 1
+
 
 $script:WorkRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-brand-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $script:WorkRoot | Out-Null
@@ -136,7 +143,7 @@ function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.09.27',
+        [string]$Version = '2026.09.30',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -275,7 +282,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
         # A line that broke would need a taller banner to be legible, which is
         # the whole cost the layout was chosen to avoid.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.09.27' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.09.30' | Out-Null
 
         foreach ($name in $script:RealDashboards.Keys) {
             $doc = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
@@ -284,7 +291,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
             # nothing, so it is not part of the line being measured.
             $rendered = ($content -replace '(?s)^.*?-->\s*', '')
             Assert-True ($rendered -notmatch '[\r\n]') -Because "$name's banner must be a single line: got [$rendered]"
-            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.09.27`') -Actual $rendered `
+            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.09.30`') -Actual $rendered `
                 -Because "$name's banner must hold the name and version apart with non-breaking spaces"
         }
     }
@@ -387,7 +394,7 @@ Describe 'the brand banner is safe to re-run' {
         # The version is a variable, not a literal repeated in the assertion.
         # Written twice, the two copies drift the first time the version moves,
         # and the assertion then checks for a string the test never asked for.
-        $version = '2026.09.27'
+        $version = '2026.09.30'
 
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
         Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version $version | Out-Null

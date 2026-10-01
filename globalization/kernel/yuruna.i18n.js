@@ -133,7 +133,16 @@
     var n = Number(value);
     if (!isFinite(n)) { return ''; }
     var negative = n < 0;
-    var text = Math.abs(n).toFixed(decimals);
+    var magnitude = Math.abs(n);
+    var text = magnitude.toFixed(decimals);
+    // An exactly representable decimal tie has an odd numerator when scaled
+    // by 2^(decimals+1). Checking the binary scale avoids treating a rounded
+    // decimal product (such as 2.675*100) as an exact tie.
+    var binary = magnitude * Math.pow(2, decimals + 1);
+    if (binary % 2 === 1) {
+      var last = Number(text.charAt(text.length - 1));
+      if (last % 2 === 1) { text = text.slice(0, -1) + String(last - 1); }
+    }
     var parts = text.split('.');
     var whole = groupDigits(parts[0], d.group, d.groupSize || 3);
     var out = parts.length > 1 ? whole + d.decimal + parts[1] : whole;

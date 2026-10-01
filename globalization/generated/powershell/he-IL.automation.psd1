@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42322a4d-f414-3c38-3588-7ad936bc7aa9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -802,7 +802,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_287506e0d1314af9' = 'עד לכתיבת (1), ההגנה ''מאגר היעד אינו מכיל ערכת בדיקות'' אינה מופעלת עבור'
+    'automation.operator_287506e0d1314af9' = 'עד לכתיבת (1), ההגנה ''מאגר היעד אינו מכיל מאגרי קוד'' אינה מופעלת עבור'
     'automation.operator_29759c8a58f5d70a' = @(
         'שגיאת ⁦Get-PSRepository⁩: '
         @{

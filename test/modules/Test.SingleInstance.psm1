@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -973,6 +973,43 @@ function Get-YurunaProcessTable {
     return [pscustomobject]$result
 }
 
+function Get-YurunaSinglePidRecord {
+    <#
+    .SYNOPSIS
+        Performs one bounded PID lookup and keeps the table completeness verdict.
+    .PARAMETER ProcessId
+        PID to look up.
+    .PARAMETER Deadline
+        Optional caller deadline.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([int]$ProcessId, [psobject]$Deadline)
+    $arguments = @{ ProcessId = @($ProcessId); TimeoutSeconds = 5 }
+    if ($Deadline) { $arguments.Deadline = $Deadline }
+    $table = Get-YurunaProcessTable @arguments
+    $row = @($table.Rows | Where-Object { $_.Pid -eq $ProcessId }) | Select-Object -First 1
+    return [pscustomobject]@{ Table = $table; Row = $row }
+}
+
+function Test-YurunaDesignatedOuterIsSelf {
+    <#
+    .SYNOPSIS
+        Checks the resident outer PID and start-time identity consistently.
+    .PARAMETER Handoff
+        The designated handoff record.
+    .PARAMETER OwnStart
+        This process's observed start time.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param($Handoff, $OwnStart)
+    $designated = $Handoff['designatedOuter']
+    return [bool]($designated -and [int]$designated['pid'] -eq $PID -and $null -ne $OwnStart -and
+        $null -ne $designated['startTimeUnixMs'] -and
+        [Math]::Abs([long]$designated['startTimeUnixMs'] - [long]$OwnStart) -le $script:StartToleranceMs)
+}
+
 function Get-YurunaProcessStartUnixMs {
     <#
     .SYNOPSIS
@@ -985,10 +1022,8 @@ function Get-YurunaProcessStartUnixMs {
     [OutputType([long])]
     param([int]$ProcessId = $PID, [psobject]$Deadline)
     if ((Get-YurunaIdentityPlatform) -eq 'Linux') {
-        $lookup = @{ ProcessId = @($ProcessId); TimeoutSeconds = 5 }
-        if ($Deadline) { $lookup.Deadline = $Deadline }
-        $table = Get-YurunaProcessTable @lookup
-        $row = @($table.Rows | Where-Object { $_.Pid -eq $ProcessId }) | Select-Object -First 1
+        $lookupRecord = Get-YurunaSinglePidRecord -ProcessId $ProcessId -Deadline $Deadline
+        $row = $lookupRecord.Row
         if ($row -and $null -ne $row.StartTimeUnixMs) { return [long]$row.StartTimeUnixMs }
     }
     try {
@@ -1010,10 +1045,9 @@ function Get-YurunaProcessLiveIdentity {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param([Parameter(Mandatory)][int]$ProcessId, [psobject]$Deadline)
-    $lookup = @{ ProcessId = @($ProcessId); TimeoutSeconds = 5 }
-    if ($Deadline) { $lookup.Deadline = $Deadline }
-    $table = Get-YurunaProcessTable @lookup
-    $row = @($table.Rows | Where-Object { $_.Pid -eq $ProcessId }) | Select-Object -First 1
+    $lookupRecord = Get-YurunaSinglePidRecord -ProcessId $ProcessId -Deadline $Deadline
+    $table = $lookupRecord.Table
+    $row = $lookupRecord.Row
     if ($row) {
         return [pscustomobject]@{ Alive = $true; StartTimeUnixMs = $row.StartTimeUnixMs; ParentPid = $row.ParentPid; Known = $true }
     }
@@ -2208,11 +2242,11 @@ function Stop-YurunaRunnerProcessTarget {
                     $entry.Action = 'exited-after-term'; $entry.Reason = $term.Reason
                 } elseif ($afterTerm -eq 'recycled') {
                     $entry.Action = 'recycled-skipped'; $entry.Reason = 'start-mismatch'
+                } elseif (Test-YurunaDeadlineExpired -Deadline $Deadline) {
+                    $entry.Action = 'skipped-deadline'; $entry.Reason = 'deadline-exhausted'; $exhausted = $true
                 } elseif ($afterTerm -eq 'unverifiable') {
                     # Identity can no longer be proven, so no stronger signal follows.
                     $entry.Action = 'skipped-unverifiable'; $entry.Reason = 'identity-lost'
-                } elseif (Test-YurunaDeadlineExpired -Deadline $Deadline) {
-                    $entry.Action = 'skipped-deadline'; $entry.Reason = 'deadline-exhausted'; $exhausted = $true
                 } else {
                     $entry.Signal = 'KILL'
                     $kill = Send-YurunaProcessSignal -ProcessId $targetPid -Signal 'KILL' -Deadline $Deadline
@@ -2485,9 +2519,8 @@ function Get-YurunaRefreshGateState {
         $out.Owner = $owner
         if ($owner -and $owner['pid']) {
             $ownerPid = [int]$owner['pid']
-            $lookup = @{ ProcessId = @($ownerPid); TimeoutSeconds = 5 }
-            if ($Deadline) { $lookup.Deadline = $Deadline }
-            $table = Get-YurunaProcessTable @lookup
+            $lookupRecord = Get-YurunaSinglePidRecord -ProcessId $ownerPid -Deadline $Deadline
+            $table = $lookupRecord.Table
             $identity = @{ ProcessId = $ownerPid; ProcessTable = $table; SelfPid = -1 }
             if ($null -ne $owner['startTimeUnixMs']) { $identity.RecordedStartTimeUnixMs = [long]$owner['startTimeUnixMs'] }
             $out.OwnerState = (Get-YurunaProcessIdentityState @identity).State
@@ -2993,10 +3026,8 @@ function Test-YurunaRunnerHandoffToken {
     switch ($Role) {
         'outer' {
             if ([string]$handoff['purpose'] -eq 'resident-outer') {
-                $designated = $handoff['designatedOuter']
                 $ownStart = Get-YurunaProcessStartUnixMs -ProcessId $PID
-                if (-not $designated -or [int]$designated['pid'] -ne $PID -or $null -eq $ownStart -or $null -eq $designated['startTimeUnixMs'] -or
-                    [Math]::Abs([long]$designated['startTimeUnixMs'] - [long]$ownStart) -gt $script:StartToleranceMs) {
+                if (-not (Test-YurunaDesignatedOuterIsSelf -Handoff $handoff -OwnStart $ownStart)) {
                     $out.Reason = 'not-designated'
                     return [pscustomobject]$out
                 }
@@ -3399,10 +3430,7 @@ function Complete-YurunaRunnerHandoff {
         if ([string]$Current['state'] -ne 'handoff' -or -not $handoff) { return @{ Write = $false; Reason = 'not-handoff' } }
         if ([string]$handoff['tokenId'] -ne $TokenId) { return @{ Write = $false; Reason = 'token-mismatch' } }
         if ($AsDesignatedOuter) {
-            $designated = $handoff['designatedOuter']
-            if ([string]$handoff['purpose'] -ne 'resident-outer' -or -not $designated -or [int]$designated['pid'] -ne $PID -or
-                $null -eq $ownStart -or $null -eq $designated['startTimeUnixMs'] -or
-                [Math]::Abs([long]$designated['startTimeUnixMs'] - [long]$ownStart) -gt $script:StartToleranceMs) {
+            if ([string]$handoff['purpose'] -ne 'resident-outer' -or -not (Test-YurunaDesignatedOuterIsSelf -Handoff $handoff -OwnStart $ownStart)) {
                 return @{ Write = $false; Reason = 'not-designated' }
             }
         }
@@ -3472,9 +3500,7 @@ function Complete-YurunaRunnerExpiredHandoff {
         $handoff = $Current['handoff']
         if ([string]$Current['state'] -ne 'handoff' -or -not $handoff) { return @{ Write = $false; Reason = 'not-handoff' } }
         if ([string]$handoff['purpose'] -ne 'resident-outer') { return @{ Write = $false; Reason = 'not-resident' } }
-        $designated = $handoff['designatedOuter']
-        if (-not $designated -or [int]$designated['pid'] -ne $PID -or $null -eq $ownStart -or $null -eq $designated['startTimeUnixMs'] -or
-            [Math]::Abs([long]$designated['startTimeUnixMs'] - [long]$ownStart) -gt $script:StartToleranceMs) {
+        if (-not (Test-YurunaDesignatedOuterIsSelf -Handoff $handoff -OwnStart $ownStart)) {
             return @{ Write = $false; Reason = 'not-designated' }
         }
         if ((Test-YurunaRefreshTokenWindow -Handoff $handoff -TokenId ([string]$handoff['tokenId'])) -eq 'ok') {

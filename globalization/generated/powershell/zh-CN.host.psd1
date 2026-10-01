@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42367dc8-87ed-6a22-76cb-f406abe4051a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -6390,7 +6390,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '/  （分配 / 池 / 测试集）'
+        '/  （看板 / 宿主机 / 池）'
     )
     'host.operator_bba21c5cbbc83755' = @(
         'virt-install --print-xml失败（退出码'

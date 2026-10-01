@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42a8c19c-6467-464c-bbe1-27786a9557d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,9 @@ $here = Split-Path -Parent $PSCommandPath
 function Get-FileAst {
     param([string]$Path)
     $errs = $null
-    [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
+    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
+    return $ast
 }
 function Get-CallCount {
     param($Ast, [string]$Name)

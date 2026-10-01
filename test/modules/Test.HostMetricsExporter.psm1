@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c7f1a9-3e60-4b2d-9a55-1f0c8b6d24ae
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -203,6 +203,7 @@ function Get-YurunaHostMetricsScrapeSource {
         $parsed = [System.Net.IPAddress]::Any
         if (-not [System.Net.IPAddress]::TryParse($text, [ref]$parsed)) { continue }
         $normalized = $parsed.ToString()
+        if ($parsed.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork -and $text -cne $normalized) { continue }
         if ($addresses -notcontains $normalized) { $addresses.Add($normalized) }
     }
     if ($addresses.Count -eq 0) { return [string[]]@('LocalSubnet') }

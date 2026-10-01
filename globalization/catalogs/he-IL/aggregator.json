@@ -449,9 +449,9 @@
       "message": "הסירו מארח מתצוגת המאגר לאחר שחלף פרק זמן זה מאז הקשר האחרון; מצב מניעת הכפילויות שלו לכל מחזור נשמר שעה נוספת כדי שמארח שמופיע מחדש לא ייספר פעמיים, וקישורים עמוקים ללוח הבקרה ממשיכים לפעול במשך לפחות 24h בכל מקרה. מוני pass⁦/fail⁩ המצטברים אינם מתאפסים בעקבות זאת -- השתמשו בפקודה POST ⁦/api/v1/forget-host⁩"
     },
     "aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952": {
-      "sourceHash": "761d35e199dac245785466dbbad8e6d25d910951676b184444226cd4a25fc73e",
+      "sourceHash": "c204d36924d98ba6967bf24ed50ca648eccbfc69c6924bb5a4036d56bdc7db50",
       "origin": "machine",
-      "message": "קובץ המכיל את אסימון האימות המשותף הנדרש עבור POST ⁦/ingest⁩; במצב empty⁦/absent/empty-file⁩ -> הנתיב ⁦/ingest⁩ מושבת (לעולם אינו נתיב כתיבה ללא אימות)"
+      "message": "קובץ המכיל את אסימון ה-Bearer המשותף הנדרש עבור ⁦POST /ingest⁩, ⁦POST /api/v1/forget-host⁩, ⁦POST /api/v1/handover-host⁩ ו-⁦GET /api/v1/host-history⁩; אם הנתיב ריק, הקובץ חסר או הקובץ ריק, פעולות אלה מושבתות (אין נתיב בקרה ללא אימות)"
     },
     "aggregator.help_loki_push_api_url_c89d9321": {
       "sourceHash": "e9b9a6d503a6b6dc1029077c0d274c882f47b699f50955664baf499b985ea446",

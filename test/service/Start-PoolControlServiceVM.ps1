@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,6 +91,7 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
 $repoRoot   = $paths.RepoRoot
 $ModulesDir = $paths.ModulesDir
+Import-Module (Join-Path $ModulesDir 'Test.ServiceVm.psm1') -Global -DisableNameChecking -Verbose:$false
 
 # --- REGION: https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
@@ -246,45 +247,10 @@ $remedy
     # --- REGION: Create the VM
     # Each New-VM runs Get-Image auto-fetch when the base image is missing, tears down any
     # prior VM, creates the new one, and (Hyper-V + KVM) starts it. UTM only builds the
-    # bundle -- register + start below.
+    # bundle; Invoke-YurunaServiceVmBuild registers and starts it.
     Write-Information "== Bringing up '$VMName' on $HostType ==" -InformationAction Continue
-    $newVmArgs = @('-NoProfile', '-File', $newVm, '-VMName', $VMName)
-    if ($AllowPseudoLocale) { $newVmArgs += '-AllowPseudoLocale' }
-    # A stop published while this start was preparing wins: nothing is built
-    # for a request that no longer stands (the finally reports the newer one).
-    if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit $ExitFailure }
-    & pwsh @newVmArgs
-    $rc = $LASTEXITCODE
-    if ($rc -ne 0) {
-        Write-Error "$newVm exited $rc -- aborting."
-        exit $rc
-    }
-
-    # --- REGION: Register and start the UTM VM
-    # See https://yuruna.link/42e220c4-0008
-    if ($HostType -eq 'host.macos.utm') {
-        $UtmDir = "$HOME/yuruna/guest.nosync/$VMName.utm"
-        if (-not (Test-Path $UtmDir)) {
-            Write-Error "UTM bundle missing at $UtmDir after New-VM."
-            exit $ExitFailure
-        }
-        Write-Verbose "Starting '$VMName'..."
-        $startResult = Start-VM -VMName $VMName -Confirm:$false
-        if (-not $startResult.success) {
-            Write-Error "Could not start '$VMName': $($startResult.errorMessage)"
-            exit $ExitFailure
-        }
-    }
-
-    # --- REGION: Verify the VM state
-    # See https://yuruna.link/42e220c4-0008
-    if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
-        $observed = try { Get-VMState -VMName $VMName } catch { 'unknown' }
-        Write-Error "VM '$VMName' did not reach 'running' (state: $observed); the pool-control service was NOT started. Nothing in the guest -- cloud-init, the go build, the pool NAS mount -- has run yet. Open the VM in the hypervisor UI and start it by hand to see why."
-        exit $ExitFailure
-    }
-    # The start request is confirmed once the rebuilt VM is positively running;
-    # the daemon's readiness is reported on its own below and is census evidence.
+    $build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
+    if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
     $serviceOpResult = 'confirmed'
 
     # --- REGION: Resolve the VM address
@@ -407,49 +373,18 @@ $remedy
     # is the one place where the alternative is calling a healthy daemon failed.
     $recoveredIp = ''
     if ($verdict.IsFailure) {
-        $recoveredIp = Resolve-GuestDiagnosticAddress -VMName $VMName
-        if ($recoveredIp -and $recoveredIp -ne [string]$vmIp) {
-            Write-Warning "Located '$VMName' at $recoveredIp -- an address the readiness wait never probed. Re-checking :80 there before failing the bring-up."
-            # Bounded by the wall clock rather than an iteration count: the
-            # bound that matters to the operator is a duration, and each probe's
-            # own timeout stretches under load -- so a counted loop silently
-            # becomes an unbounded one exactly when the host is busiest.
-            $readyDeadline = (Get-Date).AddSeconds($recoveryProbeSeconds)
-            while (-not $daemonReady -and (Get-Date) -lt $readyDeadline) {
-                if (Test-TcpEndpointOpen -Address $recoveredIp -Port 80 -TimeoutMilliseconds 1000) {
-                    $daemonReady = $true
-                } else {
-                    Start-Sleep -Seconds 3
+        $recovery = Confirm-ServiceVmAtRecoveredAddress -VMName $VMName -Port 80 -KnownAddress ([string]$vmIp) -TimeoutSeconds $recoveryProbeSeconds
+        $recoveredIp = [string]$recovery.Address
+        Write-Verbose "  $($recovery.Summary)."
+        if ($recovery.Ready) {
+            $vmIp = $recoveredIp
+            $endpoint = New-ServiceVmRecoveredEndpoint -Endpoint $endpoint -Address $recoveredIp -WaitedSeconds $ipWaitSeconds
+            $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
+            if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
+                $script:poolControlForwarded = Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
+                if ($script:poolControlForwarded) {
+                    Write-Verbose "  Re-pointed host :8081 -> ${recoveredIp}:80."
                 }
-            }
-            if ($daemonReady) {
-                Write-Verbose "  The daemon IS serving at ${recoveredIp}:80 -- the wait was probing an address this guest never had."
-                $vmIp = $recoveredIp
-                # Re-decided through the same helper rather than set by hand:
-                # two ways of producing a verdict are two verdicts that can
-                # disagree with each other.
-                $endpoint = [pscustomobject]@{
-                    Ready         = $true
-                    Unreachable   = $false
-                    StillBuilding = $false
-                    Address       = $recoveredIp
-                    WaitedSeconds = $(if ($endpoint) { $endpoint.WaitedSeconds } else { $ipWaitSeconds })
-                    # --- REGION: https://yuruna.link/42e220c4-0008
-                    ObservedState = 'located by the last-resort guest discovery once the readiness wait had no address for it, then confirmed serving on :80'
-                }
-                $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
-                # The forwarder has to follow, or peers keep dialing an address
-                # that accepts on this host and then cannot connect -- which
-                # hangs every caller for a full timeout instead of failing fast,
-                # strictly worse than no forwarder at all.
-                if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-                    $script:poolControlForwarded = Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
-                    if ($script:poolControlForwarded) {
-                        Write-Verbose "  Re-pointed host :8081 -> ${recoveredIp}:80."
-                    }
-                }
-            } else {
-                Write-Warning "${recoveredIp}:80 did not answer within ${recoveryProbeSeconds}s either, so the guest was found but its daemon is not serving."
             }
         }
     }
@@ -583,7 +518,7 @@ To hold this script longer next time:
         }
         Write-Verbose "  VM:   $VMName ($HostType)"
         if ($poolControlServiceBaseUrl) {
-            Write-Verbose "  UI:   $poolControlServiceBaseUrl  (Assign / Pools / Test sets)"
+            Write-Verbose "  UI:   $poolControlServiceBaseUrl  (Board / Hosts / Pools)"
         } else {
             Write-Verbose "  UI:   not published -- this host cannot reach the daemon, so no URL is advertised. The pool still"
             Write-Verbose "        resolves the service from its own announce; the Yuruna hosts dashboard links it there."
@@ -612,62 +547,7 @@ To hold this script longer next time:
     $diagIp = if ($vmIp) { [string]$vmIp } else { [string]$recoveredIp }
     if (-not $diagIp) { Write-Information "  '$VMName' could not be located by any discovery route this host has." -InformationAction Continue }
 
-    # The console frame answers what SSH cannot reach to answer. A guest that
-    # stopped at a failed cifs mount, or sits at a login prompt with cloud-init
-    # dead, shows exactly that on screen while every host-side probe can only
-    # report silence.
-    try {
-        $logDir = Initialize-YurunaLogDir
-        if ($logDir -and (Get-Command Get-VMScreenshot -ErrorAction SilentlyContinue)) {
-            $consolePng = Join-Path $logDir "pool-control-service-console_${VMName}.png"
-            $captured = Get-VMScreenshot -VMName $VMName -OutFile $consolePng
-            # Get-VMScreenshot can report truthy without writing the file, so the
-            # path is advertised only once it is on disk.
-            if ($captured -and (Test-Path -LiteralPath $consolePng)) {
-                Write-Verbose "  Guest console captured: $consolePng"
-            } else {
-                Write-Information "  Guest console could not be captured (the hypervisor returned no frame)." -InformationAction Continue
-            }
-        }
-    } catch { Write-Verbose "pool-control-service console capture: $($_.Exception.Message)" }
-
-    $diagCmd = @(
-        # First, because it is the fact that settles the most common confusion
-        # here: when the guest's own address differs from the one this host
-        # probed, the daemon was never the problem. Printing both side by side
-        # names that immediately instead of leaving it to be inferred.
-        "echo `"=== guest addresses (this host probed: $(if ($diagIp) { $diagIp } else { '<none resolved>' })) ===`"; ip -4 -o addr show scope global 2>&1 | awk '{print `$2, `$4}'",
-        'echo "=== cloud-init status ==="; cloud-init status --long 2>&1 | head -n 20',
-        'echo "=== systemctl status pool-control-service.service ==="; systemctl --no-pager --full status pool-control-service.service 2>&1 | head -n 25',
-        'echo "=== journalctl -u pool-control-service.service (last 40) ==="; sudo journalctl -u pool-control-service.service --no-pager -n 40 2>&1',
-        'echo "=== listening on :80? ==="; ss -ltn 2>/dev/null | grep -E ":80\b" || echo "(nothing listening on :80)"',
-        'echo "=== /var/log/cloud-init-output.log (tail 120) ==="; sudo tail -n 120 /var/log/cloud-init-output.log 2>&1'
-    ) -join "`n"
-    $diag = $null
-    # --- REGION: https://yuruna.link/42e220c4-0008
-    $sshTarget = if ($diagIp) { $diagIp } else { $VMName }
-    if (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue) {
-        try { $diag = Invoke-GuestSsh -VMName $sshTarget -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' -Command $diagCmd -TimeoutSeconds 120 }
-        catch { Write-Verbose "guest diagnostics ssh: $($_.Exception.Message)" }
-    }
-    Write-Verbose ""
-    Write-Information "================= pool-control-service guest diagnostics =================" -InformationAction Continue
-    if ($diag -and -not [string]::IsNullOrWhiteSpace([string]$diag.output)) {
-        foreach ($line in ([string]$diag.output -split "`r?`n")) { Write-Information "  $line" -InformationAction Continue }
-        if (-not $diag.success) {
-            Write-Verbose "  (ssh ended with exit=$($diag.exitCode); the capture above is what completed before it did)"
-        }
-    } else {
-        Write-Information "  Could not reach the VM over SSH (sshd may still be starting, or networking is broken)." -InformationAction Continue
-        # Never an ssh line with a hole where the host should be: an address this
-        # host never learned makes the command unrunnable AND hides the fact that
-        # is actually blocking the reader.
-        foreach ($hintLine in ((Format-GuestSshDiagnosticHint -User 'pool-control-service-admin' -Address $diagIp -VMName $VMName `
-                    -Command 'sudo tail -n 120 /var/log/cloud-init-output.log') -split "`r?`n")) {
-            Write-Verbose "  $hintLine"
-        }
-    }
-    Write-Verbose "========"
+    Invoke-YurunaServiceVmFailureDiagnostic -ServiceName 'pool-control-service' -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' -VMName $VMName -Address $diagIp
     Write-Verbose ""
     Write-Information "The pool-control-service daemon did not come up on :80. Reading the capture above:" -InformationAction Continue
     Write-Information "  * cloud-init status 'running'  -> the in-guest build (go/pwsh) is still going; wait, then" -InformationAction Continue
@@ -740,16 +620,8 @@ Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
 # of shell/path syntax; unsupported-but-well-formed tags remain a deliberate
 # config lock and are refused by the daemon's compiled locale authority.
 $hostStatusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
-$languageRaw = [string](Get-TestConfigValue -Config $hostStatusSeed.Config -Path 'language')
-$poolControlLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
-    'auto'
-} else {
-    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
-}
-if (-not $poolControlLanguage) {
-    Write-Error "Invalid language '$languageRaw' in test/test.config.yml."
-    exit $ExitFailure
-}
+try { $poolControlLanguage = Resolve-SeedLanguageTag -Config $hostStatusSeed.Config }
+catch { Write-Error $_; exit $ExitFailure }
 
 $goArgs = @('--http-addr', "0.0.0.0:$Port", '--repo-dir', $repoRoot, '--pwsh', $pwshExe,
     '--language', $poolControlLanguage)
@@ -768,20 +640,21 @@ if ($PSCmdlet.ShouldProcess($binPath, "launch pool-control-service on :$Port")) 
     foreach ($argument in $goArgs) { $launch.ArgumentList.Add([string]$argument) }
     $proc = [Diagnostics.Process]::Start($launch)
     Start-Sleep -Seconds 1
-    $localIp = try { (Test-Connection -TargetName ([System.Net.Dns]::GetHostName()) -Count 1 -ErrorAction SilentlyContinue).Address.IPAddressToString } catch { $null }
+    $localIp = try { [string](Get-BestHostIp) } catch { $null }
     if ([string]::IsNullOrWhiteSpace($localIp)) { $localIp = '127.0.0.1' }
+    $localUrlHost = if ($localIp.Contains(':')) { "[$localIp]" } else { $localIp }
     Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
     # The start time lets a later Stop tell this daemon from an unrelated
     # process that inherited its pid.
     $procStartUnixMs = try { [DateTimeOffset]::new($proc.StartTime).ToUnixTimeMilliseconds() } catch { [long]0 }
     [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir `
-        -Active $true -BaseUrl "http://${localIp}:$Port/" -HostingMode 'host-process' `
+        -Active $true -BaseUrl "http://${localUrlHost}:$Port" -HostingMode 'host-process' `
         -Extra ([ordered]@{ pid = $proc.Id; port = $Port; processStartUnixMs = $procStartUnixMs }))
     $serviceOpResult = 'confirmed'
     if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
         try { Write-HostRegistrationRecord -HostType (Get-HostType) -RepoRoot $repoRoot | Out-Null } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
     }
-    Write-Verbose "Pool-control service running (pid $($proc.Id)) at http://${localIp}:$Port/  (UI: /, /pools, /test-sets)."
+    Write-Verbose "Pool-control service running (pid $($proc.Id)) at http://${localUrlHost}:$Port  (UI: /, /hosts, /pools)."
 }
 exit $ExitOk
 } finally {

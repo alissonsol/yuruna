@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42cccee0-5874-465b-83ed-85e8f9c9e9d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -193,7 +193,9 @@ function Get-PoolExtensionHostFrom {
     # Route from the manifest, not a second literal: a copy here is a copy that
     # keeps answering the old path after the map is corrected.
     $route = (Get-PoolAggregatorServiceManifest).Endpoints.ExtensionHosts
-    $uri = "$($BaseUrl.TrimEnd('/'))$route`?area=$([uri]::EscapeDataString($Area))"
+    $bases = @(@($BaseUrl, ($BaseUrl -replace '^https:', 'http:')) | Select-Object -Unique)
+    foreach ($base in $bases) {
+    $uri = "$($base.TrimEnd('/'))$route`?area=$([uri]::EscapeDataString($Area))"
     try {
         # 404 is the documented "no live host for this area" answer, not a
         # transport failure, so it must not throw its way into the catch and be
@@ -226,9 +228,12 @@ function Get-PoolExtensionHostFrom {
         return $resolved.Trim()
     } catch {
         Set-PoolLookupOutcome -Outcome 'transport-error' -Uri $uri -Detail $_.Exception.Message -Confirm:$false
+        if ($base -ne $bases[-1]) { continue }
         Write-Warning "Get-PoolExtensionHost: could not reach the aggregator at $BaseUrl for area '$Area' ($($_.Exception.Message)). This is the asker's own link, not a statement that no '$Area' host exists."
         return ''
     }
+    }
+    return ''
 }
 
 <#

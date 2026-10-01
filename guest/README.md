@@ -29,6 +29,13 @@ $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else {
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/windows.11/windows.11.<workload>.ps1$nc" | iex
 ```
 
+Ubuntu 24 and 26 share the update, code, n8n, openclaw, and PostgreSQL
+implementations in `guest/shared/`. Their release entrypoints verify a pinned
+SHA-256 before running a local body or delegate to the installed fetcher with that
+digest. After editing a shared body, run `python3 tools/Sync-GuestWorkflows.py`;
+`--check` detects stale wrappers. The fetcher preserves script arguments. Existing
+baked retry-library fallbacks remain in the shared bodies.
+
 Available workloads are listed in each guest folder's `README.md` (linked
 above) and documented per-workload under [../docs/](../docs/) -- see [Guest
 workloads](../docs/guest-image-setup.md#guest-workloads) for
@@ -40,6 +47,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

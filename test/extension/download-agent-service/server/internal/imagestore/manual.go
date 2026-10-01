@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -80,11 +79,8 @@ func (s *Store) ManualCandidate(id ImageID, now time.Time) (path string, info os
 	if err != nil {
 		return "", nil, false
 	}
-	type cand struct {
-		name string
-		fi   os.FileInfo
-	}
-	var cands []cand
+	var bestName string
+	var best os.FileInfo
 	for _, e := range ents {
 		if e.IsDir() || !ValidGenerationName(e.Name()) {
 			continue
@@ -96,13 +92,14 @@ func (s *Store) ManualCandidate(id ImageID, now time.Time) (path string, info os
 		if now.Sub(fi.ModTime()) < manualSettle {
 			continue
 		}
-		cands = append(cands, cand{name: e.Name(), fi: fi})
+		if best == nil || fi.ModTime().After(best.ModTime()) || (fi.ModTime().Equal(best.ModTime()) && e.Name() < bestName) {
+			bestName, best = e.Name(), fi
+		}
 	}
-	if len(cands) == 0 {
+	if best == nil {
 		return "", nil, false
 	}
-	sort.Slice(cands, func(i, j int) bool { return cands[i].fi.ModTime().After(cands[j].fi.ModTime()) })
-	return filepath.Join(dir, cands[0].name), cands[0].fi, true
+	return filepath.Join(dir, bestName), best, true
 }
 
 // ManualFallbackFor describes the hand-download path for an identity, or nil

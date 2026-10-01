@@ -85,7 +85,7 @@ packages:
   - prometheus-node-exporter
   - grafana
   - loki
-  - promtail
+  - [alloy, "1.20.0-1"]
   # --- REGION: https://yuruna.link/429f3d06-0039
   - acl
   - golang-go
@@ -529,80 +529,119 @@ write_files:
         retention_enabled: true
         delete_request_store: filesystem
   # See https://yuruna.link/429f3d06-0048
-  - path: /etc/promtail/config.yml
+  # Converted with Alloy 1.20.0; preserve the legacy offsets on migration.
+  - path: /etc/alloy/config.alloy
     permissions: '0644'
     owner: root:root
     content: |
-      server:
-        http_listen_address: 127.0.0.1
-        http_listen_port: 9080
-        grpc_listen_port: 0
-      positions:
-        filename: /var/lib/promtail/positions.yaml
-      clients:
-        - url: http://127.0.0.1:3100/loki/api/v1/push
-      scrape_configs:
-        - job_name: squid
-          static_configs:
-            - targets:
-                - localhost
-              labels:
-                job: squid
-                # Tail only Squid's custom User-Agent-aware log; keep its stock access.log unchanged.
-                __path__: /var/log/squid/yuruna_access.log
-          pipeline_stages:
-            - regex:
-                expression: '^(?P<ts>\d+\.\d+)\s+\d+\s+'
-            - timestamp:
-                source: ts
-                format: Unix
-        # Separate VM-originated proxy egress so it cannot dilute client-log analysis.
-        - job_name: squid_loopback
-          static_configs:
-            - targets:
-                - localhost
-              labels:
-                job: squid_loopback
-                __path__: /var/log/squid/yuruna_loopback.log
-          pipeline_stages:
-            - regex:
-                expression: '^(?P<ts>\d+\.\d+)\s+\d+\s+'
-            - timestamp:
-                source: ts
-                format: Unix
-        # Ship zot's JSONL /var/log/zot/zot.log to Loki as job=zot so {job="zot"} queries work in Explore; no dashboard consumes the stream today (community Zot dashboard is Prom-only).
-        - job_name: zot
-          static_configs:
-            - targets:
-                - localhost
-              labels:
-                job: zot
-                __path__: /var/log/zot/zot.log
-          pipeline_stages:
-            - json:
-                expressions:
-                  ts: time
-                  path: path
-            - timestamp:
-                source: ts
-                format: RFC3339Nano
-            # Sentinel first: promtail's drop stage skips entries whose source key
-            # is absent, and zot's sync lines carry no `path` at all.
-            - template:
-                source: path
-                template: '{{ or .path "NO_HTTP_PATH" }}'
-            # --- REGION: https://yuruna.link/429f3d06-0048
-            - drop:
-                source: path
-                value: /metrics
-                drop_counter_reason: metrics_poll
-  # See https://yuruna.link/429f3d06-0049
-  - path: /etc/systemd/system/promtail.service.d/yuruna.conf
+      loki.process "squid" {
+          forward_to = [loki.write.default.receiver]
+
+          stage.regex {
+              expression = "^(?P<ts>\\d+\\.\\d+)\\s+\\d+\\s+"
+          }
+
+          stage.timestamp {
+              source = "ts"
+              format = "Unix"
+          }
+      }
+
+      loki.source.file "squid" {
+          targets = [{
+              __address__ = "localhost",
+              __path__    = "/var/log/squid/yuruna_access.log",
+              job         = "squid",
+          }]
+          forward_to = [loki.process.squid.receiver]
+
+          file_match {
+              enabled = true
+          }
+          legacy_positions_file = "/var/lib/alloy/promtail-positions.yaml"
+      }
+
+      loki.process "squid_loopback" {
+          forward_to = [loki.write.default.receiver]
+
+          stage.regex {
+              expression = "^(?P<ts>\\d+\\.\\d+)\\s+\\d+\\s+"
+          }
+
+          stage.timestamp {
+              source = "ts"
+              format = "Unix"
+          }
+      }
+
+      loki.source.file "squid_loopback" {
+          targets = [{
+              __address__ = "localhost",
+              __path__    = "/var/log/squid/yuruna_loopback.log",
+              job         = "squid_loopback",
+          }]
+          forward_to = [loki.process.squid_loopback.receiver]
+
+          file_match {
+              enabled = true
+          }
+          legacy_positions_file = "/var/lib/alloy/promtail-positions.yaml"
+      }
+
+      loki.process "zot" {
+          forward_to = [loki.write.default.receiver]
+
+          stage.json {
+              expressions = {
+                  path = "path",
+                  ts   = "time",
+              }
+          }
+
+          stage.timestamp {
+              source = "ts"
+              format = "RFC3339Nano"
+          }
+
+          stage.template {
+              source   = "path"
+              template = "{{ or .path \"NO_HTTP_PATH\" }}"
+          }
+
+          stage.drop {
+              drop_counter_reason = "metrics_poll"
+              source              = "path"
+              value               = "/metrics"
+          }
+      }
+
+      loki.source.file "zot" {
+          targets = [{
+              __address__ = "localhost",
+              __path__    = "/var/log/zot/zot.log",
+              job         = "zot",
+          }]
+          forward_to = [loki.process.zot.receiver]
+
+          file_match {
+              enabled = true
+          }
+          legacy_positions_file = "/var/lib/alloy/promtail-positions.yaml"
+      }
+
+      loki.write "default" {
+          endpoint {
+              url = "http://127.0.0.1:3100/loki/api/v1/push"
+          }
+          external_labels = {}
+      }
+  - path: /etc/systemd/system/alloy.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
     content: |
       [Service]
       SupplementaryGroups=proxy zot
+      Environment="CUSTOM_ARGS=--server.http.listen-addr=127.0.0.1:9080 --disable-reporting"
   # See https://yuruna.link/429f3d06-004a
   - path: /usr/local/bin/squid-meta-exporter.sh
     permissions: '0755'
@@ -2090,7 +2129,6 @@ write_files:
               { "id": "groupBy", "options": { "fields": {
                 "canonicalHostId": { "aggregations": [], "operation": "groupby" },
                 "control": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
-                "poolGuid": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
                 "version": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
                 "commit": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
                 "status": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
@@ -2113,7 +2151,6 @@ write_files:
                   "renameByName": {
                     "canonicalHostId": "Host ID",
                     "control (lastNotNull)": "Control",
-                    "poolGuid (lastNotNull)": "Pool ID",
                     "hostType (lastNotNull)": "Type",
                     "version (lastNotNull)": "Version",
                     "commit (lastNotNull)": "Commit",
@@ -2131,20 +2168,19 @@ write_files:
                   "indexByName": {
                     "canonicalHostId": 0,
                     "control (lastNotNull)": 1,
-                    "poolGuid (lastNotNull)": 2,
-                    "version (lastNotNull)": 3,
-                    "commit (lastNotNull)": 4,
-                    "status (lastNotNull)": 5,
-                    "hostType (lastNotNull)": 6,
-                    "Value #D (sum)": 7,
-                    "Value #C (sum)": 8,
-                    "Value #B (lastNotNull)": 9,
-                    "cycleStartUtc (lastNotNull)": 10,
-                    "baseUrl (lastNotNull)": 11,
-                    "cycleFolderUrl (lastNotNull)": 12,
-                    "commitUrl (lastNotNull)": 13,
-                    "projectCommitUrl (lastNotNull)": 14,
-                    "hostIdDashed (lastNotNull)": 15
+                    "version (lastNotNull)": 2,
+                    "commit (lastNotNull)": 3,
+                    "status (lastNotNull)": 4,
+                    "hostType (lastNotNull)": 5,
+                    "Value #D (sum)": 6,
+                    "Value #C (sum)": 7,
+                    "Value #B (lastNotNull)": 8,
+                    "cycleStartUtc (lastNotNull)": 9,
+                    "baseUrl (lastNotNull)": 10,
+                    "cycleFolderUrl (lastNotNull)": 11,
+                    "commitUrl (lastNotNull)": 12,
+                    "projectCommitUrl (lastNotNull)": 13,
+                    "hostIdDashed (lastNotNull)": 14
                   }
                 }
               }
@@ -3988,10 +4024,10 @@ runcmd:
       echo "== YURUNA: /etc/yuruna/host.env absent -- no host coordinates in the seed; falling back to github for source fetch =="
     fi
     # --- REGION: https://yuruna.link/429f3d06-0070
-    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/extension-sdk/beacon /opt/extension-sdk/controlproof /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n
+    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/extension-sdk/beacon /opt/extension-sdk/controlproof /opt/extension-sdk/hostinfo /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n /opt/extension-sdk/servicecfg /opt/extension-sdk/internal/gatethrottle /opt/extension-sdk/jsonbody
     cd /opt/pool-aggregator-service
     PA_OK=1
-    for f in go.mod beacon/beacon.go controlproof/controlproof.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go; do
+    for f in go.mod beacon/beacon.go controlproof/controlproof.go hostinfo/addresses.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go servicecfg/config.go internal/gatethrottle/throttle.go jsonbody/decode.go; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "/opt/extension-sdk/$f" "${YR_BASE}test/extension/extension-sdk/$f" || PA_OK=0
       if [ ! -s "/opt/extension-sdk/$f" ]; then PA_OK=0; echo "== YURUNA: extension-sdk source '$f' empty/missing from ${YR_BASE}test/extension/extension-sdk/$f (source=${YR_SRC}) =="; fi
     done
@@ -4038,7 +4074,7 @@ runcmd:
       if [ ! -s "$f" ]; then CPS_OK=0; echo "== YURUNA: caching-proxy-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-service/$f (source=${YR_SRC}) =="; fi
     done
     # The SDK was staged by the aggregator block above, which runs first.
-    for f in go.mod beacon/beacon.go controlproof/controlproof.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go; do
+    for f in go.mod beacon/beacon.go controlproof/controlproof.go hostinfo/addresses.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go servicecfg/config.go internal/gatethrottle/throttle.go jsonbody/decode.go; do
       if [ ! -s "/opt/extension-sdk/$f" ]; then CPS_OK=0; echo "== YURUNA: extension-sdk source '$f' was not staged; the aggregator block above should have fetched it =="; fi
     done
     # VERSION_STR the way every other service derives it: first line, whitespace
@@ -4123,11 +4159,11 @@ runcmd:
       git -C "$INTENT_GIT" config receive.updateServerInfo true || true
       TMP_SEED=$(mktemp -d)
       git -C "$TMP_SEED" init -q --initial-branch=main || true
-      # schemaVersion 2, matching pools.schema.yml's `const: 2`. A store seeded
-      # at 1 READS fine -- nothing validates on read -- and then fails every
-      # write with "Expected 2 at /schemaVersion", so the store looks healthy
-      # until the first admin CLI tries to save.
-      printf 'schemaVersion: 2\npools: []\n' > "$TMP_SEED/pools.yml"
+      # schemaVersion 3, matching pools.schema.yml's `const: 3`. A store seeded
+      # at an older version READS fine -- nothing validates on read -- and then
+      # fails every write with "Expected 3 at /schemaVersion", so the store looks
+      # healthy until the first admin CLI tries to save.
+      printf 'schemaVersion: 3\npools: []\n' > "$TMP_SEED/pools.yml"
       git -C "$TMP_SEED" add -A || true
       git -C "$TMP_SEED" -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool intent' || true
       git -C "$TMP_SEED" push -q "$INTENT_GIT" HEAD:main || true
@@ -4178,13 +4214,33 @@ runcmd:
       || echo "== YURUNA: dashboard brand tile not stamped -- the timer retries within 15 minutes =="
   # --- REGION: https://yuruna.link/42f6b05f-001d
   - id zot >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin zot
-  - install -d -o promtail -m 0755 /var/lib/promtail
+  - |
+    # Subshell keeps errexit local: every runcmd item runs in one script, so a
+    # bare set -e here would end provisioning at the next non-zero status.
+    (
+    set -e
+    if systemctl cat promtail.service >/dev/null 2>&1; then
+      systemctl stop promtail.service
+      systemctl disable promtail.service
+    fi
+    install -d -o alloy -g alloy -m 0750 /var/lib/alloy
+    if [ -f /var/lib/promtail/positions.yaml ] && [ ! -f /var/lib/alloy/promtail-positions.yaml ]; then
+      install -o alloy -g alloy -m 0640 /var/lib/promtail/positions.yaml /var/lib/alloy/promtail-positions.yaml
+    elif [ ! -f /var/lib/alloy/promtail-positions.yaml ]; then
+      printf 'positions: {}\n' > /var/lib/alloy/promtail-positions.yaml
+      chown alloy:alloy /var/lib/alloy/promtail-positions.yaml
+      chmod 0640 /var/lib/alloy/promtail-positions.yaml
+    fi
+    alloy validate /etc/alloy/config.alloy
+    ) || echo "== YURUNA: alloy setup FAILED -- the Recent-100 log panels stay empty =="
   - install -d -o loki -m 0755 /var/lib/loki
   - systemctl daemon-reload
-  - systemctl reset-failed loki.service promtail.service
+  # Best-effort: the alloy package does not start its unit, and reset-failed
+  # refuses a unit that has never been loaded.
+  - systemctl reset-failed loki.service alloy.service 2>/dev/null || true
   - systemctl enable --now loki.service
-  - systemctl enable --now promtail.service
-  - systemctl restart loki.service promtail.service
+  - systemctl enable --now alloy.service
+  - systemctl restart loki.service alloy.service
   # --- REGION: https://yuruna.link/429f3d06-007e
   - |
     if grep -qx "YPOOL_NAS_REPLICATE='true'" /etc/yuruna/ypool-nas.env 2>/dev/null; then
@@ -4207,14 +4263,14 @@ runcmd:
   # --- REGION: https://yuruna.link/429f3d06-007f
   - |
     sleep 2
-    GROUPS=$(systemctl show -p SupplementaryGroups --value promtail.service)
+    alloy_groups=$(systemctl show -p SupplementaryGroups --value alloy.service)
     for g in proxy zot; do
-      case " $GROUPS " in
+      case " $alloy_groups " in
         *" $g "*) ;;
         *)
-          echo "== YURUNA: promtail.service missing supplementary group '$g' -- Recent-100 panel for that source will stay empty =="
-          systemctl --no-pager -l status promtail.service || true
-          journalctl --no-pager -u promtail.service -n 20 || true
+          echo "== YURUNA: alloy.service missing supplementary group '$g' -- Recent-100 panel for that source will stay empty =="
+          systemctl --no-pager -l status alloy.service || true
+          journalctl --no-pager -u alloy.service -n 20 || true
           ;;
       esac
     done
@@ -4296,14 +4352,13 @@ runcmd:
     esac
   # --- REGION: https://yuruna.link/429f3d06-0082
   - |
-    # Subshell keeps errexit local AND scopes the `exit 0` below, which at top
-    # level would end the whole runcmd script.
-    (
+    # A separate shell keeps mandatory failures fatal even in an OR-list.
+    bash -e <<'YURUNA_ZOT_INSTALL' || { zot_rc=$?; echo "== YURUNA: zot install/activation FAILED -- :5000 pull-through unavailable =="; exit "$zot_rc"; }
     set -e
     # Pinned (not 'latest'): resolving latest needs the rate-limited
     # unauthenticated GitHub releases API, which 403s when many guests
     # share one NAT egress IP -- same rationale as YURUNA_OPENTOFU_VERSION.
-    ZOT_VERSION="v2.1.20"
+    ZOT_VERSION="v2.1.21"
     ARCH=$(uname -m)
     case "$ARCH" in
       x86_64)  ZOT_ARCH="amd64" ;;
@@ -4332,31 +4387,41 @@ runcmd:
       fi
       sleep 1
     done
-    # Grant promtail read access on zot.log so the "Recent 100 OCI requests" panel
-    # populates. zot writes /var/log/zot/zot.log mode 0600 (zot:zot), so promtail's
+    # Grant alloy read access on zot.log so the "Recent 100 OCI requests" panel
+    # populates. zot writes /var/log/zot/zot.log mode 0600 (zot:zot), so alloy's
     # SupplementaryGroups=zot is NOT enough -- the group bits are 000. The ACL adds a
     # per-user read entry; the directory's default ACL inherits to rotated files.
     if [ -f /var/log/zot/zot.log ]; then
-      setfacl -m u:promtail:r /var/log/zot/zot.log 2>&1 || true
-      setfacl -d -m u:promtail:r /var/log/zot/    2>&1 || true
+      setfacl -m u:alloy:r /var/log/zot/zot.log 2>&1 || true
+      setfacl -d -m u:alloy:r /var/log/zot/    2>&1 || true
     fi
     # Prime the canary so health and zot_meta have a first-boot reading.
     /usr/local/bin/zot-meta-exporter.sh || true
     # --- REGION: https://yuruna.link/429f3d06-0082
     systemctl enable --now zot-prewarm.timer || true
-    ) || echo "== YURUNA: zot install/activation FAILED -- :5000 pull-through unavailable =="
+    YURUNA_ZOT_INSTALL
   # --- REGION: https://yuruna.link/429f3d06-0083
   - |
     # Final self-check: a partially-failed boot must not look like a good one.
     echo "== YURUNA: caching-proxy-service readiness =="
-    for svc in squid apache2 grafana-server prometheus prometheus-node-exporter loki promtail zot; do
+    for svc in squid apache2 grafana-server prometheus prometheus-node-exporter loki alloy zot; do
       printf '  %-16s %s\n' "$svc" "$(systemctl is-active "$svc" 2>/dev/null || echo inactive)"
+    done
+    # The Go daemons are built on this boot and their build failures are
+    # deliberately non-fatal, so a missing binary is otherwise visible only as
+    # a banner far up this log while cloud-init still reports success.
+    for svc in caching-proxy-parser-service pool-aggregator-service caching-proxy-service; do
+      if [ -x "/usr/local/bin/$svc" ]; then
+        printf '  %-16s %s\n' "$svc" "$(systemctl is-active "$svc" 2>/dev/null || true)"
+      else
+        printf '  %-16s %s\n' "$svc" "NOT BUILT -- see its build banner above"
+      fi
     done
     # --- REGION: https://yuruna.link/429f3d06-0083
     if [ -r /var/www/html/cache-health ]; then
       grep -E '^zot (/v2/|manifest|resident-tag|guest-path)|^ +resident ' /var/www/html/cache-health | sed 's/^/  /'
     fi
-    for hp in 3128 3129 80 3000 9090 3100 5000; do
+    for hp in 3128 3129 80 3000 9090 3100 5000 9302 9400 9310; do
       if ss -ltn 2>/dev/null | grep -q ":$hp "; then st=listening; else st="NOT LISTENING"; fi
       printf '  port %-5s %s\n' "$hp" "$st"
     done

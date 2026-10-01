@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421c914b-b896-456f-9955-33d362db4fd8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,13 +18,15 @@
 
 <#
 .SYNOPSIS
-    Emit the pool intent (pools + test-set library) as JSON. Read-only.
+    Emit the pool intent (pools and the auto-enrollment policy) as JSON. Read-only.
 .DESCRIPTION
     Backs the pool-control service UI's data reads. Clones/pulls the intent store and
-    writes a single JSON object to stdout: { ok, pools:[...], testSets:[...] }
-    (the pools from pools.yml and the named-triple library from test-sets.yml).
-    Never writes the store. On any error, emits { ok:false, error:"..." } and
-    exits non-zero so the caller can surface it.
+    writes a single JSON object to stdout: { ok, pools:[...], autoEnrollment:{...} }
+    (the pools and the autoEnrollment block from pools.yml). The pools come
+    through Read-YurunaPoolsDoc, so a store still at an older schemaVersion is
+    shown in the schemaVersion 3 shape (each pool's `repositories`) before it is
+    migrated. Never writes the store. On any error, emits { ok:false, error:"..." }
+    and exits non-zero so the caller can surface it.
 .EXAMPLE
     ./Get-PoolIntent.ps1 -IntentGitUrl /var/lib/yuruna/pool-intent.git
 #>
@@ -48,32 +50,19 @@ function Write-JsonResult { param($Obj) [Console]::Out.WriteLine(($Obj | Convert
 
 try {
     # --- REGION: Open the intent store
-    $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
-    if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-        Write-JsonResult ([ordered]@{ ok = $false; error = 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' })
-        exit $ExitFailure
-    }
-    $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-    if (-not $open.Ok) {
-        Write-JsonResult ([ordered]@{ ok = $false; error = "Could not open the intent store: $($open.Error)" })
-        exit $ExitFailure
-    }
+    $open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+    $t = $open.Target
+    if (-not $open.Ok) { Write-JsonResult ([ordered]@{ ok = $false; error = $open.Error }); exit $ExitFailure }
     # --- REGION: Report
     $doc = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
-    $libPath = Join-Path $t.IntentDir 'test-sets.yml'
-    $testSets = @()
-    if (Test-Path -LiteralPath $libPath) {
-        $lib = Get-Content -Raw -LiteralPath $libPath | ConvertFrom-Yaml -Ordered
-        if ($lib -is [System.Collections.IDictionary]) { $testSets = @($lib['testSets']) }
-    }
-    # autoEnrollment is projected alongside pools/testSets because this CLI is
+    # autoEnrollment is projected alongside pools because this CLI is
     # the ONLY read path the pool-control service has into intent. Without it
     # the sweep cannot see `excluded[]` -- the list that stops it re-adding a
     # host an operator deliberately removed -- and the operator and a 60-second
     # timer would fight forever. Emitted as an empty object when absent so a
     # consumer never has to distinguish "missing" from "unset".
     $autoEnrollment = if ($doc -is [System.Collections.IDictionary] -and $doc['autoEnrollment']) { $doc['autoEnrollment'] } else { [ordered]@{} }
-    Write-JsonResult ([ordered]@{ ok = $true; pools = @($doc['pools']); testSets = $testSets; autoEnrollment = $autoEnrollment })
+    Write-JsonResult ([ordered]@{ ok = $true; pools = @($doc['pools']); autoEnrollment = $autoEnrollment })
     exit $ExitOk
 } catch {
     Write-JsonResult ([ordered]@{ ok = $false; error = $_.Exception.Message })

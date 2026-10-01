@@ -6,7 +6,7 @@
 # Standalone SMOKE TEST of the download-agent daemon build + launch on a vanilla
 # Ubuntu guest (no pool share seeded -> the daemon starts and reports the pool
 # as unavailable, which is the designed degraded state, not a failure).
-# It is NOT the production bring-up and is NOT wired into automated test-sets;
+# It is NOT the production bring-up and is NOT listed in any test.runner.yml;
 # run it manually to verify the daemon compiles + starts.
 
 sequenceGuid: 42cabb3b-2d32-4dd0-8771-b3d897fbf3d5
@@ -43,20 +43,7 @@ component:
         description: "OCR: Password:"
 
   # See https://yuruna.link/42e220c4-0007
-  - action: waitForSeconds
-    seconds: 3
-    description: "Let the login shell finish drawing before typing at it"
-
-  # A leading space absorbs a dropped first keystroke on ARM64 Hyper-V.
-  - action: inputTextAndEnter
-    text: " echo yuruna_$(seq -s '' 1 9)_ok"
-    description: "Ask the shell to expand a token agetty cannot"
-
-  - action: waitForText
-    pattern: "yuruna_123456789_ok"
-    timeoutSeconds: 90
-    freshMatch: true
-    description: "OCR: yuruna_123456789_ok"
+  - snippet: shellInputPrime
 
 # --- REGION: workload
 workload:

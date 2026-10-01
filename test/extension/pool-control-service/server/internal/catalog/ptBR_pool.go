@@ -7,15 +7,7 @@ package catalog
 // DataptBRpool is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataptBRpool = `{
-  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "Um grupo de grupos hospeda sob um ID de piscina estável (GUID); uma máquina pertence no máximo a uma piscina. O status da piscina lê o que os membros estão fazendo agora — escolher um valor aplica-o a cada membro.",
-  "pool.a_pool_s_members_are_meant_to_be_configured_alike_to_copy_one_pee": [
-    "* Os membros de um pool devem ser configurados da mesma forma. Para copiar a configuração de um par para outra máquina, execute nessa máquina: ",
-    {
-      "arg": "command1",
-      "type": "token",
-      "trust": "internal"
-    }
-  ],
+  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "Um grupo reúne hosts sob um ID estável (GUID); cada host pertence a no máximo um grupo. O Status do Grupo mostra o que os membros estão fazendo agora — escolher um valor o aplica a todos os membros.",
   "pool.a_scan_of_value1_is_already_running_following_that_one": [
     "Uma verificação do ",
     {
@@ -25,7 +17,6 @@ const DataptBRpool = `{
     },
     " já está em execução; seguindo essa."
   ],
-  "pool.a_test_set_is_a_framework_project_repo_pair_gh_token_is_not_store": "Um conjunto de teste é um par de repo framework + projeto. GH TOKEN não é armazenado aqui — ele permanece host-local no test.config.yml / vault de cada máquina.",
   "pool.actions": "Acções",
   "pool.add_host_failed_value1": [
     "Falha ao adicionar a máquina: ",
@@ -102,7 +93,7 @@ const DataptBRpool = `{
       "type": "detail",
       "trust": "external"
     },
-    " na piscina ",
+    " no grupo ",
     {
       "arg": "value3",
       "type": "detail",
@@ -111,55 +102,19 @@ const DataptBRpool = `{
     "?"
   ],
   "pool.asks_every_address_in_the_network_for_a_yuruna_host_status_servic": "Pede a todos os endereços da rede um serviço de estado da máquina Yuruna e adiciona os mesmos\nEssa resposta aos hospedeiros monitorizados — agrupados ou não, inscritos ou não.\nA digitalização não muda nada nos hospedeiros.",
-  "pool.assign": "Atribuir",
-  "pool.assign_failed_value1": [
-    "Falha na atribuição: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.assign_test_set": "Atribuir o conjunto de testes?",
-  "pool.assign_test_set_50fb7bbc": "Atribuir o conjunto de testes",
-  "pool.assign_test_sets_to_pools": "Atribuir conjuntos de testes aos grupos",
-  "pool.assign_value1_to_value2": [
-    "Atribuir \"",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "\" a ",
-    {
-      "arg": "value2",
-      "type": "detail",
-      "trust": "external"
-    },
-    "?"
-  ],
-  "pool.assign_yuruna_pool_control": "Atribuir — Yuruna Pool Control",
-  "pool.assigned_value1_to_pool_value2": [
-    "Atribuído «",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "» para agrupar «",
-    {
-      "arg": "value2",
-      "type": "detail",
-      "trust": "external"
-    },
-    "»."
-  ],
   "pool.board": "Placa",
-  "pool.board_yuruna_pool_control": "Tabuleiro — Controle de piscinas Yuruna",
+  "pool.board_live_numbers_unavailable": [
+    "Números em tempo real indisponíveis (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.board_yuruna_pool_control": "Tabuleiro — Controle de grupos Yuruna",
   "pool.cancel": "Cancelar",
-  "pool.change_test_set": "Mudar o conjunto de testes...",
   "pool.check": "Verificar",
-  "pool.choose_a_test_set": "(escolha um conjunto de testes)",
   "pool.command1_scans_command2_through_command3_a_smaller_prefix_number_": [
     {
       "arg": "command1",
@@ -207,14 +162,6 @@ const DataptBRpool = `{
   "pool.continue": "Continuar",
   "pool.control": "Controlo",
   "pool.cores": "Cores",
-  "pool.could_not_assign_value1": [
-    "Não foi possível atribuir: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
   "pool.could_not_collect_diagnostics_value1": [
     "Não foi possível coletar diagnósticos: ",
     {
@@ -231,24 +178,8 @@ const DataptBRpool = `{
       "trust": "external"
     }
   ],
-  "pool.could_not_load_pool_intent_value1": [
-    "Não foi possível carregar a intenção do conjunto: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
   "pool.could_not_load_pools_value1": [
     "Não foi possível carregar conjuntos: ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.could_not_load_test_sets_value1": [
-    "Não foi possível carregar conjuntos de testes: ",
     {
       "arg": "value1",
       "type": "detail",
@@ -262,7 +193,7 @@ const DataptBRpool = `{
       "type": "detail",
       "trust": "external"
     },
-    ". A tentar novamente na próxima actualização."
+    ". A tentar novamente na próxima atualização."
   ],
   "pool.could_not_read_the_scan_status_value1": [
     "Não foi possível ler o estado da pesquisa: ",
@@ -282,7 +213,7 @@ const DataptBRpool = `{
   ],
   "pool.create_pool": "Criar um pool",
   "pool.created_pool_value1": [
-    "Criada a piscina '",
+    "Criado o grupo '",
     {
       "arg": "value1",
       "type": "detail",
@@ -291,7 +222,6 @@ const DataptBRpool = `{
     "'."
   ],
   "pool.cycles": "ciclos",
-  "pool.delete": "Apagar",
   "pool.delete_failed_value1": [
     "Falha na remoção: ",
     {
@@ -318,23 +248,6 @@ const DataptBRpool = `{
     },
     "'? Isto não pode ser desfeito."
   ],
-  "pool.delete_test_set_value1": [
-    "Apagar o conjunto de testes ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.delete_test_set_value1_this_cannot_be_undone": [
-    "Apagar o conjunto de testes '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'? Isto não pode ser desfeito."
-  ],
   "pool.deleted_pool_value1": [
     "Conjunto excluído '",
     {
@@ -344,17 +257,8 @@ const DataptBRpool = `{
     },
     "'."
   ],
-  "pool.deleted_value1": [
-    "Excluído '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'."
-  ],
   "pool.detail": "Detalhe",
-  "pool.diagnostic_auto_enrollment_assignment": "Os anfitriões chegam aqui automaticamente e continuam a executar o seu próprio projecto.",
+  "pool.diagnostic_auto_enrollment_assignment": "Os hospedeiros chegam aqui automaticamente e continuam a executar o seu próprio projecto.",
   "pool.diagnostic_configure_repo": "Passe --repo-dir apontando para a verificação do framework yuruna.",
   "pool.diagnostic_git_not_found": [
     "não encontrado no PATH: ",
@@ -364,12 +268,12 @@ const DataptBRpool = `{
       "trust": "external"
     }
   ],
-  "pool.diagnostic_install_git": "O CLIs pool-admin clonar e empurrar intenção pool; instalar git no hóspede.",
+  "pool.diagnostic_install_git": "O CLIs pool-admin clonar e empurrar intenção pool; instalar git no convidado.",
   "pool.diagnostic_install_pwsh": "Instale PowerShell no guest. packages.microsoft.com não tem pacote powershell para esta versão do Ubuntu; use o tarball GitHub-release, em seguida, reinicie pool-control-service.service.",
   "pool.diagnostic_intent_absent": "sem URL de intenção a verificar",
-  "pool.diagnostic_intent_configure": "O guest bring-up cria uma loja de escrita no NAS da piscina quando um está ausente; um valor vazio aqui significa que o NAS não foi montado no bring-up. Defina POOL CONTROL INTENT GIT URL em /etc/yuruna/pool-control-service.env (re-read por requisição, não é necessário reiniciar), ou pool.intentGitUrl em test/test.config.yml antes de reconstruir.",
+  "pool.diagnostic_intent_configure": "A inicialização do convidado cria um repositório gravável no NAS do grupo quando ele está ausente. Um valor vazio aqui indica que o NAS não estava montado na inicialização. Defina POOL_CONTROL_INTENT_GIT_URL em /etc/yuruna/pool-control-service.env (lido novamente a cada solicitação, sem precisar reiniciar) ou pool.intentGitUrl em test/test.config.yml antes de reconstruir.",
   "pool.diagnostic_intent_empty": "vazio: nenhum armazenamento de intenção resolvido a partir da bandeira de lançamento ou do arquivo de configuração",
-  "pool.diagnostic_intent_initialize": "O pool NAS store é criado pelo guest bring-up; se o NAS montado tarde, re-execute o script bring-up ou git init -- bare-lo.",
+  "pool.diagnostic_intent_initialize": "O repositório de intenções no NAS do grupo é criado na inicialização do convidado. Se o NAS foi montado depois, execute novamente o script de inicialização ou inicialize o repositório com git init --bare.",
   "pool.diagnostic_intent_not_bare": [
     {
       "arg": "path",
@@ -398,7 +302,7 @@ const DataptBRpool = `{
     }
   ],
   "pool.diagnostic_intent_override": [
-    "(o ficheiro de configuração substitui a bandeira de lançamento ",
+    "(o arquivo de configuração substitui a bandeira de lançamento ",
     {
       "arg": "flag",
       "type": "detail",
@@ -406,8 +310,8 @@ const DataptBRpool = `{
     },
     ")"
   ],
-  "pool.diagnostic_intent_permission": "As gravações falharão no push. Verifique o UID/gid da montagem do NAS da piscina contra o usuário do serviço.",
-  "pool.diagnostic_intent_pull_only": "Uma loja de intenção http(s) é somente para puxar, a menos que o servidor execute git-http-backend: as leituras funcionarão e cada gravação falhará no push. A loja gravável é o repositório nu no NAS da piscina.",
+  "pool.diagnostic_intent_permission": "As gravações falharão no push. Verifique o UID/gid da montagem do NAS do grupo contra o usuário do serviço.",
+  "pool.diagnostic_intent_pull_only": "Uma loja de intenção http(s) é somente para puxar, a menos que o servidor execute git-http-backend: as leituras funcionarão e cada gravação falhará no push. A loja gravável é o repositório nu no NAS do grupo.",
   "pool.diagnostic_intent_remote": "URL remoto; acessibilidade é coberta por leitura intencional",
   "pool.diagnostic_intent_writable": [
     {
@@ -560,8 +464,6 @@ const DataptBRpool = `{
   "pool.display_name": "Mostrar o nome",
   "pool.duration": "duração",
   "pool.each_of_the_four_numbers_must_be_0_to_255": "Cada um dos quatro números deve ser de 0 a 255.",
-  "pool.each_pool_tests_one_test_set_a_framework_project_repo_pair_gh_tok": "Cada grupo testa um conjunto de testes (um framework + projeto repo par).\nGH TOKEN permanece host-local — nunca armazenado na intenção do pool.",
-  "pool.edit": "Editar",
   "pool.empty": "(vazio)",
   "pool.enrollment_target": [
     {
@@ -580,9 +482,9 @@ const DataptBRpool = `{
     },
     "."
   ],
-  "pool.enter_a_pool_id": "Digite um id de piscina.",
+  "pool.enter_a_pool_id": "Digite um id de grupo.",
   "pool.enter_the_lab_token": "Digite o item do laboratório",
-  "pool.every_dependency_a_ui_request_touches_probed_in_the_order_a_reque": "Cada dependência que uma solicitação de IU toca, sondada na ordem que uma solicitação toca. Um nome de verificação falhando o que corrigir no hóspede.",
+  "pool.every_dependency_a_ui_request_touches_probed_in_the_order_a_reque": "Cada dependência que uma solicitação de IU toca, sondada na ordem que uma solicitação toca. Um nome de verificação falhando o que corrigir no convidado.",
   "pool.every_host_the_aggregator_knows_control_command1_this_lab_s_token": [
     "Cada máquina que o agregador conhece. Controle: ",
     {
@@ -590,7 +492,7 @@ const DataptBRpool = `{
       "type": "token",
       "trust": "internal"
     },
-    " (o token deste laboratório, o relógio concorda — apenas estes auto- matrícula), ",
+    " (o token deste laboratório, o relógio concorda — apenas estes auto-matrícula), ",
     {
       "arg": "command2",
       "type": "token",
@@ -614,7 +516,7 @@ const DataptBRpool = `{
       "type": "token",
       "trust": "internal"
     },
-    " significa que ela não pode ler o configurado. Uma linha re- chaveada é a de uma máquina identidade antiga: foi reimaged ou re-cloned, de modo que o host live responde sob o id mostrado ao lado dele enquanto qualquer membro do pool permanece no antigo — entregue-o a partir dessa linha. Hostnames aparece uma vez que este navegador é Destrancada."
+    " significa que ela não pode ler o configurado. Uma linha re-chaveada é a de uma máquina identidade antiga: foi reimaged ou re-cloned, de modo que o host live responde sob o id mostrado ao lado dele enquanto qualquer membro do pool permanece no antigo — entregue-o a partir dessa linha. Hostnames aparece uma vez que este navegador é Destrancada."
   ],
   "pool.exit_code": "código de saída",
   "pool.fail": "FALHA",
@@ -649,7 +551,7 @@ const DataptBRpool = `{
       "trust": "external"
     }
   ],
-  "pool.holds_a_different_token_re_enroll_against_this_proxy": "Mantém um token DIFERENTE -- re- inroll contra este proxy.",
+  "pool.holds_a_different_token_re_enroll_against_this_proxy": "Mantém um token DIFERENTE -- re-inroll contra este proxy.",
   "pool.holds_this_lab_s_token_clock_agrees": "O relógio concorda.",
   "pool.home": "HOME",
   "pool.host": "+ máquina",
@@ -909,31 +811,28 @@ const DataptBRpool = `{
     "selector": "count",
     "variants": {
       "many": [
-        "As máquinas ",
         {
           "arg": "count",
           "type": "integer",
           "trust": "internal"
         },
-        " não podem ler o projecto atribuído. Conceda o acesso ao seu token ou atribua um conjunto de testes diferente."
+        " hospedeiros não conseguem ler o projeto atribuído. Conceda acesso aos tokens deles ou defina, na página Pools, uma URL de projeto que todos os membros possam ler."
       ],
       "one": [
-        "A máquina ",
         {
           "arg": "count",
           "type": "integer",
           "trust": "internal"
         },
-        " não pode ler o projeto atribuído. Conceda o acesso ao seu token ou atribua um conjunto de testes diferente."
+        " hospedeiro não consegue ler o projeto atribuído. Conceda acesso ao token dele ou defina, na página Pools, uma URL de projeto que todos os membros possam ler."
       ],
       "other": [
-        "As máquinas ",
         {
           "arg": "count",
           "type": "integer",
           "trust": "internal"
         },
-        " não podem ler o projecto atribuído. Conceda o acesso ao seu token ou atribua um conjunto de testes diferente."
+        " hospedeiros não conseguem ler o projeto atribuído. Conceda acesso aos tokens deles ou defina, na página Pools, uma URL de projeto que todos os membros possam ler."
       ]
     }
   },
@@ -985,36 +884,33 @@ const DataptBRpool = `{
       ]
     }
   },
-  "pool.hosts_switch_assigned": {
+  "pool.hosts_switch_own_projects": {
     "kind": "plural",
     "selector": "count",
     "variants": {
       "many": [
-        "Os hosts ",
         {
           "arg": "count",
           "type": "integer",
           "trust": "internal"
         },
-        " mudarão para o projeto atribuído em seu próximo ciclo."
+        " hospedeiros voltarão aos próprios projetos no próximo ciclo."
       ],
       "one": [
-        "A máquina ",
         {
           "arg": "count",
           "type": "integer",
           "trust": "internal"
         },
-        " irá mudar para o projeto atribuído em seu próximo ciclo."
+        " hospedeiro voltará ao próprio projeto no próximo ciclo."
       ],
       "other": [
-        "Os hosts ",
         {
           "arg": "count",
           "type": "integer",
           "trust": "internal"
         },
-        " mudarão para o projeto atribuído em seu próximo ciclo."
+        " hospedeiros voltarão aos próprios projetos no próximo ciclo."
       ]
     }
   },
@@ -1068,12 +964,12 @@ const DataptBRpool = `{
       ]
     }
   },
-  "pool.hosts_yuruna_pool_control": "Hospedeiras — Controle de Piscinas Yuruna",
+  "pool.hosts_yuruna_pool_control": "Hospedeiras — Controle de Grupos Yuruna",
   "pool.intent_git_url": "URL do git de intenção",
   "pool.intent_read_raw_invocation": "Leitura da intenção — invocação em bruto",
   "pool.ips": "IPs:",
   "pool.it_will_also_be_excluded_from_auto_enrollment_so_the_sweep_will_n": "\n\nEle também será excluído do auto-inscrição, então a varredura não irá adicioná-lo de volta.",
-  "pool.lab_token": "Token de laboratório",
+  "pool.lab_token": "Token do laboratório",
   "pool.label_1h": "1h",
   "pool.label_24h": "24h",
   "pool.label_30d": "30d",
@@ -1088,21 +984,10 @@ const DataptBRpool = `{
     }
   ],
   "pool.listen_addr": "ouvir addr",
-  "pool.live_numbers_unavailable_value1_assigning_still_works": [
-    "Números vivos indisponível (",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "). A atribuição ainda funciona."
-  ],
   "pool.loaded": "Carregado:",
   "pool.loading_hosts": "Carregando máquinas...",
-  "pool.loading_pools": "Carregando piscinas...",
-  "pool.loading_test_sets": "Carregando conjuntos de testes...",
+  "pool.loading_pools": "Carregando grupos...",
   "pool.lowercase_dns_safe": "minúsculas, dns-safe",
-  "pool.members": "Membros",
   "pool.members_1044a4c0": "Membros",
   "pool.memory": "Memória",
   "pool.menu": "Menu",
@@ -1156,22 +1041,18 @@ const DataptBRpool = `{
   ],
   "pool.moves": "movimentos",
   "pool.name": "Nome",
-  "pool.name_frameworkurl_and_projecturl_are_all_required": "nome, frameworkUrl e projectUrl são todos necessários.",
   "pool.network": "Rede",
-  "pool.never_enrolled_a_lab_token_run_set_labtoken_ps1_on_the_host": "Nunca matriculou um token de laboratório -- execute o Set-LabToken.ps1 no host.",
+  "pool.never_enrolled_a_lab_token_run_set_labtoken_ps1_on_the_host": "Nunca matriculou um token do laboratório -- execute o Set-LabToken.ps1 no host.",
   "pool.no_hosts_discovered_yet": "Ainda não foram descobertos hospedeiros.",
   "pool.no_id_reported": "(sem id comunicado)",
-  "pool.no_pools_defined_create_one_on_the_pools_page": "Nenhum pool definido. Crie um na página Pools.",
-  "pool.no_pools_yet": "Ainda não há piscinas.",
-  "pool.no_pools_yet_create_one_from_menu_pools": "Sem piscinas ainda. Crie uma a partir do Menu → Piscinas.",
+  "pool.no_pools_yet": "Ainda não há grupos.",
+  "pool.no_pools_yet_create_one_from_menu_pools": "Sem grupos ainda. Crie uma a partir do Menu → Grupos.",
   "pool.no_scan_has_run_yet": "Ainda não foi feita nenhuma análise.",
-  "pool.no_test_sets_yet": "Ainda não há testes.",
   "pool.none": "(Nenhuma)",
-  "pool.not": "não",
   "pool.not_answered_yet_or_the_proxy_holds_no_token_of_its_own": "Ainda não respondeu, ou o proxy não possui nenhum símbolo próprio.",
   "pool.not_cidr_notation_write_an_address_a_slash_and_a_prefix_length_19": "Não notação CIDR. Escreva um endereço, uma barra e um comprimento de prefixo: 192.168.7.0/24.",
-  "pool.nothing_new_every_yuruna_host_in_that_range_was_already_monitored": "Todos os anfitriões da Yuruna já tinham sido monitorados.",
-  "pool.nothing_to_move_the_live_id_already_has_the_pool_it_should": "Nada para se mover: o id ao vivo já tem a piscina que deveria.",
+  "pool.nothing_new_every_yuruna_host_in_that_range_was_already_monitored": "Todos os hospedeiros da Yuruna já tinham sido monitorados.",
+  "pool.nothing_to_move_the_live_id_already_has_the_pool_it_should": "Nada a mover: o ID ativo já pertence ao grupo correto.",
   "pool.only_hosts_this_scan_added_a_yuruna_host_that_was_already_monitor": "Apenas as máquinas que esta verificação adicionou. Uma máquina Yuruna que já foi monitorada é contada acima, não listada novamente.",
   "pool.open_this_host_s_own_status_page_at_value1_found_by_a_network_sca": [
     "Abra a própria página de status desta máquina no ",
@@ -1199,10 +1080,9 @@ const DataptBRpool = `{
   "pool.paused_after_cycle_and_step": "Pausa após ciclo e passo",
   "pool.persisted_health": "Saúde persistente",
   "pool.persistence_disabled": "(persistência deficiente)",
-  "pool.pick_a_test_set_first_define_one_on_the_test_sets_page": "Escolha primeiro um conjunto de testes (definir um na página de conjuntos de testes).",
   "pool.pid": "pid",
   "pool.platform": "plataforma",
-  "pool.pool": "Piscina",
+  "pool.pool": "Grupo",
   "pool.pool_for_host_value1": [
     "Pool para a máquina ",
     {
@@ -1222,11 +1102,11 @@ const DataptBRpool = `{
     },
     "."
   ],
-  "pool.pool_project_denied": "O pool atribuiu a esta máquina um projecto que a sua credencial git não consegue ler. Conceda o seu acesso ao repositório, ou reatribua o pool a cada membro que possa ler. Os seus ciclos falham até então, e nenhuma repetição poderá corrigi- lo.",
+  "pool.pool_project_denied": "O pool atribuiu a esta máquina um projecto que a sua credencial git não consegue ler. Conceda o seu acesso ao repositório, ou reatribua o pool a cada membro que possa ler. Os seus ciclos falham até então, e nenhuma repetição poderá corrigi-lo.",
   "pool.pool_project_unreachable": "O projecto que esta máquina atribuiu não respondeu. Esta é a rede, não a permissão, e o clone volta a tentar através do backoff normal.",
   "pool.pool_status": "Estado do Grupo",
   "pool.pool_status_change_failed_value1": [
-    "Falha na alteração do estado da piscina: ",
+    "Falha na alteração do estado do grupo: ",
     {
       "arg": "value1",
       "type": "detail",
@@ -1234,7 +1114,7 @@ const DataptBRpool = `{
     }
   ],
   "pool.pool_status_for_value1": [
-    "Estado da piscina para ",
+    "Estado do grupo para ",
     {
       "arg": "value1",
       "type": "detail",
@@ -1259,15 +1139,15 @@ const DataptBRpool = `{
     },
     "' não tem membros; nada para dirigir."
   ],
-  "pool.pools": "Piscinas",
-  "pool.pools_yuruna_pool_control": "Pools — Controle de piscinas Yuruna",
+  "pool.pools": "Grupos",
+  "pool.pools_yuruna_pool_control": "Pools — Controle de grupos Yuruna",
   "pool.process": "Processo",
   "pool.progress": "Progresso",
   "pool.project": "Projeto",
   "pool.project_url": "URL do projeto",
-  "pool.pwsh_pwsh_flag": "pwsh (-- pwsh flag)",
+  "pool.pwsh_pwsh_flag": "pwsh (opção --pwsh)",
   "pool.pwsh_resolved": "pwsh (resolvido)",
-  "pool.re_keyed": "re- chaveado",
+  "pool.re_keyed": "re-chaveado",
   "pool.re_run_checks": "Controlos de repetição",
   "pool.refresh": "Actualizar",
   "pool.remove_failed_value1": [
@@ -1293,7 +1173,7 @@ const DataptBRpool = `{
       "type": "detail",
       "trust": "external"
     },
-    " da piscina ",
+    " do grupo ",
     {
       "arg": "value2",
       "type": "detail",
@@ -1307,7 +1187,7 @@ const DataptBRpool = `{
       "type": "detail",
       "trust": "external"
     },
-    " da piscina ",
+    " do grupo ",
     {
       "arg": "value2",
       "type": "detail",
@@ -1344,9 +1224,61 @@ const DataptBRpool = `{
       "project": "Esta máquina não tem nenhum repositório de projeto e nenhum configurado, ou ainda não respondeu."
     }
   },
+  "pool.repositories_both_or_neither": "Informe uma URL de framework e uma URL de projeto, ou deixe ambas vazias para limpá-las.",
+  "pool.repositories_clear": "Limpar",
+  "pool.repositories_clear_label": [
+    "Limpar as URLs de framework e de projeto do grupo ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "pool.repositories_cleared": [
+    "URLs de framework e de projeto do grupo ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " limpas. Os hospedeiros dele executam os próprios projetos a partir do próximo ciclo."
+  ],
+  "pool.repositories_framework_label": [
+    "URL do framework do grupo ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "pool.repositories_project_label": [
+    "URL do projeto do grupo ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "pool.repositories_save": "Salvar",
+  "pool.repositories_save_label": [
+    "Salvar as URLs de framework e de projeto do grupo ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "pool.repositories_saved": [
+    "URLs de framework e de projeto do grupo ",
+    {
+      "arg": "pool",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " salvas."
+  ],
   "pool.result": "Resultado",
   "pool.row_number": "Número da linha",
-  "pool.run": "executar",
   "pool.running": "Em execução:",
   "pool.running_checks": "A verificar...",
   "pool.runtime_environment": "Ambiente de execução",
@@ -1357,16 +1289,6 @@ const DataptBRpool = `{
       "type": "detail",
       "trust": "external"
     }
-  ],
-  "pool.save_test_set": "Gravar o conjunto de testes",
-  "pool.saved_test_set_value1": [
-    "Conjunto de teste salvo '",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'."
   ],
   "pool.scan": "Digitalizar",
   "pool.scan_a_network_for_yuruna_hosts": "Analisar uma rede para as máquinas do Yuruna",
@@ -1586,12 +1508,11 @@ const DataptBRpool = `{
       "trust": "external"
     }
   ],
-  "pool.scan_yuruna_pool_control": "Controle de piscinas de Yuruna",
+  "pool.scan_yuruna_pool_control": "Controle de grupos de Yuruna",
   "pool.service_diagnostics": "Diagnóstico de serviço",
   "pool.service_user": "usuário de serviço",
   "pool.show_hostnames": "Mostrar os nomes das máquinas",
   "pool.started_at": "iniciado em",
-  "pool.state": "Estado",
   "pool.state_dir": "pasta de estado",
   "pool.state_fail": "falha",
   "pool.state_idle": "ocioso",
@@ -1754,27 +1675,9 @@ const DataptBRpool = `{
       ]
     }
   },
-  "pool.test_set_for_pool_value1": [
-    "Conjunto de teste para o conjunto ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.test_set_label": [
-    "Conjunto de testes para ",
-    {
-      "arg": "name",
-      "type": "text",
-      "trust": "external"
-    }
-  ],
-  "pool.test_sets": "Conjuntos de ensaios",
-  "pool.test_sets_yuruna_pool_control": "Conjuntos de ensaio — Controlo da piscina de Yuruna",
   "pool.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti": "O código de 6 caracteres no painel de bordo do Yuruna. Um código que você acabou de ler permanece válido por cerca de três minutos, então não há necessidade de apressar.",
   "pool.the_exact_command_its_exit_code_and_both_streams_verbatim_the_poo": "O comando exato, seu código de saída e ambos os fluxos verbatim. O pool-admin CLIs reporta falhas como JSON no stdout, então stdout é geralmente onde a mensagem real está.",
-  "pool.the_hosts_own_projects": "projetos próprios dos anfitriões",
+  "pool.the_hosts_own_projects": "projetos próprios dos hospedeiros",
   "pool.the_id_that_answers_at_this_address_now": "O ID que responde neste endereço agora.",
   "pool.the_periodic_sweep_is_off_this_page_is_the_only_way_a_scan_runs": "A varredura periódica está desligada; esta página é a única forma de uma varredura ser executada.",
   "pool.the_prefix_length_must_be_0_to_32": "O comprimento do prefixo deve ser de 0 a 32.",
@@ -1785,15 +1688,15 @@ const DataptBRpool = `{
       "type": "token",
       "trust": "internal"
     },
-    " serve, a partir da dir estado no NAS piscina."
+    " serve, a partir da dir estado no NAS grupo."
   ],
-  "pool.this_host_answered_but_its_registration_record_could_not_be_read": "Este anfitrião respondeu, mas seu registro não pôde ser lido.",
+  "pool.this_host_answered_but_its_registration_record_could_not_be_read": "Este hospedeiro respondeu, mas seu registro não pôde ser lido.",
   "pool.this_host_has_not_reported_a_name": "Esta máquina não relatou um nome.",
   "pool.this_host_has_not_reported_an_id_so_it_cannot_be_assigned_to_a_po": "Esta máquina não relatou um id, por isso ainda não pode ser atribuída a um pool.",
   "pool.this_host_has_not_reported_hardware_facts": "Esta máquina não relatou os factos de hardware.",
-  "pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o": "Este ID não responde mais neste endereço; o ID ao lado dele responde. Uma máquina, dois IDs -- foi reimaged ou re-cloned. Qualquer membro do pool ainda é gravado contra este ID, de modo que a máquina ao vivo está fazendo o trabalho fora A piscina.",
+  "pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o": "Este ID não responde mais neste endereço; o ID ao lado responde. Um host, dois IDs — a máquina foi recriada a partir de uma imagem ou clonada novamente. A associação ao grupo ainda está registrada no ID antigo, então o host ativo trabalha fora do grupo.",
   "pool.time_period": "Período",
-  "pool.token_is_right_but_the_clock_is_off_fix_the_host_clock": "O Token está certo, mas o relógio está desligado. Conserte o relógio do anfitrião.",
+  "pool.token_is_right_but_the_clock_is_off_fix_the_host_clock": "O Token está certo, mas o relógio está desligado. Conserte o relógio do hospedeiro.",
   "pool.total_storage": "Armazenamento Total",
   "pool.type": "Tipo",
   "pool.unlock": "Desbloquear",
@@ -1813,21 +1716,13 @@ const DataptBRpool = `{
       "type": "detail",
       "trust": "external"
     },
-    " na piscina '",
+    " no grupo '",
     {
       "arg": "value3",
       "type": "detail",
       "trust": "external"
     },
     "'."
-  ],
-  "pool.value1_host_s": [
-    "Máquina( s) ",
-    {
-      "arg": "value1",
-      "type": "detail",
-      "trust": "external"
-    }
   ],
   "pool.value1_of_value2_checks_failing_pool_control_service_value3_value": [
     {
@@ -1916,6 +1811,6 @@ const DataptBRpool = `{
   "pool.what_to_do": "O que fazer",
   "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": "Que construção está realmente em execução, e por quanto tempo — estabelece se uma correção foi implementada em tudo.",
   "pool.which_network_cidr_notation": "Que rede? (Notação do CIDR)",
-  "pool.yuruna_pool_control": "Controle de Piscinas Yuruna"
+  "pool.yuruna_pool_control": "Controle de Grupos Yuruna"
 }
 `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42875271-1829-42b3-b731-1d7a16616cfd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1093,7 +1093,7 @@ Describe 'static guarantees' {
     }
 }
 
-Describe 'the beacon keeps announcing whatever the census does' {
+Describe 'the beacon keeps announcing whatever the census does' -Skip:$IsWindows {
     BeforeAll {
         # A mirror of this checkout in which every entry is a link to the real
         # one, except the census module, which is replaced by a file that

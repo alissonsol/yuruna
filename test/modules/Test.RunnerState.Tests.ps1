@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d64f5a-8fc4-44e1-a87f-16aacb2e4fa0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,6 +185,8 @@ Describe 'Get-RunnerState' {
 }
 
 Describe 'Test-RunnerStateTransition' {
+    BeforeAll { $script:TransitionPriorRuntime = $env:YURUNA_RUNTIME_DIR; $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'transition-runtime'; $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR -Force }
+    AfterAll { if ($null -eq $script:TransitionPriorRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:TransitionPriorRuntime } }
     It 'accepts every transition the lifecycle documents' -TestCases $script:ValidTransitionCase {
         param($From, $To)
         Assert-Equal -Expected $true -Actual (Test-RunnerStateTransition -From $From -To $To) -Because "$From -> $To is documented as valid"
@@ -197,7 +199,8 @@ Describe 'Test-RunnerStateTransition' {
         # Pure predicate: Set-RunnerState leans on that to warn without writing.
         $before = Get-RunnerState
         $null = Test-RunnerStateTransition -From 'idle' -To 'paused'
-        Assert-True ($null -eq $before -or $null -ne (Get-RunnerState))
+        $after = Get-RunnerState
+        Assert-True ([string]::Equals(($before | ConvertTo-Json -Depth 20), ($after | ConvertTo-Json -Depth 20), [StringComparison]::Ordinal)) 'the pure predicate must not write or change runner state'
     }
 }
 

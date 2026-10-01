@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c5c7b3-f42f-44df-81b8-ce01b38b4d9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -310,9 +310,11 @@ Describe 'Get-HostIdentitySeedUuid (which hardware key a host is keyed on)' {
         # fork: two real hosts would be indistinguishable. The junk list already
         # collapses these to '', and this pins that the fall-through reaches the
         # next key rather than deriving from the placeholder.
-        foreach ($junk in @('00000000-0000-0000-0000-000000000000', 'Default string', 'To be filled by O.E.M.')) {
-            Assert-True (-not (Test-HostFingerprintValueUsable -Value $junk)) "placeholder treated as usable: $junk"
-            Assert-Equal '' (ConvertTo-NormalizedFingerprintValue -Value $junk) "placeholder not collapsed: $junk"
+        InModuleScope Test.HostIdentity {
+            Mock Get-HostHardwareFingerprint { @{ smbiosUuid = '00000000-0000-0000-0000-000000000000'; baseboardSerial = 'review-real-board-serial' } }
+            $expected = ConvertTo-SeededHostUuid -Kind 'baseboardSerial' -Value 'review-real-board-serial'
+            Get-HostIdentitySeedUuid | Should -BeExactly $expected
+            Should -Invoke Get-HostHardwareFingerprint -Times 1 -Exactly
         }
     }
 }

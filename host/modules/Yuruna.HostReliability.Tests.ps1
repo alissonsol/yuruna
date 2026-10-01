@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4270c5ae-4f32-42b7-a8e4-08bd28d7d218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,7 +118,11 @@ Describe 'VM provisioning fails immediately on non-terminating cmdlet errors' {
         $paths = Get-ChildItem (Join-Path $script:RepoRoot 'host/macos.utm/guest.*/New-VM.ps1')
         $paths += Get-ChildItem (Join-Path $script:RepoRoot 'host/windows.hyper-v/guest.*/New-VM.ps1')
         foreach ($path in $paths) {
-            $ast = [System.Management.Automation.Language.Parser]::ParseFile($path.FullName, [ref]$null, [ref]$null)
+            # A per-release wrapper that hands its work to the host's shared Ubuntu builder is judged by that builder.
+            $target = $path.FullName
+            $shared = Join-Path (Split-Path -Parent $path.DirectoryName) 'modules/New-UbuntuServerVM.ps1'
+            if ((Get-Content -Raw -LiteralPath $target) -match 'New-UbuntuServerVM\.ps1' -and (Test-Path -LiteralPath $shared)) { $target = $shared }
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($target, [ref]$null, [ref]$null)
             $assignment = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$ErrorActionPreference' }, $true)
             $assignment | Should -Not -BeNullOrEmpty -Because $path.FullName
             $probe = [scriptblock]::Create($assignment.Extent.Text + "; Write-Error 'failed VM start'; 'reported complete'")

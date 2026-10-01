@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -139,11 +139,667 @@ param(
     [ValidateSet('Error','Warning','Information','Verbose','Debug', IgnoreCase = $true)]
     [string]$logLevel = 'Information'
 )
-Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
-Write-Debug "Get-SystemDiagnostic: skipDocker=$SkipDocker skipKube=$SkipKube skipProjectGaps=$SkipProjectGaps logLevel=$logLevel"
 
-# logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
-Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
+# This script runs where no Yuruna module can be loaded: the console diagnostic
+# rung downloads this one file into a guest's /tmp and runs it there, beside
+# nothing. So it imports no module and carries its own copies of the log-level
+# cascade, the operator-message renderer, and the en-US text of every message it
+# prints. Inside a checkout it renders through the compiled catalogs and the
+# locale manifest, read as data; anywhere else it renders the embedded en-US
+# text. Test.SystemDiagnosticSelfContained.Tests.ps1 holds each copy equal to
+# its source.
+$script:DiagnosticTextRoot = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { '' }
+$script:DiagnosticLocaleManifest = $null
+$script:DiagnosticOperatorLocale = $null
+$script:DiagnosticMessageTables = @{}
+$script:DiagnosticEmbeddedMessages = $null
+
+function Set-YurunaLogLevel {
+    <#
+    .SYNOPSIS
+        Apply the logLevel cascade: enable each preference stream at or above the
+        selected level (Error highest), silence the rest.
+    .DESCRIPTION
+        The cascade of Set-YurunaLogLevel in Yuruna.LogLevel.psm1, which this
+        script cannot import. Error < Warning < Information < Verbose < Debug by
+        verbosity; a level shows itself and every higher-priority stream.
+        $ErrorActionPreference keeps its inherited default so errors stay
+        visible at every level.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Sets the session preference streams from one level name; a preference cascade, not a resource mutation.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'The $global:*Preference automatic variables are the cross-scope contract this helper exists to set.')]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
+        [string]$LogLevel
+    )
+    $rank = @{ Error = 1; Warning = 2; Information = 3; Verbose = 4; Debug = 5 }
+    $eff  = $rank[$LogLevel]
+    $global:WarningPreference     = if ($rank.Warning     -le $eff) { 'Continue' } else { 'SilentlyContinue' }
+    $global:InformationPreference = if ($rank.Information -le $eff) { 'Continue' } else { 'SilentlyContinue' }
+    $global:VerbosePreference     = if ($rank.Verbose     -le $eff) { 'Continue' } else { 'SilentlyContinue' }
+    $global:DebugPreference       = if ($rank.Debug       -le $eff) { 'Continue' } else { 'SilentlyContinue' }
+}
+
+function Get-DiagnosticLocaleManifest {
+    <#
+    .SYNOPSIS
+        The locale table: the checkout's locale manifest, or its en-US entry alone.
+    .DESCRIPTION
+        Reads globalization/locale-manifest.json as Get-LocaleManifest in
+        Test.Locale.psm1 reads it. Without a checkout around this file only the
+        embedded en-US text can be rendered, so the built-in table holds that
+        one locale with the separators, plural rule and direction the manifest
+        gives it.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    if ($script:DiagnosticLocaleManifest) { return $script:DiagnosticLocaleManifest }
+    $manifest = @{
+        Default      = 'en-US'
+        Supported    = @('en-US')
+        Aliases      = @{}
+        Direction    = @{ 'en-US' = 'ltr' }
+        NumberFormat = @{ 'en-US' = @{ Group = ','; Decimal = '.'; GroupSize = 3 } }
+        PluralRule   = @{ 'en-US' = 'one-if-1' }
+        MaxTagLength = 35
+    }
+    $path = if ($script:DiagnosticTextRoot) { Join-Path $script:DiagnosticTextRoot 'globalization/locale-manifest.json' } else { '' }
+    if ($path -and [IO.File]::Exists($path)) {
+        try {
+            $raw = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path, [Text.UTF8Encoding]::new($false)))
+            $read = @{
+                Default = [string]$raw.default; Supported = @(); Aliases = @{}; Direction = @{}; NumberFormat = @{}; PluralRule = @{}
+                MaxTagLength = if ($raw.maxTagLength) { [int]$raw.maxTagLength } else { 35 }
+            }
+            foreach ($p in $raw.locales.PSObject.Properties) {
+                if ($p.Value.status -eq 'supported') { $read.Supported += $p.Name }
+                $read.Direction[$p.Name] = [string]$p.Value.direction
+                $nf = $p.Value.numberFormat
+                if ($nf) {
+                    $read.NumberFormat[$p.Name] = @{
+                        Group = [string]$nf.group; Decimal = [string]$nf.decimal
+                        GroupSize = if ($nf.groupSize) { [int]$nf.groupSize } else { 3 }
+                    }
+                }
+                if ($null -ne $p.Value.pluralRule) { $read.PluralRule[$p.Name] = [string]$p.Value.pluralRule }
+            }
+            if ($raw.aliases) {
+                foreach ($p in $raw.aliases.PSObject.Properties) { $read.Aliases[$p.Name.ToLowerInvariant()] = [string]$p.Value }
+            }
+            if ($read.Default -and $read.Supported.Count -gt 0) { $manifest = $read }
+        } catch {
+            Write-Verbose "Get-SystemDiagnostic: the locale manifest is unreadable, so this run renders en-US: $($_.Exception.Message)"
+        }
+    }
+    $script:DiagnosticLocaleManifest = $manifest
+    return $manifest
+}
+
+function ConvertTo-DiagnosticLocaleTag {
+    <#
+    .SYNOPSIS
+        A tag in the one spelling every comparison uses, or '' when it is not a tag.
+    .DESCRIPTION
+        The rule of ConvertTo-CanonicalLocaleTag in Test.Locale.psm1: underscores
+        become hyphens, the language subtag lowercases, a two-letter region
+        uppercases, a four-letter script is title-cased, and anything outside
+        letters, digits and hyphens within the length bound is refused.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Tag, [int]$MaxLength = 35)
+    $t = "$Tag".Trim().Replace('_', '-')
+    if (-not $t) { return '' }
+    if ($t.Length -gt $MaxLength) { return '' }
+    if ($t -notmatch '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$') { return '' }
+    $parts = $t.Split('-')
+    $out = $parts[0].ToLowerInvariant()
+    for ($i = 1; $i -lt $parts.Count; $i++) {
+        $p = $parts[$i]
+        if ($p.Length -eq 2) { $out += '-' + $p.ToUpperInvariant() }
+        elseif ($p.Length -eq 4) { $out += '-' + $p.Substring(0, 1).ToUpperInvariant() + $p.Substring(1).ToLowerInvariant() }
+        else { $out += '-' + $p.ToLowerInvariant() }
+    }
+    return $out
+}
+
+function Resolve-DiagnosticSupportedLocale {
+    <#
+    .SYNOPSIS
+        The supported tag one requested tag selects, or '' for none.
+    .DESCRIPTION
+        The rule of Resolve-SupportedLocale in Test.Locale.psm1: an exact match,
+        then an alias the manifest declares, and no prefix fallback.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Tag, [Parameter(Mandatory)][hashtable]$Manifest)
+    $canonical = ConvertTo-DiagnosticLocaleTag -Tag $Tag -MaxLength $Manifest.MaxTagLength
+    if (-not $canonical) { return '' }
+    foreach ($s in $Manifest.Supported) {
+        if ([string]::Equals($s, $canonical, [StringComparison]::OrdinalIgnoreCase)) { return $s }
+    }
+    $alias = $Manifest.Aliases[$canonical.ToLowerInvariant()]
+    if ($alias) {
+        foreach ($s in $Manifest.Supported) {
+            if ([string]::Equals($s, $alias, [StringComparison]::OrdinalIgnoreCase)) { return $s }
+        }
+    }
+    return ''
+}
+
+function Get-DiagnosticOperatorLocale {
+    <#
+    .SYNOPSIS
+        The locale this run renders in, resolved once.
+    .DESCRIPTION
+        The command-line part of New-LocaleContext in Test.Locale.psm1, as
+        Get-YurunaOperatorLocale applies it: the checkout's `language:` lock when
+        it is not auto, otherwise the process UI culture, otherwise the default.
+        A lock that names an unsupported locale resolves to the default; it does
+        not fall through to the process culture.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    if ($script:DiagnosticOperatorLocale) { return $script:DiagnosticOperatorLocale }
+    $manifest = Get-DiagnosticLocaleManifest
+    $language = 'auto'
+    $configuration = if ($script:DiagnosticTextRoot) { Join-Path $script:DiagnosticTextRoot 'test/test.config.yml' } else { '' }
+    if ($configuration -and [IO.File]::Exists($configuration)) {
+        try {
+            $match = [regex]::Match([IO.File]::ReadAllText($configuration), '(?m)^language:\s*["'']?([A-Za-z0-9-]+)["'']?\s*(?:#.*)?$')
+            if ($match.Success) { $language = $match.Groups[1].Value }
+        } catch {
+            Write-Verbose "Get-SystemDiagnostic: test.config.yml is unreadable, so its language lock is ignored: $($_.Exception.Message)"
+        }
+    }
+    $locked = $language.Trim() -and -not [string]::Equals($language.Trim(), 'auto', [StringComparison]::OrdinalIgnoreCase)
+    $requested = if ($locked) { $language } else { [Globalization.CultureInfo]::CurrentUICulture.Name }
+    $resolved = Resolve-DiagnosticSupportedLocale -Tag $requested -Manifest $manifest
+    if (-not $resolved) { $resolved = $manifest.Default }
+    $direction = $manifest.Direction[$resolved]
+    if (-not $direction) { $direction = 'ltr' }
+    $script:DiagnosticOperatorLocale = @{ ResolvedTag = $resolved; Direction = $direction }
+    return $script:DiagnosticOperatorLocale
+}
+
+function Get-DiagnosticMessageTable {
+    <#
+    .SYNOPSIS
+        The checkout's compiled catalog for one locale and domain, or an empty table.
+    .DESCRIPTION
+        Read with Import-PowerShellDataFile, as Get-CatalogDomain in
+        Test.Catalog.psm1 reads it, so the file is data and cannot run. Loaded
+        once per run.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Locale, [Parameter(Mandatory)][string]$Domain)
+    $cacheKey = "$Locale|$Domain"
+    if ($script:DiagnosticMessageTables.ContainsKey($cacheKey)) { return $script:DiagnosticMessageTables[$cacheKey] }
+    $table = @{}
+    # Both values become part of a file name, so only their documented shapes pass.
+    if ($script:DiagnosticTextRoot -and $Locale -match '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$' -and $Domain -match '^[a-z][a-z0-9]*$') {
+        $path = Join-Path $script:DiagnosticTextRoot "globalization/generated/powershell/$Locale.$Domain.psd1"
+        if ([IO.File]::Exists($path)) {
+            try { $table = Import-PowerShellDataFile -LiteralPath $path -SkipLimitCheck }
+            catch { Write-Verbose "Get-SystemDiagnostic: the $Locale.$Domain catalog is unreadable: $($_.Exception.Message)" }
+        }
+    }
+    $script:DiagnosticMessageTables[$cacheKey] = $table
+    return $table
+}
+
+function Get-DiagnosticEmbeddedMessage {
+    <#
+    .SYNOPSIS
+        The en-US entry of every message this script prints, for a run with no catalog.
+    .DESCRIPTION
+        The compiled en-US catalog entries of exactly the keys this script passes
+        to Format-YurunaOperatorMessage, as gzip-compressed JSON in base64. The
+        copy is data rather than source text on purpose: the domain inventory and
+        the catalog triage count string literals that read like prose, and a
+        verbatim copy of messages the catalog already ships would count as
+        hundreds of new untranslated literals. Regenerate it with
+        tools/Update-SystemDiagnosticText.ps1 instead of editing it here.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    if ($null -ne $script:DiagnosticEmbeddedMessages) { return $script:DiagnosticEmbeddedMessages }
+    $encoded = @(
+        # >>> embedded en-US messages -- generated by tools/Update-SystemDiagnosticText.ps1
+        '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'
+        'AAA='
+        # <<< embedded en-US messages
+    ) -join ''
+    $table = @{}
+    try {
+        $buffer = [IO.MemoryStream]::new([Convert]::FromBase64String($encoded))
+        $zip = [IO.Compression.GZipStream]::new($buffer, [IO.Compression.CompressionMode]::Decompress)
+        $reader = [IO.StreamReader]::new($zip, [Text.UTF8Encoding]::new($false))
+        try { $table = $reader.ReadToEnd() | ConvertFrom-Json -AsHashtable }
+        finally { $reader.Dispose() }
+    } catch {
+        Write-Verbose "Get-SystemDiagnostic: the embedded messages do not decode: $($_.Exception.Message)"
+    }
+    if ($null -eq $table) { $table = @{} }
+    $script:DiagnosticEmbeddedMessages = $table
+    return $table
+}
+
+function Get-DiagnosticPluralCategory {
+    <#
+    .SYNOPSIS
+        The plural category a count takes in a locale.
+    .DESCRIPTION
+        The rules of Get-PluralCategory in Test.Catalog.psm1. That function
+        refuses a locale whose rule it does not know; this one answers 'other',
+        because a diagnostic that stopped over grammar would report nothing.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Locale, [Parameter(Mandatory)][double]$Count)
+    switch ((Get-DiagnosticLocaleManifest).PluralRule[$Locale]) {
+        'one-if-1' { if ($Count -eq 1) { return 'one' } return 'other' }
+        'pt-cardinal-cldr46' {
+            $absolute = [Math]::Abs($Count)
+            if ([Math]::Floor($absolute) -le 1) { return 'one' }
+            if ($absolute -gt 0 -and $absolute % 1000000 -eq 0) { return 'many' }
+            return 'other'
+        }
+        'zh-cardinal-cldr46' { return 'other' }
+        'he-cardinal-cldr46' {
+            $absolute = [Math]::Abs($Count)
+            $integer = [Math]::Floor($absolute)
+            $hasFraction = $absolute -ne $integer
+            if (($integer -eq 1 -and -not $hasFraction) -or ($integer -eq 0 -and $hasFraction)) { return 'one' }
+            if ($integer -eq 2 -and -not $hasFraction) { return 'two' }
+            return 'other'
+        }
+        default { return 'other' }
+    }
+}
+
+function Format-DiagnosticNumber {
+    <#
+    .SYNOPSIS
+        A number written with the separators the locale manifest gives a locale.
+    .DESCRIPTION
+        The rule of Format-CatalogNumber in Test.Catalog.psm1: invariant digits,
+        then the manifest's group and decimal separators, so this script writes
+        a number the way every other Yuruna surface writes it.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)]$Value, [Parameter(Mandatory)][string]$Locale, [int]$Decimals = 0)
+    $manifest = Get-DiagnosticLocaleManifest
+    $format = $manifest.NumberFormat[$Locale]
+    if (-not $format) { $format = $manifest.NumberFormat[$manifest.Default] }
+    if (-not $format) { $format = @{ Group = ','; Decimal = '.'; GroupSize = 3 } }
+    $number = [double]$Value
+    $negative = $number -lt 0
+    $text = [Math]::Abs($number).ToString("F$Decimals", [Globalization.CultureInfo]::InvariantCulture)
+    $parts = $text -split '\.'
+    $whole = $parts[0]
+    $size = if ($format.GroupSize -gt 0) { [int]$format.GroupSize } else { 3 }
+    if ($format.Group -and $whole.Length -gt $size) {
+        $grouped = ''
+        $seen = 0
+        for ($i = $whole.Length - 1; $i -ge 0; $i--) {
+            $grouped = $whole[$i] + $grouped
+            $seen++
+            if (($seen % $size) -eq 0 -and $i -gt 0) { $grouped = $format.Group + $grouped }
+        }
+        $whole = $grouped
+    }
+    $out = if ($parts.Count -gt 1) { $whole + $format.Decimal + $parts[1] } else { $whole }
+    if ($negative) { return "-$out" }
+    return $out
+}
+
+function Format-DiagnosticArgument {
+    <#
+    .SYNOPSIS
+        One typed message argument, rendered for a reader.
+    .DESCRIPTION
+        The rule of Format-CatalogArgument in Test.Catalog.psm1, including the
+        bidi isolation every argument gets in a right-to-left locale.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowNull()]$Value, [Parameter(Mandatory)][string]$Type, [Parameter(Mandatory)][string]$Locale)
+    if ($null -eq $Value) { return '' }
+    $text = switch ($Type) {
+        'integer'  { Format-DiagnosticNumber -Value $Value -Locale $Locale -Decimals 0 }
+        'decimal'  { Format-DiagnosticNumber -Value $Value -Locale $Locale -Decimals 2 }
+        'duration' {
+            $span = [TimeSpan]::FromSeconds([double]$Value)
+            if ($span.TotalHours -ge 1) { '{0}h {1}m' -f [Math]::Floor($span.TotalHours), $span.Minutes }
+            elseif ($span.TotalMinutes -ge 1) { '{0}m {1}s' -f [Math]::Floor($span.TotalMinutes), $span.Seconds }
+            else { '{0}s' -f [Math]::Floor($span.TotalSeconds) }
+        }
+        'datetime' {
+            ([datetime]$Value).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture) + ' UTC'
+        }
+        default { [string]$Value }
+    }
+    $text = [string]$text
+    $direction = (Get-DiagnosticLocaleManifest).Direction[$Locale]
+    if ($direction -ne 'rtl' -or $text -eq '' -or $text -match '(?s)^[\u2066-\u2068].*\u2069$') { return $text }
+    $open = if ($Type -in @('integer', 'decimal', 'duration', 'datetime')) { [char]0x2066 } else { [char]0x2068 }
+    return "$open$text$([char]0x2069)"
+}
+
+function Format-DiagnosticSegment {
+    <#
+    .SYNOPSIS
+        Walk one compiled message form: literal text, argument, literal text.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowNull()]$Segments, [Parameter(Mandatory)][hashtable]$Arguments, [Parameter(Mandatory)][string]$Locale)
+    if ($Segments -is [string]) { return $Segments }
+    $sb = [Text.StringBuilder]::new()
+    foreach ($piece in @($Segments)) {
+        if ($piece -is [string]) { [void]$sb.Append($piece); continue }
+        if ($piece -is [System.Collections.IDictionary] -and $piece.Contains('arg')) {
+            $name = [string]$piece['arg']
+            $value = if ($Arguments.ContainsKey($name)) { $Arguments[$name] } else { $null }
+            [void]$sb.Append((Format-DiagnosticArgument -Value $value -Type ([string]$piece['type']) -Locale $Locale))
+            continue
+        }
+        [void]$sb.Append([string]$piece)
+    }
+    return $sb.ToString()
+}
+
+function Format-YurunaOperatorMessage {
+    <#
+    .SYNOPSIS
+        Render a stable message key with explicitly named argument values.
+    .DESCRIPTION
+        The contract of Format-YurunaOperatorMessage in Yuruna.Globalization.psm1,
+        which this script cannot import. The entry comes from the checkout's
+        compiled catalog for the run's locale, then for the default locale, then
+        from the embedded en-US copy; with none of them the key itself is
+        returned, so the line still says something identifiable.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Key, [hashtable]$Arguments = @{},
+        [AllowNull()][AllowEmptyCollection()][object[]]$FormatValues,
+        [hashtable]$FormatBindings = @{})
+    $context = Get-DiagnosticOperatorLocale
+    $values = @{}
+    if ($Arguments) { foreach ($name in $Arguments.Keys) { $values[$name] = $Arguments[$name] } }
+    if ($FormatBindings.Count -gt 0) {
+        # Composite formats can align or format one value in more than one way.
+        # Evaluate them once, as the shared formatter does, and hand the
+        # renderer named display arguments.
+        $formatLocale = if ($context.ResolvedTag -like 'qps-*') { 'en-US' } else { $context.ResolvedTag }
+        $culture = try { [Globalization.CultureInfo]::GetCultureInfo($formatLocale) } catch { [Globalization.CultureInfo]::InvariantCulture }
+        foreach ($name in $FormatBindings.Keys) {
+            $values[$name] = [string]::Format($culture, ('{' + [string]$FormatBindings[$name] + '}'), [object[]]$FormatValues)
+        }
+    }
+    $domain = ($Key -split '\.')[0]
+    $renderLocale = [string]$context.ResolvedTag
+    $entry = (Get-DiagnosticMessageTable -Locale $renderLocale -Domain $domain)[$Key]
+    $default = [string](Get-DiagnosticLocaleManifest).Default
+    if ($null -eq $entry -and -not [string]::Equals($renderLocale, $default, [StringComparison]::Ordinal)) {
+        $entry = (Get-DiagnosticMessageTable -Locale $default -Domain $domain)[$Key]
+        if ($null -ne $entry) { $renderLocale = $default }
+    }
+    if ($null -eq $entry) {
+        $entry = (Get-DiagnosticEmbeddedMessage)[$Key]
+        if ($null -ne $entry) { $renderLocale = 'en-US' }
+    }
+    if ($null -eq $entry) { return $Key }
+    if ($entry -is [string]) { return $entry }
+    if ($entry -is [System.Collections.IDictionary] -and $entry.Contains('kind')) {
+        $selector = [string]$entry['selector']
+        $chosen = $null
+        if ($entry['kind'] -eq 'plural') {
+            $count = 0.0
+            if ($values.ContainsKey($selector)) { $count = [double]$values[$selector] }
+            $chosen = $entry['variants'][(Get-DiagnosticPluralCategory -Locale $renderLocale -Count $count)]
+            if ($null -eq $chosen) { $chosen = $entry['variants']['other'] }
+        } else {
+            $selected = if ($values.ContainsKey($selector)) { [string]$values[$selector] } else { '' }
+            $chosen = $entry['variants'][$selected]
+            if ($null -eq $chosen) { $chosen = $entry['variants']['other'] }
+        }
+        if ($null -eq $chosen) { return $Key }
+        return (Format-DiagnosticSegment -Segments $chosen -Arguments $values -Locale $renderLocale)
+    }
+    return (Format-DiagnosticSegment -Segments $entry -Arguments $values -Locale $renderLocale)
+}
+
+Write-Debug "Get-SystemDiagnostic: skipDocker=$SkipDocker skipKube=$SkipKube skipProjectGaps=$SkipProjectGaps logLevel=$logLevel"
 Set-YurunaLogLevel -LogLevel $logLevel
 
 $script:Problems = [System.Collections.Generic.List[string]]::new()
@@ -520,9 +1176,12 @@ function Get-LocalRegistryCatalog {
         return $null
     }
     if (-not ($probe -and $probe.Content)) { return $null }
-    # 2>$null: ConvertFrom-Json still writes a red parse error to the transcript
-    # on non-JSON content even under -ErrorAction SilentlyContinue (PS7).
-    $catalog = $probe.Content | ConvertFrom-Json -ErrorAction SilentlyContinue 2>$null
+    try {
+        $catalog = ConvertFrom-Json -InputObject $probe.Content -ErrorAction Stop
+    } catch {
+        Write-Verbose ("local registry returned invalid JSON: {0}" -f $_.Exception.Message)
+        return $null
+    }
     if (-not $catalog -or -not ($catalog.PSObject.Properties.Name -contains 'repositories')) { return $null }
     $reposVal = $catalog.repositories
     if ($null -eq $reposVal) { return $null }   # "repositories": null -> treat as no catalog
@@ -568,12 +1227,88 @@ function Test-CommandAvailable {
     return (Test-ExecutableFile -Path $cmd.Source)
 }
 
+function Invoke-DiagnosticBoundedCommand {
+    <#
+    .SYNOPSIS
+        Run one native command under a wall-clock cap, without any module.
+    .DESCRIPTION
+        The runner for a run that has neither the macOS driver's
+        Invoke-UtmctlProbe nor Yuruna.Common's Invoke-BoundedNativeCommand
+        loaded -- every run of this script on its own. It returns the fields
+        those return, so the caller reads one shape. A command still running at
+        the cap is stopped with its process tree, and its streams are then
+        drained for a short grace: a stream a surviving grandchild keeps open is
+        reported as DrainTimedOut rather than waited on.
+    .PARAMETER FilePath
+        The executable to run.
+    .PARAMETER ArgumentList
+        Its arguments, passed one by one with no shell in between.
+    .PARAMETER TimeoutSeconds
+        The wall-clock cap for the command.
+    .PARAMETER MaxCapturedChars
+        Characters kept per stream; anything beyond is dropped and reported.
+    .OUTPUTS
+        [hashtable] Started, ExitCode, StdOut, StdErr, TimedOut, DrainTimedOut,
+        OutputTruncated, KillFailed, StartError.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [ValidateRange(1, 3600)][int]$TimeoutSeconds = 20,
+        [ValidateRange(4096, 67108864)][int]$MaxCapturedChars = 1048576
+    )
+    $result = @{
+        Started = $false; ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $false
+        DrainTimedOut = $false; OutputTruncated = $false; KillFailed = $false; StartError = ''
+    }
+    $startInfo = [Diagnostics.ProcessStartInfo]::new($FilePath)
+    foreach ($argument in $ArgumentList) { [void]$startInfo.ArgumentList.Add($argument) }
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    try {
+        $process = [Diagnostics.Process]::Start($startInfo)
+    } catch {
+        $result.StartError = $_.Exception.Message
+        return $result
+    }
+    $result.Started = $true
+    try {
+        $process.StandardInput.Close()
+        $readers = [Threading.Tasks.Task[]]@($process.StandardOutput.ReadToEndAsync(), $process.StandardError.ReadToEndAsync())
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            $result.TimedOut = $true
+            try { $process.Kill($true) } catch { Write-Verbose "Invoke-DiagnosticBoundedCommand: kill failed: $($_.Exception.Message)" }
+            if (-not $process.WaitForExit(5000)) { $result.KillFailed = $true }
+        }
+        if (-not $result.TimedOut) { $result.ExitCode = $process.ExitCode }
+        if (-not [Threading.Tasks.Task]::WaitAll($readers, 2000)) { $result.DrainTimedOut = $true }
+        foreach ($stream in @(@{ Name = 'StdOut'; Reader = $readers[0] }, @{ Name = 'StdErr'; Reader = $readers[1] })) {
+            if (-not $stream.Reader.IsCompletedSuccessfully) { continue }
+            $text = [string]$stream.Reader.Result
+            if ($text.Length -gt $MaxCapturedChars) {
+                $text = $text.Substring(0, $MaxCapturedChars)
+                $result.OutputTruncated = $true
+            }
+            $result[$stream.Name] = $text
+        }
+    } finally {
+        $process.Dispose()
+    }
+    return $result
+}
+
 # utmctl is an Apple Events client with no timeout of its own, and this report
 # is most often wanted when UTM has stopped answering -- exactly when an
 # unbounded `utmctl list` would hang the diagnostic that was meant to explain
 # the hang. The call is bounded through the macOS driver's Invoke-UtmctlProbe
-# when the driver is loaded, through Invoke-BoundedNativeCommand otherwise, and
-# is skipped rather than run unbounded when neither can be loaded.
+# when the driver is loaded, through Invoke-BoundedNativeCommand when a caller
+# already loaded it, and through Invoke-DiagnosticBoundedCommand otherwise. It
+# is never run unbounded.
 function Get-DiagnosticUtmctlListing {
     <#
     .SYNOPSIS
@@ -591,15 +1326,10 @@ function Get-DiagnosticUtmctlListing {
     if (-not $utmctl) { return }
     if (Get-Command -Name Invoke-UtmctlProbe -ErrorAction SilentlyContinue) {
         $result = Invoke-UtmctlProbe -Arguments @('list') -TimeoutSeconds $TimeoutSeconds -UtmctlPath $utmctl.Source -Quiet
-    } else {
-        if (-not (Get-Command -Name Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue)) {
-            Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
-        }
-        if (-not (Get-Command -Name Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue)) {
-            Write-Verbose 'Get-DiagnosticUtmctlListing: no bounded runner could be loaded; utmctl list skipped.'
-            return
-        }
+    } elseif (Get-Command -Name Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue) {
         $result = Invoke-BoundedNativeCommand -FilePath $utmctl.Source -ArgumentList @('list') -TimeoutSeconds $TimeoutSeconds
+    } else {
+        $result = Invoke-DiagnosticBoundedCommand -FilePath $utmctl.Source -ArgumentList @('list') -TimeoutSeconds $TimeoutSeconds
     }
     $text = "$($result.StdOut)".TrimEnd("`r", "`n")
     if ($text) { $text -split "`r?`n" }
@@ -1592,9 +2322,10 @@ try {
         } elseif ($IsLinux) {
             if (Test-CommandAvailable 'lspci') {
                 Write-Sub "lspci -nnk | grep -A2 -E 'VGA|3D|Display'"
-                & lspci -nnk 2>$null | Out-String | ForEach-Object {
-                    ($_ -split "`n") | Where-Object { $_ -match 'VGA|3D|Display' -or $_ -match '^\s+(Subsystem|Kernel)' } |
-                        ForEach-Object { Write-Output $_ }
+                $inGpu = $false
+                foreach ($line in (& lspci -nnk 2>$null)) {
+                    if ($line -match '^\S') { $inGpu = $line -match 'VGA|3D|Display' }
+                    if ($inGpu) { Write-Output $line }
                 }
             } else {
                 Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_af3b08b6cf7fc2be')
@@ -2415,8 +3146,7 @@ try {
     if (-not $diagScanRoot) {
         Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_495dcc6db4d4fc56' -Arguments @{ yurunaRootCandidate = "$yurunaRootCandidate" })
     } else {
-        $phaseLogs = @(Get-ChildItem -Path $diagScanRoot -Recurse -File -Force -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like '*.stderr.log' })
+        $phaseLogs = @(Get-ChildItem -LiteralPath $diagScanRoot -Recurse -File -Force -Filter '*.stderr.log' -ErrorAction SilentlyContinue)
         if ($phaseLogs.Count -eq 0) {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9cf3996f93916a8c' -Arguments @{ diagScanRoot = "$diagScanRoot" })
         } else {
@@ -2489,7 +3219,7 @@ try {
             Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_806ec1c40ae4b734') -Class 'DOCKER.daemon-unavailable'
         } else {
             Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_c31b9b429279d53c')
-            Invoke-Tool -Tool 'docker' -ToolArgs @('version','--format','Client: {{.Client.Version}} ({{.Client.Os}}/{{.Client.Arch}})`nServer: {{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})') -TimeoutSeconds 5
+            Invoke-Tool -Tool 'docker' -ToolArgs @('version','--format',"Client: {{.Client.Version}} ({{.Client.Os}}/{{.Client.Arch}})`nServer: {{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})") -TimeoutSeconds 5
             Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_bd1e95a93c4cad8e')
             $infoProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
                 & docker info --format '{{json .}}' 2>$null

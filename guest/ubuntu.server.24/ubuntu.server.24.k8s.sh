@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.27
+# Version: 2026.09.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -81,6 +81,7 @@ sudo systemctl is-active ssh > /dev/null 2>&1 || echo "Note: SSH service status 
 
 # --- REGION: https://yuruna.link/4220a755-001e
 # arg1 = key file; remaining args = ALLOWED primary fingerprints, FIRST also required.
+if ! command -v _yuruna_verify_key_fpr >/dev/null 2>&1; then
 _yuruna_verify_key_fpr() {
     local keyfile="$1"; shift
     local required="${1^^}" allowed=("$@") present a fpr ok found=0
@@ -96,6 +97,7 @@ _yuruna_verify_key_fpr() {
     [ "$found" = 1 ] || { echo "!! key verify: required fingerprint $required missing from $keyfile" >&2; return 1; }
     echo "  key verify: OK ($keyfile)"
 }
+fi
 
 # --- REGION: Install Docker
 echo ""

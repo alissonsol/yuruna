@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4241d9f0-ad34-48bf-acbd-de2cff3f7bf7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,7 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Global -DisableNameChecking
 $here        = Split-Path -Parent $PSCommandPath
 $yurunaDir   = Join-Path $here 'Test.YurunaDir.psm1'
 $script:configSync  = Join-Path $here 'Test.ConfigSync.psm1'
@@ -37,10 +38,7 @@ Import-Module $yurunaDir -Force -ErrorAction SilentlyContinue
 # --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-FileAst {
     param([string]$Path)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($Path): $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 # Count [<TypePattern>]::<Member>(...) static invocations with exactly $ArgCount args
 # (-1 = any).

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42267d15-1bc0-481c-b068-2bb6d74f5ffb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -215,8 +215,7 @@ if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'pr
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d24bb1160e14f86a' -Arguments @{ proxyAddress = "$proxyAddress" }) -InformationAction Continue
             } else {
                 $cfg['vmStart']['cachingProxyIp'] = $proxyAddress
-                $yaml = (ConvertTo-SortedConfig $cfg) | ConvertTo-Yaml
-                $null = Write-YurunaStateFile -Path $configPath -Content $yaml -Confirm:$false
+                if (-not (Write-DocumentedTestConfig -ConfigPath $configPath -Config $cfg -Confirm:$false)) { throw 'Configuration update could not be written.' }
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a7167078df8a485b' -Arguments @{ proxyAddress = "$proxyAddress" }) -InformationAction Continue
             }
         } else {
@@ -282,8 +281,7 @@ if ($provision.ok -and $poolHost -and -not $NoPoolConfig) {
                 # seeding one without the other would look configured and do
                 # nothing.
                 $cfg['pool']['enabled'] = $true
-                $yaml = (ConvertTo-SortedConfig $cfg) | ConvertTo-Yaml
-                $null = Write-YurunaStateFile -Path $configPath -Content $yaml -Confirm:$false
+                if (-not (Write-DocumentedTestConfig -ConfigPath $configPath -Config $cfg -Confirm:$false)) { throw 'Configuration update could not be written.' }
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e178d69f96491585' -Arguments @{ intentUrl = "$intentUrl" }) -InformationAction Continue
             }
         }

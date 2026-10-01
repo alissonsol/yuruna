@@ -54,7 +54,7 @@ const DataptBRstash = `{
   ],
   "stash.api_stash_not_found": "stash não encontrado",
   "stash.api_stat_artifact": "stat artefact",
-  "stash.api_too_many_files_in_one_upload": "demasiados ficheiros num só envio",
+  "stash.api_too_many_files_in_one_upload": "demasiados arquivos num só envio",
   "stash.api_too_many_stashes_in_one_request": "muitos stashes em um pedido",
   "stash.archive": "Arquivo",
   "stash.archive_contents": "Conteúdo do arquivo",
@@ -130,7 +130,7 @@ const DataptBRstash = `{
     }
   ],
   "stash.delete_is_locked_unlock_actions_with_the_lab_token_above_or_open_": "A exclusão está bloqueada. Desbloqueie as ações com o token do laboratório acima, ou abra esta página do painel de máquinas Yuruna, que o desbloqueia para você.",
-  "stash.delete_is_unavailable_this_service_has_no_pool_aggregator_configu": "Excluir está indisponível: este serviço não tem agregador de piscina configurado, então nenhum token de laboratório ou link do painel pode ser verificado.",
+  "stash.delete_is_unavailable_this_service_has_no_pool_aggregator_configu": "Excluir está indisponível: este serviço não tem agregador de grupo configurado, então nenhum token do laboratório ou link do painel pode ser verificado.",
   "stash.delete_is_unavailable_this_service_has_no_pool_aggregator_configu_9d79c432": "Excluir não está disponível: este serviço não tem nenhum agregador de pool configurado, então nenhum token do Lab pode ser selecionado.",
   "stash.delete_selected": "Apagar seleccionado",
   "stash.delete_stash_value1": [
@@ -199,7 +199,7 @@ const DataptBRstash = `{
   "stash.image": "Imagem",
   "stash.incomplete_upload_partial_bytes_available_via_download": "Envio incompleto -- bytes parciais disponíveis via Download.",
   "stash.ips": "IPs:",
-  "stash.lab_token": "Token de laboratório",
+  "stash.lab_token": "Token do laboratório",
   "stash.listed_count": {
     "kind": "plural",
     "selector": "count",
@@ -272,7 +272,7 @@ const DataptBRstash = `{
       "type": "token",
       "trust": "internal"
     },
-    " no servidor para habilitá- lo."
+    " no servidor para habilitá-lo."
   ],
   "stash.notes_txt": "notes.txt",
   "stash.nothing_to_store_paste_some_content_first": "Nada para armazenar -- cole algum conteúdo primeiro.",
@@ -300,7 +300,7 @@ const DataptBRstash = `{
   "stash.refresh": "Actualizar",
   "stash.rescan_the_stash_share_for_other_hosts_stashes": "Verifica novamente o stash share para os stashs de outras máquinas",
   "stash.scp_path": "Caminho SCP",
-  "stash.search_id_filename_user_path": "Procurar o ID, nome do ficheiro, utilizador, localização...",
+  "stash.search_id_filename_user_path": "Procurar o ID, nome do arquivo, usuário, localização...",
   "stash.select_stash_value1": [
     "Selecione stash ",
     {
@@ -340,7 +340,7 @@ const DataptBRstash = `{
     }
   },
   "stash.short_link": "Ligação curta",
-  "stash.six_character_lab_token_from_the_dashboard": "Token de laboratório de seis caracteres do painel",
+  "stash.six_character_lab_token_from_the_dashboard": "Token do laboratório de seis caracteres do painel",
   "stash.size": "Tamanho",
   "stash.source": "Origem",
   "stash.stash": "Stash",
@@ -371,9 +371,9 @@ const DataptBRstash = `{
   "stash.unlock_actions": "Desbloquear ações",
   "stash.unlock_actions_to_delete": "Desbloquear ações para excluir",
   "stash.unnamed": "(sem nome)",
-  "stash.upload_file_s": "Enviar os ficheiros",
+  "stash.upload_file_s": "Enviar os arquivos",
   "stash.upload_stash": "Enviar stash",
-  "stash.user": "Utilizador",
+  "stash.user": "Usuário",
   "stash.value1_malformed_permalink": [
     {
       "arg": "value1",

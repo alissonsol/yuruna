@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42c94790-0880-4f88-b0b7-07f2de824904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,7 +44,7 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 # and the value would arrive as $null -- silently skipping every yaml case and
 # handing New-SnippetTestDir a null root.
 $script:yamlAvailable = [bool](Get-Module -ListAvailable -Name powershell-yaml)
-$tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-snippet-tests'
+$tmpRoot = Join-Path $TestDrive 'snippet-tests'
 
 function New-SnippetTestDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Test temp dir.')]
@@ -71,6 +71,14 @@ function Write-TextFile {
 }
 
 Describe 'Test.SequenceResolve step-snippet expansion' {
+    It 'returns null for an empty YAML sequence with and without caching' {
+        $path = Join-Path $TestDrive 'empty.yml'
+        Set-Content -LiteralPath $path -Value ''
+        foreach ($noCache in @($false, $true)) {
+            $null -eq (Read-SequenceFile -Path $path -NoCache:$noCache) | Should -BeTrue
+        }
+    }
+
 
     It 'splices a top-level snippet reference into its steps' {
         if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
@@ -488,10 +496,14 @@ Describe 'planner failure identity is independent of diagnostic text' {
             param([string]$Owner, [Exception]$Failure)
             $path = Join-Path $PSScriptRoot ('Test.' + $Owner + '.psm1')
             $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+            if ($Owner -eq 'SequencePlanner') {
+                $ast = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Add-CyclePlanEntriesForTopLevel' }, $true)
+            }
             $catches = @($ast.FindAll({
                 param($node)
                 $node -is [Management.Automation.Language.CatchClauseAst] -and
-                    $node.Body.Extent.Text.Contains('Test-SequencePlannerFailure -ErrorObject $_')
+                    $node.Body.Extent.Text.Contains('Test-SequencePlannerFailure -ErrorObject $_') -and
+                    @($node.Body.FindAll({ param($child) $child -is [Management.Automation.Language.CatchClauseAst] }, $true)).Count -eq 0
             }, $true))
             Assert-Equal 1 $catches.Count 'the actual owner must have one planner-routing catch'
             $body = $catches[0].Body.Extent.Text

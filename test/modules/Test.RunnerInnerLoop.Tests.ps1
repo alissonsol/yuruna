@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,8 +29,7 @@
         will rely on (the scope-collapse risk);
       * the pure config-merge / template-shape / secret-hiding contracts.
 
-    Assertions are throw-based inside It blocks so the file runs under the
-    OS-bundled Pester 3.4 (no Install-Module needed) and under Pester 5+.
+    Assertions are throw-based inside It blocks so the file runs under Pester 5+.
     Run with:  Invoke-Pester -Path test/modules/Test.RunnerInnerLoop.Tests.ps1
 #>
 
@@ -246,7 +245,7 @@ function Invoke-NewVmFailureIteration {
         }
         return @{ Iter = $global:__gpiIter; Rm = $global:__gpiRm }
     } finally {
-        Remove-Item function:global:New-VM, function:global:Remove-GuestVMQuietly, function:global:Get-CycleGuestDataFolder, function:global:Set-GuestVMName, function:global:Set-GuestStatus, function:global:Set-StepStatus, function:global:Get-GuestProvenance -ErrorAction SilentlyContinue
+        Remove-Item function:New-VM, function:global:Remove-GuestVMQuietly, function:global:Get-CycleGuestDataFolder, function:global:Set-GuestVMName, function:global:Set-GuestStatus, function:global:Set-StepStatus, function:global:Get-GuestProvenance -ErrorAction SilentlyContinue
         Remove-Variable __gpiRm, __gpiIter, __gpiStop -Scope Global -ErrorAction SilentlyContinue
         if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
@@ -384,7 +383,7 @@ Describe 'Sync-RunnerCycleConfig' {
 
 Describe 'Convert-LocalRepoUrlToPath' {
     It 'maps file:// URLs and bare drive paths, rejects remote/empty' {
-        Assert-Equal -Expected 'c:/git/yuruna-project' -Actual (Convert-LocalRepoUrlToPath -Url 'file:///c:/git/yuruna-project') -Because 'file:// stripped'
+        Assert-Equal -Expected 'c:\git\yuruna-project' -Actual (Convert-LocalRepoUrlToPath -Url 'file:///c:/git/yuruna-project') -Because 'file:// stripped'
         Assert-Equal -Expected 'c:\git\yuruna' -Actual (Convert-LocalRepoUrlToPath -Url 'c:\git\yuruna') -Because 'drive path passes through'
         Assert-True ($null -eq (Convert-LocalRepoUrlToPath -Url 'https://github.com/x/y')) 'remote url -> null'
         Assert-True ($null -eq (Convert-LocalRepoUrlToPath -Url '')) 'empty -> null'
@@ -633,7 +632,7 @@ Describe 'Write-CycleInfraFailure' {
             if ($doc.hostType -ne 'host.test') { throw "HostType not threaded into the record: '$($doc.hostType)'" }
             if (-not $global:__yrnInfraEventSent) { throw 'Send-CycleEventSafely was not invoked.' }
         } finally {
-            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
+            Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
             Remove-Variable -Name __yrnInfraEventSent -Scope Global -ErrorAction SilentlyContinue
             if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
@@ -718,7 +717,7 @@ Describe 'Write-CycleInfraFailure' {
             Assert-Equal -Expected 'guest.a' -Actual ((Get-Content -Raw -LiteralPath $mirror | ConvertFrom-Json).guestKey) `
                 -Because 'the mirror must be this failure, not an empty file'
         } finally {
-            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
+            Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
             Remove-Module Test.Log -Force -ErrorAction SilentlyContinue
             $global:__YurunaCycleFolder = $oldCycleFolder
             if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
@@ -775,7 +774,7 @@ Describe 'Write-CycleInfraFailure' {
             Assert-Equal -Expected 'guest.engine' -Actual ((Get-Content -Raw -LiteralPath (Join-Path $cycle 'last_failure.json') | ConvertFrom-Json).guestKey) `
                 -Because 'the richer record already in the cycle folder must survive a suppressed write'
         } finally {
-            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
+            Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
             Remove-Module Test.Log -Force -ErrorAction SilentlyContinue
             $global:__YurunaCycleFolder = $oldCycleFolder
             if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
@@ -818,7 +817,7 @@ Describe 'Write-CycleInfraFailure' {
             Assert-Equal -Expected 48257269760 -Actual $global:__yrnSeenHostMemory['commitLimitBytes'] `
                 -Because 'the reading must arrive unaltered'
         } finally {
-            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile -ErrorAction SilentlyContinue
+            Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile -ErrorAction SilentlyContinue
             Remove-Variable -Name __yrnSeenHostMemory -Scope Global -ErrorAction SilentlyContinue
             if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
@@ -832,8 +831,8 @@ Describe 'Write-CycleInfraFailure' {
     # that survives, so the call site is pinned to it.
     It 'reads the driver reading with the indexer, which an absent key survives' {
         $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
-        $call = [regex]::Match($src, "Write-CycleInfraFailure -Stage 'Start-VM'[^\r\n]*")
-        Assert-True $call.Success 'the Start-VM failure path must record through Write-CycleInfraFailure'
+        $call = [regex]::Match($src, "Complete-GuestStepFailure [^\r\n]*-StepName 'Start-VM'[^\r\n]*")
+        Assert-True $call.Success 'the Start-VM failure path must record through the shared failure tail'
         Assert-True ($call.Value.Contains("-HostMemory `$r['hostMemory']")) `
             "the Start-VM call site must index the reading out of the driver result: $($call.Value)"
         $probe = & ([scriptblock]::Create(@'
@@ -919,7 +918,7 @@ Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
             if ($global:__gateNotifyArgs.SubjectSuffix -ne 'GitPull') { throw "wrong SubjectSuffix: $($global:__gateNotifyArgs.SubjectSuffix)" }
             if ($global:__gateNotifyArgs.FailureClass -ne 'network_timeout') { throw "wrong FailureClass: $($global:__gateNotifyArgs.FailureClass)" }
         } finally {
-            Remove-Item function:global:Send-CycleFailureNotification -ErrorAction SilentlyContinue
+            Remove-Item function:Send-CycleFailureNotification -ErrorAction SilentlyContinue
             Remove-Variable __gateNotifyCount, __gateNotifyArgs -Scope Global -ErrorAction SilentlyContinue
         }
     }
@@ -941,7 +940,7 @@ Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
             }
             if ($global:__gateNotifyCount -ne 0) { throw "expected 0 notifications below threshold, got $($global:__gateNotifyCount)" }
         } finally {
-            Remove-Item function:global:Send-CycleFailureNotification -ErrorAction SilentlyContinue
+            Remove-Item function:Send-CycleFailureNotification -ErrorAction SilentlyContinue
             Remove-Variable __gateNotifyCount -Scope Global -ErrorAction SilentlyContinue
         }
     }
@@ -962,7 +961,7 @@ Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
             }
             if ($global:__gateNotifyCount -ne 0) { throw "expected 0 notifications when disarmed, got $($global:__gateNotifyCount)" }
         } finally {
-            Remove-Item function:global:Send-CycleFailureNotification -ErrorAction SilentlyContinue
+            Remove-Item function:Send-CycleFailureNotification -ErrorAction SilentlyContinue
             Remove-Variable __gateNotifyCount -Scope Global -ErrorAction SilentlyContinue
         }
     }
@@ -1006,8 +1005,8 @@ Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
         Assert-True ($f.HelperLoopBreaks -eq 0) "iteration must contain 0 break statements (escapes route through `$IterState.Control), found $($f.HelperLoopBreaks)"
         Assert-True ($f.HelperLoopContinues -eq 0) "iteration must contain 0 continue statements, found $($f.HelperLoopContinues)"
-        Assert-True ($f.HelperReturns -eq 15) "iteration must have 15 signaled returns (1 shutdown + 6 stop + 1 skip + 6 teardown + 1 cleanup-hazard), found $($f.HelperReturns)"
-        Assert-True ($f.HelperControlSets -eq 16) "iteration must set `$IterState.Control 16 times (1 init + 8 break + 7 continue), found $($f.HelperControlSets)"
+        Assert-True ($f.HelperReturns -eq 9) "iteration must have 9 signaled returns (1 shutdown + 1 skip + 6 delegated step failures + 1 cleanup-hazard), found $($f.HelperReturns)"
+        Assert-True ($f.HelperControlSets -eq 4) "iteration directly sets `$IterState.Control four times and delegates six failure exits, found $($f.HelperControlSets)"
     }
 }
 
@@ -1066,9 +1065,17 @@ Describe 'Inner-cycle guest-iteration failure-path invariants (carry-back + arti
         Assert-True ($f.CallerFailureRehydrate -eq 4) "dispatcher must carry back the 4 failure fields from the iteration bag, found $($f.CallerFailureRehydrate)"
     }
     It 'failure artifacts are copied before every stopOnFailure return (both paths)' {
-        $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
-        Assert-True ($f.HelperStopReturns -eq 6) "expected 6 if(`$StopOnFailure){...return} guards, found $($f.HelperStopReturns)"
-        Assert-True ($f.HelperStopReturnsWithCopy -eq $f.HelperStopReturns) "each stop-guard must be preceded by Copy-FailureArtifactsToStatusLog ($($f.HelperStopReturnsWithCopy)/$($f.HelperStopReturns))"
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $iteration = $ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-GuestProvisionIteration'}, $true)
+        $calls = @($iteration.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Complete-GuestStepFailure'}, $true))
+        Assert-Equal 6 $calls.Count 'each failed provision step delegates to the shared failure tail'
+        foreach ($stage in @('New-VM','Start-VM','Start-GuestOS','New-VM.Resource','Screenshots','Start-GuestWorkload')) {
+            Assert-Equal 1 @($calls | Where-Object { $_.Extent.Text -match ("-StepName '" + [regex]::Escape($stage) + "'") }).Count "one failure delegation for $stage"
+        }
+        $failure = $ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Complete-GuestStepFailure'}, $true).Extent.Text
+        Assert-True ($failure.IndexOf('Copy-FailureArtifactsToStatusLog') -lt $failure.IndexOf('if ($StopOnFailure)')) 'copy evidence before either exit'
+        Assert-True ($failure.IndexOf('if ($StopOnFailure)') -lt $failure.IndexOf('Remove-GuestVMQuietly')) 'leave the failed guest for stopOnFailure investigation'
+        Assert-True ($failure.Contains("`$IterState.Control = 'break'") -and $failure.Contains("`$IterState.Control = 'continue'")) 'both paths carry their control result back'
     }
 }
 

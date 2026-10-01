@@ -8,13 +8,12 @@ import (
 	"context"
 	"flag"
 	"log"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"time"
+	"yuruna.com/test/extension/extension-sdk/servicecfg"
 
 	"stash-service/internal/config"
 	"stash-service/internal/httpsrv"
@@ -214,17 +213,4 @@ func main() {
 // the presence announce's targetPort. 0 (no port to advertise) for an empty
 // or unparseable address -- the beacon still announces presence; the row just
 // carries no service link.
-func uiPort(httpAddr string) int {
-	if httpAddr == "" {
-		return 0
-	}
-	_, portStr, err := net.SplitHostPort(httpAddr)
-	if err != nil {
-		return 0
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil || port < 1 || port > 65535 {
-		return 0
-	}
-	return port
-}
+func uiPort(httpAddr string) int { return servicecfg.UIPort(httpAddr) }

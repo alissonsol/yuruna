@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42de31ac-8059-47bf-a365-0d6eb81f94c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -313,8 +313,9 @@ foreach ($catalog in @(Get-ChildItem -LiteralPath (Join-Path $Root 'globalizatio
     # rendered sentences. Only message forms can become a prose protocol.
     $document = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($catalog.FullName)) -AsHashtable
     if (-not $document.ContainsKey('messages')) { $findings.Add("catalog message collection missing: $($catalog.Name)"); continue }
-    foreach ($key in $document.messages.Keys) { if ($document.messages[$key].lifecycle -ne 'retired') { $script:CatalogMessageKeys[$key] = $true } }
+    foreach ($key in $document.messages.Keys) { if ($document.messages[$key].lifecycle -ne 'tombstone') { $script:CatalogMessageKeys[$key] = $true } }
     foreach ($message in $document.messages.Values) {
+        if ($message.lifecycle -eq 'tombstone') { continue }
         $forms = @()
         if ($message.ContainsKey('message')) { $forms += [string]$message.message }
         foreach ($kind in @('plural', 'select')) {
@@ -323,7 +324,10 @@ foreach ($catalog in @(Get-ChildItem -LiteralPath (Join-Path $Root 'globalizatio
         foreach ($value in $forms) { if ($value -match '\s' -and $value.Length -ge 8) { $phrases += $value } }
     }
 }
-$phrases = @($phrases | Sort-Object -Unique)
+$phraseSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($phrase in $phrases) { [void]$phraseSet.Add($phrase) }
+$phrases = [string[]]@($phraseSet)
+[Array]::Sort($phrases, [StringComparer]::Ordinal)
 
 foreach ($path in $boundaryFiles) {
     $full = Join-Path $Root $path

@@ -42,7 +42,7 @@ func (f *fakeIntent) SetDesiredState(ctx context.Context, a, b string) intent.Re
 	f.lastCall, f.lastArgs = "SetDesiredState", []string{a, b}
 	return f.ret
 }
-func (f *fakeIntent) AddHost(ctx context.Context, a, b string) intent.Result {
+func (f *fakeIntent) AddHost(ctx context.Context, a, b string, moveExisting ...bool) intent.Result {
 	f.lastCall, f.lastArgs = "AddHost", []string{a, b}
 	return f.ret
 }
@@ -54,16 +54,12 @@ func (f *fakeIntent) MoveHostIdentity(ctx context.Context, a, b string) intent.R
 	f.lastCall, f.lastArgs = "MoveHostIdentity", []string{a, b}
 	return f.ret
 }
-func (f *fakeIntent) AssignTestSet(ctx context.Context, a, b, c, d string) intent.Result {
-	f.lastCall, f.lastArgs = "AssignTestSet", []string{a, b, c, d}
+func (f *fakeIntent) SetPoolRepositories(ctx context.Context, a, b, c string) intent.Result {
+	f.lastCall, f.lastArgs = "SetPoolRepositories", []string{a, b, c}
 	return f.ret
 }
-func (f *fakeIntent) SetTestSetDef(ctx context.Context, a, b, c string) intent.Result {
-	f.lastCall, f.lastArgs = "SetTestSetDef", []string{a, b, c}
-	return f.ret
-}
-func (f *fakeIntent) DeleteTestSetDef(ctx context.Context, a string) intent.Result {
-	f.lastCall, f.lastArgs = "DeleteTestSetDef", []string{a}
+func (f *fakeIntent) ClearPoolRepositories(ctx context.Context, a string) intent.Result {
+	f.lastCall, f.lastArgs = "ClearPoolRepositories", []string{a}
 	return f.ret
 }
 
@@ -97,7 +93,7 @@ func do(t *testing.T, method, url, body string) (*http.Response, map[string]any)
 }
 
 func TestStateRelaysCLIJson(t *testing.T) {
-	f := &fakeIntent{stateRes: intent.Result{OK: true, Stdout: `{"ok":true,"pools":[{"poolId":"lab"}],"testSets":[]}`}}
+	f := &fakeIntent{stateRes: intent.Result{OK: true, Stdout: `{"ok":true,"pools":[{"poolId":"lab"}],"autoEnrollment":{"enabled":false,"targetPoolId":"","excluded":[]}}`}}
 	srv := newTestServer(f)
 	defer srv.Close()
 	resp, m := do(t, "GET", srv.URL+"/api/state", "")
@@ -152,16 +148,119 @@ func TestFailedPushSurfaces(t *testing.T) {
 	}
 }
 
-func TestAssignForwardsTriple(t *testing.T) {
+// The Pools page sends what an operator typed, so surrounding whitespace is
+// trimmed before the pair reaches the CLI.
+func TestSetPoolRepositoriesForwardsTrimmedPair(t *testing.T) {
 	f := &fakeIntent{ret: intent.Result{OK: true}}
 	srv := newTestServer(f)
 	defer srv.Close()
-	resp, _ := do(t, "POST", srv.URL+"/api/pool/testset", `{"poolId":"lab","name":"amisad","frameworkURL":"https://x/f","projectURL":"https://x/p"}`)
-	if resp.StatusCode != 200 {
-		t.Fatalf("assign: got %d", resp.StatusCode)
+	resp, m := do(t, "POST", srv.URL+"/api/pool/repositories", `{"poolId":" lab ","frameworkUrl":" https://x/f ","projectUrl":"https://x/p\t"}`)
+	if resp.StatusCode != 200 || m["ok"] != true {
+		t.Fatalf("set repositories: got %d %v", resp.StatusCode, m)
 	}
-	if f.lastCall != "AssignTestSet" || f.lastArgs[2] != "https://x/f" || f.lastArgs[3] != "https://x/p" {
-		t.Fatalf("assign forwarded wrong triple: %v", f.lastArgs)
+	want := []string{"lab", "https://x/f", "https://x/p"}
+	if f.lastCall != "SetPoolRepositories" || strings.Join(f.lastArgs, " ") != strings.Join(want, " ") {
+		t.Fatalf("set repositories forwarded %s %q, want SetPoolRepositories %q", f.lastCall, f.lastArgs, want)
+	}
+}
+
+// Both boxes emptied is how an operator hands a pool back to its members' own
+// repositories, and an MCP caller may simply omit both.
+func TestSetPoolRepositoriesBothEmptyClears(t *testing.T) {
+	for _, body := range []string{
+		`{"poolId":"lab","frameworkUrl":"","projectUrl":"  "}`,
+		`{"poolId":"lab"}`,
+	} {
+		f := &fakeIntent{ret: intent.Result{OK: true}}
+		srv := newTestServer(f)
+		resp, m := do(t, "POST", srv.URL+"/api/pool/repositories", body)
+		srv.Close()
+		if resp.StatusCode != 200 || m["ok"] != true {
+			t.Fatalf("%s: got %d %v", body, resp.StatusCode, m)
+		}
+		if f.lastCall != "ClearPoolRepositories" || len(f.lastArgs) != 1 || f.lastArgs[0] != "lab" {
+			t.Fatalf("%s: forwarded %s %q, want ClearPoolRepositories [lab]", body, f.lastCall, f.lastArgs)
+		}
+	}
+}
+
+// One URL alone is refused before the CLI runs: a runner overriding only one
+// repository would pair a framework with a project it was never tested against.
+func TestSetPoolRepositoriesRefusesOneURL(t *testing.T) {
+	for _, body := range []string{
+		`{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":""}`,
+		`{"poolId":"lab","projectUrl":"https://x/p"}`,
+	} {
+		f := &fakeIntent{ret: intent.Result{OK: true}}
+		srv := newTestServer(f)
+		resp, m := do(t, "POST", srv.URL+"/api/pool/repositories", body)
+		srv.Close()
+		if resp.StatusCode != 400 || m["ok"] != false {
+			t.Fatalf("%s: got %d %v, want 400", body, resp.StatusCode, m)
+		}
+		if f.lastCall != "" {
+			t.Fatalf("%s: a refused pair must not invoke the CLI; called %s", body, f.lastCall)
+		}
+	}
+}
+
+// A value starting with '-' would bind as a pwsh parameter name, and
+// whitespace or a control character inside a URL is a paste accident; both
+// are refused with a message that names the rule instead of a bind error.
+func TestSetPoolRepositoriesRefusesUnsafeURL(t *testing.T) {
+	for _, body := range []string{
+		`{"poolId":"lab","frameworkUrl":"https://x/f g","projectUrl":"https://x/p"}`,
+		`{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":"https://x/\bp"}`,
+		`{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":"https://x/p\nmore"}`,
+		`{"poolId":"lab","frameworkUrl":"-IntentGitUrl","projectUrl":"https://x/p"}`,
+		`{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":" -x"}`,
+	} {
+		f := &fakeIntent{ret: intent.Result{OK: true}}
+		srv := newTestServer(f)
+		resp, m := do(t, "POST", srv.URL+"/api/pool/repositories", body)
+		srv.Close()
+		if resp.StatusCode != 400 || m["ok"] != false {
+			t.Fatalf("%s: got %d %v, want 400", body, resp.StatusCode, m)
+		}
+		if msg, _ := m["error"].(string); !strings.Contains(msg, "whitespace or control characters") {
+			t.Fatalf("%s: error %q does not name the rule", body, msg)
+		}
+		if f.lastCall != "" {
+			t.Fatalf("%s: an unsafe URL must not invoke the CLI; called %s", body, f.lastCall)
+		}
+	}
+}
+
+func TestSetPoolRepositoriesRequiresPoolID(t *testing.T) {
+	f := &fakeIntent{ret: intent.Result{OK: true}}
+	srv := newTestServer(f)
+	defer srv.Close()
+	resp, m := do(t, "POST", srv.URL+"/api/pool/repositories", `{"poolId":"  ","frameworkUrl":"https://x/f","projectUrl":"https://x/p"}`)
+	if resp.StatusCode != 400 || m["ok"] != false {
+		t.Fatalf("missing poolId must be 400; got %d %v", resp.StatusCode, m)
+	}
+	if f.lastCall != "" {
+		t.Fatalf("validation failure must not invoke the CLI; called %s", f.lastCall)
+	}
+}
+
+// Every repository write is audited under its own action name, so the audit
+// log tells a set from a clear without reading the CLI output.
+func TestSetPoolRepositoriesAuditsSetAndClear(t *testing.T) {
+	f := &fakeIntent{ret: intent.Result{OK: true, Stdout: "ok"}}
+	store := state.New(filepath.Join(t.TempDir(), "pc"), time.Now())
+	srv := httptest.NewServer(New(f, Options{Store: store, AuthToken: testBearer}).Handler())
+	defer srv.Close()
+	for _, tc := range []struct{ body, action string }{
+		{`{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":"https://x/p"}`, "set-repositories"},
+		{`{"poolId":"lab","frameworkUrl":"","projectUrl":""}`, "clear-repositories"},
+	} {
+		if _, m := do(t, "POST", srv.URL+"/api/pool/repositories", tc.body); m["ok"] != true {
+			t.Fatalf("%s should succeed: %v", tc.body, m)
+		}
+		if _, m := do(t, "GET", srv.URL+"/healthz", ""); m["lastAction"] != tc.action {
+			t.Fatalf("healthz lastAction = %v, want %s", m["lastAction"], tc.action)
+		}
 	}
 }
 
@@ -190,7 +289,7 @@ func TestMutationAuditsAndHealthz(t *testing.T) {
 func TestPagesServeAndCSP(t *testing.T) {
 	srv := newTestServer(&fakeIntent{})
 	defer srv.Close()
-	for _, p := range []string{"/", "/pools", "/test-sets"} {
+	for _, p := range []string{"/", "/pools", "/hosts"} {
 		resp, err := http.Get(srv.URL + p)
 		if err != nil || resp.StatusCode != 200 {
 			t.Fatalf("page %s: %v %d", p, err, resp.StatusCode)

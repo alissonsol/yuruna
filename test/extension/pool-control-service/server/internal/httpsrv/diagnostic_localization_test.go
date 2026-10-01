@@ -45,22 +45,3 @@ func TestDiagnosticRequestLocalizesOwnedHintsAndPreservesRawProbe(t *testing.T) 
 		t.Fatal("external command detail was translated")
 	}
 }
-
-func TestBoardDisabledAssignmentExplanationFollowsRequestLocale(t *testing.T) {
-	agg := aggStub(t, `{"hosts":[]}`, `{"range":"24h","hosts":[]}`)
-	defer agg.Close()
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AllowPseudoLocale: true})
-	before := cardsByID(t, boardPayload(t, s, ""))["default"]
-	req := httptest.NewRequest(http.MethodGet, "/api/board", nil)
-	req.Header.Set("Accept-Language", "qps-Ploc")
-	recorder := httptest.NewRecorder()
-	s.Handler().ServeHTTP(recorder, req)
-	var payload map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatal(err)
-	}
-	after := cardsByID(t, payload)["default"]
-	if after["assignAllowed"] != before["assignAllowed"] || after["assignDisabledDetail"] == before["assignDisabledDetail"] {
-		t.Fatal("display explanation must change independently of assignment permission")
-	}
-}

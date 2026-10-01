@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 424bc4ee-97e2-4b3d-8eae-1a1eaa47317c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@
     adopt-if-healthy decision. Plus an AST guard that Start-CachingProxyServiceVM.ps1
     still releases the lock on every exit path.
 .DESCRIPTION
-    Throw-based assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
+    Throw-based assertions for Pester 5+.
     All lock state lives under a per-test temp runtime dir.
     Run with:  Invoke-Pester -Path test/modules/Test.CachingProxyServiceLock.Tests.ps1
 #>

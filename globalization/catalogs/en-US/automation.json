@@ -1085,7 +1085,7 @@
       }
     },
     "automation.operator_287506e0d1314af9": {
-      "message": "Until (1) is written, the 'target pool carries no test-set' guard is not armed for",
+      "message": "Until (1) is written, the 'target pool carries no repositories' guard is not armed for",
       "description": "Whole Write-SetupMessage message in install/setup.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },

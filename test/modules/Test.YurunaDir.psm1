@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4201fdd8-53b7-4416-b2a6-1f61d3cff3af
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,8 +122,11 @@ function Get-YurunaHostId {
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param()
-    $runtimeDir = Initialize-YurunaRuntimeDir
+    param([string]$RuntimeDir)
+    if (-not $RuntimeDir) { $RuntimeDir = Initialize-YurunaRuntimeDir }
+    elseif (-not (Test-Path -LiteralPath $RuntimeDir)) {
+        try { [void][IO.Directory]::CreateDirectory($RuntimeDir) } catch { return $null }
+    }
     if (-not $runtimeDir) { return $null }
     $uuidFile = Join-Path $runtimeDir 'host.uuid'
     if (Test-Path -LiteralPath $uuidFile) {
@@ -254,4 +257,31 @@ function Test-PidFileIdentity {
     }
 }
 
-Export-ModuleMember -Function Initialize-YurunaLogDir, Initialize-YurunaRuntimeDir, Get-YurunaHostId, Format-YurunaHostId, Test-PidFileIdentity
+function Stop-YurunaPidFileService {
+    <#
+    .SYNOPSIS
+        Stops a detached service only after confirming its recorded process identity.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$PidFile, [Parameter(Mandatory)][string]$ServiceName)
+    if (-not $PSCmdlet.ShouldProcess($ServiceName, 'Stop the recorded service process and remove its PID file')) { return }
+    if (-not (Test-Path -LiteralPath $PidFile)) { Write-Output "No PID file found at '$PidFile'. Service may not be running."; return }
+    $value = [IO.File]::ReadAllText($PidFile).Trim()
+    $servicePid = 0
+    if (-not [int]::TryParse($value, [ref]$servicePid) -or $servicePid -le 0) {
+        Write-Output 'PID file is invalid. Removing the stale file.'
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+        return
+    }
+    $process = Get-Process -Id $servicePid -ErrorAction SilentlyContinue
+    try {
+        if (-not $process) { Write-Output "Process $servicePid is not running. Service was already stopped." }
+        elseif (Test-PidFileIdentity -PidFile $PidFile -Process $process) {
+            Stop-Process -Id $servicePid -Force -ErrorAction Stop
+            Write-Output "$ServiceName stopped (PID $servicePid)."
+        } else { Write-Warning "PID $servicePid is not the recorded $ServiceName process. Removing the stale PID file without killing it." }
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+    } finally { if ($process) { $process.Dispose() } }
+}
+
+Export-ModuleMember -Function Stop-YurunaPidFileService, Initialize-YurunaLogDir, Initialize-YurunaRuntimeDir, Get-YurunaHostId, Format-YurunaHostId, Test-PidFileIdentity

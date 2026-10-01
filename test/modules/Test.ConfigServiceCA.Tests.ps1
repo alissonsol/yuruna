@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42845e56-1775-4a56-8dcc-254ef57bcd50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,8 +22,7 @@
     CA + server leaf + per-VM client leaf, and validates a client cert only when
     it chains to this host's CA.
 .DESCRIPTION
-    Throw-based assertions so the file runs under the OS-bundled Pester 3.4 and
-    Pester 5+. Uses an isolated $env:YURUNA_RUNTIME_DIR so the test mints into a
+    Throw-based assertions so the file runs under Pester 5+. Uses an isolated $env:YURUNA_RUNTIME_DIR so the test mints into a
     throwaway directory. Run: Invoke-Pester -Path test/modules/Test.ConfigServiceCA.Tests.ps1
 #>
 
@@ -56,6 +55,23 @@ Describe 'Test.ConfigServiceCA' {
         [Environment]::SetEnvironmentVariable('YURUNA_RUNTIME_DIR', $script:PreviousRuntimeDir, 'Process')
         if ($dir -and (Split-Path -Leaf $dir) -like 'yrn-configca-*') {
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'recovers a public certificate from the existing CA when the PEM file is missing' {
+        $ca = Initialize-YurunaConfigCA -Confirm:$false
+        $public = $null
+        $pemPath = Join-Path (Get-YurunaConfigCaDir) 'ca.crt'
+        $savedPem = [IO.File]::ReadAllBytes($pemPath)
+        try {
+            Remove-Item -LiteralPath $pemPath -Force
+            $public = Get-YurunaConfigCaPublicCertificate
+            $public.Thumbprint | Should -Be $ca.Thumbprint
+            $public.HasPrivateKey | Should -BeFalse
+        } finally {
+            [IO.File]::WriteAllBytes($pemPath, $savedPem)
+            if ($public) { $public.Dispose() }
+            $ca.Dispose()
         }
     }
 

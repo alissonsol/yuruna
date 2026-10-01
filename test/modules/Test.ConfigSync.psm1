@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -534,6 +534,10 @@ function ConvertTo-DocumentedConfigYaml {
             $nextIdx = $i + 1
             while ($nextIdx -lt $lines.Count -and $lines[$nextIdx] -match '^\s*(#|$)') { $nextIdx++ }
             if ($nextIdx -lt $lines.Count -and $lines[$nextIdx] -match '^\s*-\s') {
+                if ($null -eq $lookup.Value -or @($lookup.Value).Count -eq 0) {
+                    [void]$out.Add("${indent}${key}: []")
+                    continue
+                }
                 [void]$out.Add("${indent}${key}:")
                 if ($lookup.Found) {
                     foreach ($item in @($lookup.Value)) { [void]$out.Add("${indent}- $(Format-YamlScalarValue $item)") }
@@ -548,6 +552,10 @@ function ConvertTo-DocumentedConfigYaml {
         # Leaf, including the inline empty-list form `key: []`.
         if (-not $lookup.Found) { [void]$out.Add($line); continue }
         $value = $lookup.Value
+        if ($null -eq $value -and $rest -eq '[]') {
+            [void]$out.Add("${indent}${key}: []")
+            continue
+        }
         if ($value -is [System.Collections.IEnumerable] -and
             $value -isnot [string] -and $value -isnot [System.Collections.IDictionary]) {
             $items = @($value)
@@ -590,6 +598,30 @@ function ConvertTo-DocumentedConfigYaml {
     }
 
     return (($out -join "`n") + "`n")
+}
+
+function Write-DocumentedTestConfig {
+    <# .SYNOPSIS
+        Atomically write a config with template documentation and parked obsolete entries. #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)]$Config,
+        [string]$TemplatePath
+    )
+    if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Write documented configuration')) { return $false }
+    if (-not $TemplatePath) { $TemplatePath = "$ConfigPath.template" }
+    if (-not (Test-Path -LiteralPath $TemplatePath)) { $TemplatePath = Join-Path $PSScriptRoot '../test.config.yml.template' }
+    $existing = if (Test-Path -LiteralPath $ConfigPath) { [string](Get-Content -Raw -LiteralPath $ConfigPath) } else { '' }
+    $obsolete = Get-ObsoleteConfigEntry -Text $existing
+    $yaml = if (Test-Path -LiteralPath $TemplatePath) {
+        ConvertTo-DocumentedConfigYaml -TemplateText ([string](Get-Content -Raw -LiteralPath $TemplatePath)) -Config (ConvertTo-SortedConfig $Config) -ObsoleteEntry $obsolete
+    } else { ConvertTo-Yaml $Config }
+    if (-not (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -DisableNameChecking
+    }
+    return [bool](Write-YurunaStateFile -Path $ConfigPath -Content $yaml -Confirm:$false)
 }
 
 <#
@@ -741,6 +773,6 @@ Export-ModuleMember -Function `
     ConvertTo-MergedHashtable, ConvertTo-SortedConfig, `
     Copy-HashtableWithoutSecretNode, `
     Test-ConfigMatchesTemplateShape, Get-ConfigLeafValue, Get-DroppedConfigField, `
-    Format-YamlScalarValue, Get-ConfigValueAtPath, Get-ObsoleteConfigEntry, `
+    Format-YamlScalarValue, Get-ConfigValueAtPath, Get-ObsoleteConfigEntry, Write-DocumentedTestConfig, `
     ConvertTo-DocumentedConfigYaml, `
     Update-TestConfigFromTemplate, Sync-TestConfigToTemplate, Hide-SecretsInConfig

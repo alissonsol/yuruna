@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42aee21f-6c39-49b6-e04d-daf28d2639f1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,19 +32,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''', test-set '''
-        @{
-            'arg' = 'testSet'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
         "'`n  git: "
         @{
             'arg' = 'detail'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`n  Fix (either): grant this host's GH_TOKEN access to that repo,`n                or reassign the pool to a project every member can read."
+        "`n  Fix (either): grant this host's GH_TOKEN access to that repo,`n                or set the pool's project URL to a repository every member can read."
     )
     'runner.boot_recovery_preserved_controls' = @(
         'Boot recovery (refresh preservation) kept '
@@ -2051,15 +2045,6 @@
         }
         ').'
     )
-    'runner.operator_05b0d534849b3a19' = @(
-        'pool: test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' has no sequences; skipping.'
-    )
     'runner.operator_05c7282e24926d99' = @(
         'The '''
         @{
@@ -2241,14 +2226,6 @@
             'trust' = 'external'
         }
         '); it keeps the collectors it had.'
-    )
-    'runner.operator_09419d31a82de2e4' = @(
-        'pool: test-set manifest not found: '
-        @{
-            'arg' = 'path'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
     )
     'runner.operator_097d3c2b155e207c' = 'no stale SMB drive mappings (every mapped server name still resolves).'
     'runner.operator_09864de73849237f' = 'access denied -- run the harness elevated'
@@ -3865,21 +3842,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_1d0a3ac35890db97' = @(
-        'pool: test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' provisioning.betweenSets='''
-        @{
-            'arg' = 'between'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' not yet implemented; treating as ''none''.'
-    )
     'runner.operator_1d0efcf0a84c0f0f' = @(
         'pool: intent store reachable ('
         @{
@@ -3978,7 +3940,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_1ee49d169ec618ee' = 'test.runner.yml: skipping a testSets entry with no ''name''.'
     'runner.operator_1eeace18e9071c6f' = @(
         'VM '''
         @{
@@ -4135,7 +4096,6 @@
         }
         '] pool desiredState=paused -- holding (no cycle spawned).'
     )
-    'runner.operator_217d530848e4cda8' = 'test.runner.yml: skipping a testSets entry that is not a mapping.'
     'runner.operator_218ebb2c80a76597' = @(
         '[outer cycle '
         @{
@@ -4982,14 +4942,6 @@
     )
     'runner.operator_2b0da17830e5ba59' = 'Shutdown requested during cycle pause. Exiting cycle loop.'
     'runner.operator_2b35fd3a941850be' = ' App Nap freezes UTM''s UI thread, which drops its window from the'
-    'runner.operator_2b6254c83f085a18' = @(
-        'test-sets.yml validation/write failed: '
-        @{
-            'arg' = 'error'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'runner.operator_2b64497fe1d6bed5' = @(
         'Deleted the account but could not remove its profile instance for SID '
         @{
@@ -5586,13 +5538,19 @@
     )
     'runner.operator_33144fc4aa1c041f' = 'Top-level settings'
     'runner.operator_331c67920b1a4f01' = @(
-        'FAIL  target-pool-no-testset: '''
+        'FAIL  target-pool-no-repositories: '''
         @{
             'arg' = 'targetPoolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' is the auto-enrollment target pool and must not carry a testSet (it would repoint every auto-enrolled host). Remove it, or point autoEnrollment.targetPoolId at a different pool.'
+        ''' is the auto-enrollment target pool and must not carry repositories (they would repoint every auto-enrolled host). Clear them with Set-PoolRepository.ps1 -PoolId '
+        @{
+            'arg' = 'targetPoolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -Clear, or point autoEnrollment.targetPoolId at a different pool.'
     )
     'runner.operator_3355f84da8763f39' = 'transports.yml empty or not a mapping'
     'runner.operator_3387f09b836c51cc' = @(
@@ -5992,15 +5950,6 @@
         '). The key is not usable for control proofs on this host.'
     )
     'runner.operator_37c6d3d1e44ac68b' = 'Seed the pool-intent store'
-    'runner.operator_37e7a76a3661cead' = @(
-        'Test-set name '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' is invalid (lowercase alphanumeric start; letters, digits, ''.'', ''_'', ''-'').'
-    )
     'runner.operator_37ec87c9e9d924bd' = @(
         'networkStorage pool: could not map the vaultKey in users.yml ('
         @{
@@ -6715,13 +6664,7 @@
     'runner.operator_41856668e101e1fc' = '       winget uninstall --id Microsoft.PowerShell'
     'runner.operator_419f7edb1d5f67bd' = '      loadDiskSnapshot: missing required ''id'' field.'
     'runner.operator_41a636e6dabd5864' = @(
-        '  testSet: '
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '  framework='
+        '  repositories: framework='
         @{
             'arg' = 'frameworkUrl'
             'type' = 'detail'
@@ -7141,30 +7084,6 @@
     'runner.operator_46cf3f3b25c7b1d5' = '-WhatIf: a real run would ask to confirm this deletion; -Force answers it in advance.'
     'runner.operator_46e3cbe0614b1d51' = 'poolStorage setup: networkPath/networkUser must not contain a single quote (it would break the guest seed). Nothing written.'
     'runner.operator_46f30de3d812ddd8' = 'System Settings > Privacy & Security > Automation'
-    'runner.operator_4708bb65c7b75b63' = @(
-        'Test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' '
-        @{
-            'arg' = 'action'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' in the library.'
-    )
-    'runner.operator_4727d0d8d58200e7' = @(
-        'test.runner.yml: duplicate testSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '''; keeping the first.'
-    )
     'runner.operator_47371277eaeea492' = @(
         'Status-server bounce could not start: '
         @{
@@ -8801,21 +8720,6 @@
         }
         ' + primary at (0,0); lay out the other monitor(s)'
     )
-    'runner.operator_5a53c6c93a317e74' = @(
-        'test.runner.yml: skipping testSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -- names must match '
-        @{
-            'arg' = 'namePattern'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' (lower-case).'
-    )
     'runner.operator_5a564e98a029d970' = @(
         'Host-action '''
         @{
@@ -10170,7 +10074,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' is the auto-enrollment target pool and must not carry a testSet; ignoring it and keeping this host''s own repositories. Fix the intent store (Test-PoolIntent.ps1 reports this).'
+        ''' is the auto-enrollment target pool and must not carry repositories; ignoring them and keeping this host''s own repositories. Fix the intent store (Test-PoolIntent.ps1 reports this).'
     )
     'runner.operator_69026426aeb39009' = ' Configuration Profile(s) detected on this Mac. If any profile'
     'runner.operator_69313d3714ef798c' = 'Write the lab-health record'
@@ -11045,21 +10949,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_764eb138496adb9a' = @(
-        'pool: test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' cycleStrategy='''
-        @{
-            'arg' = 'strategy'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' not yet implemented; running ''all''.'
     )
     'runner.operator_767a42e435b5f2c7' = @(
         'The aggregator sealed a reply this client cannot open. The code was accepted, so re-reading the tile will not help. Compare the PowerShell and OS line above against a host where the exchange succeeds; a CryptographicException here means the derived key differs, which means the two sides disagree on the code, the iteration count ('
@@ -12663,7 +12552,6 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_8a6b8847ccce49ac' = 'test.runner.yml: ''all'' is reserved for the implicit whole-project set; skipping the declared set named ''all''.'
     'runner.operator_8a85c0a98b2cb1af' = @(
         '[outer cycle '
         @{
@@ -13489,15 +13377,6 @@
     )
     'runner.operator_92f3da73bdbf3747' = 'Clear the lab hold'
     'runner.operator_92fcfd32f2581e9f' = 'no subscribers configured'
-    'runner.operator_93083a11a290abbd' = @(
-        'pool: test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' schemaVersion is not 1; skipping it.'
-    )
     'runner.operator_933b194d28de8e2c' = @(
         'poolStorage: '
         @{
@@ -15762,7 +15641,6 @@
         ' Unless this host is one the lab keeps renumbering on purpose, in which case leave it be: the number of changes that landed inside each cycle is recorded on its cycle_end event. See docs/network.md, ''Host address stability''.'
     )
     'runner.operator_b0a52e9a95b6e986' = 'Resolution floor: no display mode >= 1920x1080 is available on the primary; OCR may fail. Check the virtual display''s EDID modes.'
-    'runner.operator_b0bf86c31da327e2' = 'Upsert requires -FrameworkUrl and -ProjectUrl (or pass -Delete to remove).'
     'runner.operator_b0f17a6c92efa2d7' = @(
         '     Set it with:  sudo passwd '
         @{
@@ -16445,12 +16323,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' testSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
         ''': repositories overridden (framework='
         @{
             'arg' = 'frameworkUrl'
@@ -16898,27 +16770,6 @@
         }
         ' not found.'
     )
-    'runner.operator_c02c29bdd61105ce' = @(
-        'Pool test-set '''
-        @{
-            'arg' = 'setName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''': running '
-        @{
-            'arg' = 'count'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' of the project''s sequences ('
-        @{
-            'arg' = 'join'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ').'
-    )
     'runner.operator_c03297466bf30bf9' = @(
         '      '
         @{
@@ -16940,13 +16791,7 @@
     )
     'runner.operator_c0875435d41486ec' = 'Stop logging'
     'runner.operator_c11b4fa818b922ab' = @(
-        'Test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' set on pool '''
+        'Repositories set on pool '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
@@ -17558,21 +17403,6 @@
             'trust' = 'external'
         }
         ': enabling the SMB-NT hash type (pwpolicy)...'
-    )
-    'runner.operator_c83a08264595d72a' = @(
-        'pool: test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' parse failed ('
-        @{
-            'arg' = 'message'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '); skipping it.'
     )
     'runner.operator_c83f88602397b5a8' = @(
         '  Backoff cap:  '
@@ -18316,21 +18146,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_d164f2ba2a2136ac' = @(
-        'pool: no runnable guest for test-set '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' on this host ('
-        @{
-            'arg' = 'hostType'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '); skipping it.'
     )
     'runner.operator_d168a5486eb59de2' = '  WinINet (HKCU Internet Settings):'
     'runner.operator_d18200873cd315db' = '    SKIPPED: powershell.exe not available (non-Windows or not installed).'
@@ -19386,15 +19201,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_df1608b653f0dd73' = @(
-        'test.runner.yml: skipping testSet '''
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -- it lists no sequences.'
     )
     'runner.operator_df5b48ab664f3b9b' = 'winget is not available to this account, so the exporter package cannot be acquired from here'
     'runner.operator_df7ed91aac9f4403' = @(
@@ -20993,13 +20799,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "' is the auto-enrollment target pool and cannot carry a test-set.`n  Hosts land there automatically and keep running their own projectUrl; assigning one`n  here would silently repoint every auto-enrolled host in the lab.`n  To give these hosts a project, create another pool and assign the hosts to it:`n    ./New-Pool.ps1 -PoolId <name>`n    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>`n    test/pool/Set-PoolTestSet.ps1 -PoolId <name> -Name "
-        @{
-            'arg' = 'name'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' -FrameworkUrl '
+        "' is the auto-enrollment target pool and cannot carry repositories.`n  Hosts land there automatically and keep running their own projectUrl; setting a`n  framework and project here would silently repoint every auto-enrolled host in the lab.`n  To give these hosts a project, create another pool and assign the hosts to it:`n    ./New-Pool.ps1 -PoolId <name>`n    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>`n    ./Set-PoolRepository.ps1 -PoolId <name> -FrameworkUrl "
         @{
             'arg' = 'frameworkUrl'
             'type' = 'detail'
@@ -21297,13 +21097,13 @@
         }
     )
     'runner.operator_f4ce3623f58ca8ac' = @(
-        'PASS  target-pool-no-testset: '''
+        'PASS  target-pool-no-repositories: '''
         @{
             'arg' = 'targetPoolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' carries no testSet.'
+        ''' carries no repositories.'
     )
     'runner.operator_f4faadbd7e5c2c6a' = 'Display timeout (AC) is already set to Never.'
     'runner.operator_f5182563134ccc5d' = 'passwordless-sudo drop-in applies to Linux only (macOS/Windows mounts need no sudo).'
@@ -22168,6 +21968,80 @@
             'trust' = 'external'
         }
     )
+    'runner.pool_intent_library_removed' = 'Removed test-sets.yml from the intent store; nothing reads it.'
+    'runner.pool_intent_schema_already_current' = @(
+        'Pool intent is already at schemaVersion '
+        @{
+            'arg' = 'version'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '; nothing to migrate.'
+    )
+    'runner.pool_intent_schema_migrated' = @(
+        'Pool intent migrated from schemaVersion '
+        @{
+            'arg' = 'from'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' to '
+        @{
+            'arg' = 'to'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ', committed and pushed.'
+    )
+    'runner.pool_intent_schema_outdated' = @(
+        'FAIL  schema-version: pools.yml is schemaVersion '
+        @{
+            'arg' = 'found'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', but this checkout reads schemaVersion '
+        @{
+            'arg' = 'expected'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '. Run test/pool/Update-PoolIntentSchema.ps1 once to migrate the intent store.'
+    )
+    'runner.pool_intent_schema_unsupported' = @(
+        'pools.yml is schemaVersion '
+        @{
+            'arg' = 'version'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ', which is newer than this checkout reads ('
+        @{
+            'arg' = 'expected'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '). Update this checkout before changing pool intent.'
+    )
+    'runner.pool_repositories_cleared' = @(
+        'Repositories cleared on pool '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''; its members run their own configured repositories from their next cycle.'
+    )
+    'runner.pool_repositories_url_invalid' = @(
+        '-'
+        @{
+            'arg' = 'parameter'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' must be a non-empty URL with no whitespace or control characters, and it must not start with ''-''.'
+    )
+    'runner.pool_status_repositories_none' = '  repositories: (none)'
     'runner.prior_runner_cleanup_action' = "  Action:  stopping it and running`n           Remove-TestVMFiles.ps1 before start"
     'runner.process_start_record_write_action' = 'Write a process start-time record'
     'runner.readiness_ack_remove_action' = 'Remove a stale refresh readiness acknowledgment'

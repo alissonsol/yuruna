@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 423c8376-a989-4f09-aa00-2e5a728ffa76
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     (Resolve-StatusServiceStart + Start-YurunaStatusServiceIfEnabled) -- the one
     place the entry-point trio decides whether/how to start the status service.
 .DESCRIPTION
-    Throw-based assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
+    Throw-based assertions for Pester 5+.
     Start-YurunaStatusServiceIfEnabled is exercised against a stub start script
     so the gate is verified without launching a real server.
 #>

@@ -16,7 +16,7 @@ operators a keyboard reference, and tells contributors which gates to run.
 
 | Surface | Where it lives |
 |---|---|
-| pool-control service UI (7 pages) | [`test/extension/pool-control-service/.../web/`](../test/extension/pool-control-service/server/internal/httpsrv/web/) |
+| pool-control service UI (5 pages) | [`test/extension/pool-control-service/.../web/`](../test/extension/pool-control-service/server/internal/httpsrv/web/) |
 | download-agent service UI (2 pages) | [`test/extension/download-agent-service/.../web/`](../test/extension/download-agent-service/server/internal/httpsrv/web/) |
 | stash service UI | [`test/extension/stash-service/.../web/`](../test/extension/stash-service/server/internal/httpsrv/web/) |
 | caching-proxy-service UI | [`test/extension/caching-proxy-service/ui.go`](../test/extension/caching-proxy-service/ui.go) |
@@ -273,6 +273,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

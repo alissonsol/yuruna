@@ -38,6 +38,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"yuruna.com/test/extension/extension-sdk/servicecfg"
 
 	"yuruna.com/test/extension/extension-sdk/controlproof"
 	sdkpool "yuruna.com/test/extension/extension-sdk/pool"
@@ -419,7 +420,7 @@ type hostView struct {
 	// the runner derived from pools.yml members[] (the single source of truth).
 	// Empty until learned; the aggregator then falls back to the -pool flag.
 	PoolId string `json:"poolId,omitempty"`
-	// PoolGuid is the pool stable 42-GUID (the dashboard "Pool ID"); empty until learned.
+	// PoolGuid is the pool's stable 42-GUID; empty until learned.
 	PoolGuid string `json:"poolGuid,omitempty"`
 	// ActiveExtensions are the extension areas this host is ACTIVELY running right
 	// now (e.g. "stash-service" when it hosts a stash-service VM) -- distinct from
@@ -1632,7 +1633,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.09.27"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.09.30"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -2593,9 +2594,9 @@ func (s *poolState) applyAnnounceLines(streams [][][2]string, now time.Time) int
 			s.announce[key] = &announceView{
 				HostId: e.HostId, Area: e.Area, Target: target,
 				LastSeenUnixMs: ts.UnixMilli(),
-				// The next live announce (target host == its source) re-binds the
-				// address; until then the target's own host is the best owner guess.
-				sourceIP: hostIPFromBaseURL(target),
+				// Historical evidence has no live connection source. The next
+				// beacon binds the current owner and raises its source rank.
+				sourceIP: "",
 			}
 			restored++
 		}
@@ -2664,28 +2665,49 @@ func (s *poolState) tailEvents(client *http.Client, lokiURL, poolLabel, hostID, 
 	if err != nil {
 		return
 	}
+	cur := s.eventCur[hostID]
+	if cur == nil || cur.cycleStartUtc != cycleID {
+		cur = &eventCursor{cycleStartUtc: cycleID}
+		s.eventCur[hostID] = cur
+	}
+	if cur.offset > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", cur.offset))
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return // host went away mid-poll; next tick retries
+		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return // events file not present yet (fresh cycle) -> nothing to tail
+	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+		cur.offset = 0 // the same-cycle file shrank; retry from its current beginning
+		return
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return
+	}
+	if resp.StatusCode == http.StatusPartialContent {
+		if !strings.HasPrefix(resp.Header.Get("Content-Range"), fmt.Sprintf("bytes %d-", cur.offset)) {
+			return
+		}
+	} else if cur.offset > 0 {
+		// The host may not support Range. Discard the old prefix without retaining
+		// it, so the bounded fetch still reaches events past the first 4 MiB.
+		if _, err := io.CopyN(io.Discard, resp.Body, cur.offset); err != nil {
+			if err == io.EOF {
+				cur.offset = 0
+			}
+			return
+		}
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxEventFetch))
 	if err != nil {
 		return
 	}
 
-	cur := s.eventCur[hostID]
-	if cur == nil || cur.cycleStartUtc != cycleID {
-		cur = &eventCursor{cycleStartUtc: cycleID}
-		s.eventCur[hostID] = cur
+	if len(body) == 0 {
+		return
 	}
-	if int64(len(body)) <= cur.offset {
-		return // nothing new (or the file rotated/shrank under the same cycleStartUtc)
-	}
-	chunk := body[int(cur.offset):]
+	chunk := body
 	// Ship only COMPLETE lines (ending in \n); keep any trailing partial for the
 	// next poll by advancing the cursor exactly past the bytes we forward.
 	var lines []string
@@ -2705,6 +2727,7 @@ func (s *poolState) tailEvents(client *http.Client, lokiURL, poolLabel, hostID, 
 		}
 	}
 	if len(lines) == 0 {
+		cur.offset += int64(consumed)
 		return
 	}
 	s.applyFootprintLines(hostID, lines, now)
@@ -3499,7 +3522,10 @@ func (s *poolState) refreshExtensionHealth(client *http.Client, now time.Time) {
 	if client == nil {
 		return
 	}
-	type probeTarget struct{ key, target string }
+	type probeTarget struct {
+		key, target string
+		health      *extHealthView
+	}
 	var targets []probeTarget
 	s.mu.Lock()
 	live := map[string]bool{}
@@ -3509,7 +3535,7 @@ func (s *poolState) refreshExtensionHealth(client *http.Client, now time.Time) {
 		if raw == "" || extensionTargetProblem(raw) != "" {
 			continue
 		}
-		targets = append(targets, probeTarget{key: key, target: raw})
+		targets = append(targets, probeTarget{key: key, target: raw, health: s.extHealth[key]})
 	}
 	// Forget verdicts about services the pool no longer lists at all, so the map
 	// tracks the live set rather than growing with every service that ever ran.
@@ -3537,6 +3563,10 @@ func (s *poolState) refreshExtensionHealth(client *http.Client, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, t := range targets {
+		// An announce may confirm a new address while this old probe is out.
+		if h := s.extHealth[t.key]; h != nil && h != t.health && h.Target != t.target && h.Confirmed {
+			continue
+		}
 		s.applyExtensionProbeLocked(t.key, t.target, errs[i], now)
 	}
 	for key, h := range s.extHealth {
@@ -3923,11 +3953,7 @@ func (s *poolState) handleForgetHost(w http.ResponseWriter, r *http.Request) {
 		localizedHTTPError(w, r, "aggregator.method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	const bearer = "Bearer "
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, bearer) ||
-		subtle.ConstantTimeCompare([]byte(auth[len(bearer):]), []byte(s.authToken)) != 1 {
-		localizedHTTPError(w, r, "aggregator.unauthorized", http.StatusUnauthorized)
+	if !s.requireInternalBearer(w, r) {
 		return
 	}
 	hid := strings.TrimSpace(r.URL.Query().Get("hostId"))
@@ -4139,9 +4165,7 @@ func (s *poolState) resolveHostBase(hostID, pool string) (base, resolvedPool str
 // here on the caching-proxy service validates on any pool host (the internal authentication key is pool-wide).
 // Verified by TestMintControlProofGolden against the shared golden vector.
 func controlProofFor(token string, expiry int64) string {
-	mac := hmac.New(sha256.New, []byte(token))
-	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
-	return strconv.FormatInt(expiry, 10) + "." + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	return controlproof.Proof(token, expiry)
 }
 
 // mintControlProof mints a control proof valid for ttl from now, or "" when no
@@ -4149,10 +4173,7 @@ func controlProofFor(token string, expiry int64) string {
 // operator reaches the host through Grafana -> /go/host, so this rides the proof to the
 // browser in the redirect fragment; the host revalidates it (expiry window + HMAC).
 func mintControlProof(token string, ttl time.Duration) string {
-	if token == "" {
-		return ""
-	}
-	return controlProofFor(token, time.Now().Add(ttl).Unix())
+	return controlproof.Mint(token, ttl)
 }
 
 // verifyControlProof is the Go twin of Test.ConfigServiceSync\Test-YurunaControlProof:
@@ -5844,6 +5865,17 @@ func fileReadable(path string) bool {
 	return err == nil && fi.Mode().IsRegular() && fi.Size() > 0
 }
 
+// requireInternalBearer checks the internal token and localizes a refusal.
+func (s *poolState) requireInternalBearer(w http.ResponseWriter, r *http.Request) bool {
+	const prefix = "Bearer "
+	auth := r.Header.Get("Authorization")
+	if s.authToken == "" || !strings.HasPrefix(auth, prefix) || subtle.ConstantTimeCompare([]byte(auth[len(prefix):]), []byte(s.authToken)) != 1 {
+		localizedHTTPError(w, r, "aggregator.unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
 // handleIngest is the push surface: a runner-side forwarder POSTs its cycle's
 // NDJSON event lines here so they reach Loki without waiting for the next pull
 // (closing the between-poll trailing-event gap). It SUPPLEMENTS pull, never replaces
@@ -5870,11 +5902,7 @@ func (s *poolState) handleIngest(w http.ResponseWriter, r *http.Request) {
 		localizedHTTPError(w, r, "aggregator.method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	const bearer = "Bearer "
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, bearer) ||
-		subtle.ConstantTimeCompare([]byte(auth[len(bearer):]), []byte(s.authToken)) != 1 {
-		localizedHTTPError(w, r, "aggregator.unauthorized", http.StatusUnauthorized)
+	if !s.requireInternalBearer(w, r) {
 		return
 	}
 	srcIP := requestSourceIP(r)
@@ -5965,23 +5993,16 @@ func (s *poolState) handleIngest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// handleAnnounce is the extension-presence write surface: service VMs POST
-// {hostId, area, targetPort, active} beacons so the dashboard's Extension
-// hosts row survives the owning host's status service being down. Open by
-// design but contained (self-identity binding; goodbyes also match an
-// address-less rehydrated entry). See docs/extensions-api.md (POST /announce).
 // pushHostAnnounce records a host self-announce in Loki so a collector restart
 // restores the host's address immediately instead of waiting for it to show up
-// in the squid log again. Separate src label from the extension announce: the
-// two feed different views and the rehydrate paths must not read each other's
-// lines.
+// in the squid log again. Use the presence stream that startup already reads.
 func pushHostAnnounce(client *http.Client, lokiURL, pool, hostID, baseURL string, now time.Time) error {
 	if lokiURL == "" || hostID == "" {
 		return nil
 	}
 	line, _ := json.Marshal(map[string]any{"hostId": hostID, "baseUrl": baseURL})
-	return pushLokiStream(client, lokiURL, "host-announce",
-		map[string]string{"pool": pool, "hostId": hostID, "src": "host-announce"}, line, now)
+	return pushLokiStream(client, lokiURL, "presence",
+		map[string]string{"pool": pool, "hostId": hostID, "src": "presence"}, line, now)
 }
 
 // handleHostAnnounce is the host-presence write surface: a host POSTs its own
@@ -6070,7 +6091,8 @@ func (s *poolState) handleHostAnnounce(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	s.mu.Lock()
-	poolLabel := s.poolFor(a.HostId)
+	// Startup rehydrates the presence stream using the collector pool label.
+	poolLabel := s.pool
 	if hv := s.hosts[a.HostId]; hv != nil {
 		hv.CurrentIP = srcIP
 		hv.BaseURL = baseURL
@@ -6152,6 +6174,11 @@ func (s *poolState) handleHostAddress(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// handleAnnounce is the extension-presence write surface: service VMs POST
+// {hostId, area, targetPort, active} beacons so the dashboard's Extension
+// hosts row survives the owning host's status service being down. Open by
+// design but contained (self-identity binding; goodbyes also match an
+// address-less rehydrated entry). See docs/extensions-api.md (POST /announce).
 func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	if s.announceTtl <= 0 {
 		localizedHTTPError(w, r, "aggregator.announce_disabled", http.StatusServiceUnavailable)
@@ -6224,11 +6251,14 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	poolLabel := s.pool
 	accepted := true
+	ignoredGoodbye := false
 	if !active {
 		// Only the entry's own source (or an address-less rehydrated entry)
 		// may remove it; anyone else's goodbye is a silent no-op.
 		if av := s.announce[key]; av != nil && (av.sourceIP == "" || av.sourceIP == srcIP) {
 			delete(s.announce, key)
+		} else if av != nil {
+			ignoredGoodbye = true
 		}
 	} else {
 		av := s.announce[key]
@@ -6245,6 +6275,10 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.mu.Unlock()
+	if ignoredGoodbye {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if !accepted {
 		localizedHTTPError(w, r, "aggregator.too_many_announced_extensions", http.StatusTooManyRequests)
 		return
@@ -6290,23 +6324,14 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 // defaultPath and legacyPath are parameters rather than reads of the constants so a
 // test can exercise the fallback without writing under /etc.
 func readAuthTokenFile(path, defaultPath, legacyPath string) string {
-	if strings.TrimSpace(path) == "" {
-		return ""
-	}
-	b, err := os.ReadFile(path)
+	token, source, err := servicecfg.ReadAuthToken(path, defaultPath, legacyPath)
 	if err != nil {
-		// Only the provisioned default falls back to the older path; see
-		// legacyAuthTokenFile for why an operator-named path is taken literally.
-		if path == defaultPath {
-			if lb, lerr := os.ReadFile(legacyPath); lerr == nil {
-				log.Print(operatorMessage("aggregator.log_internal_auth_key_read_from_value1_rebuild_this_proxy__c326800d", map[string]any{"value1": fmt.Sprintf("%s", legacyPath), "value2": fmt.Sprintf("%s", defaultPath)}))
-				return strings.TrimSpace(string(lb))
-			}
-		}
 		log.Print(operatorMessage("aggregator.log_auth_token_file_value1_unreadable_value2_ingest_contro_d458a79c", map[string]any{"value1": fmt.Sprintf("%q", path), "value2": fmt.Sprintf("%v", err)}))
-		return ""
 	}
-	return strings.TrimSpace(string(b))
+	if source == legacyPath {
+		log.Print(operatorMessage("aggregator.log_internal_auth_key_read_from_value1_rebuild_this_proxy__c326800d", map[string]any{"value1": source, "value2": defaultPath}))
+	}
+	return token
 }
 
 // version is overwritten at link time with -X main.version=<framework version>,

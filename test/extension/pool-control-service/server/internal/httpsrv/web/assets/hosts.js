@@ -10,8 +10,6 @@
   // operator's chosen order away.
   var hosts = [];
   var hostnamesVisible = false;
-  var sortKey = 'hostId';
-  var sortAsc = true;
   // Each host's own account of itself from /api/hosts/facts -- hardware and the
   // two repository columns -- keyed the way rows are: host id when there is
   // one, address otherwise. Fetched at page load and on the header Refresh
@@ -246,29 +244,7 @@
     return String(h[key] || '').toLowerCase();
   }
 
-  function sorted(rows) {
-    return rows.slice().sort(function (a, b) {
-      var av = sortValue(a, sortKey);
-      var bv = sortValue(b, sortKey);
-      var cmp = 0;
-      if (av !== bv) {
-        // A row with no value ranks last ascending: sorting on a column is a
-        // way of reading the rows that HAVE one, and this page is full of
-        // blanks -- a withheld hostname, a host the pool cannot reach, a
-        // hardware fact (null) from a host that never answered.
-        if (av === '' || av === null) { cmp = 1; }
-        else if (bv === '' || bv === null) { cmp = -1; }
-        else { cmp = av < bv ? -1 : 1; }
-      }
-      if (!sortAsc) { cmp = -cmp; }
-      if (cmp !== 0) { return cmp; }
-      // Host ids are unique, so tying rows land in ONE order for a given column
-      // rather than reshuffling under the operator on the next refresh.
-      var ai = sortValue(a, 'hostId');
-      var bi = sortValue(b, 'hostId');
-      return ai < bi ? -1 : (ai > bi ? 1 : 0);
-    });
-  }
+
 
   // The first column for a host this service found by scanning rather than one
   // the aggregator reported.
@@ -420,6 +396,13 @@
     ]);
   }
 
+  var sorter = Y.sortTable(document.getElementById('host-rows'), {
+    key: 'hostId',
+    tieBreak: function (a, b) {
+      var ai = a.values.hostId, bi = b.values.hostId;
+      return ai < bi ? -1 : (ai > bi ? 1 : 0);
+    }
+  });
   var primaryLoaded = false;
   function render() {
     return window.YurunaFirstUsable.measure("test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html", "data", function () {
@@ -434,46 +417,18 @@
     body.textContent = '';
     // The counter numbers the position on screen, not the host in it, so it
     // runs 1..n down the page whichever column the table is sorted by.
-    var ordered = sorted(hosts);
-    for (var i = 0; i < ordered.length; i++) { body.appendChild(rowEl(ordered[i], i + 1)); }
+    var rows = hosts.map(function (host) {
+      var values = {};
+      document.querySelectorAll('th[data-sort]').forEach(function (th) {
+        var key = th.getAttribute('data-sort'); values[key] = sortValue(host, key);
+      });
+      return { tr: rowEl(host, 0), values: values };
+    });
+    sorter.set(rows);
     var unlock = document.getElementById('show-hostnames');
     if (unlock) { unlock.hidden = hostnamesVisible; }
     if (primaryLoaded) {
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html', hosts.length ? 'data' : 'empty');
-    }
-  }
-
-  // The header cells carry the sort key; the buttons inside them are what the
-  // keyboard and the screen reader act on, and aria-sort on the cell is what
-  // announces the result. Clicking the sorted column reverses it.
-  function initSort() {
-    var ths = document.querySelectorAll('th[data-sort]');
-    for (var i = 0; i < ths.length; i++) {
-      // Wired through a call rather than from the loop body, so each handler
-      // closes over ITS header cell instead of the last one in the row.
-      (function (th) {
-        var btn = th.querySelector('button');
-        if (!btn) { return; }
-        btn.addEventListener('click', function () {
-          var key = th.getAttribute('data-sort');
-          if (key === sortKey) { sortAsc = !sortAsc; }
-          else { sortKey = key; sortAsc = true; }
-          markSorted();
-          render();
-        });
-      }(ths[i]));
-    }
-    markSorted();
-  }
-
-  function markSorted() {
-    var ths = document.querySelectorAll('th[data-sort]');
-    for (var i = 0; i < ths.length; i++) {
-      if (ths[i].getAttribute('data-sort') === sortKey) {
-        ths[i].setAttribute('aria-sort', sortAsc ? 'ascending' : 'descending');
-      } else {
-        ths[i].removeAttribute('aria-sort');
-      }
     }
   }
 
@@ -482,15 +437,7 @@
   // other read replaces the table, so it says so: this one fans out to every
   // host in the lab and a silent machine holds it up for seconds.
   function load(opts) {
-    window.YurunaFirstUsable.hold('primary');
-    var quiet = !!(opts && opts.quiet);
-    var done = quiet ? function () { } : Y.busy(document.getElementById('host-rows'), window.YurunaI18n.t("pool.loading_hosts"));
-    chrome.busy(true);
-    var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
-    // The hostname column turns on a session, and arriving from the dashboard
-    // brings one in the URL fragment -- so wait for that exchange to settle
-    // rather than fetching first and rendering a locked table to an operator
-    // who is, a moment later, unlocked.
+    var finish = Y.beginPageLoad(chrome, { quiet: !!(opts && opts.quiet), target: document.getElementById('host-rows'), label: window.YurunaI18n.t("pool.loading_hosts") });
     return Y.ready().then(function () {
       // Y.hostInfo is memoized and non-rejecting, so this is one read for the
       // life of the page and an aggregator this daemon does not know about just
@@ -546,7 +493,6 @@
   document.getElementById('show-hostnames').addEventListener('click', function () {
     Y.unlock().then(function (ok) { if (ok) { load(); } });
   });
-  initSort();
   // Header version + host id and the footer bar; its countdown re-reads the host
   // list rather than reloading, so a pending pool choice in a row survives. The
   // countdown deliberately does NOT re-fetch hardware facts (see `facts`).

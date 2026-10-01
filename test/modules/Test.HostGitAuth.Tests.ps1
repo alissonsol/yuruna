@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 421d3153-a504-4156-917e-10ff36bab08d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,7 +159,7 @@ Describe 'Get-YurunaGitCredentialArg -- makes GH_TOKEN work for plain git' {
         # the injected args, must return the token as the password. Guarded so the
         # suite still passes on a box without git on PATH.
         if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-            Write-Warning 'git not on PATH; skipping the credential-fill end-to-end check.'
+            Set-ItResult -Skipped -Because 'git is not on PATH'
             return
         }
         $env:GH_TOKEN = 'ghp_UNIT_TEST_token'
@@ -393,8 +393,9 @@ Describe 'external Git diagnostics use an invariant child locale' {
         $ast = Get-ModuleAst -Path $module
         $function = Get-FunctionAst -RootAst $ast -FunctionName 'Invoke-PoolSyncGitCapture'
         foreach ($name in @('LC_ALL', 'LANG', 'LANGUAGE')) {
-            $function.Extent.Text | Should -Match ([regex]::Escape("`$psi.Environment['$name'] = 'C'"))
+            $function.Extent.Text | Should -Match ([regex]::Escape("$name = 'C'"))
         }
+        $function.Extent.Text | Should -Match 'Invoke-BoundedNativeCommand.*?-Environment @'
         $function.Extent.Text | Should -Not -Match '\$env:(?:LC_ALL|LANG|LANGUAGE)\s*='
     }
 }

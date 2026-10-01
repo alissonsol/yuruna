@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 42d0a94f-27b6-4c85-9e13-8a604fb2d7c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,7 +140,10 @@ function Test-IsProseCandidate {
     $t = $Text.Trim()
     if ($t.Length -lt 8) { return $false }
     if ($t.Length -gt 400) { return $false }
-    foreach ($pattern in $NotProse) { if ($t -match $pattern) { return $false } }
+    if (-not (Get-Variable -Name NotProseRegex -Scope Script -ErrorAction SilentlyContinue)) {
+        $script:NotProseRegex = [regex]::new((($NotProse | ForEach-Object { '(?:' + $_ + ')' }) -join '|'), [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    }
+    if ($script:NotProseRegex.IsMatch($t)) { return $false }
     # Two words and a letter majority: prose has spaces between words and is
     # mostly letters, which separates it from a serialized structure that
     # happens to contain a space.
@@ -346,7 +349,7 @@ function Test-IsReachableProjectYaml {
     .DESCRIPTION
         Project product code, Helm charts, book fixtures, and the nested-host
         worked example are deliberate exclusions.  The sequence planner reads
-        the root test-set map and the runnable example test definitions; those
+        the root runner file and the runnable example test definitions; those
         are the YAML labels an operator actually sees.
     #>
     [CmdletBinding()]
@@ -535,10 +538,13 @@ function Get-DomainCount {
     # Tracked and untracked candidate files. Ignored status logs and runtime
     # scratch remain excluded by Git, while a new source file is protected
     # before its first commit.
-    Push-Location $root
-    try { $tracked = @(& git ls-files --cached --others --exclude-standard) } finally { Pop-Location }
-    if ($LASTEXITCODE -ne 0) { throw "git could not enumerate source in $root" }
-    $tracked = @($tracked | Sort-Object -Unique)
+    if (-not (Get-Variable -Name DomainTrackedFiles -Scope Script -ErrorAction SilentlyContinue)) { $script:DomainTrackedFiles = @{} }
+    if (-not $script:DomainTrackedFiles.ContainsKey($root)) {
+        $listed = @(& git -C $root ls-files --cached --others --exclude-standard)
+        if ($LASTEXITCODE -ne 0) { throw "git could not enumerate source in $root" }
+        $script:DomainTrackedFiles[$root] = @($listed | Sort-Object -Unique | Where-Object { [IO.File]::Exists((Join-Path $root $_)) })
+    }
+    $tracked = $script:DomainTrackedFiles[$root]
 
     $perFile = @{}
     foreach ($rel in @($Domain.Paths)) {
@@ -547,7 +553,7 @@ function Get-DomainCount {
         $inPath = @($tracked | Where-Object { $_ -eq $rel -or $_.StartsWith("$rel/") })
         foreach ($relative in $inPath) {
             $full = Join-Path $root $relative
-            if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+            if (-not [IO.File]::Exists($full)) { continue }
             $file = [IO.FileInfo]::new($full)
             $ext = $file.Extension.ToLowerInvariant()
             $name = $file.Name

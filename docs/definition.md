@@ -1069,8 +1069,8 @@ the download-agent streams artifacts through to the pool share instead
 of buffering them in RAM, and pool-control serves registry reads beside
 short-lived pwsh CLI invocations. Because all three hosts pin the
 allocation, the number that matters on a host carrying several of these
-at once -- a standalone host runs the caching-proxy-service, the stash, and
-the download-agent on one machine -- is their **sum**, committed whether or
+at once -- a standalone host runs the caching-proxy-service and stash, plus
+the download-agent when it opts in -- is their **sum**, committed whether or
 not the guests touch it. Every GB left in them subtracts directly from
 what the test guests on the same machine can start with. The
 caching-proxy-service is the one that cannot join the baseline, for the
@@ -2364,6 +2364,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.27
+Last review: 2026.09.30
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.27
+.VERSION 2026.09.30
 .GUID 424870fb-615c-4ade-a4de-1429ce37a8ca
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,8 @@ BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $src      = Get-Content (Join-Path $here 'Test.PoolStorage.psm1') -Raw
 $script:tildeRx  = '^~(?=[\\/]|$)'
-$script:exportLn = ($src -split "`n" | Where-Object { $_ -match 'Export-ModuleMember' }) -join "`n"
+$exportAst = [Management.Automation.Language.Parser]::ParseInput($src, [ref]$null, [ref]$null)
+$script:exportLn = ($exportAst.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Export-ModuleMember' }, $true).Extent.Text) -join "`n"
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42e8abe9-fab4-421a-90ab-caa2e130911b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,36 +19,7 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
 
-# Checksummed, generation-numbered private records with a retained previous
-# generation, for state that authorizes a mutation: a request journal, a
-# recovery record, a runner gate, a budget reservation. Best-effort progress
-# files (Test.StateFile) may lose a write and only degrade reporting; losing
-# or tearing one of these must instead refuse the mutation it guarded, so the
-# contract is stricter:
-#
-#   * A write goes to a new temporary file, is flushed and read back before
-#     it replaces the record, and the replaced generation is kept as
-#     <Path>.prev. A crash at any point leaves either the old generation or
-#     the new one readable, never a torn mix.
-#   * Every record carries its kind, a generation number and a SHA-256 of its
-#     payload, so a truncated or bit-flipped file is detected and the reader
-#     falls back to the previous generation instead of trusting it.
-#   * A writer states the generation it read (compare-and-set); a stale
-#     writer is refused rather than silently overwriting a newer decision.
-#   * A newer format version or another record's kind is never replaced by an
-#     older generation: that is a refusal, not a fallback.
-#
-# Atomic replacement protects against a process crash. Surviving a power cut
-# also needs the data and the directory entry flushed to stable storage; the
-# flushes are issued (fsync on Linux, F_FULLFSYNC on macOS, write-through
-# rename on Windows) and reported through FlushesConfirmed, but no platform
-# claims power-loss durability until a power-cut test has shown it holds, so
-# Get-YurunaCriticalRecordDurability declares process-crash everywhere.
-#
-# Every blocking file operation runs on a compiled helper's task and is waited
-# on with a bounded Task.Wait, so a wedged file system turns into io-timeout
-# instead of a hang. A timed-out task keeps its pool thread (a blocked kernel
-# call cannot be canceled); the per-step caps keep that count small.
+# See https://yuruna.link/4213a0b3-0049
 
 $script:CriticalRecordIoTypeName = 'Yuruna.CriticalRecordIoV2'
 $script:CriticalRecordIoUnavailable = $false

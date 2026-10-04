@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42db1be5-194a-4332-86f2-4e34e105d100
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,8 +95,21 @@ Describe 'Guest update network probes retain a bounded single attempt' {
         $dotnet.Count | Should -Be 1
         $dotnet[0] | Should -Match 'curl_retry -[a-zA-Z]*f'
         $update = Get-Content (Join-Path $script:RepoRoot $(if ($shared) { 'guest/shared/ubuntu.update.sh' } else { "guest/$Guest/$Guest.update.sh" })) -Raw
-        $probes = @($update -split "`n" | Where-Object { $_ -match 'wget .*\$(?:LIVECHECK_URL|PROJECT_LIVECHECK_URL|CFG_URL)' })
-        $probes.Count | Should -Be 4
+        # Each request to the host's status service is one bounded attempt: the
+        # config read, and the ask inside this script's copy of the host probe.
+        $probes = @($update -split "`n" | Where-Object { $_ -match 'wget .*\$(?:livecheck_url|CFG_URL)' })
+        $probes.Count | Should -Be 2
         foreach ($probe in $probes) { $probe | Should -Match '--tries=1(?:\s|$)' }
+        # The early extract, the framework and the project each ask through the
+        # spaced probe, never on one 2s exchange.
+        @($update -split "`n" | Where-Object { $_ -match '^\s*if !? ?yuruna_host_livecheck; then' }).Count | Should -Be 3
+    }
+    It 'asks the host through one spaced, single-try probe in the shared retry lib' {
+        $lib = Get-Content (Join-Path $script:RepoRoot 'automation/yuruna-retry.sh') -Raw
+        $probes = @($lib -split "`n" | Where-Object { $_ -match 'wget .*\$livecheck_url' })
+        $probes.Count | Should -Be 1
+        $probes[0] | Should -Match '--tries=1(?:\s|$)'
+        $probes[0] | Should -Match '--no-proxy'
+        @($lib -split "`n" | Where-Object { $_ -match '^\s*if !? ?yuruna_host_livecheck; then' }).Count | Should -Be 2
     }
 }

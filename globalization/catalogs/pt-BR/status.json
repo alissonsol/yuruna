@@ -634,7 +634,7 @@
       "message": "configuração da rota de controlo"
     },
     "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": {
-      "sourceHash": "58927d0180eda1f3fce575d2c78493282118da0c09668cafcbfcfc25f97d6d9d",
+      "sourceHash": "726c76fd6a7223d4d029d5b36ee65997c67b29d37bd4fa550a0a3c96e829ab07",
       "message": "Esta máquina não tem nenhum lab-auth-token, então o controle remoto é somente loopback. Abra esta página como {address} na máquina, ou inscreva-a: {command} <code from the dashboard’s Lab token tile>. Veja {documentation}"
     },
     "status.control_verifier_unavailable": {

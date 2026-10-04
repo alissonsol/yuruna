@@ -720,8 +720,11 @@ first. No login; trusted networks only. User guide:
 pwsh test/Invoke-TestProject.ps1
 ```
 
-One-shot cycle: wipes `project/`, re-clones `repositories.projectUrl`,
-runs a single cycle exactly as the runner would, and exits. Debug here
+One-shot cycle: replaces `project/` with a fresh clone of
+`repositories.projectUrl`, runs a single cycle exactly as the runner would, and
+exits. The clone is built beside the old checkout and swapped in only once it
+is complete, so a failed or interrupted clone keeps the last good `project/`
+(a refresh that died mid-swap is recovered by the next one). Debug here
 until green -- one cycle with no loop around it is the cheapest place
 to debug.
 
@@ -884,6 +887,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

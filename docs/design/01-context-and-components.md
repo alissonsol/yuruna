@@ -1,10 +1,10 @@
 # Context and components
 
-This view locates seven system boundaries and the dependencies expanded in the component breakdown.
+This view identifies seven system boundaries and the dependencies expanded in the component breakdown.
 
-Read the [canonical architecture](../architecture.md) for the capabilities and
-deployment model. These are code ownership boundaries, not seven processes or
-seven directories.
+The [canonical architecture](../architecture.md) defines the capabilities and
+deployment model. These boundaries group code responsibilities; they do not
+represent seven processes or seven repository directories.
 
 ```mermaid
 flowchart LR
@@ -36,47 +36,40 @@ flowchart LR
     test -->|fetches and notifies| global-resources
 ```
 
-Each empty subgraph is an L1 placeholder; the matching section of
-[02 Component breakdown](02-component-breakdown.md) expands it. The seven
-boundaries group these source artifacts:
+Each empty subgraph is a placeholder expanded by the identically titled section
+in [Component breakdown](02-component-breakdown.md). The seven boxes cover these
+current sources:
 
-| Boundary | Sources and scope |
+| Boundary | Source and scope |
 | --- | --- |
-| Provisioning | [install/](../../install/), [install/setup.ps1](../../install/setup.ps1), [Yuruna.HostSetup.psm1](../../automation/Yuruna.HostSetup.psm1), [test/lab/](../../test/lab/), and service launchers in [test/service/](../../test/service/). |
-| Deploy engine | [Set-Resource.ps1](../../automation/Set-Resource.ps1), [Set-Component.ps1](../../automation/Set-Component.ps1), [Set-Workload.ps1](../../automation/Set-Workload.ps1), their phase modules, validators, and cleanup entry point. |
-| Test harness | [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1), [test/modules/](../../test/modules/), [test/sequences/](../../test/sequences/), [test/status/](../../test/status/), [test/pool/](../../test/pool/), and [test/extension/](../../test/extension/). |
-| Providers | [host/](../../host/), its shared [contract](../../host/Yuruna.Host.Contract.psm1) and [modules](../../host/modules/), plus [guest/](../../guest/) scripts. |
-| Project data | The sibling [yuruna-project repository](https://github.com/alissonsol/yuruna-project): [example/](https://github.com/alissonsol/yuruna-project/tree/main/example), [template/](https://github.com/alissonsol/yuruna-project/tree/main/template), [book/](https://github.com/alissonsol/yuruna-project/tree/main/book), and [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml). |
-| Shared modules | Cross-cutting [automation/](../../automation/) modules, [global/](../../global/) templates, [globalization/](../../globalization/), and supporting [tools/](../../tools/). |
-| External services | Actual integration points in [global/resources/](../../global/resources/), [Yuruna.CredentialProvider.psm1](../../automation/Yuruna.CredentialProvider.psm1), [Yuruna.GitHubSource.psm1](../../automation/Yuruna.GitHubSource.psm1), [Yuruna.HostDownload.psm1](../../host/modules/Yuruna.HostDownload.psm1), and [notification/](../../test/extension/notification/). |
+| Provisioning | OS bootstrappers in [install/](../../install/), [setup.ps1](../../install/setup.ps1), [Yuruna.HostSetup](../../automation/Yuruna.HostSetup.psm1), host commands in [test/lab/](../../test/lab/), and service launchers in [test/service/](../../test/service/). |
+| Deploy engine | [Set-Resource](../../automation/Set-Resource.ps1), [Set-Component](../../automation/Set-Component.ps1), [Set-Workload](../../automation/Set-Workload.ps1), their phase modules, validators, and [Invoke-Clear](../../automation/Invoke-Clear.ps1). |
+| Test harness | [Start-TestRunner](../../test/Start-TestRunner.ps1), supervision and sequence modules in [test/modules/](../../test/modules/), [test/sequences/](../../test/sequences/), [test/status/](../../test/status/), [test/pool/](../../test/pool/), and [test/extension/](../../test/extension/). |
+| Providers | The shared [host contract](../../host/Yuruna.Host.Contract.psm1), platform drivers in [host/](../../host/), shared [host/modules/](../../host/modules/), and OS scripts in [guest/](../../guest/). |
+| Project data | The companion repository's [layout](https://github.com/alissonsol/yuruna-project/blob/main/README.md), [template](https://github.com/alissonsol/yuruna-project/blob/main/template/README.md), [examples](https://github.com/alissonsol/yuruna-project/blob/main/example/README.md), and [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml). |
+| Shared modules | Cross-cutting [automation/](../../automation/) libraries, reusable [global/](../../global/) assets, [globalization/](../../globalization/), and [tools/](../../tools/). |
+| External services | Implemented integration points in [global/resources/](../../global/resources/), [Yuruna.CredentialProvider](../../automation/Yuruna.CredentialProvider.psm1), [Yuruna.GitHubSource](../../automation/Yuruna.GitHubSource.psm1), [Yuruna.HostDownload](../../host/modules/Yuruna.HostDownload.psm1), and [notification/](../../test/extension/notification/). |
 
-The deploy engine and shared modules both occupy `automation/`; installer and
-runner code also import that directory. The harness owns service implementations,
-while provisioning owns their launch. Guest scripts run inside VMs; the host
-drivers execute on hypervisor hosts. The runner refreshes its local `project/`
-checkout from `repositories.projectUrl`; that checkout is runtime input, not a
-second implementation of the harness.
+The deploy engine and shared modules occupy the same automation directory.
+Provisioning owns service launch commands; the harness owns their implementations.
+Host drivers execute on the hypervisor host and select scripts that run inside
+guests. The runner obtains project data from repositories.projectUrl, including
+pool repository assignments, through
+[Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1); its runtime
+project checkout is input to the harness and deploy engine.
 
-The harness boundary includes the implemented host-refresh control path:
-[Invoke-HostRefresh.ps1](../../test/lab/Invoke-HostRefresh.ps1),
-[Test.HostRefresh](../../test/modules/Test.HostRefresh.psm1), and
-[Test.HostRefreshIntent](../../test/modules/Test.HostRefreshIntent.psm1).
-Refresh coordinates the existing runner and provider within the harness boundary.
-All three providers implement the bounded virtualization probe in the host
-contract; Hyper-V and KVM also enable start-if-stopped repair. The manual
-refresh path and automatic trigger have separate admission rules;
-[Lifecycle](04-lifecycle-state.md) identifies the enabled repair rungs and
-the automatic policy qualification.
+Related module and extension families remain named aggregates to keep this view
+at seven boxes. Host refresh is implemented by
+[Invoke-HostRefresh](../../test/lab/Invoke-HostRefresh.ps1) and
+[Test.HostRefresh](../../test/modules/Test.HostRefresh.psm1) within the provisioning
+and harness boundaries. Its admission and recovery behavior is shown in
+[Lifecycle](04-lifecycle-state.md). Service placement and network connections are
+shown in [Deployment](06-deployment.md).
 
-GCP registry authentication exists in the credential-provider registry, but
-there is no `global/resources/gcp/` or example `config/gcp/` deployment here.
-GCP deployment remains planned, as stated by the architecture; it has no active
-edge in these diagrams.
-
-The external-services boundary describes implemented integration code, not
-deployment certification. For example, the checked-in AWS EKS template has
-separate Kubernetes API and workload-ingress outputs; those interfaces are
-expanded in [Deployment](06-deployment.md#aws-application-ingress).
+The resource directories implement localhost, AWS, and Azure; there is no
+GCP resource directory or companion config/gcp deployment. Google Artifact
+Registry authentication exists in the credential-provider module. It does not
+establish a GCP infrastructure deployment path, so no active GCP edge is drawn.
 
 ---
 

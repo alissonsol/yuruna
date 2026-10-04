@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42d6b0f7-8b28-44dd-9e89-c3a26a7d82f1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@
     retired_names block, so the hook's English search literals stay out of the
     translation fields; the required style rule ids, each named once; and a
     document manifest that maps either none of the locale's documents or the
-    whole thirteen-document subset.
+    whole twenty-two-document subset.
 
     Findings are prefixed with the locale tag.
 
@@ -265,6 +265,31 @@ if ($docManifest -and $docManifest.schema -ne 'yuruna.doc-translations/v1') {
     Add-Finding "document manifest has unsupported schema '$($docManifest.schema)'"
 }
 
+$expectedDocumentKeys = @(
+    'yuruna:docs/authentication.md'
+    'yuruna:docs/install.md'
+    'yuruna:docs/kubernetes.md'
+    'yuruna:docs/lab-operator.md'
+    'yuruna:docs/operator.md'
+    'yuruna:docs/workarounds.md'
+    'yuruna:install/README.md'
+    'yuruna:README.md'
+    'yuruna-project:example/README.md'
+    'yuruna-project:example/text-to-sql/README.md'
+    'yuruna-project:example/website/README.md'
+    'yuruna-project:README.md'
+    'yuruna-project:template/README.md'
+    'yuruna:docs/extensions-api.md'
+    'yuruna:docs/failure-schema.md'
+    'yuruna:docs/framework-implementation-notes.md'
+    'yuruna:docs/host-implementation-notes.md'
+    'yuruna:docs/pool-admin.md'
+    'yuruna:docs/project-implementation-notes.md'
+    'yuruna:docs/test-harness.md'
+    'yuruna:docs/vmconfig.md'
+    'yuruna-project:example/website/components/frontend/website/README.md'
+)
+
 $termTotal = $rulingTotal = $ruleTotal = 0
 $detail = [Collections.Generic.List[string]]::new()
 foreach ($pair in $pairs) {
@@ -349,9 +374,22 @@ foreach ($pair in $pairs) {
     }
 
     if ($docManifest) {
-        $mapped = @($docManifest.documents | Where-Object { [string]$_.locale -ceq $tag }).Count
-        if ($mapped -ne 0 -and $mapped -ne 13) {
-            Add-Finding "document manifest maps $mapped documents; a locale maps either none or the 13-document subset"
+        $mappedDocuments = @($docManifest.documents | Where-Object { [string]$_.locale -ceq $tag })
+        $mapped = $mappedDocuments.Count
+        if ($mapped -ne 0 -and $mapped -ne $expectedDocumentKeys.Count) {
+            Add-Finding "document manifest maps $mapped documents; a locale maps either none or the 22-document subset"
+        }
+        if ($mapped -ne 0) {
+            $keys = @($mappedDocuments | ForEach-Object { '{0}:{1}' -f [string]$_.repo, [string]$_.source })
+            foreach ($duplicate in @($keys | Group-Object -CaseSensitive | Where-Object Count -GT 1)) {
+                Add-Finding "document manifest repeats source: $($duplicate.Name)"
+            }
+            foreach ($missing in @($expectedDocumentKeys | Where-Object { $keys -cnotcontains $_ })) {
+                Add-Finding "document manifest omits source: $missing"
+            }
+            foreach ($extra in @($keys | Where-Object { $expectedDocumentKeys -cnotcontains $_ })) {
+                Add-Finding "document manifest includes an unregistered source: $extra"
+            }
         }
     }
 

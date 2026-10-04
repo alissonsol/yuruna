@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4207f1a4-6b1e-4c0a-9a05-9b2a1f6c3d77
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,8 @@ function Get-ShellFunctionBody {
 
 $script:Lifted = Get-ShellFunctionBody -Text $installerText -Name @(
     'tool_version', 'version_ge', 'brew_formula_binary', 'prefer_newest_binary',
-    'requirement_repair_key', 'requirement_key_command', 'bring_tools_to_required_versions')
+    'requirement_repair_key', 'requirement_key_command', 'bring_tools_to_required_versions',
+    'requirement_issue_check')
 
 # Stubs stand in for everything the promotion reaches outside its own logic.
 # sudo runs the command as-is (every path below is inside the temp tree), and
@@ -314,22 +315,19 @@ Describe 'bring_tools_to_required_versions' -Skip:$IsWindows {
         # runtime twice in a pass would install the same build twice and report
         # it twice.
         $r = Invoke-InstallerShell -Body @'
-# The check runs inside a process substitution, so its side effects land in a
-# subshell -- the count of which check this is has to live on disk.
-FLOOR_STATE="$(mktemp)"
-trap 'rm -f "$FLOOR_STATE"' EXIT
-printf '0\n' > "$FLOOR_STATE"
-requirement_issue_line() {
-  local n
-  n=$(( $(cat "$FLOOR_STATE") + 1 ))
-  printf '%s\n' "$n" > "$FLOOR_STATE"
-  case $n in
-    1) printf '%s\n' \
+# The check runs in the installer's own shell, so a counter variable sees
+# every call; it answers the way Test-Requirement.ps1 -WarnOnly does.
+FLOOR_CALLS=0
+requirement_issue_check() {
+  FLOOR_CALLS=$(( FLOOR_CALLS + 1 ))
+  floor_rc=0
+  case $FLOOR_CALLS in
+    1) floor_out="$(printf 'REQUIREMENT-ISSUE: %s\n' \
          "PowerShell BELOW: found 7.3.6 is older than required 7.6.4." \
          "AES-GCM MISSING: this runtime has no AES-GCM, so Lab token enrollment fails" \
-         "curl BELOW: found 8.7.1 is older than required 8.21.0." ;;
-    2) printf '%s\n' "PowerShell BELOW: found 7.5.0 is older than required 7.6.4." ;;
-    *) : ;;
+         "curl BELOW: found 8.7.1 is older than required 8.21.0.")" ;;
+    2) floor_out='REQUIREMENT-ISSUE: PowerShell BELOW: found 7.5.0 is older than required 7.6.4.' ;;
+    *) floor_out='' ;;
   esac
 }
 run_requirement_repair() { printf 'REPAIR %s pass=%s\n' "$1" "$2"; }
@@ -345,12 +343,47 @@ bring_tools_to_required_versions
     }
     It 'repairs nothing when every tool already meets its floor' {
         $r = Invoke-InstallerShell -Body @'
-requirement_issue_line() { : ; }
+requirement_issue_check() { floor_rc=0; floor_out=''; }
 run_requirement_repair() { printf 'REPAIR %s\n' "$1"; }
 bring_tools_to_required_versions
 '@
         Assert-True ($r.Output -notmatch 'REPAIR ') 'a machine at its floors must not be touched'
         Assert-Match 'every managed tool meets its required version' $r.Output
+    }
+    It 'reports a check that could not run instead of calling every floor met' {
+        # With -WarnOnly the check exits 0 whenever it ran. A non-zero exit with
+        # no issue lines -- powershell-yaml missing, typically -- says nothing
+        # about the versions, and reading it as "no issues" would skip every
+        # repair and report a clean machine.
+        $r = Invoke-InstallerShell -Body @'
+requirement_issue_check() { floor_rc=1; floor_out=$'noise\npowershell-yaml is required to read the requirement list\n'; }
+run_requirement_repair() { printf 'REPAIR %s\n' "$1"; }
+bring_tools_to_required_versions
+echo FINISHED
+'@
+        Assert-Match 'ISSUE The version floors could not be checked: automation/Test-Requirement\.ps1 exited 1, with its output printed above' $r.Output `
+            'the failure reaches the closing summary'
+        Assert-Match 'powershell-yaml is required to read the requirement list' $r.Output 'the check''s own output is shown whole'
+        Assert-True ($r.Output -notmatch 'every managed tool meets') 'a check that did not run must not report the floors met'
+        Assert-True ($r.Output -notmatch 'REPAIR ') 'no repair runs on a result that was never produced'
+        Assert-Match 'FINISHED' $r.Output 'the install continues'
+    }
+    It 'takes its exit status from the check itself, run without color codes' {
+        # The status is what tells a check that ran from one that could not; the
+        # loop above trusts it, so it has to come from pwsh, not from a pipeline.
+        $r = Invoke-InstallerShell -Body @'
+YURUNA_DIR=/nonexistent; FLOOR_TOOL_LIST=curl
+pwsh() { printf 'NO_COLOR=%s\n' "${NO_COLOR:-}"; echo 'powershell-yaml is required' >&2; return 1; }
+requirement_issue_check
+echo "RC=$floor_rc"; printf 'OUT=%s\n' "$floor_out"
+pwsh() { printf 'REQUIREMENT-ISSUE: curl BELOW: found 8.7.1 is older than required 8.18.0.\n'; }
+requirement_issue_check
+echo "RC2=$floor_rc"
+'@
+        Assert-Match 'RC=1' $r.Output 'a check that could not run reports its exit status'
+        Assert-Match 'NO_COLOR=1' $r.Output 'pwsh runs without color codes'
+        Assert-Match 'powershell-yaml is required' $r.Output 'its error output is kept for the operator'
+        Assert-Match 'RC2=0' $r.Output 'a check that ran reports success'
     }
     It 'reports what two passes could not reach, naming the binary that answers' {
         # The floor may be ahead of every build that exists. What the operator
@@ -362,7 +395,7 @@ bring_tools_to_required_versions
             New-FakeTool -Path "$root/sysbin/pwsh" -VersionLine 'PowerShell 7.5.0'
             $r = Invoke-InstallerShell -Body @"
 export PATH='$root/sysbin:/usr/bin:/bin'
-requirement_issue_line() { printf '%s\n' "PowerShell BELOW: found 7.5.0 is older than required 7.6.4."; }
+requirement_issue_check() { floor_rc=0; floor_out='REQUIREMENT-ISSUE: PowerShell BELOW: found 7.5.0 is older than required 7.6.4.'; }
 run_requirement_repair() { printf 'REPAIR %s pass=%s\n' "`$1" "`$2"; }
 bring_tools_to_required_versions
 "@

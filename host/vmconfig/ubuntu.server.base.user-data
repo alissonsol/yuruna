@@ -96,6 +96,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
         chmod 0644 /target/etc/profile.d/yuruna-proxy.sh
         mkdir -p /target/etc/systemd/system.conf.d
         cat > /target/etc/systemd/system.conf.d/yuruna-proxy.conf << EOF
+      # --- REGION: [Manager]
       [Manager]
       DefaultEnvironment="http_proxy=http://${CACHE_HOST}:${CACHE_HTTP_PORT}/" "https_proxy=http://${CACHE_HOST}:3129/" "HTTP_PROXY=http://${CACHE_HOST}:${CACHE_HTTP_PORT}/" "HTTPS_PROXY=http://${CACHE_HOST}:3129/" "no_proxy=${NO_PROXY_LIST}" "NO_PROXY=${NO_PROXY_LIST}"
       EOF
@@ -148,6 +149,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
     - mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
     - |
       cat > /target/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf << 'EOF'
+      # --- REGION: [Service]
       [Service]
       ExecStart=
       ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
@@ -183,6 +185,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
     - mkdir -p /target/etc/systemd/system/getty@.service.d
     - |
       cat > /target/etc/systemd/system/getty@.service.d/override.conf << 'EOF'
+      # --- REGION: [Service]
       [Service]
       ExecStartPre=-/usr/bin/cloud-init status --wait
       EOF
@@ -230,28 +233,34 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- REGION: https://yuruna.link/429f3d06-002a
     - |
       cat > /target/etc/systemd/system/yuruna-host-locate.service << 'EOF'
+      # --- REGION: [Unit]
       [Unit]
       Description=Refresh Yuruna host coordinates if the host has changed address
       After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
       Before=network-online.target
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       TimeoutStartSec=30
       ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=network-online.target
       EOF
       cat > /target/etc/systemd/system/yuruna-host-locate.timer << 'EOF'
+      # --- REGION: [Unit]
       [Unit]
       Description=Periodic Yuruna host coordinate refresh
 
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=30s
       OnUnitActiveSec=60s
       AccuracySec=5s
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
       EOF
@@ -259,11 +268,13 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- REGION: https://yuruna.link/4220a755-000f
     - |
       cat > /target/etc/systemd/system/yuruna-dhcp-release.service << 'EOF'
+      # --- REGION: [Unit]
       [Unit]
       Description=Return this guest's DHCP lease before shutdown
       Wants=network.target
       After=network.target
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       RemainAfterExit=yes
@@ -271,6 +282,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
       ExecStop=/bin/bash /usr/local/lib/yuruna/yuruna-network.sh release
       TimeoutStopSec=15
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=multi-user.target
       EOF

@@ -1,9 +1,10 @@
 # Component breakdown
 
-These flowcharts expand each L1 boundary into at most seven real scripts, modules, directories, or named aggregates.
+These flowcharts expand each Level-1 boundary into at most seven real artifacts or named artifact families.
 
-Section order matches [Context and components](01-context-and-components.md).
-A box containing a family stands for the listed code, not another service.
+Section order and titles match [Context and components](01-context-and-components.md).
+A family box groups the sources listed below it; inventory diagrams do not
+prescribe a module import or execution order.
 
 ## Provisioning
 
@@ -11,37 +12,37 @@ A box containing a family stands for the listed code, not another service.
 flowchart LR
     install["OS bootstrappers"]
     setup-ps1["setup.ps1"]
-    yuruna-hostsetup-psm1["Yuruna.HostSetup"]
-    enable-testautomation-ps1["Enable-TestAutomation"]
-    test-lab["test/lab"]
+    enable-test-automation-ps1["Host preparation"]
+    yuruna-host-setup-psm1["Yuruna.HostSetup"]
+    new-local-lab-storage-ps1["Storage preparation"]
     test-service["Service launchers"]
-    invoke-hostrefresh-ps1["Invoke-HostRefresh.ps1"]
+    test-lab["Lab commands"]
     install --> setup-ps1
-    setup-ps1 --> test-lab
-    test-lab -->|host dispatcher| enable-testautomation-ps1
-    enable-testautomation-ps1 --> yuruna-hostsetup-psm1
+    setup-ps1 --> enable-test-automation-ps1
+    enable-test-automation-ps1 --> yuruna-host-setup-psm1
+    setup-ps1 --> new-local-lab-storage-ps1
+    new-local-lab-storage-ps1 -->|storage before guests| test-service
     setup-ps1 --> test-service
-    test-lab -->|operator entry| invoke-hostrefresh-ps1
+    setup-ps1 -->|lab enrollment| test-lab
 ```
 
-Sources: [install/](../../install/) contains the Windows, Ubuntu, and macOS
-bootstrappers and [setup.ps1](../../install/setup.ps1). Setup invokes the
-[lab dispatcher](../../test/lab/Enable-TestAutomation.ps1), which selects a
-host script through [Yuruna.HostRedirect](../../automation/Yuruna.HostRedirect.psm1).
-That host script imports [Yuruna.HostSetup](../../automation/Yuruna.HostSetup.psm1);
-setup separately invokes [service launchers](../../test/service/).
-The three `Enable-TestAutomation.ps1` implementations live in
-[windows.hyper-v](../../host/windows.hyper-v/Enable-TestAutomation.ps1),
-[ubuntu.kvm](../../host/ubuntu.kvm/Enable-TestAutomation.ps1), and
-[macos.utm](../../host/macos.utm/Enable-TestAutomation.ps1).
-The OS bootstrap scripts install dependencies and clone the repository; setup
-then prepares storage before starting service VMs. Its standalone and lab modes
-select different service sets.
-The seventh box is the existing
-[host-refresh entry point](../../test/lab/Invoke-HostRefresh.ps1). It delegates
-admission, repair, and runner handoff to
-[Test.HostRefresh](../../test/modules/Test.HostRefresh.psm1); the edge from
-`test/lab` identifies its command family, not an automatic setup-time refresh.
+Sources: the [Windows](../../install/windows.hyper-v.ps1),
+[Ubuntu](../../install/ubuntu.kvm.sh), and [macOS](../../install/macos.utm.sh)
+bootstrappers install prerequisites and clone the repository.
+[setup.ps1](../../install/setup.ps1) orchestrates
+[Enable-TestAutomation](../../test/lab/Enable-TestAutomation.ps1), storage
+preparation, and [service launchers](../../test/service/).
+The host dispatcher uses [Yuruna.HostRedirect](../../automation/Yuruna.HostRedirect.psm1)
+to select the platform script; those scripts import
+[Yuruna.HostSetup](../../automation/Yuruna.HostSetup.psm1).
+
+Storage preparation groups
+[New-LocalLabStorage](../../test/lab/New-LocalLabStorage.ps1) with setup's configured
+NAS path. Lab commands group enrollment, storage administration, and
+[Invoke-HostRefresh](../../test/lab/Invoke-HostRefresh.ps1).
+Setup brings up cache and stash for standalone mode and adds download-agent and
+pool-control for lab mode. A healthy service VM can be adopted; rebuilding applies
+changed provisioning settings.
 
 ## Deploy engine
 
@@ -61,72 +62,73 @@ flowchart LR
     set-component-ps1 -->|caller orders phases| set-workload-ps1
 ```
 
-Sources: the [resource](../../automation/Set-Resource.ps1),
-[component](../../automation/Set-Component.ps1), and
-[workload](../../automation/Set-Workload.ps1) entry points import their respective
+Sources: [Set-Resource](../../automation/Set-Resource.ps1),
+[Set-Component](../../automation/Set-Component.ps1), and
+[Set-Workload](../../automation/Set-Workload.ps1) import
 [Yuruna.Resource](../../automation/Yuruna.Resource.psm1),
 [Yuruna.Component](../../automation/Yuruna.Component.psm1), and
-[Yuruna.Workload](../../automation/Yuruna.Workload.psm1) modules.
-The seventh box groups [Test-Configuration](../../automation/Test-Configuration.ps1),
+[Yuruna.Workload](../../automation/Yuruna.Workload.psm1), respectively.
+The seventh box groups
+[Test-Configuration](../../automation/Test-Configuration.ps1),
 [Test-Requirement](../../automation/Test-Requirement.ps1),
 [Test-Runtime](../../automation/Test-Runtime.ps1), and
 [Invoke-Clear](../../automation/Invoke-Clear.ps1).
-Phase-order edges describe caller sequencing; the three entry points do not
-call one another. For example, the project
-[Ubuntu workload script](https://github.com/alissonsol/yuruna-project/blob/main/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh)
-invokes each entry point in that order.
-The phase modules return structured
-[result manifests](../../automation/Yuruna.Result.psm1); the entry points turn
-failure into a nonzero process exit. The workload entry point also checks the
-local runtime before publishing workloads.
+
+Phase-order edges represent caller sequencing: the entry points do not invoke
+one another. The companion
+[website guest script](https://github.com/alissonsol/yuruna-project/blob/main/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh)
+calls them in this order. The phase modules read the selected config directory,
+use resource outputs, and return
+[result manifests](../../automation/Yuruna.Result.psm1).
+Resource templates resolve from the project first, then global/resources.
+The workload module handles chart, kubectl, helm, and shell deployment entries.
 
 ## Test harness
 
 ```mermaid
 flowchart LR
-    start-testrunner-ps1["Runner supervision"]
-    test-sequencerunner-psm1["Sequence execution"]
-    test-ocrengine-psm1["OCR and diagnostics"]
-    start-statusservice-ps1["Status and configuration"]
+    start-test-runner-ps1["Runner supervision"]
+    test-sequence-runner-psm1["Sequence execution"]
+    test-ocr-engine-psm1["OCR and diagnostics"]
+    start-status-service-ps1["Status and configuration"]
     test-pool["Pool coordination"]
     test-extension["Extension services"]
     test-notify-psm1["Notifications"]
-    start-testrunner-ps1 --> test-sequencerunner-psm1
-    test-sequencerunner-psm1 --> test-ocrengine-psm1
-    start-testrunner-ps1 -->|starts status| start-statusservice-ps1
-    start-testrunner-ps1 --> test-pool
-    start-testrunner-ps1 --> test-notify-psm1
+    start-test-runner-ps1 --> test-sequence-runner-psm1
+    test-sequence-runner-psm1 --> test-ocr-engine-psm1
+    start-test-runner-ps1 -->|host status| start-status-service-ps1
+    start-test-runner-ps1 --> test-pool
+    start-test-runner-ps1 --> test-notify-psm1
 ```
 
 Sources and aggregate membership:
 
-| Box | Code |
+| Box | Sources |
 | --- | --- |
-| Runner supervision | [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), and [Test.RunnerState](../../test/modules/Test.RunnerState.psm1). |
+| Runner supervision | [Start-TestRunner](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), and runner identity/recovery modules in [test/modules/](../../test/modules/). |
 | Sequence execution | [Test.SequenceRunner](../../test/modules/Test.SequenceRunner.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), and [sequences/](../../test/sequences/). |
 | OCR and diagnostics | [Test.OcrEngine](../../test/modules/Test.OcrEngine.psm1), [Test.OcrMatch](../../test/modules/Test.OcrMatch.psm1), [Test.Diagnostic](../../test/modules/Test.Diagnostic.psm1), and [Get-SystemDiagnostic](../../automation/Get-SystemDiagnostic.ps1). |
-| Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), and the browser pages in [status/](../../test/status/). |
-| Pool coordination | [pool/](../../test/pool/), [Test.PoolWorker](../../test/modules/Test.PoolWorker.psm1), [Test.PoolPush](../../test/modules/Test.PoolPush.psm1), and [Test.PoolStorage](../../test/modules/Test.PoolStorage.psm1). |
-| Extension services | [extension/](../../test/extension/) contains authentication, caching proxy and parser, download agent, pool aggregator and control, stash, notification, and their shared SDK. |
-| Notifications | [Test.Notify](../../test/modules/Test.Notify.psm1), [Test.PoolNotifier](../../test/modules/Test.PoolNotifier.psm1), and [notification/](../../test/extension/notification/). |
+| Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), and [status/](../../test/status/). |
+| Pool coordination | [pool/](../../test/pool/), [Test.PoolWorker](../../test/modules/Test.PoolWorker.psm1), [Test.PoolSync](../../test/modules/Test.PoolSync.psm1), [Test.PoolPush](../../test/modules/Test.PoolPush.psm1), and [Test.PoolStorage](../../test/modules/Test.PoolStorage.psm1). |
+| Extension services | [extension/](../../test/extension/) holds authentication, digest, cache management/parser, download-agent, pool aggregator/control, stash, notification, and the shared SDK. |
+| Notifications | [Test.Notify](../../test/modules/Test.Notify.psm1), [Test.PoolNotifier](../../test/modules/Test.PoolNotifier.psm1), and configured providers in [notification/](../../test/extension/notification/). |
 
-The extension aggregate exceeds seven implementations, so it stays collapsed
-here. The service topology and individual runtime exchanges are expanded in
-[Data flows](03-data-flows.md) and [Deployment](06-deployment.md).
-The runner starts the status service; the caching-proxy launcher starts the
-host configuration service through
-[Start-CachingProxyServiceVM](../../test/service/Start-CachingProxyServiceVM.ps1).
-Other extension daemons have their own launch paths, so the extension box is
-an inventory item rather than a direct runner dependency.
+The outer runner supervises a fresh cycle process, which launches an inner
+sequence process. The watchdog follows the cycle heartbeat; OCR and guest
+diagnostics supply sequence evidence. The host status listener also runs when
+testing is idle. The caching-proxy launcher starts the host status and
+configuration services through
+[Test.Prelude](../../test/modules/Test.Prelude.psm1).
 
-Runner supervision also groups
-[Test.SingleInstance](../../test/modules/Test.SingleInstance.psm1),
+The extension family contains more than seven implementations and remains one
+aggregate here. Its daemons have separate launch paths rather than a shared
+runner-to-extension call. Their runtime placement and exchanges are expanded in
+[Deployment](06-deployment.md) and [Data flows](03-data-flows.md).
+Host refresh groups
+[Test.HostRefresh](../../test/modules/Test.HostRefresh.psm1),
 [Test.HostRefreshIntent](../../test/modules/Test.HostRefreshIntent.psm1), and
-[Test.HostRefreshTrigger](../../test/modules/Test.HostRefreshTrigger.psm1).
-They bind runner identities, refresh gates, and the optional automatic policy
-to the same process chain. Sequence execution owns the decision to send input;
-OCR supplies evidence and matching. In particular, `passwdPrompt` defaults to
-bounded matching through `noSegmentMatch`, including per-engine frame history.
+[Test.HostRefreshTrigger](../../test/modules/Test.HostRefreshTrigger.psm1)
+with runner supervision.
 
 ## Providers
 
@@ -149,16 +151,19 @@ flowchart LR
     macos-utm --> guest
 ```
 
-Sources: [host contract](../../host/Yuruna.Host.Contract.psm1);
+Sources: [host contract](../../host/Yuruna.Host.Contract.psm1),
 [Hyper-V driver](../../host/windows.hyper-v/modules/Yuruna.Host.psm1),
 [KVM driver](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1),
-[UTM driver](../../host/macos.utm/modules/Yuruna.Host.psm1);
-[host/modules](../../host/modules/); and [guest/](../../guest/).
-Each provider has per-guest `Get-Image.ps1` and `New-VM.ps1` builders.
-The guest aggregate contains `amazon.linux.2023`, `ubuntu.server.24`,
-`ubuntu.server.26`, `windows.11`, and `macos.26`; this does not imply every
-host supports every guest. Service guest builders are additional folders under
-the host providers, and use the existing Ubuntu guest setup scripts.
+[UTM driver](../../host/macos.utm/modules/Yuruna.Host.psm1),
+[host/modules/](../../host/modules/), and [guest/](../../guest/).
+Each driver dispatches per-guest image and VM builders and implements lifecycle,
+console input, screenshots, discovery, networking, and the host contract checks.
+
+The guest family groups amazon.linux.2023, ubuntu.server.24, ubuntu.server.26,
+windows.11, macos.26, and [guest/shared](../../guest/shared/) helpers. Platform
+support comes from the corresponding builder folders; the diagram does not imply
+every provider supports every guest. Caching-proxy, stash, download-agent, and
+pool-control builders live under each provider and reuse Ubuntu guest scripts.
 
 ## Project data
 
@@ -179,17 +184,22 @@ flowchart LR
     example --> test-runner-yml
 ```
 
-Sources in `yuruna-project`:
-[example/website](https://github.com/alissonsol/yuruna-project/tree/main/example/website),
-[example/text-to-sql](https://github.com/alissonsol/yuruna-project/tree/main/example/text-to-sql),
-[template](https://github.com/alissonsol/yuruna-project/tree/main/template),
-[book](https://github.com/alissonsol/yuruna-project/tree/main/book), and
-[test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml).
-The last box groups the repository cycle plan and project/book sequence files.
-`template/` itself contains `config/`, `resources/`, `components/`, and
-`workloads/`; it does not add a project-name directory. Some examples, such as
-`nested.host`, supply tests without the deployment directories.
-The vault belongs to the harness, as shown in [Data model](05-data-model.md).
+Sources in yuruna-project:
+[example/README.md](https://github.com/alissonsol/yuruna-project/blob/main/example/README.md),
+[template/README.md](https://github.com/alissonsol/yuruna-project/blob/main/template/README.md),
+[website resources configuration](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/resources.yml),
+[component configuration](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/components.yml),
+[workload configuration](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/workloads.yml),
+[Dockerfile](https://github.com/alissonsol/yuruna-project/blob/main/example/website/components/frontend/website/Dockerfile),
+[Helm chart](https://github.com/alissonsol/yuruna-project/blob/main/example/website/workloads/frontend/website/Chart.yaml),
+and [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml).
+
+The tests box groups the repository cycle plan with example and book sequence
+definitions. Examples contain projects below their name; template itself contains
+config, resources, components, and workloads without another project-name folder.
+Some examples, including nested.host, supply tests without deployment directories.
+The authentication vault belongs to the harness, as detailed in
+[Data model](05-data-model.md).
 
 ## Shared modules
 
@@ -204,7 +214,8 @@ flowchart LR
     tools["tools"]
 ```
 
-Sources: [Yuruna.Common](../../automation/Yuruna.Common.psm1),
+Sources:
+[Yuruna.Common](../../automation/Yuruna.Common.psm1),
 [Yuruna.VariableExpansion](../../automation/Yuruna.VariableExpansion.psm1),
 [Import.Yaml](../../automation/Import.Yaml.psm1),
 [Yuruna.Validation](../../automation/Yuruna.Validation.psm1),
@@ -216,14 +227,14 @@ Sources: [Yuruna.Common](../../automation/Yuruna.Common.psm1),
 [Yuruna.CredentialProvider](../../automation/Yuruna.CredentialProvider.psm1),
 [global/](../../global/), [globalization/](../../globalization/), and
 [tools/](../../tools/).
-These seven boxes inventory related libraries and development tooling; they
-do not prescribe a module-import order.
-[Globalization](07-globalization.md) expands the common language contract.
-The tools aggregate includes [Invoke-TestSuite](../../tools/Invoke-TestSuite.ps1)
-and its [worker](../../tools/_InvokeOneSuite.ps1): they run isolated Pester
-suites, retain worker diagnostics, and validate NUnit evidence before baseline
-publication. This is a separate command from the continuous VM-cycle runner
-under `test/`.
+
+Seven boxes group related libraries and assets. Global contains config, resource,
+component, and workload roots. The globalization aggregate includes
+[Yuruna.Globalization](../../automation/Yuruna.Globalization.psm1) and catalogs;
+[Globalization](07-globalization.md) expands its language contract.
+Tools include [Invoke-TestSuite](../../tools/Invoke-TestSuite.ps1) and its
+[worker](../../tools/_InvokeOneSuite.ps1), which run isolated Pester suites and
+retain validation evidence independently of the continuous VM runner.
 
 ## External services
 
@@ -232,13 +243,13 @@ flowchart LR
     localhost["Local cluster"]
     aws["AWS"]
     azure["Azure"]
-    yuruna-credentialprovider-psm1["Container registries"]
-    yuruna-githubsource-psm1["GitHub sources"]
-    yuruna-hostdownload-psm1["Image and package upstreams"]
+    yuruna-credential-provider-psm1["Container registries"]
+    yuruna-github-source-psm1["GitHub sources"]
+    yuruna-host-download-psm1["Image and package upstreams"]
     notification["Notification transports"]
-    localhost -->|image pulls| yuruna-credentialprovider-psm1
-    aws -->|image pulls| yuruna-credentialprovider-psm1
-    azure -->|image pulls| yuruna-credentialprovider-psm1
+    localhost -->|image pulls| yuruna-credential-provider-psm1
+    aws -->|image pulls| yuruna-credential-provider-psm1
+    azure -->|image pulls| yuruna-credential-provider-psm1
 ```
 
 Sources: [localhost resources](../../global/resources/localhost/),
@@ -247,17 +258,16 @@ Sources: [localhost resources](../../global/resources/localhost/),
 [registry providers](../../automation/Yuruna.CredentialProvider.psm1),
 [GitHub source resolution](../../automation/Yuruna.GitHubSource.psm1),
 [host downloads](../../host/modules/Yuruna.HostDownload.psm1),
-[guest setup scripts](../../guest/), and
-[notification implementations](../../test/extension/notification/).
-Local Docker/Kubernetes, AWS EKS/ECR, Azure resources/ACR, GitHub, image/package
-origins, and configured notification destinations are integrations already
-referenced by code. The registry box includes implemented GAR authentication;
-it does not assert that GCP infrastructure templates exist.
-The AWS box groups the implemented EKS/ECR templates. The
-[EKS context import](../../global/resources/aws/eks-cluster/context.tf),
-[cluster outputs](../../global/resources/aws/eks-cluster/outputs.tf), and
-[ingress resources](../../global/resources/aws/eks-cluster/endpoints.tf)
-are separate contracts: a Kubernetes API endpoint is not an application URL.
+[guest setup](../../guest/), and
+[notification providers](../../test/extension/notification/).
+
+The cluster/cloud boxes group targets referenced by current resource templates.
+Registry providers implement ACR, ECR, Google Artifact Registry, Docker Hub, and
+generic Docker authentication. GAR support does not supply GCP provisioning.
+The localhost registry template checks a registry already started by the caller,
+and context-copy selects an existing local Kubernetes context.
+The AWS template exposes the Kubernetes control-plane API separately from
+application ingress, as shown in [Deployment](06-deployment.md#aws-application-ingress).
 
 ---
 

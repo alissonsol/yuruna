@@ -1,39 +1,20 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 # --- REGION: https://yuruna.link/42fa6f45-0005
-# The host prepends a small env "envelope" to the command it TYPES into this
-# guest (VM console or SSH): E_SHA / E_RETRY_SHA carry the sha256 of the payload
-# and of the retry lib, E_FB_REPO / E_FB_REF carry the GitHub fallback repo and
-# an abbreviated commit. The names are terse because every character of that
-# line is an individual key event on the console path, where long sends have
-# corrupted mid-flight. Both name generations stay live so host and guest can
-# skew in either direction: EXEC_REQUIRE_SHA256 deliberately keeps its long name
-# because an older guest image still recognizes only that spelling and refuses
-# to run bytes it has no digest for -- meeting an old guest fails CLOSED instead
-# of silently running unverified code -- and the legacy EXEC_* spellings are
-# still read below, so a current guest also works under an older host.
+# Honor trusted payload/library hashes and source pins before running downloaded bytes.
 
 # --- REGION: https://yuruna.link/42fa6f45-0003
-# Two fetch sources, tried in order: the host status service, then GitHub. The
-# GitHub fallback is a repo slug + pinned commit supplied by the host, never a
-# fixed public URL -- the linked section explains why the integrity gate depends
-# on that, and why no repo+ref means no fallback at all.
+# Prefer the host, then the same repository at the trusted commit pin.
 FETCH_SOURCE=''   # 'host' | 'base' | 'github'
 HOST_BASE=''      # http://<ip>:<port>/yuruna-repo/  (host), or the EXEC_BASE_URL override
 GH_REPO=''        # owner/repo
 GH_REF=''         # exact commit sha
 
-# Budget for the status-service probe below. Rounds are spaced rather than
-# stacked back to back: what most often makes the host look dead to a guest
-# this young is a path that is still coming up -- a bridge that has not
-# learned the guest's MAC, an ARP entry not yet exchanged -- and that clears
-# on the order of seconds, so a probe that spends its whole budget inside one
-# dead second learns nothing a single attempt would not have. Worst case here
-# is HOST_PROBE_ROUNDS * 2s of connect timeout plus the gaps between them,
-# and it is spent only when the first attempt has already failed.
+# See https://yuruna.link/42fa6f45-0004
+# Space failed probes so bridge learning and ARP can settle.
 HOST_PROBE_ROUNDS=4
 HOST_PROBE_GAP_SECONDS=3
 
@@ -66,12 +47,8 @@ resolve_fetch_source() {
     GH_REPO="${E_FB_REPO:-${EXEC_FALLBACK_REPO:-${YURUNA_GITHUB_REPO:-}}}"
     GH_REF="${E_FB_REF:-${EXEC_FALLBACK_REF:-${YURUNA_GITHUB_REF:-}}}"
 
-    # EXEC_BASE_URL is the operator's manual override (CONTRIBUTING documents it
-    # pointing at a raw GitHub URL for a work-in-progress branch). Classify it by
-    # scheme, not by the fact that it was set: only a real http:// status service
-    # is on the LAN, so only it may be fetched --no-proxy and POSTed perf
-    # checkpoints. An https:// override is somewhere on the internet and gets
-    # neither -- 'base' exists to keep those two behaviors apart.
+    # See https://yuruna.link/42fa6f45-0003
+    # Classify manual overrides by scheme so only local host traffic bypasses proxies.
     if [ -n "${EXEC_BASE_URL:-}" ]; then
         HOST_BASE="$EXEC_BASE_URL"
         case "$EXEC_BASE_URL" in
@@ -81,13 +58,7 @@ resolve_fetch_source() {
         return
     fi
     # --- REGION: https://yuruna.link/42fa6f45-0007
-    # A guest holding no global IPv4 cannot reach the host status service OR
-    # GitHub, and none of the host-side causes named further down can be true
-    # of it -- the host may be perfectly healthy and still unreachable. Say
-    # that here instead, and skip a probe whose only possible answer is "no".
-    # The predicate is the address, not the default route: a status service on
-    # the same L2 segment is reachable with no default route at all. Skipped
-    # when `ip` is absent so a guest without iproute2 keeps the probe path.
+    # Check the guest address before attributing unreachable peers to the host.
     if ! fae_has_ipv4; then
         >&2 echo ""
         >&2 echo "!! GUEST HAS NO IPv4"
@@ -106,26 +77,7 @@ resolve_fetch_source() {
         return
     fi
     # --- REGION: https://yuruna.link/42fa6f45-0006
-    # The coordinates in host.env were written when this VM was provisioned.
-    # A host that renumbers under DHCP -- the norm wherever the site router
-    # is the DHCP server and hands out short, non-sticky leases -- leaves
-    # every guest it provisioned aimed at an address nobody answers, and the
-    # GitHub leg below cannot stand in for the host when the framework
-    # repository is private.
-    #
-    # yuruna-host-locate probes the coordinate this guest already holds and
-    # consults the pool directory only once that has gone dead, so the
-    # common path costs a single LAN round trip -- which is what makes it
-    # affordable in front of every fetch. It is seeded by cloud-init and
-    # never fetched over the network, so unlike the retry lib it needs no
-    # digest of its own; where it is absent (a guest imaged before it
-    # existed) resolution below proceeds exactly as it always did.
-    #
-    # A success here is the same evidence the probe below would gather --
-    # locate has just made that call -- so it is taken directly rather than
-    # spending a second round trip to re-learn it. A failure deliberately
-    # falls through instead of short-circuiting, so the unreachable
-    # diagnostic stays the single place that explains a dead host.
+    # Repair stale host coordinates before falling back; reuse a successful resolver probe.
     if [ -r /usr/local/lib/yuruna/yuruna-host-locate.sh ]; then
         # shellcheck disable=SC1091
         . /usr/local/lib/yuruna/yuruna-host-locate.sh
@@ -137,20 +89,7 @@ resolve_fetch_source() {
     fi
     if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
         # --- REGION: https://yuruna.link/42fa6f45-0004
-        # Several spaced attempts, not one. This probe decides between the only
-        # source that can serve a private framework repository and one that
-        # then cannot serve it at all, and the caller may have reached here on
-        # an address that arrived seconds ago -- with bridge learning and ARP
-        # still settling, a single 2s exchange is thin evidence for a verdict
-        # that cannot be revisited. Where the framework repository is private
-        # the alternative this falls through to cannot answer at all, so the
-        # seconds spent here are strictly cheaper than the cycle they save.
-        #
-        # The bounds are defaulted at the point of use rather than read from
-        # the file scope alone: this function is lifted out and driven on its
-        # own, and a bound it can only get from its surroundings arrives empty
-        # there -- which reads as a loop bound of zero, so the probe would
-        # silently stop probing wherever it is exercised in isolation.
+        # Space failed host probes; default bounds here also support isolated callers.
         _probe_rounds="${HOST_PROBE_ROUNDS:-4}"
         _probe_gap="${HOST_PROBE_GAP_SECONDS:-3}"
         _livecheck_url="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
@@ -158,10 +97,8 @@ resolve_fetch_source() {
         while [ "$_probe_round" -le "$_probe_rounds" ]; do
             if wget -q --no-proxy --timeout=2 --tries=1 -O /dev/null "$_livecheck_url" 2>/dev/null; then
                 if [ "$_probe_round" -gt 1 ]; then
-                    # Worth saying out loud: the host was reachable, but not
-                    # on the first ask. That is the signature of a guest path
-                    # that comes up late, and it is invisible once the fetch
-                    # below succeeds and the run goes green.
+                    # See https://yuruna.link/42fa6f45-0004
+                    # Report late host answers so recovered transport delay remains visible.
                     >&2 echo "!! HOST ANSWERED LATE: ${_livecheck_url} responded on probe ${_probe_round}/${_probe_rounds}"
                 fi
                 FETCH_SOURCE='host'
@@ -187,11 +124,8 @@ resolve_fetch_source() {
         >&2 echo "!!            lease renewed across a reboot, or Wi-Fi roamed to another"
         >&2 echo "!!            subnet), or the status service is down, or the host firewall"
         >&2 echo "!!            changed."
-        # Name what the directory was asked and what came back. A renumbered
-        # host is the first cause a reader reaches for, and it is the one
-        # cause the lookup above already tried to repair -- saying so turns
-        # "the host moved" from the leading hypothesis into a ruled-out one,
-        # and points at whichever coordinate of the indirection is missing.
+        # See https://yuruna.link/42fa6f45-0006
+        # Report the directory lookup already attempted, including missing coordinates.
         if [ -r /usr/local/lib/yuruna/yuruna-host-locate.sh ]; then
             >&2 echo "!!   lookup:  asked the pool directory at ${YURUNA_CACHING_PROXY_SERVICE_IP:-(no caching proxy seeded)}:9400"
             >&2 echo "!!            for hostId ${YURUNA_HOST_ID:-(none seeded)} -- no address this guest can"
@@ -206,10 +140,8 @@ resolve_fetch_source() {
     FETCH_SOURCE='github'
 }
 
-# The URL $FETCH_SOURCE serves the repo-relative path "$1" from. With a token,
-# GitHub reads go through the Contents API (works for private repos); without
-# one, raw.githubusercontent.com (public only). Both pin $GH_REF. $QUERY_PARAMS
-# rides only the host route (a second '?' would corrupt the API URL's ?ref=).
+# See https://yuruna.link/42fa6f45-0003
+# Pin both GitHub routes; authenticated reads use the raw Contents API.
 # --- REGION: https://yuruna.link/42fa6f45-0003
 build_fetch_url() {
     _bu_path="$1"
@@ -227,10 +159,8 @@ build_fetch_url() {
     esac
 }
 
-# wget flags for the resolved source, in WGET_FETCH_FLAGS. The token rides a
-# 0600 wgetrc via --config, never --header (argv is world-readable and a `ps`
-# snapshot in a diagnostic dump would publish it); the replaced system wgetrc
-# only holds the host's no_proxy entry, irrelevant when talking to GitHub.
+# See https://yuruna.link/42fa6f45-0003
+# Keep the token in a private wgetrc, never world-readable argv.
 # --- REGION: https://yuruna.link/42fa6f45-0003
 AUTH_CONFIG=''
 WGET_FETCH_FLAGS=()
@@ -266,14 +196,7 @@ cleanup_auth_config() {
 trap cleanup_auth_config EXIT
 
 # --- REGION: https://yuruna.link/42fa6f45-0008
-# Name what a wget exit code means, at the point the code is reported. wget
-# collapses DNS failure, "network is unreachable" and "connection refused"
-# into a single exit 4, which is the one code a reader most needs separated,
-# so that case is resolved from local state: no global IPv4 means the link
-# never came up, a missing default route means nothing can leave this subnet,
-# and a name that will not resolve points at DNS. The retry library's
-# classifier cannot answer here -- it is installed and sourced only once a
-# payload has landed, and it reports retry-worthiness, not a cause.
+# Separate wget network errors using local address, route, and DNS evidence.
 classify_wget_rc() {
     _cw_rc="$1"; _cw_url="$2"
     case "$_cw_rc" in
@@ -313,28 +236,50 @@ classify_wget_rc() {
     echo "network failure -- addressed and routed, so the peer refused or dropped the connection"
 }
 
-# Verify fetched bytes against a host-provided sha256 before they reach bash.
-# The expected digest arrives over the trusted channel that TYPED this command
-# (SSH / the VM console) -- never over the HTTP the bytes came from -- so a LAN
-# man-in-the-middle, or the moving-`main` GitHub fallback, cannot forge bytes
-# that match a digest it never controlled. That is what closes the fetch-to-bash
-# RCE class on both the host and fallback sources. An empty expected digest
-# means the host did not supply one (an older host, or a hand run): warn and
-# proceed so availability is preserved -- the automated path always supplies it,
-# so the exposed surface stays closed there. Returns non-zero only on a real
-# mismatch. Hashes the file directly (not a "$(...)" capture) so trailing
-# newlines are included and the digest equals the host's hash of the on-disk file.
+# See https://yuruna.link/42fa6f45-0005
+# Require the trusted digest; manual waiver covers only an unenforced missing digest.
 verify_sha256() {
-    _vf_file="$1"; _vf_expected="$2"; _vf_label="$3"
+    _vf_file="$1"; _vf_expected="$2"; _vf_label="$3"; _vf_var="${4:-E_SHA}"
     if [ -z "${_vf_expected:-}" ]; then
-        # EXEC_REQUIRE_SHA256=1 means the host intended to enforce (the automated
-        # path always sets it): a missing digest here is a host-side served-root
-        # drift or a bad path, so fail CLOSED rather than run unverified bytes.
         if [ "${EXEC_REQUIRE_SHA256:-}" = "1" ]; then
             >&2 echo "!! integrity: host requires a digest (EXEC_REQUIRE_SHA256=1) but none was supplied for $_vf_label -- refusing"
+            if [ "${EXEC_ALLOW_UNVERIFIED:-}" = "1" ]; then
+                >&2 echo "!!   EXEC_ALLOW_UNVERIFIED=1 does not apply while EXEC_REQUIRE_SHA256=1"
+            fi
             return 1
         fi
-        >&2 echo "!! integrity: no host digest for $_vf_label -- running UNVERIFIED (set E_SHA to enforce)"
+        if [ "${EXEC_ALLOW_UNVERIFIED:-}" != "1" ]; then
+            >&2 echo ""
+            >&2 echo "!! NO EXPECTED DIGEST"
+            >&2 echo "!!   file:    $_vf_label"
+            >&2 echo "!!   effect:  refusing to use bytes that nothing vouches for"
+            >&2 echo "!!   fix:     repeat the same command with the file's SHA-256 in front of it,"
+            >&2 echo "!!            taken from a checkout you trust and not from this download:"
+            >&2 echo "!!              $_vf_var=<64 hex digits> <the same command>"
+            >&2 echo "!!   last resort, for manual recovery when no digest can be obtained:"
+            >&2 echo "!!              EXEC_ALLOW_UNVERIFIED=1 <the same command>"
+            if [ -n "${EXEC_ALLOW_UNVERIFIED:-}" ]; then
+                >&2 echo "!!   note:    EXEC_ALLOW_UNVERIFIED is set to '${EXEC_ALLOW_UNVERIFIED}', but only the value 1 enables it"
+            fi
+            >&2 echo ""
+            return 1
+        fi
+        case "${FETCH_SOURCE:-}" in
+            github)    _vf_src="GitHub ${GH_REPO:-?} at ${GH_REF:-?}" ;;
+            host|base) _vf_src="${HOST_BASE:-the configured server}" ;;
+            *)         _vf_src='its source' ;;
+        esac
+        >&2 echo ""
+        >&2 echo "!! UNVERIFIED CODE WILL RUN: EXEC_ALLOW_UNVERIFIED=1"
+        >&2 echo "!!   file:    $_vf_label"
+        >&2 echo "!!   digest:  none supplied -- these bytes are NOT checked against any SHA-256"
+        >&2 echo "!!   source:  $_vf_src"
+        >&2 echo "!!   effect:  whatever that source returns runs here as this user, exactly as served"
+        >&2 echo "!!   scope:   a manual-recovery override for when no digest can be obtained;"
+        >&2 echo "!!            an automated run never sets it"
+        >&2 echo "!!   safer:   drop the override and pass $_vf_var=<64 hex digits> computed on a"
+        >&2 echo "!!            machine you trust"
+        >&2 echo ""
         return 0
     fi
     _vf_actual="$(sha256sum "$_vf_file" 2>/dev/null | awk '{print $1}')"
@@ -350,7 +295,10 @@ verify_sha256() {
     >&2 echo "!!   file:     $_vf_label"
     >&2 echo "!!   expected: $_vf_expected"
     >&2 echo "!!   actual:   ${_vf_actual:-<none>}"
-    >&2 echo "!!   refusing to run code that does not match the host-provided digest."
+    >&2 echo "!!   refusing to run code that does not match the expected digest."
+    if [ "${EXEC_ALLOW_UNVERIFIED:-}" = "1" ]; then
+        >&2 echo "!!   EXEC_ALLOW_UNVERIFIED=1 covers a missing digest only; it never excuses a wrong one."
+    fi
     >&2 echo ""
     return 1
 }
@@ -359,62 +307,30 @@ FILE_PATH="$1"
 SCRIPT_ARGUMENTS=("${@:2}")
 
 if [ -z "$FILE_PATH" ]; then
-    echo "Usage: $0 <file-path>"
+    echo "Usage: E_SHA=<sha256 of the file> $0 <file-path>"
+    echo "  The file's SHA-256 is required. EXEC_ALLOW_UNVERIFIED=1 waives it for manual recovery."
     exit 1
 fi
 
 clear
 
-# Heads-up before the download. Worded WITHOUT "fetch"/"execute": the host OCR
-# FailurePattern matcher is fuzzy and those words also appear in the typed
-# command line, so a message carrying them would widen the false-match surface
-# -- the same reason the failure marker below avoids them.
+# See https://yuruna.link/42fa6f45-0009
+# Avoid fetch/execute words that fuzzy OCR can match against the echoed command.
 echo "About to download and run project code: $FILE_PATH"
 
 # --- REGION: https://yuruna.link/42fa6f45-0008
-# Hold an address BEFORE choosing a source, then resolve once and fetch.
-#
-# Source resolution probes the host status service, and a guest holding no
-# IPv4 fails that probe for a reason that says nothing about the host: the
-# probe could not have succeeded whether the host was up or down. Resolving
-# in that state does not pick a fallback, it discards the host route on
-# evidence that was never gathered -- and where the framework repository is
-# private, the GitHub leg it lands on can only answer 404, so a lease that
-# arrives moments later cannot rescue the fetch no matter how long anything
-# waits afterwards. Waiting first is what makes the resolution below mean
-# what it says: 'github' then describes a host that was asked and did not
-# answer, which is a fact worth acting on.
-#
-# Free on the normal path: a guest that already holds a lease answers
-# yuruna_has_ipv4 immediately and never enters the wait. A late lease is
-# still waited for exactly once -- the budget is shared with the post-fetch
-# second chance below, so the two cannot each spend the full allowance and
-# double this guest's worst-case boot.
-#
-# Every other failure runs network_diag (from the same library) to surface
-# the connectivity state rather than re-probing in a loop. Whether a lease is
-# late or refused is not decidable from inside the guest, so the wait is
-# bounded and its outcome is reported either way.
+# Wait for IPv4 before source resolution, sharing the budget with post-fetch recovery.
 if [ -r /usr/local/lib/yuruna/yuruna-network.sh ]; then
     # shellcheck disable=SC1091
     . /usr/local/lib/yuruna/yuruna-network.sh
 fi
 
-# Seconds this run may still spend waiting for an address, across both call
-# sites. Reaching 0 makes the second call return immediately rather than
-# waiting the allowance a second time.
+# See https://yuruna.link/42fa6f45-0008
+# Share one address-wait budget across both recovery points.
 fae_ipv4_budget="${YURUNA_FETCH_IPV4_WAIT:-180}"
 
-# 0 = this guest holds an IPv4 (already, or one arrived within the budget);
-# 1 = it does not, because the budget is spent or the network library is
-# absent (a guest imaged before it existed keeps the pre-existing behavior).
-#
-# The nudge partway through exists because waiting alone only rescues the
-# lease that is merely late: a client stuck in lost-DISCOVER backoff, or a
-# NIC that no profile claimed, waits forever, and both answer to
-# yuruna_net_repair_ipv4 (reload + reconfigure, never taking a link down).
-# Nudging partway leaves the client's own early retransmits undisturbed,
-# then spends what is left on the fresh transaction the repair started.
+# See https://yuruna.link/42fa6f45-0008
+# Nudge address-less clients partway through the shared wait; preserve healthy links.
 fae_await_ipv4() {
     command -v yuruna_wait_ipv4 >/dev/null 2>&1 || return 1
     yuruna_has_ipv4 && return 0
@@ -440,14 +356,12 @@ fae_await_ipv4() {
 
 fae_await_ipv4
 resolve_fetch_source
-# Two-valued for the log line and the perf-checkpoint POST below: 'host' means a
-# reachable status service that can receive the POST, so an https:// EXEC_BASE_URL
-# override reports (and behaves) as remote.
+# See https://yuruna.link/42fa6f45-0003
+# Only a verified host source can receive local performance checkpoints.
 if [ "$FETCH_SOURCE" = 'host' ]; then BASE_SOURCE='host'; else BASE_SOURCE='github'; fi
 
-# No host and no pinned repo+ref means there is nowhere legitimate to fetch
-# from. Say so, instead of guessing at a repository whose bytes could not
-# match the host's digest anyway.
+# See https://yuruna.link/42fa6f45-0003
+# No reachable host and no repository pin means no valid fetch source.
 if [ "$FETCH_SOURCE" = 'github' ] && { [ -z "$GH_REPO" ] || [ -z "$GH_REF" ]; }; then
     echo ""
     echo "!! NO FETCH SOURCE"
@@ -461,12 +375,8 @@ if [ "$FETCH_SOURCE" = 'github' ] && { [ -z "$GH_REPO" ] || [ -z "$GH_REF" ]; };
     exit 2
 fi
 
-# The unauthenticated GitHub leg reads raw.githubusercontent.com, which serves
-# public repositories only. When the framework repository is private this leg
-# can only answer 404, so it is not a fallback at all -- the host status
-# service is the sole working source. Say so before the attempt: an
-# unannounced 404 reads as a bad commit pin and sends the reader after the
-# wrong thing. No token is delivered to guests over this path.
+# See https://yuruna.link/42fa6f45-0003
+# An unauthenticated fallback cannot read private repositories; explain this before requesting.
 if [ "$FETCH_SOURCE" = 'github' ] && [ -z "${GH_TOKEN:-}" ]; then
     echo ""
     echo "!! GITHUB FALLBACK IS UNAUTHENTICATED"
@@ -474,11 +384,8 @@ if [ "$FETCH_SOURCE" = 'github' ] && [ -z "${GH_TOKEN:-}" ]; then
     echo "!!   route:  raw.githubusercontent.com -- public repositories only"
     echo "!!   effect: if that repository is private this leg can only 404, so"
     echo "!!           there is no working alternative to the host right now."
-    # Whether the credential can read the project is a question about the HOST,
-    # answerable there and not from inside this guest -- so name where the
-    # answer lives rather than guess at it here. The pool route is listed first
-    # for a pooled host because it reports the probe the pool already ran; the
-    # local script is the answer for a host running on its own.
+    # See https://yuruna.link/42fa6f45-0008
+    # Point to host credential evidence; the guest cannot prove project access.
     echo "!!   check:  is this host's git credential able to read the project?"
     echo "!!           in a pool: Pool Control -> Hosts, the 'Project'"
     echo "!!           column for this host. DENIED means the credential cannot"
@@ -491,18 +398,15 @@ fi
 wget_flags_for_source
 FULL_URL="$(build_fetch_url "$FILE_PATH")"
 
-# Fetch to a temp file (not a "$(...)" capture) so the integrity digest is taken
-# over the EXACT served bytes: command substitution strips trailing newlines,
-# which would then never match the host's Get-FileHash of the on-disk file.
+# See https://yuruna.link/42fa6f45-0005
+# Hash exact downloaded bytes; command substitution strips trailing newlines.
 fetch_tmp="$(mktemp /tmp/yuruna-fae-payload.XXXXXX 2>/dev/null)"
 if [ -z "$fetch_tmp" ]; then
     printf "\n    NONZERO SCRIPT EXIT:\n    %s (could not create temp file)\n\n" "$FILE_PATH"
     exit 2
 fi
-# --timeout/--tries bound the attempt without turning it into a retry ladder.
-# A hard-down link fails instantly, but a half-open path -- a SYN blackhole, a
-# stalled body, an origin that accepts and never answers -- has no bound of its
-# own, so a single guest can otherwise burn the whole step budget on one fetch.
+# See https://yuruna.link/42fa6f45-0008
+# Bound half-open downloads before they consume the entire step budget.
 wget --timeout=20 --tries=2 "${WGET_FETCH_FLAGS[@]}" -qO "$fetch_tmp" "$FULL_URL"
 wget_rc=$?
 byte_count=$(wc -c < "$fetch_tmp" 2>/dev/null | tr -d '[:space:]')
@@ -512,25 +416,7 @@ echo "  url: $FULL_URL"
 echo "  source: $BASE_SOURCE"
 
 # --- REGION: https://yuruna.link/42fa6f45-0008
-# Second chance for the one failure shape a second chance can fix: this guest
-# lost the address it had. The boot that STARTS without one is already handled
-# before source resolution above, which is the only place that repair is worth
-# anything -- a lease acquired after the source was chosen cannot undo a host
-# route discarded for the want of it.
-#
-# wget rc 4/5/7 mean the request never left the guest. With no IPv4 route that
-# verdict is reached in milliseconds, so --tries=2 buys nothing -- both attempts
-# fail before the DHCP client has even finished its first backoff. A guest whose
-# lease simply has not landed is therefore indistinguishable, at this instant,
-# from one that will never get an address, and failing here turns the recoverable
-# case into a failed cycle.
-#
-# Gated on there being no IPv4 at all, so a guest that HAS an address and still
-# cannot fetch falls straight through to the diagnosis below: that fault is not
-# a lease and waiting on one would only delay the report. fae_await_ipv4 draws
-# on the budget the pre-resolution wait already spent from, so a guest that has
-# waited its allowance reports the exhaustion it already printed instead of
-# waiting the whole allowance a second time.
+# Retry a lost address only within the remaining pre-resolution wait budget.
 if { [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; } \
    && { [ "$wget_rc" -eq 4 ] || [ "$wget_rc" -eq 5 ] || [ "$wget_rc" -eq 7 ]; }; then
     if command -v yuruna_has_ipv4 >/dev/null 2>&1 && ! yuruna_has_ipv4; then
@@ -551,14 +437,8 @@ if [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; then
     echo "!!   url:        $FULL_URL"
     echo "!!   wget exit:  $wget_rc -- $(classify_wget_rc "$wget_rc" "$FULL_URL")"
     echo "!!   bytes read: $byte_count"
-    # A GitHub fetch of an exact commit fails for reasons a network probe cannot
-    # see, so name them: the commit has to be ON the remote (a host-only commit
-    # 404s), and a private repository has to be opened with a token. Both are
-    # server-side answers, so they may only be offered when a server actually
-    # answered. wget rc 4/5/7 mean the request never left this guest, and
-    # printing "a private repository will 404 here" under a dead link sends the
-    # reader hunting a repo, a commit and a token that are not implicated --
-    # past the link-down verdict the NETWORK DIAGNOSTIC below is about to give.
+    # See https://yuruna.link/42fa6f45-0008
+    # Discuss repository access and commit pins only after the server actually answered.
     if [ "$FETCH_SOURCE" = 'github' ]; then
         echo "!!   repo:       ${GH_REPO} at ${GH_REF}"
         case "$wget_rc" in
@@ -572,11 +452,8 @@ if [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; then
                     echo "!!   auth:       GH_TOKEN present (Contents API)"
                 else
                     echo "!!   auth:       no GH_TOKEN -- a private repository will 404 here"
-                    # Only reachable once GitHub actually answered, so the
-                    # credential really is the open question. Whether it can
-                    # read the project is a fact about the host, so point at
-                    # where that fact is already recorded rather than asking a
-                    # guest to infer it.
+                    # See https://yuruna.link/42fa6f45-0008
+                    # The host records credential access; report its evidence location after a server response.
                     echo "!!   access:     in a pool, Pool Control -> Hosts shows this host's"
                     echo "!!               'Project' column. DENIED means its credential"
                     echo "!!               cannot read the assigned project and no retry"
@@ -589,34 +466,24 @@ if [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; then
         esac
     fi
     echo ""
-    # Diagnose before giving up: show the connectivity state this failure was
-    # reached in. Anything a wait could have fixed was already waited on above,
-    # so reaching here means the address never arrived or the fault was never
-    # about an address.
+    # See https://yuruna.link/42fa6f45-0008
+    # Show connectivity after bounded recovery; an address wait cannot fix every transport fault.
     if [ -r /usr/local/lib/yuruna/yuruna-network.sh ]; then
         # shellcheck disable=SC1091
         . /usr/local/lib/yuruna/yuruna-network.sh
         command -v network_diag >/dev/null 2>&1 && network_diag
     fi
     # --- REGION: https://yuruna.link/42fa6f45-0008
-    # The failure marker deliberately avoids the words "fetch"/"execute": the
-    # host-side OCR FailurePattern matcher is fuzzy, and a marker containing
-    # those words fuzzy-matches the echoed 'fetch-and-execute.sh ...' command
-    # line on the very first poll -- aborting a healthy run before any script
-    # output appears (the false-failure class). The rare token "NONZERO" can't
-    # collide with a command or normal script output.
+    # See https://yuruna.link/42fa6f45-0009
+    # NONZERO avoids fuzzy OCR matches against the echoed fetch-and-execute command.
     printf "\n    NONZERO SCRIPT EXIT:\n    %s (fetch failed, wget exit %d)\n\n" "$FILE_PATH" "$wget_rc"
     exit 2
 fi
 
 echo "  bytes: $byte_count"
 
-# Integrity gate: verify the fetched bytes against the host-provided digest
-# BEFORE any content is handed to bash. On a non-empty-digest mismatch, re-fetch
-# once and re-verify: a host process can rewrite the served working-tree file
-# during the ~3s type-to-fetch window, and that narrow race should self-heal; a
-# genuine man-in-the-middle cannot produce matching bytes on the retry. Refuse
-# in every other case (mismatch after retry, or an enforced-but-absent digest).
+# See https://yuruna.link/42fa6f45-0005
+# Retry one digest mismatch to absorb a concurrent edit; still refuse unmatched bytes.
 EXPECTED_SHA="${E_SHA:-${EXEC_SHA256:-}}"
 if verify_sha256 "$fetch_tmp" "$EXPECTED_SHA" "$FILE_PATH"; then
     :
@@ -626,32 +493,33 @@ elif [ -n "$EXPECTED_SHA" ] \
     echo "  integrity: verified on re-fetch (absorbed a concurrent-edit race)"
 else
     rm -f "$fetch_tmp" 2>/dev/null || true
-    printf "\n    NONZERO SCRIPT EXIT:\n    %s (integrity mismatch -- refusing to run)\n\n" "$FILE_PATH"
+    # Two refusals, two reasons. The host treats neither as a shortage worth a
+    # retry, and the wording must not claim a mismatch when nothing was compared.
+    if [ -z "$EXPECTED_SHA" ]; then
+        printf "\n    NONZERO SCRIPT EXIT:\n    %s (no expected digest -- refusing to run)\n\n" "$FILE_PATH"
+    else
+        printf "\n    NONZERO SCRIPT EXIT:\n    %s (integrity mismatch -- refusing to run)\n\n" "$FILE_PATH"
+    fi
     exit 3
 fi
+fae_unverified=''
+if [ -z "$EXPECTED_SHA" ]; then fae_unverified=1; fi
 script_content="$(cat "$fetch_tmp")"
 rm -f "$fetch_tmp" 2>/dev/null || true
 echo ""
 
 # --- REGION: https://yuruna.link/42d69dfa-003a
-# The fetched scripts source this lib unconditionally under `set -e`, so the file
-# must exist before the script runs. Cloud-init bakes it into the image, so this
-# is a fallback for guests that lack it; run it only after the fetch above has
-# confirmed the network is up, reusing that resolution so a host-path guest pulls
-# the lib --no-proxy too.
+# Install a missing retry library only after network resolution and digest verification.
 YURUNA_LIB_DIR=/usr/local/lib/yuruna
 YURUNA_RETRY_LIB="$YURUNA_LIB_DIR/yuruna-retry.sh"
 if [ ! -r "$YURUNA_RETRY_LIB" ]; then
-    # Fetch to a temp file and run it through the SAME trusted-digest gate as the
-    # main payload before the sudo-install: this copy is sourced under `set -e`
-    # by every fetched script, so an unverified or partial body would become
-    # root-installed library code. The explicit wget-success + non-empty + digest
-    # checks below ensure only a complete, verified body is ever written.
+    # See https://yuruna.link/42fa6f45-0005
+    # Hash exact downloaded bytes; command substitution strips trailing newlines.
     lib_tmp="$(mktemp /tmp/yuruna-fae-retrylib.XXXXXX 2>/dev/null)"
     if [ -n "$lib_tmp" ] \
          && wget --timeout=20 --tries=2 "${WGET_FETCH_FLAGS[@]}" -qO "$lib_tmp" "$(build_fetch_url 'automation/yuruna-retry.sh')" 2>/dev/null \
          && [ -s "$lib_tmp" ] \
-         && verify_sha256 "$lib_tmp" "${E_RETRY_SHA:-${EXEC_RETRY_SHA256:-}}" "automation/yuruna-retry.sh"; then
+         && verify_sha256 "$lib_tmp" "${E_RETRY_SHA:-${EXEC_RETRY_SHA256:-}}" "automation/yuruna-retry.sh" E_RETRY_SHA; then
         sudo mkdir -p "$YURUNA_LIB_DIR" 2>/dev/null
         if sudo cp "$lib_tmp" "$YURUNA_RETRY_LIB" 2>/dev/null; then
             sudo chmod 0644 "$YURUNA_RETRY_LIB"
@@ -662,18 +530,12 @@ fi
 # shellcheck disable=SC1090
 [ -r "$YURUNA_RETRY_LIB" ] && . "$YURUNA_RETRY_LIB"
 
+# See https://yuruna.link/42fa6f45-0005
+# Drop the manual waiver before the payload so nested downloads need their own digests.
+unset EXEC_ALLOW_UNVERIFIED
+
 # --- REGION: https://yuruna.link/4220a755-0015
-# Re-anchor the ssl-bump CA before handing control to the payload. The guest's
-# copy of that CA is only as current as the cache that minted it, and a cache
-# rebuilt from a blank disk between two steps of the same run mints a fresh one:
-# every step that already passed stays passed, and the next bumped HTTPS fails
-# certificate verification. Checking here rather than inside any one script is
-# what makes the repair survive that boundary -- a run resumed mid-way re-enters
-# through this file and nowhere else, so a script's own first HTTPS is never the
-# thing that discovers a trust anchor that went stale while it was not looking.
-# Non-fatal by contract: a guest with no bump in front of it is a hard no-op,
-# and a repair that cannot complete leaves the payload to fail with its own
-# diagnosis rather than being preempted by a less specific one here.
+# Repair stale bump trust at every payload boundary; failure remains nonfatal here.
 if command -v yuruna_ca_selfheal >/dev/null 2>&1; then
     yuruna_ca_selfheal || true
 fi
@@ -682,13 +544,7 @@ fi
 fae_log='/tmp/yuruna-last-fetch-and-execute.log'
 
 # --- REGION: https://yuruna.link/42fa6f45-000a
-# Optional per-phase profiling. A fetched script marks phase boundaries with a
-# line that starts with four equals signs:  ==== phase name ====  . Each such
-# line is captured with bash's high-resolution EPOCHREALTIME clock and later
-# POSTed to the host so the perf graph can split this step's bar into per-phase
-# sub-segments. xtrace is enabled to a dedicated fd (BASH_XTRACEFD) so a full
-# timed command trace becomes a guest-local artifact without polluting the
-# visible console. Needs EPOCHREALTIME (bash >= 5); EXEC_PROFILE=0 opts out.
+# Profile Bash 5 payloads through a dedicated trace descriptor, keeping the console clean.
 profile_enabled=0
 if [ "${EXEC_PROFILE:-1}" != '0' ] && [ -n "${EPOCHREALTIME:-}" ]; then
     profile_enabled=1
@@ -703,26 +559,15 @@ if [ "$profile_enabled" = '1' ]; then
 fi
 
 # --- REGION: https://yuruna.link/42fa6f45-000b
-# Elapsed-time origin for the per-line stamps written into the log below. Kept
-# as microseconds so the arithmetic stays integer -- the shell has no floats,
-# and a fork per output line to get one would be its own kind of slow.
+# Use integer microseconds for log timestamps without per-line subprocesses.
 __fae_t0_us=''
 if [ -n "${EPOCHREALTIME:-}" ]; then
     __fae_now=${EPOCHREALTIME/,/.}
     __fae_t0_us=$(( ${__fae_now%.*} * 1000000 + 10#${__fae_now#*.} ))
 fi
 
-# Mirror stdin to stdout unchanged while appending a stamped copy of each line
-# to the log.
-#
-# The console copy MUST stay byte-identical: the host matches OCR patterns
-# against what is on screen, and the checkpoint scanner tests for the four-equals
-# marker at column 0 -- a prefix on the visible stream would silently break both.
-# The log is the only copy anyone can ask "where did the time go" of, and with no
-# stamp a script that spent two minutes blocked on one command is indistinguish-
-# able from one that ran fast and then waited. Stamps are relative to the start
-# recorded in the header above, so an absolute time is a sum away and no
-# timezone assumption is baked into the format.
+# See https://yuruna.link/42fa6f45-000b
+# Stamp only the saved log; console bytes must remain unchanged for OCR and checkpoints.
 __fae_stamp_tee() {
     local __t0_us="$1" __log="$2" __line __now __us __el
     exec 3>>"$__log"
@@ -753,6 +598,7 @@ __fae_sink() {
   echo "# url:       $FULL_URL"
   echo "# source:    $BASE_SOURCE"
   echo "# bytes:     $byte_count"
+  [ -n "${fae_unverified:-}" ] && echo "# integrity: UNVERIFIED -- no expected digest, EXEC_ALLOW_UNVERIFIED=1 was set by the caller"
   echo "# started:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "# stepInvocationId: ${E_SI:-}"
   echo "# sequenceInvocationId: ${E_QI:-}"
@@ -764,31 +610,21 @@ if [ -n "${E_SI:-}" ]; then
     printf 'YURUNA_EXECUTION stepInvocationId=%s sequenceInvocationId=%s\n' "$E_SI" "${E_QI:-}"
 fi
 
-# Run the fetched script and capture its exit code before any further output
-# so the FETCHED AND EXECUTED marker is always the final line. `2>&1` merges
-# stderr into the tee so the log captures the full picture; `tee -a`
-# appends after the header above.
+# See https://yuruna.link/42fa6f45-0009
+# Capture the payload exit before completion output; save stdout and stderr together.
 if [ "$profile_enabled" = '1' ]; then
     start_epoch="$EPOCHREALTIME"
     # Literal ESC, used by the checkpoint scanner below to peel a colorized
     # marker's leading ANSI escapes back off before the column-0 test.
     __esc=$'\033'
-    # The preamble runs inside the fetched-script shell: open the trace fd, point
-    # xtrace at it, timestamp every traced command via PS4, then enable tracing.
-    # `$script_content` follows on its own line so a leading shebang/`set` in the
-    # fetched script is simply the next statement. xtrace lands on BASH_XTRACEFD
-    # (the profile file), not fd 2, so `2>&1` below keeps the console clean.
+    # See https://yuruna.link/42fa6f45-000a
+    # Keep xtrace on its dedicated descriptor, separate from visible payload output.
     profile_preamble="exec {__yfd}>'$profile_file'; export BASH_XTRACEFD=\$__yfd; export PS4='+ \${EPOCHREALTIME} '; set -x"
     /bin/bash -c "$profile_preamble"$'\n'"$script_content" "$FILE_PATH" "${SCRIPT_ARGUMENTS[@]}" 2>&1 \
       | while IFS= read -r __line || [ -n "$__line" ]; do
             printf '%s\n' "$__line"
-            # A checkpoint is an output line whose first visible characters are
-            # the four-equals marker; stamp it with EPOCHREALTIME (same clock as
-            # PS4) at emit. A colorized marker -- e.g. echo -e "\e[1;36m==== x" --
-            # leads with one or more ANSI CSI escapes, so strip the leading run of
-            # them before the column-0 test. The candidate filter keeps that cost
-            # off the lines that can't be markers; the host-side awk strips any
-            # trailing/embedded escapes back out of the captured name.
+            # See https://yuruna.link/42fa6f45-000a
+            # Strip leading ANSI escapes before recognizing the visible four-equals checkpoint.
             case "$__line" in
                 *'===='*)
                     __clean=$__line
@@ -814,14 +650,7 @@ fi
 } >> "$fae_log" 2>/dev/null || true
 
 # --- REGION: https://yuruna.link/42fa6f45-0009
-# Emit the end-tag marker as a contiguous continuation of the script's output,
-# BEFORE the console-silent perf-checkpoint POST and temp-file cleanup below. On
-# a headless Hyper-V host the screen-capture surface stops repainting within a
-# moment of the guest console going idle; a marker printed after a silent gap
-# lands on a frozen frame the host's waitForText never OCRs, so the step times
-# out on a stale pre-marker screen even though the guest actually finished.
-# Keeping the marker adjacent to the script's last line puts it in the same
-# repaint. See feedback_frozen_capture_feed_idle_tail.
+# Print completion beside the last payload line so the console capture still repaints.
 if [ $rc -ne 0 ]; then
     echo ""
     echo "!! INNER SCRIPT FAILED"
@@ -841,20 +670,13 @@ fi
 printf '\n'%.0s {1..6}
 
 # --- REGION: https://yuruna.link/42fa6f45-000a
-# Ship the collected checkpoints to the host AFTER the marker above. The host
-# joins a checkpoint sidecar to this step by its host-stamped arrival time
-# falling inside the step's [start,end] window, and that window stays open until
-# the host OCR-matches the marker (several poll-seconds away), so a POST issued
-# right after printing the marker still lands inside the window. Best-effort: a
-# failed or skipped POST never changes rc or the marker above. Only meaningful
-# when the script came from the host -- the GitHub fallback has no host to talk to.
+# POST after the marker while its OCR window remains open; reporting never changes the verdict.
 if [ "$profile_enabled" = '1' ] && [ "$BASE_SOURCE" = 'host' ] && [ -n "$ckpt_file" ] && [ -s "$ckpt_file" ]; then
     host_origin="${HOST_BASE%/yuruna-repo/}"
     ckpt_payload="$(mktemp /tmp/yuruna-fae-post.XXXXXX 2>/dev/null)" || ckpt_payload=''
     if [ -n "$ckpt_payload" ]; then
-        # awk pass: offsetMs = (epoch - start) * 1000, JSON-escape each phase
-        # name, drop the leading/trailing ==== marker. `start`/`endep` print as
-        # bare JSON numbers (EPOCHREALTIME is already a decimal literal).
+        # See https://yuruna.link/42fa6f45-000a
+        # Emit JSON-escaped phase names and millisecond offsets from the same clock.
         # shellcheck disable=SC2016
         awk -F '\t' \
             -v script="$FILE_PATH" -v src="$BASE_SOURCE" \

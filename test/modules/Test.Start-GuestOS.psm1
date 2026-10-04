@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 424a4bb4-0925-4cb5-8746-7b99ea564ac0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,23 +17,7 @@
 #requires -version 7
 
 # --- REGION: Start-GuestOS dispatcher
-#
-# Generic dispatcher that runs a caller-supplied list of sequence names
-# via Invoke-SequenceByName -- one entry point regardless of the guest
-# OS, in place of per-OS Test-Start.guest.*.ps1 extension scripts. The
-# cycle planner derives the list from project/test/test.runner.yml
-# and the per-sequence baseline fields.
-#
-# Naming convention (by design):
-#     Module filename = "Test.<exported-cmdlet>.psm1"
-# This file exports exactly one cmdlet, `Start-GuestOS`, so the filename
-# is `Test.Start-GuestOS.psm1`. The hyphen makes the basename look like
-# a cmdlet -- that is the FEATURE: `grep -l Test.Start-GuestOS` finds
-# the single source file that defines the dashboard tile of the same
-# name, and the operator clicking through from the status UI lands on
-# the right file. If you're adding a sibling dispatcher (e.g.
-# Start-GuestRepair), follow the same shape: one exported cmdlet,
-# filename = "Test.<cmdlet>".
+# See https://yuruna.link/4213a0b3-017a
 
 Import-Module (Join-Path $PSScriptRoot "Test.YurunaDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
 $script:EngineModule = Join-Path $PSScriptRoot "Test.SequenceEngine.psm1"
@@ -75,15 +59,7 @@ function Start-GuestOS {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$SequencesDir,
         [string[]]$SequenceNames = @(),
-        # Planner-cascaded variable overrides (Test.SequencePlanner ->
-        # Invoke-Sequence). Forwarded to each Invoke-SequenceByName call
-        # so the workload's `variables.username` override reaches the
-        # baseline `start.*.yml` despite the baseline declaring its own
-        # default value.
-        # IDictionary (not [hashtable]) preserves the planner's
-        # [ordered]@{} insertion order through parameter binding so
-        # `${username}` resolves before `${currentPassword}` in the
-        # downstream Invoke-Sequence expansion loop.
+        # See https://yuruna.link/4213a0b3-017b
         [System.Collections.IDictionary]$EffectiveVariables,
         [bool]$ShowOutput = $true
     )

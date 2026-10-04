@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42bd869c-ef6b-4b88-bd37-3f2e8aa2f1ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,8 +32,8 @@ param(
     [switch]$daily
 )
 
-# --- REGION: Log level from environment
-# Reuse the caller's log module so an in-process fetch preserves its state.
+# --- REGION: Download the base image
+# See https://yuruna.link/42e220c4-0003
 $arguments = @{} + $PSBoundParameters
 & (Join-Path $PSScriptRoot '../modules/Get-UbuntuServerImage.ps1') @arguments -Release '26' -GuestScriptRoot $PSScriptRoot -EnvironmentErrorKey 'host.operator_713c26d7b0425606'
 exit $LASTEXITCODE

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 423d0e57-097d-4f6e-aabb-76a866d96fe5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,20 +16,7 @@
 
 #requires -version 7
 
-# Runs a host-specific script from a host-neutral entry point: detect the host,
-# resolve host/<short>/<name>.ps1, and run it in a child pwsh whose working
-# directory IS that host folder -- the same shell an operator gets by cd'ing
-# there and calling ./<name>.ps1 by hand. The caller's own location is restored
-# on the way out.
-#
-# Host detection is NOT reimplemented here. Get-HostType / Get-HostFolder
-# (test/modules/Test.HostDetection.psm1) are the one definition the whole
-# harness resolves against; this module imports them on demand and never keeps
-# a second copy, because a second copy is a second answer the day a new host
-# type is added.
-#
-# Nothing here is specific to the three scripts that use it today: -ScriptName
-# takes any script that exists in all (or some) of the host folders.
+# See https://yuruna.link/4213a0b3-000c
 
 # Test-IsAdministrator comes from the dependency-free leaf next door. Imported
 # into this module's scope only -- the caller's session is left alone.

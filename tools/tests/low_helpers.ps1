@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 421b72b3-1b95-4a2f-a951-2add0fb977c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -14,7 +14,6 @@
 .PRIVATEDATA
 #>
 
-# LICENSEURI https://yuruna.link/license
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'The fixture implements the web request signature without making network calls.')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '', Justification = 'This standalone fixture replaces web requests to count resolutions without network access.')]
 [CmdletBinding()]

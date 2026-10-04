@@ -39,10 +39,14 @@ cloud-init's chpasswd default `expire: true` triggers the
 Current/New/Retype rotation on first console login.
 
 ```
-sudo /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh
+sudo E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh
 sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```
+
+`<sha256>` is the expected SHA-256 of that script in your checkout, which the
+fetcher requires; see
+[Supplying the digest by hand](../../../guest/README.md#supplying-the-digest-by-hand).
 
 Good moment to clone the VM in UTM as a stable copy.
 
@@ -58,6 +62,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../../../README.md)

@@ -86,6 +86,12 @@ reading as a guest that never printed.
 - **Inline `${ext:area.Method(args)}` references in a step's args** are
   **invoked fresh on every reference** (no per-step memoization).
   Inner `${var}` placeholders inside the args are resolved first.
+- **Digests of what a guest script downloads** come from the `digest` area
+  (`${ext:digest.GetFileSha256(<path>)}`, `GetArchiveSha256(project)`,
+  `GetPublishedSha256(<name>)`). Put them in the step's `command:` text so
+  they travel the typed channel with the script's own digest, and let the
+  guest script compare before it extracts or runs anything. See
+  [the digest area](../test/extension/digest/README.md).
 - **Escape `$`** by doubling: `$$` produces a literal `$`. In
   particular `$${foo}` yields the literal `${foo}`
   (no substitution). To embed two literal dollars, write `$$$$`.
@@ -670,6 +676,16 @@ never replayed after a power cut.
 
 `arm64HyperVInstallerBoot` permits at most two attempts of a single
 `waitForAndEnter` step answering `yes` to `Continue with autoinstall?`.
+That step also accepts visible `subiquity/Install/install/configure_apt` and
+`subiquity/Install/install/curtin_install` stages as proof that the
+confirmation is past, and does not type at those screens. The same stages
+block the blind answer. Only stages that Subiquity opens after confirmation
+qualify: it enters the parent `subiquity/Install/install` context at server
+start and runs the autoinstall mirror check (`subiquity/Mirror/cmd-apt-config`)
+before it asks, so either one on screen says nothing about the answer. A
+confirmation wait that stopped on them would leave the prompt unanswered
+for the whole login wait. The later login wait owns a stall after
+installation began.
 It requires a timed-out wait, at least 120 seconds of currently unchanged
 console content, an independent Hyper-V framebuffer verdict of `guest-static`,
 and pre-installer evidence in the OCR tail: `/scripts/casper-` or
@@ -677,7 +693,8 @@ and pre-installer evidence in the OCR tail: `/scripts/casper-` or
 stack frames or reject login and installation-complete text independently.
 Missing boot markers, explicit failure patterns (including the installer
 error patterns added for this mode), and console floods end the retry without
-restarting.
+restarting. A `retry_suppressed` event and the terminal failure label name
+the reason and the number of attempts the configuration allowed.
 This is a bounded recovery from a confirmed boot stall, not a fix for the
 underlying Hyper-V fault. Sensitive input and
 post-restart steps are forbidden in this mode. AMD64 Hyper-V and other
@@ -857,7 +874,7 @@ plus the blind-answer set below.
 | Parameter | Type | Notes |
 |---|---|---|
 | `blindAfterSeconds` | integer | Split the budget: wait this long normally, then, if the console has gone quiet, send `text` anyway and watch for it to be consumed. `0`/absent (default) keeps the plain one-window behavior. Ignored when it is not shorter than `timeoutSeconds`. |
-| `skipInputPattern` | string/array | If the OCR frame that satisfied `pattern` also matches this value, finish without typing. Use a later-state prompt when a recovery may find the guest already past the prompt that needs `text`. |
+| `skipInputPattern` | string/array | If the OCR frame that satisfied `pattern` also matches this value, finish without typing. Include a later-state marker in both `pattern` and `skipInputPattern` when the guest may already be past the prompt. |
 | `confirmPattern` | string/array | What proves the blind answer landed. Without it, the proof is the console content changing at all. |
 | `confirmSeconds` | integer | How long to wait for that proof (default `90`). |
 
@@ -1065,6 +1082,7 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `SuggestedRecoveries`| `[string[]]` -- free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `wait_and_retry`, `restore_snapshot`, `notify_operator`. A token outside the remediation dispatcher's vocabulary warns at registration. |
 | `UsesWaitSignals`    | `[bool]`                                                                                                                                                                                                                                                                                       | **Changes engine behavior.** `$true` lets the engine append `-- matched failurePattern "..."` to the step's failure label when the verb short-circuited on an anti-pattern. Set it on any verb that writes that signal: without it the step is labeled as a plain "pattern not found within Ns" timeout, so the ERROR banner and `last_failure.json` both hide the real cause -- a guest process that crashed and printed why. |
 | `CapturesOwnFailureScreenshot` | `[bool]`                                                                                                                                                                                                                                                                             | **Changes engine behavior.** `$true` suppresses the engine's generic post-failure `Get-VMScreenshot`. Set it on a verb that already writes `failure_screenshot_<vm>.png` from inside its own failure path: that frame was captured at the moment of failure, and the engine's later capture would overwrite it with whatever the screen shows once the step has given up. |
+| `ReplaySafety`       | `ValidateSet`: `observe`, `input`, `state-changing`, `restore-point`, `composite`, `unclassified` (default) | **Changes warm-resume behavior.** What running this step a second time, in place, on top of a failed first attempt's leftovers can do. Only `observe` verbs are replayed with no restore point; `unclassified` counts as unsafe. Every built-in verb declares one, and `Test.WarmResume.Tests.ps1` fails when a registered verb does not. |
 
 Both flags are registry entries rather than verb-name lists inside the engine
 because the engine's two decision sites would otherwise each carry a literal
@@ -1075,6 +1093,19 @@ overwritten, with nothing failing. Today `waitForText`, `waitForAndEnter` and
 `fetchAndExecute` sets only `CapturesOwnFailureScreenshot`.
 `Test.SequenceEngineFlags.Tests.ps1` pins those sets.
 
+`ReplaySafety` is a registry entry for the same reason, and it defaults the other
+way: a verb added without a decision reads as `unclassified`, which a warm resume
+refuses to replay in place, instead of as harmless. The classes are `observe`
+(waits, reads the screen, captures evidence: a second run costs time only),
+`input` (keystrokes, text or clicks: a second run types over what the first left
+on the line), `state-changing` (a fetched script, a snapshot, a network lease, an
+extension call: the effect outlives the step), `restore-point` (makes guest
+state known again: the boundary a resume rewinds to) and `composite` (a wrapper
+such as `retry`, whose safety is that of the steps it holds). When a sequence has
+no `loadDiskSnapshot` at or before the failed step, only a step whose whole body
+is `observe` is replayed in place; see
+[Rewind to a restore boundary](failure-schema.md#rewind-to-a-restore-boundary).
+
 <a id="428e4df6-002d"></a>
 
 ### Example registrations
@@ -1082,7 +1113,7 @@ overwritten, with nothing failing. Today `waitForText`, `waitForAndEnter` and
 A pure-PowerShell verb with no host I/O:
 
 ```
-Register-SequenceAction -Name 'waitForSeconds' `
+Register-SequenceAction -Name 'waitForSeconds' -ReplaySafety 'observe' `
     -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'wait_timeout' -Severity 'soft' `
     -SuggestedRecoveries @('retry_immediately') `
@@ -1104,7 +1135,7 @@ A verb that drives host I/O adds the `HostIORequirement` plus a
 `FailureLabel` so the rendered failure includes the key name:
 
 ```
-Register-SequenceAction -Name 'pressKey' `
+Register-SequenceAction -Name 'pressKey' -ReplaySafety 'input' `
     -HostIORequirement @('Send-Key') -OcrRequired $false `
     -FailureClass 'host_io_blocked' -Severity 'soft' `
     -SuggestedRecoveries @('retry_immediately') `
@@ -1145,6 +1176,10 @@ stylistic -- see [Naming collisions to watch](#naming-collisions-to-watch).
    matching engine flag (`UsesWaitSignals` / `CapturesOwnFailureScreenshot`).
    Both default to `$false`, and a verb that needs one but omits it still
    passes and still fails -- it just loses the annotation or the frame.
+8. Declare `ReplaySafety`. Ask what a second run does on top of the first
+   attempt's leftovers: nothing but spend time (`observe`), re-type over them
+   (`input`), or change state that outlives the step (`state-changing`). When in
+   doubt, pick the less safe class; omitting it leaves the verb `unclassified`.
 
 No edit to `Test.SequenceEngine.psm1` is required for the registry path --
 the engine discovers the registration via `$global:YurunaSequenceActions`.
@@ -1337,6 +1372,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

@@ -5,6 +5,7 @@
 # See https://yuruna.link/429f3d06
 # See https://yuruna.link/4268e4cb
 # See https://yuruna.link/42e220c4-0006
+# --- REGION: hostname
 hostname: yuruna-download-agent-service
 # --- REGION: users
 users:
@@ -17,13 +18,16 @@ users:
     plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
+# --- REGION: chpasswd
 chpasswd:
   expire: false
   users:
     - name: download-agent-service-admin
       password: PASSWORD_PLACEHOLDER
       type: text
+# --- REGION: ssh_pwauth
 ssh_pwauth: true
+# --- REGION: package_update
 package_update: true
 # --- REGION: packages
 packages:
@@ -109,29 +113,35 @@ write_files:
   - path: /etc/systemd/system/yuruna-host-locate.service
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Refresh Yuruna host coordinates if the host has changed address
       After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
       Before=network-online.target
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       TimeoutStartSec=30
       ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=network-online.target
   - path: /etc/systemd/system/yuruna-host-locate.timer
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Periodic Yuruna host coordinate refresh
 
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=30s
       OnUnitActiveSec=60s
       AccuracySec=5s
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
 # --- REGION: runcmd
@@ -183,7 +193,7 @@ runcmd:
         # -s "$DEST/VERSION" is the extraction's success condition, not tar's exit
         # status: the archive arrives through a pipe, so a transfer cut partway
         # leaves tar reporting success over a truncated tree.
-        if wget --no-proxy -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST" && [ -s "$DEST/VERSION" ]; then
+        if wget --no-proxy --timeout=30 --tries=1 -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST" && [ -s "$DEST/VERSION" ]; then
           OK=1; SRC=host; SRC_URL="http://$YR_HOST:$YR_PORT"
           echo "yuruna download-agent-service: framework extracted from host $SRC_URL"
           break
@@ -199,12 +209,10 @@ runcmd:
     if [ "$OK" -eq 0 ]; then
       echo "yuruna download-agent-service: host status service did not serve the framework after 6 attempts; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
       rm -rf "$DEST"
-      git clone --depth 1 "$MIRROR_URL" "$DEST" && OK=1
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 "$MIRROR_URL" "$DEST" && OK=1
     fi
-    # Record which source won. Without this the answer survives only in this log,
-    # and the bring-up script on the host is left inferring it from a version
-    # number that cannot distinguish "older mirror" from "older host enlistment".
-    # World-readable on purpose: it is read back as the unprivileged seed account.
+    # See https://yuruna.link/42fffc2c-0013
+    # Record source provenance for the unprivileged seed account's readiness probe.
     mkdir -p /etc/yuruna
     {
       echo "source=$SRC"
@@ -257,26 +265,39 @@ runcmd:
           PS_PKG="powershell-$PS_VER-linux-$PS_ARCH.tar.gz"
           if curl -fsSL --retry 3 --retry-delay 5 -o /tmp/powershell.tar.gz \
                "https://github.com/PowerShell/PowerShell/releases/download/$PS_TAG/$PS_PKG"; then
-            # Verify before unpacking. MISMATCH aborts; an unfetchable hashes file only warns.
+            # Install only verified bytes; optional Windows tooling can remain unavailable.
             # --- REGION: https://yuruna.link/429f3d06-008b
             PS_VERDICT=unverified
             if curl -fsSL --retry 2 --retry-delay 5 -o /tmp/pwsh-hashes.sha256 \
                  "https://github.com/PowerShell/PowerShell/releases/download/$PS_TAG/hashes.sha256"; then
               PS_B2=$(od -An -tx1 -N2 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d ' \n')
+              PS_HASH_OK=0
               if [ "$PS_B2" = "fffe" ] || [ "$PS_B2" = "feff" ]; then
-                iconv -f UTF-16 -t UTF-8 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d '\r' > /tmp/pwsh-hashes.norm
+                if iconv -f UTF-16 -t UTF-8 /tmp/pwsh-hashes.sha256 > /tmp/pwsh-hashes.utf8 2>/dev/null &&
+                   tr -d '\r' < /tmp/pwsh-hashes.utf8 > /tmp/pwsh-hashes.norm; then
+                  PS_HASH_OK=1
+                fi
               else
-                tr -d '\r' < /tmp/pwsh-hashes.sha256 > /tmp/pwsh-hashes.norm
+                tr -d '\r' < /tmp/pwsh-hashes.sha256 > /tmp/pwsh-hashes.norm && PS_HASH_OK=1
               fi
-              PS_WANT=$(LC_ALL=C awk -v p="$PS_PKG" 'index($0,p){print $1; exit}' /tmp/pwsh-hashes.norm 2>/dev/null)
-              PS_GOT=$(sha256sum /tmp/powershell.tar.gz 2>/dev/null | awk '{print $1}')
-              if [ -n "$PS_WANT" ] && [ -n "$PS_GOT" ]; then
-                [ "$PS_WANT" = "$PS_GOT" ] && PS_VERDICT=verified || PS_VERDICT=mismatch
+              if [ "$PS_HASH_OK" -eq 1 ]; then
+                PS_WANT=$(LC_ALL=C awk -v p="$PS_PKG" '$2==p || $2=="*"p {print $1; exit}' /tmp/pwsh-hashes.norm 2>/dev/null)
+                PS_GOT=$(sha256sum /tmp/powershell.tar.gz 2>/dev/null | awk '{print $1}')
+                if [ "${#PS_WANT}" -eq 64 ] && [ "${#PS_GOT}" -eq 64 ]; then
+                  case "$PS_WANT$PS_GOT" in
+                    *[!0-9a-fA-F]*) ;;
+                    *)
+                      PS_WANT=$(printf '%s' "$PS_WANT" | tr '[:upper:]' '[:lower:]')
+                      PS_GOT=$(printf '%s' "$PS_GOT" | tr '[:upper:]' '[:lower:]')
+                      [ "$PS_WANT" = "$PS_GOT" ] && PS_VERDICT=verified || PS_VERDICT=mismatch
+                      ;;
+                  esac
+                fi
               fi
-              rm -f /tmp/pwsh-hashes.sha256 /tmp/pwsh-hashes.norm
             fi
-            if [ "$PS_VERDICT" = "mismatch" ]; then
-              echo "yuruna download-agent-service: PowerShell $PS_VER tarball SHA-256 mismatch; NOT installed." >&2
+            rm -f /tmp/pwsh-hashes.sha256 /tmp/pwsh-hashes.utf8 /tmp/pwsh-hashes.norm
+            if [ "$PS_VERDICT" != "verified" ]; then
+              echo "yuruna download-agent-service: PowerShell $PS_VER tarball SHA-256 verification failed ($PS_VERDICT); NOT installed." >&2
             else
               mkdir -p /opt/microsoft/powershell/7
               if tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7 &&

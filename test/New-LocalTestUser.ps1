@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4271255a-d0dd-4c45-8932-15f35ae51cf4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,73 +24,7 @@
     Ubuntu).
 
 .DESCRIPTION
-    Creates a local OS user with the supplied display name and account
-    name. The account name defaults to `yurunatest`, so the common case is
-    a single switch: `.\New-LocalTestUser.ps1 -Admin`.
-
-    The password is set at creation and is immediately usable, so an
-    unattended test host can log in without an interactive first-login
-    rotation standing in the way. Three shapes:
-
-      * Default: the password is asked for interactively (twice,
-        confirmed), on the elevated side, so it never reaches shell
-        history or a process argument vector.
-
-      * With -Password: the supplied password is used instead of asking.
-
-      * With -NoPassword: the account is created WITHOUT a usable
-        password. It exists but cannot log in until the operator sets one
-        out-of-band.
-
-    When the authentication vault already holds a local-OS password for
-    this account name, that password is reused instead of asking, so a
-    re-created account still matches the credential Yuruna hands out for
-    it. -Password overrides the stored one; -PromptForPassword asks
-    anyway, and warns that the stored copy stops matching.
-
-    -ForcePasswordChange makes the password a one-shot initial credential
-    and demands a change at the first interactive login. It is opt-in --
-    without it the account logs in unattended.
-
-    -Admin additionally makes the account a local machine administrator:
-    the built-in Administrators group on Windows (resolved by SID, so it
-    works on non-English installs), the `admin` group on macOS, and the
-    `sudo` group on Ubuntu.
-
-    On Windows the account is also left able to run scripts: its CurrentUser
-    execution policy is set to RemoteSigned. That policy lives in the
-    account's own profile, so it is set from a session that runs as the new
-    account -- a one-shot logon here when the password is usable, and a
-    first-sign-in scheduled task when -NoPassword or -ForcePasswordChange
-    rules a logon out.
-
-    The same logical account name is registered in the runtime
-    authentication mapping, status/extension/authentication/users.yml,
-    with empty corporate / vault fields so the entry behaves as a
-    purely-local Yuruna user (cf.
-    test/extension/authentication/users.yml.template). A host whose
-    runtime file does not exist yet gets one seeded from the committed
-    template first; the template itself is never written to, so
-    registering a machine-local account never dirties a tracked file.
-
-    A name already declared in users.yml is reused, not refused: the
-    entry stays exactly as it is, along with whatever vault credential
-    it points at, and the run continues. An OS account that already
-    exists is not a stop either: the run reports what deleting it takes
-    with it and asks to confirm, then deletes the account -- home
-    directory and everything under it -- and creates it again from
-    scratch. -Force answers that confirmation in advance, which is what
-    lets an unattended run recreate the account in one call. Three cases
-    are refused outright, -Force included: a system account, the account
-    running the script, and an account with an open login session.
-
-    Elevation is requested before anything is changed. On Windows an
-    unelevated run asks for consent and then relaunches itself through
-    UAC; the elevated window prompts for the password rather than
-    receiving it on the command line, so the secret never appears in
-    the process list. On macOS / Ubuntu the script pre-authenticates
-    sudo up front, so there is a single clearly-labeled prompt.
-
+    See https://yuruna.link/42010605-0002.
 .PARAMETER AccountName
     OS account / login name (matches the logical username used in
     users.yml). Defaults to `yurunatest`. Must start with a letter or
@@ -159,12 +93,7 @@
 
 .EXAMPLE
     .\New-LocalTestUser.ps1 -Admin -Force
-    # Re-create the default test account without stopping to ask: an
-    # existing `yurunatest` OS account and its home directory are deleted
-    # first, while the Yuruna users.yml entry and any vault password it
-    # points at are reused. The same run without -Force does the same
-    # thing, after confirming the deletion with the operator. Add -WhatIf
-    # the first time to see exactly what would be removed.
+    # See https://yuruna.link/42010605-0002
 
 .NOTES
     Requires Administrator (Windows) or sudo (macOS / Ubuntu).
@@ -240,7 +169,7 @@ if ($NoPassword -and ($PSBoundParameters.ContainsKey('Password') -or $PromptForP
 
 $FullName = "$FirstName $LastName"
 
-# --- REGION: Interactive prompts
+# --- REGION: Confirm-Step
 function Confirm-Step {
     param([string]$Question)
     if ($Force) { return $true }
@@ -248,6 +177,7 @@ function Confirm-Step {
     return ($answer -match '^(y|yes)$')
 }
 
+# --- REGION: Read-NewPassword
 function Read-NewPassword {
     param([string]$Name)
     $first = Read-Host -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_e0b33e122bc96ca1' -Arguments @{ name = "$Name" }) -AsSecureString
@@ -259,15 +189,7 @@ function Read-NewPassword {
     return $a
 }
 
-# An account with a password is the point of the tool, so a run that names
-# no password asks for one rather than producing a locked account nobody can
-# log into. -NoPassword is the explicit opt-out.
-#
-# The prompt itself is deliberately NOT here. On Windows an unelevated run
-# relaunches itself through UAC and the password is never forwarded on the
-# command line, so asking now would ask again in the elevated window. It is
-# asked once, after the elevation gate and after the pre-flight checks -- no
-# point collecting a secret for an account that already exists.
+# See https://yuruna.link/42010605-0002
 $WantsPassword = -not $NoPassword
 
 # The must-change-at-first-login flag is opt-in. A password set here is
@@ -318,7 +240,7 @@ if ($YamlAvailable) {
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_96c44416adfc3cc0')
 }
 
-# --- REGION: Elevation
+# --- REGION: Test-IsElevated
 function Test-IsElevated {
     if ($IsWindows) {
         $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -327,6 +249,7 @@ function Test-IsElevated {
     return $true
 }
 
+# --- REGION: Invoke-SelfElevation
 function Invoke-SelfElevation {
     <#
         Relaunch this script through UAC. The password is deliberately
@@ -422,7 +345,7 @@ if ($WhatIfPreference) {
     throw "Unsupported OS. This script supports Windows, macOS, and Ubuntu."
 }
 
-# --- REGION: Pre-flight: does the OS account already exist?
+# --- REGION: Test-OsUser
 function Test-OsUser {
     param([string]$Name)
     if ($IsWindows) {
@@ -433,6 +356,7 @@ function Test-OsUser {
     return ($LASTEXITCODE -eq 0)
 }
 
+# --- REGION: Get-OsUserFact
 function Get-OsUserFact {
     <#
         What deleting the account would take with it, plus the two
@@ -481,32 +405,15 @@ function Get-OsUserFact {
     return $fact
 }
 
+# --- REGION: Remove-OsUserHome
 function Remove-OsUserHome {
-    <#
-        Second pass over the home directory, because every platform's
-        account delete has a way of leaving it behind: a Windows profile
-        whose ProfileList entry is unreadable, `userdel` reporting exit 12,
-        a macOS home with files still open in it. What survives is not
-        cosmetic -- the recreated account cannot read files owned by an id
-        that no longer resolves, and on Windows it is handed a second,
-        `.000`-suffixed profile directory beside the old one.
-
-        The path comes from the OS itself (Win32_UserProfile.LocalPath,
-        the passwd record, dscl), never from the account name, so this
-        removes the directory the account really had.
-    #>
+    <# See https://yuruna.link/42010605-0002. #>
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$Path)
 
     if ([string]::IsNullOrWhiteSpace($Path)) { return }
     if (-not (Test-Path -LiteralPath $Path))  { return }
-    # A path at or beside the filesystem root is a damaged account record
-    # rather than a home directory -- '/', '/home' and C:\Users hold every
-    # other account's files, and a recursive delete of one of those is not
-    # recoverable. DirectoryInfo rather than Split-Path: Split-Path errors
-    # on a root path instead of returning nothing, and the error abandons
-    # the statement that was supposed to be the guard. Anything the check
-    # cannot resolve is refused for the same reason.
+    # See https://yuruna.link/42010605-0002
     $parent = $null
     try { $parent = ([System.IO.DirectoryInfo]::new($Path)).Parent } catch { $parent = $null }
     if ($null -eq $parent -or $null -eq $parent.Parent) {
@@ -534,6 +441,7 @@ function Remove-OsUserHome {
     }
 }
 
+# --- REGION: Remove-OsUser
 function Remove-OsUser {
     <#
         Delete an existing account and its home directory, so the account
@@ -621,7 +529,7 @@ if (Test-OsUser -Name $AccountName) {
 
 }
 
-# --- REGION: Pre-flight: does users.yml already declare this name?
+# --- REGION: Get-DeclaredUserNameFromText
 function Get-DeclaredUserNameFromText {
     <#
         Entry names as the file physically stores them: two-space-indented
@@ -647,6 +555,7 @@ function Get-DeclaredUserNameFromText {
     return $names
 }
 
+# --- REGION: Test-YurunaUserDeclared
 function Test-YurunaUserDeclared {
     param([string]$Name, [string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
@@ -686,7 +595,7 @@ if ($UsersEntryReused) {
     }
 }
 
-# --- REGION: Resolve the password
+# --- REGION: Get-VaultLocalOsPassword
 # Resolved here, once, and only once: past the elevation gate (so the UAC
 # relaunch does not re-ask) and past the pre-flight checks (so nobody types
 # a secret for an account the run is about to refuse). Under -WhatIf nothing
@@ -781,12 +690,7 @@ if ($IsMacOS -and $HasPassword -and $Password.StartsWith('-')) {
 
 # Complete every non-mutating refusal before offering to replace the account.
 if ($existing) {
-    # Recreating is the whole point of running this against a name that
-    # already exists, so the run offers it rather than refusing and telling
-    # the operator which switch to add. What it cannot do is decide on their
-    # behalf: the account may be a stale test account or one in use, and only
-    # the operator can tell which. -Force is that answer given in advance,
-    # which is what makes an unattended recreate possible.
+    # See https://yuruna.link/42010605-0002
     $consentTarget = if ($existing.Home) { "'$AccountName' and $($existing.Home)" } else { "'$AccountName'" }
     Write-Information ""
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_42dcde04bb769692' -Arguments @{ accountName = "$AccountName"; homeNote = "$homeNote" })
@@ -808,7 +712,7 @@ if ($existing) {
     $RemovedHome = $existing.Home
 }
 
-# --- REGION: Create the OS account
+# --- REGION: New-WindowsLocalUser
 function New-WindowsLocalUser {
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$Name, [string]$Display, [string]$Secret, [bool]$ForceChange, [bool]$AsAdmin)
@@ -849,14 +753,7 @@ function New-WindowsLocalUser {
             throw "Could not resolve the built-in Administrators group (SID S-1-5-32-544) on this host."
         }
         Add-LocalGroupMember -Group $adminGroup.Name -Member $Name -ErrorAction Stop
-        # Get-LocalGroupMember fails to enumerate a group that still holds a
-        # SID no longer resolvable to a principal (a deleted domain account,
-        # a removed local user). Add-LocalGroupMember above already throws on
-        # a real failure, so an unreadable group is a verification gap, not a
-        # failed grant -- say so instead of aborting a successful run.
-        # $null means "could not enumerate", which is distinct from $false
-        # ("enumerated, and the account is not there") -- only the latter is
-        # an actual failed grant.
+        # See https://yuruna.link/42010605-0002
         $isMember = $null
         try {
             $members  = @(Get-LocalGroupMember -Group $adminGroup.Name -ErrorAction Stop)
@@ -871,6 +768,7 @@ function New-WindowsLocalUser {
     }
 }
 
+# --- REGION: New-MacLocalUser
 function New-MacLocalUser {
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$Name, [string]$Display, [string]$Secret, [bool]$ForceChange, [bool]$AsAdmin)
@@ -923,6 +821,7 @@ function New-MacLocalUser {
     }
 }
 
+# --- REGION: New-LinuxLocalUser
 function New-LinuxLocalUser {
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$Name, [string]$Display, [string]$Secret, [bool]$ForceChange, [bool]$AsAdmin)
@@ -992,20 +891,7 @@ elseif ($IsMacOS)   { New-MacLocalUser     @osArgs }
 elseif ($IsLinux)   { New-LinuxLocalUser   @osArgs }
 
 # --- REGION: Let the new Windows account run scripts
-# A fresh Windows account starts at the shell default -- Restricted on
-# client SKUs -- so the first .ps1 the operator runs interactively as this
-# account is refused. The CurrentUser policy lives inside the account's own
-# profile (PowerShell 7 keeps it in
-# Documents\PowerShell\powershell.config.json, Windows PowerShell 5.1 in
-# HKCU), and neither store exists until the account has signed in once:
-# setting it from this elevated session would only change the policy of the
-# operator running the script. So it is set from a session that really runs
-# as the new account -- a one-shot logon here when the account has a usable
-# password, and a first-sign-in scheduled task when it does not.
-#
-# Framework entry points do not depend on this: they all launch with
-# -ExecutionPolicy Bypass. It is the account's own interactive sessions
-# that are otherwise refused.
+# See https://yuruna.link/42010605-0002
 
 # The read-back is the verdict: `exit 3` says the write did not land. The
 # closing `exit 0` is what keeps a successful run from reading as a failure
@@ -1018,6 +904,7 @@ $PolicyCommand = "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Curre
 # run that reaches the policy by logon can clear a task an earlier run left.
 $PolicyTaskName = "YurunaExecutionPolicy-$AccountName"
 
+# --- REGION: ConvertTo-EncodedCommand
 function ConvertTo-EncodedCommand {
     <#
         -EncodedCommand rather than -Command: the payload becomes a single
@@ -1031,6 +918,7 @@ function ConvertTo-EncodedCommand {
     return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Command))
 }
 
+# --- REGION: Test-PathUnderDirectory
 function Test-PathUnderDirectory {
     [OutputType([bool])]
     param([string]$Path, [string]$Directory)
@@ -1046,21 +934,9 @@ function Test-PathUnderDirectory {
     return $full.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
+# --- REGION: Get-WindowsShellCandidate
 function Get-WindowsShellCandidate {
-    <#
-        One entry per host -- the CurrentUser policy is stored per host, so
-        setting one leaves the other at its default -- and whether the new
-        account can execute it at all.
-
-        A PowerShell installed for a single user lives under that user's
-        profile: a per-user MSI under AppData\Local\Programs, or a Store
-        execution alias under AppData\Local\Microsoft\WindowsApps. No other
-        account can run it. Handing such a path to a logon as the new
-        account fails with "Access is denied" before the command starts,
-        and a scheduled task pointed at the same path fails the same way at
-        that account's own sign-in -- so a path under a profile is reported
-        to the operator, never used.
-    #>
+    <# See https://yuruna.link/42010605-0002. #>
     [OutputType([hashtable[]])]
     param()
 
@@ -1104,6 +980,7 @@ function Get-WindowsShellCandidate {
     return $found.ToArray()
 }
 
+# --- REGION: Set-WindowsUserExecutionPolicy
 function Set-WindowsUserExecutionPolicy {
     <#
         Log the account on once, right here, and let it set its own policy.
@@ -1126,12 +1003,7 @@ function Set-WindowsUserExecutionPolicy {
     $encoded = ConvertTo-EncodedCommand -Command $Command
 
     foreach ($entry in $Shell) {
-        # -WindowStyle, not -NoNewWindow: -Credential belongs to a parameter
-        # set that has no -NoNewWindow.
-        # -WorkingDirectory: without it the child inherits the caller's
-        # directory, and an elevated operator's directory is regularly one
-        # the new account cannot read -- which fails the launch itself,
-        # before any of the command runs.
+        # See https://yuruna.link/42010605-0002
         $launch = @{
             FilePath         = $entry.Path
             Credential       = $cred
@@ -1180,6 +1052,7 @@ function Set-WindowsUserExecutionPolicy {
     return $applied.ToArray()
 }
 
+# --- REGION: Register-WindowsUserExecutionPolicyTask
 function Register-WindowsUserExecutionPolicyTask {
     <#
         The no-usable-password path: an account created with -NoPassword, or
@@ -1276,12 +1149,7 @@ if ($IsWindows) {
 }
 
 # --- REGION: Register in the runtime users.yml
-# YAML literal preserves the exact formatting used by the committed
-# users.yml.template entries (2-space indent under `users:`, inline-
-# flow `corporate: { domain: "", sam: "", upn: "" }`, padded keys for
-# vaultKey / localOsPasswordRef). Appending text rather than round-
-# tripping through ConvertTo-Yaml keeps the file's existing comments
-# and entry formatting intact.
+# See https://yuruna.link/42010605-0002
 $YamlEntry = @"
 
   ${AccountName}:
@@ -1291,6 +1159,7 @@ $YamlEntry = @"
     localOsPasswordRef: ""
 "@
 
+# --- REGION: Initialize-UsersRuntimeFile
 function Initialize-UsersRuntimeFile {
     <#
         Seed the gitignored runtime users.yml from the committed template,

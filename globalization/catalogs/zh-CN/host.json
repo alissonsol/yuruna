@@ -3,6 +3,11 @@
   "domain": "host",
   "locale": "zh-CN",
   "messages": {
+    "host.kvm_running_cache_unreachable": {
+      "sourceHash": "81042c1a1152d4a8d96f13c8007b4cd1eb09b5b61b1e8f1152b1fe97e110ad65",
+      "origin": "machine",
+      "message": "caching-proxy-service 虚拟机正在运行，但无法访问其代理。运行 test/service/Start-CachingProxyServiceVM.ps1 恢复代理，或传入 -CachingProxyServiceUrl \"\" 以直接下载。"
+    },
     "host.operator_2eafe07b6f1ae191": {
       "sourceHash": "22bbd01b11a3142e2779774380f84fee921a829775ff3464d113323c559eef14",
       "origin": "machine",

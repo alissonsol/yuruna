@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42a15892-c9f1-4438-9c35-d19e6ba7c2cc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,30 +16,9 @@
 
 #requires -version 7
 
-# Host detection + per-host preflight: identifies the platform
-# (host.macos.utm / host.windows.hyper-v / host.ubuntu.kvm),
-# maps host type to repo folder, derives test VM names, asserts
-# the minimum runtime requirements (elevation on Windows, /dev/kvm
-# on Linux, UTM bundle on macOS), and handles the libvirt-group
-# re-exec dance for fresh Ubuntu installs. Deliberately excludes
-# anything that mutates host configuration (Set-*HostConditionSet
-# lives in Test.HostCondition.psm1) or that imports host drivers
-# (Initialize-YurunaHost lives in Test.HostBootstrap.psm1).
+# See https://yuruna.link/4213a0b3-007d
 
-# Module-level self-healing: re-import Test.VMUtility.psm1 with -Global
-# every time this module is loaded. The runner's cycle re-import block
-# reloads Test.HostContract every cycle, which re-imports this sibling;
-# the -Global import here keeps Wait-VMRunning / Test-IpAddress /
-# Format-IpUrlHost (and the other cross-host helpers) in the runner's
-# session even when something mid-cycle has wiped the global module table
-# -- e.g. a sequence step calling `Get-Module | Remove-Module`, or a
-# transitive Import-Module without -Global. Without this, a long-running
-# macOS in-process runner could lose Wait-VMRunning at an unrelated moment
-# and crash at the next New-VM.Resource step. This module (not the
-# Test.HostContract facade) owns the self-heal so it also fires for the
-# callers that import Test.HostDetection directly. -ErrorAction
-# SilentlyContinue: a missing sibling is non-fatal here;
-# Initialize-YurunaHost still fails loudly later if truly broken.
+# See https://yuruna.link/4213a0b3-007e
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $vmCommonPath = Join-Path $PSScriptRoot 'Test.VMUtility.psm1'
 if (Test-Path $vmCommonPath) {
@@ -397,14 +376,7 @@ function Get-TestVMName {
         if ($h.Length -gt 8) { $h = $h.Substring(0, 8) }
         $vmName = "${Prefix}${stem}-${h}-01"
     }
-    # Shell-safety guard at the composition ingest point. The VM name flows
-    # into interpolated commands downstream -- a KVM `bash -c` virt-viewer
-    # invocation and hypervisor CLIs on every platform. The HostId segment is
-    # reduced to [A-Za-z0-9] above, but neither the operator-configurable prefix
-    # (vmStart.testVmNamePrefix) nor the guest key is: either one carrying a
-    # space or shell metacharacter would ride through the interpolation. Reject
-    # here so a metacharacter name can never reach a command string, whichever
-    # host type ends up running it.
+    # See https://yuruna.link/4213a0b3-007f
     if ($vmName -notmatch '^[A-Za-z0-9._-]+$') {
         throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_e80a19e94ca9be85' -Arguments @{ vmName = "$vmName"; prefix = "$Prefix" })
     }
@@ -477,15 +449,7 @@ function Test-HostRequirement {
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$HostType,
-        # Quiet mode: suppress the trailing "There may be more host-health
-        # recommendations available..." pointer. Existing failure
-        # Write-Warning lines are NEVER quieted -- a missing requirement
-        # is always shown. The pointer is the only banner this switch
-        # silences; an automated caller (Remove-TestVMFiles.ps1 -Quiet)
-        # passes -Quiet so the cycle teardown emits no host-health noise.
-        # The inner Write-Information's hardcoded -InformationAction
-        # Continue otherwise overrides any caller -InformationAction
-        # SilentlyContinue, which is why an explicit switch is needed.
+        # See https://yuruna.link/4213a0b3-0080
         [switch]$Quiet
     )
 

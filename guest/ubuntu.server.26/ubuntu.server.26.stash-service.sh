@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/42e220c4-0005
@@ -29,9 +29,8 @@ esac
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   # --- REGION: https://yuruna.link/4220a755-0003
   . /usr/local/lib/yuruna/yuruna-retry.sh
-  # Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
-  # teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
-  # parent). Force unbounded until no image predates the lib's unbounded default.
+  # See https://yuruna.link/4220a755-0005
+  # Package transactions stay unbounded, including with an older baked retry library.
   export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 fi
 
@@ -76,9 +75,8 @@ PRESENCE_INTERVAL="${STASH_PRESENCE_INTERVAL:-2m}"
 BUILD_TAGS="${STASH_BUILD_TAGS:-}"
 
 # --- REGION: Storage paths
-# Read values WITHOUT sourcing the file: a sourced env file aborts the
-# whole script on a stray quote.
-# Values are single-quoted by the host-side bake; sed-extract them.
+# See https://yuruna.link/42e220c4-000f
+# Extract host-baked quoted values without executing or sourcing malformed shell text.
 ENVF=/etc/yuruna/ystash-nas.env
 get_env() {
   [ -r "$ENVF" ] || return 0
@@ -113,7 +111,7 @@ fi
 # --- REGION: Package dependencies
 echo ""
 echo -e "\e[1;36m==== Package dependencies ====\e[0m"
-yuruna_service_packages golang-go libcap2-bin cifs-utils
+yuruna_service_packages golang-go libcap2-bin cifs-utils curl
 go version
 
 # --- REGION: Locate the daemon source
@@ -136,9 +134,8 @@ SDK_DIR="$(cd "$SERVER_DIR/../.." && pwd)/extension-sdk"
 }
 echo "SDK source:    $SDK_DIR"
 
-# Framework version (repo root is four levels above server/) -- stamped into
-# the binary so the UI header shows it (stash-guide / status pages style).
-# Read before staging; empty/missing falls back to "dev".
+# See https://yuruna.link/42e220c4-000f
+# Read the framework version before staging; a missing version falls back to dev.
 VERSION_STR=$(cat "$SERVER_DIR/../../../../VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)
 [ -n "$VERSION_STR" ] || VERSION_STR=dev
 echo "Framework version: $VERSION_STR"
@@ -198,12 +195,14 @@ ENV
 echo ""
 echo -e "\e[1;36m==== /etc/systemd/system/stash-service.service ====\e[0m"
 sudo tee /etc/systemd/system/stash-service.service >/dev/null <<UNIT
+# --- REGION: [Unit]
 [Unit]
 Description=Yuruna stash service daemon
 Documentation=https://yuruna.link/42f5e921
 After=network-online.target mnt-ystash\x2dnas.mount
 Wants=network-online.target
 
+# --- REGION: [Service]
 [Service]
 Type=simple
 User=$SERVICE_USER
@@ -223,6 +222,7 @@ ProtectSystem=full
 ProtectHome=false
 ReadWritePaths=/var/lib/stash-service -$MOUNT
 
+# --- REGION: [Install]
 [Install]
 WantedBy=multi-user.target
 UNIT
@@ -233,7 +233,9 @@ echo -e "\e[1;36m==== stash-service.service start and enable ====\e[0m"
 sudo systemctl daemon-reload
 sudo systemctl enable --now stash-service.service
 
-if ! yuruna_service_wait_active stash-service.service 6; then
+SERVICE_HEALTH_URL=''
+[ -z "$HTTP_ADDR" ] || SERVICE_HEALTH_URL="http://127.0.0.1:${HTTP_ADDR##*:}/healthz"
+if ! yuruna_service_wait_active stash-service.service 30 "$SERVICE_HEALTH_URL"; then
   echo "stash-service.service did not reach active state. journalctl tail:" >&2
   sudo journalctl -u stash-service.service -n 50 --no-pager >&2 || true
   exit 1

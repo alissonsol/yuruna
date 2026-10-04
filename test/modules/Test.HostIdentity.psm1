@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4277ce69-f7e3-434d-85c2-cf1468b28b01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,18 +16,7 @@
 
 #requires -version 7
 
-# Host identity for the pool: a reimageable host loses its local runtime/ (and
-# with it host.uuid), so without a way to re-recognize the same physical box its
-# pool history would fork under a fresh uuid every reinstall. After each
-# poolStorage drain a host publishes <networkPath>/hosts/info.<uuid>.yml carrying
-# its uuid + a hardware fingerprint. On the next Enable-TestAutomation a host with
-# NO local uuid scans those records and, when a fingerprint matches strongly
-# enough, offers to RECLAIM the prior uuid (operator confirms -- never silent).
-#
-# The strong fingerprint keys (SMBIOS product UUID, baseboard serial) are
-# root-only on Linux, which the unprivileged per-cycle drain cannot read. So the
-# fingerprint is gathered ONCE, PRIVILEGED, at Enable-TestAutomation (sudo is
-# primed there) and cached to runtime/host.hwid.json; the drain reads the cache.
+# See https://yuruna.link/4213a0b3-0082
 
 # --- REGION: Pure normalization helpers (no I/O) -- the testable core
 # Junk SMBIOS/serial values that firmware ships as placeholders. Treated as
@@ -971,17 +960,7 @@ function Invoke-PoolStorageSetupAndReclaim {
         Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_3e56167cc649e262')
     }
     # --- REGION: Already configured -- ask nothing
-    # A config sync from a reference host writes all three pool values and
-    # stores the matching vault credential. Asking for them again after that is
-    # not a harmless confirmation: the questionnaire is the ONLY way this
-    # function reaches the mount and the identity reclaim below, so the operator
-    # has to retype -- by hand, from the reference host -- values the sync
-    # already fetched, and a typo silently replaces a working configuration.
-    #
-    # Completeness is judged on the config AND the credential, because either
-    # alone still leaves a mount that cannot work. Changing a configured host is
-    # the sync's job (or an edit to test.config.yml); this path exists to
-    # configure one that is not.
+    # See https://yuruna.link/4213a0b3-0083
     $curVaultKey = if ($curUser) { Get-HostIdentityVaultKey -User $curUser } else { '' }
     $curHasSecret = $false
     if ($curVaultKey -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {

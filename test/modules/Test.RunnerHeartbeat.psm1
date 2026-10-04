@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42bf60de-1efd-47a3-9c1c-7472978c1c6d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,24 +224,7 @@ function Clear-RunnerPhase {
     param()
     if (-not $env:YURUNA_RUNTIME_DIR) { return }
     $phasePath = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.phase'
-    # The delete goes FIRST, and it is verified and retried. Two reasons, and
-    # this is the one place in the module where a best-effort file operation
-    # would otherwise fail toward the TIGHT bound:
-    #
-    #  * Ordering. A .NET exception is TERMINATING in PowerShell, so if the
-    #    stepHeartbeat write below sat ahead of this and threw (disk full, an
-    #    AV/backup handle -- the failure class the heartbeat timer's own catch
-    #    block already exists for), control would jump past the delete and the
-    #    marker would survive into the cycle.
-    #  * Contention. The watchdog polls the marker with Get-Content, whose
-    #    handle is taken without FILE_SHARE_DELETE, so a Remove-Item landing in
-    #    that window fails -- and -ErrorAction SilentlyContinue makes it a
-    #    non-terminating error the try/catch never sees. That handle lives
-    #    microseconds against a multi-second poll, so one retry effectively
-    #    always wins.
-    #
-    # Either miss would leave the 600 s preamble bound in force over the whole
-    # cycle and false-kill the weekly base-image download at ~10 minutes.
+    # See https://yuruna.link/4213a0b3-00e0
     for ($attempt = 0; $attempt -lt 5 -and (Test-Path -LiteralPath $phasePath); $attempt++) {
         Remove-Item -LiteralPath $phasePath -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $phasePath) { Start-Sleep -Milliseconds 200 }

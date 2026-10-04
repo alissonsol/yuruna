@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42f3b71a-0d5c-46e8-9c02-8a41de6b7f35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,11 +128,20 @@ $Document = @(
     @{ Repo = 'yuruna'; Source = 'docs/kubernetes.md' }
     @{ Repo = 'yuruna'; Source = 'docs/authentication.md' }
     @{ Repo = 'yuruna'; Source = 'docs/workarounds.md' }
+    @{ Repo = 'yuruna'; Source = 'docs/extensions-api.md' }
+    @{ Repo = 'yuruna'; Source = 'docs/failure-schema.md' }
+    @{ Repo = 'yuruna'; Source = 'docs/framework-implementation-notes.md' }
+    @{ Repo = 'yuruna'; Source = 'docs/host-implementation-notes.md' }
+    @{ Repo = 'yuruna'; Source = 'docs/pool-admin.md' }
+    @{ Repo = 'yuruna'; Source = 'docs/project-implementation-notes.md' }
+    @{ Repo = 'yuruna'; Source = 'docs/test-harness.md' }
+    @{ Repo = 'yuruna'; Source = 'docs/vmconfig.md' }
     @{ Repo = 'yuruna-project'; Source = 'README.md' }
     @{ Repo = 'yuruna-project'; Source = 'template/README.md' }
     @{ Repo = 'yuruna-project'; Source = 'example/README.md' }
     @{ Repo = 'yuruna-project'; Source = 'example/website/README.md' }
     @{ Repo = 'yuruna-project'; Source = 'example/text-to-sql/README.md' }
+    @{ Repo = 'yuruna-project'; Source = 'example/website/components/frontend/website/README.md' }
 )
 
 function Get-RepoRootFor {
@@ -196,7 +205,7 @@ function Get-LinkFinding {
 
 if (-not (Test-Path -LiteralPath $SiblingRoot -PathType Container)) {
     $ErrorActionPreference = 'Continue'
-    Write-Error "The sibling repository is not beside this one: $SiblingRoot. Five of the thirteen documents live there, so the map cannot be evaluated."
+    Write-Error "The sibling repository is not beside this one: $SiblingRoot. Six of the twenty-two documents live there, so the map cannot be evaluated."
     exit 2
 }
 

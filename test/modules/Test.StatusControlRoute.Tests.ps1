@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42798304-85e4-4102-8026-ce168ff64fd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1348,5 +1348,76 @@ Describe 'launch records, transcript stems and refusal reasons' {
             Assert-StringEqual $cases[$reason] (Get-StartCycleRefusalReason -ConfirmReason $reason) "'$reason'"
         }
         Assert-StringEqual 'internal_error' (Get-StartCycleRefusalReason -ConfirmReason $null)
+    }
+}
+
+Describe 'the merged /log/ index reads the pool share in one pass' {
+
+    # The archive merge runs inside the listener's only request slot. On Linux
+    # every Get-Item enumerates the whole parent directory, so looking each
+    # archived name up again made one index request quadratic in archived
+    # cycles: over the pool share it held the listener for tens of minutes, and
+    # every guest livecheck queued behind it failed. The helpers are lifted out
+    # of the generated server into a module of their own, with Get-Item replaced
+    # by a counter, so a lookup per name fails the case instead of slowing it.
+    BeforeAll {
+        $script:ArchiveIndexText = @(
+            (Get-ServerFunctionText -Name 'Get-ArchivedCycleEntry'),
+            (Get-ServerFunctionText -Name 'Get-ArchivedCycleName')
+        ) -join "`n"
+    }
+
+    It 'lists only sentinel-complete cycle folders, as the folder objects themselves, with no lookup per name' {
+        Assert-True ($script:ArchiveIndexText -match 'function Get-ArchivedCycleEntry') 'the generated server must define Get-ArchivedCycleEntry'
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-archive-index'
+        try {
+            $hostId = '42e5e36df63d4edf8b664e6cf6fce463'
+            $complete = @(foreach ($n in 1..5) { '{0:D6}.2026-10-0{1}.12-00-00.{2}' -f (700 + $n), $n, $hostId })
+            foreach ($name in $complete) {
+                $dir = [IO.Directory]::CreateDirectory((Join-Path $root $name))
+                [IO.File]::WriteAllText((Join-Path $dir.FullName '.yuruna-complete'), '')
+            }
+            $copying = '000706.2026-10-06.12-00-00.{0}' -f $hostId
+            $null = [IO.Directory]::CreateDirectory((Join-Path $root $copying))
+            $other = [IO.Directory]::CreateDirectory((Join-Path $root 'not-a-cycle'))
+            [IO.File]::WriteAllText((Join-Path $other.FullName '.yuruna-complete'), '')
+
+            $module = New-Module -Name 'ArchiveIndexUnderTest' -ScriptBlock ([scriptblock]::Create(@"
+`$script:GetItemCalls = 0
+function Get-Item { `$script:GetItemCalls++ }
+function Get-ArchiveCycleRoot { '$($root -replace "'", "''")' }
+$($script:ArchiveIndexText)
+"@))
+            try {
+                $first = @(& $module { Get-ArchivedCycleEntry })
+                Assert-StringEqual (($complete | Sort-Object) -join ',') ((@($first | ForEach-Object Name) | Sort-Object) -join ',') 'only the sentinel-complete cycle folders are listed'
+                Assert-Equal 0 @($first | Where-Object { -not $_.PSIsContainer }).Count 'every entry is the provider folder object the index renders'
+                Assert-Equal 0 (& $module { $script:GetItemCalls }) 'no archived name may be looked up again'
+
+                # A copy that completes later is listed on the next request, and a
+                # folder that changed and lost its sentinel is not.
+                [IO.File]::WriteAllText((Join-Path $root "$copying/.yuruna-complete"), '')
+                $withdrawn = $complete[0]
+                [IO.File]::Delete((Join-Path $root "$withdrawn/.yuruna-complete"))
+                [IO.Directory]::SetLastWriteTimeUtc((Join-Path $root $withdrawn), [DateTime]::UtcNow.AddMinutes(1))
+                $names = @(& $module { Get-ArchivedCycleName })
+                Assert-True ($names -contains $copying) 'a copy that completed since the last request must be listed'
+                Assert-True ($names -notcontains $withdrawn) 'a folder that changed and lost its sentinel must not be listed'
+                Assert-Equal 5 $names.Count 'four remembered folders and the one that completed'
+                Assert-Equal 0 (& $module { $script:GetItemCalls }) 'no archived name may be looked up again'
+            } finally { Remove-Module $module -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
+    }
+
+    It 'merges the archive into the /log/ root index without a lookup per name' {
+        $merge = $script:ServerAst.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.IfStatementAst] -and
+                $n.Clauses[0].Item1.Extent.Text -eq '$path -eq ''log'' -or $path -eq ''log/'''
+            }, $true) | Select-Object -First 1
+        Assert-True ($null -ne $merge) 'the generated server must merge the archive into the /log/ root index'
+        $calls = @($merge.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() })
+        Assert-True ($calls -contains 'Get-ArchivedCycleEntry') 'the merge must take the folder objects from Get-ArchivedCycleEntry'
+        Assert-True ($calls -notcontains 'Get-Item') 'the merge must not look an archived name up again'
     }
 }

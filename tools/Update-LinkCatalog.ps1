@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42d5c7e8-3b19-4a62-8f04-6c2ae91b73d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,15 +34,15 @@
     URL of that document's translation. A row with no translation simply has
     no fourth element, and the redirector serves English.
 
-    Rows the redirector already had are preserved untouched, and the file
-    stays sorted the way its README says it is kept. Only rows whose key is
-    a file id are this script's to own; a hand-written slug row is never
-    rewritten or removed.
+    Published rows outside the anchor manifest are preserved, including
+    nonlocalized SBOM documents whose anchors are checked locally. Generated
+    rows can refresh titles and translations, but an existing key cannot
+    silently change its document target. Hand-written slug rows are preserved.
 
     Exit codes follow the entry-point contract:
         0  The catalog already carries the current rows.
         1  Rows were written, or would be (default).
-        2  The anchor manifest or the sibling catalog is missing.
+        2  Required input is missing, or a published identity is invalid.
 
 .PARAMETER Update
     Write the catalog. Without it, the run only reports.
@@ -81,6 +81,37 @@ $RepoUrl = @{
     'yuruna-project' = 'https://github.com/alissonsol/yuruna-project/blob/main/'
 }
 
+function Get-LocalSbomAnchorId {
+    <#
+    .SYNOPSIS
+        Read stable anchors from a nonlocalized document, excluding fenced examples.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$LiteralPath)
+
+    $ids = [Collections.Generic.List[string]]::new()
+    $fenceCharacter = ''
+    $fenceLength = 0
+    foreach ($line in [IO.File]::ReadAllLines($LiteralPath)) {
+        if ($fenceCharacter) {
+            $closing = '^ {0,3}' + [regex]::Escape($fenceCharacter) + '{' + $fenceLength + ',}[ \t]*$'
+            if ($line -match $closing) { $fenceCharacter = '' }
+            continue
+        }
+        $fence = [regex]::Match($line, '^ {0,3}(`{3,}|~{3,})(.*)$')
+        if ($fence.Success -and -not ($fence.Groups[1].Value[0] -eq '`' -and
+                $fence.Groups[2].Value.Contains('`'))) {
+            $fenceCharacter = [string]$fence.Groups[1].Value[0]
+            $fenceLength = $fence.Groups[1].Length
+            continue
+        }
+        $anchor = [regex]::Match($line, '^[ \t]*<a id="(42[0-9a-f]{6}-[0-9a-f]{4})"></a>[ \t]*$')
+        if ($anchor.Success) { $ids.Add($anchor.Groups[1].Value) }
+    }
+    return [string[]]$ids.ToArray()
+}
+
 $anchorData = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($AnchorManifest))
 
 $idRows = [Collections.Generic.List[object]]::new()
@@ -108,12 +139,69 @@ if ($existing -is [System.Collections.IList] -and $existing.Count -gt 0 -and $ex
     foreach ($entry in $existing) { $parsedRows.Add($entry) }
 } else { $parsedRows.Add($existing) }
 
-# Everything that is not a file-id row stays exactly as it was.
+$generatedById = @{}
+foreach ($r in $idRows) {
+    $key = [string]$r[0]
+    if ($generatedById.ContainsKey($key)) {
+        Write-Error "Anchor manifest repeats file id '$key'." -ErrorAction Continue
+        exit 2
+    }
+    $generatedById[$key] = $r
+}
+
+# Published ids absent from the localized index remain public addresses.
+# Validate before writing so a collision cannot delete or retarget a key.
 $kept = [Collections.Generic.List[object]]::new()
-foreach ($r in $parsedRows) {
-    $key = if (@($r[0]).Count -gt 1) { [string](@($r[0])[0]) } else { [string]$r[0] }
-    if ($key -match '^42[0-9a-f]{6}$') { continue }
-    $kept.Add($r)
+$publishedById = @{}
+try {
+    foreach ($r in $parsedRows) {
+        $keys = @($r[0])
+        $fileIds = @($keys | Where-Object { [string]$_ -cmatch '^42[0-9a-f]{6}$' })
+        $generated = $null
+        foreach ($key in $fileIds) {
+            if ($publishedById.ContainsKey($key)) { throw "Catalog repeats published file id '$key'." }
+            $publishedById[$key] = $r
+            if ($generatedById.ContainsKey($key)) {
+                $generated = $generatedById[$key]
+                $urls = @($r[2])
+                if ($urls.Count -ne 1 -or [string]$urls[0] -cne [string]$generated[2]) {
+                    throw "Published file id '$key' would change its document target to '$($generated[2])'."
+                }
+                if ($fileIds.Count -ne 1) { throw "Published row '$key' aliases multiple file ids." }
+                $generated[0] = $r[0]
+            }
+            foreach ($url in @($r[2])) {
+                $target = [regex]::Match([string]$url,
+                    '^https://github\.com/[^/]+/(yuruna|yuruna-project)/blob/main/(docs/sbom/[^?#\s]+\.md)(?:#[^\s]*)?$')
+                if (-not $target.Success) { continue }
+                foreach ($otherUrl in @($r[2])) {
+                    $otherTarget = [regex]::Match([string]$otherUrl,
+                        '^https://github\.com/[^/]+/(yuruna|yuruna-project)/blob/main/(docs/sbom/[^?#\s]+\.md)(?:#[^\s]*)?$')
+                    if (-not $otherTarget.Success -or
+                        $otherTarget.Groups[1].Value -cne $target.Groups[1].Value -or
+                        $otherTarget.Groups[2].Value -cne $target.Groups[2].Value) {
+                        throw "Published SBOM file id '$key' has conflicting document targets."
+                    }
+                }
+                $documentRoot = if ($target.Groups[1].Value -eq 'yuruna') { $RepoRoot } else { Join-Path $Parent 'yuruna-project' }
+                $sbomRoot = [IO.Path]::GetFullPath((Join-Path $documentRoot 'docs/sbom')) + [IO.Path]::DirectorySeparatorChar
+                $full = [IO.Path]::GetFullPath((Join-Path $documentRoot $target.Groups[2].Value))
+                if (-not $full.StartsWith($sbomRoot, [StringComparison]::Ordinal) -or
+                    -not (Test-Path -LiteralPath $full -PathType Leaf)) {
+                    throw "Published SBOM file id '$key' has no local document at '$($target.Groups[2].Value)'."
+                }
+                $ids = @(Get-LocalSbomAnchorId -LiteralPath $full)
+                if ($ids.Count -eq 0 -or @($ids | Where-Object {
+                            -not $_.StartsWith($key + '-', [StringComparison]::Ordinal) }).Count -gt 0) {
+                    throw "Published SBOM file id '$key' has missing or mismatched local anchors."
+                }
+            }
+        }
+        if (-not $generated) { $kept.Add($r) }
+    }
+} catch {
+    Write-Error -Message $_.Exception.Message -ErrorAction Continue
+    exit 2
 }
 
 $merged = [Collections.Generic.List[object]]::new()

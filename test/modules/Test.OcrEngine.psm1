@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,17 +178,7 @@ function Get-EnabledOcrProvider {
     $requested = if ($envVal) {
         $envVal -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     } elseif ($IsMacOS) {
-        # host.macos.utm -- Apple Vision is the native engine, fastest path
-        # to a match. Invoke-MacVisionOcr's x-axis crop handles the
-        # silent-empty case for the framebuffer captures the runner
-        # actually feeds it. Tesseract sits behind as a fallback
-        # for the few cases Vision still returns nothing (sparse glyphs in
-        # unusual fonts, very low contrast bands). With combine mode 'Or'
-        # tesseract only runs when Vision did NOT match the search
-        # pattern, so the common case is one OCR call per poll. winrt is
-        # omitted entirely -- it is Windows-only and would be filtered out
-        # at runtime anyway; listing it here only adds confusing log
-        # lines about a provider that can't run.
+        # See https://yuruna.link/4213a0b3-00ac
         @('macos-vision', 'tesseract')
     } elseif ($IsWindows) {
         # host.windows.hyper-v -- WinRT (Windows.Media.Ocr) is native and
@@ -264,15 +254,7 @@ function Invoke-AllEnabledOcr {
 }
 
 # --- REGION: Built-in provider: Tesseract
-# -Global is mandatory: a bare -Force re-import of an already-global
-# Test.Tesseract yanks it out of the global session into this module's
-# private scope (legacy module-eviction regression class). Because this
-# line re-runs every time Test.OcrEngine is re-imported -- and the
-# Invoke-Sequence -> Test.OcrMatch -> Test.OcrEngine chain re-imports it
-# on each Initialize-SequenceEngineRegistry -- the eviction would leave
-# Tesseract's exports (Assert-TesseractInstalled, ...) invisible to the
-# entry-point's global scope even though Test.OcrEngine's own exports
-# stay resolvable. Keep -Global so Tesseract stays globally visible.
+# See https://yuruna.link/4213a0b3-00ad
 Import-Module (Join-Path $PSScriptRoot "Test.Tesseract.psm1") -Force -Global -Verbose:$false
 
 Register-OcrProvider -Name 'tesseract' `
@@ -561,15 +543,7 @@ function Get-WinRtOcrWorkerScriptPath {
     return $script:WinRtOcrWorkerScriptPath
 }
 
-# Read deadline for the persistent worker. StandardOutput.ReadLine() has no
-# timeout, so a worker that spawned fine but then wedges (WinRT/COM stall,
-# GPU-driver hang -- never emits its end-of-response marker) would block the OCR
-# call until the full Wait-ForText timeout (minutes), turning a recoverable glitch
-# into a full-timeout burn with no fast-fail. Bounding the read lets
-# Invoke-WinRtOcr fall back to a one-shot spawn within seconds. Generous vs the
-# ms-scale normal OCR: a rare false-timeout only costs one slower one-shot call
-# plus a fresh worker, never a wrong OCR result. Override with a positive
-# YURUNA_OCR_WORKER_TIMEOUT_SECONDS.
+# See https://yuruna.link/4213a0b3-00ae
 $script:WinRtOcrWorkerReadTimeoutSeconds = 30
 $envOcrTimeout = $env:YURUNA_OCR_WORKER_TIMEOUT_SECONDS -as [int]
 if ($envOcrTimeout -and $envOcrTimeout -gt 0) {
@@ -829,14 +803,7 @@ function Invoke-WinRtOcr {
             $detail  = (@($errText, $text) | Where-Object { $_ }) -join "`n"
             throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_aebd04afebf25aaf' -Arguments @{ exitCode = "$exitCode"; detail = "$detail" })
         }
-        # powershell.exe -File exits 0 even when the script it ran threw, so the
-        # exit code alone cannot separate a blank screen from a helper that never
-        # reached its OCR call. Stderr is what separates them: a screen with no
-        # text produces neither stdout nor stderr, so text-less output carrying a
-        # diagnostic is a failed read and must throw. Returning '' instead is the
-        # silent case -- the caller is told the console is empty, no warning and
-        # no ocr_provider_failed event is raised, and anything waiting for that
-        # console to change waits out its whole budget against a dead reader.
+        # See https://yuruna.link/4213a0b3-00af
         if (-not $text -and $errText) {
             throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_8ab33e8dd3c14ea8' -Arguments @{ errText = "$errText" })
         }
@@ -1053,18 +1020,7 @@ for row in rows {
 }
 '@
 
-# Lazy-compile cache for the Vision OCR Swift source. `swift script.swift`
-# re-runs the Swift frontend on every invocation -- empirically 1-2s per
-# call on Apple Silicon, which dominates Wait-ForText latency on macOS
-# UTM hosts when Vision is the primary engine (the macOS default).
-# `swiftc -O` compiles once to a native binary; subsequent invocations
-# are pure exec, ~50-150ms. We key the binary path by SHA-256 of the
-# source so an in-place edit triggers a fresh compile, and so multiple
-# parallel cycles don't fight over the same path.
-#
-# Returns $null when swiftc is unavailable or compilation fails;
-# Invoke-MacVisionOcr falls back to the original `swift script.swift`
-# code path so behavior is preserved (just slower) on those hosts.
+# See https://yuruna.link/4213a0b3-00b0
 $script:VisionOcrBinaryPath = $null
 # Process-lifetime negative cache: once swiftc is found missing or a compile
 # fails, Get-VisionOcrBinaryPath returns $null without re-probing swiftc or

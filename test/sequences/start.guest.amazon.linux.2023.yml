@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 4224b44c-5e04-47e8-a61b-865d2a191b84
-sequenceRevision: 4
+sequenceRevision: 5
 
 description: "Amazon Linux 2023: first login, change password, run update script, reboot."
 keystrokeMechanism: gui
@@ -21,7 +21,7 @@ variables:
 component:
   - action: retry
     maxAttempts: 3
-    description: "Login and password rotation (restart on timeout)"
+    description: "Wait for installed login prompt (retry on timeout)"
     steps:
       # See https://yuruna.link/42e220c4-0007
       - action: pressKey
@@ -41,44 +41,44 @@ component:
           - "Authentication token manipulation error"
         description: "OCR: login:"
 
-      - action: passwdPrompt
-        pattern: "login:"
-        text: "${username}"
-        description: "OCR: login:"
+  # Password mutation must never replay after PAM accepts a new password.
+  # See https://yuruna.link/42e220c4-0007
+  - action: passwdPrompt
+    pattern: "login:"
+    text: "${username}"
+    description: "OCR: login:"
 
-      # See https://yuruna.link/42e220c4-0007
-      - action: passwdPrompt
-        pattern: "Password:"
-        timeoutSeconds: 30
-        sinceStepStart: true
-        failurePatterns:
-          - "BdsDxe:"
-          - "GNU GRUB"
-        text: "${currentPassword}"
-        description: "OCR: Password:"
+  # See https://yuruna.link/42e220c4-0007
+  - action: passwdPrompt
+    pattern: "Password:"
+    timeoutSeconds: 30
+    sinceStepStart: true
+    failurePatterns:
+      - "BdsDxe:"
+      - "GNU GRUB"
+    text: "${currentPassword}"
+    description: "OCR: Password:"
 
-      - action: passwdPrompt
-        pattern: ["Current password", "urrent password:"]
-        sinceStepStart: true
-        text: "${currentPassword}"
-        description: "OCR: Current password"
+  - action: passwdPrompt
+    pattern: ["Current password", "urrent password:"]
+    sinceStepStart: true
+    text: "${currentPassword}"
+    description: "OCR: Current password"
 
-      # Keep the full token distinct from the current-password and retype prompts.
-      - action: passwdPrompt
-        pattern: "New password"
-        sinceStepStart: true
-        text: "${newPassword}"
-        description: "OCR: New password"
+  # Keep the full token distinct from the current-password and retype prompts.
+  - action: passwdPrompt
+    pattern: "New password"
+    sinceStepStart: true
+    text: "${newPassword}"
+    description: "OCR: New password"
 
-      - action: passwdPrompt
-        pattern: ["Retype new password", "etype new password:"]
-        sinceStepStart: true
-        text: "${newPassword}"
-        description: "OCR: Retype new password"
+  - action: passwdPrompt
+    pattern: ["Retype new password", "etype new password:"]
+    sinceStepStart: true
+    text: "${newPassword}"
+    description: "OCR: Retype new password"
 
-  # Prompt handling only proves that input was sent. Make the resulting shell
-  # compute a token before persisting the rotated password, so a return to
-  # agetty cannot update the auth system.
+  # See https://yuruna.link/42e220c4-0007
   - action: waitForSeconds
     seconds: 3
     description: "Let the login shell finish drawing before typing at it"
@@ -98,6 +98,7 @@ component:
       - "Authentication token manipulation error"
     description: "OCR: yuruna_123456789_ok"
 
+  # Persist only after the shell has proved that the rotated login completed.
   - action: callExtension
     method: authentication.SetPassword
     args:

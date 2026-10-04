@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 424ac6f6-cc32-4fff-beb1-ec808f35ab29
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,16 +97,7 @@ function Clear-CredentialProvider {
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_e8f6d3426c95163d'), (Format-YurunaOperatorMessage -Key 'runner.operator_01286d1a561aca1c'))) {
-        # Mutate the shared dictionary; do NOT rebind the names to a fresh one.
-        # Yuruna.CredentialProvider aliases this same object into its own
-        # $script:Providers at import, and that alias is what Get-CredentialProvider
-        # and Register-CredentialProvider actually read and write. Rebinding here
-        # would leave that alias pointing at the original dictionary: the matrix
-        # would report an empty registry while lookups kept resolving the live
-        # built-ins, and a provider registered after the clear would land in the
-        # orphaned copy where nothing can see it. A test that believed it had
-        # isolated the registry would then be exercising the real providers -- and
-        # Repair-Credential would invoke a real `az acr login`.
+        # See https://yuruna.link/4213a0b3-0048
         $global:YurunaCredentialProviders.Clear()
         $script:Providers = $global:YurunaCredentialProviders
     }

@@ -124,6 +124,13 @@ The Hyper-V backends drive the guest through `Msvm_Keyboard`'s `TypeScancodes`,
 and two properties of the emulated PS/2 controller shape how `Send-TextHyperV`
 uses it.
 
+After a batched Hyper-V scancode send or the JXA UTM CGEvent path, the
+transport waits 200 ms before the next action. The guest keyboard buffer drains
+asynchronously; without that settle window, Enter or a screenshot can race a
+half-typed field. The default came from 16-character login fields on the lab
+hardware and can be overridden with `vmCommunication.settleMs` in
+`test.config.yml`.
+
 **Every send starts with a modifier-release prefix.** The controller keeps a
 flat "is key down" state per scan code, and the only thing that flips a key back
 to up is the matching break code. If a prior keyboard event left a modifier
@@ -308,6 +315,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

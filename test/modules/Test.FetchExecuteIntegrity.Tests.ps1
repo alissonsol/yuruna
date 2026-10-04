@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,20 +20,29 @@
 .SYNOPSIS
     Pester guard on the guest fetch-and-execute integrity gate: the host must
     hand each guest a sha256 digest of the working-tree script it is about to
-    fetch, and the guest must refuse bytes that do not match.
+    fetch, and the guest must refuse bytes that do not match -- or bytes it was
+    given no digest for.
 .DESCRIPTION
     Two halves of one control:
       * Host side -- Get-FetchExecutionContext (Test.SequenceHandler.psm1) must
         bind the exact command and full working-tree digests in a private
         context, strip a ?query for path hashing, and fail before dispatch for
         traversal, absolute, or missing paths. The launch prefix is 16 chars.
-      * Guest side -- verify_sha256 (automation/fetch-and-execute.sh) must return
-        0 on a match, 1 on a mismatch, 0 on an empty digest without the require
-        flag (rollout-compat), and 1 on an empty digest WITH the require flag.
+        The context must never carry the manual override EXEC_ALLOW_UNVERIFIED,
+        and the seeded launcher must refuse a context that tries to.
+      * Guest side -- a digest is required by default. verify_sha256
+        (automation/fetch-and-execute.sh) must return 0 on a match, 1 on a
+        mismatch (override or not), 1 on an empty digest, 0 on an empty digest
+        only under EXEC_ALLOW_UNVERIFIED=1 (with a banner), and 1 on an empty
+        digest while EXEC_REQUIRE_SHA256=1 whatever the override says.
     The host half extracts the real function via the parser and exercises it (no
     module import, so no host I/O deps -- the same discipline as the sibling
     sequence tests). The guest half extracts the real shell function and runs it
-    under bash; it is skipped (passes) where bash is unavailable.
+    under bash, then drives the whole script end to end with the network, the
+    terminal and sudo stubbed and its two system paths pointed at a scratch
+    directory, so the exit code and "the payload did not run" are asserted
+    rather than inferred from a return value. Both are skipped (pass) where bash
+    is unavailable.
 #>
 
 BeforeAll {
@@ -113,6 +122,15 @@ Describe 'Get-FetchExecutionContext (host-side integrity binding)' {
         $result.Fields.E_QI | Should -BeExactly 'sequence-456'
         $result.Bytes.Length | Should -BeLessOrEqual 4096
         $result.Command | Should -Not -Match 'NONZERO SCRIPT EXIT:'
+    }
+    It 'never carries the manual unverified override, which only an operator may type' {
+        $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine "/usr/local/lib/yuruna/fetch-and-execute.sh $sample" -WarningAction SilentlyContinue
+        $result.Fields.Contains('EXEC_ALLOW_UNVERIFIED') | Should -BeFalse
+        [Text.Encoding]::UTF8.GetString($result.Bytes) | Should -Not -Match 'EXEC_ALLOW_UNVERIFIED'
+        $result.Command | Should -Not -Match 'EXEC_ALLOW_UNVERIFIED'
+        # Neither the launcher's field allowlist nor its export list may name it.
+        $launcher = [IO.File]::ReadAllText((Join-Path $repoRoot 'automation/yuruna-fetch-context.sh'))
+        $launcher | Should -Not -Match 'EXEC_ALLOW_UNVERIFIED'
     }
     It 'strips a query before hashing but binds the complete original command' {
         $command = "fetch-and-execute.sh $sample" + '?nocache=9'
@@ -296,6 +314,30 @@ Describe 'Fetch context guest seeding' {
             $seed | Should -Match 'YURUNA_FETCH_CONTEXT_BASE64_PLACEHOLDER'
         }
     }
+
+    It 'refuses a context that carries the manual unverified override, even inside an enforced one' {
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        if (-not $script:hostBashHasAssociativeArrays) { Set-ItResult -Skipped -Because 'the host bash predates 4.0 (no associative arrays); the context script targets a Linux guest'; return }
+        $built = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine "/usr/local/lib/yuruna/fetch-and-execute.sh $sample" -WarningAction SilentlyContinue
+        $builtText = [Text.Encoding]::UTF8.GetString($built.Bytes)
+        $builtText | Should -Match 'EXEC_REQUIRE_SHA256=' -Because 'the fixture must be an enforced context to prove the override cannot ride inside one'
+        $override = 'EXEC_ALLOW_UNVERIFIED=' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('1')) + "`n"
+        $bytes = [Text.Encoding]::UTF8.GetBytes($builtText + $override)
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try { $digest = [BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
+        finally { $sha256.Dispose() }
+        $encoded = [Convert]::ToBase64String($bytes)
+        $driver = @'
+export HOME=$(mktemp -d)
+trap 'rm -rf -- "$HOME"' EXIT
+yfe() { bash automation/yuruna-fetch-context.sh "$@"; }
+'@ + "`nprintf '%s' '$encoded' | yfe --prepare $($built.Id) $($bytes.Length) $digest 2>&1; echo `"STATUS=`$?`""
+        Push-Location $repoRoot
+        try { $run = Invoke-BashDriver -BashPath $bash.Source -Script $driver } finally { Pop-Location }
+        $run.Output | Should -Match 'YFE_CONTEXT_FIELD'
+        $run.Output | Should -Match 'STATUS=125'
+    }
 }
 
 Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
@@ -390,32 +432,358 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
 }
 
 Describe 'verify_sha256 (guest-side gate)' {
-    It 'returns 0 match / 1 mismatch / 0 empty-unenforced / 1 empty-enforced' {
-        $bash = Get-Command bash -ErrorAction SilentlyContinue
-        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
-        $fae   = Get-Content -Raw -LiteralPath $script:faePath
-        $vf    = [regex]::Match($fae, '(?ms)^verify_sha256\(\)\s*\{.*?^\}')
-        Assert-True $vf.Success 'verify_sha256 found in fetch-and-execute.sh'
-        $driver = @'
-
-tf=$(mktemp); printf 'yuruna integrity probe' > "$tf"
-h=$(sha256sum "$tf" | awk '{print $1}')
-m=0;  verify_sha256 "$tf" "$h"        l >/dev/null 2>&1 || m=$?
-x=0;  verify_sha256 "$tf" "deadbeef"  l >/dev/null 2>&1 || x=$?
-e=0;  verify_sha256 "$tf" ""          l >/dev/null 2>&1 || e=$?
-export EXEC_REQUIRE_SHA256=1
-r=0;  verify_sha256 "$tf" ""          l >/dev/null 2>&1 || r=$?
-unset EXEC_REQUIRE_SHA256
-rm -f "$tf"
-echo "$m $x $e $r"
-'@
-        $script = $vf.Value + "`n" + $driver
-        # Feed the script on stdin so there is no Windows/POSIX temp-path to
+    BeforeAll {
+        # The real function, lifted out of the script, driven under bash. Each
+        # case reports the status and the two streams separately: the refusal
+        # and the banner are promised on stderr, and one that drifted onto stdout
+        # would land in the payload's log instead of in front of the operator.
+        # The script goes in on stdin so there is no Windows/POSIX temp-path to
         # translate for the bash child (the suite also runs on Linux/macOS hosts).
-        # Drop stderr (the deliberate integrity warnings) so only the result line
-        # is captured.
-        $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
-        Assert-StringEqual -Actual $out -Expected '0 1 0 1' -Because "verify_sha256 rc[match mismatch empty require]=$out"
+        $vf = [regex]::Match((Get-Content -Raw -LiteralPath $script:faePath), '(?ms)^verify_sha256\(\)\s*\{.*?^\}')
+        $script:verifyFunction = if ($vf.Success) { $vf.Value } else { $null }
+
+        function Invoke-VerifyCase {
+            param(
+                [ValidateSet('good', 'wrong', 'empty')][string]$Digest = 'empty',
+                [string[]]$Setup = @(),         # bash lines run before the call: exports of the environment under test
+                [string]$VarName = '',          # the optional 4th argument
+                [string]$Label = 'guest/example.sh'
+            )
+            $digestWord = switch ($Digest) { 'good' { '"$good"' } 'wrong' { 'deadbeef' } default { "''" } }
+            $template = @'
+unset EXEC_REQUIRE_SHA256 EXEC_ALLOW_UNVERIFIED FETCH_SOURCE GH_REPO GH_REF HOST_BASE
+__SETUP__
+tf=$(mktemp); printf 'yuruna integrity probe' > "$tf"
+good=$( (sha256sum "$tf" 2>/dev/null || shasum -a 256 "$tf") | awk '{print $1}')
+rc=0
+verify_sha256 "$tf" __DIGEST__ '__LABEL__' __VAR__ >"$tf.out" 2>"$tf.err" || rc=$?
+echo "RC=$rc"
+echo '@@STDOUT'; cat "$tf.out"; echo
+echo '@@STDERR'; cat "$tf.err"; echo
+echo '@@END'
+rm -f "$tf" "$tf.out" "$tf.err"
+'@
+            $driver = $template.Replace('__SETUP__', ($Setup -join "`n")).Replace('__DIGEST__', $digestWord).Replace('__LABEL__', $Label).Replace('__VAR__', $VarName)
+            $run = Invoke-BashDriver -BashPath (Get-Command bash).Source -Script ($script:verifyFunction + "`n" + $driver)
+            $m = [regex]::Match($run.Output, '(?s)RC=(\d+)\s+@@STDOUT\r?\n(.*?)\r?\n@@STDERR\r?\n(.*?)\r?\n@@END')
+            if (-not $m.Success) { throw "verify_sha256 driver produced no result block:`n$($run.Output)" }
+            return [pscustomobject]@{
+                Rc     = [int]$m.Groups[1].Value
+                Stdout = $m.Groups[2].Value
+                Stderr = $m.Groups[3].Value
+            }
+        }
+    }
+
+    It 'finds the function the cases below depend on' {
+        Assert-True ($null -ne $script:verifyFunction) 'verify_sha256 found in fetch-and-execute.sh'
+    }
+
+    It 'returns 0 on a matching digest and 1 on a mismatching one, quietly in the first case' {
+        if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $ok = Invoke-VerifyCase -Digest good
+        $ok.Rc | Should -Be 0
+        $ok.Stdout | Should -Match 'sha256 verified \(guest/example\.sh\)'
+        $ok.Stderr.Trim() | Should -BeNullOrEmpty
+        $bad = Invoke-VerifyCase -Digest wrong
+        $bad.Rc | Should -Be 1
+        $bad.Stderr | Should -Match 'INTEGRITY MISMATCH'
+    }
+
+    It 'refuses an empty digest by default, on stderr, naming how to supply one' {
+        if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $run = Invoke-VerifyCase -Digest empty
+        $run.Rc | Should -Be 1
+        $run.Stdout.Trim() | Should -BeNullOrEmpty
+        $run.Stderr | Should -Match 'NO EXPECTED DIGEST'
+        $run.Stderr | Should -Match 'guest/example\.sh'
+        $run.Stderr | Should -Match 'E_SHA=<64 hex digits>'
+        $run.Stderr | Should -Match 'EXEC_ALLOW_UNVERIFIED=1'
+        $run.Stderr | Should -Not -Match 'UNVERIFIED CODE WILL RUN'
+    }
+
+    It 'names the variable that carries the digest being asked for' {
+        if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $run = Invoke-VerifyCase -Digest empty -VarName E_RETRY_SHA -Label automation/yuruna-retry.sh
+        $run.Rc | Should -Be 1
+        $run.Stderr | Should -Match 'E_RETRY_SHA=<64 hex digits>'
+        $run.Stderr | Should -Not -Match 'E_SHA='
+    }
+
+    It 'lets an empty digest through only under EXEC_ALLOW_UNVERIFIED=1, and says so on stderr' {
+        if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $run = Invoke-VerifyCase -Digest empty -Setup 'export EXEC_ALLOW_UNVERIFIED=1'
+        $run.Rc | Should -Be 0
+        $run.Stdout | Should -Not -Match 'UNVERIFIED' -Because 'the banner belongs to the operator, not to anything that captures stdout'
+        $banner = @($run.Stderr -split '\r?\n' | Where-Object { $_ -match '^!!' })
+        $banner.Count | Should -BeGreaterOrEqual 6 -Because 'a one-line warning is easy to scroll past; the override must be conspicuous'
+        $run.Stderr | Should -Match 'UNVERIFIED CODE WILL RUN'
+        $run.Stderr | Should -Match 'file:\s+guest/example\.sh'
+        $run.Stderr | Should -Match 'NOT checked'
+    }
+
+    It 'honors the override only when it is exactly 1' {
+        if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        foreach ($value in 'true', 'yes', '0', 'on') {
+            $run = Invoke-VerifyCase -Digest empty -Setup "export EXEC_ALLOW_UNVERIFIED=$value"
+            $run.Rc | Should -Be 1 -Because "EXEC_ALLOW_UNVERIFIED=$value is not the deliberate spelling"
+            $run.Stderr | Should -Match 'only the value 1 enables it'
+        }
+        $blank = Invoke-VerifyCase -Digest empty -Setup 'export EXEC_ALLOW_UNVERIFIED='
+        $blank.Rc | Should -Be 1
+    }
+
+    It 'never lets the override excuse a wrong digest' {
+        if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $run = Invoke-VerifyCase -Digest wrong -Setup 'export EXEC_ALLOW_UNVERIFIED=1'
+        $run.Rc | Should -Be 1
+        $run.Stderr | Should -Match 'INTEGRITY MISMATCH'
+        $run.Stderr | Should -Match 'never excuses a wrong one'
+        $run.Stderr | Should -Not -Match 'UNVERIFIED CODE WILL RUN'
+    }
+
+    It 'keeps EXEC_REQUIRE_SHA256=1 strict, with or without the override' {
+        if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $alone = Invoke-VerifyCase -Digest empty -Setup 'export EXEC_REQUIRE_SHA256=1'
+        $alone.Rc | Should -Be 1
+        $alone.Stderr | Should -Match 'host requires a digest'
+        $alone.Stderr | Should -Not -Match 'EXEC_ALLOW_UNVERIFIED'
+        $both = Invoke-VerifyCase -Digest empty -Setup 'export EXEC_REQUIRE_SHA256=1', 'export EXEC_ALLOW_UNVERIFIED=1'
+        $both.Rc | Should -Be 1
+        $both.Stderr | Should -Match 'host requires a digest'
+        $both.Stderr | Should -Match 'does not apply while EXEC_REQUIRE_SHA256=1'
+        $both.Stderr | Should -Not -Match 'UNVERIFIED CODE WILL RUN'
+    }
+
+    It 'names where the unverified bytes come from, GitHub fallback included' {
+        if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $ref = '0123456789abcdef0123456789abcdef01234567'
+        $github = Invoke-VerifyCase -Digest empty -Setup 'export EXEC_ALLOW_UNVERIFIED=1', 'FETCH_SOURCE=github', 'GH_REPO=owner/repo', "GH_REF=$ref"
+        $github.Rc | Should -Be 0
+        $github.Stderr | Should -Match "source:\s+GitHub owner/repo at $ref"
+        $served = Invoke-VerifyCase -Digest empty -Setup 'export EXEC_ALLOW_UNVERIFIED=1', 'FETCH_SOURCE=host', 'HOST_BASE=http://192.0.2.7:8080/yuruna-repo/'
+        $served.Rc | Should -Be 0
+        $served.Stderr | Should -Match 'source:\s+http://192\.0\.2\.7:8080/yuruna-repo/'
+    }
+}
+
+Describe 'fetch-and-execute.sh digest default (whole script, stubbed network)' {
+    # verify_sha256 returning 1 proves nothing unless the script then stops: the
+    # promise is that an undigested payload does not RUN, and the exit status the
+    # host reads is the script's, not the function's. So the real script is run
+    # end to end, with the network, the terminal and sudo stubbed and the two
+    # system paths it writes (the retry library directory and the run log)
+    # pointed at a scratch directory. Everything is built inside bash so no
+    # Windows/POSIX path has to be translated, and every scenario runs once in
+    # BeforeAll so the cases below only read results.
+    BeforeAll {
+        $script:faeRuns = $null
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        $modern = $false
+        if ($bash) { $modern = [int](& $bash.Source -c 'echo ${BASH_VERSINFO[0]}') -ge 4 }
+        $guestShaped = Test-Path -LiteralPath '/etc/yuruna/host.env'
+        if ($bash -and $modern) {
+            $text = (Get-Content -Raw -LiteralPath $script:faePath).Replace("`r`n", "`n")
+            $libDecl = 'YURUNA_LIB_DIR=/usr/local/lib/yuruna'
+            $logDecl = "fae_log='/tmp/yuruna-last-fetch-and-execute.log'"
+            # A silent miss here would let a run write to the real system paths.
+            if (-not $text.Contains($libDecl) -or -not $text.Contains($logDecl)) {
+                throw 'fetch-and-execute.sh no longer declares the two system paths this harness redirects; update the harness before running it.'
+            }
+            $text = $text.Replace($libDecl, 'YURUNA_LIB_DIR="${FAE_TEST_LIB_DIR:?}"').Replace($logDecl, 'fae_log="${FAE_TEST_LOG:?}"')
+
+            $githubScenarios = if ($guestShaped) { '' } else { @'
+scenario github_no_digest present $gh_repo $gh_ref
+scenario github_override present $gh_repo $gh_ref EXEC_ALLOW_UNVERIFIED=1
+'@ }
+            $template = @'
+unset E_SHA EXEC_SHA256 E_RETRY_SHA EXEC_RETRY_SHA256 EXEC_REQUIRE_SHA256 EXEC_ALLOW_UNVERIFIED \
+      E_FB_REPO E_FB_REF EXEC_FALLBACK_REPO EXEC_FALLBACK_REF YURUNA_GITHUB_REPO YURUNA_GITHUB_REF \
+      EXEC_BASE_URL EXEC_QUERY_PARAMS YurunaCacheContent GH_TOKEN E_SI E_QI \
+      YURUNA_STATUS_SERVICE_IP YURUNA_STATUS_SERVICE_PORT
+work=$(mktemp -d)
+trap 'rm -rf -- "$work"' EXIT
+mkdir -p "$work/bin" "$work/lib"
+cat > "$work/bin/wget" <<'STUB'
+#!/bin/bash
+out=''
+while [ $# -gt 0 ]; do
+    case "$1" in -qO|-O) out="$2"; shift ;; esac
+    shift
+done
+echo wget >> "$FAE_TEST_CALLS"
+if [ -n "$out" ] && [ "$out" != /dev/null ]; then
+    case "$out" in
+        *retrylib*) cat "$FAE_TEST_LIBBODY" > "$out" ;;
+        *)          cat "$FAE_TEST_PAYLOAD" > "$out" ;;
+    esac
+fi
+exit 0
+STUB
+printf '#!/bin/bash\nexit 0\n' > "$work/bin/clear"
+printf '#!/bin/bash\nexec "$@"\n' > "$work/bin/sudo"
+chmod +x "$work/bin/wget" "$work/bin/clear" "$work/bin/sudo"
+cat > "$work/payload.sh" <<'PAYLOAD'
+echo "PAYLOAD_RAN"
+echo "OVERRIDE_SEEN=${EXEC_ALLOW_UNVERIFIED-unset}"
+PAYLOAD
+printf '# retry library fixture\n' > "$work/libbody"
+good=$( (sha256sum "$work/payload.sh" 2>/dev/null || shasum -a 256 "$work/payload.sh") | awk '{print $1}')
+libgood=$( (sha256sum "$work/libbody" 2>/dev/null || shasum -a 256 "$work/libbody") | awk '{print $1}')
+cat > "$work/fae.sh" <<'FAE_SCRIPT_END'
+__FAE__
+FAE_SCRIPT_END
+
+scenario() {   # scenario <name> <present|absent> [VAR=value ...]
+    local name="$1" lib="$2" rc=0 calls lib_bytes=0
+    shift 2
+    : > "$work/calls"
+    rm -f "$work/lib/yuruna-retry.sh" "$work/fae.log"
+    if [ "$lib" = present ]; then : > "$work/lib/yuruna-retry.sh"; fi
+    env PATH="$work/bin:$PATH" EXEC_PROFILE=0 \
+        FAE_TEST_LIB_DIR="$work/lib" FAE_TEST_LOG="$work/fae.log" FAE_TEST_CALLS="$work/calls" \
+        FAE_TEST_PAYLOAD="$work/payload.sh" FAE_TEST_LIBBODY="$work/libbody" \
+        "$@" bash "$work/fae.sh" guest/payload.sh </dev/null >"$work/out" 2>"$work/err" || rc=$?
+    calls=$(wc -l < "$work/calls" | tr -d ' ')
+    if [ -f "$work/lib/yuruna-retry.sh" ]; then lib_bytes=$(wc -c < "$work/lib/yuruna-retry.sh" | tr -d ' '); fi
+    echo "@@SCENARIO $name"
+    echo "RC=$rc"
+    echo "WGET_CALLS=$calls"
+    echo "LIB_BYTES=$lib_bytes"
+    echo '@@STDOUT'; cat "$work/out"; echo
+    echo '@@STDERR'; cat "$work/err"; echo
+    echo '@@LOG'; cat "$work/fae.log" 2>/dev/null; echo
+    echo '@@END'
+}
+
+host=EXEC_BASE_URL=http://stub.invalid/yuruna-repo/
+gh_repo=E_FB_REPO=owner/repo
+gh_ref=E_FB_REF=0123456789abcdef0123456789abcdef01234567
+
+scenario no_digest present $host
+scenario override present $host EXEC_ALLOW_UNVERIFIED=1
+scenario wrong_digest_override present $host EXEC_ALLOW_UNVERIFIED=1 E_SHA=deadbeef
+scenario require_override present $host EXEC_REQUIRE_SHA256=1 EXEC_ALLOW_UNVERIFIED=1
+scenario verified present $host E_SHA="$good"
+scenario verified_override present $host E_SHA="$good" EXEC_ALLOW_UNVERIFIED=1
+scenario lib_no_digest absent $host E_SHA="$good"
+scenario lib_verified absent $host E_SHA="$good" E_RETRY_SHA="$libgood"
+__GITHUB__
+'@
+            $driver = $template.Replace('__GITHUB__', $githubScenarios).Replace('__FAE__', $text)
+            $out = (Invoke-BashDriver -BashPath $bash.Source -Script $driver).Output
+            $records = @{}
+            $pattern = '(?s)@@SCENARIO (\S+)\r?\nRC=(\d+)\r?\nWGET_CALLS=(\d+)\r?\nLIB_BYTES=(\d+)\r?\n@@STDOUT\r?\n(.*?)\r?\n@@STDERR\r?\n(.*?)\r?\n@@LOG\r?\n(.*?)\r?\n@@END'
+            foreach ($m in [regex]::Matches($out, $pattern)) {
+                $records[$m.Groups[1].Value] = [pscustomobject]@{
+                    Rc = [int]$m.Groups[2].Value; Wget = [int]$m.Groups[3].Value; LibBytes = [int]$m.Groups[4].Value
+                    Stdout = $m.Groups[5].Value; Stderr = $m.Groups[6].Value; Log = $m.Groups[7].Value
+                }
+            }
+            $script:faeRuns = $records
+            $script:faeRawOutput = $out
+        }
+        $script:faeSkipReason = if (-not $bash) { 'bash is not available on this host' } elseif (-not $modern) { 'the host bash predates 4.0; the script targets a Linux guest' } else { '' }
+        $script:faeGuestShaped = $guestShaped
+    }
+
+    It 'ran every scenario the cases below read' {
+        if ($script:faeSkipReason) { Set-ItResult -Skipped -Because $script:faeSkipReason; return }
+        $expected = @('no_digest', 'override', 'wrong_digest_override', 'require_override', 'verified', 'verified_override', 'lib_no_digest', 'lib_verified')
+        if (-not $script:faeGuestShaped) { $expected += 'github_no_digest', 'github_override' }
+        foreach ($name in $expected) {
+            Assert-True $script:faeRuns.ContainsKey($name) "scenario '$name' produced a result block; raw output:`n$($script:faeRawOutput)"
+        }
+    }
+
+    It 'refuses to run a payload it has no digest for, exits non-zero, and says how to supply one' {
+        if ($script:faeSkipReason) { Set-ItResult -Skipped -Because $script:faeSkipReason; return }
+        $run = $script:faeRuns['no_digest']
+        $run.Rc | Should -Be 3
+        $run.Stdout | Should -Not -Match 'PAYLOAD_RAN'
+        $run.Stdout | Should -Match 'NONZERO SCRIPT EXIT:'
+        $run.Stdout | Should -Match '\(no expected digest -- refusing to run\)'
+        $run.Stdout | Should -Not -Match 'FETCHED AND EXECUTED'
+        $run.Stderr | Should -Match 'NO EXPECTED DIGEST'
+        $run.Stderr | Should -Match 'E_SHA=<64 hex digits>'
+        $run.Stderr | Should -Match 'EXEC_ALLOW_UNVERIFIED=1'
+    }
+
+    It 'runs it under EXEC_ALLOW_UNVERIFIED=1 behind a banner naming the file, and records that in the log' {
+        if ($script:faeSkipReason) { Set-ItResult -Skipped -Because $script:faeSkipReason; return }
+        $run = $script:faeRuns['override']
+        $run.Rc | Should -Be 0
+        $run.Stdout | Should -Match 'PAYLOAD_RAN'
+        $run.Stdout | Should -Match 'FETCHED AND EXECUTED'
+        $run.Stderr | Should -Match 'UNVERIFIED CODE WILL RUN'
+        $run.Stderr | Should -Match 'file:\s+guest/payload\.sh'
+        $run.Stderr | Should -Match 'NOT checked'
+        @($run.Stderr -split '\r?\n' | Where-Object { $_ -match '^!!' }).Count | Should -BeGreaterOrEqual 6
+        $run.Log | Should -Match '# integrity: UNVERIFIED'
+    }
+
+    It 'does not hand the waiver on to the payload it was granted for' {
+        if ($script:faeSkipReason) { Set-ItResult -Skipped -Because $script:faeSkipReason; return }
+        $script:faeRuns['override'].Stdout | Should -Match 'OVERRIDE_SEEN=unset'
+    }
+
+    It 'fails on a wrong digest even with the override, and never runs the payload' {
+        if ($script:faeSkipReason) { Set-ItResult -Skipped -Because $script:faeSkipReason; return }
+        $run = $script:faeRuns['wrong_digest_override']
+        $run.Rc | Should -Be 3
+        $run.Stdout | Should -Not -Match 'PAYLOAD_RAN'
+        $run.Stdout | Should -Match '\(integrity mismatch -- refusing to run\)'
+        $run.Stderr | Should -Match 'INTEGRITY MISMATCH'
+        $run.Stderr | Should -Not -Match 'UNVERIFIED CODE WILL RUN'
+    }
+
+    It 'keeps EXEC_REQUIRE_SHA256=1 strict: the override does not bypass it' {
+        if ($script:faeSkipReason) { Set-ItResult -Skipped -Because $script:faeSkipReason; return }
+        $run = $script:faeRuns['require_override']
+        $run.Rc | Should -Be 3
+        $run.Stdout | Should -Not -Match 'PAYLOAD_RAN'
+        $run.Stderr | Should -Match 'host requires a digest'
+        $run.Stderr | Should -Match 'does not apply while EXEC_REQUIRE_SHA256=1'
+        $run.Stderr | Should -Not -Match 'UNVERIFIED CODE WILL RUN'
+    }
+
+    It 'runs a verified payload without a banner, whether or not the override is also set' {
+        if ($script:faeSkipReason) { Set-ItResult -Skipped -Because $script:faeSkipReason; return }
+        foreach ($name in 'verified', 'verified_override') {
+            $run = $script:faeRuns[$name]
+            $run.Rc | Should -Be 0 -Because $name
+            $run.Stdout | Should -Match 'sha256 verified \(guest/payload\.sh\)'
+            $run.Stdout | Should -Match 'PAYLOAD_RAN'
+            $run.Stderr | Should -Not -Match 'UNVERIFIED' -Because $name
+            $run.Log | Should -Not -Match '# integrity: UNVERIFIED' -Because $name
+        }
+    }
+
+    It 'applies the same rule on the GitHub fallback and names its repository and commit' {
+        if ($script:faeSkipReason) { Set-ItResult -Skipped -Because $script:faeSkipReason; return }
+        if ($script:faeGuestShaped) { Set-ItResult -Skipped -Because 'this host is guest-shaped (/etc/yuruna/host.env present)'; return }
+        $refused = $script:faeRuns['github_no_digest']
+        $refused.Rc | Should -Be 3
+        $refused.Stdout | Should -Match 'source: github'
+        $refused.Stdout | Should -Not -Match 'PAYLOAD_RAN'
+        $refused.Stderr | Should -Match 'NO EXPECTED DIGEST'
+        $waived = $script:faeRuns['github_override']
+        $waived.Rc | Should -Be 0
+        $waived.Stdout | Should -Match 'PAYLOAD_RAN'
+        $waived.Stderr | Should -Match 'source:\s+GitHub owner/repo at 0123456789abcdef0123456789abcdef01234567'
+    }
+
+    It 'holds the retry library to the same rule, without stopping the payload' {
+        if ($script:faeSkipReason) { Set-ItResult -Skipped -Because $script:faeSkipReason; return }
+        $withheld = $script:faeRuns['lib_no_digest']
+        $withheld.Rc | Should -Be 0
+        $withheld.Stdout | Should -Match 'PAYLOAD_RAN'
+        $withheld.LibBytes | Should -Be 0 -Because 'a library nobody vouched for is not installed'
+        $withheld.Stderr | Should -Match 'E_RETRY_SHA=<64 hex digits>'
+        $installed = $script:faeRuns['lib_verified']
+        $installed.Rc | Should -Be 0
+        $installed.LibBytes | Should -BeGreaterThan 0 -Because 'a verified library is installed'
+        $installed.Stdout | Should -Match 'sha256 verified \(automation/yuruna-retry\.sh\)'
     }
 }
 

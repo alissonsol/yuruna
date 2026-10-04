@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 420effcb-c2e1-4c95-b3b0-ddb550aecce4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,14 +48,7 @@ param(
 )
 
 # --- REGION: Elevation gate
-# Every path below needs Administrator (Get-VMHost, Get-VM, Get-VMHardDiskDrive),
-# so refuse HERE -- ahead of the destructive-operation banner and the base-image
-# scan -- rather than after the operator has read "THIS CANNOT BE UNDONE" for a
-# run that cannot proceed. Write-Warning, not Write-CleanupMessage: the module is
-# not imported yet, and -Quiet must not swallow the reason for exit 1. Neither
-# Write-Error nor '#requires -RunAsAdministrator' would do: Remove-TestVMFiles.ps1
-# invokes this in-process under $ErrorActionPreference='Stop', where either would
-# abort the parent teardown instead of returning a graceful exit 1.
+# See https://yuruna.link/42e5cdfd-002f
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_364385267309aa5b')

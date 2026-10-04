@@ -305,9 +305,12 @@ point at the offending config line.
 
 **Console login not accepting the password** -- `Ctrl+Alt+F3` for an
 alternate TTY, then run
-`/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.<release>/ubuntu.server.<release>.update.sh`
+`E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.<release>/ubuntu.server.<release>.update.sh`
 two or three times until no updates or cleanup remain, and
-`sudo reboot now`.
+`sudo reboot now`. The fetcher requires the script's expected SHA-256, hashed
+from your checkout; when none can be obtained, `EXEC_ALLOW_UNVERIFIED=1` in its
+place runs the script unchecked under a warning banner. See
+[Supplying the digest by hand](../guest/README.md#supplying-the-digest-by-hand).
 
 **Time zone incorrect** -- auto-detected at install via IP geolocation
 (cloud-init). To set manually:
@@ -369,6 +372,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

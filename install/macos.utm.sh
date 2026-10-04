@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -213,8 +213,18 @@ fi
 # queries the name service and reports the on-disk grant; sudo authorizes
 # against the group token this session was started with, so the bare form is the
 # one that agrees with what sudo will actually do here.
+#
+# group_names is shared word for word with the Ubuntu installer. id exits 1 when
+# one of the groups has no name (deleted mid-session, or a directory group that
+# does not resolve) even though it printed every name it could; under pipefail
+# that status, not the names, would decide a pipeline. Callers use
+# `grep -x ... >/dev/null` rather than -q, which stops reading at the first
+# match and can leave the writer to die of SIGPIPE, which pipefail also reports.
+group_names() {
+  { id -Gn ${1:+"$1"} 2>/dev/null || true; } | tr ' ' '\n'
+}
 _yuruna_whoami="${USER:-$(id -un)}"
-if ! sudo -n -v 2>/dev/null && ! id -Gn | tr ' ' '\n' | grep -qx admin; then
+if ! sudo -n -v 2>/dev/null && ! group_names | grep -x admin >/dev/null; then
   die "$_yuruna_whoami cannot elevate: this session is not in the 'admin' group, so sudo will refuse and the installer cannot continue.
 
    From an account that IS an administrator, run:
@@ -974,6 +984,79 @@ use_dev_branch_if_needed() {
   fi
 }
 
+# --- REGION: Checkout repair helpers
+# Shared word for word between the macOS and Ubuntu installers (a test holds the
+# copies equal) and kept to bash 3.2. Both run where a checkout is already on
+# disk, so a failure is recorded and the run goes on with what is there.
+
+# A backup path for $1 that does not exist yet. The name is stamped to the
+# second, and a numeric suffix covers the rest: `mv` onto a directory that is
+# already there would move the checkout INSIDE it, and the put-back below would
+# then restore the wrong tree.
+unique_backup_path() {
+  local base candidate n=1
+  base="$1.backup.$(date +%Y-%m-%d.%H-%M-%S)"
+  candidate="$base"
+  while [[ -e "$candidate" || -L "$candidate" ]]; do
+    candidate="$base.$n"
+    n=$(( n + 1 ))
+  done
+  printf '%s\n' "$candidate"
+}
+
+# Re-clones into $YURUNA_DIR after the existing checkout was moved to $1. A clone
+# that cannot finish (the remote unreachable, a pinned tag not published yet)
+# would otherwise end the run with no checkout at all, and the exit trap would
+# delete the preserved test status with it. The moved checkout goes back
+# instead, and the run continues on it as it does when the pull is skipped.
+reclone_checkout() {
+  local backup="$1" remote="$2"
+  log "Cloning fresh Yuruna into $YURUNA_DIR from $remote"
+  if git clone --branch "$YURUNA_BRANCH" "$remote" "$YURUNA_DIR"; then
+    return 0
+  fi
+  rm -rf "$YURUNA_DIR" 2>/dev/null || true
+  # Something still at the path would take the moved checkout inside it.
+  if [[ ! -e "$YURUNA_DIR" && ! -L "$YURUNA_DIR" ]] && mv "$backup" "$YURUNA_DIR"; then
+    YURUNA_BACKUP_CREATED=""
+    note_issue "Re-cloning from $remote ('$YURUNA_BRANCH') failed, so the previous checkout was put back at $YURUNA_DIR and used as-is. Re-run the installer once the remote and the ref are reachable."
+    return 0
+  fi
+  die "Re-cloning from $remote failed and the previous checkout could not be put back. It is at $backup, with its test/status runtime state inside."
+}
+
+# Rebuilds the working tree under the current .gitattributes, best effort. A
+# held .git/index.lock (left by a git that crashed, or taken by an editor's
+# `git status` racing this step) fails `rm --cached` or `reset`, and the first
+# may already have emptied the index; the index is put back from HEAD and the
+# operator gets the one command that finishes the job. A held .git/config.lock
+# fails the config writes the same way, and neither is worth ending the run.
+renormalize_checkout() {
+  log "Renormalizing repo line endings (per .gitattributes)"
+  git -C "$YURUNA_DIR" config core.autocrlf input \
+    || warn "  could not set core.autocrlf in $YURUNA_DIR -- continuing."
+  if ! git -C "$YURUNA_DIR" config --get-all include.path 2>/dev/null \
+       | grep -Fx '../.gitconfig.yuruna' >/dev/null; then
+    if git -C "$YURUNA_DIR" config --local --add include.path '../.gitconfig.yuruna'; then
+      log "  Enabled pull.rebase via .gitconfig.yuruna include"
+    else
+      warn "  could not add the .gitconfig.yuruna include to $YURUNA_DIR -- continuing."
+    fi
+  fi
+  git -C "$YURUNA_DIR" update-index --refresh >/dev/null 2>&1 || true
+  if ! git -C "$YURUNA_DIR" diff-index --quiet HEAD -- 2>/dev/null; then
+    warn "  Working tree has uncommitted changes -- only renormalizing the index."
+    git -C "$YURUNA_DIR" add --renormalize . || true
+    warn "  After resolving local changes, run: git checkout HEAD -- ."
+  elif git -C "$YURUNA_DIR" rm -r --cached --quiet . \
+       && git -C "$YURUNA_DIR" reset --hard HEAD >/dev/null; then
+    log "  Working tree rebuilt under current .gitattributes (LF for *.sh, etc.)"
+  else
+    git -C "$YURUNA_DIR" reset --quiet HEAD 2>/dev/null || true
+    note_issue "Could not rebuild $YURUNA_DIR under .gitattributes; another git process may hold .git/index.lock, or a crashed one left it behind. Once it is free, run: git -C '$YURUNA_DIR' reset --hard HEAD"
+  fi
+}
+
 # --- REGION: Clone / update the repo
 yuruna_require_install_mode
 YURUNA_BACKUP_CREATED=""
@@ -1028,7 +1111,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
     # keeps a mode flip (PIN_VERSION on/off) robust to a dirty working tree.
     if ! { git -C "$YURUNA_DIR" checkout "$YURUNA_BRANCH" \
            && git -C "$YURUNA_DIR" pull --ff-only origin "$YURUNA_BRANCH"; }; then
-      YURUNA_BACKUP_DIR="${YURUNA_DIR}.backup.$(date +%Y-%m-%d.%H-%M)"
+      YURUNA_BACKUP_DIR="$(unique_backup_path "$YURUNA_DIR")"
       warn "git pull --ff-only failed -- moving the existing checkout aside and re-cloning."
       warn "  from: $YURUNA_DIR"
       warn "  to:   $YURUNA_BACKUP_DIR"
@@ -1037,8 +1120,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
       fi
       YURUNA_BACKUP_CREATED="$YURUNA_BACKUP_DIR"
       reclone_remote="${actual_remote:-$YURUNA_REPO}"
-      log "Cloning fresh Yuruna into $YURUNA_DIR from $reclone_remote"
-      git clone --branch "$YURUNA_BRANCH" "$reclone_remote" "$YURUNA_DIR"
+      reclone_checkout "$YURUNA_BACKUP_DIR" "$reclone_remote"
     fi
   fi
 else
@@ -1052,25 +1134,7 @@ fi
 
 # --- REGION: Renormalize line endings under .gitattributes
 if [[ -d "$YURUNA_DIR/.git" ]]; then
-  log "Renormalizing repo line endings (per .gitattributes)"
-  git -C "$YURUNA_DIR" config core.autocrlf input
-
-  if ! git -C "$YURUNA_DIR" config --get-all include.path 2>/dev/null \
-       | grep -Fxq '../.gitconfig.yuruna'; then
-    git -C "$YURUNA_DIR" config --local --add include.path '../.gitconfig.yuruna'
-    log "  Enabled pull.rebase via .gitconfig.yuruna include"
-  fi
-
-  git -C "$YURUNA_DIR" update-index --refresh >/dev/null 2>&1 || true
-  if ! git -C "$YURUNA_DIR" diff-index --quiet HEAD -- 2>/dev/null; then
-    warn "  Working tree has uncommitted changes -- only renormalizing the index."
-    git -C "$YURUNA_DIR" add --renormalize . || true
-    warn "  After resolving local changes, run: git checkout HEAD -- ."
-  else
-    git -C "$YURUNA_DIR" rm -r --cached --quiet .
-    git -C "$YURUNA_DIR" reset --hard HEAD >/dev/null
-    log "  Working tree rebuilt under current .gitattributes (LF for *.sh, etc.)"
-  fi
+  renormalize_checkout
 fi
 
 # --- REGION: Pin to the current release (opt-in)
@@ -1105,6 +1169,31 @@ if [[ -f "$REMOVE_TEST_VMS" ]]; then
 else
   warn "Remove-TestVMFiles.ps1 not found at $REMOVE_TEST_VMS -- skipping test-VM cleanup."
 fi
+
+# --- REGION: Test modules (Pester 5, PSScriptAnalyzer)
+# The version policy lives in tools/Install-TestModule.ps1, shared by the
+# installer of every host platform, so it runs once the checkout exists. Each
+# MODULE-ISSUE line it prints reaches the closing summary; a missing test module
+# does not stop the install.
+install_test_modules() {
+  local script="$YURUNA_DIR/tools/Install-TestModule.ps1" out rc=0 line
+  if [[ ! -f "$script" ]]; then
+    warn "tools/Install-TestModule.ps1 not found under $YURUNA_DIR -- skipping the test modules."
+    return 0
+  fi
+  log "Installing the PowerShell modules the tests need (Pester 5, PSScriptAnalyzer)"
+  out="$(pwsh -NoLogo -NoProfile -File "$script" 2>&1)" || rc=$?
+  while IFS= read -r line; do
+    case "$line" in
+      'MODULE-ISSUE: '*) note_issue "${line#MODULE-ISSUE: }" ;;
+      *) if [[ -n "$line" ]]; then printf '%s\n' "$line"; fi ;;
+    esac
+  done <<< "$out"
+  if (( rc != 0 )); then
+    note_issue "tools/Install-TestModule.ps1 could not run (exit $rc), so Pester 5 and PSScriptAnalyzer may be missing -- see the output above."
+  fi
+}
+install_test_modules
 
 # --- REGION: Version floors: bring the managed tools up to them
 # The floors live in automation/Yuruna.Requirement.yml -- the same file the
@@ -1314,10 +1403,16 @@ run_requirement_repair() {
   esac
 }
 
-requirement_issue_line() {
-  pwsh -NoProfile -File "$YURUNA_DIR/automation/Test-Requirement.ps1" \
-       -Tool "$FLOOR_TOOL_LIST" -WarnOnly 2>/dev/null \
-    | sed -n 's/^REQUIREMENT-ISSUE: //p'
+# Runs the floor check once, leaving its output in floor_out and its exit status
+# in floor_rc (globals, as everything in this region is, for bash 3.2). With
+# -WarnOnly the check exits 0 whenever it ran, so any other status means it could
+# not run -- a missing powershell-yaml module is the usual cause -- and its
+# silence then says nothing about the versions. NO_COLOR keeps pwsh's error text
+# free of escape codes, since it is printed for the operator when that happens.
+requirement_issue_check() {
+  floor_rc=0
+  floor_out="$(NO_COLOR=1 pwsh -NoProfile -File "$YURUNA_DIR/automation/Test-Requirement.ps1" \
+       -Tool "$FLOOR_TOOL_LIST" -WarnOnly 2>&1)" || floor_rc=$?
 }
 
 # Check, repair, check again. Arrays stay global rather than `local`: the bash
@@ -1334,9 +1429,16 @@ bring_tools_to_required_versions() {
   # script's to loop on.
   while :; do
     floor_issues=()
+    requirement_issue_check
+    if (( floor_rc != 0 )); then
+      # Printed whole: a last line cut from pwsh's wrapped error names nothing.
+      printf '%s\n' "$floor_out" >&2
+      note_issue "The version floors could not be checked: automation/Test-Requirement.ps1 exited $floor_rc, with its output printed above. A missing powershell-yaml module is the usual cause; install it with: pwsh -Command 'Install-Module powershell-yaml -Scope CurrentUser', then re-run this installer."
+      return 0
+    fi
     while IFS= read -r floor_line; do
       [[ -n "$floor_line" ]] && floor_issues+=("$floor_line")
-    done < <(requirement_issue_line)
+    done <<< "$(printf '%s\n' "$floor_out" | sed -n 's/^REQUIREMENT-ISSUE: //p')"
     if (( ${#floor_issues[@]} == 0 )); then
       log "  every managed tool meets its required version"
       break

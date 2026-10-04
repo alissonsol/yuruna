@@ -4,6 +4,7 @@
 #vim:syntax=yaml
 # See https://yuruna.link/429f3d06-0032
 # See https://yuruna.link/429f3d06-0033
+# --- REGION: hostname
 hostname: yuruna-caching-proxy-service
 # See https://yuruna.link/429f3d06-0034
 # --- REGION: users
@@ -17,14 +18,17 @@ users:
     plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
+# --- REGION: chpasswd
 chpasswd:
   expire: false
   users:
     - name: caching-proxy-service-admin
       password: PASSWORD_PLACEHOLDER
       type: text
+# --- REGION: ssh_pwauth
 ssh_pwauth: true
 # See https://yuruna.link/429f3d06-0035
+# --- REGION: apt
 apt:
   sources:
     grafana.list:
@@ -71,6 +75,7 @@ apt:
         8VMx+lmMheD8/qJMia1om0iBBRSXRjY//f+Lllqm
         =TH3J
         -----END PGP PUBLIC KEY BLOCK-----
+# --- REGION: package_update
 package_update: true
 # --- REGION: packages
 packages:
@@ -418,9 +423,11 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
-      # 30d retention + 2GB size-cap safety net; /var/lib/prometheus is on the
-      # VM root fs, so a VM rebuild still resets history.
-      ARGS="--web.listen-address=127.0.0.1:9090 --storage.tsdb.retention.time=30d --storage.tsdb.retention.size=2GB"
+      # 90d retention + 12GB size-cap safety net; /var/lib/prometheus is on the
+      # VM root fs, so a VM rebuild empties it until pool-history-backfill writes
+      # the host timeline back through the remote-write receiver (loopback only,
+      # like the rest of this listener).
+      ARGS="--web.listen-address=127.0.0.1:9090 --storage.tsdb.retention.time=90d --storage.tsdb.retention.size=12GB --web.enable-remote-write-receiver"
   - path: /etc/default/prometheus-node-exporter
     permissions: '0644'
     owner: root:root
@@ -435,6 +442,12 @@ write_files:
     content: |
       global:
         scrape_interval: 15s
+      # pool-history-backfill writes past yuruna_pool_host_status samples; a sample
+      # older than a series' newest is accepted only inside this window, which
+      # covers the 90-day retention.
+      storage:
+        tsdb:
+          out_of_order_time_window: 2208h
       scrape_configs:
         - job_name: prometheus
           static_configs:
@@ -495,6 +508,9 @@ write_files:
       server:
         http_listen_address: 127.0.0.1
         http_listen_port: 3100
+        # A 90-day dashboard query can run past the 30s defaults (query_timeout below).
+        http_server_read_timeout: 2m
+        http_server_write_timeout: 2m
         grpc_listen_address: 127.0.0.1
         grpc_listen_port: 9096
       common:
@@ -518,12 +534,22 @@ write_files:
               prefix: index_
               period: 24h
       limits_config:
-        # Retain transitions (src=cycle; count_over_time Pass/Fail) and incidents (src=incident) for 30d; per-step events (src=event) for 7d.
-        retention_period: 720h
+        # Retain transitions (src=cycle; count_over_time Pass/Fail) and incidents (src=incident) for 90d; per-step events (src=event) for 7d.
+        retention_period: 2160h
         retention_stream:
           - selector: '{src="event"}'
             priority: 1
             period: 168h
+        # pool-history-backfill writes cycles up to 90 days old after a rebuild, each
+        # in a stream of its own, so a burst of them is briefly active at once.
+        reject_old_samples: true
+        reject_old_samples_max_age: 2208h
+        max_global_streams_per_user: 20000
+        # The dashboard's 90-day range: one query may span it, a backfill check lists
+        # one series per cycle, and a cold read takes longer than the 1m default.
+        max_query_length: 2232h
+        max_query_series: 5000
+        query_timeout: 2m
       compactor:
         working_directory: /var/lib/loki/compactor
         retention_enabled: true
@@ -639,6 +665,7 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Service]
       [Service]
       SupplementaryGroups=proxy zot
       Environment="CUSTOM_ARGS=--server.http.listen-addr=127.0.0.1:9080 --disable-reporting"
@@ -688,9 +715,11 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Yuruna squid metadata exporter (offline_mode + listening probe)
       After=apache2.service
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/squid-meta-exporter.sh
@@ -698,13 +727,16 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Run squid-meta-exporter every 30 seconds
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=20s
       OnUnitActiveSec=30s
       AccuracySec=5s
       Unit=squid-meta-exporter.service
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
   # See https://yuruna.link/429f3d06-004b
@@ -1187,9 +1219,11 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Yuruna zot metadata exporter (manifest canary + upstream budget)
       After=apache2.service zot.service
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       # --- REGION: https://yuruna.link/429f3d06-004b
@@ -1199,8 +1233,10 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Run zot-meta-exporter every 10 minutes
+      # --- REGION: [Timer]
       [Timer]
       # Slower than the 30s squid probe: the canary walks a full mutable-tag
       # revalidation, too heavy for a 30-second loop. Not a budget question --
@@ -1210,6 +1246,7 @@ write_files:
       OnUnitActiveSec=10min
       AccuracySec=30s
       Unit=zot-meta-exporter.service
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
   # See https://yuruna.link/429f3d06-004c
@@ -1432,10 +1469,12 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Yuruna zot prewarm (keep the guest image sets resident, and time the cold path)
       After=network-online.target zot.service apache2.service
       Wants=network-online.target
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/zot-prewarm.sh
@@ -1447,8 +1486,10 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Warm the guest image sets in zot every 6 hours
+      # --- REGION: [Timer]
       [Timer]
       # --- REGION: https://yuruna.link/429f3d06-004c
       OnBootSec=3min
@@ -1458,6 +1499,7 @@ write_files:
       # than wait out a full period it already slept through.
       Persistent=true
       Unit=zot-prewarm.service
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
   # See https://yuruna.link/429f3d06-004d
@@ -1465,10 +1507,12 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Squid Prometheus exporter (boynux/squid-exporter)
       After=network-online.target squid.service
       Wants=network-online.target squid.service
+      # --- REGION: [Service]
       [Service]
       Type=simple
       User=nobody
@@ -1476,6 +1520,7 @@ write_files:
       ExecStart=/usr/local/bin/squid-exporter -listen 127.0.0.1:9301 -squid-hostname localhost -squid-port 3128
       Restart=on-failure
       RestartSec=5
+      # --- REGION: [Install]
       [Install]
       WantedBy=multi-user.target
   # See https://yuruna.link/429f3d06-004e
@@ -1483,6 +1528,7 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Service]
       [Service]
       Environment=GF_AUTH_ANONYMOUS_ENABLED=true
       Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
@@ -1506,6 +1552,9 @@ write_files:
           access: proxy
           url: http://localhost:3100
           editable: false
+          jsonData:
+            # Seconds; matches Loki's query_timeout so a 90-day range is not cut off.
+            timeout: 120
   # See https://yuruna.link/429f3d06-0050
   - path: /usr/local/bin/yuruna-rewrite-zot-dashboard.py
     permissions: '0755'
@@ -1788,29 +1837,35 @@ write_files:
   - path: /etc/systemd/system/yuruna-host-locate.service
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Refresh Yuruna host coordinates if the host has changed address
       After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
       Before=network-online.target
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       TimeoutStartSec=30
       ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=network-online.target
   - path: /etc/systemd/system/yuruna-host-locate.timer
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Periodic Yuruna host coordinate refresh
 
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=30s
       OnUnitActiveSec=60s
       AccuracySec=5s
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
   # See https://yuruna.link/429f3d06-005e
@@ -1924,10 +1979,12 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Yuruna Host Config fetch (%i) over mTLS
       After=network-online.target
       Wants=network-online.target
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/yuruna-config-fetch.sh %i
@@ -1937,13 +1994,16 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Run Yuruna Host Config fetch (%i) at boot and hourly
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=30s
       OnUnitActiveSec=1h
       AccuracySec=15s
       Unit=yuruna-config-fetch@%i.service
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
   # See https://yuruna.link/429f3d06-0055
@@ -2370,7 +2430,7 @@ write_files:
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
-                  { "refId": "A", "expr": "{pool=\"$pool\", src=\"incident\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                  { "refId": "A", "expr": "{pool=~\"$pool\", src=\"incident\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
                 ],
                 "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
               },
@@ -2382,7 +2442,7 @@ write_files:
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
-                  { "refId": "A", "expr": "sum by (failureClass, severity) (count_over_time({pool=\"$pool\", src=\"event\"} | json | event=\"step_failure\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                  { "refId": "A", "expr": "sum by (failureClass, severity) (count_over_time({pool=~\"$pool\", src=\"event\"} | json | event=\"step_failure\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
                 ],
                 "transformations": [
                   { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "failureClass": "Failure class", "severity": "Severity", "Value": "Count", "Value #A": "Count" } } }
@@ -2397,7 +2457,7 @@ write_files:
                 "gridPos": { "h": 9, "w": 24, "x": 0, "y": 40 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
-                  { "refId": "A", "expr": "{pool=\"$pool\", src=\"event\"} | json | event=\"step_failure\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                  { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json | event=\"step_failure\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
                 ],
                 "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
               },
@@ -2409,7 +2469,7 @@ write_files:
                 "gridPos": { "h": 10, "w": 24, "x": 0, "y": 49 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
-                  { "refId": "A", "expr": "{pool=\"$pool\", src=\"event\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                  { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
                 ],
                 "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
               },
@@ -2421,7 +2481,7 @@ write_files:
                 "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
-                  { "refId": "A", "expr": "{pool=\"$pool\"} | json | overallStatus=~\".+\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                  { "refId": "A", "expr": "{pool=~\"$pool\"} | json | overallStatus=~\".+\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
                 ],
                 "options": { "showTime": true, "showLabels": true, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
               },
@@ -2433,7 +2493,7 @@ write_files:
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
-                  { "refId": "A", "expr": "sum by (dominantClass) (count_over_time({pool=\"$pool\", src=\"incident\"} | json | event=\"incident_open\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                  { "refId": "A", "expr": "sum by (dominantClass) (count_over_time({pool=~\"$pool\", src=\"incident\"} | json | event=\"incident_open\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
                 ],
                 "transformations": [
                   { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "dominantClass": "Failure class", "Value": "Incidents", "Value #A": "Incidents" } } }
@@ -2457,7 +2517,7 @@ write_files:
                 "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
                 "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
                 "targets": [
-                  { "refId": "A", "expr": "windows_memory_available_bytes{pool=\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+                  { "refId": "A", "expr": "windows_memory_available_bytes{pool=~\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
                 ],
                 "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
                 "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": [ "min", "lastNotNull" ] }, "tooltip": { "mode": "multi", "sort": "desc" } }
@@ -2470,7 +2530,7 @@ write_files:
                 "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
                 "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
                 "targets": [
-                  { "refId": "A", "expr": "windows_memory_commit_limit{pool=\"$pool\"} - windows_memory_committed_bytes{pool=\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+                  { "refId": "A", "expr": "windows_memory_commit_limit{pool=~\"$pool\"} - windows_memory_committed_bytes{pool=~\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
                 ],
                 "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
                 "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": [ "min", "lastNotNull" ] }, "tooltip": { "mode": "multi", "sort": "desc" } }
@@ -2687,15 +2747,17 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Fit the Yuruna hosts dashboard panels to the live host count
       Documentation=https://yuruna.link/429f3d06-0032
       After=grafana-server.service prometheus.service loki.service pool-aggregator-service.service
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/yuruna-fit-pool-dashboard.py
-      # Reads host counts from Prometheus + Loki on loopback and rewrites the
+      # Reads host counts from Prometheus on loopback and rewrites the
       # provisioned dashboard in place, so the dashboard directory is the only
       # writable path.
       ProtectSystem=strict
@@ -2715,13 +2777,16 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Refit the Yuruna hosts dashboard panels as hosts join or leave the pool
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=3min
       OnUnitActiveSec=5min
       AccuracySec=30s
       Unit=yuruna-fit-pool-dashboard.service
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
   # See https://yuruna.link/429f3d06-0057
@@ -2964,11 +3029,13 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Stamp the framework name and version into every Grafana dashboard
       Documentation=https://yuruna.link/429f3d06-0032
       After=grafana-server.service
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/yuruna-brand-dashboards.py
@@ -2992,13 +3059,16 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Re-stamp the brand tile as dashboards are provisioned or replaced
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=2min
       OnUnitActiveSec=15min
       AccuracySec=30s
       Unit=yuruna-brand-dashboards.service
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
   # See https://yuruna.link/429f3d06-0059
@@ -3675,6 +3745,7 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=zot OCI registry (Docker Hub pull-through cache)
       Documentation=https://zotregistry.dev
@@ -3684,6 +3755,7 @@ write_files:
       # this registry its upstream sync, never its ability to serve what it
       # already holds.
 
+      # --- REGION: [Service]
       [Service]
       Type=simple
       User=zot
@@ -3707,6 +3779,7 @@ write_files:
       NoNewPrivileges=true
       PrivateTmp=true
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=multi-user.target
   # See https://yuruna.link/429f3d06-005c
@@ -3781,10 +3854,12 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Yuruna networkStorage pool (ypool-nas) service replication to NAS
       After=network-online.target loki.service prometheus.service grafana-server.service
       Wants=network-online.target
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/ypool-nas-replicate.sh
@@ -3794,13 +3869,16 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Run Yuruna ypool-nas service replication hourly
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=5m
       OnUnitActiveSec=1h
       AccuracySec=1m
       Unit=ypool-nas-replicate.service
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
 # --- REGION: runcmd
@@ -4048,7 +4126,7 @@ runcmd:
         echo "== YURUNA: caching-proxy-parser-service build failed -- Recent 100 requests view will be unavailable =="
     fi
     cd /opt/pool-aggregator-service
-    for f in main.go handover.go mcp.go localization.go internal/catalog/registry.go go.mod pool-aggregator-service.service; do
+    for f in main.go handover.go mcp.go localization.go backfill.go backfill_index.go backfill_loki.go backfill_prom.go backfill_record.go backfill_source.go backfill_state.go internal/catalog/registry.go go.mod pool-aggregator-service.service pool-history-backfill.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/pool-aggregator-service/$f" || PA_OK=0
       # An empty file (404 from the chosen source, or a stale/incomplete mirror)
       # is caught here so the cause is obvious in /var/log/cloud-init-output.log
@@ -4061,6 +4139,11 @@ runcmd:
     if [ "$PA_OK" -eq 1 ] && /usr/bin/go build -ldflags "-X main.version=$PA_VERSION" -o pool-aggregator-service . ; then
         install -m 0755 pool-aggregator-service /usr/local/bin/pool-aggregator-service
         install -m 0644 pool-aggregator-service.service /etc/systemd/system/pool-aggregator-service.service
+        install -m 0644 pool-history-backfill.service /etc/systemd/system/pool-history-backfill.service
+        # The backfill stays under a tenth of this VM's CPU: CPUQuota counts one
+        # CPU as 100%, so the ceiling is nproc x 10% less a point.
+        mkdir -p /etc/systemd/system/pool-history-backfill.service.d
+        printf '[Service]\nCPUQuota=%s%%\n' "$(( $(nproc) * 10 - 1 ))" > /etc/systemd/system/pool-history-backfill.service.d/cpu-quota.conf
         echo "yuruna: pool-aggregator-service built and installed at /usr/local/bin/pool-aggregator-service"
     else
         echo "== YURUNA: pool-aggregator-service build failed -- pool COLLECTOR unavailable (the Yuruna hosts dashboard still deploys; it shows 'No data' until the collector is up). Source attempted: ${YR_SRC}. =="
@@ -4136,6 +4219,7 @@ runcmd:
   - systemctl enable --now caching-proxy-parser-service.service || true
   # --- REGION: https://yuruna.link/429f3d06-0078
   - systemctl enable --now pool-aggregator-service.service || true
+  - systemctl enable --now pool-history-backfill.service || true
   # --- REGION: https://yuruna.link/429f3d06-0073
   # `|| true` like its two neighbors: a management plane that fails to start
   # must not fail the boot of the VM whose traffic it does not carry.

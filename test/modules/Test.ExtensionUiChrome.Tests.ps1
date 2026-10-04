@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42a98740-f91d-4449-a691-90bbcafc57af
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,7 +115,7 @@ $scripts = @()
 # assertions apply to them.
 $statusDir = Join-Path $repo 'test/status'
 $script:statusLinks = @('index.html', 'config.html', 'performance.html', 'diagnostics.html')
-$script:statusGuide = 'https://yuruna.link/operator'
+$script:statusGuide = 'https://yuruna.link/42ad660e'
 $script:statusPages = @(
     @{ File = 'index.html'; Current = 'index.html' }
     @{ File = 'config.html'; Current = 'config.html' }

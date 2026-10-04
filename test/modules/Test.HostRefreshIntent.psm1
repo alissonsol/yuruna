@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42d4e5f6-7a8b-49c0-8d1e-2f3a4b5c6d7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,25 +21,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -G
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleFlightLock.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.CriticalRecord.psm1') -DisableNameChecking
 
-# The private request journal for host refresh: who asked for a repair, with
-# which immutable policy, what each attempt did, what it disrupted and still
-# owes, and which request ids are closed for good.
-#
-#   * Everything lives under the private state root ($HOME/.yuruna/host-refresh),
-#     which is outside every tree the status service serves; the public
-#     progress file in the runtime directory is a projection and never
-#     authoritative.
-#   * One checksummed, generation-numbered record (Test.CriticalRecord) holds
-#     the whole journal, and every read-modify-write happens under one short
-#     admission lock. The lock order is the lifetime repair lock, then the
-#     admission lock, and never the reverse: a worker claims under both, the
-#     listener and the outer runner take only the admission lock.
-#   * Age never evicts anything alive. Liveness is decided by process identity
-#     (pid plus start time); an identity that cannot be read is unknown, and
-#     unknown is treated as alive.
-#   * A request that disrupted something keeps its obligations until they are
-#     verified or explicitly disposed by a local operator; no verdict silently
-#     discharges them.
+# See https://yuruna.link/4213a0b3-008c
 
 $script:HostRefreshJournalName     = 'host-refresh.journal'
 $script:HostRefreshJournalKind     = 'host-refresh.request-journal'

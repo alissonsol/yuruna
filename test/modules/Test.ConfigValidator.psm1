@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4233bb36-0ed5-4529-acff-23258b23fec0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,15 +19,7 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 
-# Reusable validation primitives -- schema validation, emptiness check,
-# git-tree freshness -- that any check script (Test-Config.ps1 included)
-# can call without re-implementing.
-#
-# All callers reach Write-Pass / Write-Fail / Write-Warn / Write-Info
-# from Test.Output.psm1, which this module imports at load time. The
-# PASS/FAIL counters survive across Test.Output's $global: anchor so
-# Test-Config's summary at end-of-run reflects every Test-AgainstSchema
-# and Test-RepoFreshness call regardless of import order.
+# See https://yuruna.link/4213a0b3-0047
 
 Import-Module (Join-Path $PSScriptRoot 'Test.Output.psm1') -Global -Force
 # Test.HostGit owns Get-GitUpstreamStatus, the shared upstream classifier that

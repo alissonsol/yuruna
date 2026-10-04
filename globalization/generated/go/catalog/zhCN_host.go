@@ -128,6 +128,7 @@ const DatazhCNhost = `{
     },
     "；libvirt仅重命名明确报告为已停止的域。"
   ],
+  "host.kvm_running_cache_unreachable": "caching-proxy-service 虚拟机正在运行，但无法访问其代理。运行 test/service/Start-CachingProxyServiceVM.ps1 恢复代理，或传入 -CachingProxyServiceUrl \"\" 以直接下载。",
   "host.kvm_start_network_action": "启动未激活的libvirt网络",
   "host.kvm_start_unit_action": "启动已停止的libvirt单元",
   "host.operator_005bab80fe0f8f32": [

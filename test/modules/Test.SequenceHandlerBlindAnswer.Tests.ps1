@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42d9a6c1-58b7-4f0e-9a2e-7c1f6b0d4e33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -190,6 +190,83 @@ Describe 'Prompt handlers use bounded OCR matching' {
             $expected = if ($null -eq $configured) { $Action -eq 'passwdPrompt' } else { $configured }
             Assert-Equal -Expected $expected -Actual $stub.WaitNoSegmentMatch[0]
         }
+    }
+}
+
+Describe 'Autoinstall confirmation accepts only an established installer state' {
+    BeforeAll {
+        $script:InstallStep = @{
+            pattern = @('Continue with autoinstall?', 'subiquity/Install/install/configure_apt', 'subiquity/Install/install/curtin_install')
+            skipInputPattern = @('subiquity/Install/install/configure_apt', 'subiquity/Install/install/curtin_install')
+            blindSkipPattern = @('Bahasa Indonesia', 'subiquity/Install/install/configure_apt', 'subiquity/Install/install/curtin_install')
+            noSegmentMatch = $true; text = 'yes'; timeoutSeconds = 1800; blindAfterSeconds = 120
+        }
+        # Subiquity opens the parent install context at server start and runs
+        # the autoinstall mirror check before it asks for confirmation.
+        $script:PreConfirmationStages = "start: subiquity/Install/install`n" +
+            "start: subiquity/Mirror/cmd-apt-config: curtin command apt-config`n" +
+            "finish: subiquity/Mirror/cmd-apt-config: SUCCESS: curtin command apt-config"
+    }
+
+    It 'accepts a later installer stage without typing yes' -TestCases @(
+        @{ Stage = 'start: subiquity/Install/install/configure_apt: configuring apt' }
+        @{ Stage = 'start: subiquity/Install/install/curtin_install: installing system' }
+    ) {
+        param($Stage)
+        $stub = Reset-BlindState
+        $stub.WaitText = $Stage
+        $stub.Verdict.ConsoleText = $Stage
+        $handler = (Get-SequenceAction -Name 'waitForAndEnter').Handler
+        Assert-True (& $handler (Get-BlindContext -Step $script:InstallStep))
+        Assert-Equal -Expected 0 -Actual $stub.Typed.Count
+    }
+
+    It 'still answers the actual confirmation prompt' {
+        $stub = Reset-BlindState
+        $stub.WaitText = 'Continue with autoinstall?'
+        $stub.Verdict.ConsoleText = $stub.WaitText
+        $handler = (Get-SequenceAction -Name 'waitForAndEnter').Handler
+        Assert-True (& $handler (Get-BlindContext -Step $script:InstallStep))
+        Assert-Equal -Expected 1 -Actual $stub.Typed.Count
+        Assert-Equal -Expected 'yes' -Actual $stub.Typed[0]
+    }
+
+    It 'answers the prompt below stages that print before confirmation' {
+        $stub = Reset-BlindState
+        $stub.WaitText = "$script:PreConfirmationStages`nContinue with autoinstall? (yes|no)"
+        $stub.Verdict.ConsoleText = $stub.WaitText
+        $handler = (Get-SequenceAction -Name 'waitForAndEnter').Handler
+        Assert-True (& $handler (Get-BlindContext -Step $script:InstallStep))
+        Assert-Equal -Expected 1 -Actual $stub.Typed.Count
+        Assert-Equal -Expected 'yes' -Actual $stub.Typed[0]
+    }
+
+    It 'keeps waiting while only pre-confirmation stages are visible' {
+        $stub = Reset-BlindState
+        $stub.WaitText = $script:PreConfirmationStages
+        $stub.Verdict.ConsoleText = $stub.WaitText
+        $step = $script:InstallStep.Clone()
+        $step.Remove('blindAfterSeconds')
+        $handler = (Get-SequenceAction -Name 'waitForAndEnter').Handler
+        Assert-False (& $handler (Get-BlindContext -Step $step)) 'a stage printed before the prompt must not end the wait'
+        Assert-Equal -Expected 0 -Actual $stub.Typed.Count
+    }
+
+    It 'never blindly answers a visible installer stage when OCR matching fails' {
+        $stub = Reset-BlindState
+        $stub.Verdict.ConsoleText = 'start: subiquity/Install/install/curtin_install: installing system'
+        $handler = (Get-SequenceAction -Name 'waitForAndEnter').Handler
+        Assert-False (& $handler (Get-BlindContext -Step $script:InstallStep))
+        Assert-Equal -Expected 0 -Actual $stub.Typed.Count
+    }
+
+    It 'does not treat the language menu as an installer milestone' {
+        $stub = Reset-BlindState
+        $stub.WaitText = "Use UP, DOWN and ENTER keys to select your language.`n[ Bahasa Indonesia +]"
+        $stub.Verdict.ConsoleText = $stub.WaitText
+        $handler = (Get-SequenceAction -Name 'waitForAndEnter').Handler
+        Assert-False (& $handler (Get-BlindContext -Step $script:InstallStep))
+        Assert-Equal -Expected 0 -Actual $stub.Typed.Count
     }
 }
 

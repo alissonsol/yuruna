@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -148,6 +148,15 @@ param(
 # locale manifest, read as data; anywhere else it renders the embedded en-US
 # text. Test.SystemDiagnosticSelfContained.Tests.ps1 holds each copy equal to
 # its source.
+#
+# DO NOT REFACTOR THIS SCRIPT INTO MODULES. The functions below duplicate code
+# in Yuruna.*.psm1 and Test.*.psm1 on purpose. Moving them into a module or a
+# shared .ps1, or adding Import-Module, `using module`, `#requires -Modules`, or
+# dot-sourcing, breaks the script the moment it runs alone on a guest, which is
+# exactly when its diagnostics are needed. The modules stay the source of truth
+# and this file keeps a copy: when a source changes, update the copy here. The
+# only module commands allowed are ones guarded by `Get-Command -Name <cmd>`
+# with a local fallback, used when a caller already loaded them.
 $script:DiagnosticTextRoot = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { '' }
 $script:DiagnosticLocaleManifest = $null
 $script:DiagnosticOperatorLocale = $null
@@ -2672,7 +2681,12 @@ try {
 
         $connectFailures = @($connectResults | Where-Object { $null -eq $_.RTT })
         if ($connectFailures.Count -gt 0) {
-            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_b6be1dbdabe6cc70' -FormatValues ($connectFailures.Count, $connectResults.Count, (($connectFailures.Target) -join ', ')) -FormatBindings @{ count = '0'; count2 = '1'; join = '2' }) -Class 'NETWORK.endpoint-unavailable'
+            $failedTargets = (@($connectFailures | ForEach-Object { [string]$_.Target }) -join ', ')
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_b6be1dbdabe6cc70' -Arguments @{
+                count = [string]$connectFailures.Count
+                count2 = [string]$connectResults.Count
+                join = $failedTargets
+            }) -Class 'NETWORK.endpoint-unavailable'
         }
 
         # --- REGION: https://yuruna.link/423ef7f5-0005

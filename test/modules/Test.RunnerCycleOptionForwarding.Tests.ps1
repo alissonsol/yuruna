@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 421c8f6e-9b0a-4c1d-8e2f-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -163,6 +163,10 @@ Import-Module '$innerSpawnModule' -Force -DisableNameChecking
 `$fakeInner = Join-Path (Split-Path -Parent '$captureFile') 'fake-inner.ps1'
 `$argv = New-InnerRunnerArgList -ScriptPath `$fakeInner -Parameters `$PSBoundParameters -ExcludeParameter @('Cycle')
 Set-Content -LiteralPath '$captureFile' -Value (`$argv -join "``n") -Encoding utf8
+# The runner scores a cycle only from the record the cycle process leaves, so
+# the stand-in leaves one exactly as the real script does.
+[ordered]@{ outcome = 'completed'; exitCode = 0; cycleGeneration = `$null } | ConvertTo-Json -Compress |
+    Set-Content -LiteralPath (Join-Path `$env:YURUNA_RUNTIME_DIR 'runner.cycle.outcome.json') -Encoding utf8
 exit 0
 "@
         Set-Content -LiteralPath $stubCycleScript -Value $stubBody -Encoding utf8

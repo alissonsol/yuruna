@@ -44,8 +44,99 @@ const DatazhCNrunner = `{
     "条无法确认已失效的运行器记录。"
   ],
   "runner.critical_record_replace": "替换私有关键记录",
+  "runner.cycle_outcome_rejected_kept": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 被拒绝的结果记录保留在",
+    {
+      "arg": "rejectedPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    "，供诊断使用。"
+  ],
+  "runner.cycle_outcome_unrecorded": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 周期进程在运行",
+    {
+      "arg": "ranForSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s后以退出码",
+    {
+      "arg": "childExit",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "退出，但没有可用的结果记录（",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。此周期不计为通过：无法确认周期是否完成，因此这是此宿主机上运行器的故障，而非测试判定。按周期失败处理并暂停。"
+  ],
+  "runner.cycle_outcome_unrecorded_log": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] outcome-unrecorded：运行",
+    {
+      "arg": "ranForSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s后以退出码",
+    {
+      "arg": "childExit",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "退出，记录为",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "（",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）"
+  ],
   "runner.cycle_record_clear_action": "删除已退出周期的运行器周期记录",
   "runner.cycle_record_write_action": "写入运行器周期记录",
+  "runner.cycle_result_missing": "周期已返回，但未发布结果。将其记录为失败的周期（no-cycle-result），而非已完成的周期。",
+  "runner.cycle_success_withheld": [
+    "周期顺利结束，但无法记录结果，因此运行器无法将其计为通过。以退出码",
+    {
+      "arg": "exitCode",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "退出，而非0。"
+  ],
   "runner.detached_handshake_write_action": "写入分离式工作进程的身份握手信息",
   "runner.detached_launch_action": "启动分离式工作进程",
   "runner.diagnostic_budget_exhausted": [
@@ -22056,8 +22147,74 @@ const DatazhCNrunner = `{
   "runner.pool_status_repositories_none": "  仓库：（无）",
   "runner.prior_runner_cleanup_action": "  操作：  停止它，并在启动前运行\n           Remove-TestVMFiles.ps1",
   "runner.process_start_record_write_action": "写入进程启动时间记录",
+  "runner.project_previous_cleanup_failed": [
+    "无法删除位于",
+    {
+      "arg": "previousDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    "的旧项目检出目录。新检出目录已就绪；下次刷新会删除残留目录。"
+  ],
+  "runner.project_swap_recovered": [
+    "已恢复",
+    {
+      "arg": "repoRoot",
+      "type": "detail",
+      "trust": "external"
+    },
+    "下中断的项目刷新：",
+    {
+      "arg": "action",
+      "type": "token",
+      "trust": "internal"
+    },
+    "。"
+  ],
   "runner.readiness_ack_remove_action": "删除过期的刷新就绪确认",
   "runner.readiness_ack_write_action": "写入刷新就绪确认",
+  "runner.recovery_applied": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 针对",
+    {
+      "arg": "failClass",
+      "type": "token",
+      "trust": "internal"
+    },
+    "故障执行了恢复操作'",
+    {
+      "arg": "action",
+      "type": "token",
+      "trust": "internal"
+    },
+    "'（第",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "次尝试）；跳过失败后的暂停，立即启动下一个周期。"
+  ],
+  "runner.recovery_result_write_failed": [
+    "无法将恢复结果记录到",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "（",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。周期结果不受影响。"
+  ],
   "runner.refresh_barrier_held": [
     "宿主机刷新",
     {
@@ -23197,6 +23354,21 @@ const DatazhCNrunner = `{
   ],
   "runner.status_worker_directory_prepare_action": "准备工作进程的私有目录",
   "runner.status_worker_state_write_action": "发布工作进程状态记录",
+  "runner.telemetry_event_dropped": [
+    "无法记录一个周期事件（'",
+    {
+      "arg": "eventName",
+      "type": "token",
+      "trust": "internal"
+    },
+    "'：",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。周期继续运行，但事件流已不完整；计数和原因记录在cycle.events.delivery.json中。本周期内后续丢失的事件会累计计数，不再重复报告。"
+  ],
   "runner.transcript_title": "Yuruna测试运行器日志",
   "runner.vault_retired_entries": [
     "已移除",
@@ -23206,6 +23378,36 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
+  "runner.vm_admission_occupied": [
+    "拒绝启动周期：以下虚拟机在宿主机上运行且无法停止：",
+    {
+      "arg": "occupants",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。请停止或删除这些虚拟机，然后重新运行周期。"
+  ],
+  "runner.vm_admission_unknown": [
+    "拒绝启动周期：宿主机无法确认没有其他虚拟机正在运行（读取",
+    {
+      "arg": "probes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "次后为",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。在同一组虚拟机上运行两个周期会互相破坏，因此运行器不会猜测；它将在下次循环时重试。请检查此宿主机上的虚拟机监控程序命令行工具和虚拟机清单。"
+  ],
   "runner.vm_cleanup_terminating_error": [
     "Remove-TestVMFiles.ps1引发了终止性错误；周期退出码仍将反映该周期的通过／失败结果（pass/fail.）。错误：",
     {
@@ -23213,6 +23415,33 @@ const DatazhCNrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.warm_resume_declined_unverified": [
+    "  WARM-RESUME被拒绝：'",
+    {
+      "arg": "resumeSequence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'在步骤",
+    {
+      "arg": "resumeFromStep",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "失败（",
+    {
+      "arg": "failureClass",
+      "type": "token",
+      "trust": "internal"
+    },
+    "），且无法确认重放是安全的（原因：",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）。原始失败判定保持不变。"
   ]
 }
 `

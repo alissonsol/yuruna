@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -230,21 +230,7 @@ function Stop-StaleRunner {
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
     )
     if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", (Format-YurunaOperatorMessage -Key 'runner.operator_fad7deaf725b8e6e'))) { return }
-    # The TREE, not the PID. A runner spawns its cycle process, that spawns the
-    # inner, and every one of them inherits the terminal (they are started
-    # -NoNewWindow). Killing only the runner leaves those children alive, holding
-    # the console the NEW runner is about to write to -- and two processes on one
-    # terminal is not a cosmetic problem: each side's cursor-position query
-    # (ESC[6n) gets its reply consumed by the other, so the report text leaks into
-    # the output as stray ";1R" and the side that asked fails the read. PowerShell
-    # answers a failed console read with Environment.FailFast, which kills the
-    # process outright. The orphaned inner also keeps driving VMs with nothing
-    # supervising it.
-    #
-    # TERM before KILL, and children before the parent: a parent killed first
-    # re-parents its children to init and loses the group that would have reached
-    # them. The grace period is what lets the old runner put the terminal back the
-    # way it found it; the KILL sweep afterwards is for whatever ignored TERM.
+    # See https://yuruna.link/4213a0b3-016c
     Stop-YurunaProcessTree -ProcessId $ProcessId -GraceMilliseconds 2000
     # The inner publishes its own pidfile, which is the one handle on a child that
     # survived a re-parent (its group is gone, so no group signal can find it).
@@ -317,23 +303,7 @@ function Write-RunnerPidFile {
         [string]$RunnerStartFile
     )
     if (-not $PSCmdlet.ShouldProcess($RunnerPidFile, (Format-YurunaOperatorMessage -Key 'runner.operator_afdc01326460cb2c'))) { return $true }
-    # Atomic-write contract for the pidfile + StartTime sidecar pair:
-    # the reader must never see a pidfile without its sidecar, or it
-    # falls back to cmdline regex on a stale identity and may
-    # misattribute. Sequence:
-    #
-    #   1. Compute startIso and write to a per-PID `.tmp` next to
-    #      RunnerStartFile so a concurrent runner's tmp can't collide.
-    #   2. CreateNew + FileShare.None on the pidfile -- this is the
-    #      compare-and-set that decides the race.
-    #   3. On win: Move-Item .tmp -> RunnerStartFile (atomic rename
-    #      on same-volume NTFS / ext4 / APFS).
-    #   4. On loss: delete the orphan .tmp and return $false; the
-    #      caller treats this the same as Get-RunnerInstanceState
-    #      returning 'OtherRunner'.
-    #
-    # The only remaining unprotected window is between (2) and (3) --
-    # ~one rename syscall.
+    # See https://yuruna.link/4213a0b3-016d
     $startIso = $null
     if ($RunnerStartFile) {
         try {
@@ -973,6 +943,97 @@ function Get-YurunaProcessTable {
     return [pscustomobject]$result
 }
 
+function Get-YurunaWindowsKernelPidRecord {
+    <#
+    .SYNOPSIS
+        Local PID and creation-time evidence within the single-PID budget.
+    .DESCRIPTION
+        A signal or watched-runner check needs exact PID/start identity, not
+        a CIM service round trip. Only GetProcessById's missing-PID exception
+        proves absence; access errors, unreadable start times and expired
+        budgets remain unknown. Handles are disposed on every acquired path.
+
+        This private record speaks only for one PID's liveness. It supplies
+        no parent, session owner, command line or descendant evidence; those
+        decisions still require the complete CIM snapshot.
+    .PARAMETER ProcessProvider
+        Test seam for opening a local process handle.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([int]$ProcessId, [psobject]$Deadline, [scriptblock]$ProcessProvider)
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $own = if ($Deadline) {
+        New-YurunaDeadline -Parent $Deadline -TotalMilliseconds 5000
+    } else {
+        New-YurunaDeadline -TotalMilliseconds 5000
+    }
+    $table = [pscustomobject]@{
+        Complete = $false; Platform = 'Windows'; Source = 'kernel'
+        CapturedUtc = [DateTime]::UtcNow.ToString('o'); ElapsedMs = [long]0
+        Rows = @(); Error = $null
+    }
+    $record = [pscustomobject]@{ Table = $table; Row = $null }
+    $process = $null
+    $provider = if ($ProcessProvider) { $ProcessProvider } else {
+        { param([int]$TargetPid) [System.Diagnostics.Process]::GetProcessById($TargetPid) }
+    }
+    try {
+        if ($ProcessId -le 0) { $table.Error = 'invalid-pid'; return $record }
+        if (Test-YurunaDeadlineExpired -Deadline $own) { $table.Error = 'deadline-exhausted'; return $record }
+        try {
+            $process = & $provider $ProcessId
+        } catch [System.ArgumentException] {
+            $table.Complete = $true
+            return $record
+        } catch {
+            $table.Error = "kernel-failed: $($_.Exception.Message)"
+            return $record
+        }
+        if (-not $process -or [int]$process.Id -ne $ProcessId) {
+            $table.Error = 'kernel-handle-unavailable'
+            return $record
+        }
+        if (Test-YurunaDeadlineExpired -Deadline $own) { $table.Error = 'deadline-exhausted'; return $record }
+        $row = [pscustomobject]@{
+            Pid = $ProcessId; ParentPid = $null; StartTimeUnixMs = $null
+            Executable = $null; CommandLine = ''; Argv = $null; OwnerId = $null
+            ProcessGroupId = $null; WorkingDirectory = $null
+        }
+        $record.Row = $row
+        $table.Rows = @($row)
+        try { $row.StartTimeUnixMs = ConvertTo-YurunaUnixMs -Value $process.StartTime }
+        catch { $table.Error = 'start-unreadable' }
+        if ($null -eq $row.StartTimeUnixMs) {
+            $table.Error = 'start-unreadable'
+        } else {
+            $table.Complete = $true
+        }
+    } catch {
+        $table.Complete = $false
+        $table.Error = "kernel-failed: $($_.Exception.Message)"
+        $table.Rows = @()
+        $record.Row = $null
+    } finally {
+        if ($process) {
+            try { $process.Dispose() } catch {
+                $table.Complete = $false
+                $table.Error = 'kernel-dispose-failed'
+                $table.Rows = @()
+                $record.Row = $null
+            }
+        }
+        if (Test-YurunaDeadlineExpired -Deadline $own) {
+            $table.Complete = $false
+            $table.Error = 'deadline-exhausted'
+            $table.Rows = @()
+            $record.Row = $null
+        }
+        $table.ElapsedMs = [long]$stopwatch.ElapsedMilliseconds
+    }
+    return $record
+}
+
 function Get-YurunaSinglePidRecord {
     <#
     .SYNOPSIS
@@ -985,6 +1046,9 @@ function Get-YurunaSinglePidRecord {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param([int]$ProcessId, [psobject]$Deadline)
+    if ((Get-YurunaIdentityPlatform) -eq 'Windows') {
+        return (Get-YurunaWindowsKernelPidRecord -ProcessId $ProcessId -Deadline $Deadline)
+    }
     $arguments = @{ ProcessId = @($ProcessId); TimeoutSeconds = 5 }
     if ($Deadline) { $arguments.Deadline = $Deadline }
     $table = Get-YurunaProcessTable @arguments

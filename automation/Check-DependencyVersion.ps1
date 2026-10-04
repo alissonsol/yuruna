@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 427703ae-4857-433b-ab5f-5f81a7ae94c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -279,15 +279,7 @@ $trackedDeps = @(
     @{ Name = 'PowerShell (tracks latest)'; Source = 'github.com/PowerShell/PowerShell';        Resolve = { Get-GitHubLatestTag -Repo 'PowerShell/PowerShell' } }
 )
 
-# Host-tool floors from Yuruna.Requirement.yml. These are the versions a host is
-# probed against, not versions anything installs, so upstream moving ahead is
-# informational: it never fails the run. Without them nothing watches the host
-# side at all, and a floor can trail for months unnoticed.
-#
-# Only tools with an unambiguous upstream release feed are listed. Docker and
-# Docker buildx are deliberately absent: both track what Docker Desktop bundles
-# rather than the newest upstream tag, so comparing them to upstream would report
-# drift on a correctly provisioned machine every time.
+# See https://yuruna.link/4213a0b3-0002
 $hostFloorDeps = @(
     @{ Name = 'PowerShell (host floor)'; Tool = 'PowerShell'; Source = 'github.com/PowerShell/PowerShell';       Resolve = { Get-GitHubLatestTag -Repo 'PowerShell/PowerShell' } }
     @{ Name = 'containerd (host floor)'; Tool = 'containerd'; Source = 'github.com/containerd/containerd';       Resolve = { Get-GitHubLatestTag -Repo 'containerd/containerd' } }

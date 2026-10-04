@@ -1,0 +1,51 @@
+<?xml version='1.0' encoding='utf-8'?>
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-repository" tagId="urn:uuid:a9aeee3c-0a3e-5bf8-b0fc-3cbf9ebb2431" version="2026.10.04" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+  <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
+  <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="repository" sbom:inventory-kind="declared-source" />
+  <Link rel="requires" href="swid/repository-a918c6f303ac3cfdd0e8.swidtag" />
+  <Link rel="requires" href="swid/repository-d177cf988c867818ae63.swidtag" />
+  <Link rel="requires" href="swid/repository-5b86315870921f109bf2.swidtag" />
+  <Link rel="requires" href="swid/repository-280432a44173be6af224.swidtag" />
+  <Link rel="requires" href="swid/repository-877085193e9afb3a3c38.swidtag" />
+  <Link rel="requires" href="swid/repository-000139009e3b0ea2cb06.swidtag" />
+  <Link rel="requires" href="swid/repository-0600ffc08ebfcd4ae0d8.swidtag" />
+  <Link rel="requires" href="swid/repository-fcc09a389055123ca453.swidtag" />
+  <Link rel="requires" href="swid/repository-467244424de7eae1e3f9.swidtag" />
+  <Link rel="requires" href="swid/repository-8699244ea528baa8914d.swidtag" />
+  <Link rel="requires" href="swid/repository-582446bc32876fcbf5fe.swidtag" />
+  <Link rel="requires" href="swid/repository-8b082720a3d34c2b5dbc.swidtag" />
+  <Link rel="requires" href="swid/repository-d6cf248cd102be5ff0e7.swidtag" />
+  <Link rel="requires" href="swid/repository-e5a7521992c856e1013d.swidtag" />
+  <Link rel="requires" href="swid/repository-e1fcb9ec435a341b7c8a.swidtag" />
+  <Link rel="requires" href="swid/repository-dbd34b0681ab6c5792e1.swidtag" />
+  <Link rel="requires" href="swid/repository-60dfee9fb03302a41503.swidtag" />
+  <Link rel="requires" href="swid/repository-da5d0b169766af760a32.swidtag" />
+  <Link rel="requires" href="swid/repository-c14ef80f642fad4431bd.swidtag" />
+  <Link rel="requires" href="swid/repository-df855484d764f8891fa3.swidtag" />
+  <Link rel="requires" href="swid/repository-29774b2de7fb21c49708.swidtag" />
+  <Link rel="requires" href="swid/repository-218541d2506170a1d473.swidtag" />
+  <Link rel="requires" href="swid/repository-9d45139bdebf1c8ece6a.swidtag" />
+  <Link rel="requires" href="swid/repository-b53018f6fcafa440a222.swidtag" />
+  <Link rel="requires" href="swid/repository-284e1d1493d9725cc86d.swidtag" />
+  <Link rel="requires" href="swid/repository-b8012295a79e4da43b8f.swidtag" />
+  <Link rel="requires" href="swid/repository-487136d8901acfa9844f.swidtag" />
+  <Link rel="requires" href="swid/repository-fabca1cfebfad94a1fbe.swidtag" />
+  <Link rel="requires" href="swid/repository-de651c013a28496d53d7.swidtag" />
+  <Link rel="requires" href="swid/repository-fc9c99298f7eb5eee5f8.swidtag" />
+  <Link rel="requires" href="swid/repository-caf4b0eb0f8d98a401b2.swidtag" />
+  <Link rel="requires" href="swid/repository-34ce8531c1ad8f3a8b0f.swidtag" />
+  <Link rel="requires" href="swid/repository-d36496760373c18829bb.swidtag" />
+  <Link rel="requires" href="swid/repository-332c942aae4f99c9df8b.swidtag" />
+  <Link rel="requires" href="swid/repository-15946024bda4ba341768.swidtag" />
+  <Link rel="requires" href="swid/repository-ea956d7c64319f74b96c.swidtag" />
+  <Link rel="requires" href="swid/repository-005aa61133bce55cb8bf.swidtag" />
+  <Link rel="requires" href="swid/repository-08a7725ec86fb430317b.swidtag" />
+  <Link rel="requires" href="swid/repository-070ba5f14e1b7ce30bbc.swidtag" />
+  <Link rel="requires" href="swid/repository-f9b42cdcad718e5a0d9f.swidtag" />
+  <Link rel="requires" href="swid/repository-9756508f804a7e5f5603.swidtag" />
+  <Link rel="requires" href="swid/repository-882d4bb41cb57da0b374.swidtag" />
+  <Link rel="requires" href="swid/repository-7909813fb9c6b99a751b.swidtag" />
+  <Link rel="requires" href="swid/repository-99fce750b9e0c923e887.swidtag" />
+  <Link rel="requires" href="swid/repository-d4da385fc11f7e9f7d15.swidtag" />
+  <Link rel="requires" href="swid/repository-9033cea6b6a5624a74dd.swidtag" />
+</SoftwareIdentity>

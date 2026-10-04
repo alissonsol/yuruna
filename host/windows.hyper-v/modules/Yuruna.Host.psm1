@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,14 +65,7 @@ function Resolve-HostTag {
     return $script:HostTag
 }
 
-# The supporting test/modules become callable from our function bodies;
-# Export-ModuleMember below decides which of OUR functions become visible
-# to test/ orchestration. Yuruna.Host.psm1's exports shadow any same-name
-# exports the supporting modules also produce.
-# These dependency modules are imported -Global: Yuruna.Host is -Force re-imported
-# mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
-# EVICTS the global copy other modules call via qualified names (e.g.
-# Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
+# See https://yuruna.link/42e5cdfd-0002
 Import-Module (Join-Path $script:RepoRoot 'automation\Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
@@ -88,17 +81,7 @@ Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.DownloadAgent.psm
 # the Get-Image log-line writer) common to all three drivers.
 Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 # --- REGION: Hyper-V host helpers
-# ADK Deployment Tools path. The '10' is the ADK major version, not the Windows
-# version -- adjust it if a different ADK is installed.
-#
-# The ADK lays Oscdimg down once per architecture -- amd64, arm64 and x86 are
-# all present after a single install, on an ARM64 host as much as an x64 one --
-# so the subdirectory is a choice, not a constant. Pinning amd64 does run on
-# ARM64, silently, through the x64 emulation layer, which is exactly what makes
-# the wrong pin hard to notice: a seed ISO is on the path of every guest this
-# driver creates, and it would keep working until it met a host where that
-# layer is unavailable. Prefer the native build and keep the others as
-# fallbacks, so a partial ADK still yields a runnable copy.
+# See https://yuruna.link/42e5cdfd-0026
 $script:OscdimgToolsRoot = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools"
 
 function Resolve-OscdimgPath {
@@ -119,15 +102,7 @@ function Resolve-OscdimgPath {
         'Arm64' { 'arm64' }
         default { 'amd64' }
     }
-    # The tool lives under a Windows-only root. Off Windows there is no C:
-    # drive for Join-Path to build a candidate against, so it fails and hands
-    # the probe below a null path -- and Test-Path on null is an error that a
-    # caller running with ErrorActionPreference 'Stop' turns into a failed
-    # module load. This runs at import time, so the whole module then loads as
-    # nothing, and every consumer reports a missing command rather than a
-    # missing tool. RuntimeInformation rather than $IsWindows: the latter is
-    # undefined on PowerShell 5.1, where -not $IsWindows is true on the one
-    # platform this path is for.
+    # See https://yuruna.link/42e5cdfd-0027
     $isWindowsHost = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
         [System.Runtime.InteropServices.OSPlatform]::Windows)
     if (-not $isWindowsHost) {
@@ -243,16 +218,7 @@ function Get-CacheVmCandidateIp {
         $VM
     )
 
-    # KVP can emit both IPv4 and IPv6. Net-routable v4 stays first since
-    # downstream port-forwarders here are netsh portproxy v4tov4; v6
-    # entries are kept too so callers that handle v6 (SSH, generic TCP)
-    # still see them. Loopback/link-local on either family is excluded.
-    #
-    # Kept as an inline filter rather than routed through
-    # Select-YurunaRoutableAddress: this site needs the whole surviving LIST of
-    # candidates to rank against ARP results below, and the shared helper
-    # deliberately answers with one address. The rejection rule it applies is the
-    # same one; change both together.
+    # See https://yuruna.link/42e5cdfd-0028
     $kvpIps = @($VM | Get-VMNetworkAdapter |
         ForEach-Object { $_.IPAddresses } |
         Where-Object { Test-IpAddress $_ } |
@@ -456,80 +422,75 @@ function Test-YurunaSwitchOnDefaultRoute {
 }
 
 # --- REGION: https://yuruna.link/4220a755-0021
-# The blank line below is load-bearing. A single-line comment that touches the
-# <# #> block gets absorbed into it, and PowerShell then no longer reads the
-# block as comment-based help -- Get-Help for this function returns nothing at
-# all, silently. Keep any comment here separated from the block by a blank line.
-
-<#
-.SYNOPSIS
-    One-word verdict on whether an External vSwitch's bridge can still
-    carry a guest.
-
-.DESCRIPTION
-    A Hyper-V vSwitch object outlives its uplink binding across a host
-    reboot: the switch keeps its name, its SwitchType and the description
-    of the NIC it was bridged to, while the host's IP stack sits back on
-    the bare physical adapter and nothing forwards frames for a guest MAC.
-    The object's survival is therefore not evidence that the bridge works,
-    and nothing else in this driver asks the question -- the switch record
-    is read for its name and type only, and AllowManagementOS is written
-    at creation and never read back.
-
-    Verdicts, first match wins:
-      'not-external'              SwitchType is no longer External.
-      'uplink-missing'            the switch names no uplink adapter at all.
-      'uplink-down'               every named uplink adapter reports not Up.
-      'management-os-detached'    the switch is set to share its NIC with
-                                  the management OS, yet Hyper-V reports no
-                                  management-OS vNIC on it.
-      'management-os-unaddressed' that vNIC exists but holds no usable
-                                  IPv4, so a seed built now would carry no
-                                  host address the guest could reach.
-      'healthy'                   nothing above matched.
-      'unknown'                   not evaluable: non-Windows, a probe
-                                  cmdlet missing, a throw, no switch
-                                  record, or an ambiguous binding.
-
-    Failing open is a hard rule -- every unevaluable probe yields
-    'unknown', and callers treat 'unknown' exactly like 'healthy'. A false
-    unhealthy verdict demotes a whole host to NAT (its cache VM loses its
-    LAN IP, ARP discovery no-ops), which costs far more than missing one
-    degraded switch.
-
-    Management-OS presence is resolved from Hyper-V itself
-    (Get-VMNetworkAdapter -ManagementOS) rather than by looking for an
-    adapter named 'vEthernet (<switch>)': that alias is only a default,
-    and Rename-NetAdapter or a disambiguating enumeration suffix breaks
-    the shape on a perfectly working bridge.
-
-.PARAMETER SwitchName
-    vSwitch to classify.
-
-.PARAMETER SwitchRecord
-    Test seam, Get-VMSwitch shape. Binding it selects injected mode for
-    ALL THREE record parameters together, so a partially-bound call can
-    never fall through to live cmdlets on a host with no Hyper-V.
-
-.PARAMETER AdapterRecord
-    Test seam. Adapter records in the Get-NetAdapter shape
-    (InterfaceDescription, InterfaceAlias, Status, MacAddress,
-    InterfaceIndex), plus the switch's management-OS vNICs in the
-    Get-VMNetworkAdapter -ManagementOS shape (IsManagementOs, SwitchName,
-    MacAddress) -- live mode reads both and concatenates them here. A
-    record counts as a management vNIC when it is flagged IsManagementOs
-    or simply carries no InterfaceDescription, so injecting an adapter
-    with neither shape reads as "management OS present".
-
-.PARAMETER HostIpRecord
-    Test seam. Host IPv4 records in the Get-NetIPAddress shape
-    (IPAddress, InterfaceAlias, InterfaceIndex).
-
-.OUTPUTS
-    [string] exactly one verdict from the closed list above.
-#>
 function Test-YurunaExternalSwitchUplink {
-    [CmdletBinding()]
+    <#
+    .SYNOPSIS
+        One-word verdict on whether an External vSwitch's bridge can still
+        carry a guest.
+
+    .DESCRIPTION
+        A Hyper-V vSwitch object outlives its uplink binding across a host
+        reboot: the switch keeps its name, its SwitchType and the description
+        of the NIC it was bridged to, while the host's IP stack sits back on
+        the bare physical adapter and nothing forwards frames for a guest MAC.
+        The object's survival is therefore not evidence that the bridge works,
+        and nothing else in this driver asks the question -- the switch record
+        is read for its name and type only, and AllowManagementOS is written
+        at creation and never read back.
+
+        Verdicts, first match wins:
+          'not-external'              SwitchType is no longer External.
+          'uplink-missing'            the switch names no uplink adapter at all.
+          'uplink-down'               every named uplink adapter reports not Up.
+          'management-os-detached'    the switch is set to share its NIC with
+                                      the management OS, yet Hyper-V reports no
+                                      management-OS vNIC on it.
+          'management-os-unaddressed' that vNIC exists but holds no usable
+                                      IPv4, so a seed built now would carry no
+                                      host address the guest could reach.
+          'healthy'                   nothing above matched.
+          'unknown'                   not evaluable: non-Windows, a probe
+                                      cmdlet missing, a throw, no switch
+                                      record, or an ambiguous binding.
+
+        Failing open is a hard rule -- every unevaluable probe yields
+        'unknown', and callers treat 'unknown' exactly like 'healthy'. A false
+        unhealthy verdict demotes a whole host to NAT (its cache VM loses its
+        LAN IP, ARP discovery no-ops), which costs far more than missing one
+        degraded switch.
+
+        Management-OS presence is resolved from Hyper-V itself
+        (Get-VMNetworkAdapter -ManagementOS) rather than by looking for an
+        adapter named 'vEthernet (<switch>)': that alias is only a default,
+        and Rename-NetAdapter or a disambiguating enumeration suffix breaks
+        the shape on a perfectly working bridge.
+
+    .PARAMETER SwitchName
+        vSwitch to classify.
+
+    .PARAMETER SwitchRecord
+        Test seam, Get-VMSwitch shape. Binding it selects injected mode for
+        ALL THREE record parameters together, so a partially-bound call can
+        never fall through to live cmdlets on a host with no Hyper-V.
+
+    .PARAMETER AdapterRecord
+        Test seam. Adapter records in the Get-NetAdapter shape
+        (InterfaceDescription, InterfaceAlias, Status, MacAddress,
+        InterfaceIndex), plus the switch's management-OS vNICs in the
+        Get-VMNetworkAdapter -ManagementOS shape (IsManagementOs, SwitchName,
+        MacAddress) -- live mode reads both and concatenates them here. A
+        record counts as a management vNIC when it is flagged IsManagementOs
+        or simply carries no InterfaceDescription, so injecting an adapter
+        with neither shape reads as "management OS present".
+
+    .PARAMETER HostIpRecord
+        Test seam. Host IPv4 records in the Get-NetIPAddress shape
+        (IPAddress, InterfaceAlias, InterfaceIndex).
+
+    .OUTPUTS
+        [string] exactly one verdict from the closed list above.
+    #>
+        [CmdletBinding()]
     [OutputType([string])]
     param(
         [Parameter(Mandatory)][string]$SwitchName,
@@ -1292,16 +1253,7 @@ function Get-OrCreateYurunaExternalSwitch {
         return $declined
     }
 
-    # 2. ANY existing External-type vSwitch: reuse it instead of
-    # creating a redundant second External on the same NIC. Hyper-V
-    # only allows one External vSwitch per physical adapter, so a
-    # blind New-VMSwitch on top of an existing one tears down the
-    # original (network blip + every existing VM on the old switch
-    # gets disconnected). On hosts where the operator pre-created an
-    # External vSwitch under a different name (e.g., 'External',
-    # 'LAN-Bridge'), we honor that and return its name. That same
-    # invariant is why an External switch whose bridge is degraded
-    # declines here instead of falling through to the create path.
+    # See https://yuruna.link/42e5cdfd-0029
     $external = @(Get-VMSwitch -ErrorAction SilentlyContinue | Where-Object { $_.SwitchType -eq 'External' })
     if ($external.Count -gt 0) {
         $candidate = @($external | ForEach-Object {
@@ -1769,32 +1721,32 @@ function Assert-HyperVEnabled {
 # code calls the contract verbs (New-VM / Start-VM / ...) which
 # delegate here.
 
-<#
-.SYNOPSIS
-Decide whether a Hyper-V VM is present, absent, or cannot be established,
-without reading the text of any exception.
-
-.DESCRIPTION
-`Hyper-V\Get-VM -Name` fails the same way for a VM that does not exist and for
-a provider that could not answer (VMMS down, a denied call, a busy host), and
-its message is localized. So a failed or empty name lookup is never read as
-absence on its own: a full inventory is taken, and only an inventory that
-succeeds and does not list the name proves the VM is absent. An inventory that
-lists the name after the lookup missed it, or an inventory that fails, is
-'unknown'. Hyper-V allows duplicate names, so two exact matches are 'unknown'
-as well -- acting on one of them could touch the other. A name holding a
-wildcard or escape character ([ ] * ? `) skips the -Name lookup and is decided
-by an exact match against the inventory alone.
-
-Presence 'absent' is what callers treat as permission to build, reuse a name
-or delete files, which is why every doubtful case answers 'unknown'.
-
-.OUTPUTS
-[pscustomobject] @{ Presence = present|absent|unknown; VM; Cause = ok|
-missing-client|ambiguous|lookup-failed|inventory-failed }
-#>
 function Resolve-HyperVVM {
-    [CmdletBinding()]
+    <#
+    .SYNOPSIS
+    Decide whether a Hyper-V VM is present, absent, or cannot be established,
+    without reading the text of any exception.
+
+    .DESCRIPTION
+    `Hyper-V\Get-VM -Name` fails the same way for a VM that does not exist and for
+    a provider that could not answer (VMMS down, a denied call, a busy host), and
+    its message is localized. So a failed or empty name lookup is never read as
+    absence on its own: a full inventory is taken, and only an inventory that
+    succeeds and does not list the name proves the VM is absent. An inventory that
+    lists the name after the lookup missed it, or an inventory that fails, is
+    'unknown'. Hyper-V allows duplicate names, so two exact matches are 'unknown'
+    as well -- acting on one of them could touch the other. A name holding a
+    wildcard or escape character ([ ] * ? `) skips the -Name lookup and is decided
+    by an exact match against the inventory alone.
+
+    Presence 'absent' is what callers treat as permission to build, reuse a name
+    or delete files, which is why every doubtful case answers 'unknown'.
+
+    .OUTPUTS
+    [pscustomobject] @{ Presence = present|absent|unknown; VM; Cause = ok|
+    missing-client|ambiguous|lookup-failed|inventory-failed }
+    #>
+        [CmdletBinding()]
     [OutputType([pscustomobject])]
     param([Parameter(Mandatory)][string]$VMName)
     if (-not (Get-Command -Name 'Hyper-V\Get-VM' -ErrorAction SilentlyContinue)) {
@@ -3170,15 +3122,7 @@ function Start-WindowsCachingProxyServiceForwarder {
     )
     if ($PrependProxyV1) { $procArgs += '-PrependProxyV1' }
     try {
-        # -RedirectStandardInput against an empty file: without an explicit
-        # stdin redirect the detached forwarder inherits the parent
-        # console's stdin handle, and Windows conhost cannot tear down
-        # when the parent shell exits -- pinning the operator's
-        # PowerShell window in a close-pending state until the forwarder
-        # is killed. Passing 'NUL' / '\\.\NUL' is rejected by
-        # Start-Process's path resolver (it prepends the cwd and the
-        # underlying FileStream open fails), so we use a persistent empty
-        # sentinel file in the forwarder's state dir.
+        # See https://yuruna.link/42e5cdfd-002a
         $stdinSink = Join-Path $stateDir 'stdin.empty'
         if (-not (Test-Path -LiteralPath $stdinSink)) {
             [System.IO.File]::WriteAllBytes($stdinSink, [byte[]]@())
@@ -3403,21 +3347,21 @@ function Clear-AllCachingProxyServicePortMapping {
 #      because clicks need the same coord space as the captured pixels,
 #      and the WMI thumbnail does NOT match vmconnect's client area.
 
-<#
-.SYNOPSIS
-Capture a screenshot of a Hyper-V VM via the WMI thumbnail API.
-
-.DESCRIPTION
-Uses Msvm_VirtualSystemManagementService.GetVirtualSystemThumbnailImage
-to grab the VM's framebuffer at its configured resolution, falling back to
-smaller supported thumbnail sizes during boot, and writes the returned size
-to $OutputPath as a PNG. Does not require a vmconnect window and runs
-even when the host is headless. Use the PrintWindow path (separate
-helper) when click-by-OCR needs coordinates that match vmconnect's
-client area.
-#>
 function Get-HyperVThumbnailByte {
     <#
+    .SYNOPSIS
+    Capture a screenshot of a Hyper-V VM via the WMI thumbnail API.
+
+    .DESCRIPTION
+    Uses Msvm_VirtualSystemManagementService.GetVirtualSystemThumbnailImage
+    to grab the VM's framebuffer at its configured resolution, falling back to
+    smaller supported thumbnail sizes during boot, and writes the returned size
+    to $OutputPath as a PNG. Does not require a vmconnect window and runs
+    even when the host is headless. Use the PrintWindow path (separate
+    helper) when click-by-OCR needs coordinates that match vmconnect's
+    client area.
+    #>
+        <#
     .SYNOPSIS
         Reads a realized VM thumbnail with an escaped and unambiguous WQL lookup.
     .PARAMETER VMName
@@ -3739,15 +3683,7 @@ public class HyperVCapture {
             try {
                 $bytes = Get-HyperVThumbnailByte -VMName $VMName -Width $captureW -Height $captureH
                 if (-not $bytes) { continue }
-                # Detect the "headless host" symptom: WMI returns a valid
-                # thumbnail but every pixel is black because the host's
-                # DWM isn't actively painting the synthetic GPU. Reported
-                # ONCE per process so a long Start-TestRunner cycle
-                # doesn't flood the log with the same message every step.
-                # Verbose, not Warning: the PrintWindow/vmconnect fallback
-                # below recovers a usable framebuffer, so a headless host
-                # keeps passing -- raise the log level to see the
-                # troubleshooting pointer when OCR does start timing out.
+                # See https://yuruna.link/42e5cdfd-002b
                 if (-not $script:__YurunaHyperVBlankWarned -and
                     [HyperVCapture]::IsImageMostlyBlack(
                         [byte[]]$bytes, [int]$captureW, [int]$captureH, 0.99)) {
@@ -4037,15 +3973,7 @@ function Rename-VM {
         return $false
     }
     # --- REGION: https://yuruna.link/4220a755-000a
-    # A NIC still holding the address the OLD name derives is holding that
-    # NAME's address rather than the guest's, and the name is being vacated --
-    # leave it there and every guest promoted out of that slot ends up on one
-    # address on one switch. Any other address was pinned at build time to the
-    # identity this guest keeps for life: moving it re-DHCPs a guest whose own
-    # state already records the address it has, which no reboot recovers from.
-    # Only the first adapter is considered: a second interface needs a second
-    # DISTINCT address, and -VMName would write this one to both. Hyper-V takes
-    # bare hex, no separators.
+    # See https://yuruna.link/42e5cdfd-002c
     $renameAdapter = $null
     try {
         $renameAdapter = Hyper-V\Get-VMNetworkAdapter -VMName $NewName -ErrorAction Stop | Select-Object -First 1
@@ -4719,17 +4647,7 @@ function Get-VMConsoleSecondOpinion {
 }
 
 # --- REGION: DHCP evidence capture
-# The guest-side network diagnostic can only say "no lease". Whether the
-# DISCOVER left the guest at all, died crossing the vSwitch or the uplink, or
-# went out and was never answered is visible only on the host's packet path --
-# and each of those shapes indicts a different machine. pktmon records every
-# component a packet traverses, so the drop point is in the artifact, and the
-# pcapng form keeps payloads (client-id, xid) for reading which identity asked.
-#
-# pktmon allows ONE session per system, so every start clears whatever session
-# precedes it, and the capture is DHCP-only (ports 67/68) in a small circular
-# log: a session nothing ever stops -- a flow that starts a VM and never
-# removes it -- stays bounded instead of growing with uptime.
+# See https://yuruna.link/42e5cdfd-002d
 
 # The one live capture, if any: @{ VMName; EtlPath }. Session state, not
 # durable state -- pktmon itself is the source of truth for whether a capture
@@ -5187,20 +5105,7 @@ function Get-BestHostIp {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    # Binding a NIC to an External vSwitch moves the host's own LAN address off
-    # that NIC and onto `vEthernet (<switch>)`, so on the topology this
-    # framework builds the correct answer is ALWAYS a vEthernet adapter.
-    # Excluding vEthernet wholesale -- the obvious way to keep the internal and
-    # NAT vNICs out (Default Switch, WSL) -- therefore discards the only right
-    # answer and settles for whatever NAT adapter another hypervisor installed:
-    # an address that resolves locally, answers nothing, and never changes,
-    # which is indistinguishable from a host that is not moving.
-    #
-    # A vEthernet is admitted on either of two independent grounds, and the
-    # second is what keeps this working where the first cannot be read:
-    # Get-VMSwitch needs Hyper-V administrator rights, and not every caller has
-    # them, while the default route is readable by anyone and is on the
-    # LAN-facing adapter whatever it happens to be called.
+    # See https://yuruna.link/42e5cdfd-002e
     $externalVnic = @()
     try {
         $externalVnic = @(Get-VMSwitch -ErrorAction Stop |

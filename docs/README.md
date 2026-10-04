@@ -16,6 +16,7 @@ operator subset. The translation manifest records each document's accepted
 review; English remains the source of truth.
 
 - **[globalization.md](globalization.md)** -- language selection, catalog authoring, and reviewed translation exchange.
+- **[sbom/README.md](sbom/README.md)** -- software inventories, source evidence, prior-version comparison, and pre-commit maintenance.
 - **[architecture.md](architecture.md)** -- the three capabilities and the
   three-phase Resources -> Components -> Workloads model, plus the CLI entry
   points. Cross-cutting concepts every other README links to rather than
@@ -147,6 +148,12 @@ review; English remains the source of truth.
   the shared base + per-host overlay rendering pipeline that produces them, and
   the [caching-proxy-service seed](vmconfig.md#caching-proxy-service-seed-topics)
   that builds the cache VM.
+- **[source-consistency.md](source-consistency.md)** -- shared region vocabulary,
+  workflow ordering, and the OS and hypervisor differences to retain.
+- **[host-implementation-notes.md](host-implementation-notes.md)**,
+  **[framework-implementation-notes.md](framework-implementation-notes.md)**, and
+  **[project-implementation-notes.md](project-implementation-notes.md)** -- detailed
+  rationale linked from host, runner, and example source files.
 
 <a id="42d43217-0007"></a>
 
@@ -292,6 +299,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

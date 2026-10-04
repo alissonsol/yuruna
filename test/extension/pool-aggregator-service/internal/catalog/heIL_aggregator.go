@@ -12,6 +12,158 @@ const DataheILaggregator = `{
   "aggregator.announce_disabled": "ההכרזה מושבתת",
   "aggregator.announced_address_did_not_serve_status_json": "הכתובת שפורסמה בהכרזה לא סיפקה את ⁦status.json⁩",
   "aggregator.announced_address_serves_a_different_hostid": "הכתובת שפורסמה בהכרזה מספקת hostId אחר",
+  "aggregator.backfill_bad_flag": [
+    "השלמת היסטוריה: דגלים לא תקינים: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_cycle_unreadable": [
+    "השלמת היסטוריה: מארח ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": מחזור ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    " הושמט לאחר כשלונות חוזרים: ",
+    {
+      "arg": "value3",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_host_failed": [
+    "השלמת היסטוריה: מארח ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (הסריקה הבאה תנסה שוב)"
+  ],
+  "aggregator.backfill_index_failed": [
+    "השלמת היסטוריה: מארח ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": לא ניתן לכתוב את אינדקס המחזורים שלו: ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_pool_status_failed": [
+    "השלמת היסטוריה: לא ניתן לקרוא את מצב המאגר מהאוסף: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_prometheus_failed": [
+    "השלמת היסטוריה: מארח ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": Prometheus דחה את דגימות ציר הזמן: ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_started": [
+    "השלמת היסטוריה: הופעלה; משחזרת מחזורים מתקופה של עד ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " לאחור, בסריקה כל ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_state_failed": [
+    "השלמת היסטוריה: מארח ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": לא ניתן לשמור את מצבו: ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_sweep_done": [
+    "השלמת היסטוריה: הושלמה סריקה של ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " מארחים: נכתבו ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    " מחזורים, אירועים של ",
+    {
+      "arg": "value3",
+      "type": "detail",
+      "trust": "external"
+    },
+    " מחזורים, ",
+    {
+      "arg": "value4",
+      "type": "detail",
+      "trust": "external"
+    },
+    " תקריות ו-",
+    {
+      "arg": "value5",
+      "type": "detail",
+      "trust": "external"
+    },
+    " דגימות ציר זמן; ",
+    {
+      "arg": "value6",
+      "type": "detail",
+      "trust": "external"
+    },
+    " מחזורים לא ניתנים לקריאה; ל-",
+    {
+      "arg": "value7",
+      "type": "detail",
+      "trust": "external"
+    },
+    " מארחים יש היסטוריה שטרם נכתבה"
+  ],
   "aggregator.batch_mixes_multiple_hostids": "האצווה מכילה כמה ערכי hostIds שונים",
   "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte": "אימות הוכחת שליטה מושבת: למרכז הנתונים הזה אין מפתח אימות פנימי",
   "aggregator.encode_failed": "הקידוד נכשל",

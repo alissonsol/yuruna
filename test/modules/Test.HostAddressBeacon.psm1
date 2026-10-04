@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42d5663b-af64-472f-8342-ab50456c2fc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,17 +72,7 @@ $script:SquidPort      = 3128
 # without waiting for it to appear in the squid log again.
 $script:BeaconIntervalSeconds = 300
 
-# Two pieces of state, not one, because they answer different questions and a
-# single field conflates them destructively. LastRecorded is "what the local
-# records already say", and advances as soon as they are rewritten.
-# LastAnnounced is "what the pool has accepted", and advances only on a
-# confirmed announce so an unreachable directory is retried on the next tick
-# rather than after a whole beacon interval.
-#
-# Sharing one field makes an unreachable directory re-log the address change
-# and rewrite the same files on EVERY tick, forever: the announce never
-# succeeds, the field never advances, and nothing downstream can tell a host
-# that keeps moving from a host that simply cannot reach the pool.
+# See https://yuruna.link/4213a0b3-005a
 $script:LastRecordedAddress  = ''
 $script:LastAnnouncedAddress = ''
 $script:LastAnnounceUtc      = [datetime]::MinValue
@@ -95,17 +85,7 @@ $script:ResolvedDirectory              = ''
 $script:LastDirectoryLookupUtc         = [datetime]::MinValue
 $script:DirectoryLookupIntervalSeconds = 60
 
-# Renumbering-rate warning. The beacon is the only thing that sees every
-# address change, so it is the only place that can tell "the host moved once"
-# from "the host is being handed a different address every lease". The second
-# is a lab misconfiguration the discovery path merely survives -- it costs a
-# directory round trip per guest per move, and it strands any guest whose
-# network cannot reach the directory at all -- so it is worth naming once,
-# with the remedy, rather than leaving the operator to infer it from a cycle
-# log full of repaired addresses.
-#
-# Latched: said once per beacon process. A warning repeated every renewal is
-# a warning nobody reads.
+# See https://yuruna.link/4213a0b3-005b
 $script:AddressChangeCount   = 0
 $script:FirstChangeUtc       = [datetime]::MinValue
 $script:ChurnWarningIssued   = $false
@@ -393,17 +373,7 @@ function Get-HostAddressChangeCount {
         [Parameter(Mandatory)][datetime]$StartUtc,
         [Parameter(Mandatory)][datetime]$EndUtc
     )
-    # -1, never 0, when there is nothing to read. A cycle that met no address
-    # change and a cycle whose record was never written are different facts, and
-    # only one of them is evidence about surviving churn. Collapsing them is how
-    # five cycles were read as "no churn happened" when three of them had churn.
-    #
-    # The baseline row is what keeps that distinction honest in the other
-    # direction. It parses -- so a host whose beacon is running and whose
-    # address has never moved reports a real 0 -- but it is not a change, so it
-    # never counts. Without it the file appeared only once a host had already
-    # moved, and the most stable hosts in the lab were the ones reporting that
-    # they could not be measured.
+    # See https://yuruna.link/4213a0b3-005c
     $path = Join-Path $RuntimeDir 'hostaddress.changes.ndjson'
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return -1 }
     $count = 0
@@ -747,14 +717,7 @@ function Get-HostAddressStabilityReport {
                 $report.remedy  = (Format-YurunaOperatorMessage -Key 'runner.operator_435a402b4a3ee605')
                 return $report
             }
-            # Reports the rate and stops there. Turning "N addresses a day" into
-            # a drain -- let alone into exhaustion -- needs the lease period and
-            # the scope size, and this beacon is handed NEITHER: it sees only its
-            # own host's address log. The same rate is unremarkable on a short
-            # lease and fatal on a long one, so asserting the fatal reading is a
-            # guess wearing the costume of a measurement, and it sends whoever
-            # reads it to the DHCP server to fix a pool that may be mostly free.
-            # State the observation; name the two numbers that would settle it.
+            # See https://yuruna.link/4213a0b3-005d
             $base = ((Format-YurunaOperatorMessage -Key 'runner.operator_25862eb778ae3d35' -Arguments @{ changes = "$($churn.changes)"; lookbackHours = "$($churn.lookbackHours)"; medianIntervalMinutes = "$($churn.medianIntervalMinutes)"; distinctAddresses = "$($churn.distinctAddresses)"; rate = "$rate" }))
             if ($identity.pinned -eq $false) {
                 $report.message = (Format-YurunaOperatorMessage -Key 'runner.operator_446ea43d3a126c3d' -Arguments @{ base = "$base" })
@@ -771,14 +734,7 @@ function Get-HostAddressStabilityReport {
         }
         'moved' {
             $report.severity = 'advisory'
-            # "Changed address N times" is only sayable when more than one
-            # address was actually seen. A window whose changes all report the
-            # same current address records a host that kept LOSING and
-            # REACQUIRING one address, not one that renumbered -- no second
-            # address was ever observed and no extra lease was drawn. Saying it
-            # moved 62 times invents a renumbering that leaves no trace anywhere
-            # else, and it buries the signal that is really there: something is
-            # dropping this host's address and handing the same one back.
+            # See https://yuruna.link/4213a0b3-005e
             if ($churn.distinctAddresses -le 1) {
                 $every = if ($churn.medianIntervalMinutes -gt 0) {
                     " about every $($churn.medianIntervalMinutes) min"
@@ -800,20 +756,7 @@ function Get-HostAddressStabilityReport {
             return $report
         }
         default {
-            # No address history. Which of two situations that is depends on
-            # whether the status service was ever started here: starting it
-            # materializes .status-service.ps1 into the runtime directory, and
-            # the recorder runs inside it, writing its first row the first time
-            # it observes an address. No marker is the expected state of a host
-            # that was just configured -- say so in plain terms and ask for
-            # nothing, because there is nothing to do -- and also the steady
-            # state of a host deliberately run with the status service disabled
-            # (statusService.enabled false, or -NoStatusService), so the
-            # message must not claim no cycle has run, only that recording has
-            # not started. A marker with no history means a started service
-            # never recorded, and that is worth a warning rather than an
-            # advisory: an unwatched host is exactly where unbounded
-            # renumbering hides.
+            # See https://yuruna.link/4213a0b3-005f
             $serviceMarker = Join-Path $RuntimeDir '.status-service.ps1'
             if (Test-Path -LiteralPath $serviceMarker) {
                 $report.severity = 'warning'

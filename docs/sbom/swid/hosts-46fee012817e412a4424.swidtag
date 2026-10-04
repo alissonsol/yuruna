@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="swtpm-tools" tagId="urn:uuid:99907585-47dc-5b59-a57e-45cc1bb47acc" version="unspecified" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+  <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
+  <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="hosts" sbom:inventory-kind="declared-source" sbom:declaration="{&quot;completeness&quot;: &quot;source-declared&quot;, &quot;ecosystem&quot;: &quot;apt&quot;, &quot;evidence&quot;: [{&quot;detail&quot;: &quot;target=ubuntu-kvm; action=apt-get install; requested=swtpm-tools; conditional provisioning input; installed version and transitive dependencies unresolved&quot;, &quot;line&quot;: 456, &quot;path&quot;: &quot;install/ubuntu.kvm.sh&quot;}], &quot;group&quot;: &quot;yuruna:hosts:ubuntu-kvm&quot;, &quot;notes&quot;: [&quot;Conditional source declaration; installed state and transitive dependencies are not resolved.&quot;], &quot;scope&quot;: &quot;runtime&quot;}" />
+</SoftwareIdentity>

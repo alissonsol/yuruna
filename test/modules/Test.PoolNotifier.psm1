@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42e65ede-af28-4c1f-8f0d-b5461e23110d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -523,19 +523,7 @@ function Invoke-PoolNotifierDelivery {
     if (-not (Test-Path -LiteralPath $outDir)) { return $result }
     foreach ($d in @($sendDir, $doneDir, $failDir)) { if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Force -Path $d | Out-Null } }
     if (-not (Test-Path -LiteralPath $WorkDir)) { New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null }
-    # Reclaim orphaned claims: a drain that died (e.g. a watchdog SIGKILL) between the
-    # claim-rename and the terminal move strands a message in sending/ -- otherwise lost
-    # forever (only outgoing/ is scanned below). Move any sending/ entry whose claim is
-    # older than the reclaim grace back to outgoing/ so it is retried. The grace avoids
-    # stealing a genuinely in-flight claim from a second notifier (the shared-queue
-    # belt-and-suspenders). Age is measured from the claimedUtc the claimer stamps into
-    # the message (claim loop below), NOT the file's LastWriteTime: the claim-rename
-    # preserves the message's content-write mtime, so a message enqueued long ago and
-    # claimed a moment ago would look instantly stale and be reclaimed + double-delivered,
-    # and a NAS whose clock differs from this host's could reclaim never or always.
-    # claimedUtc shares the same UtcNow clock as the cutoff. A message with no claimedUtc
-    # (an older drain, or one that died between the rename and the stamp) falls back to the
-    # file mtime in UTC -- coarser, but still bounded.
+    # See https://yuruna.link/4213a0b3-00be
     $reclaimCutoffUtc = (Get-Date).ToUniversalTime().AddSeconds(-$ReclaimGraceSeconds)
     $utcStyles = [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal
     foreach ($stale in @(Get-ChildItem -LiteralPath $sendDir -Filter '*.json' -File -ErrorAction SilentlyContinue)) {

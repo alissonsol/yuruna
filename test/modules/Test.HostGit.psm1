@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -417,14 +417,7 @@ function Invoke-GitPull {
         return $false
     }
 
-    # Fetch without modifying working tree. Linear-backoff retry on
-    # failure: on macOS the Application Firewall stalls outbound TCP
-    # connects right after a process opens a new listening socket
-    # (status service, caching-proxy-service forwarders). Shows up as "Couldn't
-    # connect / No route to host" on the first fetches of a fresh
-    # runner and has recovered past a 5s wait in observed runs. 5
-    # retries with 10/20/30/40/50s waits cover ~2.5 min of blip without
-    # masking a genuine outage.
+    # See https://yuruna.link/4213a0b3-0081
     $maxRetries      = 5
     $maxTotalSeconds = 180   # wall-clock cap (in addition to the attempt count) so a hung/slow
                              # fetch cannot stretch the loop far past the intended ~2.5 min window
@@ -821,6 +814,184 @@ namespace Yuruna {
     return @($enriched)
 }
 
+function Move-ProjectCloneDirectory {
+    <#
+    .SYNOPSIS
+    Renames one directory in a single operation, or throws and changes nothing.
+    .DESCRIPTION
+    Move-Item is not a rename: when the rename is refused it falls back to
+    moving the directory's children one at a time, and a failure part way
+    leaves the tree split between the source and the destination -- the one
+    shape the swap must never leave behind. [System.IO.Directory]::Move is one
+    call, so the tree moves whole or not at all.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Destination
+    )
+    [System.IO.Directory]::Move($Path, $Destination)
+}
+
+function Copy-ProjectCloneDirectory {
+    <#
+    .SYNOPSIS
+    Installs a verified clone by copying it, for when it cannot be renamed into place.
+    .DESCRIPTION
+    The same refusal that blocks renaming the old checkout blocks renaming the new
+    one: a language server that notices a project in a fresh clone watches its
+    build output folder within a second, and that watch outlives any retry.
+    Copying reads the tree and writes a new one, which a watcher does not stop.
+    The copy counts only when it passes the same health check the clone did; any
+    other outcome removes it, so a half copy never stands where a checkout
+    belongs. Never merges into an existing tree.
+    .OUTPUTS
+    [bool] $true when the destination now holds a healthy copy.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Destination
+    )
+    if (Test-Path -LiteralPath $Destination) { return $false }
+    try {
+        Copy-Item -LiteralPath $Path -Destination $Destination -Recurse -Force -ErrorAction Stop
+        $health = Test-ProjectCloneHealth -Path $Destination
+        if ($health.Healthy) { return $true }
+        Write-Verbose "Copy-ProjectCloneDirectory: the copy at ${Destination} is not usable ($($health.Reason))."
+    } catch {
+        Write-Verbose "Copy-ProjectCloneDirectory: could not copy ${Path} to ${Destination}: $($_.Exception.Message)"
+    }
+    $null = Remove-ProjectCloneDirectory -Path $Destination -Confirm:$false
+    return $false
+}
+
+function Remove-ProjectCloneDirectory {
+    <#
+    .SYNOPSIS
+    Deletes one of the directories a project refresh creates beside the checkout.
+    .DESCRIPTION
+    -Force chases hidden and read-only entries (.git/objects/pack files arrive
+    read-only on Windows after a clone). Returns $false instead of throwing: every
+    caller is cleaning up after something else and has a more useful failure to
+    report than this one.
+    .OUTPUTS
+    [bool] $true when the directory is gone afterwards.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Remove project clone directory')) { return $true }
+    try {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        return $true
+    } catch {
+        Write-Verbose "Remove-ProjectCloneDirectory: could not remove ${Path}: $($_.Exception.Message)"
+        return (-not (Test-Path -LiteralPath $Path))
+    }
+}
+
+function Restore-ProjectCloneSwap {
+    <#
+    .SYNOPSIS
+    Puts <RepoRoot>/project/ back in a usable state after a refresh that was
+    interrupted, and clears what such a refresh leaves beside it.
+    .DESCRIPTION
+    A refresh clones into project.incoming/, sets the current checkout aside as
+    project.previous/, moves the clone into place, then deletes the displaced
+    copy. A crash or power loss between those renames leaves one of three
+    shapes, each with a single safe answer:
+
+      - project/ is missing and project.previous/ exists: the refresh stopped
+        after setting the checkout aside and before the replacement arrived.
+        The set-aside copy is the last known good one, so it goes back.
+      - project/ exists and project.previous/ exists: the swap finished and only
+        the cleanup did not. The displaced copy is deleted.
+      - project.incoming/ exists: a clone that never finished. It is deleted,
+        because nothing proved it complete.
+
+    Nothing here trusts the half-finished clone, so no marker of completeness is
+    needed. The caller goes on to refresh from the remote anyway; all this has to
+    guarantee is that a usable project/ exists whenever one ever did.
+    .OUTPUTS
+    [string[]] The actions taken, in order: restored-previous, removed-previous,
+    removed-incoming. Empty when nothing needed doing.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $root     = (Resolve-Path -LiteralPath $RepoRoot).Path
+    $project  = Join-Path $root 'project'
+    $incoming = Join-Path $root 'project.incoming'
+    $previous = Join-Path $root 'project.previous'
+    $actions  = [System.Collections.Generic.List[string]]::new()
+    if (-not $PSCmdlet.ShouldProcess($root, 'Recover an interrupted project refresh')) { return [string[]]@() }
+    if (-not (Test-Path -LiteralPath $project) -and (Test-Path -LiteralPath $previous)) {
+        try {
+            Move-ProjectCloneDirectory -Path $previous -Destination $project
+            $actions.Add('restored-previous')
+        } catch {
+            Write-Verbose "Restore-ProjectCloneSwap: could not put $previous back: $($_.Exception.Message)"
+        }
+    }
+    if (Test-Path -LiteralPath $previous) {
+        if (Test-Path -LiteralPath $project) {
+            if (Remove-ProjectCloneDirectory -Path $previous -Confirm:$false) { $actions.Add('removed-previous') }
+        }
+    }
+    if (Test-Path -LiteralPath $incoming) {
+        if (Remove-ProjectCloneDirectory -Path $incoming -Confirm:$false) { $actions.Add('removed-incoming') }
+    }
+    return [string[]]$actions.ToArray()
+}
+
+function Test-ProjectCloneHealth {
+    <#
+    .SYNOPSIS
+    Whether a freshly cloned directory is a complete checkout of a revision.
+    .DESCRIPTION
+    Two things must hold before a clone may replace the working checkout: HEAD
+    resolves to a commit, and every file git tracks is present on disk. The second
+    is what a clone cut short by a full disk or a killed process fails -- the
+    objects arrived and the working tree did not.
+
+    The check deliberately stops short of `git status`: a fresh checkout of a
+    repository with mixed line endings can list files as modified under some
+    autocrlf settings, and rejecting every such clone would stall every cycle for
+    a difference that harms nothing. Missing files are the corruption that
+    matters here.
+
+    The revision is the clone's own HEAD. It is not compared with the remote's,
+    because the remote may advance during the clone and a lost race is not a bad
+    checkout.
+    .OUTPUTS
+    [pscustomobject] Healthy [bool], Revision [string], Reason [string].
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$Path)
+    $verdict = { param([bool]$Healthy, [string]$Revision, [string]$Reason) [pscustomobject]@{ Healthy = $Healthy; Revision = $Revision; Reason = $Reason } }
+    if (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) {
+        return (& $verdict $false '' 'the directory is not a git checkout')
+    }
+    $head = (& git -C $Path rev-parse --verify 'HEAD^{commit}' 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40,64}$') {
+        return (& $verdict $false '' "HEAD does not resolve to a commit: $head")
+    }
+    $missing = @(& git -C $Path ls-files --deleted 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        return (& $verdict $false $head "git could not list the checkout: $($missing -join ' ')")
+    }
+    if ($missing.Count -gt 0) {
+        $sample = ($missing | Select-Object -First 3) -join ', '
+        return (& $verdict $false $head "$($missing.Count) tracked file(s) are missing from the working tree (for example $sample)")
+    }
+    return (& $verdict $true $head '')
+}
+
 function Update-ProjectClone {
     <#
     .SYNOPSIS
@@ -828,15 +999,23 @@ function Update-ProjectClone {
     .DESCRIPTION
     The project under verification lives in a separate Git repository
     (configured via test.config.yml `repositories.projectUrl`). Each cycle
-    blows away <RepoRoot>/project/ and re-clones it so previous cycle
-    output cannot leak forward. Returns @{ success; skipped; errorMessage }.
+    replaces <RepoRoot>/project/ with a fresh clone so previous cycle output
+    cannot leak forward. Returns @{ success; skipped; errorMessage; revision }.
+
+    The replacement is built beside the checkout and swapped in only once it is
+    proven complete: clone into project.incoming/, verify it, set the current
+    checkout aside as project.previous/, move the clone into place, then delete
+    the displaced copy. A failed or interrupted clone therefore never costs the
+    last good checkout, and a failure after the swap began is rolled back. The two
+    renames are not atomic as a pair, so a crash between them is recovered at the
+    next refresh (see Restore-ProjectCloneSwap).
 
     When `repositories.projectUrl` is empty/missing, this is a no-op (skipped) -
     that path is the in-tree stop-gap, where project/ ships as part of
     the framework repo and the runner uses it directly.
 
-    Safety: we refuse to delete unless the resolved target sits strictly
-    under $RepoRoot. A misconfigured RepoRoot or project path could
+    Safety: the directories this touches are derived from the resolved RepoRoot
+    and are strictly under it. A misconfigured RepoRoot or project path could
     otherwise scrub something unrelated.
     #>
     [CmdletBinding(SupportsShouldProcess)]
@@ -847,7 +1026,7 @@ function Update-ProjectClone {
     )
     if ([string]::IsNullOrWhiteSpace($ProjectUrl)) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_eae57e0cb1c43db1') -InformationAction Continue
-        return @{ success = $true; skipped = $true; errorMessage = $null }
+        return @{ success = $true; skipped = $true; errorMessage = $null; revision = $null }
     }
 
     $projectDir = Join-Path $RepoRoot 'project'
@@ -857,35 +1036,76 @@ function Update-ProjectClone {
     $resolvedProjectParent = (Resolve-Path -LiteralPath $RepoRoot).Path
     $projectDirNormalized  = [System.IO.Path]::GetFullPath((Join-Path $resolvedProjectParent 'project'))
     if (-not $projectDirNormalized.StartsWith($resolvedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_7c4b977d87fe98d6' -Arguments @{ projectDirNormalized = "$projectDirNormalized" }) }
+        return @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_7c4b977d87fe98d6' -Arguments @{ projectDirNormalized = "$projectDirNormalized" }); revision = $null }
     }
+    $incomingDir = Join-Path $resolvedRoot 'project.incoming'
+    $previousDir = Join-Path $resolvedRoot 'project.previous'
 
+    $revision = $null
     if ($PSCmdlet.ShouldProcess($projectDir, (Format-YurunaOperatorMessage -Key 'runner.operator_f2604472b39532f2' -Arguments @{ projectUrl = "$ProjectUrl" }))) {
-        # Preflight the project remote BEFORE the destructive wipe: a private
+        # Preflight the project remote BEFORE touching the checkout: a private
         # projectUrl with a stale/expired GitHub credential would otherwise block
-        # the clone on an interactive username prompt (an uncatchable runner hang),
-        # and wiping first would also throw away the last good checkout. ls-remote
-        # is credential-prompt-proof + bounded; only an auth signature short-circuits
-        # (a network blip / non-git path falls through to the clone, which reports
-        # it). Leave the existing clone in place and fail fast with clear guidance.
+        # the clone on an interactive username prompt (an uncatchable runner hang).
+        # ls-remote is credential-prompt-proof + bounded; only an auth signature
+        # short-circuits (a network blip / non-git path falls through to the
+        # clone, which reports it). Leave the existing clone in place and fail
+        # fast with clear guidance.
         $pre = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $ProjectUrl, 'HEAD') -TimeoutSeconds 30
         if ($pre.ExitCode -ne 0 -and (Test-GitRemoteAuthFailure -Output $pre.Output)) {
             Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $pre.Output
-            return @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_a090efbddc458c44' -Arguments @{ projectUrl = "$ProjectUrl"; output = "$($pre.Output)" }) }
+            return @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_a090efbddc458c44' -Arguments @{ projectUrl = "$ProjectUrl"; output = "$($pre.Output)" }); revision = $null }
         }
-        if (Test-Path $projectDir) {
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e5f2d5f15a8e668a' -Arguments @{ projectDir = "$projectDir" }) -InformationAction Continue
+
+        # A refresh that died mid-swap leaves project/ missing or a copy beside
+        # it; make sure a usable checkout exists before building the next one.
+        foreach ($action in @(Restore-ProjectCloneSwap -RepoRoot $resolvedRoot -Confirm:$false)) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.project_swap_recovered' -Arguments @{ action = "$action"; repoRoot = "$resolvedRoot" }) -InformationAction Continue
+        }
+
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9b1d71aa576b45f6' -Arguments @{ projectUrl = "$ProjectUrl"; projectDir = "$incomingDir" }) -InformationAction Continue
+        # Prompt-proof (and bounded, when the pool-sync runner is loaded) so a
+        # credential that expired between the preflight and here can't hang the clone.
+        $clone = Invoke-GitNetworkCommand -GitArgs @('clone', '--depth', '1', $ProjectUrl, $incomingDir) -TimeoutSeconds 600
+        if ($clone.ExitCode -ne 0) {
+            $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false
+            if (Test-GitRemoteAuthFailure -Output $clone.Output) {
+                Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $clone.Output
+            }
+            return @{ success = $false; skipped = $false; errorMessage = "git clone failed (exit $($clone.ExitCode)): $($clone.Output)"; revision = $null }
+        }
+        $health = Test-ProjectCloneHealth -Path $incomingDir
+        if (-not $health.Healthy) {
+            $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false
+            return @{ success = $false; skipped = $false; errorMessage = "The fresh project clone is not usable ($($health.Reason)); the previous checkout was left in place."; revision = $null }
+        }
+        $revision = $health.Revision
+
+        $hadPrevious = Test-Path -LiteralPath $projectDir
+        $setAside = $false
+        $replacedInPlace = $false
+        $renameError = ''
+        if ($hadPrevious) {
             try {
-                # -Force chases hidden + read-only entries (.git/objects/pack
-                # files arrive read-only on Windows after a clone).
-                Remove-Item -LiteralPath $projectDir -Recurse -Force -ErrorAction Stop
+                Move-ProjectCloneDirectory -Path $projectDir -Destination $previousDir
+                $setAside = $true
             } catch {
+                $renameError = $_.Exception.Message
+                # Windows refuses to rename a directory while anything holds a handle
+                # on it or below it, and an editor's or build tool's file watcher on a
+                # build output folder is enough -- a C# language server that found the
+                # checkout's projects does exactly that. The same handles do not stop a
+                # delete, and the replacement is already proven complete, so nothing is
+                # lost by removing the old checkout and moving the new one in.
+                Write-Verbose "Update-ProjectClone: could not rename ${projectDir} ($renameError); replacing it in place."
+                $replacedInPlace = Remove-ProjectCloneDirectory -Path $projectDir -Confirm:$false
+            }
+            if (-not $setAside -and -not $replacedInPlace) {
                 # Windows "being used by another process" never names the
                 # holder -- it's almost always a stale pwsh/VSCode with
                 # the dir as cwd, or AV mid-scan. Resolve PIDs via Restart
                 # Manager so the operator knows what to close instead of
                 # retrying forever and trusting the next cycle to be luckier.
-                $msg = "Failed to remove previous project clone ($projectDir): $($_.Exception.Message)"
+                $msg = "Failed to set aside the previous project clone ($projectDir): $renameError"
                 $holders = Get-FileLockingProcess -Path $projectDir
                 if ($holders.Count -gt 0) {
                     $lines = $holders | ForEach-Object {
@@ -896,22 +1116,45 @@ function Update-ProjectClone {
                 } else {
                     $msg = "$msg`n(No holder identified by Restart Manager or PEB cwd scan -- on Windows this can mean an antivirus scan, a transient handle, an elevated/protected process, or a 32-bit holder we can't introspect.)"
                 }
-                return @{ success = $false; skipped = $false; errorMessage = $msg }
+                $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false
+                return @{ success = $false; skipped = $false; errorMessage = $msg; revision = $null }
             }
         }
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9b1d71aa576b45f6' -Arguments @{ projectUrl = "$ProjectUrl"; projectDir = "$projectDir" }) -InformationAction Continue
-        # Prompt-proof (and bounded, when the pool-sync runner is loaded) so a
-        # credential that expired between the preflight and here can't hang the clone.
-        $clone = Invoke-GitNetworkCommand -GitArgs @('clone', '--depth', '1', $ProjectUrl, $projectDir) -TimeoutSeconds 600
-        if ($clone.ExitCode -ne 0) {
-            if (Test-GitRemoteAuthFailure -Output $clone.Output) {
-                Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $clone.Output
+        $installed = $true
+        $installError = ''
+        try {
+            Move-ProjectCloneDirectory -Path $incomingDir -Destination $projectDir
+        } catch {
+            $installError = $_.Exception.Message
+            Write-Verbose "Update-ProjectClone: could not rename ${incomingDir} ($installError); copying it into place."
+            $installed = Copy-ProjectCloneDirectory -Path $incomingDir -Destination $projectDir
+        }
+        if (-not $installed) {
+            $msg = "Failed to move the fresh project clone into place ($projectDir): $installError"
+            if ($setAside) {
+                try {
+                    Move-ProjectCloneDirectory -Path $previousDir -Destination $projectDir
+                    $msg = "$msg`nThe previous checkout was put back."
+                } catch {
+                    $msg = "$msg`nThe previous checkout could not be put back and is at $previousDir; the next refresh restores it."
+                }
             }
-            return @{ success = $false; skipped = $false; errorMessage = "git clone failed (exit $($clone.ExitCode)): $($clone.Output)" }
+            $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false
+            return @{ success = $false; skipped = $false; errorMessage = $msg; revision = $null }
+        }
+        # A rename consumed the clone; a copy left it behind.
+        if (Test-Path -LiteralPath $incomingDir) { $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false }
+        if ($setAside) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e5f2d5f15a8e668a' -Arguments @{ projectDir = "$previousDir" }) -InformationAction Continue
+            if (-not (Remove-ProjectCloneDirectory -Path $previousDir -Confirm:$false)) {
+                # The swap itself succeeded; a copy that will not delete yet is
+                # cleaned by the next refresh, so it must not fail this one.
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.project_previous_cleanup_failed' -Arguments @{ previousDir = "$previousDir" })
+            }
         }
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_99afc5f5196cb53c') -InformationAction Continue
     }
-    return @{ success = $true; skipped = $false; errorMessage = $null }
+    return @{ success = $true; skipped = $false; errorMessage = $null; revision = $revision }
 }
 
 function Resolve-GitRemoteLink {
@@ -1133,8 +1376,8 @@ function Get-HostRepositoryAccess {
         Answers for the pool UI's repository columns, where an operator is
         asking one question of a whole lab at once: does this host have the
         repository I think it has? So the answer is a NAME when the host can
-        produce one, and 'No access' when it was pointed at a repository it
-        cannot get to.
+        produce one, and a typed denied state when it was pointed at a
+        repository it cannot get to. Display labels belong to the caller.
 
         The clone this host already holds is the cheap and truthful source: its
         remote.origin.url is what the host actually tracks, which is not always
@@ -1152,23 +1395,16 @@ function Get-HostRepositoryAccess {
         local read inline and defers the probe.
     .OUTPUTS
         [pscustomobject] @{ Access; AccessState; Source; Url }.
-          Access -- the repository name, 'No access', or '' (nothing configured,
-                   or the probe was not run). One field doing two jobs: it
-                   carries data in one case and a condition in another, which
-                   is why AccessState exists beside it. Retained so a reader
-                   older than AccessState keeps working.
+          Access -- the repository name when readable, or '' otherwise.
           AccessState -- 'readable' | 'denied' | 'unconfigured' | 'unprobed'.
-                   The condition, as a stable token. Read this, not Access:
-                   matching the words 'No access' made an English phrase the
-                   contract between PowerShell, Go and the browser, so it
-                   could not be reworded or translated without a consumer in
-                   another language quietly stopping.
+                   The condition, as a stable repository_access token.
+                   Consumers choose localized labels from this value.
           Source -- 'clone' | 'probe' | 'denied' | 'unreachable' | 'unconfigured'
                    | 'unprobed', which is the reason behind Access.
           Url    -- where that repository lives, normalized for linking by
                    Resolve-GitRemoteLink: the clone's own origin, or the
                    configured url when the answer came from a probe (including
-                   the one that failed -- an operator checking a 'No access'
+                   the one that failed -- an operator checking a denied
                    row wants the url it could not read). Empty when the name
                    came from a remote form nothing can be addressed at.
     #>
@@ -1206,7 +1442,7 @@ function Get-HostRepositoryAccess {
         # host is about to hold, and it is the same name the clone will report.
         return [pscustomobject]@{ Access = (Get-GitRepositoryName -Url $url); AccessState = 'readable'; Source = 'probe'; Url = $link }
     }
-    return [pscustomobject]@{ Access = 'No access'; AccessState = 'denied'; Source = $result.Reason; Url = $link }
+    return [pscustomobject]@{ Access = ''; AccessState = 'denied'; Source = $result.Reason; Url = $link }
 }
 
 # Shared PSGallery module-install policy for the two dependency bootstrappers below:
@@ -1295,4 +1531,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

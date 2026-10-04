@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42df925f-3353-4a16-aae2-7e8a097c522c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -306,7 +306,7 @@ $poolTransport = @'
       hosts: [{ hostId: '42cc', hostname: '', type: 'ubuntu.kvm', control: 'ready', access: 'denied', pool: 'lab' }] },
     '/api/hosts/facts': { ok: true, hosts: { '42cc': { ok: true,
       frameworkAccess: 'yuruna', frameworkAccessState: 'readable',
-      projectAccess: 'No access', projectAccessState: 'denied',
+      projectAccess: '', projectAccessState: 'denied',
       projectUrl: 'https://example.test/private' } } },
     '/api/hostinfo': { ok: true, goBaseUrl: '' }
   };

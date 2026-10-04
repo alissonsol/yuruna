@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: [Unit]
 [Unit]
 Description=Yuruna caching-proxy-service (management plane for the caching proxy)
 Documentation=https://yuruna.link/42f6b05f-003c
@@ -8,6 +9,7 @@ After=squid.service network-online.target
 # of the things it exists for, so it must survive squid failing to start.
 Wants=squid.service
 
+# --- REGION: [Service]
 [Service]
 Type=simple
 Environment=YURUNA_LANGUAGE=auto YURUNA_ALLOW_PSEUDO_LOCALE=false
@@ -55,5 +57,6 @@ MemoryDenyWriteExecute=true
 RestrictRealtime=true
 SystemCallArchitectures=native
 
+# --- REGION: [Install]
 [Install]
 WantedBy=multi-user.target

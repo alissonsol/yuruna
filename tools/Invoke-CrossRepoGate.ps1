@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,9 @@
     release mode; the publisher supplies its read-only support checkout.
 .PARAMETER EvidencePath
     Optional no-BOM JSON report containing both tree hashes and every row.
+.PARAMETER GateThrottleLimit
+    Maximum independent JavaScript, Go, and accessibility tools running at once.
+    Default 2; use 1 for serial execution. Other gates and Pester slices stay serial.
 .PARAMETER Quiet
     Print only the summary and any findings.
 .EXAMPLE
@@ -70,6 +73,7 @@ param(
     [string]$ProjectTreeHash,
     [string]$LinkMap,
     [string]$EvidencePath,
+    [ValidateRange(1, 3)][int]$GateThrottleLimit = 2,
     [switch]$Quiet
 )
 
@@ -342,14 +346,59 @@ function Invoke-ToolGate {
     #>
     [CmdletBinding()]
     param([string]$Gate, [string[]]$Arguments)
-    $output = & pwsh @Arguments 2>&1 | Out-String
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $output = & pwsh -NonInteractive @Arguments 2>&1 | Out-String
     $code = $LASTEXITCODE
-    Add-Row -Gate $Gate -State $(if ($code -eq 0) { 'pass' } elseif ($code -eq 2) { 'cannot-run' } else { 'fail' }) -Detail $output.Trim()
+    Add-Row -Gate $Gate -State $(if ($code -eq 0) { 'pass' } elseif ($code -eq 2) { 'cannot-run' } else { 'fail' }) -Detail $output.Trim() -Seconds $clock.Elapsed.TotalSeconds
+}
+
+function Invoke-ToolGateBatch {
+    <#
+    .SYNOPSIS
+        Run independent tools in isolated processes and retain every outcome.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object[]]$Work,
+        [Parameter(Mandatory)][ValidateRange(1, 3)][int]$ThrottleLimit
+    )
+    $gatePowerShell = (Get-Process -Id $PID).Path
+    # Parallel records use the parent's preference when forwarded to the host.
+    $InformationPreference = 'Continue'
+    $results = @($Work | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
+        $ErrorActionPreference = 'Stop'
+        $PSNativeCommandUseErrorActionPreference = $false
+        $item = $_
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        try {
+            $arguments = [string[]]$item.Arguments
+            $output = & $using:gatePowerShell -NonInteractive @arguments 2>&1 | Out-String
+            $code = $LASTEXITCODE
+        } catch {
+            $code = 2
+            $output = $_.Exception.Message
+        }
+        Write-Information ("Completed {0} in {1:n1}s (exit {2})" -f $item.Name, $clock.Elapsed.TotalSeconds, $code) -InformationAction Continue
+        [pscustomobject]@{
+            Name = $item.Name; Code = $code; Output = $output.Trim()
+            Seconds = $clock.Elapsed.TotalSeconds
+        }
+    })
+    foreach ($item in $Work) {
+        $result = @($results | Where-Object Name -CEQ $item.Name)
+        if ($result.Count -ne 1) {
+            Add-Row -Gate $item.Name -State 'cannot-run' -Detail 'the tool worker did not return exactly one result'
+            continue
+        }
+        $row = $result[0]
+        Add-Row -Gate $item.Name -State $(if ($row.Code -eq 0) { 'pass' } elseif ($row.Code -eq 2) { 'cannot-run' } else { 'fail' }) `
+            -Detail $row.Output -Seconds $row.Seconds
+    }
 }
 
 function Add-Row {
     param([string]$Gate, [string]$State, [string]$Detail,
-        [string]$RemediationCode = '', [string]$Remediation = '')
+        [string]$RemediationCode = '', [string]$Remediation = '', [Nullable[double]]$Seconds = $null)
     # Derive the repair centrally. Every call site that only reports a state
     # keeps working unchanged, and no new one can add a row that fails without
     # telling the reader what to do about it. Both fields are advisory: a
@@ -361,6 +410,7 @@ function Add-Row {
     $rows.Add([pscustomobject]@{
             Gate = $Gate; State = $State; Detail = $Detail
             RemediationCode = $RemediationCode; Remediation = $Remediation
+            Seconds = if ($null -ne $Seconds) { [Math]::Round($Seconds, 3) } else { $null }
         })
 }
 
@@ -733,14 +783,11 @@ if (-not $shellDiscoveryFailed) {
     } elseif (-not (Get-Command shellcheck -ErrorAction SilentlyContinue)) {
         Add-Row -Gate 'project-shellcheck' -State 'cannot-run' -Detail 'shellcheck is not installed on this host'
     } else {
-        $bad = @()
-        foreach ($rel in $shell) {
-            $full = Join-Path $ProjectRoot $rel
-            $null = & shellcheck --severity=error --format=gcc $full 2>&1
-            if ($LASTEXITCODE -ne 0) { $bad += $rel }
-        }
-        Add-Row -Gate 'project-shellcheck' -State $(if ($bad.Count -eq 0) { 'pass' } else { 'fail' }) `
-            -Detail $(if ($bad.Count -eq 0) { "$($shell.Count) script(s) clean" } else { $bad -join '; ' })
+        $shellPaths = [string[]]@($shell | ForEach-Object { Join-Path $ProjectRoot $_ })
+        $shellOutput = & shellcheck --severity=error --format=gcc -- @shellPaths 2>&1 | Out-String
+        $shellCode = $LASTEXITCODE
+        Add-Row -Gate 'project-shellcheck' -State $(if ($shellCode -eq 0) { 'pass' } else { 'fail' }) `
+            -Detail $(if ($shellCode -eq 0) { "$($shell.Count) script(s) clean" } else { "shellcheck exit ${shellCode}: $($shellOutput.Trim())" })
     }
 }
 
@@ -810,6 +857,7 @@ if ($runFramework -and -not $executeFramework) {
 }
 
 if ($executeFramework) {
+    $independentTools = [Collections.Generic.List[object]]::new()
     foreach ($gate in $frameworkGates) {
         Write-GateProgress -Stage $gate.Name
         $tool = Join-Path $PSScriptRoot $gate.Script
@@ -818,7 +866,15 @@ if ($executeFramework) {
             continue
         }
         $gateArguments = @('-NoProfile', '-File', $tool) + @($gate.Args)
-        Invoke-ToolGate -Gate $gate.Name -Arguments $gateArguments
+        # These leaves read the frozen candidates and own separate processes.
+        # Keep compilation, inventory, lint workers, and Pester fixtures out of
+        # this pool so nested worker pools and generated-file writers cannot race.
+        if ($gate.Name -in @('js-test', 'go-build', 'accessibility')) {
+            $independentTools.Add([pscustomobject]@{ Name = $gate.Name; Arguments = $gateArguments })
+        } else { Invoke-ToolGate -Gate $gate.Name -Arguments $gateArguments }
+    }
+    if ($independentTools.Count) {
+        Invoke-ToolGateBatch -Work $independentTools.ToArray() -ThrottleLimit $GateThrottleLimit
     }
 
     foreach ($focused in $focusedGates) {
@@ -898,7 +954,7 @@ if ($EvidencePath) {
         actions = @($actions)
         rows = @($rows | ForEach-Object {
                 [ordered]@{ gate = $_.Gate; state = $_.State; detail = $_.Detail
-                    remediationCode = $_.RemediationCode; remediation = $_.Remediation }
+                    remediationCode = $_.RemediationCode; remediation = $_.Remediation; seconds = $_.Seconds }
             })
     }
     $json = ((ConvertTo-Json -InputObject $evidence -Depth 8) -replace "`r`n", "`n").TrimEnd() + "`n"

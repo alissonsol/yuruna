@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42f6a7b8-9c0d-4e1f-af2a-3b4c5d6e7f8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,36 +21,7 @@
     Repair a wedged local hypervisor and leave the runner, its services and
     the listener running again -- or report exactly why it did not.
 .DESCRIPTION
-    One bounded repair attempt, the same implementation every channel uses:
-    an operator's shell, the macOS bootstrap's refresh dispatch, the status
-    listener, a pool-control request and the outer runner's automatic
-    trigger. It climbs a ladder of rungs (probe, reclaim, start-if-stopped,
-    restart-if-hung, ...) up to the requested ceiling, running only rungs
-    this checkout can execute on this platform, re-probing after each, and
-    then converges services, the listener and the runner on a separate
-    reserve of time.
-
-    Safety properties:
-      * One repair per host account at a time (a held-open lifetime lock),
-        one durable request journal and recovery record under
-        $HOME/.yuruna/host-refresh, outside every served directory.
-      * Nothing prompts: no console question, no consent dialog, no
-        interactive sudo. Every native call is bounded by the invocation's
-        915-second budget (60 s startup, 600 s ladder, 240 s convergence,
-        15 s reporting).
-      * Only proven-owned runner processes are ever signaled; the status
-        listener, its beacon and another account's processes never are.
-        Operator pauses, holds and restart requests survive the repair.
-      * Restarting UTM can suspend running guests, and a hard stop can power
-        them off uncleanly; a hard stop happens only with -AllowHardStop on a
-        local request.
-      * -WhatIf is a read-only plan: nothing is created, locked, written,
-        signaled or started.
-
-    Everything an attempt disrupted stays an outstanding obligation until
-    verified or disposed; -Resume retries the one unresolved request and
-    -DisposeObligation records, audited, that an obligation was handled by
-    hand.
+    See https://yuruna.link/42010605-0003.
 .PARAMETER Tier
     restart (orders 0-4) or full (orders 0-6, local only).
 .PARAMETER MaxRung

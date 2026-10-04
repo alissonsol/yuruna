@@ -1,5 +1,5 @@
 // LICENSEURI https://yuruna.link/license
-// Copyright (c) 2026 by Alisson Sol et al.
+// Copyright (c) 2019-2026 by Alisson Sol et al.
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync(__dirname+'/../assets/yuruna.core.js','utf8');
 const block=source.slice(source.indexOf('  function isPlainBody('),source.indexOf('  // --- REGION: Control proof'));

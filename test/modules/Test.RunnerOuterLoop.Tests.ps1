@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42305b75-dbdd-448e-8c59-ffaf93235629
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -595,6 +595,52 @@ Describe 'Invoke-RunnerOuterLoop refresh outcomes and automatic-refresh call sit
         $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'storage-full'; ExitCode = 1 })
         $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null 6>$null
         Assert-MockCalled -CommandName Update-RunnerCrashGating -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
+    }
+    It 'scores an unrecorded outcome as a fault of its own and never as a pass' {
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'outcome-unrecorded'; ExitCode = 70; OutcomeReason = 'missing' })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null 6>$null
+        Assert-True ($global:__loopStates -contains 'fault') 'the cycle is a fault'
+        Assert-False ($global:__loopStates -contains 'cycle-end') 'it is never closed as a completed cycle'
+        foreach ($state in 'fault', 'paused') {
+            Assert-MockCalled -CommandName Update-RunnerFaultStatus -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It -ParameterFilter {
+                $RunnerState -eq $state -and $FailureClass -eq 'outcome_unrecorded' -and $Reason -like '*cycle outcome unrecorded (missing)*' }
+        }
+    }
+    It 'names a cycle that returned no result instead of reporting a bare exit code' {
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'no-cycle-result'; ExitCode = 1 })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null 6>$null
+        Assert-MockCalled -CommandName Update-RunnerFaultStatus -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It -ParameterFilter {
+            $RunnerState -eq 'fault' -and $FailureClass -eq 'outcome_unrecorded' -and $Reason -like '*returned no result*' }
+    }
+    It 'names a VM-admission refusal instead of reporting a bare exit code' {
+        $stamp = [datetime]::UtcNow.AddSeconds(5).ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+        Set-Content -LiteralPath (Join-Path $script:LoopDir 'vm-admission.json') -Encoding utf8 -Value (@{
+            state = 'unknown'; reason = 'inventory-failed'; detail = 'utmctl did not answer'; occupants = @(); observedUtc = $stamp } | ConvertTo-Json)
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 2 })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null 6>$null
+        Assert-MockCalled -CommandName Update-RunnerFaultStatus -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It -ParameterFilter {
+            $RunnerState -eq 'fault' -and $FailureClass -eq 'vm_admission_unknown' -and $Reason -like '*VM admission unknown (inventory-failed)*' }
+    }
+    It 'does not blame an earlier refusal for a later failure' {
+        $stamp = [datetime]::UtcNow.AddHours(-3).ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+        Set-Content -LiteralPath (Join-Path $script:LoopDir 'vm-admission.json') -Encoding utf8 -Value (@{
+            state = 'occupied'; reason = 'running-vm'; occupants = @('x'); observedUtc = $stamp } | ConvertTo-Json)
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 1 })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null 6>$null
+        Assert-MockCalled -CommandName Update-RunnerFaultStatus -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It -ParameterFilter {
+            $RunnerState -eq 'fault' -and -not $FailureClass -and $Reason -eq 'inner exited 1' }
+    }
+    It 'keeps naming a recorded failure by the inner''s exit code' {
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 3 })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null 6>$null
+        Assert-MockCalled -CommandName Update-RunnerFaultStatus -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It -ParameterFilter {
+            $RunnerState -eq 'fault' -and -not $FailureClass -and $Reason -eq 'inner exited 3' }
+    }
+    It 'closes a recorded clean cycle as a pass' {
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null 6>$null
+        Assert-True ($global:__loopStates -contains 'cycle-end') 'a recorded clean cycle is the one thing that closes as a pass'
+        Assert-False ($global:__loopStates -contains 'fault') 'and it is not a fault'
     }
     It 'holds a gated runner without fault accounting, logging the hold once and the release once' {
         $gate = [pscustomobject]@{ State = 'closed'; RequestId = 'r1'; Orphaned = $false; SpawnAllowed = $false; Reason = 'closed' }

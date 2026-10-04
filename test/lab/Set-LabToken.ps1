@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42267d15-1bc0-481c-b068-2bb6d74f5ffb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,36 +21,7 @@
     Enroll THIS host in the lab: redeem the dashboard's Lab token for the
     internal authentication key and store it in the host vault (idempotent).
 .DESCRIPTION
-    The Yuruna hosts dashboard (Grafana on the caching-proxy service) shows a "Lab
-    token" tile with a 6-character code that rotates about once a minute.
-    This script redeems that code at the pool-aggregator service's
-    POST /api/v1/lab-token, receives the internal authentication key, and stores it
-    in this host's vault -- enabling the status-service control routes (the
-    Grafana deep-link control proofs) and cross-host config-sync. The secret
-    itself never has to be read off the proxy or typed by the operator.
-
-    The reply is sealed under the code that was typed, so only this host can
-    open it: a host being enrolled cannot yet verify the aggregator's TLS
-    leaf (the proxy's own CA signs it), and the seal is what keeps anything
-    else on the network from answering the exchange and planting a token.
-
-    The caching-proxy service is found from this host's configuration (the persisted
-    caching-proxy-service state, $env:YURUNA_CACHING_PROXY_SERVICE_IP, or
-    vmStart.cachingProxyIp in test.config.yml). Each is probed on the
-    aggregator port and the first that answers is used, so an address left
-    behind by a proxy that has since moved is passed over instead of
-    swallowing the enrollment; when none answers, the probing continues for
-    up to two minutes before giving up, so a momentary outage does not cost
-    the operator a code. When no address answers at all, pass -CachingProxyService
-    or answer the prompt. That address is written to
-    vmStart.cachingProxyIp when test.config.yml exists, binding the host to
-    this lab's proxy for later runs; on a machine with no config file yet it
-    serves this enrollment only, and Sync-HostConfiguration.ps1 brings over
-    the config that binds it.
-
-    Safe to re-run at any time: a lost or rotated token, a rebuilt proxy, or
-    a doubtful host state is fixed by reading the current code off the
-    dashboard and running this again.
+    See https://yuruna.link/42010605-0003.
 .PARAMETER LabToken
     The 6-character code currently shown on the dashboard's "Lab token" tile
     (lowercase letters and digits; case and surrounding spaces are
@@ -89,12 +60,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script (install/setup.ps1, a runner cycle). After the
-# line above on purpose: an explicit level is the operator's choice and replaces
-# this script's own default. $InformationPreference is then re-read from the
-# global the cascade writes, because the script-scoped assignment above shadows
-# it for the rest of this file. See docs/loglevels.md.
+# See https://yuruna.link/42010605-0003
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -118,17 +84,7 @@ Import-Module (Join-Path $PSScriptRoot '../modules/Test.ConfigServiceSync.psm1')
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking
 
 # --- REGION: Resolve the aggregator base URL
-# An explicit -CachingProxyService wins; else the host's own configuration (the
-# probe-and-discard resolution Get-PoolAggregatorServiceSeedUrl owns, which believes
-# a stored address only once it answers); else ask. $addressSource records
-# where the address came from so only an operator-supplied one is persisted
-# below.
-#
-# The wait budget is what separates this caller from a seed render: an
-# operator is holding a code that stays redeemable for about three minutes,
-# so riding out a momentary outage costs a wait they would spend anyway,
-# while resolving '' costs them the enrollment and a trip back to the
-# dashboard for a fresh code.
+# See https://yuruna.link/42010605-0003
 $addressSource = ''
 $proxyAddress  = ''
 $baseUrl       = ''
@@ -227,19 +183,7 @@ if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'pr
 }
 
 # --- REGION: Seed the pool intent store binding
-# A host that has just enrolled its lab token is a host the operator intends to
-# manage from the lab. The intent store it should pull from is served by the very
-# proxy they just named, so bind it now: enrollment is the one moment an operator
-# is present, authenticated, and has already supplied the address.
-#
-# Runs for EVERY resolved address, not only an operator-supplied one -- a host
-# whose cachingProxyIp was already in config still needs the pool binding, and
-# that is the common case on a re-enrollment.
-#
-# Idempotent and non-destructive: an existing non-empty intentGitUrl is left
-# exactly as it is, so an operator pointing a host at a different intent store is
-# never overwritten. Best-effort throughout -- the token is already stored, and
-# failing to seed an optional binding must not fail the enrollment.
+# See https://yuruna.link/42010605-0003
 $poolHost = if ($proxyAddress) { $proxyAddress } elseif ($baseUrl) { ([uri]$baseUrl).Host } else { '' }
 if ($provision.ok -and $poolHost -and -not $NoPoolConfig) {
     $configPath = Join-Path $PSScriptRoot '../test.config.yml'
@@ -258,15 +202,7 @@ if ($provision.ok -and $poolHost -and -not $NoPoolConfig) {
             # path to the bare repo) is for admin commands run ON the proxy;
             # a runner must never hold a writable remote.
             $intentUrl = "http://$poolHost/pool-intent.git"
-            # An existing value is normally the operator's and is never touched.
-            # The exception is a value THIS block wrote on an earlier run: the
-            # proxy is addressed by a DHCP lease, so its address moves, and a
-            # url pinned to the address it held last time points at nothing --
-            # or worse, at whatever guest now holds that lease. That is not an
-            # operator decision to preserve, and left alone it never self-heals:
-            # every later run sees a non-empty value and skips. Recognize only
-            # the exact shape this block emits (scheme, host, repo name), so
-            # anything the operator actually chose still wins.
+            # See https://yuruna.link/42010605-0003
             $isOwnStaleSeed = $existingUrl -and
                               ($existingUrl -ne $intentUrl) -and
                               ($existingUrl -match '^http://[^/]+/pool-intent\.git$')

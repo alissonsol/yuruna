@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,15 +54,7 @@ function Get-MacPmsetGuardList {
     [OutputType([object[]])]
     param()
     return @(
-        # AlwaysApply: macOS does not list disablesleep in `pmset -g custom`
-        # until it has been written at least once, so on a Mac that never had
-        # it set -- the exact host that needs it -- absence would otherwise read
-        # as "already 1" and the write would never happen. With disablesleep 0 a
-        # MacBook suspends the moment its lid closes, taking every running guest
-        # and the rest of the cycle down with it.
-        # AbsentEquivalent 0: a Mac that has never had disablesleep written
-        # behaves exactly as one holding 0 -- it suspends on lid close -- so 0
-        # is what returns the host to where it was, not a guess at a default.
+        # See https://yuruna.link/4213a0b3-0064
         @{ Key = 'disablesleep'  ; Want = 1 ; AlwaysApply = $true ; AbsentEquivalent = 0 }
         @{ Key = 'powernap'      ; Want = 0 }
         @{ Key = 'standby'       ; Want = 0 }
@@ -504,19 +496,7 @@ function Get-MacScreenLockIssue {
         Write-Debug "AutoLogOutDelay check failed: $_"
     }
 
-    # 7. System sleep + disk sleep -> Never. Display sleep alone (the "Display sleep -> Never" region) isn't
-    #    enough: a system/disk-sleep wake re-locks the screen on Ventura+
-    #    regardless of screensaver settings. Set-MacHostConditionSet disables
-    #    both, so the gate must re-verify them.
-    # 8. Extended pmset guards (Power Nap, standby, autopoweroff, hibernate, ...)
-    #    that Set-MacHostConditionSet applies. The gate re-verifies them from the
-    #    same Get-MacPmsetGuardList Set- applies, so the asserted set is exactly
-    #    the applied set and a drifted host fails here instead of blanking UTM
-    #    mid-run. A key absent from 'pmset -g custom' (macOS-version dependent) is
-    #    skipped here even when Set- force-writes it (AlwaysApply): a Mac with no
-    #    lid never surfaces disablesleep at all, and failing the gate on a key
-    #    that host cannot have would block a perfectly good desktop test host.
-    #    A laptop that drifts back to 0 does list the key, so it still fails here.
+    # See https://yuruna.link/4213a0b3-0065
     try {
         $pmCustom = & pmset -g custom 2>$null
         foreach ($g in (Get-MacSleepGuardList)) {
@@ -975,41 +955,16 @@ function Initialize-SudoCache {
     # Cache already warm? Silent fast path -- no notice, no prompt.
     & sudo -n true 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) { return $true }
-    # A caller already took this run's ONE authorization and said so
-    # (install/<host>.sh, install/setup.ps1). The timestamp is cold anyway --
-    # it expired, or a brew cask post-install ran `sudo -k` -- and asking again
-    # here would break the "you will be prompted ONCE" promise that caller
-    # printed, for elevation this function does not itself need. Return $false
-    # silently; every privileged write downstream probes for itself with
-    # Test-MacSudoAvailable and reports the exact command to run when it cannot
-    # elevate, which is an answer the operator can act on rather than a second
-    # password box with no context.
+    # See https://yuruna.link/4213a0b3-0066
     if ($env:YURUNA_SUDO_PRIMED -eq '1') {
         return $false
     }
-    # Unattended: nobody is at the console to type a password. The test runner
-    # spawns its inner with the call operator, so the inner inherits the launch
-    # terminal -- `sudo -v` here would print its prompt to that terminal and
-    # block the whole host until the watchdog killed it, with the status page
-    # still showing the previous cycle's green. Decline exactly as the
-    # wrapper-primed path does: return $false silently and let the caller
-    # either skip the elevated work or fail it with an actionable message.
-    # Elevation for an unattended host is a LAUNCH-time concern (or an
-    # /etc/sudoers.d drop-in), never a mid-cycle one.
+    # See https://yuruna.link/4213a0b3-0067
     if ($env:YURUNA_NONINTERACTIVE -eq '1') {
         Write-Verbose 'Initialize-SudoCache: YURUNA_NONINTERACTIVE=1 -- declining to prompt for sudo.'
         return $false
     }
-    # Cache cold AND no wrapper context: print the friendly notice, then prompt.
-    #
-    # Write-Host, not Write-Output: every caller wraps this function as
-    # `[void](Initialize-SudoCache ...)`, and that cast discards the whole
-    # success stream -- a Write-Output notice would be swallowed, leaving the
-    # operator with a bare "[sudo] password for ..." and no explanation. It also
-    # keeps the [OutputType([bool])] contract honest: box lines on the success
-    # stream make the return an ARRAY, and a non-empty array is always truthy,
-    # so `if (-not (Initialize-SudoCache ...))` in test/Test-Config.ps1 would
-    # never fire on the cold path.
+    # See https://yuruna.link/4213a0b3-0068
     Write-Host ""
     Write-Host "  +---------------------------------------------------------------+"
     Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_c88e562e75b59971')
@@ -1077,14 +1032,7 @@ function Invoke-MacPrivilegedSetting {
 }
 
 # --- REGION: utmctl on PATH
-# UTM ships its command-line interface INSIDE the app bundle, and no installer
-# -- neither the cask nor the .dmg -- puts that directory on anyone's PATH.
-# Every VM operation the harness performs shells out to `utmctl`, so a host with
-# UTM.app correctly installed still cannot start a single cycle until the binary
-# is reachable by name. The link goes in /usr/local/bin because that directory is
-# listed in the stock /etc/paths, which means a login shell, a LaunchAgent and an
-# `ssh host command` all see it; Homebrew's bin only reaches shells that ran
-# `brew shellenv`.
+# See https://yuruna.link/4213a0b3-0069
 $script:MacUtmAppPath        = '/Applications/UTM.app'
 $script:MacUtmctlBundlePath  = '/Applications/UTM.app/Contents/MacOS/utmctl'
 # Written out rather than derived with Split-Path: these are POSIX paths, and
@@ -1403,21 +1351,7 @@ function Set-MacHostConditionSet {
     $unmet = [System.Collections.Generic.List[string]]::new()
 
     # --- REGION: Pre-flight: elevation
-    # Every privileged block below probes `sudo -n true` immediately before it
-    # writes, and every write goes out with -n. The two facts an environment
-    # variable could carry -- who started this run, whether somebody typed a
-    # password minutes ago -- do not answer whether root is reachable NOW: the
-    # timestamp may have expired during a long step, a brew cask post-install
-    # may have run `sudo -k`, or an /etc/sudoers.d rule may grant the write
-    # with no timestamp involved at all.
-    #
-    # Initialize-SudoCache still runs first so an operator at a terminal is
-    # asked once, visibly, with the reasons on screen, instead of meeting a
-    # bare password prompt in the middle of a block. It declines silently when
-    # nobody is there to ask, and the probes below then route each block to its
-    # warn-with-the-exact-command arm. Skipped entirely without GUI disruption:
-    # the prime can raise a password prompt, and the per-block probes already
-    # cover a host where root is not reachable.
+    # See https://yuruna.link/4213a0b3-006a
     if (-not $NoGuiDisruption) {
         [void](Initialize-SudoCache -Reasons @(
             'pmset (display sleep, system sleep, power-nap, hibernation)',
@@ -1569,17 +1503,7 @@ function Set-MacHostConditionSet {
     }
 
     # --- REGION: System sleep + disk sleep -> Never (requires sudo)
-    # Display-sleep alone isn't enough: system sleep -> display locks on
-    # wake regardless of screensaver settings. Disk sleep is the same story --
-    # its wake re-checks lock state and on Ventura+ can engage the unified
-    # screen lock even with askForPassword=0.
-    #
-    # Each key is decided on its own value, through the same helper that decides
-    # the extended guards, because the two drift apart: a host holding sleep=0
-    # and disksleep=10 is exactly what the gate refuses, and one shared decision
-    # read from `sleep` would report "already Never" and write nothing on every
-    # single run -- leaving the operator re-running a setup script that cannot
-    # reach the setting the gate is stopping on.
+    # See https://yuruna.link/4213a0b3-006b
     $sleepGuards  = Get-MacSleepGuardList
     $sleepPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $sleepGuards)
 
@@ -1627,17 +1551,7 @@ function Set-MacHostConditionSet {
         # report a healthy desktop host as degraded on every single run.
         Write-Verbose "Extended pmset guards are advisory here; Assert-ScreenLock re-checks the keys this macOS actually surfaces."
     } elseif ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_3199b16cc2a02d2f'), (Format-YurunaOperatorMessage -Key 'runner.operator_8e9f4c5eac279bde'))) {
-        # ONLY the pending keys. `pmset` has no delete, so a key this host never
-        # carried can never be taken back off it: the pre-automation capture
-        # records it as absent, and the restore has nothing to write except a
-        # value nobody chose. Get-MacPmsetGuardPending already draws exactly the
-        # right line -- a key present with the wrong value, plus the AlwaysApply
-        # keys whose absence carries no information and which the guard list
-        # gives an AbsentEquivalent so the restore can undo them. Everything it
-        # leaves out is a name this macOS release does not surface, and writing
-        # one buys nothing but a host setting that outlives the automation.
-        # Key names come from the pending set so this message cannot drift away
-        # from what is actually written.
+        # See https://yuruna.link/4213a0b3-006c
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_72681edc6111b737' -Arguments @{ join = "$(($pmsetPending | ForEach-Object { $_.Key }) -join ', ')" })
         # Warnings are suppressed per key and the rejected set is reported once,
         # because the two causes need different words and only a probe tells
@@ -1746,16 +1660,7 @@ function Set-MacHostConditionSet {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4dbf665405806d36')
     }
 
-    # UTM's default is to terminate once its last window closes, and its
-    # termination path SAVES THE STATE of every VM still running rather
-    # than leaving them alone: they come back `suspended`, not `started`.
-    # The service VMs (caching proxy, stash, pool-control) are long-lived
-    # infrastructure that guests consume for the whole cycle, so closing a
-    # VM window -- or the library window -- silently takes the cycle's
-    # dependencies offline and every guest that needs the proxy or the
-    # stash then fails. Keeping the app resident removes the window-close
-    # route into that state. UTM reads this at launch, so a UTM already
-    # running keeps its old behavior until it is next started.
+    # See https://yuruna.link/4213a0b3-006d
     $keepProbe = Invoke-MacBoundedTool -Tool 'defaults' `
         -Arguments @('read', $utmBundleId, 'KeepRunningAfterLastWindowClosed') -Context 'UTM last-window state'
     $keepRunningAlready = ($keepProbe.Text -eq '1')
@@ -1782,32 +1687,11 @@ function Set-MacHostConditionSet {
     }
 
     # --- REGION: sysadminctl unified screen lock (Ventura+)
-    # `sysadminctl -screenLock` is the modern (macOS 13+) unified control
-    # that System Settings > Lock Screen > "Require password after screen
-    # saver begins or display is turned off" writes to.
-    # CRITICAL: overrides legacy askForPassword / askForPasswordDelay.
-    # A machine with idleTime=0, askForPassword=0, and
-    # askForPasswordDelay=MAX_INT can still lock after minutes because
-    # sysadminctl reports e.g. "screenLock delay is 300 seconds".
-    #
-    # "off" sets delay to -1 (disabled). sysadminctl requires the user's
-    # password (not sudo) because it touches the secure keyring entry
-    # backing lock-screen policy. `-password -` reads from stdin -- a
-    # second prompt appears after the sudo prompt.
-    # Get-MacScreenLockDisabled strips the NSLog prefix and applies the
-    # shared "off" test (also used by Assert-ScreenLock's gate) so the
-    # apply and assert paths agree on what counts as disabled.
+    # See https://yuruna.link/4213a0b3-006e
     $slParsed = Get-MacScreenLockDisabled -Raw (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1)
     $slStatus = $slParsed.Status
     if (-not $slParsed.Disabled) {
-        # This block needs two different things and only one of them is root.
-        # `-password -` reads the ACCOUNT password from stdin, so a run that
-        # cannot put a question in front of a person cannot do this at all:
-        # under a captured child stdin is closed, the read returns EOF, and the
-        # attempt would be reported as a FAILED disable rather than one that was
-        # never possible. Name the one-time command instead -- also when the
-        # caller asked for no GUI disruption, since the password read is itself
-        # a prompt in the session's terminal.
+        # See https://yuruna.link/4213a0b3-006f
         if ($NoGuiDisruption -or -not ((Test-MacSudoAvailable) -and (Test-YurunaCanPrompt))) {
             Write-Warning "========"
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d4a3976712d1018c')
@@ -1853,15 +1737,7 @@ function Set-MacHostConditionSet {
     }
 
     # --- REGION: Auto-logout after inactivity (Security -> Advanced)
-    # `com.apple.autologout.AutoLogOutDelay` (system-level) is the
-    # "Log out after N minutes of inactivity" toggle in Lock Screen /
-    # Security. macOS kicks the user back to loginwindow after the
-    # delay -- indistinguishable from a lock ("demands password"), but
-    # no screen-saver / pmset key we control would prevent it. System
-    # level (/Library/Preferences/.GlobalPreferences); the WRITE
-    # requires sudo, but the plist is mode 644 so the READ does not --
-    # reading it through sudo would spend an elevation on a value anyone can
-    # see, and on a host that cannot elevate it would hide the state entirely.
+    # See https://yuruna.link/4213a0b3-0070
     $autoLogoutDelay = & defaults read /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay 2>$null
     $autoLogoutOff = ($LASTEXITCODE -ne 0 -or "$autoLogoutDelay".Trim() -eq "0")
     if (-not $autoLogoutOff) {
@@ -1884,15 +1760,7 @@ function Set-MacHostConditionSet {
     }
 
     # --- REGION: Spaces "switch to a Space with open windows" toggle
-    # When the harness calls `tell application "UTM" to activate` (the
-    # AVF-guest keystroke fallback in Send-KeyUTM / Send-TextUTM), macOS
-    # by default yanks the operator across Spaces to UTM's window -- which
-    # is hostile when the operator has switched to VS Code on a different
-    # Space to investigate something while a long test runs.
-    # AppleSpacesSwitchOnActivation=false keeps the activation on the
-    # current Space; UTM still becomes frontmost (so keystrokes route to
-    # it), but the operator's view stays put. Dock must be restarted for
-    # the change to take effect.
+    # See https://yuruna.link/4213a0b3-0071
     $spacesAutoSwitch = & defaults read NSGlobalDomain AppleSpacesSwitchOnActivation 2>$null
     $spacesAutoSwitchOff = ($LASTEXITCODE -eq 0 -and "$spacesAutoSwitch".Trim() -eq "0")
     if (-not $spacesAutoSwitchOff) {
@@ -1986,23 +1854,7 @@ function Set-MacHostConditionSet {
 }
 
 # --- REGION: Operator grants (macOS privacy permissions)
-# Permissions the harness cannot run without and that NO amount of root can
-# supply. macOS keeps them in the TCC databases, System Integrity Protection
-# guards those against every writer including root, `tccutil` can only RESET a
-# decision and never grant one, and the single supported way to pre-authorize
-# any of them is a Privacy Preferences Policy Control payload delivered by an
-# MDM server the Mac is enrolled with. An administrator password buys nothing
-# here, so no amount of elevation turns this into an unattended step.
-#
-# What IS possible, and what this region does: detect each grant WITHOUT raising
-# a dialog, raise the system dialog and open the exact settings pane while an
-# operator is present, name the application they actually have to enable, and
-# wait for them to do it so the answer is confirmed rather than assumed.
-#
-# One registry, because the same grants are reported from two places -- the
-# pre-cycle config gate and the per-cycle assertion. Instructions maintained
-# twice drift, and an operator who follows one set and is then refused by the
-# other has no way to tell which of the two is the stale one.
+# See https://yuruna.link/4213a0b3-0072
 
 function Get-MacSessionKind {
     <#

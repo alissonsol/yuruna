@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42630144-53bf-4e35-a4c0-971c1bcc65a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,35 +24,7 @@
     command that reclaims it.
 
 .DESCRIPTION
-    The inverse of New-LocalLabStorage.ps1, for a machine that has joined a lab
-    and now mounts the lab's storage instead of its own. Everything that made
-    this machine a storage SERVER comes down; nothing that it stored does.
-
-    That split is deliberate and is the whole design of this script. The folders
-    under the storage root hold finished cycle archives, stash artifacts, the lab
-    vault, and the pool-intent repository -- content whose only copy may be here,
-    and which no automated rule can judge. So the bytes are reported, never
-    deleted: sizes per folder, what each one holds, and the exact command for
-    the operator to run once they have decided. Everything else -- the share
-    definitions, the accounts scoped to them, the Windows loopback exemption,
-    the hosts-file aliases -- is machine configuration that is wrong the moment
-    this host stops serving, and that comes down without asking beyond one
-    confirmation.
-
-    Leaving the accounts behind is not the safe option it looks like. The lab's
-    NAS has accounts with the SAME names (yuruna-pool, yuruna-stash) and the
-    vault now holds the NAS's passwords for them; a local account of that name
-    that no longer matches is a credential an operator can spend a long time
-    believing is the one being rejected.
-
-    Idempotent. A machine that never served its own storage, or one already
-    cleared, reports 'absent' for every step and changes nothing.
-
-    Run it AFTER the conversion, not before: test/pool/Convert-ToPoolWorker.ps1 needs
-    the lab's mounts working, and this script's alias removal is scoped by the
-    post-conversion configuration. Convert-ToPoolWorker prints the invitation to
-    run this as its closing step.
-
+    See https://yuruna.link/42010605-0003.
 .PARAMETER Root
     Storage root to report on. Omit it and the root is derived from the share
     table -- the directory each published share resolves to, whose parent is the
@@ -138,6 +110,7 @@ try {
 
 $platform = Get-LocalLabStoragePlatform
 
+# --- REGION: Write-ClearStep
 function Write-ClearStep {
     [CmdletBinding()]
     param([Parameter(Mandatory)][int]$Number, [Parameter(Mandatory)][string]$Title)
@@ -146,19 +119,9 @@ function Write-ClearStep {
 }
 
 # --- REGION: What this machine still serves
-# Asked of the OS share table rather than of test.config.yml, for the reason
-# Get-LocalLabStorageServedPath exists: the config a machine carries for a NAS is
-# identical in every key to the config for shares served here, so only the share
-# table can tell them apart -- and after a conversion the config names the NAS,
-# which would make a config-driven answer say "nothing local" on a machine still
-# serving both shares.
+# See https://yuruna.link/42010605-0003
 Write-ClearStep -Number 1 -Title 'What this machine publishes'
-# The probes ask questions and change nothing, so -WhatIf is suppressed across
-# them. It has to be suppressed HERE rather than inside the module: preference
-# propagation follows the invocation chain, not the module's scope chain, so an
-# assignment in the callee is invisible to the cmdlet it wraps. Without this, the
-# first Get-SmbShare autoloads the SmbShare module and its own New-Alias calls
-# narrate five "What if: Set Alias" lines into the middle of the report.
+# See https://yuruna.link/42010605-0003
 $served = [ordered]@{}
 $PreviousWhatIf = $WhatIfPreference
 try {
@@ -272,12 +235,7 @@ if ($KeepAccount) {
 }
 
 # --- REGION: Loopback exemption and aliases
-# The aliases go only when they still point at THIS machine. After a conversion
-# the sync has usually repointed them at the lab's NAS -- same name, different
-# address -- and dropping one then would leave the mount with a name nothing
-# resolves. Get-PoolWorkerAliasPlan owns that rule; here the configured-server
-# list is empty on purpose, so a name that resolves off-box is reported as
-# someone else's and kept either way.
+# See https://yuruna.link/42010605-0003
 Write-ClearStep -Number 5 -Title 'Loopback exemption and hosts aliases'
 $exemption = Remove-LocalLabStorageLoopbackException -Name @($PoolServer, $StashServer)
 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_763a5e41017336a8' -Arguments @{ exemption = "$exemption" }) -InformationAction Continue

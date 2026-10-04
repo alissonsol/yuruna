@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 423c8376-a989-4f09-aa00-2e5a728ffa76
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -285,10 +285,28 @@ Describe 'Initialize-YurunaEntryPointModuleSet -- the Refresh set' {
         Assert-True (@($validate.PositionalArguments | ForEach-Object { $_.Value }) -contains 'Refresh') '-For accepts Refresh'
     }
     It 'loads the outer.log writer before the outer loop in the Outer set' {
-        $outer = $script:Sets['Outer']
-        $i = [array]::IndexOf([string[]]$outer, 'Test.OuterLog.psm1')
+        $outer = [string[]]$script:Sets['Outer']
+        $i = [array]::IndexOf($outer, 'Test.OuterLog.psm1')
         Assert-True ($i -ge 0) 'Test.OuterLog is in the Outer set'
         Assert-Equal -Expected 'Test.RunnerWatchdog.psm1' -Actual $outer[$i + 1]
-        Assert-Equal -Expected 'Test.RunnerOuterLoop.psm1' -Actual $outer[$i + 2]
+        $loop = [array]::IndexOf($outer, 'Test.RunnerOuterLoop.psm1')
+        Assert-True ($loop -gt $i + 1) 'the outer loop loads after the outer.log writer and the watchdog'
+    }
+    It 'loads the recovery contract, the ledger and the repairs, in that order, before the outer loop that calls them' {
+        $outer = [string[]]$script:Sets['Outer']
+        $contract = [array]::IndexOf($outer, 'Test.RecoveryContract.psm1')
+        $ledger   = [array]::IndexOf($outer, 'Test.RecoveryLedger.psm1')
+        $actions  = [array]::IndexOf($outer, 'Test.RecoveryActions.psm1')
+        $loop     = [array]::IndexOf($outer, 'Test.RunnerOuterLoop.psm1')
+        Assert-True ($contract -ge 0 -and $contract -lt $ledger -and $ledger -lt $actions -and $actions -lt $loop) `
+            "the Outer set must list the contract, the ledger, the repairs and then the loop (found $contract, $ledger, $actions, $loop)"
+    }
+    It 'gives every entry point that records a result the recovery contract, and keeps it out of the Refresh set' {
+        foreach ($kind in @('Outer', 'Inner', 'Project', 'Sequence')) {
+            Assert-True ([string[]]$script:Sets[$kind] -contains 'Test.RecoveryContract.psm1') "the $kind set carries Test.RecoveryContract"
+        }
+        foreach ($module in @('Test.RecoveryContract.psm1', 'Test.RecoveryLedger.psm1', 'Test.RecoveryActions.psm1')) {
+            Assert-False ([string[]]$script:Sets['Refresh'] -contains $module) "$module stays out of the Refresh set"
+        }
     }
 }

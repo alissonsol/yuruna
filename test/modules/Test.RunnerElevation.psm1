@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 423b72a7-afb9-44a7-8fef-2acb7cbf69b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,14 +54,7 @@
     than raising UAC mid-run), so there is nothing to prime.
 #>
 
-# Per-host-type command manifest for the PER-CYCLE path. A host driver may take
-# ownership by exporting Get-HostElevationCommand (resolved first, below); until
-# one does, this table is the single place the list lives, so a new sudo call
-# site in the cycle path has exactly one place to register itself.
-#
-# ubuntu.kvm: the caching-proxy port map (Add-PortMap / Remove-PortMap) writes
-# and removes /etc/systemd/system/yuruna-cacheproxy-p<port>.{socket,service} and
-# reloads systemd. That is the whole per-cycle elevation surface on KVM.
+# See https://yuruna.link/4213a0b3-00df
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:ElevationManifest = @{
     'host.ubuntu.kvm' = @(

@@ -1,6 +1,10 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 # See https://yuruna.link/4220a755-000b
 # Netplan guests only; keep this file off Amazon Linux seeds.
+# --- REGION: version
 version: 2
+# --- REGION: ethernets
 ethernets:
   yuruna-en:
     match:

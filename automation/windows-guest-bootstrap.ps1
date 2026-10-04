@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42ae98ea-d3b9-46df-ad7b-f011055484ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,21 +20,9 @@
     coordinates, then its git credentials.
 
 .DESCRIPTION
-    A TEMPLATE, not a script to run directly. New-WindowsGuestBootstrap
-    (automation/Yuruna.GuestSeed.psm1) substitutes the `__NAME__` tokens and
-    writes the result and resolver to seed media. A small launcher in the
-    answer file locates that CD and runs this file at the guest's first logon.
-
-    It is nevertheless a real .ps1 and parses as valid PowerShell -- every
-    token sits inside a string literal -- so the parser and PSScriptAnalyzer
-    check it like any other file. That is the entire reason it is a file
-    rather than a here-string inside the module: this script needs nested
-    here-strings of its own, and a here-string containing here-strings is
-    terminated by the first inner `'@` at column zero. Building it by
-    escaping instead produces a first-logon script whose failures are silent,
-    on a VM nobody is watching.
-
-    Runs under Windows PowerShell 5.1: the guest has no pwsh at first logon.
+    Template rendered by New-WindowsGuestBootstrap onto trusted seed media.
+    Runs under Windows PowerShell 5.1 at first logon.
+    See https://yuruna.link/42e220c4-0006 for template and launcher design.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -49,10 +37,12 @@ New-Item -ItemType Directory -Force -Path $dir | Out-Null
 # one is permanent, the other is pinned by MAC reservation -- and they are
 # what let the resolver repair the address.
 Set-Content -Path (Join-Path $dir 'host.env') -Encoding Ascii -Value @"
+YURUNA_HOST_ID=__HOST_ID__
 YURUNA_STATUS_SERVICE_IP=__STATUS_IP__
 YURUNA_STATUS_SERVICE_PORT=__STATUS_PORT__
-YURUNA_HOST_ID=__HOST_ID__
 YURUNA_CACHING_PROXY_SERVICE_IP=__CACHE_IP__
+YURUNA_FRAMEWORK_URL=__FRAMEWORK_URL__
+YURUNA_PROJECT_URL=__PROJECT_URL__
 "@
 
 # Seeded, never fetched: this decides WHERE the guest fetches from, so it has
@@ -89,21 +79,7 @@ try {
 }
 
 # --- REGION: https://yuruna.link/42fa6f45-000c
-# git does NOT read GH_TOKEN -- that name is a gh(1) convention -- so the token
-# alone leaves a private-repo `git clone` prompting for a username, which hangs
-# an unattended guest. GIT_ASKPASS is what makes clone/fetch/pull authenticate
-# with no change at any call site; the .cmd shim exists only because GIT_ASKPASS
-# must name an executable, not a PowerShell function.
-#
-# This half is gated and the coordinate work above is not, in that order: a lab
-# with no token configured is exactly the lab whose guests most need to be able
-# to reach their host.
-# Suppress the prompt BEFORE the token gate, never after it. Windows is the
-# worst platform to get this wrong on: Git Credential Manager answers a missing
-# credential with a GUI dialog, which the OCR that drives this guest cannot read
-# at all -- so the step times out on a screenshot that shows nothing wrong.
-# Machine scope for the same reason the token uses it below: a non-interactive
-# SSH command reads no profile.
+# See https://yuruna.link/4213a0b3-0004
 [Environment]::SetEnvironmentVariable('GIT_TERMINAL_PROMPT', '0', 'Machine')
 $env:GIT_TERMINAL_PROMPT = '0'
 

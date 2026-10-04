@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42ab6606-a979-4194-9acd-a8d1c653dace
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,15 +60,7 @@ $script:YurunaHostContract = @(
     'Set-HostProxy', 'Clear-HostProxy', 'Remove-HostProxy',
     'Get-HostProxyBackupPath', 'Assert-Virtualization',
     # --- REGION: Virtualization repair
-    # The first verb is a read-only, bounded probe that returns a versioned
-    # record (state/reason/started/timedOut/observedUtc/elapsedMs plus
-    # platform evidence), distinct from the plain [bool] Assert-Virtualization
-    # above: a caller deciding whether to disrupt the hypervisor needs to tell
-    # a missing client apart from a denied permission apart from a genuine
-    # timeout, not just yes-or-no. The second starts only a hypervisor service
-    # the driver itself positively observes as stopped, immediately before
-    # acting, and refuses on anything it cannot establish; a host-neutral
-    # caller invokes both by one name on every platform.
+    # See https://yuruna.link/42e5cdfd-0030
     'Test-VirtualizationResponsive', 'Start-VirtualizationServiceIfStopped'
 )
 

@@ -431,13 +431,22 @@ testCycle:
     maxAttemptsPerCycle: 2
 ```
 
-Default-off self-heal. With `enabled: true`, the outer failure-pause ends early
-(auto-retry) for a clearly-safe transient failure class (`wait_timeout`,
-`instrumentation_failure`, `network_timeout`, `host_io_blocked`) instead of
-waiting up to the failure-pause cap for a human commit. Capped per
-consecutive-failure streak (`maxAttemptsPerCycle`) so a deterministic failure
-still escalates to the normal wait-for-human pause after that many auto-retries.
-A pool may override the whole block through its `config.testCycle`.
+Default-off self-heal. With `enabled: true` the runner may repair a failed cycle on
+its own, through a short allow-list of bounded repairs recorded in a durable ledger
+([Recovery after a failed cycle](runner-outer-loop.md#recovery-after-a-failed-cycle)):
+it ends the outer failure pause early for a clearly-safe transient failure class
+(`wait_timeout`, `instrumentation_failure`, `network_timeout`, `ip_not_discovered`,
+`host_io_blocked`) instead of waiting up to the failure-pause cap for a human commit;
+it moves aside a stale git lock that makes the framework pull or the project clone
+fail; and it retries a failed project clone with a health check.
+
+`maxAttemptsPerCycle` is the number of attempts per failure fingerprint and repair.
+The count is kept in `runtime/recovery.ledger.ndjson`, so a runner restart does not
+reset it; a passing cycle re-arms it, and so does the passage of 24 hours. A
+deterministic failure therefore still escalates to the normal wait-for-human pause
+after that many attempts. With `enabled: false` nothing is written to the ledger and
+each cycle's result (`runtime/recovery.result.json`) records the repairs that would
+have applied. A pool may override the whole block through its `config.testCycle`.
 
 <a id="42b11c32-0012"></a>
 
@@ -644,6 +653,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

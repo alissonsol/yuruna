@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,14 +63,7 @@ function Resolve-HostTag {
     return $script:HostTag
 }
 
-# The supporting test/modules become callable from our function bodies;
-# Export-ModuleMember below decides which of OUR functions become visible
-# to test/ orchestration. Yuruna.Host.psm1's exports shadow any same-name
-# exports the supporting modules also produce.
-# These dependency modules are imported -Global: Yuruna.Host is -Force re-imported
-# mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
-# EVICTS the global copy other modules call via qualified names (e.g.
-# Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
+# See https://yuruna.link/42e5cdfd-0002
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
@@ -1940,15 +1933,7 @@ function Start-UtmVM {
     param([Parameter(Mandatory)][string]$VMName)
     $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (-not (Test-Path $utmBundle)) {
-        # Distinguish the two ways the bundle can be missing, from the
-        # structured probe rather than the throwing boolean wrapper: still
-        # registered means UTM holds a name whose files are gone -- the
-        # caller reached here because that name answered the reuse check, so
-        # pointing at the path alone would send the reader looking for a VM
-        # that was never created, not for the registration that has to be
-        # cleared before one can be. Unknown gets its own message: neither
-        # "create a VM" nor "clear a registration" advice is warranted when
-        # the probe could not establish which situation this is.
+        # See https://yuruna.link/42e5cdfd-0003
         switch (Get-UtmVMRegistrationState -VMName $VMName) {
             'Registered' {
                 return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_d389bec5f4a68d26' -Arguments @{ vMName = "$VMName"; utmBundle = "$utmBundle" }) }
@@ -1973,21 +1958,7 @@ function Start-UtmVM {
                 # own failure check, so a VM that never started reports success.
                 Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_76b79a689aa25a38' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
             }
-            # Resolve the VNC display before starting. The display is baked into
-            # the bundle when the VM is BUILT, and every guest of a kind is built
-            # under the same test-VM name, so a topology that promotes several
-            # VMs out of that namespace ends up with all of them pinned to one
-            # port -- QEMU then refuses to start every VM after the first with
-            # "Failed to find an available port: Address already in use". Prefer
-            # the display derived from the VM's CURRENT name (distinct per VM),
-            # and exclude what the other bundles already claim so a genuine hash
-            # collision falls through to the next free slot.
-            #
-            # This write only reaches QEMU for a bundle UTM has not loaded yet.
-            # UTM reads config.plist when it loads a VM and keeps that copy for
-            # the life of the app, so for an already-registered VM the file and
-            # the command line diverge silently. Rename-VM does the durable
-            # allocation, in the window where it has UTM quit.
+            # See https://yuruna.link/42e5cdfd-0003
             $wantDisplay = Find-FreeVncDisplay `
                 -Preferred (Get-VncDisplayForVm -VMName $VMName) `
                 -ExcludeDisplays (Get-ClaimedVncDisplay -ExcludeVMName $VMName)
@@ -2009,14 +1980,7 @@ function Start-UtmVM {
             # must outlive this call, so only the acknowledgment is bounded.
             $null = Start-UtmDetachedLaunch -Tool 'open' -ArgumentList @($utmBundle) -Confirm:$false
             Start-Sleep -Seconds 3
-            # Adjudicated by state and retried, because utmctl exits 0 in three
-            # different situations that are not success: a request UTM dropped
-            # while still ingesting the bundle, a request UTM never acted on
-            # (Apple Event error), and a VM whose QEMU died right after launch.
-            # Reporting any of them as started buys a dead VM a full sequence of
-            # downstream steps before anything notices, and the eventual symptom
-            # -- an SSH timeout, a guest asserting on a peer that never came up
-            # -- names neither this VM nor this reason.
+            # See https://yuruna.link/42e5cdfd-0003
             $start = Invoke-UtmVMStartWithRetry -VMName $VMName -Confirm:$false
             if (-not $start.success) {
                 return @{ success = $false; errorMessage = $start.errorMessage }
@@ -2361,14 +2325,7 @@ function Assert-NoConcurrentUtmVm {
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$ExceptVmName)
-    # Distinguish "confirmed no concurrent VM" from "couldn't check". If
-    # UTM.app is unresponsive (host memory pressure -> Apple Event timeout,
-    # OSStatus -1712), utmctl list returns empty and the running-set probe
-    # below reads as "nothing running" -- a false all-clear that would let a
-    # leftover VM slip past this guard. Surface that instead of silently
-    # passing. We still proceed (returning $false here would wedge every cycle
-    # on a host whose utmctl is intermittently unresponsive); the warning is
-    # the signal, and the per-guest teardown probe is the other backstop.
+    # See https://yuruna.link/42e5cdfd-0004
     if (-not (Test-UtmctlResponsive)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c2034aca8b66df6c')
         return $true
@@ -3154,12 +3111,12 @@ function Get-UtmClockTick {
 # flags "this state was set by yuruna" -- same role as the WinINet
 # YurunaProxyManaged registry value.
 
-<#
-.SYNOPSIS
-    Return the path of the yuruna-managed macOS proxy marker file.
-#>
 function Get-MacProxyMarkerPath {
-    $stateDir = Join-Path $HOME '.yuruna'
+    <#
+    .SYNOPSIS
+        Return the path of the yuruna-managed macOS proxy marker file.
+    #>
+        $stateDir = Join-Path $HOME '.yuruna'
     return (Join-Path $stateDir 'host-proxy.managed')
 }
 
@@ -3415,12 +3372,12 @@ function Remove-MacHostProxy {
 # derived deterministically from the VM name so producer (config.plist
 # template) and consumers (capture, keystrokes) agree without a sidecar.
 
-<#
-.SYNOPSIS
-    Return a deterministic VNC display number (10..89) from the VM name.
-#>
 function Get-VncDisplayForVm {
-    [CmdletBinding()]
+    <#
+    .SYNOPSIS
+        Return a deterministic VNC display number (10..89) from the VM name.
+    #>
+        [CmdletBinding()]
     [OutputType([int])]
     param([Parameter(Mandatory)][string]$VMName)
     # Displays 0..9 reserved for legacy/default callers.
@@ -3839,14 +3796,7 @@ function Get-VncScreenshot {
             if ($enc -ne 0) { throw "Unsupported VNC encoding $enc for rect $r (need Raw=0)" }
             $rectBytes = $rw * $rh * 4
             if ($rx -eq 0 -and $ry -eq 0 -and $rw -eq $w -and $rh -eq $h) {
-                # Full-frame rect (the common case for an initial
-                # FramebufferUpdateRequest after a fresh handshake): read
-                # straight into $fb so we skip the per-row PowerShell copy
-                # loop. Without this fast path, a 1080-row loop of
-                # [Array]::Copy in PowerShell takes ~10 s on a 1920x1080
-                # framebuffer because each iteration pays scriptblock
-                # dispatch overhead -- the bytes arrive in <50 ms, the
-                # loop is the bottleneck.
+                # See https://yuruna.link/42e5cdfd-0005
                 $stream.ReadExactly($fb, 0, $rectBytes)
             } else {
                 # Sub-rect (would occur if we ever sent incremental=1):
@@ -4739,16 +4689,7 @@ function Resume-YurunaServiceVM {
         # the start and its settle all draw on it.
         $vmDeadline = New-YurunaDeadline -TotalMilliseconds ([long][Math]::Max(0, $TimeoutSeconds) * 1000)
         if ($Deadline) { $vmDeadline = Get-UtmChildDeadline -Milliseconds ([long][Math]::Max(0, $TimeoutSeconds) * 1000) -Parent $Deadline }
-        # UTM ingests its library asynchronously after launch, and utmctl
-        # cannot address a VM until that finishes -- an immediate start
-        # would be answered with "not found" and silently dropped. This
-        # waits through BOTH 'absent' (not yet re-registered) and 'unknown'
-        # (a probe that could not yet be read -- which a genuinely wedged
-        # connection also produces): only a positive 'running' or 'stopped'
-        # reading ends the wait, and a start is only ever attempted from a
-        # positive 'stopped' reading, never from 'unknown'.
-        # A read the deadline had no time left for never replaces an answer
-        # already obtained.
+        # See https://yuruna.link/42e5cdfd-0006
         $reading = $null
         while (-not (Test-YurunaDeadlineExpired -Deadline $vmDeadline)) {
             $next = Get-VMStateRecord -VMName $name -Deadline $vmDeadline
@@ -5002,15 +4943,7 @@ function Rename-VM {
             }
         }
 
-        # Re-derive the VNC display for the NEW name, here, while UTM is down.
-        # UTM reads a bundle's -vnc argument only when it loads the VM, and
-        # loads it once per app launch: a rewrite performed while UTM already
-        # holds the VM changes the file without changing the QEMU command
-        # line, so the guest still starts on the display it was loaded with.
-        # This relaunch is the one moment the file is authoritative again.
-        # It matters because bundles are built under a single per-kind test
-        # name -- every VM promoted out of that namespace inherits the same
-        # display, and only the first of them can bind the port.
+        # See https://yuruna.link/42e5cdfd-0007
         $wantDisplay = Find-FreeVncDisplay `
             -Preferred (Get-VncDisplayForVm -VMName $NewName) `
             -ExcludeDisplays (Get-ClaimedVncDisplay -ExcludeVMName $NewName)
@@ -5230,14 +5163,7 @@ function Restore-VMDiskSnapshot {
             [void](Stop-VMForce -VMName $VMName)
         }
     }
-    # The apply below must not race a still-live QEMU helper: it holds the
-    # qcow2's L1/L2 tables in memory and flushes its (un-reverted) view on
-    # exit, so `qemu-img snapshot -a` exits 0 yet the guest resumes the
-    # pre-revert disk -- "continues from where the last run left off"
-    # instead of starting from the snapshot. Blocking on a true power-off
-    # and lock release is what makes this revert as deterministic as a
-    # Hyper-V checkpoint restore. Runs unconditionally because Get-VMState
-    # maps 'suspended'/'paused' to 'stopped' yet those still hold the lock.
+    # See https://yuruna.link/42e5cdfd-0008
     if (-not (Wait-UtmVMPoweredOff -VMName $VMName)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c66ee6ced9fa2d77' -Arguments @{ vMName = "$VMName" })
         return $false
@@ -5368,14 +5294,7 @@ function Send-Text {
     # it for sequence execution).
     $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
     if (Test-Path $sequenceEngine) {
-        # Import once and reuse, matching Send-Key below. Re-importing -Force on
-        # every call evicts the global Invoke-Sequence (and its nested modules
-        # + $script: state) that the outer loop still calls
-        # (feedback_module_force_import_evicts_global,
-        # feedback_module_script_state_reset_by_force_reimport). Paying that per
-        # keystroke is not just overhead: it churns the module state that this
-        # driver's own -HostType argument is read from, so the very act of
-        # typing can disable the keystrokes that follow it.
+        # See https://yuruna.link/42e5cdfd-0009
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
         # Module-qualified call avoids re-entering OUR Send-Text.
         return [bool](Test.SequenceEngine\Send-Text -HostType (Resolve-HostTag) -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
@@ -5400,14 +5319,7 @@ function Send-Key {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4ffbf7056dde8493')
         return $false
     }
-    # Defer to Invoke-Sequence's host-aware dispatcher, which resolves the key
-    # name through the key-code registry and picks the VNC or CGEvent backend.
-    #
-    # Routing a key name through Send-Text instead does NOT work: the
-    # character maps cover printable ASCII only, so a control character such
-    # as CR is warn-and-skipped by every text backend while the call still
-    # reports success -- a key that silently types nothing. Named keys and
-    # modifier chords have to go through the key path.
+    # See https://yuruna.link/42e5cdfd-000a
     $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
     if (Test-Path $sequenceEngine) {
         # Import once and reuse: a -Force re-import evicts the global

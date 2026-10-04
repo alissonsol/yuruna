@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42331174-548a-4a2c-a2ca-a56b9374880d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,28 +21,7 @@
     Demonstrates the "closed access" problem with Microsoft AI/OCR on modern PowerShell.
 
 .DESCRIPTION
-    Windows ships a capable OCR engine (Windows.Media.Ocr) as part of the Windows
-    Runtime (WinRT). However, .NET 6+ removed built-in WinRT projection support,
-    which means PowerShell 7+ (pwsh) cannot load WinRT types directly.
-
-    The only two ways to use Windows.Media.Ocr are:
-
-    1. Shell out to Windows PowerShell 5.1 (powershell.exe), which still has
-       native WinRT interop. This is what yuruna's Test.OcrEngine.psm1 does
-       (see the WinRT provider block).
-
-    2. Add the Microsoft.Windows.SDK.NET.Ref NuGet package to a C# project
-       and compile against it. This package is not redistributable and requires
-       a Windows SDK installation.
-
-    Neither option works as a simple "Add-Type" or "Import-Module" from pwsh.
-    The types exist on every Windows machine, but the runtime bridge is gone.
-
-    This script proves the point: it tries to load the OCR engine from pwsh
-    (which fails), then falls back to powershell.exe (which succeeds).
-    If an image path is provided, it also runs OCR on that image via
-    powershell.exe and displays the extracted text.
-
+    See https://yuruna.link/42010605-0002.
 .PARAMETER ImagePath
     Optional path to a PNG image file to OCR. If provided and the powershell.exe
     OCR probe succeeds, the image will be recognized and the text printed.

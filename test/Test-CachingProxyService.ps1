@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 429d2507-81f3-45bf-89aa-1a0471f4641c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,15 +51,7 @@ Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1'
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# Canonical path bundle + CachingProxyService module kind. Loads the trio
-# (Test.VMUtility, Test.CachingProxyService, Test.HostContract) shared by the four
-# caching-proxy-service scripts:
-#   * Test.VMUtility -- Get-CachingProxyServicePort / Test-IpAddress, used by the
-#     port-probe block below and the env-var / -CacheIp branches that
-#     bypass Test-CachingProxyServiceAvailable's transitive imports.
-#   * Test.CachingProxyService -- Invoke-CachingProxyServiceProbe (shared with the cycle-
-#     start gate in Invoke-TestRunnerInnerLoop.ps1).
-#   * Test.HostContract -- Invoke-LibvirtGroupReExecIfNeeded + Initialize-YurunaHost.
+# See https://yuruna.link/42010605-0002
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
 $paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
 $ModulesDir = $paths.ModulesDir
@@ -76,35 +68,20 @@ $script:PassCount = 0
 $script:FailCount = 0
 $script:WarnCount = 0
 
+# --- REGION: Write-Pass
 function Write-Pass { param([string]$msg) Write-Output "  [PASS] $msg"; $script:PassCount++ }
+# --- REGION: Write-Fail
 function Write-Fail { param([string]$msg) Write-Output "  [FAIL] $msg"; $script:FailCount++ }
+# --- REGION: Write-Warn
 function Write-Warn { param([string]$msg) Write-Output "  [WARN] $msg"; $script:WarnCount++ }
 
 # --- REGION: Resolve the cache IP
-# Priority mirrors Start-TestRunner's cycle-start resolution:
-#   -CacheIp parameter            (explicit override, this script only)
-#   vmStart.cachingProxyIp        (test/test.config.yml, probed first)
-#   $Env:YURUNA_CACHING_PROXY_SERVICE_IP  (probed when config absent/unreachable)
-#   local discovery via Test-CachingProxyServiceAvailable
-# The config/env legs run through Resolve-CachingProxyServiceEndpoint -- the SAME
-# resolver Invoke-TestRunnerInnerLoop.ps1 and Debug-TestSequence.ps1 use -- so the
-# acceptance policy (first source whose HTTP proxy port answers) cannot
-# drift from the runner's. Two differences, both deliberate: this
-# diagnostic never publishes the winner into $env:YURUNA_CACHING_PROXY_SERVICE_IP
-# (read-only probe, no session mutation), and a rejected source is
-# surfaced as a WARN before falling back to local discovery exactly as
-# the runner would.
+# See https://yuruna.link/42010605-0002
 
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_cd8ce1605493d871')
 
-# -SetHostProxy ends this script with Remove-HostProxy then Set-HostProxy, both
-# of which reach Invoke-MacElevationIfNeeded and prompt for a password -- after
-# the port probes and CA fetch have already burned a minute or more. The
-# requirement is knowable from the parameter binding alone, so surface it here.
-# Idempotent and silent when already root (sudo -E), when the sudo timestamp is
-# warm, or on Windows, where Set-HostProxy writes per-user WinINet and needs no
-# elevation. A run without -SetHostProxy is a read-only probe and never prompts.
+# See https://yuruna.link/42010605-0002
 if ($SetHostProxy -and $IsMacOS) {
     [void](Initialize-SudoCache -Reasons @('reset the macOS system HTTP/HTTPS proxy (networksetup)'))
 }
@@ -178,16 +155,7 @@ Write-Output "  Target: $resolvedIp  (source: $resolvedFrom)"
 Write-Output ""
 
 # --- REGION: Port probes + CA cert fetch
-# Shared with the cycle-start gate in Invoke-TestRunnerInnerLoop.ps1 via
-# Invoke-CachingProxyServiceProbe in Test.CachingProxyService.psm1 -- both callers see
-# the same PASS/WARN/FAIL classification:
-#   :3128 / :3129 / :3000 -- FAIL on unreachable (hard requirements)
-#   :80, CA cert          -- WARN (HTTPS caching disabled on guests but
-#                            HTTP still works)
-# Lines and counters are folded back into this script's $script:* state
-# so the Summary line and exit code match the cycle-start gate's
-# PASS/WARN/FAIL classification (single source of truth in
-# Invoke-CachingProxyServiceProbe).
+# See https://yuruna.link/42010605-0002
 
 # Re-import so Invoke-CachingProxyServiceProbe resolves after the local-discovery
 # branch above ran Initialize-YurunaHost:
@@ -202,13 +170,7 @@ $script:FailCount += $probe.FailCount
 $httpPort  = $probe.HttpPort
 
 # --- REGION: Host system-proxy check
-# A stale system proxy (e.g. a previous -SetHostProxy promotion
-# against an IP that has since moved) will silently redirect every
-# Invoke-WebRequest / curl in Start-TestRunner. .NET on macOS reads
-# networksetup; .NET on Windows reads WinINet per-user (what the
-# driver's Set-WindowsHostProxy writes) and WinHTTP machine-wide. Env vars are
-# only consulted as a fallback, which is why a stale system setting
-# doesn't show up by dumping env vars alone.
+# See https://yuruna.link/42010605-0002
 
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_72ff9744d8398906')
@@ -243,22 +205,7 @@ if ($IsMacOS) {
 }
 
 # --- REGION: Effective proxy for outbound calls
-# Read process env vars DIRECTLY rather than asking
-# [System.Net.WebRequest]::DefaultWebProxy.GetProxy(). DefaultWebProxy
-# is a per-AppDomain singleton -- HttpEnvironmentProxy gets constructed
-# from env vars on the FIRST .NET HTTP call and is then cached for the
-# life of the process, with no refresh path. So once Test-CachingProxyService.ps1
-# (or any earlier script in the same pwsh) has touched .NET HTTP, the
-# singleton is stuck at whatever HTTP_PROXY said at that moment, even
-# after Set-WindowsHostProxy updates $env:HTTP_PROXY in the same session.
-# That is why two consecutive -SetHostProxy runs in one pwsh kept warning
-# despite the underlying state being correct.
-#
-# Reading env vars directly reflects what NEW child processes will
-# inherit (Start-TestRunner spawns fresh pwsh per cycle on Windows;
-# child gets the parent's process env block at fork time, builds its
-# own DefaultWebProxy from THOSE values). $env: hits the live process
-# env block on every read.
+# See https://yuruna.link/42010605-0002
 $envHttp  = $env:HTTP_PROXY
 $envHttps = $env:HTTPS_PROXY
 $envNo    = $env:NO_PROXY
@@ -326,20 +273,7 @@ if ($script:FailCount -gt 0) {
 }
 
 # --- REGION: Optional: promote to machine-wide host proxy
-# Only runs when every FAIL-level check passed -- WARN-level (missing :80 /
-# missing CA cert) is compatible with a working HTTP proxy, so we don't
-# block promotion on it.
-#
-# Auto-wipe before promotion: Remove-HostProxy unconditionally clears any
-# leftover WinINet ProxyServer string and HTTP_PROXY/HTTPS_PROXY/NO_PROXY
-# env vars BEFORE Set-HostProxy writes the new ones. The snapshot-and-restore
-# alternative preserves whatever proxy state was on the host when the FIRST
-# Set-HostProxy ran -- which on a host that had a pre-existing (or older-cycle)
-# HTTP_PROXY env var means Stop-CachingProxyServiceVM faithfully restores it,
-# leaking a stale IP into every subsequent Test-CachingProxyService probe.
-# Wiping first means each promotion lands on a guaranteed-clean baseline;
-# Stop-CachingProxyServiceVM similarly wipes definitively rather than restoring.
-# No user-action -ClearHostProxy required.
+# See https://yuruna.link/42010605-0002
 
 if ($SetHostProxy) {
     Write-Output ""

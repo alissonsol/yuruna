@@ -581,6 +581,17 @@ boundary to find -- and "no boundary" degrades to resuming in place, onto
 exactly the residue the boundary exists to discard. Rewinding to the wrapper is
 sound because entering it runs that restore first.
 
+With no boundary the checkpoint step is replayed in place only if it merely
+observes. Which verbs do is a fact about each verb, so each declares it when it
+registers (`Register-SequenceAction -ReplaySafety`) and the resume code only reads
+it: a list kept in the resume module would name the verbs known when it was
+written, and a verb added later would default to "replay is fine". The default
+runs the other way -- a verb that declared nothing is `unclassified` and counts as
+unsafe -- and a test over the live registry fails when a registration forgets.
+The class is read over the whole step, descending into a `retry` block, because
+replaying a wrapper replays everything it holds and its lead verb says nothing
+about the steps after it.
+
 The step list comes from the engine's own loader rather than a private parse,
 so `steps` is the same flat list `Invoke-Sequence` walks and the indexes are the
 ones `-StartStep` counts against. Normalizing that result again would re-reject
@@ -1488,9 +1499,12 @@ inner script (spawned via `bash -c "$script_content"`) inherits
 Cloud-init drops the library into `/usr/local/lib/yuruna/` at install
 time (`write_files: base64`). If that didn't happen (hand-cloned
 guest, a future host platform), fetch-and-execute fetches it once from
-the resolved `BASE_URL`. A missing library is still non-fatal
-(`[ -r ... ] && . ...`); the inner script just runs without the
-retry helpers in scope.
+the resolved `BASE_URL`, and installs it as root only when the download
+matches `E_RETRY_SHA` (or the caller waived verification with
+`EXEC_ALLOW_UNVERIFIED=1`): every fetched script sources this file, so
+bytes nobody vouched for must not become library code. A missing library
+is still non-fatal (`[ -r ... ] && . ...`); the inner script just runs
+without the retry helpers in scope.
 
 Source:
 [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
@@ -1728,6 +1742,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

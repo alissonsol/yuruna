@@ -11805,6 +11805,71 @@
       "sourceHash": "ba09e285015095696e7737f41af1223eac0d588f498b9065b12ef0243dffc2e2",
       "origin": "machine",
       "message": "  repositórios: (nenhum)"
+    },
+    "runner.cycle_outcome_rejected_kept": {
+      "sourceHash": "570e1b9361622f5dc3edfab04e887d57750a47aaee924fc941ae54abf83212c2",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o registro de resultado rejeitado foi mantido em {rejectedPath} para diagnóstico."
+    },
+    "runner.cycle_outcome_unrecorded": {
+      "sourceHash": "9eae625ffcfe9abfd6186a64a623d912f293454c3bfaa7066297df7ae6dcc949",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o processo do ciclo encerrou com código {childExit} após {ranForSeconds}s sem um registro de resultado utilizável ({reason}: {detail}). Ele NÃO é contado como aprovado: não é possível determinar se o ciclo foi concluído, portanto esta é uma falha do executor neste hospedeiro, e não um veredito do teste. Aplicando a pausa de um ciclo com falha."
+    },
+    "runner.cycle_outcome_unrecorded_log": {
+      "sourceHash": "533613e12e25dc64d0eb2392af867d2a0573101b4519950351e2b8632204da05",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] outcome-unrecorded: saída {childExit} após {ranForSeconds}s, registro {reason} ({detail})"
+    },
+    "runner.cycle_result_missing": {
+      "sourceHash": "dce48fd8e1c080493b4ee2b658e1f867e015ed37a2702aa542cca4a841f9d868",
+      "origin": "machine",
+      "message": "O ciclo retornou sem publicar um resultado. Registrando como um ciclo com falha (no-cycle-result) em vez de um ciclo concluído."
+    },
+    "runner.cycle_success_withheld": {
+      "sourceHash": "1f40f364986f4d981a1611c196ebf85c7e12dbac4b66cf2a6116559b50451a16",
+      "origin": "machine",
+      "message": "O ciclo terminou sem erros, mas seu resultado não pôde ser registrado, portanto o executor não pode contá-lo como aprovado. Encerrando com código {exitCode} em vez de 0."
+    },
+    "runner.project_previous_cleanup_failed": {
+      "sourceHash": "9a766785678bdfbd175db5dd450a740feee4b2129d10af59270ff2ccbbe7c5d4",
+      "origin": "machine",
+      "message": "Não foi possível excluir o checkout anterior do projeto em {previousDir}. O novo checkout está no lugar; a próxima atualização removerá o que restou."
+    },
+    "runner.project_swap_recovered": {
+      "sourceHash": "0146135f7443d8c755b3dafafba2f51b655e08a617b2e8b3d3e14b56c28fa211",
+      "origin": "machine",
+      "message": "Recuperada uma atualização interrompida do projeto em {repoRoot}: {action}."
+    },
+    "runner.telemetry_event_dropped": {
+      "sourceHash": "5b0ab726288638d28ecac4395139b35a9719eaad3df2410e457d197929af2768",
+      "origin": "machine",
+      "message": "Não foi possível registrar um evento do ciclo ('{eventName}': {reason}). O ciclo continua, mas seu fluxo de eventos agora está incompleto; a contagem e o motivo estão em cycle.events.delivery.json. Outras perdas neste ciclo são contadas, sem repetir o aviso."
+    },
+    "runner.vm_admission_occupied": {
+      "sourceHash": "6b2cac47be88999e29833839cf354f7122b2d4da84b1767c95827f4ae3ed6162",
+      "origin": "machine",
+      "message": "Recusando o início de um ciclo: estas VMs estão em execução no hospedeiro e não pararam: {occupants}. Pare ou exclua essas VMs e execute o ciclo novamente."
+    },
+    "runner.vm_admission_unknown": {
+      "sourceHash": "0f1954030fb6b7ca0fbb4840d03cc10573747d19d8fa234c8ce6444a9a2b8c68",
+      "origin": "machine",
+      "message": "Recusando o início de um ciclo: o hospedeiro não pôde comprovar que nenhuma outra VM está em execução ({reason} após {probes} leitura(s): {detail}). Dois ciclos no mesmo conjunto de VMs corrompem um ao outro, portanto o executor não fará suposições; ele tentará novamente na próxima iteração. Verifique as ferramentas de linha de comando do hipervisor e o inventário de VMs neste hospedeiro."
+    },
+    "runner.warm_resume_declined_unverified": {
+      "sourceHash": "4859df008e6296519886fc7f3bc5995c8c2b422b5533221f34eb050e665b5606",
+      "origin": "machine",
+      "message": "  WARM-RESUME recusado: '{resumeSequence}' falhou na etapa {resumeFromStep} ({failureClass}) e não foi possível comprovar que sua repetição é segura (motivo: {reason}). A falha original permanece."
+    },
+    "runner.recovery_applied": {
+      "sourceHash": "7eafd66e4a30911f9bac65ddd7c7f85b897a74df92d87a05437fb10b341b0f1a",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] a ação de recuperação '{action}' foi executada para uma falha {failClass} (tentativa {attempt}); a pausa por falha é ignorada e o próximo ciclo começa imediatamente."
+    },
+    "runner.recovery_result_write_failed": {
+      "sourceHash": "cd85e83e74e84ad1db4d6754c26ac92a29f18431b6ebf06decf7e368dbbdb7fb",
+      "origin": "machine",
+      "message": "Não foi possível registrar o resultado da recuperação em {path} ({reason}). O resultado do ciclo não é afetado."
     }
   }
 }

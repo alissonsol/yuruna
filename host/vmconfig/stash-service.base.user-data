@@ -5,6 +5,7 @@
 # See https://yuruna.link/429f3d06
 # See https://yuruna.link/42f5e921
 # See https://yuruna.link/42e220c4-0006
+# --- REGION: hostname
 hostname: yuruna-stash-service
 # --- REGION: users
 users:
@@ -17,13 +18,16 @@ users:
     plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
+# --- REGION: chpasswd
 chpasswd:
   expire: false
   users:
     - name: stash-admin
       password: PASSWORD_PLACEHOLDER
       type: text
+# --- REGION: ssh_pwauth
 ssh_pwauth: true
+# --- REGION: package_update
 package_update: true
 # --- REGION: packages
 packages:
@@ -145,7 +149,7 @@ write_files:
           # -s "$DEST/VERSION" is the extraction's success condition, not tar's exit
           # status: the archive arrives through a pipe, so a transfer cut partway
           # leaves tar reporting success over a truncated tree.
-          if wget --no-proxy -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST" && [ -s "$DEST/VERSION" ]; then
+          if wget --no-proxy --timeout=30 --tries=1 -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST" && [ -s "$DEST/VERSION" ]; then
             OK=1; SRC=host; SRC_URL="http://$YR_HOST:$YR_PORT"
             echo "yuruna stash: framework extracted from host $SRC_URL"
             break
@@ -161,12 +165,10 @@ write_files:
       if [ "$OK" -eq 0 ]; then
         echo "yuruna stash: host status service did not serve the framework after 6 attempts; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
         rm -rf "$DEST"
-        git clone --depth 1 "$MIRROR_URL" "$DEST" && OK=1
+        git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 "$MIRROR_URL" "$DEST" && OK=1
       fi
-      # Record which source won. Without this the answer survives only in this log,
-      # and the bring-up script on the host is left inferring it from a version
-      # number that cannot distinguish "older mirror" from "older host enlistment".
-      # World-readable on purpose: it is read back as the unprivileged seed account.
+      # See https://yuruna.link/42fffc2c-0013
+      # Record source provenance for the unprivileged seed account's readiness probe.
       mkdir -p /etc/yuruna
       {
         echo "source=$SRC"
@@ -200,6 +202,7 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Yuruna stash service bring-up (idempotent; converges a half-built VM)
       Documentation=https://yuruna.link/42f5e921
@@ -210,6 +213,7 @@ write_files:
       # work does any.
       ConditionPathExists=!/usr/local/bin/stash-service
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       ExecStart=/usr/local/lib/yuruna/stash-bringup.sh
@@ -220,6 +224,7 @@ write_files:
       StandardOutput=journal
       StandardError=journal
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=multi-user.target
   # See https://yuruna.link/429f3d06-002a
@@ -232,41 +237,45 @@ write_files:
   - path: /etc/systemd/system/yuruna-host-locate.service
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Refresh Yuruna host coordinates if the host has changed address
       After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
       Before=network-online.target
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       TimeoutStartSec=30
       ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=network-online.target
   - path: /etc/systemd/system/yuruna-host-locate.timer
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Periodic Yuruna host coordinate refresh
 
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=30s
       OnUnitActiveSec=60s
       AccuracySec=5s
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
 # --- REGION: runcmd
 runcmd:
+  # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
   # sshd is already up by the time write_files lands, so the drop-in above needs
   # a reload to take effect on this boot rather than only on the next one.
   - systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
   # --- REGION: https://yuruna.link/429f3d06-0086
-  # 0) Host-side guest agent FIRST, so host discovery never waits on the steps below.
-  # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
-  # 1) Hand the bring-up to systemd. `enable` is what survives a boot that dies
-  #    mid-build; `--now` runs this first attempt without waiting for a reboot.
+  # systemd runs bring-up now and retries an interrupted build on the next boot.
   - systemctl daemon-reload
   - systemctl enable --now yuruna-stash-bringup.service

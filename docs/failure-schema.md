@@ -114,7 +114,7 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `cycleFolder` | The cycle's stable identity (step failures only) -- the same value the NDJSON stream stamps, so this file joins to the event stream and resolves to the folder on disk. |
 | `failureScreenshotPath` / `failureOcrPath` | Cycle-dir-relative names of this failure's screen evidence (step failures only). **Absent** unless the artifact exists and was last written after the failing step began: both are sticky per-VM files that only the screen-reading verbs rewrite, so a failure in a verb that reads no text would otherwise point at an earlier step's screen. A reader follows these; nothing audits them, so a present name is a claim the record has to be able to keep. |
 | `staleEvidence` | Each artifact dropped from the two pointers above, named with how many seconds before the failing step it was last written; `[]` when none was. The file is still in the cycle folder under that name, so evidence belonging to an earlier step stays findable while the pointers stay trustworthy -- and an absent pointer is never read as "no screen evidence exists at all", which is a different fact with a different next step. |
-| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `pauseBeforeStepSeconds` and `pauseReleasedAtUtc` (below). |
+| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds` and `pauseReleasedAtUtc` (below). |
 | `crash` | Crash records only: `{ error, origin, stack }`. |
 | `hostMemory` | Infra records only, and only when the host driver could measure the machine: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A VM's startup memory is charged against the system commit limit -- physical memory plus the current page-file size -- and not against free physical memory, so a provisioning refusal is explained by the commit figures while free physical memory can be at its highest in the same instant. **Absent** when nothing measured, never zeroed: a zeroed block reads as a machine that was measured and found empty, which is a different fact with a different next step. Mirrored flat on the event as `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
 
@@ -128,6 +128,7 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `closestOnScreen` | For each OCR engine and each pattern the wait sought, the line on the final frame that came closest and how close, as the percentage of normalized pattern characters that lined up (a match needs 85%, measured on the same canonical form the matcher uses, so OCR character confusion costs nothing). A high percentage means the text printed and the read of it fell short -- look at the capture or the matching tolerance; a low one means the screen was showing something else, so the guest never printed it. Three states, on the same discipline as `consoleFlood`: the lines, when the scan ran and found some; `[]` when it ran and nothing on the frame resembled the pattern; `null` when it never ran -- a wait that ends on a failure pattern returns the moment the pattern matches, and a failure outside a wait has no frame of its own. An empty list is a reading of the screen; `null` is the absence of one, and only the first supports a conclusion. |
 | `consoleFlood` | Set when the console filled with one repeating line while the wait was seeking its pattern; carries the dominant line and its share of the screen. `''` when the screen was not repetitive. `null` when the wait confined its match to the console tail (`freshMatch`): that path reads the same frames but runs no flood check, so the field says "not looked at" rather than "not repetitive". |
 | `consoleStaticSeconds` | The longest run, in seconds, that the console CONTENT did not change during the wait. Repetition is counted within a single frame, so a wall of text that scrolled by earlier and then stopped reads as a flood -- this is what tells the two apart. A high value means a guest that is waiting, not one that is working, and a guest that is waiting can often be unblocked by answering it. `0` when the screen kept moving, and `null` when the wait confined its match to the console tail (`freshMatch`) and never measured it -- `0` is a reading, `null` is the absence of one, and only the first supports a conclusion about the guest. For a `freshMatch` timeout the screen evidence is `freshWindowNearMiss` and `ocrTail` instead. |
+| `installerStage` / `installerStageUnchangedSeconds` | The last `start:` or `finish:` marker for a substantive Subiquity Install or Mirror stage visible during this wait, and seconds since that marker changed. Network update chatter is excluded. This records the last observed marker, not proof that its command is still running. `''` / `0` when no stage was seen. Mirrored on the event as `causeInstallerStage` / `causeInstallerStageUnchangedSeconds`. |
 | `pauseBeforeStepSeconds` | Seconds an operator hold ran, when one was released before the failing step. The pause gate holds the runner and not the guest, so a prompt the guest printed once during the hold is off the screen the resumed step then has to read -- which looks identical to a prompt that never printed. `0` when there was no hold. |
 | `pauseReleasedAtUtc` | When that hold ended, so it can be placed against the step's own start. `''` when there was no hold. |
 
@@ -280,6 +281,36 @@ Fields:
 best-effort (`Send-CycleEventSafely`) and never fails the cycle. A stream
 consumer that counts only failures should skip this event type.
 
+<a id="42820e91-001e"></a>
+
+## `cycle.events.delivery.json` (is the event stream complete?)
+
+Emission is best-effort by design -- a cycle never fails because an event could
+not be written -- and on its own that makes a lost event invisible. A consumer
+reading a quiet stream cannot tell "nothing happened" from "the writer broke",
+and a writer that was never loaded leaves no trace at all. Every emission is
+therefore counted, and every loss is recorded with its reason beside the stream:
+
+| Field | Meaning |
+|---|---|
+| `attempted` / `delivered` / `dropped` | Emissions since the cycle opened, and how they ended. |
+| `lastDroppedEvent` | The `event` name of the most recent loss. |
+| `lastDropReason` | `writer-unavailable` (the writer was not loaded in that scope), `writer-threw: <message>`, or `write-failed: <message>` (the append failed: open-handle race, disk full). |
+| `lastDropAtUtc` | When it happened. |
+
+The file is written when an event is lost, not for every event, and a clean cycle
+has none; the manifest catalogs it as kind `ndjson-delivery`. The first loss in a
+cycle is also a warning, and later ones are counted rather than repeated.
+`cycle.events.gaps` still carries one line per failed append (with the dropped
+event's name and action), which is the per-event detail the ledger summarizes.
+
+An event emitted while no cycle is open is counted as dropped with the reason
+`no-cycle-folder` but is not warned about and writes no file: with no cycle there
+is no stream to be incomplete, and tools and tests emit in that state routinely.
+None of this changes what a failed write does to the cycle -- the failure being
+reported keeps its own class and reason; the ledger only says how much of the
+evidence around it reached disk.
+
 <a id="42820e91-000d"></a>
 
 ## `guest_quarantined` event (circuit breaker)
@@ -397,9 +428,24 @@ for. The cost is redoing the steps in between -- the same trade warm resume
 already makes against a full cold rebuild.
 
 A sequence with no `loadDiskSnapshot` at or before the checkpoint has nothing to
-restore to, so the checkpoint is used unchanged rather than refusing to resume:
-declining would turn a recoverable transient back into the lost cycle warm resume
-exists to prevent. A checkpoint already sitting on the boundary is not a rewind.
+restore to. The checkpoint step is then replayed in place only when it merely
+observes -- waits, reads the screen, captures evidence -- and that is judged over
+the whole step: a `retry` block that leads with a wait and then types is a typing
+step. A step that types, clicks, or changes guest, host or external state would
+run onto its own residue, so the resume is declined and the original failure
+stands. Each verb declares its class when it registers (`ReplaySafety`:
+`observe`, `input`, `state-changing`, `restore-point` or `composite`); a verb that
+declared none, an unregistered name, an unreadable sequence and a missing safety
+check all count as unsafe. A restore point whose snapshot the host definitely
+lacks counts as no boundary, so it cannot license a replay. A checkpoint already
+sitting on the boundary is not a rewind.
+
+A resume that was eligible and declined says so with a `warm_resume_declined`
+event: `timestamp`, `event`, `guestKey`, `sequenceName`, `resumeFromStep` and a
+`reason` token -- `no-restore-point`, `restore-point-missing` or
+`safety-check-unavailable` -- plus `replayClass` (what made the step unsafe),
+`failureClass`, `vmName` and `hostType` when known. Without it a declined
+recovery is invisible: the cycle simply fails with its original class.
 
 When a rewind happens the event carries `checkpointStep` (the step that failed)
 and `rewoundSteps` (how many were replayed) alongside `resumeFromStep` (where the
@@ -432,7 +478,11 @@ queryable in `cycle.events.ndjson`, not just buried in the human log:
   standalone tofu run that never loaded `Test.Log` is unaffected).
 - **The sequence `retry` verb** emits `retry_attempt` per failed inner pass and
   `retry_exhausted` on exhaustion, the latter carrying the deepest inner
-  `failureClass` (the outer class collapses to `retry_exhausted`).
+  `failureClass` (the outer class collapses to `retry_exhausted`). The ARM64
+  installer boot guard also emits `retry_suppressed` when it declines a
+  planned native ARM64 restart, with `reason`, `attempt`, `maxAttempts`,
+  `permittedMaxAttempts`, and `configuredMaxAttempts`. Its terminal record carries
+  `retrySuppressionReason` so the cause remains visible without joining events.
 - **The guest bash lib** (`automation/yuruna-retry.sh`) can't reach the host
   stream, so it prints a `YURUNA_RETRY {stack,label,attempt,maxAttempts,rc,
   permanent}` marker to stderr; on the SSH verbs (`sshExec` /
@@ -515,12 +565,14 @@ maps that token to an actionable recommendation. Without it, an operator
 message and guess; the dispatcher instead reads the failure record,
 routes on `failureClass`, and returns what the caller should do.
 
-The dispatcher is **advisory, and the loop is not closed**: it records a
-decision and emits a recommendation, and applying that recommendation is
-the caller's job. Nothing in the tree calls `Repair-Credential`, for
-instance. Acting automatically needs a class allow-list and an attempt
-cap first, so that a misclassified failure cannot drive a repair in a
-loop -- which is why the detection half shipped ahead of the acting half.
+The dispatcher is **advisory**: it records a decision and emits a
+recommendation, and applying that recommendation is someone else's job. Nothing
+in the tree calls `Repair-Credential`, for instance. The only code that acts on a
+failure is the set of bounded repairs described under
+[Recovery result and ledger](#recovery-result-and-ledger): they are off by
+default, limited to a short allow-list, and capped per failure fingerprint in a
+ledger that survives a runner restart, so that a misclassified failure cannot
+drive a repair in a loop.
 
 <a id="42820e91-0015"></a>
 
@@ -673,10 +725,12 @@ handler) the dispatcher routes on the outer class unchanged.
 
 ### Advisory by design
 
-Handlers return **what the caller should do**, not what they **did**. A
-future iteration can flip individual handlers to act directly (call
-`Repair-VncConnection`, `Wait-SshReady`, `Restore-VMDiskSnapshot`
-themselves) once the autonomous loop's blast radius is bounded.
+Handlers return **what the caller should do**, not what they **did**, and a
+handler never acts. Acting is the recovery module's job: a repair registers a
+precondition, a bounded action, a postcondition probe and a rollback, and the
+[ledger](#recovery-result-and-ledger) decides whether it may run again. Wiring
+`Repair-VncConnection`, `Wait-SshReady` or `Restore-VMDiskSnapshot` in the same way
+is how a handler's advice would become an action, one repair at a time.
 
 <a id="42820e91-001a"></a>
 
@@ -734,6 +788,165 @@ validator that gates the cycle event stream.
    because the validator at module load throws if any enum value is
    missing a handler.
 
+<a id="42820e91-001f"></a>
+
+## Recovery result and ledger
+
+The runner, the project run and the sequence runner used to say how a cycle went
+in three shapes: a Boolean from the sequence engine, a clone result plus an exit
+code, a cycle object plus a sidecar file. They now also record one typed result,
+and a durable ledger bounds what the runner may repair on its own. Nothing that
+existed changed: every exit code, `status.json`, `last_failure.json`,
+`last_remediation.json` and the required fields of `runner.cycle.outcome.json`
+are as they were. The new data is added beside them.
+
+The code is in [`Test.RecoveryContract`](../test/modules/Test.RecoveryContract.psm1)
+(the result, the shared steps), [`Test.RecoveryLedger`](../test/modules/Test.RecoveryLedger.psm1)
+(the ledger and the repair protocol) and
+[`Test.RecoveryActions`](../test/modules/Test.RecoveryActions.psm1) (the repairs).
+
+<a id="42820e91-0020"></a>
+
+### `recovery.result.json` (the typed result)
+
+Written under `$YURUNA_RUNTIME_DIR` by every entry point when a run ends, and
+replaced each time; `recovery.results.ndjson` beside it keeps one compact line per
+result, trimmed to the newest 200. A failed write is a warning and never changes
+how the run ends.
+
+| Field | Meaning |
+|---|---|
+| `schemaVersion` | `1`. |
+| `resultId` | A new GUID (N format) per result. |
+| `entryPoint` | `runner`, `project` or `sequence`. |
+| `cycleGeneration` | `<runnerInstanceId>:<cycle>` for the runner. A one-shot entry point mints `<new guid>:1`, exports it as `YURUNA_CYCLE_GENERATION`, and everything it starts shares it. |
+| `outcome` | `passed`; `failed` (the tests ran and failed); `infrastructure-fault` (the machinery around the tests failed); `cannot-run` (a precondition such as VM admission refused the cycle); `aborted` (a child died before it could run a cycle). |
+| `exitCode` | The exit code the entry point (or, for the runner, the cycle) ended with. |
+| `failureClass` | Empty, a [failure class](#why-each-infra-failure-class-exists) of the shared taxonomy, or a runner fault class (below). |
+| `fingerprint` | `fp1-` plus 16 hex characters: the SHA-256 of failure class, stage, sequence name and action verb, each trimmed and lowercased. Counts, timestamps, VM names and addresses are never inputs, so the same failure has the same fingerprint on the next cycle and after a restart. Empty for a pass or a failure without a class. |
+| `stage` | The stage of an infrastructure failure (`ProjectClone`, `FrameworkPull`, `VmAdmission`, `CycleOutcome`, `CycleStart`, `CycleSpawn`, `PoolStorage`) or empty. |
+| `reason` | Short text, redacted (credentials in URLs, `password=` style pairs, long opaque tokens) and cut at 300 characters. |
+| `evidence` | Pointers: `{ kind: file\|record\|event\|command, ref, note }`, for example the `last_failure.json` path or the rejected outcome record. |
+| `steps` | The shared steps the run took (`checkout`, `admission`, `replay`, `cycle`), each `{ step, ok, failureClass, reason }`. |
+| `recovery` | `{ state, action, attempt, ledgerId, advised }`; see the states below. |
+
+`recovery.state`: `none` (nothing to recover); `advised` (repairs apply but
+automatic repair is off, and `advised` names them); `declined` (a repair applied
+and its precondition did not hold); `applied` (a repair ran and its postcondition
+held, and the next cycle is the proof); `failed` (a repair ran, its postcondition
+failed, and rollback ran); `exhausted` (the attempt budget for this fingerprint
+and repair is spent). `escalated` is reserved: the ledger records the hand-off to
+the operator as an `escalated` line after a failed attempt, and the result reports
+that attempt as `failed`. After `failed` and `exhausted` alike the runner takes the
+normal failure pause, which is where an operator comes in.
+
+<a id="42820e91-0021"></a>
+
+### Runner fault classes
+
+Six classes describe the runner rather than a sequence step. They are not in the
+shared taxonomy and have no dispatcher handler: `outcome_unrecorded` (a cycle left
+no usable outcome record), `vm_admission_occupied` and `vm_admission_unknown` (the
+cycle-start check refused), `preamble_stall` and `cycle_killed` (the watchdog
+killed the inner), and `cycle_spawn_failed` (the cycle process could not be
+started). They appear in `status.json`'s `lastFailure.failureClass` and in a
+result's `failureClass`.
+
+<a id="42820e91-0022"></a>
+
+### The shared steps
+
+The pieces that decide whether a cycle may run, be replayed or count as a pass are
+step functions in the contract module, and all three entry points call the same
+ones. Each returns the same shape: `Step`, `Ok`, `Skipped`, `FailureClass`,
+`Reason`, `Evidence`, plus fields of its own.
+
+| Step | Wraps | Fails as |
+|---|---|---|
+| `Invoke-CycleCheckoutStep` | `Update-ProjectClone` (clone beside, verify, swap) | `bootstrap_sync`, stage `ProjectClone` |
+| `Invoke-CycleAdmissionStep` | `Invoke-HostVmAdmission` | `vm_admission_occupied` (exit 1) or `vm_admission_unknown` (exit 2) |
+| `Resolve-CycleReplayStep` | `Resolve-WarmResumeReplayPlan` | not a failure: `Ok` is false with a reason (`no-restore-point`, `restore-point-missing`, `safety-check-unavailable`) and the original failure stands |
+| `Publish-CycleOutcomeRecord` / `Read-CycleOutcomeRecord` | the cycle outcome record | `outcome_unrecorded` |
+
+The outcome record may also carry `failureClass` and `detail` (redacted, at most
+300 characters), written only when the cycle knows them. They never decide whether
+a record is valid. The framework pull is the case that needs them: it runs in the
+cycle process, and the runner has to tell a stale git lock from a network failure.
+
+<a id="42820e91-0023"></a>
+
+### `recovery.ledger.ndjson` (what the runner may repair, and how often)
+
+An append-only file under `$YURUNA_RUNTIME_DIR`, one JSON object per line. The
+attempt budget used to be a counter in the outer loop's memory, which a runner
+restart reset; a deterministic fault that outlived a restart was retried without
+bound. The ledger keeps the count where a restart does not erase it, and every
+decision is derived from the file, so a new process reading it reaches the same
+answer.
+
+| `kind` | Lines |
+|---|---|
+| `attempt` | `phase`: `started` (written and flushed before the action runs), then one of `succeeded`, `failed`, `declined`, `exhausted`, `rolled-back`, `rollback-failed`, `abandoned`, `escalated`. Carries `attemptId`, `fingerprint`, `failureClass`, `action`, `attempt`, `generation`, `reason`, `evidence`. |
+| `resolved` | `scope` `all` or `fingerprint`: a passing cycle re-arms every budget. |
+
+Rules:
+
+1. **No durable record, no repair.** If the `started` line cannot be written, the
+   action does not run. A ledger that exists but cannot be read counts as a spent
+   budget, not an empty one.
+2. **The budget** for a fingerprint and a repair is the number of `started` lines
+   after the latest covering `resolved` line and within the last 24 hours. It is
+   spent when that number reaches the repair's cap (`testCycle.autoRemediation.
+   maxAttemptsPerCycle`, default 2; a repair may lower it).
+3. **A crash is an attempt.** A `started` line with no terminal line younger than
+   10 minutes is another process still working: the repair declines
+   (`attempt-in-progress`). Older, it is abandoned: one `abandoned` line is
+   appended, it counts as used, and it is never silently re-run.
+4. Text is redacted before it is written, and lines that do not parse (a torn
+   write) are skipped and counted.
+5. Two runner processes can append at the same moment, and .NET appends do not
+   serialize across processes: without a guard, lines were lost silently. Every
+   append and every compaction therefore holds the companion file
+   `recovery.ledger.guard`, opened exclusively; the operating system releases it
+   when its holder dies. A writer that cannot get the guard within about two
+   seconds treats the line as not written, which means no repair.
+6. The file is compacted past 256 KB, keeping seven days, every unfinished attempt
+   and the latest `resolved` line of each scope.
+
+<a id="42820e91-0024"></a>
+
+### The repairs
+
+Automatic repair is off by default (`testCycle.autoRemediation.enabled`, see
+[test-config.md](test-config.md#testcycleautoremediation)). With it off, nothing
+is written to the ledger and a result carries `recovery.state` `advised` with the
+names of the repairs that would have applied. With it on, the runner tries the
+repairs that apply, in this order, and stops at the first that was applied. Each is
+idempotent, takes no hypervisor action, and runs only a bounded git command at
+most. None has been exercised against a live host; the tests use temporary
+repositories and stand-in functions.
+
+| Repair | Applies to | Precondition | Action | Postcondition | Rollback |
+|---|---|---|---|---|---|
+| `clear_stale_git_lock` | a `bootstrap_sync` failure at stage `FrameworkPull` or `ProjectClone` whose reason names a `.lock` file | a `*.lock` file directly under a repository's `.git` (or under `.git/refs`, three levels deep) is older than 10 minutes, and no `git` process is running on the machine (a process list that cannot be read counts as running, and so does a resident file-system-monitor daemon) | moves each lock into `runtime/recovery.quarantine/<attemptId>/<framework or project>/<path inside the repository>` (never deletes; nothing prunes the folder afterwards) | `git --no-optional-locks status --porcelain` (read-only, so it cannot recreate the lock) exits 0 within 30 seconds in every repository touched | moves the locks back, and never over a lock that has reappeared |
+| `reclone_project` | a `bootstrap_sync` failure at stage `ProjectClone` | a project URL resolves (a pool assignment in `project.access.json` that is not `denied`, else `repositories.projectUrl`), and the current `project/` is not already healthy | `Update-ProjectClone`: clone beside, verify, swap; the previous checkout is kept when it fails | the checkout passes the health check | restores an interrupted swap |
+| `end_failure_pause_early` | a failure class the dispatcher maps to a clearly safe retry (`wait_timeout`, `network_timeout`, `ip_not_discovered`, `instrumentation_failure`, `host_io_blocked`) | the class is on that list | none: the effect is that the pause ends | always | none |
+
+`clear_stale_git_lock` and `reclone_project` run before the failure pause (and
+`clear_stale_git_lock` also before the hold that follows a failed framework pull);
+`end_failure_pause_early` runs inside the pause, after its first poll interval, as
+it always did. A repair that applied replaces the pause, and the next cycle is its
+proof: a pass re-arms every budget, and a repeat of the same fingerprint spends it.
+When a budget is spent the result says `exhausted` and the normal failure pause
+applies.
+
+Every ledger line also emits a `recovery_action` event (`action`, `decision`,
+`phase`, `fingerprint`, `failureClass`, `attempt`, `attemptId`, `generation`,
+`reason`). `failureClass` is left out when the result has none and when it is a
+runner fault class, because the event schema checks the field against the shared
+taxonomy; the ledger line keeps it. The older `auto_remediation_applied` event is
+still emitted for the early pause end, now with the `attemptId`.
+
 <a id="42820e91-001d"></a>
 
 ## Related
@@ -750,6 +963,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

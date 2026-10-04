@@ -32301,6 +32301,127 @@
           "example": "detail"
         }
       }
+    },
+    "runner.cycle_result_missing": {
+      "message": "The cycle returned without publishing a result. Recording it as a failed cycle (no-cycle-result) instead of a completed one.",
+      "description": "Whole Write-Warning message in test/modules/Test.RecoveryContract.psm1 (Publish-CycleOutcomeRecord). no-cycle-result is a stable outcome token and stays untranslated.",
+      "lifecycle": "active"
+    },
+    "runner.cycle_success_withheld": {
+      "message": "The cycle finished cleanly but its outcome could not be recorded, so the runner cannot count it as a pass. Exiting {exitCode} instead of 0.",
+      "description": "Whole Write-Warning message in test/modules/Test.RecoveryContract.psm1 (Publish-CycleOutcomeRecord). The exit code is a number and is not translated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": { "type": "integer", "trust": "internal", "example": "70" }
+      }
+    },
+    "runner.cycle_outcome_unrecorded": {
+      "message": "[outer cycle {cycle}] the cycle process exited {childExit} after {ranForSeconds}s without a usable outcome record ({reason}: {detail}). It is NOT counted as a pass: whether the cycle completed cannot be established, so this is a fault of the runner on this host rather than a test verdict. Pausing as for a failed cycle.",
+      "description": "Whole Write-Warning message in test/modules/Test.RunnerOuterLoop.psm1 (Invoke-OuterCycleDispatch). reason is one of the stable tokens missing, malformed or stale-generation; detail is a diagnostic string.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": { "type": "integer", "trust": "internal", "example": "12" },
+        "childExit": { "type": "integer", "trust": "internal", "example": "0" },
+        "ranForSeconds": { "type": "integer", "trust": "internal", "example": "1840" },
+        "reason": { "type": "token", "trust": "internal", "example": "missing" },
+        "detail": { "type": "detail", "trust": "external", "example": "no outcome file" }
+      }
+    },
+    "runner.cycle_outcome_rejected_kept": {
+      "message": "[outer cycle {cycle}] the rejected outcome record is kept at {rejectedPath} for diagnosis.",
+      "description": "Whole Write-Warning message in test/modules/Test.RunnerOuterLoop.psm1 (Invoke-OuterCycleDispatch), printed after the unrecorded-outcome warning when a record existed but failed validation.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": { "type": "integer", "trust": "internal", "example": "12" },
+        "rejectedPath": { "type": "detail", "trust": "external", "example": "runtime/runner.cycle.outcome.rejected.json" }
+      }
+    },
+    "runner.cycle_outcome_unrecorded_log": {
+      "message": "[outer cycle {cycle}] outcome-unrecorded: exit {childExit} after {ranForSeconds}s, record {reason} ({detail})",
+      "description": "Whole Write-OuterLog message in test/modules/Test.RunnerOuterLoop.psm1 (Invoke-OuterCycleDispatch). outcome-unrecorded and the reason are stable tokens and stay untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": { "type": "integer", "trust": "internal", "example": "12" },
+        "childExit": { "type": "integer", "trust": "internal", "example": "0" },
+        "ranForSeconds": { "type": "integer", "trust": "internal", "example": "1840" },
+        "reason": { "type": "token", "trust": "internal", "example": "missing" },
+        "detail": { "type": "detail", "trust": "external", "example": "no outcome file" }
+      }
+    },
+    "runner.warm_resume_declined_unverified": {
+      "message": "  WARM-RESUME declined: '{resumeSequence}' failed at step {resumeFromStep} ({failureClass}) and replaying it cannot be shown to be safe (reason: {reason}). The original failure stands.",
+      "description": "Whole Write-Warning message in test/modules/Test.RunnerInnerLoop.psm1. reason is one of the stable tokens restore-point-missing or safety-check-unavailable and stays untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "resumeSequence": { "type": "detail", "trust": "external", "example": "workload.guest.ubuntu.server.24.amisad-core.deploy" },
+        "resumeFromStep": { "type": "integer", "trust": "internal", "example": "3" },
+        "failureClass": { "type": "token", "trust": "internal", "example": "wait_timeout" },
+        "reason": { "type": "token", "trust": "internal", "example": "restore-point-missing" }
+      }
+    },
+    "runner.project_swap_recovered": {
+      "message": "Recovered an interrupted project refresh under {repoRoot}: {action}.",
+      "description": "Whole Write-Information message in test/modules/Test.HostGit.psm1 (Update-ProjectClone). action is one of the stable tokens restored-previous, removed-previous or removed-incoming and stays untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "action": { "type": "token", "trust": "internal", "example": "restored-previous" },
+        "repoRoot": { "type": "detail", "trust": "external", "example": "C:/git/yuruna" }
+      }
+    },
+    "runner.project_previous_cleanup_failed": {
+      "message": "Could not delete the displaced project checkout at {previousDir}. The new checkout is in place; the next refresh removes the leftover.",
+      "description": "Whole Write-Warning message in test/modules/Test.HostGit.psm1 (Update-ProjectClone), printed after a successful swap when the old checkout would not delete.",
+      "lifecycle": "active",
+      "placeholders": {
+        "previousDir": { "type": "detail", "trust": "external", "example": "C:/git/yuruna/project.previous" }
+      }
+    },
+    "runner.vm_admission_occupied": {
+      "message": "Refusing to start a cycle: these VMs are running on the host and would not stop: {occupants}. Stop or delete them, then run the cycle again.",
+      "description": "Whole Write-Warning message in test/modules/Test.HostContract.psm1 (Invoke-HostVmAdmission), printed after the leftover-guest stop was attempted and the host still was not clear.",
+      "lifecycle": "active",
+      "placeholders": {
+        "occupants": { "type": "detail", "trust": "external", "example": "test-guest.ubuntu.server.24-01" }
+      }
+    },
+    "runner.vm_admission_unknown": {
+      "message": "Refusing to start a cycle: the host could not show that no other VM is running ({reason} after {probes} read(s): {detail}). Two cycles on one VM set corrupt each other, so the runner will not guess; it tries again on its next loop. Check the hypervisor command line tools and VM inventory on this host.",
+      "description": "Whole Write-Warning message in test/modules/Test.HostContract.psm1 (Invoke-HostVmAdmission). reason is one of the stable tokens no-host-driver, inventory-failed or state-unverified and stays untranslated; detail is a diagnostic string.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": { "type": "token", "trust": "internal", "example": "inventory-failed" },
+        "probes": { "type": "integer", "trust": "internal", "example": "3" },
+        "detail": { "type": "detail", "trust": "external", "example": "the inventory failed: utmctl did not answer" }
+      }
+    },
+    "runner.telemetry_event_dropped": {
+      "message": "A cycle event could not be recorded ('{eventName}': {reason}). The cycle continues, but its event stream is now incomplete; the count and the reason are in cycle.events.delivery.json. Further losses this cycle are counted, not repeated.",
+      "description": "Whole Write-Warning message in test/modules/Test.Log.psm1 (Add-CycleEventDeliveryRecord), printed once per cycle on the first lost event. reason is a stable token (writer-unavailable, writer-threw: <message> or write-failed: <message>).",
+      "lifecycle": "active",
+      "placeholders": {
+        "eventName": { "type": "token", "trust": "internal", "example": "step_end" },
+        "reason": { "type": "detail", "trust": "external", "example": "write-failed: The process cannot access the file" }
+      }
+    },
+    "runner.recovery_result_write_failed": {
+      "message": "Could not record the recovery result at {path} ({reason}). The cycle outcome is unaffected.",
+      "description": "Whole Write-Warning message in test/modules/Test.RecoveryContract.psm1 (Write-RecoveryResult), printed when recovery.result.json could not be replaced or written. reason is a diagnostic string.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": { "type": "detail", "trust": "external", "example": "C:/git/yuruna/test/status/runtime/recovery.result.json" },
+        "reason": { "type": "detail", "trust": "external", "example": "the file could not be replaced" }
+      }
+    },
+    "runner.recovery_applied": {
+      "message": "[outer cycle {cycle}] recovery action '{action}' ran for a {failClass} failure (attempt {attempt}); the failure pause is skipped and the next cycle starts at once.",
+      "description": "Console and outer.log line printed by Write-OuterRecoveryApplied in test/modules/Test.RunnerOuterLoop.psm1 when a bounded repair replaces the failure pause. action and failClass are stable tokens and stay untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": { "type": "integer", "trust": "internal", "example": "12" },
+        "action": { "type": "token", "trust": "internal", "example": "clear_stale_git_lock" },
+        "failClass": { "type": "token", "trust": "internal", "example": "bootstrap_sync" },
+        "attempt": { "type": "integer", "trust": "internal", "example": "1" }
+      }
     }
   }
 }

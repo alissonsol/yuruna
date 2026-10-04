@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -556,7 +556,13 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
         $script:bootContext = @{
             Step = @{
                 maxAttempts = 5; restartVmBeforeRetry = 'arm64HyperVInstallerBoot'
-                steps = @(@{ action = 'waitForAndEnter'; pattern = 'Continue with autoinstall?'; text = 'yes'; timeoutSeconds = 1800 })
+                steps = @(@{
+                    action = 'waitForAndEnter'
+                    pattern = @('Continue with autoinstall?', 'subiquity/Install/install/configure_apt', 'subiquity/Install/install/curtin_install')
+                    skipInputPattern = @('subiquity/Install/install/configure_apt', 'subiquity/Install/install/curtin_install')
+                    blindSkipPattern = @('Bahasa Indonesia', 'subiquity/Install/install/configure_apt', 'subiquity/Install/install/curtin_install')
+                    noSegmentMatch = $true; text = 'yes'; timeoutSeconds = 1800
+                })
             }
             InvokeStepBlock = (& $script:bootHandlerModule { $script:BootInvokeSteps })
             StepNum = 1; StepCount = 17; Description = 'installer boot'
@@ -607,6 +613,18 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
         (& $script:bootRetryHandler $script:bootContext) | Should -BeFalse
         ($script:bootStub.Calls -join ',') | Should -BeExactly 'attempt,evidence'
         $script:bootStub.Events[-1].attempt | Should -Be 1
+        $script:bootStub.Events[-2].event | Should -BeExactly 'retry_suppressed'
+        $script:bootStub.Events[-2].reason | Should -Not -BeNullOrEmpty
+        $script:bootStub.Events[-1].configuredMaxAttempts | Should -Be 5
+        $script:bootStub.Events[-1].retrySuppressionReason | Should -BeExactly $script:bootStub.Events[-2].reason
+    }
+    It 'explains a post-boot installer stage without claiming a second attempt' {
+        $script:bootStub.OcrTail = 'start: subiquity/Mirror/cmd-apt-config: curtin command apt-config'
+        (& $script:bootRetryHandler $script:bootContext) | Should -BeFalse
+        ($script:bootStub.Calls -join ',') | Should -BeExactly 'attempt,evidence'
+        $script:bootStub.Events[-2].reason | Should -Match 'beyond the boot phase'
+        $script:bootStub.Events[-2].permittedMaxAttempts | Should -Be 2
+        $script:bootStub.Events[-1].maxAttempts | Should -Be 1
     }
     It 'does not continue after an unsuccessful cold restart' {
         $script:bootStub.RestartOk = $false
@@ -623,6 +641,9 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
         @{ Reason = 'sensitive input'; Field = 'sensitive'; Value = $true }
         @{ Reason = 'another prompt'; Field = 'pattern'; Value = 'Password:' }
         @{ Reason = 'another answer'; Field = 'text'; Value = 'secret' }
+        @{ Reason = 'missing later-state skip'; Field = 'skipInputPattern'; Value = @('subiquity/Install/install/configure_apt') }
+        @{ Reason = 'pre-confirmation skip'; Field = 'skipInputPattern'; Value = @('subiquity/Install/install', 'subiquity/Mirror/cmd-apt-config') }
+        @{ Reason = 'segment matching'; Field = 'noSegmentMatch'; Value = $false }
     ) {
         param($Reason, $Field, $Value)
         $null = $Reason

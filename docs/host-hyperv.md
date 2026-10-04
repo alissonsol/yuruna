@@ -148,7 +148,9 @@ stack nor a successful boot proves that all workload failures share one cause.
 
 <a id="42dc5bb9-0006"></a>
 
-## ARM64 Hyper-V host: a Linux guest loses half its CPU to hypervisor intercepts
+<a id="arm64-hyper-v-host-a-linux-guest-loses-half-its-cpu-to-hypervisor-intercepts"></a>
+
+## ARM64 Hyper-V host: historical performance observations and vCPU boot configuration
 
 **Symptom:** everything works and everything is slow. The guest boots,
 installs, logs in and runs its workloads, but a package step that costs
@@ -185,6 +187,12 @@ earlier one-vCPU versus two-vCPU boot comparison, but
 the underlying timings are not committed. Measure from the same powered-off
 checkpoint before changing the cap. Moving-console timeouts and static-console
 stalls still require separate diagnosis.
+
+Ubuntu 26.04 provisions with one vCPU on ARM64 to reduce hypervisor traps
+during its serial install path. Its start sequence then powers the installed
+guest off and restores two vCPUs before Kubernetes workloads, which require
+at least two. Ubuntu 24.04 retains the shared Linux guest cap. On AMD64 the
+limiter leaves the requested count unchanged.
 
 <a id="42dc5bb9-0012"></a>
 
@@ -671,6 +679,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

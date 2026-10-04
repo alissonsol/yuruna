@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,21 +46,7 @@ $script:Fail = Get-SequenceFailureState
 # Test.NonzeroExitSentinel drift-guard asserts the bash producer agrees.
 $script:NonzeroScriptExitSentinel = 'NONZERO SCRIPT EXIT:'
 
-# The wrapper prints the sentinel for two different events, and only it can tell
-# them apart: a script that RAN and exited non-zero, and a payload that was never
-# served so nothing ran at all. It already says which in the parenthetical it
-# appends. Matching only the sentinel discards that, and the second event then
-# arrives as the verb registry's script_error -- a script to debug that never
-# existed, and a class the transient allow-lists exclude, so the failure most
-# likely to clear on its own is the one nothing retries.
-#
-# These are the never-ran reasons that are SAFE to retry. Two are deliberately
-# absent. "(exit N)" is the script's own non-zero status -- it ran, and
-# script_error is correct. "(integrity mismatch -- refusing to run)" also never
-# ran, but it is a refusal, not a shortage: the fetched bytes did not match the
-# host's digest, and a retry is the one response that must not be advertised for
-# it. The strings are mirrored from automation/fetch-and-execute.sh and pinned
-# against it by a drift guard, the same coupling the sentinel itself uses.
+# See https://yuruna.link/4213a0b3-0156
 $script:PayloadUnavailableReason = @(
     '(no fetch source)',
     '(fetch failed, wget exit ',
@@ -85,25 +71,7 @@ function Test-GuestPayloadUnavailable {
     return $false
 }
 
-# The shell's own refusal of the command line it was just handed. Unlike the
-# sentinel above -- which the wrapper prints, and which therefore proves the
-# wrapper RAN -- these come from bash before anything of ours executes: the
-# interpreter named on the line does not exist, so no script, no wrapper and no
-# sentinel will ever appear, and the completion marker is unreachable from the
-# first second onward.
-#
-# The way a console-typed command reaches that state is the keystroke
-# transport: the line is delivered one key event per character into a guest
-# whose input layer can drop and reorder them under load, and a command word
-# that loses four characters is a command word that does not resolve. Nothing
-# upstream can see that happen, and nothing downstream can distinguish it from
-# a payload that is merely slow, which is why the shell's answer is worth
-# reading directly.
-#
-# These are matched ONLY inside Wait-ForText's early window (see
-# $script:ShellRejectionWindowSeconds). A healthy script can probe missing
-# binaries or deliberately test invalid shell input, so these strings alone
-# do not establish command-delivery failure outside that window.
+# See https://yuruna.link/4213a0b3-0157
 $script:ShellRejectedCommandPattern = @(
     'command not found',
     'No such file or directory',
@@ -226,16 +194,7 @@ function Resolve-WaitForTextStepParam {
         # Credentials require a prompt whose words occur together. Other waits
         # can opt in without changing callers that rely on reordered OCR text.
         noSegmentMatch  = $null -ne $step.noSegmentMatch ? [bool]$step.noSegmentMatch : [bool]$DefaultNoSegmentMatch
-        # Confine the positive match to lines that were NOT already on screen
-        # when the wait began. A prompt whose wording is a subsequence of text
-        # standing above it -- PAM's "New password:" against the banner saying
-        # the password must be changed -- matches that banner on the first
-        # poll, and the verb then answers a prompt the guest has not printed:
-        # the password lands on a tty PAM has not yet switched to no-echo,
-        # echoes in the clear, and the retype can no longer match. Only text
-        # the step itself provoked can carry that verdict. failurePatterns are
-        # deliberately NOT narrowed this way -- a crash screen is evidence
-        # whenever it is visible, including when it was visible on arrival.
+        # See https://yuruna.link/4213a0b3-0158
         sinceStepStart  = $step.sinceStepStart -eq $true
     }
 }
@@ -320,18 +279,7 @@ function Send-TabNavigation {
     }
 }
 
-# Shared tail of the type-then-Enter input verbs (inputTextAndEnter, waitForAndEnter,
-# passwdPrompt, fetchAndExecute): send the already-expanded $Text; on a Send-Text
-# failure bail BEFORE draining (no Enter is sent); otherwise drain $DelaySeconds with
-# progress ticks + an 800ms settle, then press Enter. Returns the Enter result as
-# [bool] (or $false when Send-Text failed). Callers keep their own "Typing ..." debug
-# line -- the message text and the sensitive-masking rule differ per verb -- and decide
-# whether to return the result or continue (fetchAndExecute continues to wait for a
-# completion marker). $ShellEscape is OFF for passwdPrompt so the password types
-# literally, ON for the command/text verbs, matching each verb's Send-Text call.
-# Send-Text / Send-Key are qualified to Invoke-Sequence's dispatcher (the same names
-# also exist on the per-host I/O modules imported here). Write-Progress-only ticks
-# emit nothing to the output stream, so the single [bool] return is uncontaminated.
+# See https://yuruna.link/4213a0b3-0159
 function Invoke-TypeDrainEnter {
     [OutputType([bool])]
     param(
@@ -402,16 +350,7 @@ function Invoke-BlindAnswer {
         Write-Debug "      Blind answer skipped for '$patternDisplay': no text on screen."
         return $false
     }
-    # A screen this step names is one the answer must never be typed at. Both
-    # halves of the blind contract are satisfied by an interactive menu just as
-    # well as by the scrolled-away prompt they were written for: a menu waiting
-    # on a keystroke is perfectly static, and the keystroke navigates it, so the
-    # console moves and reads as consumption. Only the screen itself separates
-    # the two. Declining costs nothing but the recovery -- the step still spends
-    # the rest of its budget on the wait it asked for -- so a pattern here is
-    # safe to be wrong about in a way a failurePattern is not. Matched with
-    # -NoSegmentMatch so an anti-pattern cannot fire on its own words scattered
-    # across an unrelated screen.
+    # See https://yuruna.link/4213a0b3-015a
     $rawSkip = $Context.Step.blindSkipPattern
     if ($null -ne $rawSkip) {
         $skipPatterns = Expand-SequencePatternList -Raw $rawSkip -Vars $Context.Vars -ExpandVariable $Context.ExpandVariable
@@ -480,7 +419,7 @@ function Invoke-BlindAnswer {
     return $false
 }
 
-Register-SequenceAction -Name 'waitForSeconds' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'waitForSeconds' -ReplaySafety 'observe' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'wait_timeout' -Severity 'soft' -SuggestedRecoveries @('retry_immediately') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_30c3357c36a22f3f') `
     -Handler {
@@ -496,7 +435,7 @@ Register-SequenceAction -Name 'waitForSeconds' -HostIORequirement @() -OcrRequir
         return $true
     }
 
-Register-SequenceAction -Name 'pressKey' -HostIORequirement @('Send-Key') -OcrRequired $false `
+Register-SequenceAction -Name 'pressKey' -ReplaySafety 'input' -HostIORequirement @('Send-Key') -OcrRequired $false `
     -FailureClass 'host_io_blocked' -Severity 'soft' -SuggestedRecoveries @('retry_immediately') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_9adf9c3e3080cfe9') `
     -FailureLabel { param($c) "pressKey: $($c.Step.name)" } `
@@ -507,7 +446,7 @@ Register-SequenceAction -Name 'pressKey' -HostIORequirement @('Send-Key') -OcrRe
         return [bool](Test.SequenceEngine\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName $keyName)
     }
 
-Register-SequenceAction -Name 'startVm' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'startVm' -ReplaySafety 'state-changing' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'provisioning_failure' -Severity 'hard' -SuggestedRecoveries @('retry_immediately') `
     -Description (Format-YurunaOperatorMessage -Key 'host.operator_5115fc3aa0fb34ef') `
     -FailureLabel { param($c) "startVm: `"$($c.VMName)`"" } `
@@ -561,7 +500,9 @@ Register-SequenceAction -Name 'startVm' -HostIORequirement @() -OcrRequired $fal
         return $true
     }
 
-Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false `
+# Replay-safe: a second break only pauses again. Its optional restore on
+# continue puts the guest back to a known snapshot, which cannot add residue.
+Register-SequenceAction -Name 'break' -ReplaySafety 'observe' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'unknown' -Severity 'soft' `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_ba423d49315a4ad5') `
     -Handler {
@@ -660,19 +601,7 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
         # checks/s -- a rounding error on any modern Windows VM. Worst-
         # case latency is one poll interval (~250 ms); average is half.
         $breakPollMs = 250
-        # Optional wall-clock bound so an UNATTENDED cycle does not wedge here
-        # forever: step.timeoutSeconds, else a global YURUNA_BREAK_MAX_SECONDS,
-        # bounds the wait. With neither set the wait is effectively unbounded --
-        # the interactive default when an operator is present. On timeout the
-        # break auto-resumes IN PLACE (resumedVia='timeout'); the continue-button
-        # snapshot-restore path below is intentionally skipped for a timeout.
-        # Parse the optional timeout defensively. A bare [int] cast throws on a
-        # non-numeric value (e.g. an operator typo like '5m' in the free-text
-        # YURUNA_BREAK_MAX_SECONDS, or a bad step.timeoutSeconds the schema does not
-        # constrain for break). This handler's dispatch wrapper has a finally but no
-        # catch, so an escaping throw would bypass the break's soft/return-$false
-        # envelope and abort the cycle -- the opposite of the unattended-wedge guard
-        # intended here. Default to 0 (unbounded interactive wait) when unparseable.
+        # See https://yuruna.link/4213a0b3-015b
         $breakMaxRaw = if ($c.Step.timeoutSeconds) { $c.Step.timeoutSeconds }
         elseif ($env:YURUNA_BREAK_MAX_SECONDS) { $env:YURUNA_BREAK_MAX_SECONDS }
         else { $null }
@@ -734,7 +663,7 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
         return $true
     }
 
-Register-SequenceAction -Name 'saveDiskSnapshot' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'saveDiskSnapshot' -ReplaySafety 'state-changing' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'host_io_blocked' -Severity 'hard' -SuggestedRecoveries @('operator_intervention_required') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_aaafb05d4ba418b5') `
     -FailureLabel { param($c) "saveDiskSnapshot: `"$(& $c.ExpandVariable $c.Step.id $c.Vars)`"" } `
@@ -943,7 +872,7 @@ function Restore-SequenceSnapshot {
         return $true
 }
 
-Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'loadDiskSnapshot' -ReplaySafety 'restore-point' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'snapshot_restore_failed' -Severity 'hard' -SuggestedRecoveries @('operator_intervention_required') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_7fd5db2fdbbc0cc5') `
     -FailureLabel { param($c) "loadDiskSnapshot: `"$(& $c.ExpandVariable $c.Step.id $c.Vars)`"" } `
@@ -954,7 +883,7 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
         return (Restore-SequenceSnapshot -c $c -snapId $snapId)
     }
 
-Register-SequenceAction -Name 'saveSystemDiagnostic' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'saveSystemDiagnostic' -ReplaySafety 'observe' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'instrumentation_failure' -Severity 'soft' -SuggestedRecoveries @('retry_immediately') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_9557327232acf7b4') `
     -Handler {
@@ -1012,7 +941,7 @@ Register-SequenceAction -Name 'saveSystemDiagnostic' -HostIORequirement @() -Ocr
         return $true
     }
 
-Register-SequenceAction -Name 'callExtension' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'callExtension' -ReplaySafety 'state-changing' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'extension_error' -Severity 'hard' -SuggestedRecoveries @('pause_and_inspect') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_9803b4c05c2239fd') `
     -Handler {
@@ -1041,7 +970,7 @@ Register-SequenceAction -Name 'callExtension' -HostIORequirement @() -OcrRequire
         catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_784ff212589ae772' -Arguments @{ callArea = "$callArea"; callMethod = "$callMethod"; message = "$($_.Exception.Message)" }); return $false }
     }
 
-Register-SequenceAction -Name 'inputText' -HostIORequirement @('Send-Text') -OcrRequired $false `
+Register-SequenceAction -Name 'inputText' -ReplaySafety 'input' -HostIORequirement @('Send-Text') -OcrRequired $false `
     -FailureClass 'host_io_blocked' -Severity 'soft' -SuggestedRecoveries @('retry_immediately') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_121cac02691001a9') `
     -Handler {
@@ -1053,7 +982,7 @@ Register-SequenceAction -Name 'inputText' -HostIORequirement @('Send-Text') -Ocr
         return [bool](Test.SequenceEngine\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $text -CharDelayMs $charDelay -ShellEscape)
     }
 
-Register-SequenceAction -Name 'inputTextAndEnter' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $false `
+Register-SequenceAction -Name 'inputTextAndEnter' -ReplaySafety 'input' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $false `
     -Aliases @('typeAndEnter') `
     -FailureClass 'host_io_blocked' -Severity 'soft' -SuggestedRecoveries @('retry_immediately') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_dd0c755911af00a8') `
@@ -1068,7 +997,7 @@ Register-SequenceAction -Name 'inputTextAndEnter' -HostIORequirement @('Send-Tex
         return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'inputTextAndEnter' -ShellEscape)
     }
 
-Register-SequenceAction -Name 'networkRelease' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $false `
+Register-SequenceAction -Name 'networkRelease' -ReplaySafety 'state-changing' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $false `
     -FailureClass 'host_io_blocked' -Severity 'soft' -SuggestedRecoveries @('retry_immediately') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_806d3ca199c6f400') `
     -FailureLabel { param($c) "networkRelease: $($c.GuestKey)" } `
@@ -1102,7 +1031,7 @@ Register-SequenceAction -Name 'networkRelease' -HostIORequirement @('Send-Text',
         return $true
     }
 
-Register-SequenceAction -Name 'waitForText' -HostIORequirement @() -OcrRequired $true `
+Register-SequenceAction -Name 'waitForText' -ReplaySafety 'observe' -HostIORequirement @() -OcrRequired $true `
     -FailureClass 'ocr_timeout' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
     -UsesWaitSignals $true -CapturesOwnFailureScreenshot $true `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_e13f26910245761c') `
@@ -1121,7 +1050,9 @@ Register-SequenceAction -Name 'waitForText' -HostIORequirement @() -OcrRequired 
             -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns)
     }
 
-Register-SequenceAction -Name 'waitForTextWithNudge' -HostIORequirement @('Send-Key') -OcrRequired $true `
+# Replay-safe despite sending a key: the nudge is a redraw Enter chosen because
+# repeating it changes nothing, and the verb is built to send it on a timer.
+Register-SequenceAction -Name 'waitForTextWithNudge' -ReplaySafety 'observe' -HostIORequirement @('Send-Key') -OcrRequired $true `
     -FailureClass 'ocr_timeout' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
     -UsesWaitSignals $true -CapturesOwnFailureScreenshot $true `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_aedd181e3f9cf9c0') `
@@ -1147,7 +1078,7 @@ Register-SequenceAction -Name 'waitForTextWithNudge' -HostIORequirement @('Send-
             -NudgeKey $nudgeKey -NudgeIntervalSeconds $nudgeInterval)
     }
 
-Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
+Register-SequenceAction -Name 'waitForAndEnter' -ReplaySafety 'input' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
     -FailureClass 'ocr_timeout' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
     -UsesWaitSignals $true -CapturesOwnFailureScreenshot $true `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_64d18932f8504050') `
@@ -1207,7 +1138,7 @@ Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text'
         $rawSkipInput = $c.Step.skipInputPattern
         if ($null -ne $rawSkipInput) {
             [string[]]$skipInputPatterns = Expand-SequencePatternList -Raw $rawSkipInput -Vars $c.Vars -ExpandVariable $c.ExpandVariable
-            $waitVerdict = Test.SequenceEngine\Get-LastWaitVerdict
+            $waitVerdict = Get-LastWaitVerdict
             foreach ($skipInputPattern in $skipInputPatterns) {
                 if ($waitVerdict.ConsoleText -and (Test-OCRMatch -Text ([string]$waitVerdict.ConsoleText) -Pattern $skipInputPattern -NoSegmentMatch:$p.noSegmentMatch)) {
                     Write-Debug "      '$skipInputPattern' is already satisfied; skipping input"
@@ -1224,7 +1155,7 @@ Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text'
         return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'waitForAndEnter' -ShellEscape)
     }
 
-Register-SequenceAction -Name 'passwdPrompt' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
+Register-SequenceAction -Name 'passwdPrompt' -ReplaySafety 'input' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
     -FailureClass 'credential_expired' -Severity 'hard' -SuggestedRecoveries @('pause_and_inspect') `
     -UsesWaitSignals $true -CapturesOwnFailureScreenshot $true `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_a581e70e444c9b39') `
@@ -1251,7 +1182,7 @@ Register-SequenceAction -Name 'passwdPrompt' -HostIORequirement @('Send-Text', '
         return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'passwdPrompt')
     }
 
-Register-SequenceAction -Name 'tapOn' -HostIORequirement @('Send-Click') -OcrRequired $true `
+Register-SequenceAction -Name 'tapOn' -ReplaySafety 'input' -HostIORequirement @('Send-Click') -OcrRequired $true `
     -FailureClass 'ocr_timeout' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_93d8c93707d2b133') `
     -Handler {
@@ -1268,7 +1199,7 @@ Register-SequenceAction -Name 'tapOn' -HostIORequirement @('Send-Click') -OcrReq
             -TimeoutSeconds $timeout -PollSeconds $poll -OffsetX $offX -OffsetY $offY)
     }
 
-Register-SequenceAction -Name 'takeScreenshot' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'takeScreenshot' -ReplaySafety 'observe' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'instrumentation_failure' -Severity 'soft' -SuggestedRecoveries @('retry_immediately') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_5c7b9da45b618812') `
     -Handler {
@@ -1478,18 +1409,8 @@ function Save-FetchExecutionEvidence {
     finally { $Context.EvidenceCaptureDurationMs = [long]$captureClock.Elapsed.TotalMilliseconds }
 }
 
-# The registered class is the DEFAULT -- what this verb failed as when no
-# failPattern matched. That is the completion marker never arriving, i.e. a
-# wait_timeout; the fetched script hanging on a stalled package mirror is the
-# common cause. Registering 'pattern_matched_failure' here asserted the
-# opposite: that the wrapper printed its failure tag. Nothing re-checked it,
-# so a plain timeout was reported as a script-reported failure, routed to
-# pause_and_inspect ("auto-retry would just re-trigger it") and excluded from
-# warm resume -- turning a transient upstream stall into a dead cycle needing
-# an operator. Build-SequenceFailureRecord still reclassifies to
-# pattern_matched_failure when a pattern actually matched, so that case keeps
-# its own label and its no-retry routing.
-Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
+# See https://yuruna.link/4213a0b3-015c
+Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
     -FailureClass 'wait_timeout' -Severity 'hard' -SuggestedRecoveries @('retry_with_backoff','pause_and_inspect') `
     -CapturesOwnFailureScreenshot $true `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_d1d328d999fc31cf') `
@@ -1539,38 +1460,10 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
             # rather than one thing here and another everywhere else.
             $failPatterns = Expand-SequencePatternList -Raw $rawFail -Vars $c.Vars -ExpandVariable $c.ExpandVariable
         } else {
-            # This IS the fetchAndExecute action, so its fetch-and-execute
-            # contract (automation/fetch-and-execute.sh) always applies: the
-            # wrapper prints "NONZERO SCRIPT EXIT:" on a non-zero child exit.
-            # Derive the fast-fail from the ACTION, never from the literal
-            # waitPattern text -- keying it off the waitPattern (e.g. matching
-            # "FETCHED AND EXECUTED:") silently disabled this seconds-fast crash
-            # detection the moment anyone decorated or reworded the human-facing
-            # completion marker, leaving a crashed fetch to burn the full timeout.
-            # The marker deliberately avoids the words "fetch"/"execute"
-            # (Test-OCRMatch is fuzzy and would otherwise match the echoed
-            # 'fetch-and-execute.sh ...' command line on the first poll and fail
-            # a healthy run in ~4 s); "NONZERO" cannot collide with a command or
-            # normal script output. A step can still override via failurePatterns.
+            # See https://yuruna.link/4213a0b3-015d
             $failPatterns = @($script:NonzeroScriptExitSentinel)
         }
-        # The window is the ONLY thing keeping a marker printed by an EARLIER
-        # fetchAndExecute from satisfying this one: freshMatch here is a tail
-        # restriction and nothing else -- it does not first require the pattern
-        # to clear -- and sequences reuse one generic completion marker for
-        # every step. So the window cannot simply be opened up: past the point
-        # where the previous step's marker is still inside it, a step that never
-        # ran reports success, which is worse than the failure widening it
-        # would prevent.
-        #
-        # It cannot stay at the waitForText default either. Anything the guest
-        # emits after the marker -- a console repaint, a completion listing, a
-        # late daemon line -- pushes it out and fails a run that SUCCEEDED, and
-        # the replay that follows re-runs work that already landed. A modest
-        # default absorbs an extra repaint; a sequence that clears the screen
-        # before this step has nothing stale to confuse and can safely raise
-        # freshMatchTailLines as far as its own output needs. The near-miss
-        # report at the wait's timeout names that knob and the value to use.
+        # See https://yuruna.link/4213a0b3-015e
         $tailLines = $c.Step.freshMatchTailLines ? [int]$c.Step.freshMatchTailLines : 24
         # The shell-rejection set is NOT part of $failPatterns and is not
         # overridable with them: those describe how this step's PAYLOAD fails,
@@ -1595,7 +1488,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
         }
     }
 
-Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'sshWaitReady' -ReplaySafety 'observe' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'network_timeout' -Severity 'soft' -SuggestedRecoveries @('retry_with_backoff','restart_from_snapshot') `
     -UsesWaitSignals $true `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_241d50d60bce8e27') `
@@ -1604,15 +1497,7 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         $poll    = $c.Step.pollSeconds    ? [int]$c.Step.pollSeconds    : $c.DefaultPollSeconds
 
-        # Optional OCR-based fast-fail: when `installerFailurePatterns` is
-        # set, periodically screen-OCR the guest while waiting for SSH and
-        # short-circuit if any pattern matches. Targets subiquity's
-        # "install_fail.crash" / "Press enter to start a shell" output --
-        # without this, a crashed install only surfaces after the full
-        # timeoutSeconds (~40 min on the Ubuntu Server sequences) because
-        # sshd never comes up to satisfy Wait-SshReady. Pairs with the
-        # yuruna_retry exp-backoff auto-retry in Invoke-TestRunnerInnerLoop so
-        # a transient installer flake is recovered on the next cycle.
+        # See https://yuruna.link/4213a0b3-015f
         [string[]]$installerFailPatterns = @()
         if ($null -ne $c.Step.installerFailurePatterns) {
             $rawIfp = $c.Step.installerFailurePatterns
@@ -1644,14 +1529,7 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
         # empty list, which would credit the record with a reading of the screen.
         $script:Fail.WaitForTextClosestOnScreen = $null
 
-        # Test.OcrEngine + Test.YurunaDir + Test.Log live alongside this
-        # module; Import-Module -Force is cheap once warm. -Global on all
-        # three is load-bearing: a nested -Force WITHOUT -Global evicts the
-        # module from the parent (global) session. Test-CombinedOcrMatch
-        # (Test.OcrMatch module, called below) resolves Get-EnabledOcrProvider
-        # / Invoke-OcrProvider through global, so evicting Test.OcrEngine here
-        # crashes the OCR scan (the module-eviction regression class,
-        # feedback_module_force_import_evicts_global.md).
+        # See https://yuruna.link/4213a0b3-0160
         Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Force -Global -DisableNameChecking -ErrorAction SilentlyContinue -Verbose:$false
         Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
         Import-Module (Join-Path $PSScriptRoot 'Test.Log.psm1')       -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
@@ -1760,7 +1638,7 @@ function Publish-GuestRetryMarker {
     return $count
 }
 
-Register-SequenceAction -Name 'sshExec' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'sshExec' -ReplaySafety 'state-changing' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'script_error' -Severity 'hard' -SuggestedRecoveries @('pause_and_inspect') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_84d963e1b876d615') `
     -FailureLabel { param($c) if ($c.Step.sensitive) { return 'sshExec: "***"' }; "sshExec: `"$(& $c.ExpandVariable $c.Step.command $c.Vars)`"" } `
@@ -1797,7 +1675,7 @@ Register-SequenceAction -Name 'sshExec' -HostIORequirement @() -OcrRequired $fal
         return $true
     }
 
-Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'sshFetchAndExecute' -ReplaySafety 'state-changing' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'script_error' -Severity 'hard' -SuggestedRecoveries @('pause_and_inspect') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_6ba8527c12297fee') `
     -FailureLabel { param($c) if ($c.Step.sensitive) { return 'sshFetchAndExecute: "***"' }; "sshFetchAndExecute: `"$(& $c.ExpandVariable $c.Step.command $c.Vars)`"" } `
@@ -1816,16 +1694,7 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
         $script:Fail.StepGuestRunLost           = $null
         $script:Fail.StepGuestPayloadUnavailable = $null
         # --- REGION: https://yuruna.link/4220a755-0041
-        # Detached by default. The payload runs under a supervisor on the guest
-        # and outlives the session, so a renumber costs a re-attach instead of
-        # the step -- and, unlike a re-run, that is sound for a payload that
-        # seeds records and then asserts counts over them, which is most of what
-        # this verb carries. `detach: false` opts a step out.
-        #
-        # The token is derived rather than random, and that is load-bearing
-        # twice: a reconnect within the step attaches to the same run, and a
-        # warm resume that re-enters this step on a guest that is still up
-        # attaches to the work already in flight rather than starting it again.
+        # See https://yuruna.link/4213a0b3-0161
         $detach = $null -ne $c.Step.detach ? [bool]$c.Step.detach : $true
         $detachToken = ''
         if ($detach) {
@@ -1860,7 +1729,7 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
 # ($script:Fail, bound above). retry re-runs an inner steps block;
 # recoverFromSnapshot restores a snapshot after a prior step failed. They live
 # here with the rest of the verb catalog so the engine stays a pure executor.
-Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'retry_exhausted' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_21d8d5a86bdeaee9') `
     -FailureLabel { param($c)
@@ -1880,15 +1749,25 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
         # (N attempts)" prefix so the operator sees both that retry
         # gave up AND which inner step ran out of patience.
         $maxAttempts = $c.Step.maxAttempts ? [int]$c.Step.maxAttempts : 3
+        $configuredMaxAttempts = $maxAttempts
+        $retrySuppressionReason = ''
         $innerSteps  = @($c.Step.steps)
         $installerBootRetry = ([string]$c.Step.restartVmBeforeRetry -eq 'arm64HyperVInstallerBoot')
         if ($installerBootRetry) {
             # This recovery may replay only the initial, non-credential installer
             # confirmation. Other providers retain one ordinary prompt wait.
+            # Only post-confirmation stages may stand in for the prompt: the
+            # parent Install/install context and the Mirror apt-config check
+            # both print before Subiquity asks.
+            $installerSkipPatterns = @('subiquity/Install/install/configure_apt', 'subiquity/Install/install/curtin_install')
+            $installerPatterns = @('Continue with autoinstall?') + $installerSkipPatterns
+            $installerBlindSkipPatterns = @('Bahasa Indonesia') + $installerSkipPatterns
             if ($innerSteps.Count -ne 1 -or
                 [string]$innerSteps[0].action -ne 'waitForAndEnter' -or
-                @($innerSteps[0].pattern).Count -ne 1 -or
-                [string]$innerSteps[0].pattern -cne 'Continue with autoinstall?' -or
+                (@($innerSteps[0].pattern) -join '|') -cne ($installerPatterns -join '|') -or
+                (@($innerSteps[0].skipInputPattern) -join '|') -cne ($installerSkipPatterns -join '|') -or
+                (@($innerSteps[0].blindSkipPattern) -join '|') -cne ($installerBlindSkipPatterns -join '|') -or
+                -not $innerSteps[0].noSegmentMatch -or
                 [string]$innerSteps[0].text -cne 'yes' -or
                 $innerSteps[0].sensitive -or $c.Step.stepsAfterVmRestart) {
                 return $false
@@ -1905,8 +1784,12 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
                 ) | Where-Object { $_ }
                 $innerSteps = @($bootStep)
                 [Math]::Min($maxAttempts, 2)
-            } else { 1 }
+            } else {
+                $retrySuppressionReason = 'provider is not native ARM64 Hyper-V'
+                1
+            }
         }
+        $permittedMaxAttempts = $maxAttempts
         if ($innerSteps.Count -eq 0) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_55a49008b08e5b55' -Arguments @{ stepNum = "$($c.StepNum)"; stepCount = "$($c.StepCount)" })
             $script:Fail.LastFailureLabel       = 'retry: empty steps block'
@@ -1941,15 +1824,7 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b59032415dc73ae4' -FormatValues ($c.StepNum, $c.StepCount, $attempt, $maxAttempts) -FormatBindings @{ stepNum = '0'; stepCount = '1'; attempt = '2'; maxAttempts = '3' })
                 break
             }
-            # Preserve what the failed attempt had on screen, before the next
-            # attempt's waits recycle the frame ring and overwrite the
-            # per-VM failure screenshot. An attempt that later succeeds
-            # takes the whole cycle to a pass, and every path that gathers
-            # evidence is a cycle-failure path -- so without a copy taken
-            # here, a recovered failure is unreconstructable no matter how
-            # often it recurs. Gated on hard severity: soft classes are the
-            # ones the retry exists to absorb, and copying for those would
-            # bury the real captures under routine ones.
+            # See https://yuruna.link/4213a0b3-0162
             $attemptVerbEntry = Get-SequenceAction -Name $script:Fail.LastFailedAction
             if ($attemptVerbEntry -and $attemptVerbEntry.Severity -eq 'hard' -and
                 (Get-Command Save-StepFailureEvidence -ErrorAction SilentlyContinue)) {
@@ -1979,26 +1854,38 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
                 }
             }
             if ($attempt -lt $maxAttempts) {
-                if ($installerBootRetry -and (
-                    [string]$script:Fail.LastFailedAction -ne 'waitForAndEnter' -or
-                    -not $script:Fail.WaitForTextGuestBootStalled -or
-                    [string]$script:Fail.WaitForTextOcrTail -notmatch '(?i)/scripts/casper-|Setting up console keyboard' -or
-                    $script:Fail.WaitForTextMatchedFailurePattern -or
-                    $script:Fail.WaitForTextConsoleFlood)) {
+                if ($installerBootRetry) {
+                    $retrySuppressionReason = if ([string]$script:Fail.LastFailedAction -ne 'waitForAndEnter') {
+                        'failed action is not installer confirmation'
+                    } elseif ($script:Fail.WaitForTextMatchedFailurePattern) {
+                        'installer reported a failure pattern'
+                    } elseif ($script:Fail.WaitForTextConsoleFlood) {
+                        'console flood prevents a safe restart'
+                    } elseif ([string]$script:Fail.WaitForTextOcrTail -notmatch '(?i)/scripts/casper-|Setting up console keyboard') {
+                        'installer is beyond the boot phase or boot phase is unproven'
+                    } elseif (-not $script:Fail.WaitForTextGuestBootStalled) {
+                        'independent static-guest verdict is missing'
+                    } else { '' }
+                }
+                if ($retrySuppressionReason) {
                     # Missing or live-frame evidence is not permission to cut
                     # power. End this specialized retry without replaying input.
+                    if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                        Send-CycleEventSafely -EventRecord @{
+                            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                            event = 'retry_suppressed'; stack = 'sequence'
+                            attempt = [int]$attempt; maxAttempts = [int]$maxAttempts
+                            configuredMaxAttempts = [int]$configuredMaxAttempts
+                            permittedMaxAttempts = [int]$permittedMaxAttempts
+                            reason = [string]$retrySuppressionReason
+                            description = [string]$c.Description; vmName = [string]$c.VMName
+                        }
+                    }
                     $maxAttempts = $attempt
                     break
                 }
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5e0f817304f680f9' -FormatValues ($c.StepNum, $c.StepCount, $attempt, $maxAttempts, $innerSteps.Count) -FormatBindings @{ stepNum = '0'; stepCount = '1'; attempt = '2'; maxAttempts = '3'; count = '4' })
-                # ARM64 Hyper-V can wedge while booting either the live installer
-                # or the installed guest, with virtual processors spending almost
-                # all of their time outside the guest. A console reconnect cannot
-                # change that VM state; a cold power cycle can. Keep recovery
-                # opt-in, platform-specific, and limited to a login wait or a
-                # separately confirmed stall before installer confirmation.
-                # In particular, never restart on an installer failurePattern,
-                # a console flood, or a password-prompt failure.
+                # See https://yuruna.link/4213a0b3-0163
                 $restartMode = [string]$c.Step.restartVmBeforeRetry
                 $nativeArm64HyperV = Test-Arm64HyperVColdPowerCycleMode `
                     -Mode $restartMode -HostType $c.HostType
@@ -2031,14 +1918,7 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
                         }
                     }
                 }
-                # Back off before the next attempt. Re-running instantly
-                # burns all attempts in milliseconds and gives a transient
-                # fault (network blip, a service still coming up) no time to
-                # clear. Get-PollDelay is jittered + exponentially capped,
-                # so it also breaks lock-step when many guests retry at
-                # once. Refresh the heartbeat first so the watchdog stays
-                # aligned across the wait (mirrors the per-attempt refresh
-                # above).
+                # See https://yuruna.link/4213a0b3-0164
                 try {
                     $stepHbFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
                     [System.IO.File]::WriteAllText($stepHbFile, [DateTime]::UtcNow.ToString('o'))
@@ -2077,12 +1957,19 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
                     stack        = 'sequence'
                     attempt      = [int]$maxAttempts
                     maxAttempts  = [int]$maxAttempts
+                    configuredMaxAttempts = [int]$configuredMaxAttempts
+                    permittedMaxAttempts = [int]$permittedMaxAttempts
+                    retrySuppressionReason = [string]$retrySuppressionReason
                     description  = [string]$c.Description
                     failureClass = [string]$script:Fail.LastInnerFailureClass
                     severity     = [string]$script:Fail.LastInnerSeverity
                 }
             }
-            $script:Fail.LastFailureLabel     = "retry exhausted ($maxAttempts attempts): $($script:Fail.LastFailureLabel)"
+            $script:Fail.LastFailureLabel = if ($retrySuppressionReason) {
+                "retry stopped after $maxAttempts/$permittedMaxAttempts permitted attempts ($retrySuppressionReason): $($script:Fail.LastFailureLabel)"
+            } else {
+                "retry exhausted ($maxAttempts attempts): $($script:Fail.LastFailureLabel)"
+            }
             $script:Fail.LastFailedStepNumber = $c.StepNum
             return $false
         }
@@ -2092,7 +1979,7 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
 # Fires AFTER a prior step's failure when $script:Fail.LastFailedAction is
 # set and matches the trigger condition. Restores a known snapshot and
 # starts the VM, leaving the sequence to continue with a clean guest.
-Register-SequenceAction -Name 'recoverFromSnapshot' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'recoverFromSnapshot' -ReplaySafety 'restore-point' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'snapshot_restore_failed' -Severity 'soft' -SuggestedRecoveries @('operator_intervention_required') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_ecc35158d6b76576') `
     -FailureLabel { param($c) "recoverFromSnapshot: `"$(& $c.ExpandVariable $c.Step.id $c.Vars)`"" } `

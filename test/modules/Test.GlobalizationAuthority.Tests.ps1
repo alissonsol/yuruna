@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4270db15-2984-48ef-823c-a9f61e5d0374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,8 +73,8 @@ function New-AuthorityFixture {
 
 Describe 'converted source is a one-way literal ratchet' {
 
-    It 'passes the registered tree' {
-        $run = Invoke-Authority
+    It 'passes the registered tree at the current date' {
+        $run = Invoke-Authority -Today ([datetime]::UtcNow.ToString('yyyy-MM-dd'))
         Assert-Equal -Expected 0 -Actual $run.Code -Because $run.Output
     }
 
@@ -121,6 +121,21 @@ var old = 'Old rendered state';
 }
 
 Describe 'rendered prose cannot become a machine protocol' {
+
+    It 'rejects retired protocol prose without compatibility exceptions: <Phrase>' -TestCases @(
+        @{ Phrase = 'No access' }
+        @{ Phrase = 'Paused (waiting for resume)' }
+    ) {
+        param([string]$Phrase)
+        $fixture = New-AuthorityFixture -Body ("function converted() { var key = 'sample.message'; }`nfunction after() {}`nif (state === '$Phrase') { fail(); }")
+        $authority = Get-Content -LiteralPath $fixture.Manifest -Raw | ConvertFrom-Json -AsHashtable
+        $authority.protocolExceptions = @()
+        $authority.legacyProtocolPhrases = @($Phrase)
+        $authority | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $fixture.Manifest
+        $run = Invoke-Authority -Root $fixture.Root -Manifest $fixture.Manifest -Today '2030-01-01'
+        Assert-Equal -Expected 1 -Actual $run.Code 'a retired phrase became a protocol without an exception'
+        Assert-Match -Pattern 'registered machine boundary' -Actual $run.Output 'the retired protocol coupling is not named'
+    }
 
     It 'rejects a catalog sentence at a registered boundary' {
         $fixture = New-AuthorityFixture -Body @'

@@ -1,15 +1,15 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: Initialize environment
 set -euo pipefail
 
 # --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
-# Architecture does not imply host platform: this lab runs aarch64 guests on
-# Hyper-V and UTM. Report virtualization detected inside the guest instead of
-# inferring the host from uname.
+# See https://yuruna.link/42e220c4-0005
+# Detect virtualization independently from CPU architecture.
 echo "Detected virtualization: $(systemd-detect-virt 2>/dev/null || echo unknown)"
 case "$ARCH" in
   x86_64)

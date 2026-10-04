@@ -332,9 +332,13 @@ configuração problemática.
 
 **O login no console não aceita a senha** -- use `Ctrl+Alt+F3` para um TTY
 alternativo e então execute
-`/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.<release>/ubuntu.server.<release>.update.sh`
+`E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.<release>/ubuntu.server.<release>.update.sh`
 duas ou três vezes, até não sobrar nenhuma atualização ou limpeza, e
-`sudo reboot now`.
+`sudo reboot now`. O buscador exige o SHA-256 esperado do script, calculado
+a partir do seu checkout. Quando não for possível obtê-lo, use
+`EXEC_ALLOW_UNVERIFIED=1` no lugar para executar o script sem verificação,
+com um aviso em destaque. Veja
+[Fornecer o digest manualmente](../../guest/README.md#supplying-the-digest-by-hand).
 
 **Fuso horário incorreto** -- detectado automaticamente na instalação por
 geolocalização de IP (cloud-init). Para definir manualmente:
@@ -399,6 +403,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.30
+Última revisão: 2026.10.04
 
 Voltar para [Yuruna](../../README.md)

@@ -815,6 +815,179 @@
       "message": "Enable diagnostic pseudo locales",
       "description": "Aggregator language option help.",
       "lifecycle": "active"
+    },
+    "aggregator.backfill_bad_flag": {
+      "message": "history backfill: invalid flags: {value1}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.backfill_started": {
+      "message": "history backfill: started; restores up to {value1} of past cycles, sweeping every {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.backfill_sweep_done": {
+      "message": "history backfill: sweep done for {value1} host(s): wrote {value2} cycle(s), events of {value3}, {value4} incident(s) and {value5} timeline sample(s); {value6} cycle(s) unreadable; {value7} host(s) with history still to write",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value4": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value5": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value6": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value7": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.backfill_pool_status_failed": {
+      "message": "history backfill: cannot read the pool status from the collector: {value1}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.backfill_host_failed": {
+      "message": "history backfill: host {value1}: {value2} (the next sweep tries again)",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.backfill_state_failed": {
+      "message": "history backfill: host {value1}: cannot save its state: {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.backfill_index_failed": {
+      "message": "history backfill: host {value1}: cannot write its cycle index: {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.backfill_cycle_unreadable": {
+      "message": "history backfill: host {value1}: cycle {value2} left out after repeated failures: {value3}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.backfill_prometheus_failed": {
+      "message": "history backfill: host {value1}: Prometheus refused the timeline samples: {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
     }
   }
 }

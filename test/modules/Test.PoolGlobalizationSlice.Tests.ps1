@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42b0f66e-8f3f-4913-bbbf-f26bbcff321d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,8 @@ function Invoke-PoolPseudoPage {
     param(
         [Parameter(Mandatory)][string]$Locale,
         [Parameter(Mandatory)][ValidateSet('ltr', 'rtl')][string]$Direction,
+        [AllowEmptyString()][string]$ProjectAccess = '',
+        [AllowEmptyString()][string]$ProjectAccessState = 'denied',
         [switch]$FullDocument
     )
 
@@ -80,7 +82,7 @@ function Invoke-PoolPseudoPage {
       data = { ok: true, hosts: { '42cc': { ok: true,
         frameworkAccess: 'repo \u2069\u202E spoof', frameworkAccessState: 'readable',
         frameworkUrl: 'https://example.test/framework/\u2069\u202E/spoof',
-        projectAccess: 'No access', projectAccessState: 'denied',
+        projectAccess: __PROJECT_ACCESS__, projectAccessState: __PROJECT_ACCESS_STATE__,
         projectUrl: 'https://example.test/project/\u2069\u202E/spoof' } } };
     } else if (url === '/api/hostinfo') {
       data = { ok: true, goBaseUrl: '' };
@@ -100,6 +102,8 @@ function Invoke-PoolPseudoPage {
 }());
 </script>
 '@
+    $transport = $transport.Replace('__PROJECT_ACCESS__', (ConvertTo-Json -InputObject $ProjectAccess -Compress))
+    $transport = $transport.Replace('__PROJECT_ACCESS_STATE__', (ConvertTo-Json -InputObject $ProjectAccessState -Compress))
 
     $html = [IO.File]::ReadAllText((Join-Path $script:WebRoot 'hosts.html'))
     $html = $html.Replace('<html lang="en">', "<html lang=`"$Locale`" dir=`"$Direction`">")
@@ -312,6 +316,29 @@ Describe 'the pool repository-access slice renders through shipped pseudo assets
             # a right-to-left locale the formatter must not nest a second pair.
             Assert-False ($row.Contains([string]$start + $start) -or $row.Contains([string]$end + $end)) `
                 "$($case.Locale) isolated a host-supplied value twice"
+        }
+    }
+
+    It 'keeps repository names as data instead of inferring denial from English prose' {
+        if (-not $script:Chrome) {
+            Set-ItResult -Skipped -Because 'no Chrome or Chromium on this host to render with'
+            return
+        }
+
+        foreach ($case in @(
+            @{ Locale = 'qps-Ploc'; Direction = 'ltr' }
+            @{ Locale = 'qps-Plocm'; Direction = 'rtl' }
+        )) {
+            foreach ($state in @('readable', '')) {
+                $row = Invoke-PoolPseudoPage -Locale $case.Locale -Direction $case.Direction `
+                    -ProjectAccess 'No access' -ProjectAccessState $state
+                Assert-True ([bool]$row) "$($case.Locale) produced no host row for state '$state'"
+                Assert-False ($row -match '<strong>') `
+                    "$($case.Locale) inferred denial from a repository name for state '$state'"
+                $isolatedName = [string]([char]0x2068) + 'No access' + [char]0x2069
+                Assert-True ($row.Contains($isolatedName)) `
+                    "$($case.Locale) did not preserve the repository name for state '$state'"
+            }
         }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42cf4f7f-3c33-488c-8cc6-1cb70b8f8836
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,7 +95,9 @@ function New-HookRepository {
     [void][IO.Directory]::CreateDirectory((Split-Path -Parent $hook))
     [IO.File]::Copy($script:Hook, $hook)
     if (-not $IsWindows) { [IO.File]::SetUnixFileMode($hook, [IO.UnixFileMode]493) }
-    foreach ($tool in 'Test-AsciiNoBom', 'Invoke-CatalogEmbed', 'Test-SuiteBaseline') {
+    # SBOM generator tests cover content; these stubs isolate the other hook passes.
+    Write-FixtureFile -Path (Join-Path $root 'tools/Sync-Sbom.py') -Text "raise SystemExit(0)`n"
+    foreach ($tool in 'Test-AsciiNoBom', 'Test-SourceMetadata', 'Invoke-CatalogEmbed', 'Test-SuiteBaseline') {
         Write-FixtureFile -Path (Join-Path $root "tools/$tool.ps1") -Text (Get-StubText -Name $tool)
     }
     # The compiler exits 1 when it wrote, so the hook reads success from the
@@ -197,6 +199,41 @@ Describe 'the commit hook' {
         $order | Should -Be @('Invoke-CatalogCompile', 'Invoke-CatalogEmbed', 'Invoke-DomainInventory')
         $run.Text | Should -Not -Match 'New-Translation'
         $run.Tools | Should -Not -Contain 'New-Translation'
+    }
+
+    It 'checks the staged files for source metadata, quietly, before any generator runs' {
+        $fixture = New-HookRepository -Name 'metadata-order'
+        Set-EnglishCatalog -Fixture $fixture
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Be 0 -Because $run.Text
+        $call = @($run.Calls | Where-Object { $_.tool -eq 'Test-SourceMetadata' })
+        $call.Count | Should -Be 1
+        @($call[0].args) | Should -Be @('-Staged', '-Quiet')
+        [Array]::IndexOf($run.Tools, 'Test-SourceMetadata') | Should -BeLessThan ([Array]::IndexOf($run.Tools, 'Invoke-CatalogCompile'))
+    }
+
+    It 'refuses the commit when the source-metadata gate fails, before the generators spend their time' {
+        $fixture = New-HookRepository -Name 'metadata-fails'
+        Write-FixtureFile -Path (Join-Path $fixture.Root 'tools/Test-SourceMetadata.ps1') -Text (Get-StubText -Name 'Test-SourceMetadata' -Behavior "Write-Output 'FAIL  new.sh  [copyright]'`nexit 1")
+        Set-EnglishCatalog -Fixture $fixture
+        $head = Invoke-FixtureGit -Repository $fixture.Root -Argument @('rev-parse', 'HEAD')
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Be 1 -Because $run.Text
+        $run.Text | Should -Match 'FAIL  new\.sh  \[copyright\]'
+        $run.Text | Should -Match 'source-metadata gate failed'
+        $run.Text | Should -Match 'tools/source-metadata\.exemptions\.json'
+        $run.Tools | Should -Not -Contain 'Invoke-CatalogCompile'
+        Invoke-FixtureGit -Repository $fixture.Root -Argument @('rev-parse', 'HEAD') | Should -Be $head
+    }
+
+    It 'commits normally on a clone that has no source-metadata gate' {
+        $fixture = New-HookRepository -Name 'metadata-absent'
+        [IO.File]::Delete((Join-Path $fixture.Root 'tools/Test-SourceMetadata.ps1'))
+        Set-EnglishCatalog -Fixture $fixture
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Be 0 -Because $run.Text
+        $run.Tools | Should -Not -Contain 'Test-SourceMetadata'
+        $run.Tools | Should -Contain 'Invoke-CatalogCompile'
     }
 
     It 'does not start the drafter when no English catalog is staged' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42b6904c-f865-423b-822a-edb5cb5994fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,17 +23,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SingleFlightLock.psm1') -DisableNam
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.HostRefreshIntent.psm1') -DisableNameChecking
 
-# Host refresh: the repair-ladder declaration, the local repair worker and
-# everything a caller needs around it (budget, verdict and exit code, public
-# progress projection, context and identity resolution, command closure).
-#
-# The module holds no driver import. The generated status-server child loads
-# it through Import-RouteModule to advertise the capability without ever
-# calling Initialize-YurunaHost; loading a driver there would force-import
-# Test.CachingProxyService and run that driver's contract-coverage check
-# inside the listener. Every driver, service-evidence and runner-protocol
-# command the worker uses is therefore resolved by name at call time, and a
-# missing one is a structured refusal or a skipped rung, never a crash.
+# See https://yuruna.link/4213a0b3-008a
 
 $script:HostRefreshProtocolVersion = 1
 $script:HostRefreshHostTypes = @('host.macos.utm', 'host.ubuntu.kvm', 'host.windows.hyper-v')

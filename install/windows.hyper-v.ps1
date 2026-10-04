@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1409,6 +1409,57 @@ if ($script:RestartNeeded) {
 } else {
     Write-Warn "test\Remove-TestVMFiles.ps1 not found under $YurunaDir -- skipping test-VM cleanup."
 }
+
+# --- REGION: Test modules (Pester 5, PSScriptAnalyzer)
+# The version policy lives in tools\Install-TestModule.ps1, shared by the
+# installer of every host platform, so it runs once the checkout exists. Each
+# MODULE-ISSUE line it prints reaches the closing summary; a missing test module
+# does not stop the install. A child pwsh keeps the gallery calls' preference
+# changes and loaded PowerShellGet out of this session.
+function Install-YurunaTestModule {
+    param([Parameter(Mandatory)][string]$Root)
+    $moduleScript = Join-Path $Root 'tools/Install-TestModule.ps1'
+    if (-not (Test-Path -LiteralPath $moduleScript)) {
+        Write-Warn "tools\Install-TestModule.ps1 not found under $Root -- skipping the test modules."
+        return
+    }
+    $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
+    if (-not $pwshCmd) {
+        Add-InstallIssue "pwsh is not on PATH yet, so Pester 5 and PSScriptAnalyzer were not installed. Open a new terminal and run: pwsh -File `"$moduleScript`""
+        return
+    }
+    Write-Step 'Installing the PowerShell modules the tests need (Pester 5, PSScriptAnalyzer)'
+    # Inherited through powershell.exe, the module path carries Windows
+    # PowerShell's per-user directory, so a Pester installed only for Windows
+    # PowerShell would count as present and never be installed where pwsh
+    # looks. Only that entry is dropped for the child: unsetting the whole
+    # variable instead would also lose a user-scoped PSModulePath, which pwsh
+    # merges back only when the variable is set.
+    $savedModulePath = $env:PSModulePath
+    $windowsPowerShellUserModules = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell' |
+        Join-Path -ChildPath 'Modules'
+    try {
+        $env:PSModulePath = (@("$savedModulePath" -split [IO.Path]::PathSeparator) | Where-Object {
+                $_ -and $_.TrimEnd('\', '/') -ne $windowsPowerShellUserModules.TrimEnd('\', '/')
+            }) -join [IO.Path]::PathSeparator
+        $reported = @(& $pwshCmd.Source -NoLogo -NoProfile -File $moduleScript 2>&1)
+        $code = $LASTEXITCODE
+    } finally {
+        $env:PSModulePath = $savedModulePath
+    }
+    foreach ($line in $reported) {
+        $text = "$line"
+        if ($text -match '^MODULE-ISSUE: (.+)$') {
+            Add-InstallIssue $Matches[1]
+        } elseif ($text) {
+            Write-Output $text
+        }
+    }
+    if ($code -ne 0) {
+        Add-InstallIssue "tools\Install-TestModule.ps1 could not run (exit $code), so Pester 5 and PSScriptAnalyzer may be missing -- see the output above."
+    }
+}
+Install-YurunaTestModule -Root $YurunaDir
 
 # --- REGION: Enable-TestAutomation.ps1 hint
 $setHost = Join-Path $YurunaDir 'host\windows.hyper-v\Enable-TestAutomation.ps1'

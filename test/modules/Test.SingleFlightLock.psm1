@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42f0a42c-b27f-4bec-ab95-98fd930ad13d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,37 +19,7 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
 
-# A held-open, never-unlinked, cross-process exclusive lock. The handle IS
-# the mutex: a second Enter for the same path fails for as long as this
-# handle stays open, in this process or any other, and process death
-# releases it automatically through OS handle cleanup -- there is no PID
-# file to go stale and no unlink to race a concurrent stale-drainer against.
-#
-# This is the same OpenOrCreate + FileShare.None shape the host-address
-# beacon already relies on for hostaddress.beacon.lock. .NET implements
-# FileShare.None with flock(LOCK_EX) on Unix, and any other open of the file
-# (even a read-only one) takes LOCK_SH, so it conflicts with the holder
-# across genuinely separate processes as a single-flight lock requires. An
-# environment switch (DOTNET_SYSTEM_IO_DISABLEFILELOCKING) turns that
-# locking off silently, so every acquisition verifies exclusion itself
-# before reporting the lock as held.
-#
-# It is NOT copied from the caching-proxy lock (Test.CachingProxyServiceLock
-# .psm1): that lock closes its exclusive stream immediately after writing
-# the PID, publishes identity in a separate sidecar file, and drains a
-# suspected-stale holder by deleting files -- none of which is a lifetime OS
-# lock, and its 21600-second forced-age drain would let a live worker's lock
-# be stolen out from under it. This module holds one exclusive OS handle for
-# the caller's entire operation and never age-drains at all: only a caller
-# who can themselves acquire the lock (proving no one else holds it) may
-# clear stale metadata, via Clear-YurunaSingleFlightLock.
-#
-# Ranks order nested acquisitions: the lifetime host-operation lock, then
-# service-key locks in ordinal path order, then at most one short lock
-# (admission, census merge, runner gate). A request that would wait for a
-# longer-lived lock while holding a shorter one is refused without touching
-# the disk, which is what keeps two processes from each holding the lock the
-# other waits for.
+# See https://yuruna.link/4213a0b3-016b
 
 $script:HeldSingleFlightLocks = [System.Collections.Generic.List[object]]::new()
 $script:SingleFlightLockRank = [ordered]@{

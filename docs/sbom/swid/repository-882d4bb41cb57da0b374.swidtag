@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna.com/test/extension/caching-proxy-service" tagId="urn:uuid:d5e892c4-5e1f-59a5-b267-91c1e01ebfc6" version="unspecified" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+  <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
+  <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="repository" sbom:inventory-kind="declared-source" sbom:declaration="{&quot;completeness&quot;: &quot;declared&quot;, &quot;ecosystem&quot;: &quot;go&quot;, &quot;evidence&quot;: [{&quot;detail&quot;: &quot;Go module declaration&quot;, &quot;line&quot;: 3, &quot;path&quot;: &quot;test/extension/caching-proxy-service/go.mod&quot;}], &quot;notes&quot;: [&quot;Go dependency graph was not resolved.&quot;], &quot;scope&quot;: &quot;runtime&quot;}" />
+</SoftwareIdentity>

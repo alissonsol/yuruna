@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42b8932c-aa15-4760-a06d-b3037804847c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,14 +16,7 @@
 
 #requires -version 7
 
-# Pool planner: Read-YurunaPoolManifest reads runtime/pool.manifest.json (the
-# pool's framework and project repositories) for the inner runner. The
-# guests.compatibility.yml helpers below evaluate a project's per-guest
-# hypervisor rules. The runner does not call them, because every pool member
-# runs its project's whole plan; Test.PoolPlanner.Tests.ps1 is their only
-# caller, and Test-PoolIntent.ps1 validates the store's copy of that file
-# through Test.PoolAdmin instead. See ../../docs/pool-admin.md#what-a-pool-is
-# for the decentralized, best-effort model. -- Test.PoolPlanner.psm1
+# See https://yuruna.link/4213a0b3-00bf
 
 # Map a host type to its hypervisor token (host.windows.hyper-v -> hyper-v,
 # host.ubuntu.kvm -> kvm, host.macos.utm -> utm) -- the same derivation the host

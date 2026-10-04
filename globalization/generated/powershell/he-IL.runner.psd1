@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42a07001-0b1b-e8af-74b4-0c25e481f7c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,8 +56,99 @@
         ' רשומות של מנגנון ההרצה שלא ניתן היה להוכיח שאינן עדכניות.'
     )
     'runner.critical_record_replace' = 'החליפו רשומה קריטית פרטית'
+    'runner.cycle_outcome_rejected_kept' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] רשומת התוצאה שנדחתה נשמרת ב-'
+        @{
+            'arg' = 'rejectedPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' לצורך אבחון.'
+    )
+    'runner.cycle_outcome_unrecorded' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] תהליך המחזור יצא עם קוד '
+        @{
+            'arg' = 'childExit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' לאחר '
+        @{
+            'arg' = 'ranForSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's ללא רשומת תוצאה שמישה ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). המחזור אינו נחשב כהצלחה: לא ניתן לקבוע אם הוא הושלם, ולכן זהו כשל של רכיב ההרצה במארח זה ולא פסק דין של בדיקה. ההרצה מושהית כמו במקרה של מחזור שנכשל.'
+    )
+    'runner.cycle_outcome_unrecorded_log' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] outcome-unrecorded: יציאה עם קוד '
+        @{
+            'arg' = 'childExit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' לאחר '
+        @{
+            'arg' = 'ranForSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's, רשומה '
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
     'runner.cycle_record_clear_action' = 'הסירו ממנגנון ההרצה את רשומת המחזור שהסתיים'
     'runner.cycle_record_write_action' = 'כתבו את רשומת המחזור של מנגנון ההרצה'
+    'runner.cycle_result_missing' = 'המחזור חזר ללא פרסום תוצאה. הוא נרשם כמחזור שנכשל (no-cycle-result) במקום כמחזור שהושלם.'
+    'runner.cycle_success_withheld' = @(
+        'המחזור הסתיים בהצלחה אך לא ניתן היה לרשום את תוצאתו, ולכן רכיב ההרצה אינו יכול לספור אותו כהצלחה. יוצא עם קוד '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' במקום 0.'
+    )
     'runner.detached_handshake_write_action' = 'כתבו את לחיצת היד לזיהוי תהליך העבודה המנותק'
     'runner.detached_launch_action' = 'הפעילו תהליך עבודה מנותק'
     'runner.diagnostic_budget_exhausted' = @(
@@ -22046,8 +22137,74 @@
     'runner.pool_status_repositories_none' = '  מאגרי קוד: (אין)'
     'runner.prior_runner_cleanup_action' = "  פעולה:  עצירתו והרצת`n           ⁦Remove-TestVMFiles.ps1⁩ לפני ההפעלה"
     'runner.process_start_record_write_action' = 'כתבו רשומה של זמן תחילת התהליך'
+    'runner.project_previous_cleanup_failed' = @(
+        'לא ניתן למחוק את עותק הפרויקט הקודם ב-'
+        @{
+            'arg' = 'previousDir'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. העותק החדש נמצא במקומו; הרענון הבא יסיר את השאריות.'
+    )
+    'runner.project_swap_recovered' = @(
+        'שוחזר רענון פרויקט שנקטע תחת '
+        @{
+            'arg' = 'repoRoot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '.'
+    )
     'runner.readiness_ack_remove_action' = 'הסירו אישור מוכנות לרענון שאינו תקף עוד'
     'runner.readiness_ack_write_action' = 'כתבו את אישור המוכנות לרענון'
+    'runner.recovery_applied' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] פעולת השחזור '''
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ''' בוצעה עבור כשל מסוג '
+        @{
+            'arg' = 'failClass'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' (ניסיון '
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '); ההשהיה בעקבות הכשל מדולגת והמחזור הבא מתחיל מיד.'
+    )
+    'runner.recovery_result_write_failed' = @(
+        'לא ניתן לרשום את תוצאת השחזור ב-'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). תוצאת המחזור אינה מושפעת.'
+    )
     'runner.refresh_barrier_held' = @(
         'הפעולה חודשה לאחר רענון המארח '
         @{
@@ -23186,6 +23343,21 @@
     )
     'runner.status_worker_directory_prepare_action' = 'הכינו את הספרייה הפרטית של תהליך העבודה'
     'runner.status_worker_state_write_action' = 'פרסמו את רשומת המצב של תהליך העבודה'
+    'runner.telemetry_event_dropped' = @(
+        'לא ניתן לרשום אירוע מחזור ('''
+        @{
+            'arg' = 'eventName'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ''': '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). המחזור ממשיך, אך זרם האירועים שלו כעת אינו שלם; המספר והסיבה רשומים בקובץ ⁦cycle.events.delivery.json⁩. אובדנים נוספים במחזור זה נספרים ללא דיווח חוזר.'
+    )
     'runner.transcript_title' = 'יומן מריץ הבדיקות של Yuruna'
     'runner.vault_retired_entries' = @(
         'הוסרו '
@@ -23195,6 +23367,36 @@
             'trust' = 'external'
         }
     )
+    'runner.vm_admission_occupied' = @(
+        'מסרב להתחיל מחזור: מכונות וירטואליות אלה פועלות במארח ולא נעצרו: '
+        @{
+            'arg' = 'occupants'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. עצרו או מחקו אותן, ואז הריצו את המחזור שוב.'
+    )
+    'runner.vm_admission_unknown' = @(
+        'מסרב להתחיל מחזור: המארח לא הצליח להוכיח שאין מכונה וירטואלית אחרת שפועלת ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' לאחר '
+        @{
+            'arg' = 'probes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' קריאות: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). שני מחזורים על אותה קבוצת מכונות וירטואליות משבשים זה את זה, ולכן רכיב ההרצה לא ינחש; הוא ינסה שוב באיטרציה הבאה. בדקו את כלי שורת הפקודה של מנהל המכונות הווירטואליות ואת מלאי המכונות הווירטואליות במארח זה.'
+    )
     'runner.vm_cleanup_terminating_error' = @(
         '⁦Remove-TestVMFiles.ps1⁩ העלה שגיאה שעוצרת את הביצוע; קוד היציאה של המחזור עדיין ישקף את הצלחתו או כישלונו: pass⁦/fail.⁩ שגיאה: '
         @{
@@ -23202,5 +23404,32 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.warm_resume_declined_unverified' = @(
+        '  WARM-RESUME נדחה: '''
+        @{
+            'arg' = 'resumeSequence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' נכשל בשלב '
+        @{
+            'arg' = 'resumeFromStep'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'failureClass'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ') ולא ניתן להוכיח שהרצה חוזרת שלו בטוחה (סיבה: '
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '). הכשל המקורי נשאר בתוקף.'
     )
 }

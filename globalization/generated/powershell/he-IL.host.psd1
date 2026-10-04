@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4241a322-99ef-c7cf-96e0-a7d07ed683f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,6 +140,7 @@
         }
         '; libvirt משנה שם רק לתחום שדווח בוודאות כעצור.'
     )
+    'host.kvm_running_cache_unreachable' = 'המכונה הווירטואלית caching-proxy-service פועלת, אך שרת ה-proxy שלה אינו נגיש. הפעילו test/service/Start-CachingProxyServiceVM.ps1 כדי לשחזר אותו, או העבירו -CachingProxyServiceUrl "" כדי להוריד ישירות.'
     'host.kvm_start_network_action' = 'הפעילו את רשת libvirt שאינה פעילה'
     'host.kvm_start_unit_action' = 'הפעילו את יחידת libvirt שנעצרה'
     'host.operator_005bab80fe0f8f32' = @(

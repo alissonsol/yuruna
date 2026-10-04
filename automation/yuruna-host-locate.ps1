@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4276263e-b3ef-4219-b17d-1c87a3cfa238
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,14 +77,7 @@ $script:QueryTimeoutSec = 3
 $script:DirectoryPort   = 9400
 $script:MaxResponseBytes = 262144
 
-# How hard to press the directory once the baked coordinate is dead. The
-# directory learns the host's new address from the host itself, so a guest
-# that starts resolving at the moment of a renumber can be told the address
-# that just died -- both ends are racing the same change. Spacing a few
-# re-asks over roughly ten seconds covers that gap, against a cycle that
-# otherwise ends. The names and defaults are the shell library's, so one
-# override drives both peers; a value that is not a whole number is ignored
-# rather than raised, because nothing in this file may throw at its caller.
+# See https://yuruna.link/4213a0b3-0005
 $script:RetryAttempts = 4
 $script:RetryDelaySec = 3
 if ($env:YURUNA_LOCATE_RETRY_ATTEMPTS -match '^\d+$') { $script:RetryAttempts = [int]$env:YURUNA_LOCATE_RETRY_ATTEMPTS }
@@ -345,14 +338,7 @@ function Invoke-YurunaHostLocate {
     $cache  = $coords['YURUNA_CACHING_PROXY_SERVICE_IP']
     if ([string]::IsNullOrWhiteSpace($hostId) -or [string]::IsNullOrWhiteSpace($cache)) { return $false }
 
-    # The directory learns a new address from the host, so asking the instant
-    # the host renumbers returns the address that just died -- the guest and
-    # the directory are racing the same change. One shot loses that race and
-    # sends the caller to a fallback that cannot help it. Re-ask a few times
-    # instead, spaced so the directory has time to catch up. This costs
-    # nothing on the common path: the baked coordinate answered its livecheck
-    # above and returned before reaching here, so the only callers that pay
-    # are the ones already out of other options.
+    # See https://yuruna.link/4213a0b3-0006
     $answer = $null
     for ($attempt = 1; $attempt -le $script:RetryAttempts; $attempt++) {
         if ($attempt -gt 1) { Start-Sleep -Seconds $script:RetryDelaySec }

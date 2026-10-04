@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 425762d1-bc4e-40e3-b368-b17d66f8461a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,22 +22,7 @@
     cycle can be shown to survive a known number of address changes.
 
 .DESCRIPTION
-    A canary host proves nothing on a quiet network. Waiting for the site
-    router to renumber the host makes the evidence a matter of luck: the lease
-    is what it is, the changes fall where they fall, and a green cycle may
-    simply have run through a calm half hour. This drives the renumbering
-    instead, so "the cycle passed through N address changes" is a statement
-    about the harness rather than about the router's mood.
-
-    Each tick asks NetworkManager to re-run DHCP on the bridge. Whether the
-    address actually changes is still the server's decision -- this cannot
-    manufacture a new address, only a new lease negotiation -- so the script
-    reports what it observed rather than what it intended, and a server that
-    hands back the same address produces an honest "no change" line rather than
-    a silent success.
-
-    --- REGION: https://yuruna.link/4220a755-0048
-
+    See https://yuruna.link/42010605-0003.
 .PARAMETER IntervalSeconds
     Seconds between renewals. The default puts three or more changes inside a
     typical ~50-minute AmisAd cycle without sitting on top of the cycle's own
@@ -97,6 +82,7 @@ if (-not (Test-Path -LiteralPath $RuntimeDir -PathType Container)) {
 }
 $logPath = Join-Path $RuntimeDir 'hostaddress.churn.log'
 
+# --- REGION: Write-ChurnLine
 function Write-ChurnLine {
     param([Parameter(Mandatory)][string]$Message)
     $stamped = "[{0}] {1}" -f (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture), $Message
@@ -104,6 +90,7 @@ function Write-ChurnLine {
     try { [System.IO.File]::AppendAllText($logPath, "$stamped`n") } catch { Write-Verbose "churn log: $($_.Exception.Message)" }
 }
 
+# --- REGION: Get-BridgeAddress
 function Get-BridgeAddress {
     param([Parameter(Mandatory)][string]$Device)
     $line = & nmcli -g IP4.ADDRESS device show $Device 2>$null | Select-Object -First 1

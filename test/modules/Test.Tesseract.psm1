@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42570333-9ac2-4031-a0fd-695d1459461e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -186,22 +186,7 @@ function Invoke-TesseractOcr {
     $pathHandle = Resolve-OcrImagePath -ImagePath $ImagePath
     $absPath = [string]$pathHandle.Path
 
-    # --psm 6 is load-bearing: every neighboring page-segmentation mode
-    # silently drops text on terminal screenshots. Full mode-by-mode
-    # rationale: docs/ocr.md#why-tesseract-runs-at---psm-6
-    #
-    # Capture stdout and stderr in a single pass. 2>&1 merges tesseract's
-    # stderr (surfaced as ErrorRecord objects) into the success stream, so a
-    # failure is diagnosable from THIS run's stderr -- re-running tesseract to
-    # fetch stderr could diverge (the image may have changed or been deleted
-    # between runs) and doubles the process spawn. $LASTEXITCODE survives the
-    # variable assignment (no pipeline) and is snapshotted immediately.
-    #
-    # $PSNativeCommandUseErrorActionPreference is pinned $false in this scope so
-    # a non-zero tesseract exit reaches the explicit branch below instead of
-    # throwing a bare NativeCommandExitException that bypasses the diagnostic
-    # message (the preference defaults $true on PS 7.4+ under EAP=Stop; see
-    # feedback_winget_self_upgrade_kills_running_pwsh for the guard class).
+    # See https://yuruna.link/4213a0b3-0182
     $PSNativeCommandUseErrorActionPreference = $false
     try {
         $merged = & $tesseractExe $absPath stdout --psm 6 2>&1

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42f72b91-c2a2-af97-ae5e-91f746c12317
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,165 @@
     'aggregator.announce_disabled' = '[!‮áññóúñçé ďíšáƀļéď‬ ~~~~~~~]'
     'aggregator.announced_address_did_not_serve_status_json' = '[!‮áññóúñçéď áďďřéšš ďíď ñóţ šéřṽé status.json‬ ~~~~~~~~~~~~~~~~~~]'
     'aggregator.announced_address_serves_a_different_hostid' = '[!‮áññóúñçéď áďďřéšš šéřṽéš á ďíƒƒéřéñţ ħóšţÍď‬ ~~~~~~~~~~~~~~~~~~]'
+    'aggregator.backfill_bad_flag' = @(
+        '[!‮ħíšţóřý ƀáçķƒíļļ: íñṽáļíď ƒļáğš: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~]'
+    )
+    'aggregator.backfill_cycle_unreadable' = @(
+        '[!‮ħíšţóřý ƀáçķƒíļļ: ħóšţ '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': çýçļé '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ļéƒţ óúţ áƒţéř řéƥéáţéď ƒáíļúřéš: '
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'aggregator.backfill_host_failed' = @(
+        '[!‮ħíšţóřý ƀáçķƒíļļ: ħóšţ '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (ţħé ñéẋţ šŵééƥ ţříéš áğáíñ)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'aggregator.backfill_index_failed' = @(
+        '[!‮ħíšţóřý ƀáçķƒíļļ: ħóšţ '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': çáññóţ ŵříţé íţš çýçļé íñďéẋ: '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'aggregator.backfill_pool_status_failed' = @(
+        '[!‮ħíšţóřý ƀáçķƒíļļ: çáññóţ řéáď ţħé ƥóóļ šţáţúš ƒřóɱ ţħé çóļļéçţóř: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'aggregator.backfill_prometheus_failed' = @(
+        '[!‮ħíšţóřý ƀáçķƒíļļ: ħóšţ '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': Ƥřóɱéţħéúš řéƒúšéď ţħé ţíɱéļíñé šáɱƥļéš: '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'aggregator.backfill_started' = @(
+        '[!‮ħíšţóřý ƀáçķƒíļļ: šţářţéď; řéšţóřéš úƥ ţó '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' óƒ ƥášţ çýçļéš, šŵééƥíñğ éṽéřý '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'aggregator.backfill_state_failed' = @(
+        '[!‮ħíšţóřý ƀáçķƒíļļ: ħóšţ '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': çáññóţ šáṽé íţš šţáţé: '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'aggregator.backfill_sweep_done' = @(
+        '[!‮ħíšţóřý ƀáçķƒíļļ: šŵééƥ ďóñé ƒóř '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ħóšţ(š): ŵřóţé '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' çýçļé(š), éṽéñţš óƒ '
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', '
+        @{
+            'arg' = 'value4'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' íñçíďéñţ(š) áñď '
+        @{
+            'arg' = 'value5'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ţíɱéļíñé šáɱƥļé(š); '
+        @{
+            'arg' = 'value6'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' çýçļé(š) úñřéáďáƀļé; '
+        @{
+            'arg' = 'value7'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ħóšţ(š) ŵíţħ ħíšţóřý šţíļļ ţó ŵříţé‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'aggregator.batch_mixes_multiple_hostids' = '[!‮ƀáţçħ ɱíẋéš ɱúļţíƥļé ħóšţÍďš‬ ~~~~~~~~~~~~]'
     'aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte' = '[!‮çóñţřóļ-ƥřóóƒ ṽéříƒíçáţíóñ ďíšáƀļéď: ţħíš áğğřéğáţóř ħóļďš ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'aggregator.encode_failed' = '[!‮éñçóďé ƒáíļéď‬ ~~~~~~]'

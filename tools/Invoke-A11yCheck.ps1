@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,6 +159,39 @@ function Start-A11yBrowserProcess {
     }
 }
 
+# Chrome started from an elevated process on Windows starts itself again without
+# elevation, and the process that was started exits. The browser that is
+# measured is then one this script never held, so the profile directory on its
+# command line is all that identifies it.
+function Stop-A11yBrowserProfile {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Stops only browsers running on the throwaway profile directory this diagnostic created.')]
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter(Mandatory)][string]$ProfileDirectory
+    )
+
+    if (-not $IsWindows) { return 0 }
+    $image = [IO.Path]::GetFileName($FilePath).Replace("'", "''")
+    $owned = '--user-data-dir="?' + [regex]::Escape($ProfileDirectory) + '(?:"|\s|$)'
+    $stopped = 0
+    # Asked again until nothing answers: a child process outlives its browser
+    # for a moment, and the profile directory is removed next, which stays
+    # locked until the last of them is gone.
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        $running = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = '$image'" -ErrorAction SilentlyContinue |
+                Where-Object { [string]$_.CommandLine -match $owned })
+        foreach ($candidate in $running) {
+            # One that exits between the listing and the stop is already what was wanted.
+            try { Stop-Process -Id $candidate.ProcessId -Force -ErrorAction Stop; $stopped++ }
+            catch { Write-Verbose "browser stop: $($_.Exception.Message)" }
+        }
+        if ($running.Count) { Start-Sleep -Milliseconds 200 }
+    } while ($running.Count -and [DateTime]::UtcNow -lt $deadline)
+    return $stopped
+}
+
 # --- REGION: targets
 if (-not $Serve -and -not $Url) {
     # The page roots come from the shared registry rather than a list kept
@@ -256,12 +289,15 @@ if (-not $chrome) {
     Write-Line ("{0} page(s), 0 measured -- SKIPPED: no Chrome or Chromium on PATH" -f $pages.Count)
     exit 2
 }
-$browserVersion = (& $chrome --version 2>&1 | Out-String).Trim()
 if ($IsWindows) {
-    # chrome.exe is a GUI-subsystem program and prints nothing for --version;
-    # the version lives in the file's own metadata.
+    # chrome.exe is a GUI-subsystem program: asked for --version it prints
+    # nothing and opens an ordinary browser on the operator's own profile, and
+    # with no browser already running that call does not return until the
+    # window is closed. The version lives in the file's own metadata.
     $browserVersion = [string](Get-Item -LiteralPath $chrome).VersionInfo.ProductVersion
     $global:LASTEXITCODE = 0
+} else {
+    $browserVersion = (& $chrome --version 2>&1 | Out-String).Trim()
 }
 if ($LASTEXITCODE -ne 0 -or $browserVersion -notmatch '\d+(?:\.\d+){1,3}') {
     Write-Line ("{0} page(s), 0 measured -- SKIPPED: browser version could not be established" -f $pages.Count)
@@ -720,9 +756,16 @@ window.addEventListener('securitypolicyviolation', function (event) {
     # is independent: one that cannot complete must not strand the next one, and
     # a teardown error must never replace the finding that caused it.
     if ($socket) { try { $socket.Dispose() } catch { Write-Verbose "socket dispose: $($_.Exception.Message)" } }
+    # A launcher that has already exited handed the session to a browser it
+    # started, so there is nothing left of it to kill.
+    $launcherReplaced = $chromeProc -and $chromeProc.HasExited
     if ($chromeProc -and -not $chromeProc.HasExited) {
         try { $chromeProc.Kill(); [void]$chromeProc.WaitForExit(5000) }
         catch { Write-Verbose "chrome kill: $($_.Exception.Message)" }
+    }
+    if ($launcherReplaced) {
+        try { $null = Stop-A11yBrowserProfile -FilePath $chrome -ProfileDirectory $profileDir }
+        catch { Write-Verbose "chrome profile stop: $($_.Exception.Message)" }
     }
     if ($chromeProc -and $chromeProc.HasExited -and $chromeErrorTask) {
         try {

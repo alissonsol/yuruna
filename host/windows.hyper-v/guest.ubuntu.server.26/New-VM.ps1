@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 424987be-221a-49fe-a0ac-06e90a13e1b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,37 +30,21 @@
 
 param(
     [string]$VMName = "ubuntu-server01",
-    # Forwarded by the test harness (Start-TestRunner -> Invoke-NewVM)
-    # so every guest in a run agrees on one caching-proxy service URL. When
-    # bound (even to ""), local discovery is skipped and this value is
-    # used verbatim: "" = no cache, go direct; URL = use this. When NOT
-    # bound (standalone run), fall back to the discovery block below.
+    # A bound URL, including empty for direct fetching, overrides discovery.
+    # See https://yuruna.link/42e220c4-0004
     [string]$CachingProxyServiceUrl,
-    # OS user created by autoinstall and exercised by the test
-    # sequences. The framework default 'yuuser26' is intentionally
-    # unique/greppable (versus the cloud-image default 'ubuntu', which
-    # is noisy in any text search) and version-tagged so 24.04 and 26.04
-    # guests don't collide in shared logs. Additional users are expected to
-    # come from a manifest rather than an override here.
+    # Versioned usernames keep release-specific guest logs distinguishable.
     [string]$Username = 'yuuser26',
-    # cloud-init local-hostname for the guest. Empty means "follow the VM
-    # name", which keeps host-side lookups that assume hostname == VM name
-    # working for every caller that does not ask for a specific hostname.
+    # An empty hostname follows the VM name for host-side lookup.
     [string]$Hostname = '',
-    # Planner-cascaded VM memory (variables.memoryStartupBytes). Accepts a raw
-    # byte count or a KB/MB/GB suffix (e.g. 34359738368, 32768MB, 32GB) via
-    # ConvertTo-MemoryStartupBytes. Empty keeps the 12 GB default below --
-    # enough for k8s + dotnet builds, bumped for nested-host / heavy workloads.
+    # Accept raw bytes or a KB/MB/GB suffix; an empty value keeps the host default.
+    # See https://yuruna.link/42fa6f45-0016
     [string]$MemoryStartupBytes = '',
-    # Planner-cascaded vCPU count (variables.cores). Overrules the default
-    # host/2 calculation below. Empty keeps the default. Clamped to the host's
-    # physical core count.
+    # An empty core count keeps the host default; explicit values are clamped.
+    # See https://yuruna.link/42fa6f45-0015
     [string]$Cores = '',
-    # Planner-cascaded nested-virtualization request
-    # (variables.exposeVirtualizationExtensions). 'true' exposes
-    # virtualization extensions to the guest so it can run its own hypervisor
-    # (e.g. KVM for a nested host). Default off: ARM64 Hyper-V cannot start a
-    # VM with the extensions exposed, and most guests never need them.
+    # Nested virtualization is opt-in and requires an AMD64 Hyper-V host.
+    # See https://yuruna.link/42e220c4-0004
     [string]$ExposeVirtualizationExtensions = ''
 )
 
@@ -143,8 +127,8 @@ if ($exposeVirt -and [System.Runtime.InteropServices.RuntimeInformation]::OSArch
 }
 
 # --- REGION: Seek the base image
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward.
+# See https://yuruna.link/42e220c4-0003
+# Fetch missing media once; fail if manual-download requirements remain unmet.
 $baseImageName = "host.windows.hyper-v.guest.ubuntu.server.26"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
@@ -443,11 +427,8 @@ if ($Cores) {
     }
     $vmCores = $coresInt
 }
-# No-op on AMD64. On ARM64 provision with one vCPU: a Linux guest's virtual
-# processors trap into the hypervisor at a rate that grows with their number,
-# and the trapped time comes out of guest execution rather than adding to it.
-# start.guest.ubuntu.server.26 powers the installed guest off and restores the
-# two-vCPU Kubernetes minimum immediately after this serial provisioning path.
+# Provision with one vCPU on ARM64, then restore two after installation.
+# See https://yuruna.link/42dc5bb9-0006.
 $vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores -MaximumCores 1
 # Virtualization extensions only on request (validated in the environment
 # checks above): the flag is unsupported on ARM64 hosts and unnecessary for

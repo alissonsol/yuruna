@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42e5c0b7-3a91-4d68-b2f4-8c07d15e9a36
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,8 +66,10 @@ $Rows = @(
     @{ Name = 'git'; Kind = 'command'; Command = 'git'; Required = $true
        Gate = 'the registry coverage checks, which enumerate the tracked tree'
        Missing = 'a shipped source could leave every gate unnoticed' }
+    # The runner loads only 5.x: Pester 6 removes commands suites still call.
+    # tools/Install-TestModule.ps1 installs the newest 5.x.
     @{ Name = 'Pester'; Kind = 'module'; Module = 'Pester'; Required = $true
-       MinVersion = '5.0'
+       MinVersion = '5.0'; MaxVersion = '6.0'
        Gate = 'tools/Invoke-TestSuite.ps1'
        Missing = 'no test runs' }
     @{ Name = 'PSScriptAnalyzer'; Kind = 'module'; Module = 'PSScriptAnalyzer'; Required = $true
@@ -126,6 +128,43 @@ function Get-FirstVersionNumber {
     return $m.Value
 }
 
+# The version a module row reports, or '' when the module is absent. MaxVersion
+# is exclusive. The newest copy below it is the one the gate loads, so a newer
+# major installed beside it does not fail the row, and one installed alone is
+# reported by its own version.
+function Select-ModuleVersion {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Name, [string]$MaxVersion)
+    $mods = @(Get-Module -ListAvailable -Name $Name -ErrorAction SilentlyContinue | Sort-Object Version -Descending)
+    if ($MaxVersion) {
+        $belowCeiling = @($mods | Where-Object { $_.Version -lt [version]$MaxVersion })
+        if ($belowCeiling.Count -gt 0) { $mods = $belowCeiling }
+    }
+    if ($mods.Count -gt 0) { return [string]$mods[0].Version }
+    return ''
+}
+
+# Why a found version falls outside a row's bounds, or '' when it is inside
+# them. MinVersion compares major.minor only, so a patch-level difference never
+# fails a row; MaxVersion is exclusive and compares the whole version.
+function Get-VersionBoundProblem {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowEmptyString()][string]$Version, [string]$MinVersion, [string]$MaxVersion)
+    if (-not $Version) { return '' }
+    $have = $null; $bound = $null
+    if ($MinVersion -and [version]::TryParse((($Version -split '\.')[0..1] -join '.'), [ref]$have) -and
+        [version]::TryParse($MinVersion, [ref]$bound) -and $have -lt $bound) {
+        return "found $Version, needs $MinVersion or newer"
+    }
+    if ($MaxVersion -and [version]::TryParse($Version, [ref]$have) -and
+        [version]::TryParse($MaxVersion, [ref]$bound) -and $have -ge $bound) {
+        return "found $Version, needs a version below $MaxVersion"
+    }
+    return ''
+}
+
 $results = [Collections.Generic.List[object]]::new()
 
 foreach ($row in $Rows) {
@@ -168,9 +207,8 @@ foreach ($row in $Rows) {
             }
         }
         'module' {
-            $mod = Get-Module -ListAvailable -Name $row.Module -ErrorAction SilentlyContinue |
-                Sort-Object Version -Descending | Select-Object -First 1
-            if ($mod) { $found = $true; $version = [string]$mod.Version }
+            $version = Select-ModuleVersion -Name $row.Module -MaxVersion $row.MaxVersion
+            $found = [bool]$version
         }
     }
 
@@ -179,13 +217,9 @@ foreach ($row in $Rows) {
     if (-not $found) {
         $state = if ($Release -or $row.Required) { 'missing' } else { 'degraded' }
         $why = $row.Missing
-    } elseif ($row.MinVersion -and $version) {
-        $have = $null; $want = $null
-        if ([version]::TryParse((($version -split '\.')[0..1] -join '.'), [ref]$have) -and
-            [version]::TryParse($row.MinVersion, [ref]$want) -and $have -lt $want) {
-            $state = if ($Release -or $row.Required) { 'missing' } else { 'degraded' }
-            $why = "found $version, needs $($row.MinVersion) or newer"
-        }
+    } else {
+        $why = Get-VersionBoundProblem -Version $version -MinVersion $row.MinVersion -MaxVersion $row.MaxVersion
+        if ($why) { $state = if ($Release -or $row.Required) { 'missing' } else { 'degraded' } }
     }
 
     $results.Add([pscustomobject]@{

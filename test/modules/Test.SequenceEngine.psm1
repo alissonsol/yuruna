@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,14 +52,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceVariable.psm1') -Global -Fo
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -Global -Force
 
 # --- REGION: Wire the host driver
-# Invoke-Sequence's body and Wait-ForText / Invoke-TapOn call
-# contract functions (Get-VMScreenshot, Restart-VMConsole) that live in
-# Yuruna.Host. When this module loads inside a child pwsh process spawned
-# by Test.Start-GuestOS / Test.Start-GuestWorkload, the child has no other path
-# to Yuruna.Host; calling Initialize-YurunaHost here guarantees the
-# contract is resolvable from every sequence-engine call site. Idempotent
-# in the parent runner where Yuruna.Host is already loaded -- Get-Module
-# short-circuits the re-load if the module is already imported.
+# See https://yuruna.link/4213a0b3-011d
 try {
     $repoRoot      = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $testHostMod   = Join-Path $repoRoot 'test/modules/Test.HostContract.psm1'
@@ -104,27 +97,7 @@ $script:CarriedConsoleBaselineMaxAgeSeconds = 120
 # behind by a step that then did minutes of other work expires instead of
 # describing a screen that has moved on.
 $script:CarriedConsoleBaseline  = $null
-# Ring-buffer depth for raw pre-OCR screen captures kept per VM (Wait-ForText).
-# On guest success the buffer dir is deleted; on failure the whole sequence is
-# preserved so the failure-screenshot link can point at the run-up to the bug.
-#
-# Measured in FRAMES but it has to be CHOSEN as a duration: what a reader needs
-# is the window between the keystrokes that caused a failure and the frames that
-# survive to be looked at. A poll pass is a screenshot plus an OCR pass plus a
-# sidecar write on top of the pollSeconds sleep -- about 8 s of wall-clock per
-# frame in practice -- so 20 frames is roughly two and a half minutes of console
-# history, comfortably more than a multi-prompt credential exchange and the
-# verdict that follows it have been measured to occupy together.
-# A handful of frames spans well under a minute and evicts the keystrokes that
-# explain the failure before the failure is even detected.
-#
-# The cost is disk, never memory: the ring holds file PATHS, while each frame on
-# disk is a PNG plus its OCR sidecar (order 100 KB together). A guest that
-# passes has the whole directory deleted; a guest that FAILS keeps its frames
-# twice -- here and in the copy taken alongside the failure log -- and cycle-log
-# rotation moves those folders into a history bucket rather than deleting them.
-# So every extra frame is paid for twice, indefinitely, and only by hosts that
-# fail.
+# See https://yuruna.link/4213a0b3-011e
 $script:DefaultScreenHistorySize = 20
 
 # Exponential-backoff helper for filesystem-state poll loops is
@@ -198,14 +171,7 @@ if ($_cfg) {
     if ($_comm.vncPort)            { $script:DefaultVncPort            = [int]$_comm.vncPort }
     if ($_comm.pollSeconds)        { $script:DefaultPollSeconds        = [int]$_comm.pollSeconds }
     if ($_comm.timeoutSeconds)     { $script:DefaultTimeoutSeconds     = [int]$_comm.timeoutSeconds }
-    # Under `vmCommunication` with its siblings, not at the file root: the
-    # template overlay is the schema and it DROPS every key the template does
-    # not define, so a root-level key would be deleted from the operator's file
-    # on the next reconciliation and the setting would silently revert to the
-    # built-in default on the following cycle.
-    # Tested with `$null -ne` rather than truthiness because 0 is a value an
-    # operator can mean; the consumer clamps it into range instead of reading
-    # it as "unset".
+    # See https://yuruna.link/4213a0b3-011f
     if ($null -ne $_comm.screenHistorySize) { $script:DefaultScreenHistorySize = [int]$_comm.screenHistorySize }
 }
 Remove-Variable -Name _configPath, _cfg, _comm -ErrorAction SilentlyContinue
@@ -276,17 +242,7 @@ function Send-Text {
 
 
 # --- REGION: Action: tapOn -- OCR-located mouse click
-#
-# Button-focus navigation via Tab keystrokes is brittle: initial focus depends
-# on splash animation state, async-loaded widgets, and installer redesigns,
-# so the "correct" Tab count drifts. tapOn sidesteps focus
-# entirely -- it OCRs the VM screen, locates the button's bounding box, and
-# synthesizes a mouse click at that box's center.
-#
-# Coordinate contract: the captured image and the click target share the
-# same pixel space. On Hyper-V we use PrintWindow on the vmconnect client
-# area so image (x,y) == vmconnect client (x,y), and ClientToScreen maps
-# it to a SetCursorPos + mouse_event sequence.
+# See https://yuruna.link/4213a0b3-0120
 
 
 function Send-Click {
@@ -476,16 +432,7 @@ function Invoke-TapOn {
         [int]$OffsetY = 0
     )
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    # -Global: a nested -Force without -Global evicts Test.YurunaDir from
-    # the parent script's session state, breaking later top-level calls.
-    # Pure eviction recovery: Test.YurunaDir is stateless (Initialize-YurunaLogDir is
-    # env-backed; $env:YURUNA_LOG_DIR survives re-imports), so re-parse the psm1 only
-    # when its command is actually unresolvable -- i.e. when a nested -Force evicted it
-    # -- not on every hot-path pass. Gate on Get-Command, NOT Get-Module: Get-Module
-    # stays truthy after an eviction moves the module into another scope, so it would
-    # skip the very re-assert this exists to perform. (Stateful modules re-imported
-    # nearby -- OcrEngine/Log/Ssh -- are deliberately left unconditional: their -Force
-    # reload also resets $script: registrations/caches, a side effect gating would drop.)
+    # See https://yuruna.link/4213a0b3-0121
     if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     }
@@ -564,25 +511,7 @@ function Invoke-TapOn {
     }
 }
 
-# Persist this frame's OCR output as raw_${stamp}.txt next to the
-# raw_${stamp}.png it was extracted from. The text file is what the
-# matcher actually saw -- invaluable for diagnosing "should have matched"
-# regressions, since the ring-buffer .png alone leaves the reader to
-# re-OCR the image to figure out why the pattern didn't fire.
-#
-# AllowEmptyCollection: a [Parameter(Mandatory)] typed-collection param
-# rejects empty input with the misleading "Cannot bind argument ...
-# because it is an empty string" error. The empty case happens when
-# Test-CombinedOcrMatch returns no EngineResults (no providers ran on
-# this frame); skipping the write is correct -- an empty sidecar would
-# misrepresent "no engine ran" as "engines ran and saw nothing."
-#
-# AllowEmptyString: PowerShell's Mandatory binder enumerates a typed
-# List[string] and validates each element against the implicit non-
-# empty-string check, so a list containing the trailing '' separators
-# the callers add between engine sections fails with the same
-# "empty string" message. AllowEmptyString lifts that per-element
-# check; AllowEmptyCollection lifts the whole-list one.
+# See https://yuruna.link/4213a0b3-0122
 function Save-OcrSidecar {
     <# .SYNOPSIS
         Save the raw OCR provider results beside their screenshot.
@@ -1018,6 +947,18 @@ function Set-OcrMatchSinceStepStart {
     return @{ Match = $matched; Text = $text }
 }
 
+function Get-InstallerConsoleStage {
+    <#
+    .SYNOPSIS
+        Return the last substantive Subiquity stage visible in an OCR frame.
+    #>
+    param([AllowEmptyString()][string]$Text)
+    $stageMatches = [regex]::Matches($Text, '(?im)^\s*(start|finish):\s+(subiquity/(?:Install|Mirror)/[A-Za-z0-9_./-]+)')
+    if ($stageMatches.Count -eq 0) { return '' }
+    $last = $stageMatches[$stageMatches.Count - 1]
+    return "$($last.Groups[1].Value.ToLowerInvariant()): $($last.Groups[2].Value)"
+}
+
 function Wait-ForText {
     <#
     .SYNOPSIS
@@ -1059,25 +1000,7 @@ function Wait-ForText {
         [bool]$FreshMatch = $false,
         [int]$FreshMatchTailLines = 12,
         [switch]$NoSegmentMatch,
-        # Match the positive pattern only against console lines the guest
-        # printed after this step began, ignoring everything the previous step
-        # left on the surface. Set it on a step whose pattern is short enough
-        # that unrelated prose already on screen can satisfy it -- a class the
-        # tolerant matcher cannot avoid, because the same tolerance that lets a
-        # prompt survive dropped and confused characters also lets its letters
-        # be found in order inside a sentence about something else.
-        #
-        # Where the previous wait handed one on, the baseline is the frame THAT
-        # wait matched, so a prompt printed in answer to what the step before
-        # typed is new and matchable however long the poll gap was. Without one
-        # -- the first gated step of a sequence, or one whose predecessor failed
-        # -- it falls back to this wait's own first frame and costs a poll: that
-        # frame records what was already there and only later frames can match.
-        #
-        # Anti-patterns are deliberately NOT gated by this. Their job is to
-        # notice that the screen is in a state the sought text can never arrive
-        # from, and that state is routinely already on screen when the step
-        # starts -- so they keep reading the whole frame.
+        # See https://yuruna.link/4213a0b3-0123
         [bool]$SinceStepStart = $false,
         # Optional periodic console nudge. This stays inside the same wall-clock
         # deadline as the OCR wait: it is for one-shot prompts (notably agetty's
@@ -1087,36 +1010,9 @@ function Wait-ForText {
         # nudge is actually requested.
         [string]$NudgeKey = '',
         [int]$NudgeIntervalSeconds = 0,
-        # Anti-patterns: if ANY of these fuzzy-matches on screen OCR,
-        # abort the wait immediately and return $false. Canonical use
-        # case is subiquity's "install_fail.crash" / "An error occurred.
-        # Press enter to start a shell" output -- at that point the
-        # positive pattern (e.g. "Not listed?" from the GDM login screen)
-        # is never going to appear, so polling until $TimeoutSeconds
-        # wastes up to an hour before the runner gets a misleading
-        # "pattern not found" failure. On match this function also sets
-        # the shared cross-module WaitForTextMatchedFailurePattern signal so
-        # the caller's failure-label builder can surface *which* anti-
-        # pattern fired, producing a banner like
-        #   waitForAndEnter: "Not listed?" -- matched failurePattern "install_fail.crash"
-        # instead of the opaque timeout message.
+        # See https://yuruna.link/4213a0b3-0124
         [string[]]$FailurePattern = @(),
-        # Anti-patterns that are only meaningful for the first
-        # $EarlyFailureSeconds of the wait, then stop being evaluated.
-        #
-        # The canonical use is a shell REJECTING the command line it was just
-        # handed ("command not found", "No such file or directory"). That
-        # verdict is delivered within a second of Enter and means nothing ever
-        # started, so the positive pattern can never arrive and the whole
-        # timeout would be spent proving it. The same strings are also ordinary
-        # output from a script that IS running and healthy -- a package tool
-        # probing for an optional binary prints them constantly -- so as
-        # permanent anti-patterns they would abort good runs. The window is
-        # what separates the two readings: inside it the only thing that has
-        # had time to speak is the shell, outside it the answer is whatever the
-        # payload is printing. That is why this cannot simply be folded into
-        # $FailurePattern, whose entries are (correctly) evaluated for the
-        # whole wait.
+        # See https://yuruna.link/4213a0b3-0125
         [string[]]$EarlyFailurePattern = @(),
         [int]$EarlyFailureSeconds = 0
     )
@@ -1135,16 +1031,10 @@ function Wait-ForText {
     $script:Fail.WaitForTextClosestOnScreen = $null
     $script:Fail.WaitForTextConsoleFlood   = $null
     $script:Fail.WaitForTextConsoleStaticSeconds = 0
+    $script:Fail.WaitForTextInstallerStage = ''
+    $script:Fail.WaitForTextInstallerStageSeconds = 0
     $script:Fail.WaitForTextGuestBootStalled = $false
-    # Which of the two match paths below this wait will take, because only one of
-    # them measures the console's shape. A tail-confined (freshMatch) wait reads
-    # the same frames but runs neither the flood check nor the content-static
-    # tracker, so the two slots above keep the values set here for the whole wait
-    # -- and 0 / empty are the SAME values a wait that did measure a moving,
-    # non-repeating console leaves behind. Published without this flag the pair
-    # invites the one reading it cannot support: that something looked at the
-    # screen and found it healthy. Recorded here rather than at the failure
-    # returns so it is scoped to this wait exactly like the slots it qualifies.
+    # See https://yuruna.link/4213a0b3-0126
     $script:Fail.WaitForTextConsoleSignalsMeasured = (-not $FreshMatch)
     # Per-wait verdict, readable by a caller that has to decide what to do with a
     # wait that came back false. The bool return says only "not found"; it cannot
@@ -1165,32 +1055,14 @@ function Wait-ForText {
     if ($HostType) { Write-Debug "Wait-ForText: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
 
     $patternLabel = $Pattern[0]
-    # Wall-clock deadline -- NOT an iteration counter. Adding $PollSeconds per
-    # loop pass would assume every iteration finishes in $PollSeconds of
-    # wall-clock. In practice each iteration does a screenshot + tesseract OCR
-    # + sidecar write before the Start-Sleep -Seconds $PollSeconds at the
-    # bottom -- on a busy Hyper-V host that adds 5-25 s on top of the sleep, so
-    # a configured timeoutSeconds: 1800 would take 1-3 hours of wall-clock to
-    # expire (and multiplied by retry maxAttempts could exceed half a day
-    # before giving up). With a wall-clock deadline timeoutSeconds means
-    # exactly what the operator configured.
+    # See https://yuruna.link/4213a0b3-0127
     $startUtc    = [DateTime]::UtcNow
     $deadlineUtc = $startUtc.AddSeconds($TimeoutSeconds)
     $elapsed     = 0
     $nudgeEnabled = (-not [string]::IsNullOrWhiteSpace($NudgeKey) -and $NudgeIntervalSeconds -gt 0)
     $nextNudgeUtc = if ($nudgeEnabled) { $startUtc.AddSeconds($NudgeIntervalSeconds) } else { $null }
 
-    # Import required modules. Screenshot capture is via the Yuruna.Host
-    # contract (Get-VMScreenshot) -- assumed already loaded by the caller's
-    # Initialize-YurunaHost. OcrEngine stays in test/modules/ as a
-    # cross-host helper. -Global is load-bearing: the poll loop below calls
-    # Test-CombinedOcrMatch (Test.OcrMatch module), which resolves
-    # Get-EnabledOcrProvider / Invoke-OcrProvider through the global session
-    # state. A nested -Force WITHOUT -Global evicts Test.OcrEngine from
-    # global (the module-eviction regression class,
-    # feedback_module_force_import_evicts_global.md), so the very next
-    # Test-CombinedOcrMatch call crashes with "Get-EnabledOcrProvider is not
-    # recognized".
+    # See https://yuruna.link/4213a0b3-0128
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Global -ErrorAction SilentlyContinue -Verbose:$false
 
@@ -1198,23 +1070,7 @@ function Wait-ForText {
     $combineMode = Get-OcrCombineMode
     Write-Debug "      OCR engines: $($enabledEngines -join ', ') | combine: $combineMode"
 
-    # Per-VM ring buffer of raw pre-OCR captures. Persists across multiple
-    # Wait-ForText calls within a guest run so the failure path can surface
-    # the run-up to the bug. Cleared at end-of-guest on success by the
-    # runner; preserved on failure and copied alongside the failure log.
-    # -Global on the -Force re-imports: a nested -Force without -Global
-    # evicts the modules from the parent script's session state, so a
-    # later top-level call to Get-CycleScreenDir (Invoke-TestRunnerInnerLoop.ps1
-    # success branch, seen on macOS in-process runners) fails with
-    # "term not recognized".
-    # Pure eviction recovery: Test.YurunaDir is stateless (Initialize-YurunaLogDir is
-    # env-backed; $env:YURUNA_LOG_DIR survives re-imports), so re-parse the psm1 only
-    # when its command is actually unresolvable -- i.e. when a nested -Force evicted it
-    # -- not on every hot-path pass. Gate on Get-Command, NOT Get-Module: Get-Module
-    # stays truthy after an eviction moves the module into another scope, so it would
-    # skip the very re-assert this exists to perform. (Stateful modules re-imported
-    # nearby -- OcrEngine/Log/Ssh -- are deliberately left unconditional: their -Force
-    # reload also resets $script: registrations/caches, a side effect gating would drop.)
+    # See https://yuruna.link/4213a0b3-0129
     if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     }
@@ -1243,15 +1099,7 @@ function Wait-ForText {
     # a full-history rescan would cost over a 60-300 s loop.
     $recentFrameMax = 3
     $recentFrames   = @{}
-    # Per-line signatures of the console as it stood on this wait's first
-    # readable frame, plus the window applied on top of them. $FreshMatch
-    # narrows the lines a pattern is tested against by POSITION on the screen;
-    # $SinceStepStart narrows them by whether the guest printed them during this
-    # step. Asked for together they compose -- the window applies to whatever
-    # survives the baseline -- so each can only remove lines from what is
-    # matched, never add any. $null (not an empty array) means "not recorded
-    # yet": a screen that read as empty is a legitimate baseline and must not be
-    # re-taken on the next poll.
+    # See https://yuruna.link/4213a0b3-012a
     $sinceBaseline  = $null
     # Prefer the console the previous wait matched on over this wait's own first
     # frame: it dates the baseline from the last moment the sequence knows what
@@ -1306,14 +1154,9 @@ function Wait-ForText {
     $lastStaticText        = $null
     $contentStaticSinceUtc = [DateTime]::UtcNow
     $maxConsoleStaticSecs  = 0
-    # Degradation-trend early action: the two self-heals above are reactive at a fixed
-    # threshold. Once the feed has proven flaky (a console restart fired), drop
-    # the freeze threshold so the next stall is caught sooner -- acting on the
-    # trend rather than re-waiting the full window. And grant the deadline a
-    # bounded grace per self-heal so a feed that IS recovering isn't killed
-    # mid-recovery by the original deadline (the false ocr_timeout); the cap
-    # keeps a dead feed bounded. Each proactive action emits a `degradation`
-    # event so a degraded-but-passing wait is queryable, not silent.
+    $installerStage = ''
+    $installerStageSinceUtc = $null
+    # See https://yuruna.link/4213a0b3-012b
     $deadlineGrantedSeconds  = 0
     $maxDeadlineGrantSeconds = [math]::Min([int]$TimeoutSeconds, 120)
 
@@ -1355,14 +1198,7 @@ function Wait-ForText {
             # in lockstep -- otherwise orphan .txt files accumulate.
             Add-OcrHistoryFrame -Queue $rawQueue -Path $rawScreenPath -Limit $historySize
 
-            # OCR is fed the raw capture as-is -- no preprocessing. Do not
-            # reintroduce a vertical-line / grayscale / invert / contrast-
-            # stretch / 2x-scale pipeline, nor a diff-against-the-previous-
-            # frame stage that suppresses unchanged pixels: both corrupt edge
-            # cases (anti-aliased serifs collapsing, fresh text suppressed
-            # when the surrounding pixels also changed). Tesseract / WinRT OCR
-            # / macOS Vision all handle native-resolution color screenshots
-            # fine.
+            # See https://yuruna.link/4213a0b3-012c
             if ($rawScreenPath -and (Test-Path $rawScreenPath)) {
                 if ($FreshMatch) {
                     # -- FreshMatch mode: only check the last N lines --
@@ -1370,7 +1206,14 @@ function Wait-ForText {
 
                     Save-EngineOcrSidecar -ScreenshotPath $rawScreenPath -EngineResults $result.EngineResults -VerboseSummary
 
-                    if ($result.AnyText) { $lastOcrText = $result.AnyText }
+                    if ($result.AnyText) {
+                        $lastOcrText = $result.AnyText
+                        $observedInstallerStage = Get-InstallerConsoleStage -Text ([string]$result.AnyText)
+                        if ($observedInstallerStage -and $observedInstallerStage -cne $installerStage) {
+                            $installerStage = $observedInstallerStage
+                            $installerStageSinceUtc = [DateTime]::UtcNow
+                        }
+                    }
                     $lastEngineResults = $result.EngineResults
 
                     # Re-decide the combiner's verdict against the step-start
@@ -1407,6 +1250,11 @@ function Wait-ForText {
                     if ($result.AnyText) {
                         $lastOcrText = $result.AnyText
                         $lastEngineResults = $result.EngineResults
+                        $observedInstallerStage = Get-InstallerConsoleStage -Text ([string]$result.AnyText)
+                        if ($observedInstallerStage -and $observedInstallerStage -cne $installerStage) {
+                            $installerStage = $observedInstallerStage
+                            $installerStageSinceUtc = [DateTime]::UtcNow
+                        }
                         $normalizedNow = Get-ConsoleTextSignature -Text ([string]$result.AnyText)
                         if ($normalizedNow -ne $lastStaticText) {
                             $lastStaticText        = $normalizedNow
@@ -1442,23 +1290,7 @@ function Wait-ForText {
                         return $true
                     }
 
-                    # Flooded-console detection, and a THIRD case distinct from
-                    # both branches around it. The no-text branch below sees a
-                    # feed with nothing on it; the byte-hash freeze detector
-                    # further down sees a feed that stopped changing. A console
-                    # scrolling one repeating log line is neither: every frame
-                    # differs, so the feed looks perfectly healthy, and every
-                    # frame is full of text, so AnyText is true -- while the
-                    # pattern being sought has already scrolled out of the
-                    # visible surface and is never coming back into it. Left
-                    # unnamed this spends the entire timeout and is recorded as
-                    # an ordinary pattern-never-printed, which sends the reader
-                    # to the guest script that was in fact never reached.
-                    #
-                    # Recorded, NOT acted on: the wait still runs its full
-                    # budget. A flood can stop, and aborting early on a
-                    # heuristic would trade a slow correct answer for a fast
-                    # wrong one. What changes is that the failure names itself.
+                    # See https://yuruna.link/4213a0b3-012d
                     $floodVerdict = Get-ConsoleFloodVerdict -Text ([string]$result.AnyText)
                     if ($floodVerdict.Flooded) {
                         $floodPolls++
@@ -1565,24 +1397,9 @@ function Wait-ForText {
                 }
             }
 
-            # Anti-pattern (early-fail) check. Runs AFTER the positive-match
-            # check so a positive match wins ties when both appear in one
-            # frame. Uses $lastOcrText (the freshest OCR output) so the
-            # signature isn't masked by an OCR glitch on the current poll.
-            # The early set joins the permanent one only while the window is
-            # open, so a match inside it reports through the same signal, the
-            # same screenshot capture and the same failure label as any other
-            # anti-pattern -- the window governs WHEN a pattern is consulted,
-            # never what happens once it fires.
+            # See https://yuruna.link/4213a0b3-012e
             $activeFailurePattern = @($FailurePattern)
-            # The early set is matched without Test-OCRMatch's segment strategy.
-            # Its members are short, ordinary phrases, and that strategy asks
-            # only whether each of their words turns up somewhere on the screen
-            # -- which a healthy step's own output supplies by accident as soon
-            # as it prints a few KB of URLs or paths. A permanent anti-pattern
-            # is chosen by a step author against the one script that step runs
-            # and keeps the full matcher; these are matched against every guest
-            # in the fleet, so they are held to evidence that sits on one line.
+            # See https://yuruna.link/4213a0b3-012f
             $strictFailurePattern = @{}
             if ($null -eq $earlyBaseline) { $earlyBaseline = [string[]]@(Get-ConsoleLineSignature -Text $lastOcrText) }
             if ($EarlyFailurePattern.Count -gt 0 -and $elapsed -le $EarlyFailureSeconds) {
@@ -1613,6 +1430,10 @@ function Wait-ForText {
                             # on failure only, so a successful wait can't leak them).
                             $script:Fail.WaitForTextOcrTail = if ($lastOcrText.Length -le 1200) { $lastOcrText } else { $lastOcrText.Substring($lastOcrText.Length - 1200) }
                             $script:Fail.WaitForTextPatternsSought = [string[]]@($Pattern)
+                        }
+                        $script:Fail.WaitForTextInstallerStage = $installerStage
+                        if ($installerStageSinceUtc) {
+                            $script:Fail.WaitForTextInstallerStageSeconds = [int]([DateTime]::UtcNow - $installerStageSinceUtc).TotalSeconds
                         }
                         return $false
                     }
@@ -1659,17 +1480,12 @@ function Wait-ForText {
             $script:Fail.WaitForTextPatternsSought = [string[]]@($Pattern)
         }
 
-        # How long the console content sat unchanged, at its longest. Separates a
-        # guest that was working the whole time from one parked on an unreadable
-        # screen, which the flood detail alone cannot do: Get-ConsoleFloodVerdict
-        # counts repeats WITHIN one frame, so a frozen wall of already-scrolled
-        # text reads as a flood even though nothing is moving.
-        #
-        # Only the accumulating match path feeds this. Under a tail-confined
-        # match $maxConsoleStaticSecs is still its initializer, which is what the
-        # measured flag set at entry exists to declare -- the value written here
-        # is an observation only when that flag is true.
+        # See https://yuruna.link/4213a0b3-0130
         $script:Fail.WaitForTextConsoleStaticSeconds = [int]$maxConsoleStaticSecs
+        $script:Fail.WaitForTextInstallerStage = $installerStage
+        if ($installerStageSinceUtc) {
+            $script:Fail.WaitForTextInstallerStageSeconds = [int]([DateTime]::UtcNow - $installerStageSinceUtc).TotalSeconds
+        }
         # The verdict deliberately keeps the CURRENT unchanged run rather than the
         # longest one: a caller deciding whether to send input to this console
         # cares about the state it is in now, and a screen that sat still early
@@ -1692,14 +1508,7 @@ function Wait-ForText {
             }
         }
 
-        # An empty near-miss list covers three unrelated screens: no window was
-        # in force, the window covered the whole frame, or the text was nowhere
-        # on it. Read alone it is taken for the third. Recording what the screen
-        # DID hold that came closest separates them, and on a frame too short
-        # for a window to hide anything -- a console sitting at a login prompt
-        # -- it is the only evidence there is. Deliberately not gated on
-        # $FreshMatch: a wait with no window that timed out wants the same
-        # answer, and pays for it once, here, not in the poll loop.
+        # See https://yuruna.link/4213a0b3-0131
         if ($lastEngineResults -and (Get-Command Get-OcrClosestOnScreen -ErrorAction SilentlyContinue)) {
             [string[]]$closestOnScreen = @(Get-OcrClosestOnScreen -EngineResult $lastEngineResults -Pattern $Pattern)
             # Recorded even when it came back empty: the scan ran, and "compared
@@ -1991,19 +1800,7 @@ function Invoke-SequenceByName {
         [Parameter(Mandatory)][string]$SequencesDir,
         [Parameter(Mandatory)][string]$Name,
         [string]$RepoRoot,
-        # Planner-cascaded variable overrides. When present, each key in
-        # this map REPLACES the same-named entry under the sequence
-        # file's `variables:` block before step expansion (top-of-chain
-        # wins for the whole chain -- see Test.SequencePlanner). Empty
-        # map = standalone Debug-TestSequence.ps1 invocation, keeps the
-        # legacy "sequence-local variables win" path.
-        # Use IDictionary (not [hashtable]) so an [ordered]@{} from the
-        # planner keeps its insertion order through parameter binding.
-        # A [hashtable] cast would coerce OrderedDictionary -> Hashtable
-        # and lose the order, which then has the override loop below
-        # process e.g. `currentPassword: ${ext:...(${username})}` BEFORE
-        # `username: yauser1`. The `${username}` placeholder fails to
-        # resolve and the literal string ends up as a vault key.
+        # See https://yuruna.link/4213a0b3-0132
         [System.Collections.IDictionary]$EffectiveVariables,
         [switch]$ShowSensitive,
         # File-local 1-based start step, forwarded to Invoke-Sequence. The
@@ -2024,14 +1821,7 @@ function Invoke-SequenceByName {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0eb7bda9b10d1bc4' -Arguments @{ guestKey = "$GuestKey"; name = "$Name"; list = "$list" })
         return $false
     }
-    # Informational lines go through Write-Information, NOT Write-Output.
-    # Write-Output emits to the pipeline, and combined with `return (...)`
-    # below it would fold these strings into the caller's `$ok` variable --
-    # turning the boolean into @("Running...", "Sequence file...", $true/$false).
-    # The caller's `$ok -eq $false` still catches an honest $false inside
-    # that array, but a returned $null (e.g. from an unhandled crash path)
-    # would look identical to success. Keep the pipeline clean so the
-    # return is strictly [bool].
+    # See https://yuruna.link/4213a0b3-0133
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bf9f079318a27ce2' -Arguments @{ guestKey = "$GuestKey"; name = "$Name"; hostType = "$HostType"; vMName = "$VMName" }) -InformationAction Continue
     Write-Verbose "    Sequence file: $sequenceFile"
     $result = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile -EffectiveVariables $EffectiveVariables -ShowSensitive:$ShowSensitive -StartStep $StartStep
@@ -2212,16 +2002,7 @@ function Invoke-Sequence {
         [string]$GuestKey,
         [string]$VMName,
         [string]$SequencePath,
-        # Planner-cascaded variable overrides; see Invoke-SequenceByName.
-        # Null/empty = use the sequence file's own `variables:` block
-        # verbatim (standalone Debug-TestSequence.ps1 path).
-        # Use IDictionary (not [hashtable]) so an [ordered]@{} from the
-        # planner keeps its insertion order through parameter binding.
-        # A [hashtable] cast would coerce OrderedDictionary -> Hashtable
-        # and lose the order, which then has the override loop below
-        # process e.g. `currentPassword: ${ext:...(${username})}` BEFORE
-        # `username: yauser1`. The `${username}` placeholder fails to
-        # resolve and the literal string ends up as a vault key.
+        # See https://yuruna.link/4213a0b3-0134
         [System.Collections.IDictionary]$EffectiveVariables,
         [switch]$ShowSensitive,
         # Optional 1-based step window over this sequence's steps (StopStep 0 =
@@ -2263,23 +2044,9 @@ function Invoke-Sequence {
     # that claim -- the guest may have been rebooted or rebuilt since.
     Clear-CarriedConsoleBaseline
 
-    # Initialize logDir + trackDir early so the catch block can write
-    # diagnostics and the pause-flag paths resolve below. Invoke-Sequence
-    # runs inside a child module scope when a test-start extension script
-    # imports it, so the parent runner's global Import-Module doesn't
-    # propagate here -- each helper has to be re-imported on this path.
-    # -Global on the -Force re-imports: without it, the nested reload
-    # evicts these modules from the parent script's session state and
-    # breaks subsequent top-level calls (see Get-CycleScreenDir crash).
+    # See https://yuruna.link/4213a0b3-0135
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    # Pure eviction recovery: Test.YurunaDir is stateless (Initialize-YurunaLogDir is
-    # env-backed; $env:YURUNA_LOG_DIR survives re-imports), so re-parse the psm1 only
-    # when its command is actually unresolvable -- i.e. when a nested -Force evicted it
-    # -- not on every hot-path pass. Gate on Get-Command, NOT Get-Module: Get-Module
-    # stays truthy after an eviction moves the module into another scope, so it would
-    # skip the very re-assert this exists to perform. (Stateful modules re-imported
-    # nearby -- OcrEngine/Log/Ssh -- are deliberately left unconditional: their -Force
-    # reload also resets $script: registrations/caches, a side effect gating would drop.)
+    # See https://yuruna.link/4213a0b3-0136
     if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     }
@@ -2292,15 +2059,7 @@ function Invoke-Sequence {
     # Clean up stale failure artifacts from any prior run
     Remove-Item (Join-Path $logDir "last_failure.json") -Force -ErrorAction SilentlyContinue
 
-    # Build variables table: built-ins first, then YAML-defined entries
-    # evaluated EAGERLY in file order (full contract:
-    # docs/test-sequences.md#variable-substitution-rules -- the Markdown
-    # is the contract). ${ext:...} in a value runs once at definition
-    # time, so pinning a generated value across steps is an explicit,
-    # file-visible operation. Planner overrides (-EffectiveVariables)
-    # REPLACE same-named YAML entries; ${hostname} is seeded from
-    # -VMName and overwritten by the sequence's variables: block or the
-    # cascade when declared.
+    # See https://yuruna.link/4213a0b3-0137
     $vars = @{ "vmName" = $VMName; "hostType" = $HostType; "guestKey" = $GuestKey; "hostname" = $VMName }
     if ($sequence.variables) {
         foreach ($_varKey in $sequence.variables.Keys) {
@@ -2330,20 +2089,7 @@ function Invoke-Sequence {
             }
         }
     }
-    # Auto-derive ${hostLabel}: the host name a guest's own console prints,
-    # which is not ${hostname}. ${hostname} defaults to the VM name, and a VM
-    # name carries dots -- test-guest.ubuntu.server.26-01 -- while agetty and a
-    # shell prompt both print only the first label, "test-guest". The full name
-    # appears on the console in exactly one place, the /etc/issue banner, so a
-    # pattern built from ${hostname} matches only while that banner is on
-    # screen and stops matching the moment it scrolls, even though the prompt
-    # it is waiting for is still sitting there. A wait like that cannot fail
-    # fast: it spends its entire budget and is recovered only by a retry that
-    # redraws the banner.
-    #
-    # Derived after the override merge so it follows whatever hostname is
-    # actually in force, and only when unset, so a sequence or a cascade can
-    # still name it outright.
+    # See https://yuruna.link/4213a0b3-0138
     if (-not $vars.ContainsKey('hostLabel') -and $vars.ContainsKey('hostname')) {
         $vars['hostLabel'] = ([string]$vars['hostname']).Split('.')[0]
     }
@@ -2444,15 +2190,7 @@ function Invoke-Sequence {
     # See https://yuruna.link/42e220c4-0007
     $runtimeDir = Initialize-YurunaRuntimeDir
     $stepPauseFlagFile = Join-Path $runtimeDir 'control.step-pause'
-    # Cycle-restart back-channel: the status service's /control/start-cycle
-    # endpoint sets this flag while it kills in-progress VMs. The inter-
-    # cycle delay loop in Invoke-TestRunnerInnerLoop already breaks on it, but
-    # if the request lands while a cycle is actively executing steps the
-    # delay loop never sees it -- the cycle limps through screenshot
-    # failures of deleted VMs and the operator's "restart now" never
-    # arrives. Gating here too makes the abort fire from inside an active
-    # cycle: the throw escapes through retry / sequence / runner and is
-    # recognized by the inner's cycle-catch by the message prefix.
+    # See https://yuruna.link/4213a0b3-0139
     $cycleRestartFlagFile = Join-Path $runtimeDir 'control.cycle-restart'
 
     # Current-action sidecar: write the in-progress step to a small JSON file
@@ -2516,20 +2254,7 @@ function Invoke-Sequence {
         }
     }
 
-    # Shared pause-wait block. Used both at sequence start (Label='[sequence
-    # start]') and at the top of each step (Label='[stepNum/Count]').
-    # Dynamic scoping resolves $stepPauseFlagFile and $writeCurrentAction
-    # from the caller's scope at invoke time, so the scriptblock doesn't
-    # need its own parameters for those.
-    #
-    # This gate holds the RUNNER, not the guest: the VM is created and started
-    # before the sequence begins, so it keeps running -- and printing -- for as
-    # long as the hold lasts. Anything the guest prints once and does not reprint
-    # (a boot-time confirmation prompt) can therefore expire while parked here,
-    # and the step that was going to read it resumes against a screen that no
-    # longer carries it. Both ends of the hold are published to the event stream
-    # so a failure that follows one can be read as such instead of as a guest
-    # that never printed; see docs/control-routes.md, "Pause and resume".
+    # See https://yuruna.link/4213a0b3-013a
     $waitWhilePaused = {
         param([string]$Label)
         if (Test-Path $stepPauseFlagFile) {
@@ -2591,22 +2316,7 @@ function Invoke-Sequence {
         }
     }
 
-    # Cycle-restart gate. Throws a control-flow marker so the inner
-    # runner's cycle-catch (see Invoke-TestRunnerInnerLoop.ps1) can short-
-    # circuit emergency-cleanup chatter and skip the ConsecutiveCrashes
-    # increment for this expected abort. The flag is intentionally NOT
-    # cleared here: the post-cycle inter-cycle delay loop will consume it
-    # on its next tick, which keeps the existing "wake delay early" path
-    # working unchanged. If the inner is already past the delay (i.e.
-    # actively running this sequence), the throw propagates up through
-    # any enclosing retry / step / sequence frames straight to the cycle
-    # try/catch.
-    #
-    # The marker is carried BOTH as an Exception.Data tag and as the
-    # 'YurunaCycleRestart:' message prefix. Consumers prefer the structured
-    # tag, which survives a rewrap that a downstream `throw "wrapped: $_"`
-    # would strip from the message; the prefix stays as the fallback so any
-    # reader still matching on the message routes this abort correctly.
+    # See https://yuruna.link/4213a0b3-013b
     $checkCycleRestart = {
         param([string]$Label)
         if (Test-Path $cycleRestartFlagFile) {
@@ -2618,15 +2328,7 @@ function Invoke-Sequence {
         }
     }
 
-    # Lab-health gate: hold here while a lab service this host HAD been
-    # reaching has stopped answering, and resume when it returns. A service
-    # that was never reachable is deliberately not a hold -- see
-    # Test.LabHealth -- so a host with no stash still fails fast in the
-    # caller's own pre-flight rather than parking on its first cycle.
-    #
-    # Get-Command-guarded: an entry point whose module set omits Test.LabHealth
-    # runs ungated, which is the behavior every caller had before the gate and
-    # is a better failure mode than a step that cannot start.
+    # See https://yuruna.link/4213a0b3-013c
     $waitWhileLabHealthy = {
         param([string]$Label)
         if (-not (Get-Command Invoke-LabHealthGate -ErrorAction SilentlyContinue)) { return }
@@ -2638,17 +2340,7 @@ function Invoke-Sequence {
             -WriteAction $writeCurrentAction -CheckAbort $checkCycleRestart -WaitWhilePaused $waitWhilePaused
     }
 
-    # Gate #1: sequence-level pause + cycle-restart check, before any per-
-    # sequence work. Pause is checked first so an operator-initiated pause
-    # that overlaps a restart click still resolves predictably (pause
-    # wins until released, then the restart flag is observed). The lab-health
-    # hold sits between them: an operator who has parked the cycle is present
-    # and outranks a machine-initiated hold, and re-probing a lab nobody is
-    # watching achieves nothing.
-    # Cleared here rather than with the other per-sequence cause slots further
-    # down: those run AFTER this gate, and the hold this gate is about to record
-    # is the one most worth reporting -- it ends with the guest already booted and
-    # a step about to read a screen that moved on without the runner.
+    # See https://yuruna.link/4213a0b3-013d
     $script:Fail.LastPauseRelease = $null
     & $waitWhilePaused "[sequence start]"
     & $waitWhileLabHealthy "[sequence start]"
@@ -2666,36 +2358,14 @@ function Invoke-Sequence {
         catch { Write-Verbose "      Restart-VMConsole failed: $($_.Exception.Message)" }
     }
 
-    # takeScreenshot debug PNGs land under test/status/captures/sequences/
-    # (gitignored runtime data, lives with the rest of the harness state
-    # so cleaning a host is one rm -rf status/* away). Sequence name is
-    # prefixed onto each filename in Save-DebugScreenshot, so a single
-    # flat folder keeps captures organized without a per-sequence subdir.
-    # Anchor on $PSScriptRoot (this module lives at <TestRoot>/modules/);
-    # $SequencePath is unreliable as an anchor because the chain runner
-    # writes per-entry slices to the OS temp dir and project-tree
-    # sequences live under <RepoRoot>/project/.../test/.
+    # See https://yuruna.link/4213a0b3-013e
     $testRoot = Split-Path -Parent $PSScriptRoot
     $screenshotDir = Join-Path -Path $testRoot -ChildPath 'status' `
                          -AdditionalChildPath 'captures', 'sequences'
     $sequenceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
     # --- REGION: Recursive step executor
-    # Wrapped as a script-block so the `retry` action case (below) can call
-    # it on its inner `steps:` array, reusing the full per-step
-    # infrastructure: pause checks, currentAction sidecar, progress ticks,
-    # variable expansion, the action switch, PASS/FAIL logging. The block
-    # resolves $vars, $writeCurrentAction, $waitWhilePaused,
-    # $waitWhileLabHealthy, $HostType,
-    # $VMName, $GuestKey, $logDir, $screenshotDir, $ShowSensitive, and the
-    # $script:Default* defaults from the enclosing function scope via
-    # PowerShell's dynamic-scoping read semantics; the param $Steps shadows
-    # the outer $steps within the block. On step failure the block captures
-    # context into the shared failure store ($script:Fail) and returns $false. The OUTER call
-    # site below is what writes last_failure.json + failure screenshot +
-    # post-failure pause, so a transient failure inside a retry attempt
-    # never pollutes last_failure.json -- only an exhausted-retry failure
-    # (or a non-retry failure) does, after the outer call finally returns.
+    # See https://yuruna.link/4213a0b3-013f
     $invokeStepBlock = {
         param(
             [Parameter(Mandatory)][object[]]$Steps,
@@ -2727,6 +2397,8 @@ function Invoke-Sequence {
             $script:Fail.WaitForTextPatternsSought = [string[]]@()
             $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
             $script:Fail.WaitForTextConsoleStaticSeconds = 0
+            $script:Fail.WaitForTextInstallerStage = ''
+            $script:Fail.WaitForTextInstallerStageSeconds = 0
             $script:Fail.WaitForTextGuestBootStalled = $false
             $script:Fail.WaitForTextConsoleSignalsMeasured = $true
 
@@ -2743,14 +2415,7 @@ function Invoke-Sequence {
             $desc = $displayDescription ? (Expand-Variable $displayDescription $vars) : $step.action
             $actionArguments = @{ index = $stepNum; total = $stepTotal; action = [string]$step.action; description = $desc }
             & $writeCurrentAction (Format-YurunaOperatorMessage -Key 'runner.sequence_step' -Arguments $actionArguments) 'sequence_step_active' $desc $actionArguments
-            # Refresh runner.stepHeartbeat from the runspace so the outer
-            # watchdog can detect a single step that exceeds stepTimeout-
-            # Minutes. We do NOT update this inside the action's own poll
-            # loop -- the threadpool-driven runner.heartbeat already
-            # provides proof-of-life for the process. Refreshing only at
-            # step boundaries means the watchdog kicks in if any single
-            # step (waitForText with its own deadline, ssh exec, retry
-            # block) hangs longer than the configured budget.
+            # See https://yuruna.link/4213a0b3-0140
             try {
                 $stepHbFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
                 [System.IO.File]::WriteAllText($stepHbFile, [DateTime]::UtcNow.ToString('o'))
@@ -2762,15 +2427,7 @@ function Invoke-Sequence {
             # verb; its Handler lives in Test.SequenceHandler.psm1 next
             # to its Register-SequenceAction.
 
-        # Current-step visibility is intentionally driven by Write-Progress
-        # (via Write-ProgressTick below), NOT by a Write-Information here.
-        # A Write-Information at step-start would go through the Yuruna.Log
-        # proxy and leave a permanent line in both the terminal and the log
-        # transcript -- then the end-of-step completion line (with elapsed
-        # time) would appear below rather than replacing it. Write-Progress
-        # renders out-of-band (floating bar) and auto-dismisses on
-        # -Completed, so the scroll-permanent log gets exactly one entry
-        # per step (the completion).
+        # See https://yuruna.link/4213a0b3-0141
         $savedProgress = $global:ProgressPreference
         $global:ProgressPreference = 'Continue'
         try {
@@ -2787,14 +2444,7 @@ function Invoke-Sequence {
         $ctx = $null
         $ok = $true
 
-        # Per-step registry dispatch. Test.SequenceAction lets a verb
-        # register a Handler scriptblock; the Context hashtable is the
-        # canonical state surface (no closures over the parent function's
-        # locals). Every built-in verb -- including `retry` -- registers
-        # a Handler.
-        # A YAML typo (e.g. "tapButton" instead of "tapOn") or a third-
-        # party verb that registered a FailureLabel without a Handler
-        # surfaces here as a hard fail so it never silently passes.
+        # See https://yuruna.link/4213a0b3-0142
         if (Test-SequenceActionHasHandler -Name $step.action) {
             $ctx = @{
                 Step                  = $step
@@ -2898,35 +2548,12 @@ function Invoke-Sequence {
         $evidenceCaptureDurationMs = if ($ctx -and $ctx.EvidenceCaptureDurationMs) { [long]$ctx.EvidenceCaptureDurationMs } else { 0L }
         if ($diagnosticOutcome) { $stepEndRecord.diagnosticOutcome = $diagnosticOutcome }
         if ($evidenceCaptureDurationMs -gt 0) { $stepEndRecord.evidenceCaptureDurationMs = $evidenceCaptureDurationMs }
-        # A verb's registration states how it classifies ITS OWN failure, so it
-        # belongs only on a row that actually failed. Stamped on a passing row
-        # it leaves `ok` as the single field that separates a real failure from
-        # a static registration, and every grep, Loki selector and dashboard
-        # filter for a class then matches once per executed step of that verb --
-        # all of them passes. Nothing is lost by omitting it: actionVerb is on
-        # the row, and Get-SequenceAction maps it back to the same registration
-        # for a consumer that wants to know what the verb WOULD have classed a
-        # failure as.
-        #
-        # The verbDefault* names say the other half: these are the registry's
-        # values for the verb, not a reading of what went wrong here, while
-        # step_failure publishes a real classification under failureClass /
-        # severity / suggestedRecoveries -- one that a matched failure pattern
-        # or an unreachable guest can move off the registration entirely. One
-        # key over both would make a join across the two rows compare a
-        # measurement against a constant and call them the same field.
+        # See https://yuruna.link/4213a0b3-0143
         if (-not $ok) {
             $stepVerbEntry = Get-SequenceAction -Name ([string]$step.action)
             $stepFailureClass = if ($stepVerbEntry) { [string]$stepVerbEntry.FailureClass } else { 'unknown' }
             $stepSeverity     = if ($stepVerbEntry) { [string]$stepVerbEntry.Severity }     else { 'unknown' }
-            # Avoid the dual unwrap trap: PowerShell flattens single-element
-            # arrays AND empty arrays out of an if-statement's pipeline
-            # output, so `[string[]]$x = if (...) { @(...) }` yields a scalar
-            # on a 1-element value and $null on an empty value. The two-step
-            # form below initializes to an empty string[] up front, then
-            # overwrites only when there are entries to materialize; either
-            # outcome serializes as a JSON array and clears the schema
-            # validator's typed-array check.
+            # See https://yuruna.link/4213a0b3-0144
             [string[]]$stepSuggested = @()
             if ($stepVerbEntry -and $null -ne $stepVerbEntry.SuggestedRecoveries) {
                 [string[]]$stepSuggested = @($stepVerbEntry.SuggestedRecoveries)
@@ -2941,14 +2568,7 @@ function Invoke-Sequence {
         # replay needs to know the boundary it can safely resume past.
         if ($ok -and $ParentOrdinal -eq 0) { $script:Fail.LastSucceededStepNumber = $stepNum }
 
-        # Emit one structured row per step execution. stepName is the
-        # RAW (pre-expansion) YAML `description:` -- variables like
-        # ${vmName} are intentionally NOT expanded here so cross-cycle
-        # joins on stepName remain stable even though vmName carries a
-        # per-cycle timestamp suffix. Falls back to step.action when no
-        # description is set. A retry emits its enclosing interval and final
-        # outcome as well as the children; readers count only top-level rows
-        # when summing work and final failures.
+        # See https://yuruna.link/4213a0b3-0145
         if (Get-Command -Name Write-PerfStepRow -ErrorAction SilentlyContinue) {
             try {
                 $stepName = if ($step.Contains('description') -and $step.description) { [string]$step.description } else { [string]$step.action }
@@ -2975,26 +2595,10 @@ function Invoke-Sequence {
         if (-not $ok) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dd72f34f455cfe9b' -Arguments @{ stepNum = "$stepNum"; desc = "$desc" })
 
-            # Build a human-readable failed-step label (e.g. 'waitForText: "login prompt"').
-            # Canonical builder: Test.SequenceAction\Get-SequenceActionFailureLabel.
-            # Each verb's FailureLabel scriptblock lives next to its capability
-            # requirements in Test.SequenceHandler.psm1 -- search for
-            # Register-SequenceAction. The OUTER call site reads $script:Fail.Last-
-            # Failure* below to write last_failure.json + the failure screen-
-            # shot. Capturing here (and only returning $false) keeps transient
-            # retry-attempt failures from leaving a stale last_failure.json
-            # behind.
+            # See https://yuruna.link/4213a0b3-0146
             $actionLabel = Get-SequenceActionFailureLabel -Step $step -Vars $vars -ExpandVariable ${function:Expand-Variable}
 
-            # If a wait-signal verb short-circuited on a failurePattern,
-            # annotate the step label so the runner's ERROR banner and the
-            # per-run failure JSON both say *why* the step died instead of
-            # the generic "pattern not found within Ns". The set of verbs
-            # that populate this signal is declared per-verb via the
-            # UsesWaitSignals registry flag (Register-SequenceAction), so a
-            # new wait verb opts in at its registration rather than editing
-            # this engine site. For other actions the signal is $null and
-            # the label is unchanged.
+            # See https://yuruna.link/4213a0b3-0147
             $stepUsesWaitSignals = $false
             if (-not [string]::IsNullOrEmpty([string]$step.action)) {
                 $waitSignalEntry = Get-SequenceAction -Name ([string]$step.action)
@@ -3027,16 +2631,7 @@ function Invoke-Sequence {
     $script:Fail.LastFailedAction       = $null
     $script:Fail.LastFailedStepNumber   = 0
     $script:Fail.LastFailedStepStartedUtc = $null
-    # Inner-verb capture for retry-exhausted failures. The per-step failure
-    # branch in $invokeStepBlock overwrites $script:Fail.LastFailedAction with
-    # the OUTER step's action name (= 'retry') whenever a Handler returns
-    # $false; that collapses the deepest inner verb's classification
-    # into 'retry_exhausted'. The retry Handler captures the inner verb
-    # into these slots BEFORE returning so the v2 emitter below can
-    # surface both classes -- 'retry_exhausted' for the outer step,
-    # plus the inner class an autonomous remediator needs to pick the
-    # right recovery (an OCR timeout asks for a different remediation
-    # than an SSH down).
+    # See https://yuruna.link/4213a0b3-0148
     $script:Fail.LastInnerFailedAction         = $null
     $script:Fail.LastInnerFailureClass         = $null
     $script:Fail.LastInnerSeverity             = $null
@@ -3051,6 +2646,8 @@ function Invoke-Sequence {
     # any wait runs (the wait functions also reset them at entry).
     $script:Fail.WaitForTextOcrTail            = $null
     $script:Fail.WaitForTextPatternsSought     = [string[]]@()
+    $script:Fail.WaitForTextInstallerStage = ''
+    $script:Fail.WaitForTextInstallerStageSeconds = 0
     $result = & $invokeStepBlock -Steps $steps -StepOffset ([Math]::Max(0, $StartStep - 1))
     if (-not $result) {
         # Keep the exact frame saved by the failed attempt; recapture only
@@ -3071,14 +2668,7 @@ function Invoke-Sequence {
             }
         }
 
-        # Built after the capture above, not before it: the record names the
-        # screen artifacts this failure left behind and only claims one that is
-        # already on disk and newer than the failing step, so a record built
-        # first would have to describe a frame that does not exist yet.
-        # New-SequenceFailureRecord reads the $script:Fail slots and returns
-        # both the last_failure.json ordered dict and the matching step_failure
-        # NDJSON record so the file and the event stream can never drift. See
-        # docs/failure-schema.md.
+        # See https://yuruna.link/4213a0b3-0149
         $failRec = New-SequenceFailureRecord -Reason 'step' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $sourceStepCount
         $failureFile = Join-Path $logDir "last_failure.json"
         # Atomic write: a remediator/status reader must never observe a truncated
@@ -3117,16 +2707,7 @@ function Invoke-Sequence {
     return $true
 
   } catch {
-    # YurunaCycleRestart is a control-flow marker from the cycle-restart
-    # gate ($checkCycleRestart), not an actual sequence failure. The gate
-    # comment at Gate #2 promises it "bubbles up to the cycle-level try/
-    # catch in Invoke-TestRunnerInnerLoop" -- re-throw before the generic
-    # handler turns it into a Write-Warning + return $false, which would
-    # leave control.cycle-restart unconsumed and the flag re-fires on every
-    # subsequent sequence's [sequence start] gate. Prefer the structured
-    # Exception.Data tag (survives a rewrap that would strip the message
-    # prefix); fall back to the message prefix so an untagged marker from an
-    # older throw path still re-throws instead of being counted as a crash.
+    # See https://yuruna.link/4213a0b3-014a
     if (($_.Exception.Data -and $_.Exception.Data['YurunaCycleRestart']) -or
         ($_.Exception.Message -like 'YurunaCycleRestart:*')) { throw }
     # An exhausted lab hold is a classified infra failure, not a crash. The gate
@@ -3158,22 +2739,7 @@ function Invoke-Sequence {
             Write-Warning "      $line"
         }
     }
-    # Preserve diagnostics for the crash, in the SAME schema-v2 shape
-    # the normal failure path emits above. Without this, a
-    # throw from any verb Handler (or from infrastructure between
-    # steps) silently downgrades last_failure.json from v2 to a v0
-    # crash payload, stripping failureClass/severity/suggested
-    # Recoveries -- the exact fields a downstream remediator routes
-    # on. When $script:Fail.LastFailedAction was already captured by the
-    # per-step failure branch we resolve its registry entry; otherwise we
-    # fall back to the canonical 'unknown' classification (the same
-    # fallback the per-step paths above use when a verb is unresolved)
-    # so the record stays schema-v2 AND passes the failureClass/severity
-    # enum validation in Test.EventSchema. The crash stays distinguishable
-    # via the "engine crash: ..." action label, the crashError field, and
-    # the .context.crash block -- a separate enum value carries no routing
-    # weight, since the remediation dispatcher already maps 'unknown' to
-    # pause-and-inspect.
+    # See https://yuruna.link/4213a0b3-014b
     try {
         $VMName = [string]$script:SequenceFinishedVMName
         $failRec = New-SequenceFailureRecord -Reason 'crash' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $sourceStepCount -CrashError $_
@@ -3202,29 +2768,10 @@ function Invoke-Sequence {
 }
 
 # --- REGION: Host I/O provider registrations
-# Registered in per-host singular-noun modules:
-#   Test.HostIO.HyperV.psm1   host.windows.hyper-v
-#   Test.HostIO.Utm.psm1      host.macos.utm
-#   Test.HostIO.Kvm.psm1      host.ubuntu.kvm
-# Each module owns only its Register-HostIOProvider calls; the
-# function bodies (Send-KeyHyperV / Send-KeyVNC / Send-KeyUTM /
-# Send-KeyKvm / Send-TextHyperV / Send-TextVNC / Send-TextUTM /
-# Send-TextKvm / Send-ClickHyperV / Send-ClickUtm) live in
-# Test.Transport.psm1. The startup capability matrix reads
-# Get-HostIOProviderMatrix so the operator sees which actions are
-# wired on the current host before the cycle starts. See docs/host-io.md.
+# See https://yuruna.link/4213a0b3-014c
 
 # --- REGION: Sequence action metadata registrations
-# Failure-label scriptblock convention: $Context carries Step (parsed YAML
-# step), Vars (variable scope), and ExpandVariable (live reference to
-# Expand-Variable; we pass it in so the registry module does NOT have to
-# import Invoke-Sequence). Each block reads $Context and returns the
-# label string. Capability requirements (HostIORequirement + OcrRequired)
-# ride in the same registry entries; Test.Capability reads them from there.
-#
-# See ../../docs/test-sequences.md#handler-contract for the built-in verb
-# catalog's -Global wiring and how it coordinates through the shared
-# failure-state store. -- Test.SequenceEngine.psm1
+# See https://yuruna.link/4213a0b3-014d
 
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Save-EngineOcrSidecar, Save-OcrSidecar, Write-ProgressTick, `

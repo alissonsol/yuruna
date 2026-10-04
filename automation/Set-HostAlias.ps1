@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42de6dd0-d68a-40b1-a0d0-b2d21c4caf3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,25 +136,7 @@ begin {
     }
 
     # --- REGION: 3. Resolver-cache invalidation
-    # Writing the file is not the end of the change. The operating system
-    # resolves names out of an in-memory cache that goes on answering with the
-    # PREVIOUS address after the hosts-file line under it has changed, and on
-    # macOS that window is wide enough to matter: mDNSResponder re-reads
-    # /etc/hosts on a schedule of its own, so a consumer that resolves within a
-    # few hundred milliseconds of the write still reaches the old host.
-    #
-    # The damage is worst for exactly the edit this script exists to make --
-    # repointing a name from another machine to this one. The caller believes it
-    # is dialing a local service; the connection instead leaves over the LAN to
-    # the machine the name USED to mean, and fails there against a credential,
-    # a share, or a certificate that only makes sense locally. Every visible
-    # detail (hostname, share path, account, mount point) is correct while that
-    # happens, which is what makes it so hard to read backwards from the error.
-    #
-    # Best-effort by design, and never fatal: a cache that cannot be flushed is
-    # slow to converge rather than broken, and a host with no caching resolver
-    # at all (common on Linux) has nothing to flush. The write has already
-    # succeeded by the time this runs, so nothing here may fail it.
+    # See https://yuruna.link/4213a0b3-0003
     function Clear-HostAliasResolverCache {
         [CmdletBinding()]
         param()

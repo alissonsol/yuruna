@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42717e9e-cb41-455c-9848-aef41009bf87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,20 +183,20 @@ Describe 'accepting a translation against its English source' {
     }
 
     It 'a footer-only edit leaves the row current' {
-        $run = Invoke-EditedSourceCheck -Name 'footer-only' -SourceBody "# Template`n`nLast review: 2026.09.30`n" `
-            -Edit { param($text) $text.Replace('Last review: 2026.09.30', 'Last review: 2026.10.04') }
+        $run = Invoke-EditedSourceCheck -Name 'footer-only' -SourceBody "# Template`n`nLast review: 2026.10.04`n" `
+            -Edit { param($text) $text.Replace('Last review: 2026.10.04', 'Last review: 2026.10.04') }
         Assert-Equal -Expected 0 -Actual $run.Code 'a review-footer sweep made the translation look stale'
     }
 
     It 'a release-tag-only edit leaves the row current' {
-        $body = "# Template`n`nhttps://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.09.30/install/ubuntu.kvm.sh`n"
+        $body = "# Template`n`nhttps://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.04/install/ubuntu.kvm.sh`n"
         $run = Invoke-EditedSourceCheck -Name 'tag-only' -SourceBody $body `
-            -Edit { param($text) $text.Replace('refs/tags/2026.09.30/', 'refs/tags/2026.09.30.1/') }
+            -Edit { param($text) $text.Replace('refs/tags/2026.10.04/', 'refs/tags/2026.10.04.1/') }
         Assert-Equal -Expected 0 -Actual $run.Code 'a release-tag sweep made the translation look stale'
     }
 
     It 'a prose edit stales the row' {
-        $run = Invoke-EditedSourceCheck -Name 'prose-edit' -SourceBody "# Template`n`nLast review: 2026.09.30`n" `
+        $run = Invoke-EditedSourceCheck -Name 'prose-edit' -SourceBody "# Template`n`nLast review: 2026.10.04`n" `
             -Edit { param($text) $text + "A new sentence the translation does not have.`n" }
         Assert-Equal -Expected 1 -Actual $run.Code 'an English prose edit left the translation current'
         Assert-Match -Pattern 'changed since' -Actual $run.Output 'the stale document is not named'
@@ -222,5 +222,41 @@ Describe 'accepting a translation against its English source' {
                 $_.repo -eq 'yuruna-project' -and $_.source -eq $script:ProjectOnlyDocument })
         Assert-False -Condition (@($entry[0].PSObject.Properties.Name) -contains 'origin') `
             -Because 'accepting the translation did not remove the machine-draft marker'
+    }
+
+    It 'records only the new source-qualified frontend document as a machine draft' {
+        $sibling = Join-Path $TestDrive 'new-frontend'
+        $sourcePath = 'example/website/components/frontend/website/README.md'
+        $translatedPath = 'docs/pt-BR/example/website/components/frontend/website/README.md'
+        $utf8 = [Text.UTF8Encoding]::new($false)
+        foreach ($relative in @($sourcePath, $translatedPath)) {
+            $target = Join-Path $sibling $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+        }
+        [IO.File]::WriteAllText((Join-Path $sibling $sourcePath), "# Frontend`n`nRun the example.`n", $utf8)
+        [IO.File]::WriteAllText((Join-Path $sibling $translatedPath), "# Frontend`n`nExecute o exemplo.`n", $utf8)
+        $manifest = New-RecordFixture -Name 'new-frontend'
+        $before = @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($manifest))).documents | Where-Object {
+                $_.repo -cne 'yuruna-project' -or $_.source -cne $sourcePath
+            } | ForEach-Object { ConvertTo-Json -InputObject $_ -Depth 10 -Compress })
+        $common = @('-Locale', 'pt-BR', '-Path', "yuruna-project:$sourcePath", '-ProjectRoot', $sibling,
+            '-Manifest', $manifest, '-Quiet')
+        $run = Invoke-DocTranslation -Argument (@('-Accept', '-Machine') + $common)
+        Assert-Equal -Expected 0 -Actual $run.Code -Because $run.Output
+        $recorded = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($manifest))
+        $entry = @($recorded.documents | Where-Object {
+                $_.repo -ceq 'yuruna-project' -and $_.source -ceq $sourcePath
+            })
+        Assert-Equal -Expected 1 -Actual $entry.Count 'the newly enrolled source was not recorded exactly once'
+        Assert-StringEqual -Expected 'machine' -Actual ([string]$entry[0].origin) 'the new draft was professionally accepted'
+        Assert-StringEqual -Expected $translatedPath -Actual ([string]$entry[0].translated) 'the new document used the wrong localized path'
+        $after = @($recorded.documents | Where-Object {
+                $_.repo -cne 'yuruna-project' -or $_.source -cne $sourcePath
+            } | ForEach-Object { ConvertTo-Json -InputObject $_ -Depth 10 -Compress })
+        Assert-StringEqual -Expected ($before -join "`n") -Actual ($after -join "`n") `
+            'recording the new draft changed a different document hash or provenance'
+        $check = Invoke-DocTranslation -Argument $common
+        Assert-Equal -Expected 0 -Actual $check.Code -Because $check.Output
+        Assert-Match -Pattern '1 machine draft\(s\)' -Actual $check.Output 'the new machine draft is not reported'
     }
 }

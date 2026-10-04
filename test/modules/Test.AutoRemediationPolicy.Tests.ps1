@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42c9b3e7-1d58-4a06-9e24-7f3b5c8d1a60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,7 @@ BeforeAll {
 
     $script:RepoRoot   = Get-YurunaTestRepoRoot -SuiteDirectory $here
     $script:OuterLoop  = Join-Path $here 'Test.RunnerOuterLoop.psm1'
+    $script:Repairs    = Join-Path $here 'Test.RecoveryActions.psm1'
     $script:AllowList  = Get-AutoRemediationAllowList
 }
 
@@ -108,8 +109,21 @@ Describe 'the decision has one home' {
     }
 
     It 'asks the registry before ending a failure pause early' {
-        $src = Get-Content -Raw -LiteralPath $script:OuterLoop
-        Assert-Match -Pattern 'Test-AutoRemediationAllowed' -Actual $src `
-            -Because 'the outer loop must route the retry decision through the registry'
+        # The decision is the pause-shortcut repair's applicability rule: the loop
+        # runs that repair through the ledger, and the repair asks the registry.
+        $repairs = Get-Content -Raw -LiteralPath $script:Repairs
+        Assert-Match -Pattern 'Test-AutoRemediationAllowed' -Actual $repairs `
+            -Because 'the pause-shortcut repair must route the retry decision through the registry'
+        $loop = Get-Content -Raw -LiteralPath $script:OuterLoop
+        Assert-Match -Pattern "Invoke-RecoveryAction -Name 'end_failure_pause_early'" -Actual $loop `
+            -Because 'the loop must end the pause early only through the ledger-governed repair'
+    }
+
+    It 'leaves no failure-class literal in the repairs either' {
+        $src = Get-Content -Raw -LiteralPath $script:Repairs
+        foreach ($c in $script:AllowList.Keys) {
+            $inArray = [regex]::Matches($src, [regex]::Escape("'$c'") + '\s*,\s*''')
+            Assert-True ($inArray.Count -eq 0) "$script:Repairs builds a failure-class array containing '$c'; ask the registry instead"
+        }
     }
 }

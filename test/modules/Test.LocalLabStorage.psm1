@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 421fc09f-36ed-4d1d-872e-0167bfb4583f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,21 +16,7 @@
 
 #requires -version 7
 
-# Local lab storage: turn ONE machine into its own pool/stash SMB server and
-# then consume those shares over the network stack, exactly as it would consume
-# a NAS. The point of the loopback is uniformity -- the runner, the config gate,
-# the drain, and the guest seeds all take the SMB path, so a single-machine lab
-# exercises the same code as a lab with a real NAS and can later be pointed at
-# one by changing only the host alias.
-#
-# This module owns the per-OS half of that (accounts, the SMB server, the
-# shares, the loopback exemptions); the mount itself is Test.PoolStorage's
-# Connect-YurunaPoolStorage, unchanged, so there is exactly one mount
-# implementation in the tree.
-#
-# The pure helpers (path composition, drive selection, smb.conf text, registry
-# merge) are separated from the OS calls so they are unit-testable on any
-# platform -- the OS calls are integration-verified, since they mutate the host.
+# See https://yuruna.link/4213a0b3-0093
 
 # Get-SudoPwshArgumentList (the nested-sudo argument vector) lives here.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -493,21 +479,7 @@ function Merge-LocalLabStorageBackConnectionName {
     return $merged.ToArray()
 }
 
-# Runs a native command, returning its merged stdout+stderr and throwing on a
-# non-zero exit with that output attached. The output is the whole diagnostic
-# value here: `sharing`, `smbpasswd`, `sysadminctl`, and `testparm` all exit 1
-# for a wide range of unrelated causes, so the exit code alone never says what
-# to fix. -AllowFailure turns it into a probe that returns the result instead.
-#
-# The sudo path goes through Invoke-YurunaSudo rather than running sudo here.
-# sudo reads its password from /dev/tty, so a run whose console belongs to a
-# parent cannot stop a bare `sudo` from prompting where nobody can see it --
-# Invoke-YurunaSudo adds -n on exactly that path and recognizes sudo's own
-# refusal signatures. That distinction is what -AllowFailure must NOT swallow:
-# most of the calls below are probes whose non-zero exit is the answer ("no such
-# sharepoint", "package absent"), but "sudo would not run this at all" is not an
-# answer to any of them, and treating it as one is how half a storage
-# configuration gets built and then reported as the tiers it did create.
+# See https://yuruna.link/4213a0b3-0094
 function Invoke-LocalLabStorageNative {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -609,14 +581,7 @@ Nothing here reports whether the credential WORKS -- the directory record cannot
     $hashTypes = Invoke-LocalLabStorageNative -FilePath 'sudo' `
         -ArgumentList @('pwpolicy', '-u', $Name, '-sethashtypes', 'SMB-NT', 'on') -AllowFailure
     if ($hashTypes.ExitCode -ne 0) { $detail.Add((Format-YurunaOperatorMessage -Key 'runner.operator_d0b6acafc17b1594' -Arguments @{ exitCode = "$($hashTypes.ExitCode)"; output = "$($hashTypes.Output)" })) }
-    # `dscl -passwd`, NOT `sysadminctl -resetPasswordFor`. Both set the password
-    # and both leave OpenDirectory accepting it -- `dscl -authonly` passes either
-    # way -- but only the directory-level write regenerates the stored hashes
-    # through the hash list that was just changed. Via sysadminctl the account
-    # ends up with a correct password and no NT hash, which is precisely the
-    # split this failure has: OpenDirectory says yes, smbd says
-    # "server rejected the authentication", and the mount that follows reports
-    # the rejection as "No such file or directory".
+    # See https://yuruna.link/4213a0b3-0095
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_aac480322b602a63' -Arguments @{ name = "$($Name)" })
     $passwd = Invoke-LocalLabStorageNative -FilePath 'sudo' `
         -ArgumentList @('dscl', '.', '-passwd', "/Users/$Name", $Password) -AllowFailure
@@ -740,17 +705,7 @@ function Set-LocalLabStorageAccount {
             }
         }
     } elseif ($IsMacOS) {
-        # sysadminctl takes the password on its argument vector, briefly exposing
-        # it to `ps`. There is no stdin-capable equivalent on macOS; the same
-        # residual exposure is accepted (and documented) by New-LocalTestUser and
-        # by the macOS branch of the poolStorage mount.
-        #
-        # sysadminctl has no '--' end-of-options marker, so a leading '-' would be
-        # parsed as an option and the account would end up with a password the
-        # vault does not agree with. New-Lab reuses a host-vault credential when
-        # one is already present, and a hand-populated entry carries no
-        # leading-character guarantee, so this is reachable -- same guard as
-        # New-LocalTestUser.
+        # See https://yuruna.link/4213a0b3-0096
         if ($Password.StartsWith('-')) {
             throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_0c36e11e9915d052' -Arguments @{ name = "$Name" })
         }
@@ -1225,15 +1180,7 @@ function Set-YurunaHostAlias {
             # only add a second UAC prompt.
             & $aliasScript -ComputerName $n -IPAddress $address
         } else {
-            # Re-launched under sudo because the hosts file is root-owned and
-            # Set-HostAlias refuses to run as an unprivileged user. The argument
-            # vector comes from Get-SudoPwshArgumentList: a bare 'pwsh' under
-            # sudo's stripped environment dies with a .NET "libhostfxr not found"
-            # exit 131, three steps before the vault and the config are written.
-            # The prompt names whose password and what for: sudo's default says
-            # neither, and this elevation lands in the middle of a run that has
-            # been generating and storing lab credentials, so an unnamed
-            # "Password:" reads as a request for one of those.
+            # See https://yuruna.link/4213a0b3-0097
             $aliasArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
                 -ScriptArgument @('-ComputerName', $n, '-IPAddress', $address) `
                 -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_13113525af0647bd' -Arguments @{ n = "$n" })
@@ -1259,33 +1206,23 @@ function Set-YurunaHostAlias {
 }
 
 # --- REGION: Standing local storage back down
-# A machine that served its own shares and now consumes a lab's has to stop
-# being a storage server, and every step above needs an inverse for that. They
-# are grouped here rather than beside their creators so the destructive half of
-# this module is one region an operator can read end to end before running it.
-#
-# The DATA is never touched by anything in this region. The folders under the
-# storage root hold finished cycle archives, stash artifacts, the lab vault, and
-# the pool-intent repository -- content whose only copy may be there. What comes
-# down is the SERVING configuration: the share definitions, the accounts scoped
-# to them, the loopback exemptions, and the aliases. That split is what makes the
-# teardown safe to run before the operator has decided anything about the bytes.
+# See https://yuruna.link/4213a0b3-0098
 
-<#
-.SYNOPSIS
-Returns smb.conf content with the yuruna include line removed, or $null when no such line is present so the caller writes nothing. Pure + idempotent; the inverse of Add-LocalLabStorageSambaInclude.
-.DESCRIPTION
-The comment this module writes above its include is dropped with it, so a
-re-added include does not accumulate a comment per cycle. Matching is on the
-NORMALIZED line (whitespace collapsed) for the same reason the adder is: smb.conf
-is hand-editable and an operator's re-indent must not turn removal into a no-op
-that leaves smbd serving shares the machine no longer has accounts for.
-
-Every other line survives verbatim, including an unrelated `include` -- Samba
-configurations routinely carry more than one, and taking a foreign one down here
-would break whatever wrote it.
-#>
 function Remove-LocalLabStorageSambaInclude {
+    <#
+    .SYNOPSIS
+    Returns smb.conf content with the yuruna include line removed, or $null when no such line is present so the caller writes nothing. Pure + idempotent; the inverse of Add-LocalLabStorageSambaInclude.
+    .DESCRIPTION
+    The comment this module writes above its include is dropped with it, so a
+    re-added include does not accumulate a comment per cycle. Matching is on the
+    NORMALIZED line (whitespace collapsed) for the same reason the adder is: smb.conf
+    is hand-editable and an operator's re-indent must not turn removal into a no-op
+    that leaves smbd serving shares the machine no longer has accounts for.
+
+    Every other line survives verbatim, including an unrelated `include` -- Samba
+    configurations routinely carry more than one, and taking a foreign one down here
+    would break whatever wrote it.
+    #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Pure string transform; returns the new content for the caller to write.')]
     [CmdletBinding()]

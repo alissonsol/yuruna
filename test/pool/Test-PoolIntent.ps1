@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 421a5b0c-c7c1-4612-9a9e-d61b0c836775
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,15 +20,7 @@
 .SYNOPSIS
     Validate every file in the pool intent store against its schema. Read-only.
 .DESCRIPTION
-    Pool admin CLI / CI gate. Clones/pulls the intent store and validates
-    pools.yml (schema v3) and guests.compatibility.yml (when present) against
-    test/schemas/*, enforces the cross-pool invariant that a host belongs to at
-    most one pool, and checks that the auto-enrollment target pool carries no
-    repositories. pools.yml is judged as stored: a store below schemaVersion 3
-    gets one schema-version finding that names test/pool/Update-PoolIntentSchema.ps1.
-    Exit 0 when all valid, 1 on any error. Never writes. Run before relying on
-    freshly-authored intent (the runners pull whatever is committed, so a
-    malformed file would silently misconfigure the whole pool).
+    See https://yuruna.link/42010605-0004.
 .EXAMPLE
     test/pool/Test-PoolIntent.ps1 -IntentGitUrl /var/lib/yuruna/pool-intent.git
 #>
@@ -119,15 +111,7 @@ if (Test-Path -LiteralPath $poolsPath) {
         if ($dupes -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_eb9468440861e598') -InformationAction Continue }
         else { $failures += $dupes }
 
-        # The auto-enrollment target pool must carry NO repositories. This is
-        # the AUTHORITATIVE check: the CLI refuses and the UI disables, but only
-        # this one catches a hand-edited file or a store written by an older
-        # release. It is a cross-field constraint (a pool named by ANOTHER
-        # field), which JSON Schema cannot express. It is defined against the
-        # v3 shape, so it runs only on a store at schemaVersion 3.
-        #
-        # A violation FAILS rather than being silently stripped: stripping it
-        # would change what a lab is running without anyone deciding to.
+        # See https://yuruna.link/42010605-0004
         $targetPoolId = if ($poolsDoc['autoEnrollment']) { [string]$poolsDoc['autoEnrollment']['targetPoolId'] } else { '' }
         if ($schemaCurrent -and $targetPoolId) {
             $violations = 0

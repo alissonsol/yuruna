@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 429b56f1-0d8f-43a6-a6dc-445eb58c952f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -188,14 +188,7 @@ if ($Force) {
 $errors = 0
 foreach ($item in $orphanedItems) {
     try {
-        # Belt-and-suspenders: make sure libvirt didn't pick up the domain
-        # between the initial scan and the actual delete.
-        # The not-found signature below is gettext text, so the words have to be
-        # pinned or the check never matches on a host in another language --
-        # which does not delete anything it should not, but does refuse every
-        # cleanup and leaves the operator with a warning per orphan and no way
-        # to act on it. LC_ALL is cleared for the call because it outranks
-        # LC_MESSAGES.
+        # See https://yuruna.link/42e5cdfd-0024
         $priorAll = $env:LC_ALL
         $priorMessages = $env:LC_MESSAGES
         try {

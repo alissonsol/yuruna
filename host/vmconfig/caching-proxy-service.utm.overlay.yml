@@ -9,9 +9,11 @@
     permissions: '0644'
     owner: root:root
     content: |
+      # --- REGION: [Match]
       [Match]
       Driver=virtio_net
 
+      # --- REGION: [Link]
       [Link]
       TCPSegmentationOffload=false
       GenericSegmentationOffload=false

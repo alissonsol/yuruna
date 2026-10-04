@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42367dc8-87ed-6a22-76cb-f406abe4051a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,6 +140,7 @@
         }
         '；libvirt仅重命名明确报告为已停止的域。'
     )
+    'host.kvm_running_cache_unreachable' = 'caching-proxy-service 虚拟机正在运行，但无法访问其代理。运行 test/service/Start-CachingProxyServiceVM.ps1 恢复代理，或传入 -CachingProxyServiceUrl "" 以直接下载。'
     'host.kvm_start_network_action' = '启动未激活的libvirt网络'
     'host.kvm_start_unit_action' = '启动已停止的libvirt单元'
     'host.operator_005bab80fe0f8f32' = @(

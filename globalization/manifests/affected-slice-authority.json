@@ -139,12 +139,6 @@
     },
     {
       "wireCode": "host_refresh.completed",
-      "path": "test/modules/Invoke-TestCycleRunner.ps1",
-      "matchCount": 1,
-      "reason": "Outer-cycle outcome default; not a host-refresh state."
-    },
-    {
-      "wireCode": "host_refresh.completed",
       "path": "test/modules/Test.HostRefreshTrigger.psm1",
       "matchCount": 2,
       "reason": "Outer-cycle outcome the trigger counts evidence from; not a host-refresh state."
@@ -404,7 +398,7 @@
     {
       "wireCode": "host_refresh.idle",
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "matchCount": 6,
+      "matchCount": 7,
       "reason": "Runner state transition; not the host-refresh state."
     },
     {
@@ -775,6 +769,12 @@
     },
     {
       "wireCode": "host_refresh.running",
+      "path": "host/ubuntu.kvm/modules/New-UbuntuServerVM.ps1",
+      "matchCount": 1,
+      "reason": "libvirt domain state of the caching-proxy service VM during guest cache discovery; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
       "matchCount": 7,
       "reason": "libvirt domain state; not a host-refresh request state."
@@ -805,6 +805,18 @@
     },
     {
       "wireCode": "host_refresh.running",
+      "path": "test/extension/pool-aggregator-service/backfill.go",
+      "matchCount": 1,
+      "reason": "Runner overall status of the host's current cycle, read from the collector's pool status; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/extension/pool-aggregator-service/backfill_loki.go",
+      "matchCount": 1,
+      "reason": "Runner overall status on a backfilled cycle's first transition line, as the collector writes it; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
       "path": "test/extension/pool-aggregator-service/main.go",
       "matchCount": 4,
       "reason": "Runner overall status the aggregator reads from status.json; not a host-refresh request state."
@@ -830,8 +842,8 @@
     {
       "wireCode": "host_refresh.running",
       "path": "test/modules/Test.HostContract.psm1",
-      "matchCount": 2,
-      "reason": "Virtual machine state; not a host-refresh request state."
+      "matchCount": 3,
+      "reason": "Virtual machine state, including the VM admission read; not a host-refresh request state."
     },
     {
       "wireCode": "host_refresh.running",
@@ -1147,6 +1159,18 @@
     },
     {
       "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-aggregator-service/backfill_loki.go",
+      "matchCount": 4,
+      "reason": "Failure-class fallback for an unclassified failed cycle, matching the collector's; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-aggregator-service/backfill_record.go",
+      "matchCount": 1,
+      "reason": "Failure-class fallback for a failed cycle whose event file names no class; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
       "path": "test/extension/pool-aggregator-service/main.go",
       "matchCount": 12,
       "reason": "Failure-class, pause-control and pinned-commit fallbacks; not the host-refresh state."
@@ -1340,8 +1364,8 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "matchCount": 5,
-      "reason": "Spawn-gate state and barrier request-id fallbacks; not the host-refresh state."
+      "matchCount": 6,
+      "reason": "Spawn-gate state, barrier request-id fallbacks and the unrecorded-outcome diagnostic; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -1510,6 +1534,60 @@
       "path": "tools/tests/stop_process_contracts.ps1",
       "matchCount": 1,
       "reason": "Fixture process lookup that is denied access; not a repository-access verdict."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.RunnerOuterLoop.psm1",
+      "matchCount": 1,
+      "reason": "Outcome record reason (no file was left); not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostContract.psm1",
+      "matchCount": 5,
+      "reason": "VM admission verdict and VM state when the host cannot say; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.RecoveryContract.psm1",
+      "matchCount": 5,
+      "reason": "Outcome and recovery state of a run that did not pass; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.RecoveryContract.psm1",
+      "matchCount": 1,
+      "reason": "Outcome record reason (no file was left); not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.RecoveryContract.psm1",
+      "matchCount": 6,
+      "reason": "VM admission verdict and fallbacks when the host cannot say; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.abandoned",
+      "path": "test/modules/Test.RecoveryLedger.psm1",
+      "matchCount": 3,
+      "reason": "Attempt phase of a repair whose process died; not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.RecoveryLedger.psm1",
+      "matchCount": 5,
+      "reason": "Attempt phase and event decision of a repair that did not work; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "test/modules/Test.RecoveryLedger.psm1",
+      "matchCount": 1,
+      "reason": "Event decision of a repair attempt that has started; not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.succeeded",
+      "path": "test/modules/Test.RecoveryLedger.psm1",
+      "matchCount": 2,
+      "reason": "Attempt phase of a repair that worked; not a host-refresh verdict."
     }
   ],
   "signatureConsumers": [
@@ -1865,6 +1943,7 @@
         "code:repository_access.denied:producer:test/modules/Test.RunnerInnerLoop.psm1",
         "code:repository_access.denied:consumer:test/extension/pool-control-service/server/internal/httpsrv/board.go",
         "code:repository_access.denied:consumer:test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js",
+        "code:repository_access.denied:consumer:test/modules/Test.RecoveryActions.psm1",
         "code:repository_access.readable:producer:test/modules/Test.HostGit.psm1",
         "code:repository_access.unconfigured:producer:test/modules/Test.HostGit.psm1",
         "code:repository_access.unprobed:producer:test/modules/Test.HostGit.psm1",

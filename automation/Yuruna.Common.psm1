@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2148,14 +2148,7 @@ function Get-ServiceVmMemoryVerdict {
         return [pscustomobject]$verdict
     }
 
-    # What this operator can actually change, taken from the plan itself. A lever
-    # that does not apply to the run in front of them costs the whole sentence its
-    # credibility: a lab may not set storage.kind = none -- the stash and the
-    # intent store both need the shares -- so a lab is never offered it.
-    #
-    # Read off EVERY planned row, not only the sized ones: a service whose builder
-    # could not be read is still a service this run starts, and still a service the
-    # operator can decline.
+    # See https://yuruna.link/4213a0b3-000a
     $names  = @($rows | ForEach-Object { [string]$_.Name })
     $isLab  = $names -contains 'pool-control'
     $lever  = [System.Collections.Generic.List[string]]::new()
@@ -2666,15 +2659,7 @@ function Invoke-BoundedNativeCommand {
         if ($take -lt $Count) { $Truncated.Value = $true }
     }
 
-    # Both streams and the exit signal are pumped from this one thread via
-    # WaitAny, never a background thread: PowerShell scriptblocks are
-    # runspace-affinitized and cannot safely run on an arbitrary .NET
-    # thread-pool thread the way a raw Task.Run delegate would need to.
-    # Task.WaitAny below never blocks past the millisecond count it is given,
-    # and only a task that call has already confirmed finished ever has its
-    # GetAwaiter().GetResult() (equivalently .Result) read; reading an
-    # unfinished task's result would block this thread for as long as a
-    # descendant holds the pipe.
+    # See https://yuruna.link/4213a0b3-000b
     $outTask  = $proc.StandardOutput.ReadAsync([Memory[char]]::new($outBuf), $cts.Token).AsTask()
     $errTask  = $proc.StandardError.ReadAsync([Memory[char]]::new($errBuf), $cts.Token).AsTask()
     $exitTask = [Yuruna.NativeCleanup]::ObserveExit($proc)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,17 +16,7 @@
 
 #requires -version 7
 
-# Orchestration-sequence execution for Debug-TestSequence.ps1: runs every
-# `InvokeTestSequence` inner sequence IN-PROCESS under ONE status.json
-# cycle, one dashboard row per inner sequence. See
-# docs/runner-outer-loop.md#what-a-testrunneryml-entry-can-be.
-#
-# Known duplication: Invoke-OrchestratorGuestRun below mirrors the per-guest
-# prep + chain-run Debug-TestSequence.ps1 performs inline for a standalone run
-# (plan -> caching-proxy service -> ssh-user override -> VM ensure/start ->
-# Invoke-TestSequenceChain). The two are kept separate so a change here cannot
-# regress the standalone path; folding them onto one helper needs a full-lab
-# run to re-verify both.
+# See https://yuruna.link/4213a0b3-00b5
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Test-IsOrchestrationSequence {
@@ -183,15 +173,7 @@ function Invoke-OrchestratorHostAction {
             return 1
         }
         Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_4ed4aab44d7af64a' -Arguments @{ scriptPath = "$scriptPath"; join = "$($hostArgs -join ' ')"; elevated = "$(if ($elevated) { ' (elevated)' })" })
-        # Pipe to Write-OrchestratorLine, not the success stream: this
-        # function returns the exit code, so un-piped stdout would be swallowed
-        # into that value instead of shown. The information stream (rather than
-        # the console host) is what reaches the cycle artifacts, since the log
-        # proxy tees the Write-* cmdlets and nothing else -- a host action whose
-        # output bypassed it would fail with its reason on the terminal only,
-        # and "FAIL" alone in the transcript and the event log. 2>&1 folds in
-        # the child's stderr, which is where a failing host script explains
-        # itself.
+        # See https://yuruna.link/4213a0b3-00b6
         & $pwshExe -NoProfile -ExecutionPolicy Bypass -File $scriptPath @hostArgs 2>&1 | Write-OrchestratorLine
         $exitCode = $LASTEXITCODE
         if ($exitCode -ne 0) { break }
@@ -345,15 +327,7 @@ function Invoke-OrchestrationSequence {
     } else { [System.IO.Path]::GetFileNameWithoutExtension($SequencePath) }
     $continueOnError = $Sequence.Contains('continueOnError') -and [bool]$Sequence['continueOnError']
 
-    # Nested-cycle awareness. An orchestration is normally the cycle OWNER, but
-    # it can itself run nested inside another cycle (an orchestration referenced
-    # as an inner sequence). When $ctx is present this run is NESTED: it attaches
-    # ONE node for the whole orchestration and skips every owner-only status op
-    # (Reset/Initialize/Set-Guest*/Complete-Run/Start-LogFile). Either way, the
-    # step loop publishes a cycle-context handle before each step so a child
-    # PROCESS the step spawns (a host action re-entering Debug-TestSequence.ps1)
-    # attaches as a nested node under the right parent. See Test.Status.psm1
-    # "Nested-cycle support".
+    # See https://yuruna.link/4213a0b3-00b7
     $ctx        = Get-CycleContext
     $orchNested = [bool]$ctx
     $statusFile = if ($ctx -and $ctx.statusPath) { [string]$ctx.statusPath } else { Join-Path $env:YURUNA_RUNTIME_DIR 'status.json' }
@@ -428,17 +402,7 @@ function Invoke-OrchestrationSequence {
         # gap pins the address, then reports the cache lost for the next several
         # steps while the guests it seeded fall back to direct downloads.
         if ($endpoint.EffectiveIp -and (Get-Command Wait-CachingProxyServiceSettled -ErrorAction SilentlyContinue)) {
-            # The registry leg is charged to the cycle preamble on purpose. The
-            # cache's container registry comes up after squid on a rebuild, and a
-            # guest that starts in that gap spends its entire step budget
-            # discovering the registry is absent and then fails the cycle -- the
-            # same wait, paid in the one place where it is fatal. Waiting here
-            # costs the preamble and fails nothing.
-            #
-            # Opt-in with a configurable budget because absence and restarting
-            # are indistinguishable from a probe: a lab that fronts no registry
-            # sets this to 0 rather than paying the budget every cycle for
-            # something that is never coming.
+            # See https://yuruna.link/4213a0b3-00b8
             $regWait = 120
             if ($Config -and $Config.vmStart -is [System.Collections.IDictionary] -and
                 $Config.vmStart.Contains('cachingProxyRegistryWaitSeconds')) {
@@ -682,32 +646,12 @@ function Invoke-OrchestrationSequence {
             $results.Add([ordered]@{ index = $e.index; name = $e.name; kind = $e.kind; outcome = $outcome })
             if (-not $ok) {
                 $overall = 'fail'
-                # Put a failure record on disk for the failing entry. A GUEST
-                # entry's sequence engine writes its own, far richer record and
-                # this call deliberately never overwrites one; a HOST action has
-                # no such writer at all, so without this a cycle that dies in a
-                # pre-flight ends with no last_failure.json -- the dashboard and
-                # the remediation dispatcher then see an unclassified failure and
-                # the cycle folder carries nothing naming what stopped it.
-                # Soft by contract: the outcome is already decided, so failing to
-                # RECORD it must not change it. Test.RunnerInnerLoop is imported
-                # lazily because a passing orchestration never needs it.
+                # See https://yuruna.link/4213a0b3-00b9
                 try {
                     if (-not (Get-Command Write-CycleInfraFailure -ErrorAction SilentlyContinue)) {
                         Import-Module (Join-Path $PSScriptRoot 'Test.RunnerInnerLoop.psm1') -Force -Global -ErrorAction Stop
                     }
-                    # Adopt the class the nested run already established, rather
-                    # than announcing 'unknown' over the top of it. A host action
-                    # that drives a guest sequence fails BECAUSE that sequence
-                    # did, and the sequence engine has already written a
-                    # precisely classified record; hard-coding 'unknown' here
-                    # threw that away at exactly the layer the dashboard reads,
-                    # so a whole class of failures arrived pre-anonymized and
-                    # cross-host incident correlation -- which requires a shared
-                    # class -- could never group them.
-                    # 'unknown' remains the honest answer when there is no inner
-                    # record: a host action that failed on its own has nothing
-                    # more specific to say, and guessing would be worse.
+                    # See https://yuruna.link/4213a0b3-00ba
                     $inheritedClass = 'unknown'
                     if ($env:YURUNA_LOG_DIR) {
                         $innerFailure = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'

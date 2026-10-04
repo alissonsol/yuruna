@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 420e9e53-94d9-42df-aca1-6b21310676a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,29 +16,7 @@
 
 #requires -version 7
 
-# The lab-health gate: before a chain entry and before each sequence step, check
-# the services this lab declares, and hold the cycle while one that WAS
-# answering has stopped answering.
-#
-# The probe set is DERIVED, never configured: every extension area already
-# declares healthPort/healthPath in its <area>.config.yml `service:` block, and
-# Get-ExtensionServiceManifestAll walks them. An area that ships tomorrow is
-# gated the day it lands; an area that declares no health surface is out of
-# scope. A per-service list here would have to be edited for each one and would
-# be wrong the first time it was not.
-#
-# The gate arms on a CHANGE of condition, not on absolute state. A service this
-# host has never reached is not a change -- holding for it would park a fresh
-# host forever, where the caller's own pre-flight gives a fast, accurate "there
-# is no stash here". So a hold needs a lastOkUtc inside the arming window, and
-# that record is kept ACROSS cycles: a service stopped for a rebuild is already
-# gone when the next cycle starts, so a baseline captured at cycle start would
-# never see the transition it exists to catch.
-#
-# Leaf module. Every cross-module dependency (Get-PollDelay, the extension
-# readers, Send-CycleEventSafely, Write-YurunaStateFileJson) is resolved at CALL
-# time and Get-Command-guarded, so a probe degrades to "cannot tell" rather than
-# throwing inside a step gate.
+# See https://yuruna.link/4213a0b3-0091
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:LabHealthRecordFileName = 'lab-health.json'

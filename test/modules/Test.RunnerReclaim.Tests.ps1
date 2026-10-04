@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42fec9c0-cd2a-40fb-b30b-bf873044d79b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -614,5 +614,163 @@ Describe 'Get-YurunaRunnerProtocolCapability' {
         }
         $mac = Get-YurunaRunnerProtocolCapability -Platform macos
         Assert-True ([string]::Equals('MacOS', [string]$mac.Platform, [StringComparison]::Ordinal)) 'the platform name must preserve canonical case'
+    }
+}
+
+Describe 'Windows local single-PID identity safety' {
+    BeforeAll {
+        function New-KernelHandleFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: creates an in-memory handle and disposal tracker without changing any process or file.')]
+            [CmdletBinding()]
+            [OutputType([pscustomobject])]
+            param()
+            $state = [pscustomobject]@{
+                StartTime = [datetime]::SpecifyKind([datetime]'2026-09-25T10:00:00', [DateTimeKind]::Utc)
+                ReadFailure = $null; Disposed = $false; Opened = $false; Tick = [long]0
+            }
+            $handle = [pscustomobject]@{ Id = 1234; State = $state }
+            $handle | Add-Member -MemberType ScriptProperty -Name StartTime -Value {
+                if ($this.State.ReadFailure) { throw $this.State.ReadFailure }
+                return $this.State.StartTime
+            }
+            $handle | Add-Member -MemberType ScriptMethod -Name Dispose -Value { $this.State.Disposed = $true }
+            return [pscustomobject]@{ Handle = $handle; State = $state }
+        }
+    }
+
+    It 'matches the native creation time of this live Windows process without a CIM query' -Skip:(-not $IsWindows) {
+        InModuleScope Test.SingleInstance {
+            $process = [Diagnostics.Process]::GetProcessById($PID)
+            try { $expected = ([DateTimeOffset]$process.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() }
+            finally { $process.Dispose() }
+            $record = Get-YurunaSinglePidRecord -ProcessId $PID -Deadline (New-YurunaDeadline -TotalMilliseconds 5000)
+            Assert-True $record.Table.Complete 'a live local handle supplies the exact generation'
+            Assert-Equal 'kernel' $record.Table.Source
+            Assert-Equal $PID $record.Row.Pid
+            Assert-Equal $expected $record.Row.StartTimeUnixMs
+        }
+    }
+
+    It 'proves absence only for the opening operation missing-PID exception' {
+        InModuleScope Test.SingleInstance {
+            $record = Get-YurunaWindowsKernelPidRecord -ProcessId 1234 -ProcessProvider {
+                param([int]$TargetPid)
+                throw [ArgumentException]::new("No process occupies PID $TargetPid")
+            }
+            Assert-True $record.Table.Complete 'the documented no-PID exception proves absence'
+            Assert-Null $record.Row
+            Assert-Equal 0 @($record.Table.Rows).Count
+            $state = Get-YurunaProcessIdentityState -ProcessId 1234 -ProcessTable $record.Table -RecordedStartTimeUnixMs 1 -SelfPid -1
+            Assert-Equal 'DeadOrRecycled' $state.State
+        }
+    }
+
+    It 'keeps <Kind> opening failures unknown' -TestCases @(
+        @{ Kind = 'access-denied'; Failure = [UnauthorizedAccessException]::new('access denied') }
+        @{ Kind = 'native-access-error'; Failure = [ComponentModel.Win32Exception]::new(5) }
+        @{ Kind = 'unexpected'; Failure = [InvalidOperationException]::new('unavailable') }
+    ) {
+        param($Kind, $Failure)
+        $null = $Kind
+        InModuleScope Test.SingleInstance -Parameters @{ Failure = $Failure } {
+            param($Failure)
+            $null = $Failure
+            $provider = { param([int]$TargetPid) $null = $TargetPid; throw $Failure }.GetNewClosure()
+            $record = Get-YurunaWindowsKernelPidRecord -ProcessId 1234 -ProcessProvider $provider
+            Assert-False $record.Table.Complete 'an opening error is not absence evidence'
+            Assert-Null $record.Row
+            Assert-Match '^kernel-failed:' $record.Table.Error
+            Assert-Equal 'Unknown' (Get-YurunaProcessIdentityState -ProcessId 1234 -ProcessTable $record.Table -RecordedStartTimeUnixMs 1 -SelfPid -1).State
+        }
+    }
+
+    It 'rejects invalid PIDs before calling the opening operation' {
+        InModuleScope Test.SingleInstance {
+            foreach ($processNumber in @(0, -1)) {
+                $record = Get-YurunaWindowsKernelPidRecord -ProcessId $processNumber -ProcessProvider {
+                    param([int]$TargetPid)
+                    throw "Invalid PID $TargetPid reached the opening operation"
+                }
+                Assert-False $record.Table.Complete 'invalid input proves nothing'
+                Assert-Equal 'invalid-pid' $record.Table.Error
+            }
+        }
+    }
+
+    It 'keeps unreadable creation time unknown and disposes the acquired handle' {
+        foreach ($failure in @([UnauthorizedAccessException]::new('start access denied'), [ArgumentException]::new('late read failure'))) {
+            $fixture = New-KernelHandleFixture
+            $fixture.State.ReadFailure = $failure
+            InModuleScope Test.SingleInstance -Parameters @{ F = $fixture } {
+                param($F)
+                $provider = { param([int]$TargetPid) $null = $TargetPid; $F.Handle }.GetNewClosure()
+                $record = Get-YurunaWindowsKernelPidRecord -ProcessId 1234 -ProcessProvider $provider
+                Assert-False $record.Table.Complete 'a read failure never proves the PID absent'
+                Assert-NotNull $record.Row 'the opening operation proved presence'
+                Assert-Null $record.Row.StartTimeUnixMs
+                Assert-Equal 'start-unreadable' $record.Table.Error
+                Assert-True $F.State.Disposed 'the failed read releases its handle'
+                Assert-Equal 'Unknown' (Get-YurunaProcessIdentityState -ProcessId 1234 -ProcessTable $record.Table -RecordedStartTimeUnixMs 1 -SelfPid -1).State
+            }
+        }
+    }
+
+    It 'keeps the existing creation-time tolerance and leaves ancestry and ownership unavailable' {
+        $fixture = New-KernelHandleFixture
+        InModuleScope Test.SingleInstance -Parameters @{ F = $fixture } {
+            param($F)
+            $provider = { param([int]$TargetPid) $null = $TargetPid; $F.Handle }.GetNewClosure()
+            $record = Get-YurunaWindowsKernelPidRecord -ProcessId 1234 -ProcessProvider $provider
+            Assert-True $record.Table.Complete
+            Assert-True $F.State.Disposed
+            Assert-Null $record.Row.ParentPid
+            Assert-Null $record.Row.OwnerId
+            Assert-Equal '' $record.Row.CommandLine
+            $start = [long]$record.Row.StartTimeUnixMs
+            Assert-Equal 'AliveOwned' (Get-YurunaProcessIdentityState -ProcessId 1234 -ProcessTable $record.Table -RecordedStartTimeUnixMs ($start - 2000) -SelfPid -1).State
+            Assert-Equal 'DeadOrRecycled' (Get-YurunaProcessIdentityState -ProcessId 1234 -ProcessTable $record.Table -RecordedStartTimeUnixMs ($start - 2001) -SelfPid -1).State
+        }
+    }
+
+    It 'does not open a handle after the caller deadline is exhausted' {
+        $fixture = New-KernelHandleFixture
+        InModuleScope Test.SingleInstance -Parameters @{ F = $fixture } {
+            param($F)
+            $provider = { param([int]$TargetPid) $null = $TargetPid; $F.State.Opened = $true; $F.Handle }.GetNewClosure()
+            $record = Get-YurunaWindowsKernelPidRecord -ProcessId 1234 -Deadline (New-YurunaDeadline -TotalMilliseconds 0) -ProcessProvider $provider
+            Assert-False $F.State.Opened
+            Assert-False $record.Table.Complete
+            Assert-Null $record.Row
+            Assert-Equal 'deadline-exhausted' $record.Table.Error
+        }
+    }
+
+    It 'rejects a successful read after the unchanged five-second child budget and releases its handle' {
+        $fixture = New-KernelHandleFixture
+        InModuleScope Test.SingleInstance -Parameters @{ F = $fixture } {
+            param($F)
+            $clock = { [long]$F.State.Tick }.GetNewClosure()
+            $parent = New-YurunaDeadline -TotalMilliseconds 10000 -ClockTicks $clock
+            $provider = { param([int]$TargetPid) $null = $TargetPid; $F.State.Tick = [long]5001; $F.Handle }.GetNewClosure()
+            $record = Get-YurunaWindowsKernelPidRecord -ProcessId 1234 -Deadline $parent -ProcessProvider $provider
+            Assert-False $record.Table.Complete 'the child budget is not expanded to its parent'
+            Assert-Null $record.Row
+            Assert-Equal 'deadline-exhausted' $record.Table.Error
+            Assert-True $F.State.Disposed
+        }
+    }
+
+    It 'does not accept a missing-PID exception returned after the caller deadline' {
+        InModuleScope Test.SingleInstance {
+            $state = @{ Tick = [long]0 }
+            $clock = { [long]$state.Tick }.GetNewClosure()
+            $parent = New-YurunaDeadline -TotalMilliseconds 1000 -ClockTicks $clock
+            $provider = { param([int]$TargetPid) $state.Tick = [long]1001; throw [ArgumentException]::new("Late absence for PID $TargetPid") }.GetNewClosure()
+            $record = Get-YurunaWindowsKernelPidRecord -ProcessId 1234 -Deadline $parent -ProcessProvider $provider
+            Assert-False $record.Table.Complete 'late evidence remains unknown'
+            Assert-Null $record.Row
+            Assert-Equal 'deadline-exhausted' $record.Table.Error
+        }
     }
 }

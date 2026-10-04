@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42363f75-1d59-4ac0-a62f-c6d723656b28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,6 +61,7 @@ if (-not $pwshPath) {
 Write-Output "PowerShell 7 found at $($pwshPath.Source)"
 
 # --- REGION: Install powershell-yaml module
+# See https://yuruna.link/42d69dfa-0038
 Write-Output ""
 Write-Output ">>> Installing PowerShell module: powershell-yaml..."
 # 2.8.5.201 is Microsoft's documented TLS-1.2-capable NuGet provider
@@ -69,9 +70,7 @@ $yamlInstall = "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyC
 $yamlOk = $false
 for ($attempt = 1; $attempt -le 3 -and -not $yamlOk; $attempt++) {
     pwsh -NoProfile -Command $yamlInstall
-    # powershell-yaml is a HARD dependency (sequence planner + Get-SystemDiagnostic);
-    # Install-Module can report success yet leave it unimportable, so the fresh-process
-    # ConvertFrom-Yaml round-trip is the real gate -- do not swallow failure with 2>$null.
+    # A fresh-process YAML round-trip verifies the installed module is usable.
     pwsh -NoProfile -Command "Import-Module powershell-yaml -ErrorAction Stop; if ((ConvertFrom-Yaml 'k: v').k -ne 'v') { exit 1 }"
     if ($LASTEXITCODE -eq 0) { $yamlOk = $true }
     else { Write-Output "powershell-yaml install/import attempt $attempt/3 failed; retrying..."; Start-Sleep -Seconds ($attempt * 5) }
@@ -159,18 +158,29 @@ New-Item -ItemType Directory -Path $pfxDir -Force | Out-Null
 $certKey = Join-Path $pfxDir "aspnetapp.key"
 $certFile = Join-Path $pfxDir "aspnetapp.crt"
 $pfxFile = Join-Path $pfxDir "aspnetapp.pfx"
+$pfxPasswordFile = "$pfxFile.password"
 mkcert -key-file $certKey -cert-file $certFile localhost 127.0.0.1 ::1 2>$null
 if (Test-Path $certKey) {
-    # Convert PEM cert + key to PFX. CreateFromPemFile requires .NET 6+ (PowerShell 7).
-    # This script runs under Windows PowerShell 5.1 (.NET Framework), so delegate to pwsh.
+    # See https://yuruna.link/42e220c4-0005
+    # PowerShell 7 creates the PFX and restricts its password file before writing.
     pwsh -NoProfile -Command "
+        `$ErrorActionPreference = 'Stop'
         `$cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile('$certFile', '$certKey')
-        `$pfxBytes = `$cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, 'password')
+        `$password = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
+        `$pfxBytes = `$cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, `$password)
+        Remove-Item -LiteralPath '$pfxPasswordFile' -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType File -Path '$pfxPasswordFile' | Out-Null
+        `$acl = Get-Acl -LiteralPath '$pfxPasswordFile'
+        `$acl.SetAccessRuleProtection(`$true, `$false)
+        `$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new([System.Security.Principal.WindowsIdentity]::GetCurrent().User, 'FullControl', 'Allow'))
+        Set-Acl -LiteralPath '$pfxPasswordFile' -AclObject `$acl
+        [System.IO.File]::WriteAllText('$pfxPasswordFile', `$password + [char]10)
         [System.IO.File]::WriteAllBytes('$pfxFile', `$pfxBytes)
     "
-    if (Test-Path $pfxFile) {
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $pfxFile) -and (Test-Path $pfxPasswordFile)) {
         Remove-Item -Path $certKey, $certFile -Force -ErrorAction SilentlyContinue
         Write-Output "HTTPS development certificate created at $pfxFile"
+        Write-Output "Its password is kept beside it in $pfxPasswordFile, readable only by the current user."
     } else {
         Write-Output "Note: PFX conversion failed. Certificate PEM files remain at $pfxDir"
     }
@@ -179,9 +189,8 @@ if (Test-Path $certKey) {
 }
 Write-Output "<<< HTTPS development certificate complete."
 
-# Install the mkcert root CA silently into the LocalMachine trusted root store:
-# 'mkcert -install' shows an unavoidable Windows Security Warning dialog, while
-# Import-Certificate into LocalMachine\Root is silent when run as Administrator.
+# --- REGION: Install the mkcert root CA
+# Import-Certificate avoids mkcert's interactive Windows Security Warning.
 Write-Output ""
 Write-Output ">>> Installing mkcert root CA into trusted store..."
 $caRoot = & mkcert -CAROOT 2>$null

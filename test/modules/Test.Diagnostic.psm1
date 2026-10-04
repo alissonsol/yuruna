@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,17 +74,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Extension.psm1')  -Force -Global
 # every diagnostic call.
 Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1')     -Force -DisableNameChecking -Global
 
-# OCR is used only to verify the echo of the console one-liner before it is
-# submitted. It is strictly an accuracy aid on a best-effort debugging path,
-# so the import is allowed to fail: a host without the OCR chain must still
-# be able to collect diagnostics, just without the pre-Enter check. Every
-# consumer re-probes with Get-Command and degrades to 'unknown', so a failed
-# import here costs verification and nothing else.
-#
-# -Global is required, not stylistic. A bare -Force re-import evicts an
-# already-global module into THIS module's private scope, and the next
-# Get-EnabledOcrProvider call from any other caller then fails with "not
-# recognized" (feedback_module_force_import_evicts_global.md).
+# See https://yuruna.link/4213a0b3-004a
 try {
     Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1')  -Force -DisableNameChecking -Global -ErrorAction Stop
     Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Force -DisableNameChecking -Global -ErrorAction Stop
@@ -631,25 +621,9 @@ function Reset-GuestTtyPrompt {
 # misread character invalidates at most GramSize consecutive windows, so
 # scattered noise can never accumulate into a long unexplained run.
 $script:ConsoleEchoGramSize = 4
-# Longest tolerated run of consecutive normalized characters, counted only
-# once the command's own echo has been recognized (see AnchorMinRun below),
-# that the expected command cannot account for. Calibrated against real
-# captures: a correctly typed line -- even with a screenful of unrelated
-# scrollback above it -- keeps this run under 40, while a real autorepeat-
-# corrupted capture measures ~860 and a synthetic stuck key runs into the
-# thousands. 80 sits roughly 2x above the healthy ceiling and an order of
-# magnitude below observed corruption.
+# See https://yuruna.link/4213a0b3-004b
 $script:ConsoleEchoMaxUnexplainedRun = 80
-# How many consecutive explained positions mark where the command's echo
-# genuinely begins on screen. Until that many have been seen in a row, an
-# explained position is treated as a coincidental OCR gram hit inside
-# unrelated scrollback rather than the command itself, and the unexplained
-# stretch that follows such a hit is NOT counted toward corruption. This is
-# what lets a login banner, a boot log, or earlier command output printed
-# ahead of the command sit on screen -- legitimately unexplained and
-# unbounded -- without being scored as a stuck key. 12 is comfortably longer
-# than the incidental run a shell prompt or log line shares with the command,
-# and far shorter than the command's own contiguous echo.
+# See https://yuruna.link/4213a0b3-004c
 $script:ConsoleEchoAnchorMinRun = 12
 # Fraction of the command's distinct grams that must appear somewhere in
 # the OCR text. Guards gross truncation, where the screen shows only the
@@ -981,15 +955,7 @@ function Invoke-RemoteDiagnosticsConsole {
     $typed     = $false
     $succeeded = $false
     try {
-        # Pre-type: discard anything already sitting in the tty's line
-        # buffer. Without this, residue concatenates with the first
-        # characters of the one-liner and the command is malformed before
-        # it is ever submitted. The result is deliberately discarded: a
-        # clear that did not land is not a reason to skip the payload, and
-        # the echo check below is what decides whether the line is usable.
-        # It must still be captured: an uncaptured [bool] joins this
-        # function's output stream and turns the returned hashtable into a
-        # two-element array, whose .success then reads $null.
+        # See https://yuruna.link/4213a0b3-004d
         [void](Clear-GuestTtyLine -VMName $VMName -SendKey $sendKey)
 
         # Send-Text returns $true on success per the host facade; we tolerate
@@ -1023,16 +989,7 @@ function Invoke-RemoteDiagnosticsConsole {
                 $retyped = [bool](& $sendText -VMName $VMName -Text $cmd -Mechanism gui)
                 Start-Sleep -Milliseconds 200
                 if (-not ($cleared -and $retyped)) {
-                    # Neither chord nor text reached the guest, so the console
-                    # still holds exactly the characters the first verdict
-                    # read. Asking for a second verdict here would re-measure
-                    # an unchanged screen and is therefore guaranteed to
-                    # return 'corrupt' again -- a verdict about the transport
-                    # wearing the costume of a verdict about the guest. Report
-                    # the transport instead: "the retype never happened" and
-                    # "the guest echoed a malformed command" need different
-                    # fixes, and conflating them sends the reader to the
-                    # console when the keystroke path is what is broken.
+                    # See https://yuruna.link/4213a0b3-004e
                     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_614941dc7da5cc4d' -FormatValues ($cleared, $retyped) -FormatBindings @{ cleared = '0'; retyped = '1' })
                     return $failResult
                 }
@@ -1056,17 +1013,7 @@ function Invoke-RemoteDiagnosticsConsole {
         }
         $preEnterClock.Stop()
 
-        # TimeoutSeconds is the caller's budget for the whole rung, not just
-        # for the upload wait. Echo verification and a possible retype run
-        # before that wait, so their measured cost is deducted from the
-        # budget rather than added on top -- otherwise a verified-and-
-        # retyped capture would overrun the per-command budget that
-        # Save-GuestDiagnostic derives from the cycle's total.
-        #
-        # The floor exists because the deduction must not be able to starve
-        # the wait: the guest still has to fetch, run and POST the capture
-        # after Enter, and a wait shorter than that is a guaranteed false
-        # timeout on a line that was successfully repaired.
+        # See https://yuruna.link/4213a0b3-004f
         $waitSeconds = $TimeoutSeconds - [int][math]::Ceiling($preEnterClock.Elapsed.TotalSeconds)
         if ($waitSeconds -lt $script:ConsoleMinFileWaitSeconds) {
             $waitSeconds = [math]::Min($script:ConsoleMinFileWaitSeconds, $TimeoutSeconds)
@@ -1099,20 +1046,7 @@ function Invoke-RemoteDiagnosticsConsole {
 }
 
 function Select-MoreInformativeDiagResult {
-    # Fallback picker for the all-rungs-failed manifest: keep whichever failed
-    # rung produced the longer captured error text. In practice this ranks only
-    # the two SSH rungs (key-ssh, password-ssh) -- they are the only rungs whose
-    # failed result carries .output. The console rung POSTs its capture straight
-    # to the failure folder and returns output='' (see
-    # Invoke-RemoteDiagnosticsConsole), so its candidate is always ignored here.
-    # Preferring rung order alone would pin the manifest to key-ssh even when the
-    # later password-ssh rung captured the fuller stderr, so length is the
-    # content proxy between the two. Length is only a proxy: a verbose low-signal
-    # capture (e.g. the pwsh exit-64 usage banner) can outrank a concise real
-    # error -- acceptable for a post-mortem debugging aid. A tie keeps the
-    # incumbent so an equally sized later rung does not churn the choice; a
-    # candidate with no output is ignored, so an empty capture never replaces a
-    # real one.
+    # See https://yuruna.link/4213a0b3-0050
     param($Current, $Candidate)
     if (-not $Candidate -or -not $Candidate.output) { return $Current }
     if (-not $Current -or -not $Current.output) { return $Candidate }
@@ -1767,19 +1701,7 @@ function Invoke-GuestDiagnosticCapture {
         return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_7d19d373db6f2996' -Arguments @{ guestKey = "$GuestKey" }) }
     }
 
-    # Pre-flight: ask the driver to warm the host's neighbor cache before any
-    # address lookup. Wherever the host is not the DHCP server for the guest
-    # network -- an External vSwitch, a bridge-forward libvirt network -- there
-    # is no in-band source to ask, and a passive cache read finds the guest only
-    # while it happens to be talking to us. Without this, address resolution
-    # hands back the VM name and Wait-SshReady spends its whole budget on
-    # "Could not resolve hostname", which names nothing about the real fault.
-    # (memory note: hyperv_external_vswitch_arp_discovery)
-    #
-    # A contract verb rather than a probe-by-name: every driver answers, and
-    # each decides what warming means for it. A driver whose Get-VMIp already
-    # escalates internally declines here, so its own bounded, memoized sweep
-    # is not duplicated by an unbounded one from out here.
+    # See https://yuruna.link/4213a0b3-0051
     try {
         Write-Verbose '  Diagnostics: warming the host neighbor cache before address lookup...'
         $null = Update-GuestNeighborCache -VMName $VMName
@@ -1832,15 +1754,7 @@ function Invoke-GuestDiagnosticCapture {
     $password    = $pwLookup.password
     $pwReason    = $pwLookup.reason
 
-    # Resolve the host status-service URL once and feed it to BOTH SSH
-    # rungs as their curl-bootstrap fallback -- a console-rung-only
-    # bootstrap leaves a gap when SSH is healthy but the guest has not
-    # yet extracted the yuruna tarball (e.g. cycle watchdog fired
-    # mid-update.sh during the apt-get phase): the SSH command exits 64
-    # from pwsh's usage banner and the diagnostic file captures that
-    # banner instead of real state. Soft-fail to $null if the endpoint
-    # can't be resolved -- the rungs degrade to the bare `pwsh -File`
-    # command and the console rung is still the final fallback.
+    # See https://yuruna.link/4213a0b3-0052
     if ((Get-DiagBudgetRemaining) -le 0) { return (Get-DiagBudgetSpentManifest -Stage 'status-service-lookup') }
     $bootstrapUrl = $null
     try {

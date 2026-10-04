@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42cfa437-bd81-47fb-8d48-e2ca1335fa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,14 +28,7 @@
     Cross-host helpers that satisfy the placement rule above land here.
 #>
 
-# Test.YurunaDir.psm1 owns $env:YURUNA_RUNTIME_DIR + Initialize-YurunaRuntimeDir;
-# import here so Get-PortMapStatePath can resolve the state file even when
-# a caller hasn't bootstrapped the full runner path. -Global so a caller
-# that already imported Test.YurunaDir into its own session keeps seeing
-# Initialize-YurunaRuntimeDir afterwards -- a -Force re-import without
-# -Global evicts the caller's binding into Test.VMUtility's private scope,
-# which is exactly what broke Start-StatusService.ps1 at "Initialize-
-# YurunaRuntimeDir is not recognized".
+# See https://yuruna.link/4213a0b3-0189
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -Force -Global
 
@@ -411,15 +404,7 @@ function Reset-GuestDhcpReleaseTally {
 }
 
 # --- REGION: https://yuruna.link/4220a755-000b
-# Releasing a lease is an optimization and can always miss; the BOUND is what
-# decides whether a long lease is survivable. The bound says a guest asks for a
-# new address only when its identity is new -- so the way to test it is to
-# rebuild the same identity and see whether the same address comes back.
-#
-# Observed, not configured, deliberately. A pin that is present and a pin the
-# server honors look identical from the guest's own files, and only one of them
-# bounds anything. This measures the outcome, which is the half that cannot be
-# faked by a correct-looking setting.
+# See https://yuruna.link/4213a0b3-018a
 $script:GuestAddressChecked   = 0
 $script:GuestAddressUnbounded = 0
 $script:GuestAddressMoves     = [System.Collections.Generic.List[object]]::new()
@@ -628,19 +613,7 @@ function Remove-GuestVMQuietly {
     # Ask for the lease back before the power is cut. -SkipStop means the VM is not
     # running (a leftover being swept before a rebuild), so there is nobody to ask.
     if (-not $SkipStop -and -not [string]::IsNullOrWhiteSpace($GuestKey)) {
-        # Read the address BEFORE the release: a guest that has just handed its
-        # lease back no longer has one to report, so asking afterwards would
-        # measure nothing on exactly the guests that behaved correctly.
-        #
-        # Keyed on the name the VM carries at TEARDOWN, which is the closest
-        # identity available here and not quite the one the MAC is derived from
-        # (that is the cloud-init hostname the sequence declares, which this
-        # layer never sees). The approximation is safe in the direction that
-        # matters: a guest built and promoted the same way each cycle ends at
-        # the same name, so like is compared with like. Where a hostname is
-        # shared across tiers of a chain, several names map onto one address and
-        # each simply reads as bounded -- extra rows, no false alarm. Callers
-        # that DO know the lifelong identity should pass it as -Identity.
+        # See https://yuruna.link/4213a0b3-018b
         $addressRuntimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR }
                              else { Join-Path (Split-Path -Parent $PSScriptRoot) 'status' -AdditionalChildPath 'runtime' }
         try {
@@ -791,20 +764,7 @@ function Update-StashServiceMarkerAddress {
         if ([string]::IsNullOrWhiteSpace($VMName)) { return $null }
         if (-not (Get-Command Get-VMIp -ErrorAction SilentlyContinue)) { return $null }
 
-        # A candidate address has to be PROVEN before it is advertised. For the
-        # first seconds of a freshly built VM's life the guest has not completed
-        # DHCP, and macOS files every lease under the name the guest sends and
-        # never prunes -- so the lease file still holds blocks filed under this
-        # VM's name by the incarnations it replaced. Get-VMIp then hands back a
-        # dead predecessor's address that is syntactically perfect, on-link, and
-        # indistinguishable from a good answer. Taking the first non-empty reply
-        # spends the whole poll budget on its first tick and publishes the
-        # previous incarnation, which the dashboard's deep-link then points at
-        # for the rest of the cycle.
-        #
-        # /healthz answering is what separates the two, so the poll keeps going
-        # until a candidate proves it is a stash service. The real address shows
-        # up within seconds of its lease being issued.
+        # See https://yuruna.link/4213a0b3-018c
         $probe = Get-StashServiceProbeCommand
         if (-not $probe) {
             Write-Verbose 'Update-StashServiceMarkerAddress: no stash-service probe available; publishing the first address Get-VMIp reports without confirming it.'
@@ -846,15 +806,7 @@ function Update-StashServiceMarkerAddress {
         }
         if (-not $ip) { return $null }
 
-        # Only 'offsegment' refuses. 'unknown' (no route resolved, no mask
-        # available) proves nothing and must not withdraw a working service, and
-        # a lab whose stash genuinely lives on another routed subnet keeps its
-        # pool registration through the daemon's own announce.
-        #
-        # Resolved BEFORE anything is said about publishing an unconfirmed
-        # address, because on an off-segment host nothing is published at all --
-        # announcing that an address is being advertised unconfirmed, and then
-        # withholding it two lines later, describes an outcome that never happens.
+        # See https://yuruna.link/4213a0b3-018d
         $segment = if ($PSBoundParameters.ContainsKey('PoolSegment')) { $PoolSegment } else { Get-PoolFacingIpv4Segment }
         $poolVerdict = Get-Ipv4PoolSegmentVerdict -Address $ip -Segment $segment
         if ($poolVerdict -eq 'offsegment') {
@@ -863,17 +815,7 @@ function Update-StashServiceMarkerAddress {
             # feeding the pool an address it cannot reach.
             $hadAddress = (-not [string]::IsNullOrWhiteSpace([string]$marker.stashBaseUrl) -or
                            -not [string]::IsNullOrWhiteSpace([string]$marker.baseUrl))
-            # Said once per time the host ENTERS this state, not once per refresh.
-            # A stash on a hypervisor-private network is in this branch on every
-            # refresh for the life of the VM -- on the per-cycle path that is a
-            # warning every cycle, forever, about a condition that has not changed
-            # and that the operator can do nothing about mid-run. Repeating it is
-            # how a real warning becomes something people filter out.
-            #
-            # The marker is where the memory lives, because the marker is already
-            # this function's state file and nothing else survives between runs.
-            # poolWithheld records the verdict; the entry into it is news, the
-            # steady state after it is not.
+            # See https://yuruna.link/4213a0b3-018e
             $alreadyWithheld = ($marker.PSObject.Properties.Name -contains 'poolWithheld') -and [bool]$marker.poolWithheld
             $isNewsWorthy = ($hadAddress -or -not $alreadyWithheld)
             $withholdMessage = ("Update-StashServiceMarkerAddress: '$VMName' answers at $ip, which is NOT on this host's pool-facing network" +
@@ -899,16 +841,7 @@ function Update-StashServiceMarkerAddress {
         }
 
         $url = "http://$(Format-IpUrlHost $ip)"
-        # Said HERE, where the address really is about to be published, and only
-        # about a publication that really happens -- the off-segment branch above
-        # returns without publishing anything, so an unconfirmed notice there
-        # would describe an outcome that never occurs.
-        #
-        # Once per address, not once per refresh: publishing an address this host
-        # could not confirm is worth flagging, and the per-cycle refresh re-runs
-        # the same unconfirmed publish of the same address for as long as the
-        # daemon takes to build. The address already being on the marker means
-        # this was said when it was first published and nothing has changed since.
+        # See https://yuruna.link/4213a0b3-018f
         if ($unconfirmed -and [string]$marker.stashBaseUrl -ne $url) {
             Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.stash_probe_unconfirmed' -Arguments @{ vmName = $VMName; address = $ip; url = $url; budget = $TimeoutSeconds; mode = $(if ($TimeoutSeconds -gt 0) { 'bounded' } else { 'single' }) }))
         }
@@ -1191,18 +1124,7 @@ function Wait-YurunaServiceVmEndpoint {
                     $unreachable = $true
                     break
                 }
-                # Not bound yet. Extend ONLY on evidence the guest is still
-                # working: cloud-init `running` means the build is progressing, so
-                # the budget was simply too small for this host. Any other status
-                # means the build is over and a missing daemon is a real failure,
-                # which must not be papered over by waiting longer.
-                # cloud-init ERROR is terminal, so stop rather than serve out
-                # the budget. Nothing re-runs cloud-init on this boot: every
-                # remaining poll asks a question already answered, and the
-                # operator watches a progress bar for up to 45 more minutes
-                # before being told what the guest knew at minute two. 'done'
-                # deliberately keeps waiting -- the daemon can still be binding
-                # its port in the seconds after cloud-init finishes.
+                # See https://yuruna.link/4213a0b3-0190
                 if ($cloudInitStatus -match '^error$') {
                     Close-YurunaWaitProgress
                     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_82804c66bfb3bd9a' -Arguments @{ vMName = "$VMName"; port = "$Port" }) -InformationAction Continue

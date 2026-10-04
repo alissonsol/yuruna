@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42f92ea6-5c9c-4bf9-bc5d-26645804dc86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,28 +21,7 @@
     Provision the secrets remote host refresh needs: the signing authority and
     operator credential for pool-control, and one verifier key per host.
 .DESCRIPTION
-    Remote refresh is authorized by secrets of its own, never by the lab
-    token, a lab session or the internal authentication key, all of which are
-    reachable from the dashboard's enrollment path. This script creates and
-    moves them, and prompts for nothing:
-
-      1. -NewAuthority, on the operator's machine: creates authority.key
-         (the signing authority) and operator.credential (what callers send
-         in X-Yuruna-Refresh-Credential), owner-only, under the private root's
-         authority directory. Copy both to pool-control's
-         /etc/yuruna/host-refresh/ with owner-only permissions; never copy them
-         to a pool host.
-      2. -ExportHostKey -HostId <id> -OutputPath <file>, on the same machine:
-         derives one host's verifier key and writes it for transport.
-      3. -InstallHostKey -KeyPath <file>, on that host: installs the key into
-         the host's private root. A host that is also the authority machine
-         can use -InstallHostKey -AuthorityDirectory <dir> instead.
-      4. -RemoveHostKey on a host withdraws it from remote refresh.
-
-    Without a switch, the script reports the host's key state and the
-    authority state. Secrets never reach the output: only tags (non-secret
-    names) and paths do. The host id is read from runtime/host.uuid and is
-    never minted here. Exit code 0 on success, 1 on a refusal.
+    See https://yuruna.link/42010605-0003.
 .PARAMETER NewAuthority
     Create the signing authority and operator credential.
 .PARAMETER Rotate
@@ -116,6 +95,7 @@ Import-Module (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1') -Disa
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'test/modules/Test.HostRefreshAuth.psm1') -Global -Force -DisableNameChecking
 
+# --- REGION: Get-HostRefreshCredentialPrivateRoot
 function Get-HostRefreshCredentialPrivateRoot {
     # The private root for a mutation: created and secured by
     # Get-YurunaPrivateStateRoot, refused unless it resolved. A preview never
@@ -131,6 +111,7 @@ function Get-HostRefreshCredentialPrivateRoot {
     return [string]$root.Path
 }
 
+# --- REGION: Get-HostRefreshCredentialHostId
 function Get-HostRefreshCredentialHostId {
     # This host's id, read only: host.uuid is created by the runner, and an
     # id minted here would name a host the pool has never seen.

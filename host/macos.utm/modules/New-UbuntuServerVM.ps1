@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 420eae9d-b5a9-4ca6-af97-df678c83b820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,26 +23,18 @@
 
 param(
     [string]$VMName = "ubuntu-server01",
-    # Forwarded by the test harness (Start-TestRunner -> Invoke-NewVM) so
-    # every guest in a run agrees on a single caching-proxy service URL. When bound
-    # (even to ""), the local subnet probe is skipped and this value is
-    # used verbatim: "" means "no cache, go direct"; a URL means "use this".
-    # When NOT bound (standalone / manual run), fall back to the probe below.
+    # A bound URL, including empty for direct fetching, overrides discovery.
+    # See https://yuruna.link/42e220c4-0004
     [string]$CachingProxyServiceUrl,
-    # OS user created by autoinstall and exercised by the test
-    # sequences. See host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1
-    # for the rationale on the 'yuuser26' default name.
+    # Versioned usernames keep release-specific guest logs distinguishable.
     [string]$Username = 'yuuser26',
-    # cloud-init local-hostname for the guest. Empty means "follow the VM
-    # name", which keeps host-side lookups that assume hostname == VM name
-    # working for every caller that does not ask for a specific hostname.
+    # An empty hostname follows the VM name for host-side lookup.
     [string]$Hostname = '',
-    # Planner-cascaded VM memory (variables.memoryStartupBytes). Raw byte count
-    # or a KB/MB/GB suffix (e.g. 34359738368, 32768MB, 32GB); converted to the
-    # MB the UTM plist wants. Empty keeps the 12 GB default below.
+    # Accept raw bytes or a KB/MB/GB suffix; an empty value keeps the host default.
+    # See https://yuruna.link/42fa6f45-0016
     [string]$MemoryStartupBytes = '',
-    # Planner-cascaded vCPU count (variables.cores). Overrules the default
-    # calculation below. Empty keeps the default. Clamped to the host cores.
+    # An empty core count keeps the host default; explicit values are clamped.
+    # See https://yuruna.link/42fa6f45-0015
     [string]$Cores = '',
     [Parameter(Mandatory)][ValidateSet('24', '26')][string]$Release,
     [Parameter(Mandatory)][string]$GuestScriptRoot,
@@ -126,8 +118,8 @@ Write-Verbose "All requirements met."
 Write-Output ""
 
 # --- REGION: Seek the base image
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward.
+# See https://yuruna.link/42e220c4-0003
+# Fetch missing media once; fail if manual-download requirements remain unmet.
 $baseImageName = "host.macos.utm.guest.ubuntu.server.$Release"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $GuestScriptRoot)) 'modules/Yuruna.Image.psm1') -Force

@@ -12,6 +12,158 @@ const DataptBRaggregator = `{
   "aggregator.announce_disabled": "anunciar desabilitado",
   "aggregator.announced_address_did_not_serve_status_json": "endereço anunciado não serviu status.json",
   "aggregator.announced_address_serves_a_different_hostid": "endereço anunciado serve um hostId diferente",
+  "aggregator.backfill_bad_flag": [
+    "preenchimento do histórico: opções inválidas: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_cycle_unreadable": [
+    "preenchimento do histórico: hospedeiro ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ciclo ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    " omitido após falhas repetidas: ",
+    {
+      "arg": "value3",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_host_failed": [
+    "preenchimento do histórico: hospedeiro ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (a próxima varredura tentará novamente)"
+  ],
+  "aggregator.backfill_index_failed": [
+    "preenchimento do histórico: hospedeiro ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": não foi possível gravar seu índice de ciclos: ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_pool_status_failed": [
+    "preenchimento do histórico: não foi possível ler o estado do grupo no coletor: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_prometheus_failed": [
+    "preenchimento do histórico: hospedeiro ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": o Prometheus recusou as amostras da linha do tempo: ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_started": [
+    "preenchimento do histórico: iniciado; restaura ciclos de até ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " atrás, com varreduras a cada ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_state_failed": [
+    "preenchimento do histórico: hospedeiro ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": não foi possível salvar seu estado: ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_sweep_done": [
+    "preenchimento do histórico: varredura concluída para ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " hospedeiro(s): gravou ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ciclo(s), eventos de ",
+    {
+      "arg": "value3",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ciclo(s), ",
+    {
+      "arg": "value4",
+      "type": "detail",
+      "trust": "external"
+    },
+    " incidente(s) e ",
+    {
+      "arg": "value5",
+      "type": "detail",
+      "trust": "external"
+    },
+    " amostra(s) da linha do tempo; ",
+    {
+      "arg": "value6",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ciclo(s) ilegível(is); ",
+    {
+      "arg": "value7",
+      "type": "detail",
+      "trust": "external"
+    },
+    " hospedeiro(s) ainda com histórico a gravar"
+  ],
   "aggregator.batch_mixes_multiple_hostids": "lote mistura vários hostIds",
   "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte": "verificação à prova de controle desabilitada: este agregador não possui nenhuma chave de autenticação interna",
   "aggregator.encode_failed": "codificar falhou",

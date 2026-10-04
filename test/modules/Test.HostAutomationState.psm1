@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4292f906-bf44-485f-9134-f35f5dced880
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,14 +50,7 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Set-StrictMode -Version Latest
 
-# The version of the capture FORMAT, and equally of what its readers mean. Bump
-# it whenever a reader starts being able to see something it could not see
-# before, because "present = $false" is the answer a reader gives BOTH when the
-# knob was genuinely unset and when it could not read the knob at all. A capture
-# written by an older reader is trustworthy about the values it holds and not
-# trustworthy about the ones it calls absent, and Invoke-HostKnobRestore is
-# where that distinction has to be enforced -- removal is the branch an
-# unreadable knob lands in, and a removal cannot be undone.
+# See https://yuruna.link/4213a0b3-0060
 $script:HostAutomationStateSchemaVersion = 2
 
 function Get-HostAutomationStateSchemaVersion {
@@ -430,17 +423,7 @@ function Get-MacPreAutomationState {
         @{ Key = 'utm/KeepRunningAfterLastWindowClosed'       ; Args = @('com.utmapp.UTM', 'KeepRunningAfterLastWindowClosed') }
         @{ Key = 'global/AppleSpacesSwitchOnActivation'       ; Args = @('NSGlobalDomain', 'AppleSpacesSwitchOnActivation') }
     )) {
-        # The host selector belongs AHEAD of the verb; emitted verb-first,
-        # `defaults` binds '-currentHost' as the domain and reports every ByHost
-        # knob as absent -- so a capture built that way records "there was
-        # nothing here" for three knobs that hold real values, and the restore
-        # then deletes them.
-        #
-        # The argv is assembled INSIDE the reader so that resolving the builder
-        # is covered by Invoke-CaptureRead's catch. This capture runs in the
-        # seconds before the host is changed, and an install that cannot reach
-        # the apply-side module has to record "could not be read" and let the
-        # setup continue, not abort the setup for the sake of recording it.
+        # See https://yuruna.link/4213a0b3-0061
         $specArgs = @($spec.Args)
         $knobs["defaults/$($spec.Key)"] = Invoke-CaptureRead -Name "defaults: $($specArgs -join ' ')" -Reader {
             $defaultsArgs = @(Get-MacDefaultsCommandArgument -Verb 'read' -DefaultsArgs $specArgs)
@@ -579,18 +562,7 @@ function Get-WindowsPreAutomationState {
     $knobs['firewall/icmpv4BuiltIn'] = Invoke-CaptureRead -Name 'built-in ICMPv4 rule Enabled state' -Reader {
         if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue)) { return $null }
 
-        # Two performance decisions, both worth a minute of an operator's day:
-        #
-        #   -PolicyStore ActiveStore -- the effective runtime policy, which is
-        #   also what "is this rule enabled right now" means. Measured on a
-        #   318-rule host: 2.6 s here against 43 s for the default store, which
-        #   merges the persistent and GPO stores on every association traversal.
-        #   Both stores select the identical rule set.
-        #
-        #   ONE batched pipeline into Get-NetFirewallPortFilter, joined on
-        #   InstanceID (which equals the rule's Name), rather than a filter call
-        #   per rule inside Where-Object. Per-rule costs one CIM association
-        #   traversal each -- 318 of them, 55 s.
+        # See https://yuruna.link/4213a0b3-0062
         $rules = @(Get-NetFirewallRule -PolicyStore ActiveStore -Direction Inbound -Action Allow -ErrorAction SilentlyContinue)
         if ($rules.Count -eq 0) { return $null }
 

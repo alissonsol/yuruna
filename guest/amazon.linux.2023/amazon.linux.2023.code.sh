@@ -1,15 +1,15 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: Initialize environment
 set -euo pipefail
 
 # --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
-# Architecture does not imply host platform: this lab runs aarch64 guests on
-# Hyper-V and UTM. Report virtualization detected inside the guest instead of
-# inferring the host from uname.
+# See https://yuruna.link/42e220c4-0005
+# Detect virtualization independently from CPU architecture.
 echo "Detected virtualization: $(systemd-detect-virt 2>/dev/null || echo unknown)"
 case "$ARCH" in
   x86_64)
@@ -35,9 +35,8 @@ export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 # --- REGION: Install JDK
 echo ""
 echo -e "\e[1;36m==== JDK (Amazon Corretto) ====\e[0m"
-# Amazon Corretto provides both x86_64 and aarch64 packages. Install the
-# newest Corretto devel package instead of a pinned major -- Corretto ships
-# only LTS majors, so "highest available" is the current LTS.
+# See https://yuruna.link/42e220c4-0005
+# Discover the newest Corretto development package for this architecture.
 CORRETTO_PKG=$(dnf_retry dnf -q repoquery --qf '%{name}\n' 'java-*-amazon-corretto-devel' | sort -Vu | tail -n1) || { echo 'ERROR: Corretto package discovery failed after retries' >&2; exit 1; }
 if [ -z "$CORRETTO_PKG" ]; then
   echo "ERROR: no java-*-amazon-corretto-devel package found in the repos" >&2

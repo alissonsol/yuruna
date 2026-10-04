@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42987493-0ebe-43b4-b8e8-475951cbb931
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,26 +16,9 @@
 
 #requires -version 7
 
-# Host I/O provider registry. The model mirrors Test.OcrEngine.psm1: each
-# (HostType, Action) pair is a registered scriptblock; the dispatcher
-# looks the pair up and invokes it. A single lookup table replaces what
-# would otherwise be parallel if/elseif chains on $HostType inside every
-# action (Send-Key, Send-Text, Send-Click, ...), and a missing backend
-# is surfaced via the capability matrix rather than as "Unknown host:
-# $HostType" deep in the sequence run.
-#
-# The capability matrix (Get-HostIOProviderMatrix) provides startup-time
-# visibility of what each host can actually do -- see docs/host-io.md.
+# See https://yuruna.link/4213a0b3-0084
 
-# Two-level table: { HostType -> { Action -> scriptblock } }. Ordered so
-# Get-HostIOProviderMatrix returns hosts and actions in the registration
-# order, which (today) puts the local host first in any matrix dump.
-#
-# The outer table is backed by the shared Test.Registry primitive
-# (New-YurunaRegistry). The $global:YurunaHostIOProviders anchor name
-# is the documented entry point for cross-module readers that inspect
-# the registry directly. Inner per-host hashtables remain plain
-# [ordered]@{} (the primitive holds them as opaque values).
+# See https://yuruna.link/4213a0b3-0085
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'Cross-module-eviction-safe anchor; the only reliable way to keep host-I/O registrations across -Force re-imports.')]

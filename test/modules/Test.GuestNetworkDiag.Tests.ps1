@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4204dc0d-3f1d-4015-b639-9480d7186c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,6 +52,11 @@ $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $script:netLib   = Join-Path $repoRoot 'automation' -AdditionalChildPath 'yuruna-network.sh'
 $script:faePath  = Join-Path $repoRoot 'automation' -AdditionalChildPath 'fetch-and-execute.sh'
+$script:retryLib = Join-Path $repoRoot 'automation' -AdditionalChildPath 'yuruna-retry.sh'
+$script:updateScripts = @(
+    (Join-Path $repoRoot 'guest' -AdditionalChildPath 'shared', 'ubuntu.update.sh'),
+    (Join-Path $repoRoot 'guest' -AdditionalChildPath 'amazon.linux.2023', 'amazon.linux.2023.update.sh'))
+$script:macUpdate = Join-Path $repoRoot 'guest' -AdditionalChildPath 'macos.26', 'macos.26.update.sh'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
@@ -851,6 +856,116 @@ Describe 'guest-network-lib: the sysfs seam is walk-only' {
         Assert-True ($src -match 'release\)\s+network_release') 'the release verb must still dispatch'
         Assert-True ($src -match 'repair\)\s+yuruna_net_repair_ipv4') 'the repair verb must still dispatch'
         Assert-True ($src -match 'usage: \$0 \{diag\|release\|repair\}') 'the usage line and its exit 2 are the action''s contract'
+    }
+}
+
+Describe 'guest update: the host is asked through a spaced probe, never one ask' {
+
+    # The host status service answers one request at a time, so an ask that
+    # lands behind a slow request waits for it. A guest that reads one silent
+    # 2s ask as a dead host falls back to GitHub, which cannot serve a private
+    # repository, and the cycle fails on a host that was merely busy. The
+    # probes are driven with wget, curl and sleep stubs that count the asks and
+    # the gaps between them.
+    It 'answers as soon as the host does, after spacing the asks it missed' {
+        $driver = @'
+
+asks=0
+naps=0
+wget()  { asks=$((asks + 1)); [ "$asks" -ge 3 ]; }
+sleep() { naps=$((naps + 1)); }
+YURUNA_STATUS_SERVICE_IP=10.0.0.1
+YURUNA_STATUS_SERVICE_PORT=8080
+yuruna_host_livecheck
+echo "RC=$? ASKS=$asks NAPS=$naps"
+'@
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:retryLib -Name 'yuruna_host_livecheck') -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        Assert-True ($out -match 'RC=0 ASKS=3 NAPS=2') "a host that answers the third ask must be used, after two spaced misses; output was:`n$out"
+        Assert-True ($out -match 'answered on probe 3/4 at 10\.0\.0\.1:8080') 'a late answer must be said out loud, or a busy host is invisible once the run goes green'
+    }
+
+    It 'gives the host four spaced asks before it gives up' {
+        $driver = @'
+
+asks=0
+naps=0
+wget()  { asks=$((asks + 1)); return 1; }
+sleep() { naps=$((naps + 1)); }
+YURUNA_STATUS_SERVICE_IP=10.0.0.1
+YURUNA_STATUS_SERVICE_PORT=8080
+yuruna_host_livecheck
+echo "RC=$? ASKS=$asks NAPS=$naps"
+'@
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:retryLib -Name 'yuruna_host_livecheck') -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        Assert-True ($out -match 'RC=1 ASKS=4 NAPS=3') "a silent host must get four asks three gaps apart, then fall through; output was:`n$out"
+    }
+
+    It 'materializes both repositories from a host that answers late, without cloning' {
+        # The shared lib's whole bootstrap, against a host that answers the third
+        # ask of every probe. The framework and the project must both come from
+        # its tarballs; a clone means a busy host was written off.
+        $driver = @'
+
+asks=0
+naps=0
+clones=0
+wget() {
+    case "$*" in
+        */livecheck*) asks=$((asks + 1)); [ $((asks % 3)) -eq 0 ] ;;
+        *archive.tar.gz*) printf 'tarball' ;;
+        *) return 1 ;;
+    esac
+}
+tar()   { cat >/dev/null; mkdir -p "$3" && : > "$3/fetched"; }
+git()   { clones=$((clones + 1)); return 1; }
+sleep() { naps=$((naps + 1)); }
+sudo()  { :; }
+yuruna_host_env()      { YURUNA_STATUS_SERVICE_IP=10.0.0.1; YURUNA_STATUS_SERVICE_PORT=8080; }
+yuruna_host_relocate() { return 1; }
+root=$(mktemp -d)
+yuruna_materialize_repositories "$root" "$(id -un)" 'https://example.invalid/framework.git' 'https://example.invalid/project.git' >/dev/null 2>&1
+fw=no; [ -e "$root/yuruna/fetched" ] && fw=yes
+prj=no; [ -e "$root/yuruna/project/fetched" ] && prj=yes
+echo "ASKS=$asks NAPS=$naps CLONES=$clones FRAMEWORK=$fw PROJECT=$prj"
+rm -rf "$root"
+'@
+        $fn = Get-ShellFunctionText -Path $script:retryLib -Name 'yuruna_host_livecheck', 'yuruna_materialize_repositories'
+        $out = Invoke-ShellDriver -FunctionText $fn -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        Assert-True ($out -match 'ASKS=6 NAPS=4 CLONES=0 FRAMEWORK=yes PROJECT=yes') "both tarballs must come from the host that answered late; output was:`n$out"
+    }
+
+    It 'keeps the update scripts'' copies of the probe identical to the shared lib' {
+        # The scripts carry a copy for a guest image whose lib predates the probe.
+        # A copy that drifts is a probe that behaves differently on old images
+        # only, which no run on a current image would show.
+        $lib = Get-ShellFunctionText -Path $script:retryLib -Name 'yuruna_host_livecheck'
+        foreach ($path in $script:updateScripts) {
+            Assert-StringEqual -Actual (Get-ShellFunctionText -Path $path -Name 'yuruna_host_livecheck') -Expected $lib `
+                "$(Split-Path -Leaf $path) must carry the shared lib's probe unchanged"
+        }
+    }
+
+    It 'asks the same way on macOS, with curl, and never through a proxy' {
+        $driver = @'
+
+asks=0
+naps=0
+args=''
+curl()  { asks=$((asks + 1)); args="$*"; [ "$asks" -ge 2 ]; }
+sleep() { naps=$((naps + 1)); }
+YURUNA_STATUS_SERVICE_IP=192.168.64.1
+YURUNA_STATUS_SERVICE_PORT=8080
+yuruna_host_livecheck >/dev/null
+echo "RC=$? ASKS=$asks NAPS=$naps ARGS=$args"
+'@
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:macUpdate -Name 'yuruna_host_livecheck') -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        Assert-True ($out -match 'RC=0 ASKS=2 NAPS=1') "the macOS probe must space its asks too; output was:`n$out"
+        Assert-True ($out -match 'ARGS=.*--noproxy \*') 'the host is on the LAN and must never be asked through a proxy'
+        Assert-True ($out -match 'ARGS=.*--max-time 2') 'each ask stays one bounded 2s exchange'
     }
 }
 

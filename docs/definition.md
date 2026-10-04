@@ -149,7 +149,9 @@ Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 
 <a id="42fa6f45-0005"></a>
 
-### Defining the fetch-and-execute typed envelope
+<a id="defining-the-fetch-and-execute-typed-envelope"></a>
+
+### Defining the fetch-and-execute lookup key and launcher
 
 The host sends a 16-character launch prefix, `yfe <11 lowercase hex> `,
 before the existing `bash -c` command. The identifier is an opaque,
@@ -406,9 +408,9 @@ trace file for debugging.
 
 **How they reach the host.** When the script was fetched from the host
 (not the GitHub fallback), the wrapper POSTs the collected checkpoints to
-`control/perf-checkpoints` on the status service **before** printing the
-completion marker, so the data is on disk while the host's step window is
-still open. The POST is best-effort: a failed or skipped POST never
+`control/perf-checkpoints` on the status service **after** printing the
+completion marker. The host's step window remains open until OCR observes
+that marker, so the POST can still arrive inside it. The POST is best-effort: a failed or skipped POST never
 changes the exit code or the end-tag markers above. The status service
 host-stamps the arrival time and writes one sidecar JSON under
 `status/perf/checkpoints/`.
@@ -1410,10 +1412,10 @@ runner state.
 
 - `data.stepPaused` (server flag) -- operator clicked "Pause after step".
 - `data.cyclePaused` -- operator clicked "Pause after cycle".
-- `current-action.json.line` -- written by `Invoke-Sequence`; the substring `Paused (waiting for resume)` means the runner has actually reached the step boundary (vs. just having the flag armed mid-step).
+- `current-action.json.code` -- written by `Invoke-Sequence`; `sequence_paused_waiting_resume` means the runner has reached the step boundary. The `line` field supplies display text.
 
 ```
-stepPaused && line says "Paused (waiting for resume)"  -> "Test paused"
+stepPaused && code === 'sequence_paused_waiting_resume' -> "Test paused"
 stepPaused                                             -> "Test pausing (after step)"
 cyclePaused && status !== 'running'                    -> "Test paused"
 cyclePaused                                            -> "Test pausing (after cycle)"
@@ -2364,6 +2366,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

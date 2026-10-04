@@ -281,7 +281,7 @@ pwsh test/pool/Remove-PoolHost.ps1 -HostId 42<...30 hex...>          # add -What
 ```
 
 It (1) reads `networkStorage.poolStorageLocalPath` from `test.config.yml` and deletes
-`<poolStorageLocalPath>/hosts/info.<hostId>.yml` + `<poolStorageLocalPath>/<hostId>/`; (2) strips
+`<poolStorageLocalPath>/hosts/info.<hostId>.yml` + `<poolStorageLocalPath>/hosts/<hostId>/` + the legacy `<poolStorageLocalPath>/<hostId>/`; (2) strips
 the id from EVERY pool's `members[]` (needs `pool.intentGitUrl`; without it the NAS
 records are still removed and membership is skipped with a warning); and (3) asks
 the aggregator to **forget** the host (`POST /api/v1/forget-host`) so it leaves the
@@ -1116,6 +1116,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

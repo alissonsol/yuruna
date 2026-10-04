@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42d0a94f-27b6-4c85-9e13-8a604fb2d7c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -542,7 +542,11 @@ function Get-DomainCount {
     if (-not $script:DomainTrackedFiles.ContainsKey($root)) {
         $listed = @(& git -C $root ls-files --cached --others --exclude-standard)
         if ($LASTEXITCODE -ne 0) { throw "git could not enumerate source in $root" }
-        $script:DomainTrackedFiles[$root] = @($listed | Sort-Object -Unique | Where-Object { [IO.File]::Exists((Join-Path $root $_)) })
+        # SBOM documentation, generated inventories and retained versions are
+        # maintained by Sync-Sbom.py, outside globalization and localization.
+        $script:DomainTrackedFiles[$root] = @($listed | Sort-Object -Unique | Where-Object {
+            $_ -notmatch '^docs/sbom/' -and [IO.File]::Exists((Join-Path $root $_))
+        })
     }
     $tracked = $script:DomainTrackedFiles[$root]
 

@@ -95,6 +95,7 @@ After the guest OS is up, test workloads:
 ## Read More
 
 - **[All documentation](docs/README.md)** -- what every doc under `docs/` covers
+- [Software bill of materials](docs/sbom/README.md) -- repository, host, and guest inventories
 - [Requirements](docs/operator.md#b2-preflight-dependencies) - [Workarounds & FAQ](docs/workarounds.md) - [Roadmap](docs/opportunities.md#roadmap)
 - Machine [operator](docs/operator.md) and [lab operator](docs/lab-operator.md) guides
 - [Failed-cycle email alerts](docs/alerts.md) -- configure Grafana to email
@@ -111,4 +112,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04

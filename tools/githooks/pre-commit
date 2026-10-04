@@ -15,19 +15,121 @@
 # `git commit --no-verify` bypasses it. The release script's hard gate is the
 # authoritative backstop for the published artifact.
 #
-# Three passes write rather than check: the fourth drafts translations for new
+# A source-metadata pass follows the BOM passes: it blocks a staged file that
+# introduces a gap in the license pointer, copyright line or (PowerShell)
+# unique 42-prefixed GUID. It runs before the slow passes so a refusal costs
+# nothing.
+#
+# Four passes write rather than check: the Ubuntu workflow pass below refreshes
+# and stages runtime checksum pins; the fourth drafts translations for new
 # English and stages them; the fifth regenerates the compiled message catalogs
-# and the runtime copies embedding them, and stages the result into the commit
-# being made; the sixth regenerates the translation-surface census when this
-# checkout is clean apart from the index and the project checkout is clean,
-# and stages it.
+# and the runtime copies embedding them; the sixth regenerates the
+# translation-surface census when both checkouts are clean enough, and stages it.
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# --- REGION: SBOM
+# See https://yuruna.link/sbom
+run_sbom() {
+    sbom_generator="$repo_root/tools/Sync-Sbom.py"
+    if [ ! -f "$sbom_generator" ]; then
+        echo 'pre-commit: SBOM generator is missing: tools/Sync-Sbom.py.' >&2
+        return 1
+    fi
+    # The first python3 on PATH can be older than one further along: macOS
+    # keeps 3.9 in /usr/bin ahead of a package manager's interpreter. Every
+    # PATH entry is asked, not only the first match by name.
+    sbom_python=''
+    sbom_ifs=$IFS
+    for sbom_name in python3 python; do
+        IFS=:
+        for sbom_dir in $PATH; do
+            IFS=$sbom_ifs
+            sbom_candidate="${sbom_dir:-.}/$sbom_name"
+            if [ -f "$sbom_candidate" ] && [ -x "$sbom_candidate" ] &&
+                "$sbom_candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+                sbom_python=$sbom_candidate
+                break 2
+            fi
+        done
+    done
+    IFS=$sbom_ifs
+    if [ -z "$sbom_python" ]; then
+        echo 'pre-commit: Python 3.11 or newer is required to refresh and stage SBOMs.' >&2
+        return 1
+    fi
+    if ! "$sbom_python" "$sbom_generator" --staged --stage; then
+        echo 'pre-commit: SBOM refresh failed; the commit is blocked.' >&2
+        return 1
+    fi
+}
 gate="$repo_root/tools/Test-AsciiNoBom.ps1"
-[ -f "$gate" ] || exit 0
+if [ ! -f "$gate" ]; then
+    run_sbom || exit 1
+    exit 0
+fi
+
+# Keep every generated Ubuntu entrypoint's runtime SHA-256 pin in step with its
+# shared script. A version sweep changes the shared script's bytes even when
+# its executable body does not change. The generator also stamps each
+# entrypoint from VERSION. Run before the PowerShell-only passes so this gate
+# still works on a clone without pwsh.
+workflow_generator="$repo_root/tools/Sync-GuestWorkflows.py"
+workflow_paths='VERSION tools/Sync-GuestWorkflows.py'
+workflow_outputs=''
+for workflow_name in update code n8n openclaw postgresql; do
+    workflow_paths="$workflow_paths guest/shared/ubuntu.$workflow_name.sh"
+    for workflow_release in 24 26; do
+        workflow_output="guest/ubuntu.server.$workflow_release/ubuntu.server.$workflow_release.$workflow_name.sh"
+        workflow_paths="$workflow_paths $workflow_output"
+        workflow_outputs="$workflow_outputs $workflow_output"
+    done
+done
+# shellcheck disable=SC2086 # fixed, space-free repository paths
+if ! git diff --cached --quiet -- $workflow_paths; then
+    if [ ! -f "$workflow_generator" ]; then
+        echo 'pre-commit: Ubuntu workflow generator is missing.' >&2
+        exit 1
+    fi
+    # The generator reads the working tree. Never pin bytes that this commit
+    # does not carry, or replace an unstaged edit to a generated entrypoint.
+    # shellcheck disable=SC2086 # fixed, space-free repository paths
+    if ! git diff --quiet -- $workflow_paths; then
+        echo 'pre-commit: Ubuntu workflow sources or entrypoints have unstaged edits; stage or stash them before regenerating checksums.' >&2
+        exit 1
+    fi
+    if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys' >/dev/null 2>&1; then
+        workflow_python=python3
+    elif command -v python >/dev/null 2>&1 && python -c 'import sys' >/dev/null 2>&1; then
+        workflow_python=python
+    else
+        echo 'pre-commit: Python 3 is required to refresh Ubuntu workflow checksums.' >&2
+        exit 1
+    fi
+    if ! "$workflow_python" "$workflow_generator" --check >/dev/null 2>&1; then
+        workflow_index=${GIT_INDEX_FILE:-index}
+        workflow_index=${workflow_index##*/}
+        workflow_index=${workflow_index##*\\}
+        case $workflow_index in
+            next-index-*)
+                echo 'pre-commit: this partial commit needs regenerated Ubuntu entrypoints; stage the sources and commit without path arguments.' >&2
+                exit 1 ;;
+        esac
+        if ! "$workflow_python" "$workflow_generator"; then
+            echo 'pre-commit: Ubuntu workflow regeneration failed.' >&2
+            exit 1
+        fi
+        # shellcheck disable=SC2086 # fixed, space-free generated paths
+        if ! git add -- $workflow_outputs || ! "$workflow_python" "$workflow_generator" --check; then
+            echo 'pre-commit: regenerated Ubuntu entrypoints could not be staged or verified.' >&2
+            exit 1
+        fi
+        echo 'pre-commit: WARNING: regenerated and staged Ubuntu workflow checksum pins.' >&2
+    fi
+fi
 
 if ! command -v pwsh >/dev/null 2>&1; then
-    echo "pre-commit: pwsh not found; skipping the ASCII/BOM gate, the translation pass and the catalog regeneration (install PowerShell 7 to enable them)." >&2
+    echo "pre-commit: pwsh not found; skipping the ASCII/BOM gate, the source-metadata check, the translation pass and the catalog regeneration (install PowerShell 7 to enable them)." >&2
+    run_sbom || exit 1
     exit 0
 fi
 
@@ -49,6 +151,24 @@ if ! NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -BomOnly -
     echo "" >&2
     echo "pre-commit: a staged file carries a byte-order mark (see above)." >&2
     echo "  Rewrite it as BOM-less UTF-8, or bypass with 'git commit --no-verify'." >&2
+    exit 1
+fi
+
+# Source-metadata pass: a code or manifest file in a comment-capable format
+# opens with the license pointer above the copyright line, and a PowerShell file
+# carries a PSScriptInfo block with a unique 42-prefixed .GUID. The check reads
+# the index and blocks only a gap this commit introduces; a gap already in a
+# file being edited is reported and left alone, so touching an old file never
+# forces a stamp. Generated files, vendored files and synchronized copies are
+# exempt only through tools/source-metadata.exemptions.json. It runs here, ahead
+# of the generators below, so a refusal does not first spend their forty seconds.
+metadata_gate="$repo_root/tools/Test-SourceMetadata.ps1"
+if [ -f "$metadata_gate" ] &&
+    ! NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$metadata_gate" -Staged -Quiet; then
+    echo "" >&2
+    echo "pre-commit: source-metadata gate failed (see tools/Test-SourceMetadata.ps1 output above)." >&2
+    echo "  Add the header it shows, or declare a generated or vendored path in tools/source-metadata.exemptions.json" >&2
+    echo "  (CONTRIBUTING.md, Source metadata). Or bypass with 'git commit --no-verify' (discouraged)." >&2
     exit 1
 fi
 
@@ -670,7 +790,11 @@ fi
 # as the catalog pass does. The project is read without this commit's git
 # environment: `git commit -a` exports the absolute path of this repository's
 # index, and a linked worktree exports its git directory too.
-staged_any=$(git diff --cached --name-only --diff-filter=ACMRD |
+# SBOM documents and generated artifacts are outside the globalization and
+# localization surface. Ignore the entire subtree for this census, including
+# its clean-tree checks; run_sbom still refreshes and stages it below.
+staged_any=$(git diff --cached --name-only --diff-filter=ACMRD -- . \
+    ':(top,glob,exclude)docs/sbom/**' |
     grep -v -e '^globalization/manifests/domain-inventory\.json$' \
         -e '^test/modules/suite-baseline\.json$')
 if [ -n "$staged_any" ]; then
@@ -686,9 +810,11 @@ if [ -n "$staged_any" ]; then
             -ProjectRoot "$project_root" >/dev/null 2>&1; then
             inventory_clean=false
             if [ "$catalog_partial" != true ] &&
-                ! git status --porcelain --untracked-files=all | grep -qv '^[MADRC] ' &&
+                ! git status --porcelain --untracked-files=all -- . \
+                    ':(top,glob,exclude)docs/sbom/**' | grep -qv '^[MADRC] ' &&
                 project_status=$(unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
-                    git -C "$project_root" status --porcelain --untracked-files=all) &&
+                    git -C "$project_root" status --porcelain --untracked-files=all -- . \
+                        ':(top,glob,exclude)docs/sbom/**') &&
                 [ -z "$project_status" ]; then
                 inventory_clean=true
             fi
@@ -757,4 +883,5 @@ if [ -n "$staged_private_tests" ] && [ -f "$private_runner" ] &&
     echo "  Remove the row of a deleted or moved suite by hand, then run" >&2
     echo "  'pwsh dev-only/tools/Invoke-DevOnlyTests.ps1 -UpdateBaseline' and stage the result." >&2
 fi
+run_sbom || exit 1
 exit 0

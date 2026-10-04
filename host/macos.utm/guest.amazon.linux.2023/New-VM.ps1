@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,14 +16,13 @@
 
 #requires -version 7
 
+# AL2023 resolves its dnf proxy at runtime; see https://yuruna.link/42e220c4-0004.
 param(
     [string]$VMName = "amazon-linux01",
     # Greppable test user added on top of ec2-user; force-expired by
     # cloud-init chpasswd default so the rotation flow runs.
     [string]$Username = 'yauser1',
-    # cloud-init local-hostname for the guest. Empty means "follow the VM
-    # name", which keeps host-side lookups that assume hostname == VM name
-    # working for every caller that does not ask for a specific hostname.
+    # An empty hostname follows the VM name for host-side lookup.
     [string]$Hostname = ''
 )
 
@@ -58,8 +57,8 @@ $DataDir = "$UtmDir/Data"
 $downloadDir = "$HOME/yuruna/image/amazon.linux.2023"
 
 # --- REGION: Seek the base image
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward.
+# See https://yuruna.link/42e220c4-0003
+# Fetch missing media once; fail if manual-download requirements remain unmet.
 $baseImageName = "host.macos.utm.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force

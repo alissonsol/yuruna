@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4201387d-cf87-45af-987c-08f11f4a809c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,11 +55,59 @@ BeforeAll {
         Set-Content -LiteralPath (Join-Path $Root "test/modules/$Name.Tests.ps1") -Value $Body -Encoding utf8NoBOM
     }
 
+    # NUnit metadata must not make fixture execution depend on a live-host CIM query.
+    function New-FixtureRunner {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Copies tools only into a throwaway suite fixture tree.')]
+        [CmdletBinding()]
+        [OutputType([string])]
+        param([Parameter(Mandatory)][string]$Root)
+        $fixtureRoot = (Resolve-Path -LiteralPath $Root).Path
+        $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+        if (-not $fixtureRoot.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            [IO.Path]::GetFileName($fixtureRoot) -notlike 'yuruna-runner-*') {
+            throw 'The private runner copy requires a throwaway SuiteRunner fixture root.'
+        }
+        $directory = Join-Path $fixtureRoot '.runner-tools'
+        $null = New-Item -ItemType Directory -Force -Path $directory
+        $runner = Join-Path $directory 'Invoke-TestSuite.ps1'
+        $shim = Join-Path $directory '_InvokeOneSuite.ps1'
+        [IO.File]::WriteAllBytes($runner, [IO.File]::ReadAllBytes($script:Runner))
+        $shimText = [IO.File]::ReadAllText((Join-Path (Split-Path -Parent $script:Runner) '_InvokeOneSuite.ps1'))
+        $marker = '    Import-Module $pesterModule.Path -Force -ErrorAction Stop'
+        if ([regex]::Matches($shimText, [regex]::Escape($marker)).Count -ne 1) {
+            throw 'The fixture shim cannot identify exactly one Pester import.'
+        }
+        $fixtureMetadata = @(
+            '    if ($IsWindows) {'
+            '        & (Get-Module Pester) {'
+            '            if ($null -eq $script:SafeCommands -or -not $script:SafeCommands.ContainsKey(''Get-CimInstance'')) {'
+            '                throw ''The fixture Pester exporter has no guarded OS query slot.'''
+            '            }'
+            '            $script:SafeCommands[''Get-CimInstance''] = {'
+            '                [CmdletBinding()]'
+            '                param([Parameter(Mandatory, Position=0)][string]$ClassName)'
+            '                if ($ClassName -cne ''Win32_OperatingSystem'' -or $PSBoundParameters.Count -ne 1) {'
+            '                    throw ''The fixture exporter permits only its OS metadata query.'''
+            '                }'
+            '                [pscustomobject]@{ Name=''SuiteRunner fixture OS''; Version=''0.0.0.0'' }'
+            '            }'
+            '        }'
+            '    }'
+        ) -join "`n"
+        $separator = if ($shimText.Contains("`r`n")) { "`r`n" } else { "`n" }
+        $fixtureMetadata = ($fixtureMetadata -replace "`r?`n", $separator)
+        [IO.File]::WriteAllText($shim, $shimText.Replace($marker, $marker + $separator + $fixtureMetadata), [Text.UTF8Encoding]::new($false))
+        return $runner
+    }
+
     # Returns the parsed suite-results.json plus the exit code, which is the
     # pair every caller of the runner actually consumes.
     function Invoke-Runner {
-        param([string]$Root, [switch]$UpdateBaseline, [switch]$RegisterNewSuites, [switch]$ListOnly, [string]$Filter, [string]$Path, [int]$TimeoutSeconds)
-        $argv = @('-NoProfile', '-File', $script:Runner, '-Root', $Root, '-ThrottleLimit', '1', '-Quiet')
+        param([string]$Root, [switch]$UpdateBaseline, [switch]$RegisterNewSuites, [switch]$ListOnly, [string]$Filter, [string]$Path, [int]$TimeoutSeconds,
+            [switch]$FailFast, [ValidateRange(1, 8)][int]$ThrottleLimit = 1)
+        $fixtureRunner = New-FixtureRunner -Root $Root
+        $argv = @('-NoProfile', '-File', $fixtureRunner, '-Root', $Root, '-ThrottleLimit', [string]$ThrottleLimit, '-Quiet')
+        if ($FailFast) { $argv += '-FailFast' }
         if ($TimeoutSeconds) { $argv += @('-TimeoutSeconds', "$TimeoutSeconds") }
         if ($UpdateBaseline) { $argv += '-UpdateBaseline' }
         if ($RegisterNewSuites) { $argv += '-RegisterNewSuites' }
@@ -102,6 +150,87 @@ BeforeAll {
     }
 }
 
+Describe 'fail-fast never turns cancelled work into passing evidence' {
+    BeforeEach { $script:FailFastRoot = New-FixtureTree }
+    AfterEach {
+        $absolute = [IO.Path]::GetFullPath($script:FailFastRoot)
+        $temp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+        if (-not $absolute.StartsWith($temp, [StringComparison]::OrdinalIgnoreCase) -or
+            [IO.Path]::GetFileName($absolute) -notlike 'yuruna-runner-*') { throw 'invalid fail-fast fixture cleanup path' }
+        Remove-Item -LiteralPath $absolute -Recurse -Force
+    }
+
+    It 'retains the full suite census while refusing to launch work after a serial failure' {
+        Set-FixtureSuite -Root $script:FailFastRoot -Name Alpha -Body "Describe 'fail' { It 'fails' { 1 | Should -Be 2 } }"
+        Set-FixtureSuite -Root $script:FailFastRoot -Name Beta -Body @'
+BeforeAll { [IO.File]::WriteAllText((Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'unexpected-launch'), 'launched') }
+Describe 'slow' { It 'waits' { Start-Sleep -Seconds 30 } }
+'@
+        $run = Invoke-Runner -Root $script:FailFastRoot -FailFast -UpdateBaseline
+        $run.ExitCode | Should -Be 1 -Because $run.Output
+        $run.Result.suites | Should -HaveCount 2
+        $run.Result.totals.failed | Should -Be 1
+        $run.Result.totals.incomplete | Should -Be 1
+        $cancelled = $run.Result.suites | Where-Object path -LIKE '*Beta*'
+        $cancelled.rc | Should -Be 125
+        $cancelled.haveXml | Should -BeFalse
+        $cancelled.message | Should -Match 'not launched'
+        Test-Path -LiteralPath (Join-Path $script:FailFastRoot 'test/unexpected-launch') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $script:FailFastRoot 'test/modules/suite-baseline.json') | Should -BeFalse
+    }
+
+    It 'stops only its running owned sibling and preserves the original failure' {
+        Set-FixtureSuite -Root $script:FailFastRoot -Name Alpha -Body @'
+BeforeAll {
+    $ready = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'beta-owner.json'
+    $limit = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not [IO.File]::Exists($ready)) {
+        if ([DateTime]::UtcNow -gt $limit) { throw 'the sibling did not start' }
+        Start-Sleep -Milliseconds 20
+    }
+}
+Describe 'fail' { It 'fails' { 1 | Should -Be 2 } }
+'@
+        Set-FixtureSuite -Root $script:FailFastRoot -Name Beta -Body @'
+BeforeAll {
+    $owned = [Diagnostics.Process]::GetCurrentProcess()
+    try {
+        [IO.File]::WriteAllText((Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'beta-owner.json'),
+            (@{ pid = $PID; started = $owned.StartTime.ToUniversalTime().Ticks } | ConvertTo-Json))
+    } finally { $owned.Dispose() }
+    Start-Sleep -Seconds 30
+}
+Describe 'slow' { It 'passes' { 1 | Should -Be 1 } }
+'@
+        $run = Invoke-Runner -Root $script:FailFastRoot -FailFast -ThrottleLimit 2
+        $run.ExitCode | Should -Be 1 -Because $run.Output
+        $run.Result.suites | Should -HaveCount 2
+        $run.Result.totals.failed | Should -Be 1
+        $row = $run.Result.suites | Where-Object path -LIKE '*Beta*'
+        $row.rc | Should -Be 125
+        $row.haveXml | Should -BeFalse
+        $row.message | Should -Match 'cancelled after another suite failed'
+        $identity = Get-Content -LiteralPath (Join-Path $script:FailFastRoot 'test/beta-owner.json') -Raw | ConvertFrom-Json
+        $probe = $null
+        try { $probe = [Diagnostics.Process]::GetProcessById($identity.pid) }
+        catch [ArgumentException] { Write-Debug 'the cancelled owned sibling is absent' }
+        if ($probe) {
+            try { $probe.StartTime.ToUniversalTime().Ticks | Should -Not -Be $identity.started }
+            finally { $probe.Dispose() }
+        }
+    }
+
+    It 'executes every suite and permits a baseline refresh when all suites pass' {
+        foreach ($name in @('Alpha', 'Beta')) { Set-FixtureSuite -Root $script:FailFastRoot -Name $name -Body $script:PassingSuite }
+        $run = Invoke-Runner -Root $script:FailFastRoot -FailFast -ThrottleLimit 2 -UpdateBaseline
+        $run.ExitCode | Should -Be 0 -Because $run.Output
+        $run.Result.suites | Should -HaveCount 2
+        $run.Result.totals.tests | Should -Be 4
+        $run.Result.totals.incomplete | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $script:FailFastRoot 'test/modules/suite-baseline.json') | Should -BeTrue
+    }
+}
+
 Describe 'a clean tree passes and reports what ran' {
     It 'exits 0 and counts every test' {
         $root = New-FixtureTree
@@ -114,6 +243,11 @@ Describe 'a clean tree passes and reports what ran' {
             $r.Result.totals.tests  | Should -Be 3
             $r.Result.totals.failed | Should -Be 0
             $r.Result.problems      | Should -BeNullOrEmpty
+            if ($IsWindows) {
+                [xml]$xml = Get-Content -LiteralPath (Join-Path $root '.test-results/nunit-test_modules_Alpha.Tests.ps1.xml') -Raw
+                $xml.'test-results'.environment.platform | Should -BeExactly 'SuiteRunner fixture OS'
+                $xml.'test-results'.environment.'os-version' | Should -BeExactly '0.0.0.0'
+            }
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
@@ -136,6 +270,14 @@ Describe 'the five conditions that must fail a run' {
             $r = Invoke-Runner -Root $root
             $r.ExitCode | Should -Not -Be 0
             ($r.Result.problems -join ' ') | Should -Match 'failed'
+
+            Set-FixtureSuite -Root $root -Name 'Bad' -Body "Describe 'background input' { It 'requests operator input' { Read-Host 'No operator can answer this' } }"
+            $prompt = Invoke-Runner -Root $root -TimeoutSeconds 5
+            $prompt.ExitCode | Should -Be 1
+            $prompt.Result.totals.incomplete | Should -Be 0 -Because 'an input request must fail before the suite timeout'
+            $prompt.Result.totals.failed | Should -Be 1
+            [xml]$evidence = Get-Content -LiteralPath (Join-Path $root '.test-results/nunit-test_modules_Bad.Tests.ps1.xml') -Raw
+            $evidence.SelectSingleNode('//test-case/failure/message').InnerText | Should -Match 'NonInteractive'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
@@ -330,7 +472,8 @@ Describe 'discovery' {
         try {
             Set-FixtureSuite -Root $root -Name 'Alpha' -Body $script:PassingSuite
             Set-FixtureSuite -Root $root -Name 'Beta'  -Body $script:PassingSuite
-            $null = & (Get-Process -Id $PID).Path -NoProfile -File $script:Runner -Root $root -Filter 'Alpha*' -Quiet 2>&1
+            $fixtureRunner = New-FixtureRunner -Root $root
+            $null = & (Get-Process -Id $PID).Path -NoProfile -File $fixtureRunner -Root $root -Filter 'Alpha*' -Quiet 2>&1
             $json = Get-Content -LiteralPath (Join-Path $root '.test-results/suite-results.json') -Raw | ConvertFrom-Json
             $json.totals.suites | Should -Be 1
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }

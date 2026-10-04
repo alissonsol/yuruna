@@ -571,3 +571,25 @@ form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0
   /* Give the tab switcher a touch-sized target while keeping flex centering. */
   .tab { min-height: var(--touch-min); display: flex; align-items: center; }
 }
+
+/* A touch pointer can coexist with a mouse on a wide viewport. */
+@media (any-pointer: coarse) {
+  .btn.compact,
+  table.stashes th.pick input, table.stashes td.pick input,
+  table.stashes th button.sort,
+  form.create input[type="text"], form.create input[type="file"],
+  .tab, #footer-bar .linkish { min-height: 44px; min-width: 44px; }
+  table.stashes th.pick input, table.stashes td.pick input { width: 44px; height: 44px; }
+  .tab, #footer-bar .linkish {
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  table.stashes tbody td { height: 44px; }
+}
+
+/* A taller fixed footer must not cover the last content row. */
+@media (any-pointer: coarse) and (min-width: 601px) {
+  body.has-footer-bar main {
+    padding-bottom: calc(44px + .7rem);
+    padding-bottom: calc(44px + .7rem + env(safe-area-inset-bottom));
+  }
+}

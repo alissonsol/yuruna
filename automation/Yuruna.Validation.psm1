@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42424ce3-9435-4785-bfcc-3963c111d3a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -253,16 +253,7 @@ function Confirm-WorkloadList {
     if (!($globalResult)) { return (New-YurunaValidationResult $false $globalResult.Reason); }
 
     if ($null -eq $yaml.workloads) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_99a7029eb87427d9' -Arguments @{ workloadsFile = "$workloadsFile" }); }
-    # Two workloads sharing a kube context collide: Publish-WorkloadList wipes
-    # .yuruna/<subfolder>/workloads/<context> at the start of EACH workload, so
-    # the second silently clobbers the first's staged charts/values. A chart also
-    # deploys as helm release <installName> into <context>, so two chart
-    # deployments sharing both keys hit the same release and the second upgrades
-    # over the first instead of installing a distinct workload -- caught here as
-    # defense-in-depth (the helm install lands before any folder is reused),
-    # turning a confusing in-cluster overwrite into a clear config error. Reject
-    # raw copy-paste duplicates and post-expansion collisions (distinct raw
-    # values that resolve to the same string), mirroring the resources.yml dedup.
+    # See https://yuruna.link/4213a0b3-0011
     $seenContexts = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $seenContextsExpanded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $seenWorkloadReleases = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)

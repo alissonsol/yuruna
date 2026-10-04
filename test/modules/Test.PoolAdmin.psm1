@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42771d17-19c8-478e-adde-9418cf0f9f10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,15 +150,7 @@ function Test-YurunaPoolIntentFile {
     return $false
 }
 
-# One admin command at a time may work in a given admin clone. Every admin CLI is its own process
-# and they all share <runtime>/pool-intent-admin, so without this the clone is opened by several
-# processes at once: two first uses both find no .git and clone into the same directory (one
-# wins, the rest fail), and a read's reset --hard can land between a writer's edit and its
-# commit, so the writer finds nothing to stage and reports success for a change that never
-# happened. The lock therefore covers the whole command: it is taken when the clone is opened and
-# kept until the process exits (the operating system frees it even after a crash) or
-# Unlock-YurunaPoolIntentClone runs. Admins on other hosts work in their own clones and still meet
-# at the remote, where Publish-YurunaPoolIntent rebases a lost push race.
+# See https://yuruna.link/4213a0b3-00bc
 $script:PoolAdminLockWaitSeconds = 120
 $script:PoolAdminHeldLocks = [System.Collections.Generic.Dictionary[string, System.IO.FileStream]]::new(
     $(if ($IsLinux) { [StringComparer]::Ordinal } else { [StringComparer]::OrdinalIgnoreCase }))
@@ -282,15 +274,7 @@ function Open-YurunaPoolIntent {
         if ((Test-Path -LiteralPath (Join-Path $gitDir 'rebase-merge')) -or (Test-Path -LiteralPath (Join-Path $gitDir 'rebase-apply'))) {
             return @{ Ok = $false; Error = "the admin clone at $IntentDir has an unfinished rebase (unpushed pool intent in flight); refusing to reset --hard. Finish or abort it (git -C '$IntentDir' rebase --abort) and push from a writable location, or delete $IntentDir to discard and re-clone from $IntentGitUrl." }
         }
-        # Refuse to reset --hard unless the remote provably contains our HEAD: a
-        # local commit the remote lacks is committed-but-unpushed pool intent (a
-        # prior Publish reached the commit but not the push), and a silent reset
-        # would erase it with no trace. merge-base --is-ancestor: rc==0 means HEAD
-        # IS contained in FETCH_HEAD (a safe fast-forward -- reset only adds
-        # commits); rc==128 is an unborn HEAD / missing ref where reset IS the
-        # recovery. Any other rc -- 1 (local-ahead / diverged), 124 (timeout), -1
-        # (git unrunnable) -- cannot prove containment, so refuse rather than
-        # green-light a destructive reset.
+        # See https://yuruna.link/4213a0b3-00bd
         $rcAncestor = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
         if ($rcAncestor -ne 0 -and $rcAncestor -ne 128) {
             return @{ Ok = $false; Error = "cannot confirm the admin clone at $IntentDir is safe to reset (merge-base rc=$rcAncestor; likely local commit(s) the remote does not have); refusing to reset --hard. Push them from a writable location, or delete $IntentDir to discard and re-clone from $IntentGitUrl." }

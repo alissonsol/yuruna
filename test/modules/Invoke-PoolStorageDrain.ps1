@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42370011-0231-4e74-92a9-2c8cee1d8a15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,20 +16,7 @@
 
 #requires -version 7
 
-# One-shot poolStorage drain, fired DETACHED by the outer loop at each cycle end
-# (Test.RunnerOuterLoop.psm1) on a host in COPY mode. It drains the backlog of
-# not-yet-archived cycle folders to the optional SMB share (ypool-nas): fail-fast on
-# an unreachable NAS, atomic per cycle, single-instance via a lock file the
-# orchestrator takes. Runs in its own fresh process so a slow/absent NAS never delays
-# the cycle loop and module imports start from a clean global scope. Env
-# (YURUNA_CONFIG_PATH / YURUNA_RUNTIME_DIR / YURUNA_LOG_DIR) is inherited from the
-# spawning runner; HostId is passed in (with a fallback).
-#
-# A MOVE-mode host does not use this script on the cycle path: the mover has to run
-# synchronously so its verdict can fail the cycle, so the outer loop calls
-# Invoke-PoolStorageDrain in-process instead. Run by hand it still works, and honors
-# whichever mode the config names -- -MoveLogs is resolved from the config here so a
-# manual run cannot archive under different rules than the runner would.
+# See https://yuruna.link/4213a0b3-0012
 
 [CmdletBinding()]
 param([string]$HostId = '')

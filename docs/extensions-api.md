@@ -37,6 +37,7 @@ status, and fetch/body processing remains bounded by the request timeout.
 | `pool-aggregator-service`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorServiceManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy-service machine (pool services host): it auto-discovers pool members from the Squid access log, probes each one's status service, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md). |
 | `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which framework and project repositories each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-intent git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` preflight). See [pool-admin.md](pool-admin.md#pool-control-service). |
 | `download-agent-service`       | `default`      | Pool-wide **guest-image downloader**: a stdlib-only Go daemon on its own `yuruna-download-agent-service` VM that keeps a Download pool on the pool share fresh and serves the artifacts to hosts over HTTP, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-DownloadAgentServiceInfo` (status stub) and `Test-DownloadAgentServiceHost` (the `/healthz` preflight). See [download-agent.md](download-agent.md). |
+| `digest`               | `default`      | SHA-256 values a sequence step carries to a guest in its launch command, so a guest script can verify what it downloads before it extracts, installs or runs it: `${ext:digest.GetFileSha256(<path>)}`, `${ext:digest.GetArchiveSha256(project)}`, `${ext:digest.GetPublishedSha256(<name>)}`, plus the `digest.PublishGuestFileSha256` step for an artifact one guest builds and another downloads. The digest travels the same typed channel as the script's own, never the HTTP the bytes arrive on. See [`digest/README.md`](../test/extension/digest/README.md). |
 
 <a id="42fffc2c-0003"></a>
 
@@ -1072,7 +1073,7 @@ each host stays *onsite* until `Set-LabToken.ps1` re-enrolls it
 
 The host-level counterpart to `/announce`: a **host** POSTs
 `{"hostId":"<42-hex>","statusPort":<port>}` when its address changes, when its
-status-service starts, and on a periodic beacon.
+status service starts, and on a periodic beacon.
 
 It exists because Squid-log discovery is pull-only, and so lags exactly when it
 matters. A host enters the log only when it or its guests pull through the
@@ -1154,6 +1155,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

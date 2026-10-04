@@ -1,0 +1,57 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: [Unit]
+[Unit]
+Description=Yuruna pool history backfill (restores past cycles of the pool's hosts to the dashboard)
+Documentation=https://yuruna.link/pool-aggregator-service
+After=network-online.target loki.service prometheus.service pool-aggregator-service.service
+Wants=network-online.target
+
+# --- REGION: [Service]
+[Service]
+Type=simple
+# GOMAXPROCS=1 keeps the Go runtime on one thread of work at a time; with the
+# CPU limit below that is all the job ever needs, and it stops the runtime from
+# sizing itself for every vCPU of the VM.
+Environment=YURUNA_LANGUAGE=auto YURUNA_ALLOW_PSEUDO_LOCALE=false GOMAXPROCS=1
+EnvironmentFile=-/etc/yuruna/globalization.env
+User=proxy
+Group=proxy
+# The cycle indexes in here are read by pool-aggregator-service, which runs as
+# the same user; 0755 also lets an operator read them while diagnosing.
+StateDirectory=pool-history-backfill
+StateDirectoryMode=0755
+# The job must stay under a tenth of the VM's CPU. CPUQuota counts one CPU as
+# 100%, so the VM is nproc x 100% and the ceiling is nproc x 10% less a point.
+# 39% is that ceiling for the smallest VM this seed builds (4 vCPUs); cloud-init
+# writes a drop-in, /etc/systemd/system/pool-history-backfill.service.d/cpu-quota.conf,
+# with the value for the VM it runs on. Below the ceiling the job yields to
+# everything else on the machine.
+CPUQuota=39%
+CPUWeight=1
+Nice=19
+IOSchedulingClass=idle
+MemoryMax=512M
+# The same binary as the collector, in its backfill mode. -archive-root is the
+# pool share as this machine mounts it; while the share is away the job reads
+# every cycle from its host instead.
+ExecStart=/usr/local/bin/pool-aggregator-service backfill --language=${YURUNA_LANGUAGE} --allow-pseudo-locale=${YURUNA_ALLOW_PSEUDO_LOCALE} -state-dir /var/lib/pool-history-backfill -archive-root /mnt/ypool-nas/hosts
+Restart=on-failure
+RestartSec=60
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+# --- REGION: [Install]
+[Install]
+WantedBy=multi-user.target

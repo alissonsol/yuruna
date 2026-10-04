@@ -45,26 +45,15 @@
   var REPO_ACCESS_LABEL = { frameworkAccess: 'framework', projectAccess: 'project' };
   // Where each column's repository lives, reported beside the name it belongs to.
   var REPO_URL_KEY = { frameworkAccess: 'frameworkUrl', projectAccess: 'projectUrl' };
-  // The English phrase this column used to print. It is kept only to read a
-  // host too old to send a state -- see isRepoDenied -- and is never rendered:
-  // what a reader sees comes from the catalog.
-  var LEGACY_NO_ACCESS = 'No access';
-
   function t(key, args) { return window.YurunaI18n.t(key, args || null); }
   // The condition behind each column, reported as a stable token beside the
-  // name. The column's own value carries a repository name in one case and the
-  // words "No access" in another, so asking whether a host is denied used to
-  // mean comparing that English phrase -- which made the phrase a contract
-  // between the host's PowerShell, the relay and this page.
+  // name in /api/hosts/facts. Repository names are data; the repository_access
+  // state alone chooses the localized condition label.
   var REPO_STATE_KEY = { frameworkAccess: 'frameworkAccessState', projectAccess: 'projectAccessState' };
 
-  // A host older than the state field reports none, and its phrase is still
-  // read. Once a state is present it is the whole answer, so the phrase can be
-  // reworded or translated without this test noticing.
-  function isRepoDenied(h, key, value) {
-    var state = h[REPO_STATE_KEY[key]];
-    if (state) { return state === 'denied'; }
-    return value === LEGACY_NO_ACCESS;
+  function isRepoDenied(h, key) {
+    var f = facts[factKey(h)];
+    return !!(f && f.ok && f[REPO_STATE_KEY[key]] === 'denied');
   }
 
   // The pool's separate question -- can this MEMBER read what its pool assigned
@@ -141,7 +130,7 @@
     // following the link.
     var where = url ? ' ' + Y.bidiIsolate(url) : '';
     var poolHint = key === 'projectAccess' ? poolAccessHint(h.access) : '';
-    if (isRepoDenied(h, key, value)) {
+    if (isRepoDenied(h, key)) {
       // Linked to the url it could NOT read, which is the one an operator
       // checks first: a url naming the wrong repository looks exactly like a
       // credential that is missing one until someone follows it.

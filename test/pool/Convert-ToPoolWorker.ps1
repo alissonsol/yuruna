@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 423d3dd4-8e4d-441b-9914-81735aaf24c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,72 +23,7 @@
     credentials on the reference host, and verify the result.
 
 .DESCRIPTION
-    Sync-HostConfiguration copies a reference host's configuration and reconciles
-    the two side channels it depends on. That is the right operation for a
-    machine joining a lab, and it is not sufficient for one LEAVING standalone,
-    because a standalone machine has running counterparts to everything the new
-    configuration now names elsewhere -- and one of them silently wins.
-
-    Extension areas resolve as: operator pin, then a VM on THIS host, then the
-    pool's record (Get-ExtensionHostAddress). So a converted host that still has
-    its own stash VM keeps using it, forever, and its cycles PASS while doing so.
-    The pool's stash is never consulted, no warning is emitted, and the artifacts
-    the lab expects to collect are written to a share only this machine can read.
-    Stopping the VM does not help either: Restore-YurunaServiceVM starts every
-    registered-but-stopped service VM at each cycle start, by design, so the
-    service comes back on the next cycle.
-
-    Hence this script, in order:
-
-      1. Pre-flight   -- reference host reachable, internal authentication key available.
-      2. Sync         -- test/lab/Sync-HostConfiguration.ps1, with the credential
-                         convergence made mandatory.
-      3. Teardown     -- every local service VM retired through its own
-                         Stop-*ServiceVM.ps1, which clears that service's own
-                         marker and deletes the VM's files.
-      4. Advertise    -- every runtime marker STILL claimed after step 3
-                         withdrawn, and host.registration.json regenerated so
-                         this host drops off the dashboard. Driven by the
-                         markers rather than by the teardown, because a marker
-                         outlives the VM it describes: a host whose service VMs
-                         are already gone has no stop script left to run and
-                         would go on advertising them forever.
-      5. Storage      -- the mounts this machine held of its OWN shares released,
-                         the shares and their accounts withdrawn, and the lab's
-                         storage mounted in their place.
-      6. Aliases      -- hosts-file entries that named a retired local service.
-      7. Verify       -- test/Test-Config.ps1, then the question it cannot
-                         answer: is the end state actually a worker.
-
-    The internal authentication key is REQUIRED. Without one nothing can be fetched
-    from the reference, and the vault entries this machine minted for the shares
-    it used to serve itself would survive the conversion -- a password the lab's
-    NAS has never seen, on a host whose configuration now points at that NAS.
-    That failure surfaces later as a mount error nobody connects to this step.
-    Enroll first with test/lab/Set-LabToken.ps1, or pass -InternalAuthKey.
-
-    Step 5 is the one whose necessity is least visible. A standalone machine
-    mounts its own shares at exactly the mount points the synced configuration
-    now points at the lab's storage, and an SMB client keeps ONE session per
-    server name -- so while those mounts stand, a mount of the repointed
-    'ypool-nas' is answered by the session to THIS machine, does not find the
-    lab's share there, and fails with "No such file or directory" while the
-    alias, the share path, the account and the mount point are all correct.
-
-    DATA is never deleted. Step 5 withdraws the share definitions and the
-    accounts scoped to them -- machine configuration that is wrong the moment
-    this host stops serving -- and leaves every byte under the storage root
-    alone: cycle archives, stash artifacts, the lab vault and the pool-intent
-    repository all live there, and no automated rule can judge which of them is
-    the only copy. The closing output prints what remains and the one command
-    that reclaims it. Pass -KeepLocalShares on a machine other hosts still mount
-    from.
-
-    Idempotent. A second run finds every service absent, nothing advertised,
-    nothing of this machine's own standing in the way of the lab's storage,
-    every alias already dropped and every credential already converged, and
-    changes nothing.
-
+    See https://yuruna.link/42010605-0004.
 .PARAMETER ReferenceHost
     Network name or IP of the pool host to copy the configuration from. Any host
     type -- converting between them is the point.
@@ -179,13 +114,7 @@ $InformationPreference = $global:InformationPreference
 
 $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
 
-# $WhatIfPreference is suppressed across the imports and restored immediately
-# after. The host contract's module-level state is built by New-YurunaRegistry,
-# whose Set-Variable is under ShouldProcess, so an inherited -WhatIf makes the
-# anchor a no-op and the very next line indexes a null array -- a dry run failing
-# on module load, three steps before the first thing it was asked to rehearse.
-# Only the imports are covered; every ShouldProcess gate this script owns still
-# honors the operator's switch.
+# See https://yuruna.link/42010605-0004
 $PreviousWhatIf = $WhatIfPreference
 try {
     $WhatIfPreference = $false
@@ -205,13 +134,7 @@ try {
     Import-Module (Join-Path $ModulesDir 'Test.PoolWorker.psm1')            -Global -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot '../extension/authentication/default.psm1') -Global -Force -DisableNameChecking
     Import-Module (Join-Path $ModulesDir 'Test.ConfigServiceSync.psm1')     -Global -Force -DisableNameChecking
-    # LAST, and that ordering is load-bearing. Test.HostContract re-exports
-    # Test.HostDetection's Get-HostType / Initialize-YurunaHost, and a later
-    # `-Force` import of Test.HostDetection by any other module -- which
-    # Test.ConfigServiceSync above does -- unloads the instance those exports
-    # point at, leaving Get-HostType unresolvable. Importing the contract after
-    # every module that pulls its nested dependencies keeps the host functions
-    # this script needs for the service-state probe in scope.
+    # See https://yuruna.link/42010605-0004
     Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1')          -Global -Force
 } finally {
     $WhatIfPreference = $PreviousWhatIf
@@ -223,14 +146,7 @@ try {
 # every VM 'unknown' and making the teardown plan guess.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
-# Elevation is asserted before anything happens rather than at the line that
-# needs it: the sync rewrites the hosts file and the teardown deletes VMs, and an
-# unelevated operator would otherwise pay the reference fetch, the credential
-# probes and the config replacement before the first thing that cannot finish.
-#
-# A rehearsal is exempt. -WhatIf writes nothing, and demanding an Administrator
-# shell to LOOK at the plan is what makes an operator skip the preview and run
-# the real thing first.
+# See https://yuruna.link/42010605-0004
 if ($IsWindows -and -not $WhatIfPreference -and -not (Test-IsAdministrator)) {
     Write-Error ((Format-YurunaOperatorMessage -Key 'runner.operator_b42ca86b5468a010'))
     exit 1
@@ -238,6 +154,7 @@ if ($IsWindows -and -not $WhatIfPreference -and -not (Test-IsAdministrator)) {
 
 $step = 0
 $StepCount = 7
+# --- REGION: Write-ConvertStep
 function Write-ConvertStep {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Title)
@@ -303,12 +220,7 @@ if ($refUsers.Count -gt 0) {
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_005f0cdc10b5b3bf' -Arguments @{ referenceHost = "$ReferenceHost" }) -InformationAction Continue
 }
 
-# Same $WhatIfPreference suppression, and for the same reason, as the imports
-# above: the host driver's module-level state is built with Set-Variable under
-# ShouldProcess, so an inherited -WhatIf makes the anchor a no-op and the first
-# read of that state throws "Cannot find a variable" -- a dry run failing on the
-# state it needs to LOOK at the plan, before it has rehearsed anything. Loading a
-# driver changes nothing on the host; the gates that do are all below.
+# See https://yuruna.link/42010605-0004
 $PreviousWhatIf = $WhatIfPreference
 try {
     $WhatIfPreference = $false
@@ -362,15 +274,7 @@ if ($adPlan.Count -eq 0) {
     }
 }
 
-# Read from the config this host carries NOW. The synced one names the same
-# share leaf for each tier -- '//ypool-nas/work/yuruna.pool' and the
-# '//ypool-nas/yuruna.pool' a local bring-up publishes both end in
-# 'yuruna.pool' -- so the pre-flight answer holds for the post-sync config too.
-#
-# The YAML import is $WhatIfPreference-suppressed: powershell-yaml registers two
-# aliases at load, New-Alias supports ShouldProcess, and a rehearsal would
-# otherwise narrate "What if: New Alias" twice into the middle of a report that
-# only READS. Reading a config file changes nothing under either preference.
+# See https://yuruna.link/42010605-0004
 $preflightConfig = $null
 $PreviousWhatIf = $WhatIfPreference
 try {
@@ -427,35 +331,10 @@ if (-not $Force -and -not $NonInteractive -and -not $WhatIfPreference) {
 }
 
 # --- REGION: 2. Sync configuration from the reference host
-# Through the documented redirector rather than the module function, so this
-# conversion gets the per-host conversion, the elevation checks, and the
-# freshness gate exactly as an operator running the sync by hand would.
-#
-# -InternalAuthKey is passed explicitly even when it came from this host's own vault:
-# the sync would find it again, but passing it makes the value this script
-# pre-flighted the value the sync uses, so the two cannot disagree about which
-# token the run is built on. Supplying it also makes the sync store it in this
-# host's vault and bounce the status service, which is what a converting host
-# needs: a worker that syncs a pool config but holds no token accepts control
-# only from loopback, and the dashboard's deep link into it answers 403.
+# See https://yuruna.link/42010605-0004
 Write-ConvertStep -Title "Sync configuration from $ReferenceHost"
 $syncScript = Join-Path $TestRoot 'lab/Sync-HostConfiguration.ps1'
-# By-name (hashtable) splatting is REQUIRED here. Array splatting binds every
-# element POSITIONALLY -- a literal '-ReferenceHost' string element is never
-# re-parsed as a parameter name, so it lands in $ReferenceHost and the real
-# address, the port and the token all fall through to the sync's
-# ValueFromRemainingArguments catch-all. That catch-all is why the mistake is
-# silent on this path: the sync binds and runs, and only its own child rejects
-# the doubled '-ReferenceHost -ReferenceHost' with a binding error that names a
-# script the operator never typed.
-#
-# -SkipValidation is passed UNCONDITIONALLY, and the validation is run by this
-# script at the end instead. Test-Config's storage checks mount the lab's shares,
-# and at this point in a conversion they cannot mount: this machine is still
-# serving its own shares under the same names and still holds the SMB sessions
-# that decide where those names lead. Validating here reports a FAILURE that the
-# next two steps exist to remove, which is the worst possible moment to show it
-# -- the operator reads a hard failure from a run that has not finished.
+# See https://yuruna.link/42010605-0004
 $syncArgs = @{
     ReferenceHost              = $ReferenceHost
     StatusPort                 = $StatusPort
@@ -477,13 +356,7 @@ if ($syncExit -ne 0) {
     exit 1
 }
 
-# The sync runs in THIS session and re-imports Test.ConfigServiceSync with
-# -Force, which unloads the Test.HostDetection instance Test.HostContract's
-# re-exports point at -- so Get-HostType stops resolving from here on. The
-# contract is re-imported for the same reason it is imported last above: after
-# everything that pulls its nested dependencies. The -WhatIf suppression is
-# needed for the same reason too, since New-YurunaRegistry builds the contract's
-# module-level state under ShouldProcess.
+# See https://yuruna.link/42010605-0004
 $PreviousWhatIf = $WhatIfPreference
 try {
     $WhatIfPreference = $false
@@ -541,13 +414,7 @@ $tiers = @(Get-PoolWorkerStorageTier -Config $config)
 if ($tiers.Count -eq 0) {
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d37c37886aaefc65') -InformationAction Continue
 } else {
-    # Order is load-bearing, and each step is the precondition of the next.
-    #
-    # RELEASE first: this host's mounts of its own shares stand on the very mount
-    # points the synced config names, and their sessions own the server names it
-    # resolves through. Nothing else can mount until they are gone. Released
-    # while their server is still up, too -- unmounting a share whose sharepoint
-    # has just been withdrawn can wedge on I/O that never completes.
+    # See https://yuruna.link/42010605-0004
     $released = @(Clear-PoolWorkerSupersededMount -Tier $tiers)
     if ($released.Count -eq 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a1491541b62120ad') -InformationAction Continue
@@ -639,12 +506,7 @@ if ($SkipValidation) {
         Write-Warning "Test-Config.ps1 reported failures (exit $validationExit); review its output above."
     }
 }
-# Re-asked in-process rather than read off the sync. The sync ran the same
-# convergence, but behind the redirector's child pwsh, so its per-user records
-# never came back here -- only an exit code, which is 0 for a sync that reported
-# an unconverged credential as a warning. Asking again is idempotent (an entry
-# that already matches is a no-op and no write) and it is the only way this
-# script can name the users that did not converge in its verdict.
+# See https://yuruna.link/42010605-0004
 $unconverged = @()
 $syncCredentials = @(Sync-ConfigSyncVaultCredential -RepoRoot $RepoRoot -NetworkStorage `
     $(if ($config -is [System.Collections.IDictionary] -and $config['networkStorage'] -is [System.Collections.IDictionary]) { $config['networkStorage'] } else { @{} }) `

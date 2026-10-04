@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 427a25a9-d3c8-4ce6-b877-b396666875b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    CI gate for the two comment-shaped tokens the framework and project parse: every
+    CI gate for the two comment-shaped tokens the workspace parses: every
     `# --- REGION: https://yuruna.link/42xxxxxx-yyyy` pointer resolves to a
     real heading, and every `# === YURUNA_OVERLAY_<KEY> ===` anchor pairs
     between a cloud-init base seed and its per-host overlays.
@@ -42,17 +42,26 @@
     slug pointing at an external site is reported as unresolvable rather than
     failed -- this gate cannot see it.
 
+    Nonlocalized SBOM documents remain outside the generated anchor manifest.
+    Their published file-id rows identify the local document; an id must match
+    that file prefix and occur outside fenced examples in the target.
+
     Exit codes follow the entry-point contract (Get-EntryPointExitCode):
         0  Every in-repo pointer resolves.
         1  At least one pointer names a heading that does not exist.
         2  The link map is missing, so nothing could be checked.
 
 .PARAMETER Path
-    Roots to scan for REGION pointers. Default: both the framework and project
-    candidates. A supplied root may be inside either checkout.
+    Roots to scan for REGION pointers. Default: all existing workspace source
+    checkouts and any AdditionalSourceRoot. A supplied root filters that inventory.
 .PARAMETER ProjectRoot
     Project checkout whose tracked and untracked, non-ignored sources are
     scanned beside the framework. Defaults to the sibling yuruna-project.
+.PARAMETER AdditionalSourceRoot
+    Other Git checkouts whose tracked and untracked, non-ignored sources are
+    scanned. The default inventory already includes the sibling yuruna.link
+    and alius-git/amisad.dev checkouts when present. Documentation targets
+    still resolve only in yuruna and yuruna-project.
 .PARAMETER AnchorManifest
     Path to the generated anchor index that says which ids exist. Default:
     globalization/manifests/doc-anchors.json. Pointing it at a different
@@ -70,7 +79,7 @@
 
 .EXAMPLE
     pwsh tools/Test-RegionAnchors.ps1
-    # Whole repo; exits 0 / 1.
+    # Existing workspace checkouts; exits 0 / 1.
 
 .EXAMPLE
     pwsh tools/Test-RegionAnchors.ps1 -Path automation -Quiet
@@ -81,6 +90,7 @@
 param(
     [string[]]$Path,
     [string]$ProjectRoot,
+    [string[]]$AdditionalSourceRoot,
     [string]$LinkMap,
     [string]$AnchorManifest,
     [switch]$Quiet
@@ -103,9 +113,36 @@ if ($projectRootWasExplicit -and -not (Test-Path -LiteralPath $ProjectRoot -Path
 if (Test-Path -LiteralPath $ProjectRoot -PathType Container) {
     $ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 }
+$repositories = [Collections.Generic.List[object]]::new()
+$repositories.Add([pscustomobject]@{ Name = 'yuruna'; Root = $RepoRoot })
+if (Test-Path -LiteralPath $ProjectRoot -PathType Container) {
+    $repositories.Add([pscustomobject]@{ Name = 'yuruna-project'; Root = $ProjectRoot })
+}
+$workspaceRoot = Split-Path -Parent $RepoRoot
+foreach ($source in @(
+        @{ Name = 'yuruna.link'; Relative = 'yuruna.link' },
+        @{ Name = 'amisad.dev'; Relative = 'alius-git/amisad.dev' })) {
+    $sourceRoot = Join-Path $workspaceRoot $source.Relative
+    if (Test-Path -LiteralPath $sourceRoot -PathType Container) {
+        $repositories.Add([pscustomobject]@{
+                Name = $source.Name
+                Root = (Resolve-Path -LiteralPath $sourceRoot).Path
+            })
+    }
+}
+foreach ($sourceRoot in $AdditionalSourceRoot) {
+    $candidate = if ([IO.Path]::IsPathRooted($sourceRoot)) { $sourceRoot } else { Join-Path $RepoRoot $sourceRoot }
+    if (-not (Test-Path -LiteralPath $candidate -PathType Container)) {
+        Write-Warning "Test-RegionAnchors: additional source checkout not found at '$candidate'; nothing checked."
+        exit $ExitCannotRun
+    }
+    $resolved = (Resolve-Path -LiteralPath $candidate).Path
+    if (@($repositories | Where-Object { $_.Root -eq $resolved }).Count -eq 0) {
+        $repositories.Add([pscustomobject]@{ Name = Split-Path -Leaf $resolved; Root = $resolved })
+    }
+}
 if (-not $Path -or $Path.Count -eq 0) {
-    $Path = @($RepoRoot)
-    if (Test-Path -LiteralPath $ProjectRoot -PathType Container) { $Path += $ProjectRoot }
+    $Path = @($repositories | ForEach-Object { $_.Root })
 }
 if (-not $LinkMap) {
     $LinkMap = Join-Path (Split-Path -Parent $RepoRoot) 'yuruna.link/yuruna.link.json'
@@ -122,6 +159,7 @@ if (-not (Test-Path -LiteralPath $LinkMap -PathType Leaf)) {
 # slug or an array of aliases, and either a single URL or an array; every alias
 # resolves to the same target.
 $slugToDoc = @{}
+$publishedFileIdUrls = @{}
 $parsedMap = ConvertFrom-Json -InputObject (Get-Content -LiteralPath $LinkMap -Raw)
 # A map holding one entry parses to a single inner array, and enumerating that
 # yields its three fields instead of one entry -- which reads as a map full of
@@ -136,6 +174,13 @@ if ($parsedMap -is [System.Collections.IList] -and $parsedMap.Count -gt 0 -and
 foreach ($entry in $mapEntries) {
     $slugs = @($entry[0])
     $urls  = @($entry[2])
+    foreach ($slug in $slugs) {
+        if ([string]$slug -cnotmatch '^42[0-9a-f]{6}$') { continue }
+        if (-not $publishedFileIdUrls.ContainsKey($slug)) {
+            $publishedFileIdUrls[$slug] = [Collections.Generic.List[string]]::new()
+        }
+        foreach ($url in $urls) { $publishedFileIdUrls[$slug].Add([string]$url) }
+    }
     foreach ($url in $urls) {
         $m = [regex]::Match([string]$url,
             'github\.com/[^/]+/(yuruna|yuruna-project)/blob/main/([^#\s]+\.md)')
@@ -143,6 +188,37 @@ foreach ($entry in $mapEntries) {
         $target = [pscustomobject]@{ Repo = $m.Groups[1].Value; Path = $m.Groups[2].Value }
         foreach ($s in $slugs) { if (-not $slugToDoc.ContainsKey($s)) { $slugToDoc[$s] = $target } }
     }
+}
+
+function Get-LocalSbomAnchorId {
+    <#
+    .SYNOPSIS
+        Read stable anchors from a nonlocalized document, excluding fenced examples.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$LiteralPath)
+
+    $ids = [Collections.Generic.List[string]]::new()
+    $fenceCharacter = ''
+    $fenceLength = 0
+    foreach ($line in [IO.File]::ReadAllLines($LiteralPath)) {
+        if ($fenceCharacter) {
+            $closing = '^ {0,3}' + [regex]::Escape($fenceCharacter) + '{' + $fenceLength + ',}[ \t]*$'
+            if ($line -match $closing) { $fenceCharacter = '' }
+            continue
+        }
+        $fence = [regex]::Match($line, '^ {0,3}(`{3,}|~{3,})(.*)$')
+        if ($fence.Success -and -not ($fence.Groups[1].Value[0] -eq '`' -and
+                $fence.Groups[2].Value.Contains('`'))) {
+            $fenceCharacter = [string]$fence.Groups[1].Value[0]
+            $fenceLength = $fence.Groups[1].Length
+            continue
+        }
+        $anchor = [regex]::Match($line, '^[ \t]*<a id="(42[0-9a-f]{6}-[0-9a-f]{4})"></a>[ \t]*$')
+        if ($anchor.Success) { $ids.Add($anchor.Groups[1].Value) }
+    }
+    return [string[]]$ids.ToArray()
 }
 
 function Get-HeadingSlug {
@@ -184,9 +260,8 @@ function Get-DocAnchorSet {
     return ,$set
 }
 
-# Tracked and untracked candidate text files from both repositories. Git still
-# excludes build output and runtime state, while a new REGION pointer is
-# protected before commit in either half of the staged pair.
+# Git excludes ignored output and runtime state while checking new pointers
+# before commit in every inventoried source checkout.
 $roots = @($Path | ForEach-Object {
         $candidate = if ([IO.Path]::IsPathRooted($_)) { $_ } else { Join-Path $RepoRoot $_ }
         (Resolve-Path -LiteralPath $candidate -ErrorAction SilentlyContinue).Path
@@ -194,11 +269,6 @@ $roots = @($Path | ForEach-Object {
 if ($roots.Count -eq 0) {
     Write-Warning 'Test-RegionAnchors: none of the requested scan roots exists; nothing checked.'
     exit $ExitCannotRun
-}
-$repositories = [Collections.Generic.List[object]]::new()
-$repositories.Add([pscustomobject]@{ Name = 'yuruna'; Root = $RepoRoot })
-if (Test-Path -LiteralPath $ProjectRoot -PathType Container) {
-    $repositories.Add([pscustomobject]@{ Name = 'yuruna-project'; Root = $ProjectRoot })
 }
 $candidateFiles = [Collections.Generic.List[object]]::new()
 foreach ($repository in $repositories) {
@@ -244,6 +314,32 @@ if (Test-Path -LiteralPath $AnchorManifest -PathType Leaf) {
             [void]$anchorIds.Add([string]$a.id)
             $anchorDoc[[string]$a.id] = @{ Repo = [string]$f.repo; Source = [string]$f.source }
         }
+    }
+}
+
+# SBOM documents keep local anchors without joining the localization manifest.
+# Only a published file-id target supplies their document authority.
+$localSbomAnchors = @{}
+foreach ($prefix in $publishedFileIdUrls.Keys) {
+    $target = $slugToDoc[$prefix]
+    if (-not $target -or $target.Path -cnotmatch '^docs/sbom/.+\.md$') { continue }
+    $set = [Collections.Generic.HashSet[string]]::new()
+    $localSbomAnchors[$prefix] = $set
+    $matchesTarget = $true
+    foreach ($url in $publishedFileIdUrls[$prefix]) {
+        $published = [regex]::Match($url,
+            '^https://github\.com/[^/]+/(yuruna|yuruna-project)/blob/main/([^?#\s]+\.md)(?:#[^\s]*)?$')
+        if (-not $published.Success -or $published.Groups[1].Value -cne $target.Repo -or
+            $published.Groups[2].Value -cne $target.Path) { $matchesTarget = $false; break }
+    }
+    if (-not $matchesTarget) { continue }
+    $documentRoot = if ($target.Repo -eq 'yuruna') { $RepoRoot } else { $ProjectRoot }
+    $sbomRoot = [IO.Path]::GetFullPath((Join-Path $documentRoot 'docs/sbom')) + [IO.Path]::DirectorySeparatorChar
+    $full = [IO.Path]::GetFullPath((Join-Path $documentRoot $target.Path))
+    if (-not $full.StartsWith($sbomRoot, [StringComparison]::Ordinal) -or
+        -not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+    foreach ($id in @(Get-LocalSbomAnchorId -LiteralPath $full)) {
+        if ($id.StartsWith($prefix + '-', [StringComparison]::Ordinal)) { [void]$set.Add($id) }
     }
 }
 
@@ -318,7 +414,12 @@ foreach ($candidateFile in $candidateFiles) {
         foreach ($m in $idPointer.Matches($line)) {
             $checked++
             $id = $m.Groups[1].Value
-            if (-not $anchorIds.Contains($id)) {
+            $prefix = $id.Substring(0, 8)
+            if ($localSbomAnchors.ContainsKey($prefix)) {
+                if (-not $localSbomAnchors[$prefix].Contains($id)) {
+                    $unknownId.Add(@{ file = $display; line = $lineNo; id = $id })
+                }
+            } elseif (-not $anchorIds.Contains($id)) {
                 # An id that names no heading is fatal, not merely
                 # unresolvable: unlike a slug, an id can only ever have come
                 # from this repository's own generator.
@@ -401,7 +502,7 @@ foreach ($u in $unknown) {
 
 foreach ($u in ($unknownId | Sort-Object { $_.file }, { $_.line })) {
     Write-Warning ("  FAIL  {0}:{1}" -f $u.file, $u.line)
-    Write-Warning ("        id '{0}' names no heading in the anchor manifest" -f $u.id)
+    Write-Warning ("        id '{0}' names no heading in the anchor manifest or its published local SBOM target" -f $u.id)
 }
 
 if ($dangling.Count -eq 0 -and $overlayBad.Count -eq 0 -and $unknownId.Count -eq 0) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4213717a-c9d8-4963-a773-bbe6c4201235
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,6 +90,102 @@ $script:Problem = [Collections.Generic.List[string]]::new()
 function Write-Line {
     param([string]$Text = '')
     if (-not $Quiet) { Write-Information $Text -InformationAction Continue }
+}
+
+function New-ReferenceDocumentReviewFixture {
+    <#
+    .SYNOPSIS
+        Build private document roots for the shipping review producer.
+    .OUTPUTS
+        [hashtable] Root, ProjectRoot and Manifest for the disposable fixture.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds only the disposable reference fixture requested by its caller.')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$SourceRoot, [Parameter(Mandatory)][string]$Directory)
+
+    $base = [IO.Path]::GetFullPath($Directory)
+    $sourceBase = [IO.Path]::GetFullPath($SourceRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if ($base.Equals($sourceBase, $comparison) -or $base.StartsWith($sourceBase + [IO.Path]::DirectorySeparatorChar, $comparison)) {
+        throw 'The document review fixture must be outside the source repository.'
+    }
+    $documentRoot = Join-Path $base 'yuruna'
+    $projectRoot = Join-Path $base 'yuruna-project'
+    $null = New-Item -ItemType Directory -Path $documentRoot, $projectRoot -Force
+    foreach ($relative in @('tools/Test-DocTranslation.ps1', 'test/modules/Test.LocalizationExchange.psm1', 'test/modules/Test.CanonicalJson.psm1')) {
+        $destination = Join-Path $documentRoot $relative
+        $null = New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force
+        [IO.File]::Copy((Join-Path $SourceRoot $relative), $destination, $true)
+    }
+    Import-Module (Join-Path $SourceRoot 'test/modules/Test.LocalizationExchange.psm1') -Force -Global -DisableNameChecking
+    $loaded = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText((Join-Path $SourceRoot 'globalization/manifests/doc-translations.json')))
+    # The recorded capture fixes this fixture's subset and synthetic review states.
+    $captured = [IO.File]::ReadAllLines((Join-Path $SourceRoot 'globalization/fixtures/reference/en-US/cli-document-review-clean.txt'))
+    $expected = [ordered]@{}
+    foreach ($line in $captured) {
+        if ($line -match '^ok\s+(?<repo>yuruna|yuruna-project)/(?<source>.+) \(pt-BR, (?<state>accepted|machine draft)\)$') {
+            $key = "$($Matches['repo'])|$($Matches['source'])|pt-BR"
+            $expected[$key] = if ($Matches['state'] -ceq 'machine draft') { 'machine' } else { '' }
+        }
+    }
+    if ($expected.Count -ne 13) { throw 'The document reference capture must name exactly 13 fixture sources.' }
+    $selected = @($loaded.documents | Where-Object { $expected.Contains("$($_.repo)|$($_.source)|$($_.locale)") })
+    if ($selected.Count -ne $expected.Count) { throw 'An original document reference source is absent from the real manifest.' }
+    $rows = @(foreach ($document in $selected) {
+        $ownerRoot = switch ([string]$document.repo) {
+            'yuruna' { $documentRoot }
+            'yuruna-project' { $projectRoot }
+            default { throw "Unknown document fixture repository: $($document.repo)" }
+        }
+        $files = @([string]$document.source, [string]$document.translated)
+        foreach ($relative in $files) {
+            $full = [IO.Path]::GetFullPath((Join-Path $ownerRoot $relative))
+            if (-not $full.StartsWith($ownerRoot + [IO.Path]::DirectorySeparatorChar, $comparison)) {
+                throw 'A document fixture path escaped its private repository.'
+            }
+            $null = New-Item -ItemType Directory -Path (Split-Path -Parent $full) -Force
+            $text = if ($relative -ceq [string]$document.source) {
+                "# Reference source for $($document.repo)/$($document.source)`n"
+            } else { "# Documento de referencia para $($document.repo)/$($document.source)`n" }
+            [IO.File]::WriteAllText($full, $text, [Text.UTF8Encoding]::new($false))
+        }
+        # Synthetic review states stay fixed when real review provenance advances;
+        # they describe these fixture texts and never accept a real translation.
+        $row = [ordered]@{
+            repo = [string]$document.repo
+            source = [string]$document.source
+            locale = [string]$document.locale
+            translated = [string]$document.translated
+            sourceHash = Get-LocalizationDocumentHash -FullPath (Join-Path $ownerRoot ([string]$document.source))
+        }
+        if ($expected["$($document.repo)|$($document.source)|$($document.locale)"] -ceq 'machine') {
+            $row['origin'] = 'machine'
+        }
+        $row
+    })
+    $manifestPath = Join-Path $base 'doc-translations.json'
+    $json = ConvertTo-Json -InputObject ([ordered]@{ schema = $loaded.schema; documents = $rows }) -Depth 8
+    [IO.File]::WriteAllText($manifestPath, $json + "`n", [Text.UTF8Encoding]::new($false))
+    $paths = [string[]]@($selected | ForEach-Object { "$($_.repo):$($_.source)" })
+    return @{ Root = $documentRoot; ProjectRoot = $projectRoot; Manifest = $manifestPath; Paths = $paths }
+}
+
+function ConvertTo-ReferenceDocumentReviewCommand {
+    <# .SYNOPSIS
+    Bind the private reference subset through the shipping checker's Path array.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][hashtable]$Fixture)
+    $quote = { param([string]$Value) "'" + $Value.Replace("'", "''") + "'" }
+    $tool = & $quote (Join-Path $Fixture.Root 'tools/Test-DocTranslation.ps1')
+    $manifest = & $quote ([string]$Fixture.Manifest)
+    $project = & $quote ([string]$Fixture.ProjectRoot)
+    $paths = @($Fixture.Paths | ForEach-Object { & $quote ([string]$_) }) -join ', '
+    # -File cannot bind this string array without flattening it to one pattern.
+    return "& $tool -Manifest $manifest -ProjectRoot $project -Path @($paths); exit `$LASTEXITCODE"
 }
 
 function ConvertTo-NormalizedFixtureText {
@@ -223,14 +319,24 @@ function Get-RowCapture {
         'command' {
             $arguments = [Collections.Generic.List[string]]::new()
             $arguments.Add('-NoProfile')
-            $arguments.Add('-File')
-            $arguments.Add((Join-Path $Root ([string]$Row.tool)))
-            foreach ($argument in @($Row.arguments)) {
-                $text = [string]$argument
-                foreach ($token in @($Context.Keys)) {
-                    $text = $text.Replace(('{0}{1}{2}' -f '{', $token, '}'), [string]$Context[$token])
+            $isDocumentReview = [string]$Row.tool -ceq 'tools/Test-DocTranslation.ps1'
+            $producerRoot = if ($isDocumentReview) { [string]$Context['documentReviewRoot'] } else { $Root }
+            if ([string]$Row.id -ceq 'cli-document-review-clean' -and [string]$Row.tool -ceq 'tools/Test-DocTranslation.ps1') {
+                $arguments.Add('-Command')
+                $arguments.Add((ConvertTo-ReferenceDocumentReviewCommand -Fixture @{
+                    Root = $producerRoot; Manifest = $Context['manifestCopy']; ProjectRoot = $Context['documentReviewProjectRoot']; Paths = $Context['documentReviewPaths']
+                }))
+            } else {
+                $arguments.Add('-File')
+                $arguments.Add((Join-Path $producerRoot ([string]$Row.tool)))
+                foreach ($argument in @($Row.arguments)) {
+                    $text = [string]$argument
+                    foreach ($token in @($Context.Keys)) {
+                        $value = if ($isDocumentReview -and $token -ceq 'projectRoot') { $Context['documentReviewProjectRoot'] } else { $Context[$token] }
+                        $text = $text.Replace(('{0}{1}{2}' -f '{', $token, '}'), [string]$value)
+                    }
+                    $arguments.Add($text)
                 }
-                $arguments.Add($text)
             }
             $global:LASTEXITCODE = 0
             $output = (& $script:PowerShellPath @arguments 2>&1 | Out-String)
@@ -326,23 +432,31 @@ try {
     # rather than a different one per row.
     $emptyRoot = Join-Path $work 'empty-root'
     $null = New-Item -ItemType Directory -Path $emptyRoot -Force
-    $manifestCopy = Join-Path $work 'doc-translations.json'
-    [IO.File]::Copy((Join-Path $Root 'globalization/manifests/doc-translations.json'), $manifestCopy, $true)
+    $documentReview = $null
+    if (@($rows | Where-Object { [string]$_.producer -ceq 'command' -and [string]$_.tool -ceq 'tools/Test-DocTranslation.ps1' }).Count -gt 0) {
+        $documentReview = New-ReferenceDocumentReviewFixture -SourceRoot $Root -Directory (Join-Path $work 'document-review')
+    }
     $generated = Join-Path $work 'generated'
     $null = & (Join-Path $Root 'tools/Export-GeneratedPages.ps1') -OutputDirectory $generated -Quiet
 
     $context = @{
         emptyRoot = $emptyRoot
-        manifestCopy = $manifestCopy
         projectRoot = $ProjectRoot
         generatedPages = $generated
+    }
+    if ($documentReview) {
+        $context['manifestCopy'] = $documentReview.Manifest
+        $context['documentReviewRoot'] = $documentReview.Root
+        $context['documentReviewProjectRoot'] = $documentReview.ProjectRoot
+        $context['documentReviewPaths'] = $documentReview.Paths
     }
     # Longest first is handled inside the normalizer; these are the roots whose
     # spelling differs per host and would otherwise be recorded as content.
     $rootToken = [ordered]@{}
     $rootToken[$work] = '<work>'
     $rootToken[$Root] = '<root>'
-    $rootToken[[string]$context['projectRoot']] = '<project>'
+    $rootToken[$ProjectRoot] = '<project>'
+    if ($documentReview) { $rootToken[[string]$documentReview.ProjectRoot] = '<project>' }
     $rootToken[([IO.Path]::GetTempPath().TrimEnd([IO.Path]::DirectorySeparatorChar))] = '<temp>'
     $rootToken[[Environment]::GetFolderPath('UserProfile')] = '<home>'
     $rootToken[[Environment]::MachineName] = '<host>'

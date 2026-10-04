@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,11 +41,11 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 $arch = $env:PROCESSOR_ARCHITECTURE
 Write-Output "Detected architecture: $arch"
 switch ($arch) {
-    'AMD64' { Write-Output 'Environment: x86_64/amd64 (Hyper-V)' }
-    'ARM64' { Write-Output 'Environment: arm64 (UTM on Apple Silicon / Surface Pro X)' }
+    'AMD64' { Write-Output 'Environment: x86_64/amd64' }
+    'ARM64' { Write-Output 'Environment: aarch64/arm64' }
     default {
         Write-Output "WARNING: Unsupported architecture: $arch"
-        Write-Output "This script supports AMD64 (Hyper-V) and ARM64 (UTM on Apple Silicon)."
+        Write-Output "This script supports AMD64 and ARM64."
         throw 'Guest update failed; review the preceding error.'
     }
 }
@@ -102,9 +102,7 @@ if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT -and -not
     $livecheckUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/livecheck"
     $tarballUrl   = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/yuruna-archive.tar.gz"
     try {
-        # Livecheck probe: HEAD-equivalent via -Method Head so a present-but-
-        # large /livecheck response isn't pulled into memory; status 200 is
-        # the only success path we accept.
+        # Probe liveness without downloading a response body.
         $null = Invoke-WebRequest -Uri $livecheckUrl -Method Head -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
         New-Item -ItemType Directory -Path $yurunaRoot -Force | Out-Null
         $tarPath = Join-Path $env:TEMP 'yuruna-archive.tar.gz'
@@ -157,9 +155,8 @@ Write-Output "<<< Windows Update module ready."
 
 Write-Output ""
 Write-Output ">>> Checking for Windows updates..."
-# Bound Windows Update with a wall-clock timeout: run it in a job so a hung WU session cannot
-# stall the whole guest-provisioning cycle. Log and continue on timeout rather than blocking
-# forever (the job runspace re-imports PSWindowsUpdate; jobs do not inherit the parent's modules).
+# See https://yuruna.link/42e220c4-0005
+# Bound Windows Update; the child job must import its own module.
 $wuTimeoutSeconds = 1800
 $wuJob = Start-Job -ScriptBlock { Import-Module PSWindowsUpdate; Get-WindowsUpdate -AcceptAll -Install -AutoReboot:$false -Verbose }
 if (Wait-Job -Job $wuJob -Timeout $wuTimeoutSeconds) {
@@ -176,9 +173,7 @@ Write-Output ""
 Write-Output ">>> Ensuring Git is installed..."
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     winget install --id Git.Git --accept-source-agreements --accept-package-agreements --silent
-    # Refresh PATH so the newly installed git is discoverable in the
-    # current session (winget writes to Machine PATH but the live $env:Path
-    # doesn't pick it up until reload).
+    # Refresh PATH so the newly installed Git is discoverable in this session.
     $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
 }
 git --version
@@ -186,8 +181,6 @@ Write-Output "<<< Git ready."
 
 # --- REGION: Resolve framework and project URLs
 # See https://yuruna.link/42fa6f45-000c
-# The $yurunaRoot existence guards make this a no-op when the early
-# extract already succeeded.
 $frameworkUrl = ''
 $projectUrl   = ''
 if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
@@ -197,9 +190,13 @@ if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
         if ($cfg.repositories.frameworkUrl) { $frameworkUrl = [string]$cfg.repositories.frameworkUrl }
         if ($cfg.repositories.projectUrl)   { $projectUrl   = [string]$cfg.repositories.projectUrl }
     } catch {
-        Write-Output "yuruna: /control/test-config unreachable -- git clone fallback may not have URLs."
+        Write-Output "yuruna: /control/test-config unreachable -- using seeded clone URLs when available."
     }
 }
+
+# host.env keeps clone URLs available while the status service is unreachable.
+if (-not $frameworkUrl) { $frameworkUrl = [string]$env:YURUNA_FRAMEWORK_URL }
+if (-not $projectUrl) { $projectUrl = [string]$env:YURUNA_PROJECT_URL }
 
 # --- REGION: Keep git non-interactive
 # See https://yuruna.link/4220a755-004f

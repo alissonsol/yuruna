@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 422bc4f3-b6dd-4964-868e-1ae5f65db198
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,26 +16,7 @@
 
 #requires -version 7
 
-# Render a message from the compiled catalog, in the locale a run resolved.
-#
-# The catalog compiler emits a table per locale and domain, already broken into
-# the pieces a renderer walks: a message with no arguments is a plain string, a
-# message with arguments is an alternating list of literal text and argument
-# descriptors, and a message that varies by count carries its variants beside
-# the argument that selects them. Nothing here parses a message grammar or
-# scans a format string, because the parsing already happened at build time --
-# which is what keeps this cheap enough to sit in a per-line transcript loop.
-#
-# Loading is lazy and cached for the process. A command that renders no text
-# pays nothing; a command that renders a thousand messages reads each domain
-# once. Import-PowerShellDataFile is the loader on purpose: it parses the file
-# in PowerShell's restricted language, so a generated artifact is data and
-# cannot execute.
-#
-# A missing key is a build error, not a runtime one -- a supported catalog is
-# complete by definition, and the compiler fails on a gap. At run time the key
-# itself is returned so the surface still says something identifiable, and the
-# caller sees it in the one place a wrong key can be noticed.
+# See https://yuruna.link/4213a0b3-0031
 
 # The plural rule and the number separators come from the locale manifest,
 # which this module reads through the resolver that already caches it.
@@ -292,15 +273,7 @@ function Format-CatalogArgument {
     }
     $text = [string]$text
 
-    # In a right-to-left locale every argument is isolated, so the bidi
-    # algorithm cannot reorder a number or an external string into the
-    # sentence around it. A number, duration or timestamp reads left to
-    # right (LRI); an external string decides its own direction (FSI). An
-    # empty argument stays empty: an isolate around nothing is two invisible
-    # characters a reader cannot delete. The Go SDK and the browser kernel
-    # write the same bytes.
-    # A value the caller isolated already opens with an isolate and ends with
-    # its close; a second pair would only nest.
+    # See https://yuruna.link/4213a0b3-0032
     $direction = (Get-LocaleManifest).Direction[$Locale]
     if ($direction -ne 'rtl' -or $text -eq '' -or $text -match '(?s)^[\u2066-\u2068].*\u2069$') { return $text }
     $open = if ($Type -in @('integer', 'decimal', 'duration', 'datetime')) { [char]0x2066 } else { [char]0x2068 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -8,29 +8,13 @@
 # cloud-init deploys this file at install time.
 #
 # --- REGION: https://yuruna.link/4220a755-0003
-# Capability marker for the callers that ask for a wall-clock stall bound.
-# Setting one is only safe against a lib that wraps with `timeout --foreground`
-# hoisted INSIDE sudo: without --foreground the bounded command is stopped by
-# SIGTTIN/SIGTTOU the moment it touches the console tty (the background-pgrp
-# tty-stop trap), and without the hoist the signal lands on sudo instead of the
-# tool. This file does both, so a caller that sees this marker may request a
-# bound; one that does not see it is sourcing an older baked copy and must stay
-# unbounded. Gating on the marker rather than on a version string means guests
-# self-select as images roll over, with no dated "safe after" rule to maintain.
+# See https://yuruna.link/4220a755-0004
+# Only this safe timeout implementation permits opt-in transaction bounds.
 export YURUNA_RETRY_LIB_SAFE_STALL=1
 
-# Writes one structured record to stderr and, when YURUNA_RETRY_RECORD names a
-# file, appends it there too.
-#
-# The wrapper's own diagnostics go to the CALLER's stderr, while the log a
-# wrapped attempt writes is opened around the attempt alone. So a consumer
-# reading that log sees the attempt's output and nothing the wrapper decided --
-# no attempt count, no classification, no outcome. Naming the file here is what
-# puts the verdict where the log's reader already looks, instead of leaving them
-# to recognize a sentence that never arrives.
-#
-# Best effort: a record that cannot be written must never fail the run it is
-# only describing.
+# --- REGION: _yuruna_retry_record
+# See https://yuruna.link/4220a755-0003
+# Write retry records to stderr and the optional attempt log; recording is best-effort.
 _yuruna_retry_record() {
     echo "YURUNA_RETRY $1" >&2
     if [ -n "${YURUNA_RETRY_RECORD:-}" ]; then
@@ -62,15 +46,8 @@ _yuruna_retry() {
     delay=$(_yuruna_retry_positive_integer "${YURUNA_RETRY_DELAY_SECONDS:-}" 10)
     local stall="${YURUNA_RETRY_STALL_TIMEOUT_SECONDS:-0}"
     local attempt=1 rc=0
-    # Diagnostics go to stderr, never stdout: these wrappers are routinely
-    # used in `curl_retry ... | bash` / `wget_try ... | bash` pipelines, where
-    # a retry's progress line on stdout would be fed to the interpreter as
-    # script text and corrupt the install. The fetch-and-execute log captures
-    # 2>&1, so the operator still sees every attempt.
-    #
-    # Per-attempt wall-clock bound (YURUNA_RETRY_STALL_TIMEOUT_SECONDS, whole
-    # seconds; 0 = unbounded) so a stalled or trickling transfer fails into
-    # the retry ladder; a malformed value fails LOUD and unbounded.
+    # See https://yuruna.link/4220a755-0004
+    # Keep diagnostics off stdout because download output may feed Bash.
     # --- REGION: https://yuruna.link/4220a755-0004
     case "$stall" in
         ''|*[!0-9]*)
@@ -78,10 +55,8 @@ _yuruna_retry() {
             stall=0
             ;;
     esac
-    # bound_mode is invariant across attempts: none | direct | sudo.
-    # timeout(1) only execs real commands (shell functions run unbounded);
-    # a plain `sudo <tool> ...` hoists the bound INSIDE sudo, and
-    # --foreground is load-bearing (background-pgrp tty-stop trap class).
+    # See https://yuruna.link/4220a755-0004
+    # Only real commands can be bounded; hoist foreground timeout inside sudo.
     # --- REGION: https://yuruna.link/4220a755-0004
     local bound_mode=none
     if [ "$stall" -gt 0 ] \
@@ -113,23 +88,12 @@ _yuruna_retry() {
         else
             echo "!! ${label}: attempt $attempt/$max_attempts failed (rc=$rc): $*" >&2
         fi
-        # Transient/permanent gate (opt-in via YURUNA_RETRY_CLASSIFY = a function
-        # name): stop the ladder immediately on a classified-PERMANENT failure --
-        # a deterministic HTTP 404, a malformed URL -- instead of burning the
-        # whole budget (minutes of exponential backoff) on something that cannot
-        # succeed. Conservative by contract: the classifier returns non-zero ONLY
-        # for a clearly permanent cause; any ambiguity keeps retrying, so a
-        # healthy fetch is never turned into a hard failure by a misclassification.
-        # Classify ONCE (the curl/wget gate may re-probe the HTTP status) and
-        # record the verdict in the structured marker below.
+        # See https://yuruna.link/4220a755-0003
+        # Stop only on a clearly permanent classification; ambiguity keeps retrying.
         local permanent=false
         if [ -n "${YURUNA_RETRY_CLASSIFY:-}" ] && ! "$YURUNA_RETRY_CLASSIFY" "$rc"; then permanent=true; fi
-        # Structured machine-readable attempt record. A consumer greps
-        # YURUNA_RETRY lines; on the SSH verbs the host parses them into the
-        # cycle NDJSON stream (the console/OCR path keeps the guest log local).
-        # Only safe scalar fields (label is a fixed wrapper name, the rest are
-        # ints/bools) so the JSON never needs escaping. On stderr like every
-        # other diagnostic here -- stdout stays clean for `... | bash` pipelines.
+        # See https://yuruna.link/4220a755-0003
+        # Emit scalar retry fields on stderr for host telemetry.
         _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"attempt\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc},\"permanent\":${permanent}}"
         if [ "$permanent" = true ]; then
             _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"permanent\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc}}"
@@ -137,22 +101,13 @@ _yuruna_retry() {
             return "$rc"
         fi
         if [ "$attempt" -lt "$max_attempts" ]; then
-            # Best-effort repair before the retry (YURUNA_RETRY_HEAL): a
-            # bounded attempt can be killed mid-transaction, leaving state
-            # the plain re-run would refuse to touch (dpkg's "interrupted,
-            # run dpkg --configure -a" latch). Run on every failure kind,
-            # not just stall-kills: the latch can also predate this loop,
-            # and clearing it is what lets the retry succeed. Skipped after
-            # the final attempt, where no retry can benefit.
+            # See https://yuruna.link/4220a755-0005
+            # Repair interrupted package state before another attempt, including ordinary failures.
             if [ -n "${YURUNA_RETRY_HEAL:-}" ]; then
                 bash -c "$YURUNA_RETRY_HEAL" >/dev/null 2>&1 || true
             fi
-            # Equal jitter: sleep a random point in [delay/2, delay] instead of
-            # exactly delay, so parallel guests that failed in lock-step (a shared
-            # proxy blip, a mirror 429 burst) don't all wake and retry on the same
-            # instant and re-form the thundering herd that caused the failure.
-            # Bounded by the base delay, so it never adds wall-clock over the old
-            # fixed sleep. $RANDOM is a bash builtin (this lib is bash-only).
+            # See https://yuruna.link/4220a755-0003
+            # Equal jitter prevents parallel guests from retrying in lockstep.
             local half=$(( delay / 2 ))
             local nap=$(( half + (RANDOM % (half + 1)) ))
             [ "$nap" -lt 1 ] && nap=1
@@ -167,32 +122,8 @@ _yuruna_retry() {
     return "$rc"
 }
 
-# Package-manager attempts run UNBOUNDED by default (opt in via
-# YURUNA_APT_STALL_TIMEOUT_SECONDS / YURUNA_DNF_STALL_TIMEOUT_SECONDS, seconds): wrapping
-# apt in timeout(1) is the wrapped-apt teardown-hang trap class, so the
-# mirror-stall exposure is bounded at the transfer layer instead.
-#
-# Every attempt is forced non-interactive HERE rather than by an ambient export
-# in the calling script, because an export does not survive the trip: sudo
-# resets the environment to whatever env_keep lists, and neither of these
-# variables is on that list, so `export DEBIAN_FRONTEND=noninteractive; sudo
-# apt-get ...` reaches apt with the frontend unset. What that costs is not a
-# visible error. These guests are driven by OCR of a console, so a debconf
-# question is a HANG: dpkg-preconfigure blocks on a read nothing will answer
-# while holding /var/lib/dpkg/lock-frontend, and because stdout here is a pipe
-# the question itself never flushes -- the console freezes on the last line
-# apt printed and the step spends its entire timeout with no prompt on screen
-# to explain why. Unbounded attempts (above) make that the full budget.
-#
-# `env` rather than a bare VAR=value word for two reasons: it sets the
-# variables in the child regardless of sudoers policy, and it stays a real
-# command, so the stall bound can still hoist timeout(1) inside sudo --
-# timeout execs its argument and cannot exec an assignment, while env execs
-# the tool in the same PID, leaving the signal target unchanged.
-# DEBIAN_PRIORITY is the belt to that brace, for a config script that consults
-# the priority directly instead of the frontend. The heal command gets the
-# same treatment: `dpkg --configure -a` runs the postinst scripts, so it can
-# block on the identical question it was invoked to clear.
+# See https://yuruna.link/4220a755-0005
+# Package transactions run unbounded; env inside sudo preserves noninteractive settings.
 # --- REGION: https://yuruna.link/4220a755-0005
 apt_retry() {
     local -a cmd=()
@@ -204,21 +135,14 @@ apt_retry() {
     YURUNA_RETRY_HEAL='sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical dpkg --configure -a' \
         _yuruna_retry apt_retry "${cmd[@]}"
 }
+# --- REGION: dnf_retry
 dnf_retry() {
     YURUNA_RETRY_STALL_TIMEOUT_SECONDS="${YURUNA_DNF_STALL_TIMEOUT_SECONDS:-0}" \
         _yuruna_retry dnf_retry "$@"
 }
 
 # --- REGION: https://yuruna.link/4220a755-0003
-# Shared HTTP-status classifier for the curl/wget gates. curl -f (exit 22) and
-# wget (exit 8) both collapse EVERY HTTP error to one exit code -- a 404 and a
-# 503 are indistinguishable at that level -- so we re-probe the status: a cheap,
-# bounded, output-discarding GET that inherits the same proxy env as the real
-# fetch. Re-probing (rather than adding `-w`/`-S` to the real fetch) keeps the
-# code off the stdout that feeds the `... | bash` install pipelines. Returns 0
-# (transient: 429 / 5xx / no-answer) or 1 (permanent: other 4xx). An empty or
-# unreachable URL is treated as transient so the gate never hardens a healthy
-# fetch into a failure.
+# Re-probe collapsed HTTP errors without contaminating downloaded stdout.
 _yuruna_http_status_class() {
     local url="$1"
     [ -z "$url" ] && return 0
@@ -234,37 +158,14 @@ _yuruna_http_status_class() {
 }
 
 # --- REGION: https://yuruna.link/4220a755-0015
-# Does bumped HTTPS verify from here? One spider request through whatever proxy
-# env this shell carries; the URL is overridable so a lab with no reachable
-# github.com can point it at something its cache does serve.
+# Probe the current bump trust through the active proxy environment.
 _yuruna_bump_trusted() {
     wget -q --spider --timeout="${YURUNA_CA_PROBE_TIMEOUT:-15}" --tries=1 \
         "${YURUNA_CA_PROBE_URL:-https://github.com/}" 2>/dev/null
 }
 
 # --- REGION: https://yuruna.link/4220a755-0015
-# The ssl-bump CA is a trust anchor this guest holds a COPY of, and the copy is
-# only as current as the cache that minted it: a cache rebuilt from a blank disk
-# mints a fresh CA, after which every bumped HTTPS from here fails certificate
-# verification and no re-run of the same bytes can recover it. The repair is to
-# re-fetch the current CA from the host status service, which is reached over
-# the RFC1918 plain-HTTP path the bump is not in front of.
-#
-# Three-way exit code, because the callers have to tell these apart:
-#   0 -- repaired: the trust store changed and bumped HTTPS now verifies, so a
-#        retry of whatever just failed is worth spending.
-#   1 -- nothing to repair: no bump in front of this guest, or it already
-#        verifies. A cert failure here is the far end's certificate, not ours.
-#   2 -- tried and still untrusted: no coordinates, no usable CA served, or a
-#        CA that does not match the bump.
-# Diagnostics go to stderr: stdout stays clean for the `... | bash` install
-# pipelines that source this lib.
-# Add one PEM to the system trust store. This lib is sourced by guests of both
-# the Debian and the RHEL family, which take an extra anchor in different
-# directories AND re-hash the store with different commands. The two halves have
-# to be chosen together -- a Debian-layout drop on a RHEL guest leaves a file
-# nothing reads and reports success -- so the refresh command selects the pair.
-# The extension must stay .crt: update-ca-certificates ignores every other one.
+# Install the cache CA using the trust-store path and refresh command for this OS.
 _yuruna_ca_trust() {
     if command -v update-ca-certificates >/dev/null 2>&1; then
         sudo install -d -m 0755 /usr/local/share/ca-certificates \
@@ -280,6 +181,7 @@ _yuruna_ca_trust() {
     fi
 }
 
+# --- REGION: yuruna_ca_selfheal
 yuruna_ca_selfheal() {
     # Guard on the bump port with a boundary so a no-cache/direct guest (empty
     # https_proxy) or a proxy on some other port is a hard no-op.
@@ -313,22 +215,17 @@ yuruna_ca_selfheal() {
     return "$rc"
 }
 
-# curl transient/permanent classifier: network / timeout codes are transient
-# (retry); a malformed URL or bad usage is permanent; a certificate that will
-# not verify (60) re-anchors the bump CA; an HTTP-error exit (22) re-probes the
-# status. Any unclassified code falls through to retry.
+# --- REGION: _yuruna_classify_curl
+# See https://yuruna.link/4220a755-0003
+# Retry network failures; classify HTTP errors and repair stale bump trust.
 _yuruna_classify_curl() {
     local rc="$1"
     case "$rc" in
         3|43) return 1 ;;                              # malformed URL / bad usage -> permanent
         5|6|7|16|18|28|35|52|55|56|92) return 0 ;;     # DNS/connect/timeout/recv/http2 -> transient
     esac
-    # A peer certificate that will not verify is a trust-anchor mismatch, and
-    # re-running the identical fetch cannot change the anchor -- the ladder can
-    # only spend its whole budget arriving back here. The one thing that CAN
-    # change it is replacing this guest's stale copy of the ssl-bump CA, so try
-    # that once and let the outcome decide: a retry is worth spending only when
-    # the copy actually changed.
+    # See https://yuruna.link/4220a755-0015
+    # Retry a certificate failure only after the stale bump CA was repaired.
     if [ "$rc" -eq 60 ]; then
         if yuruna_ca_selfheal; then return 0; fi
         return 1
@@ -337,7 +234,9 @@ _yuruna_classify_curl() {
     return 0
 }
 
-# wget exit-code handling: ../docs/network.md#defining-yuruna-retry-lib.
+# --- REGION: _yuruna_classify_wget
+# See https://yuruna.link/4220a755-0003
+# Classify wget failures using the same transient policy as curl.
 _yuruna_classify_wget() {
     local rc="$1"
     case "$rc" in
@@ -353,13 +252,7 @@ _yuruna_classify_wget() {
 }
 
 # --- REGION: https://yuruna.link/4220a755-0003
-# --speed-limit/--speed-time abort a transfer that drops below 1 KB/s for
-# 60s (curl exit 28), turning a stalled-after-headers or trickling download
-# into a retryable failure instead of an unbounded hang. Wall-clock bounds
-# would be wrong here: a large asset on a slow-but-moving link must be
-# allowed to finish. The transient gate fails fast on a deterministic 404
-# rather than retrying it; YURUNA_RETRY_NO_TRANSIENT_GATE=1 restores the
-# retry-everything behavior.
+# Bound stalled transfer throughput, preserving moving large downloads.
 curl_retry() {
     local url="" _a
     for _a in "$@"; do case "$_a" in http://*|https://*) url="$_a" ;; esac; done
@@ -371,12 +264,7 @@ curl_retry() {
 }
 
 # --- REGION: https://yuruna.link/4220a755-0003
-# wget counterpart of curl_retry, for the scripts that pipe a remote
-# install.sh straight to bash (nvm, nodesource). The inner --tries/--waitretry
-# rides out a single connection blip; the outer _yuruna_retry loop re-runs the
-# whole fetch with exponential backoff when wget exhausts its own tries.
-# --read-timeout aborts when no data arrives for 60s, so a transfer stalled
-# mid-body fails into the retry ladder instead of hanging the attempt.
+# Use the same classifier and backoff as curl_retry with a bounded read stall.
 wget_try() {
     local url="" _a
     for _a in "$@"; do case "$_a" in http://*|https://*) url="$_a" ;; esac; done
@@ -407,30 +295,19 @@ pwsh_retry() {
     return "$rc"
 }
 
+# --- REGION: _yuruna_pwsh_attempt
 _yuruna_pwsh_attempt() {
     local log="$1"; shift
     local body="$*"
-    # The body must reach pwsh as a script FILE, never on stdin: piped
-    # into `pwsh -Command -`, stdin is read REPL-style, which silently
-    # stops executing at multi-line constructs it fails to assemble AND
-    # exits 0 regardless of the body's own `exit` code. Under that mode a
-    # verify block at the end of a body never runs, and a failing body
-    # can never engage the retry ladder -- the attempt always reports
-    # success. `-File` runs the body as one script and propagates its
-    # exit code. The rename after mktemp gives the file the .ps1
-    # extension: whether -File accepts an extensionless target varies
-    # across PowerShell versions, and .ps1 is the one name every
-    # version runs.
+    # See https://yuruna.link/4220a755-0003
+    # Run a .ps1 file so multiline execution and the payload exit code survive.
     local rc=0 tmp script
     tmp="$(mktemp /tmp/yuruna-pwsh-attempt.XXXXXX)" || return 1
     script="${tmp}.ps1"
     mv "$tmp" "$script" || { rm -f "$tmp"; return 1; }
     printf '%s\n' "$body" >"$script"
-    # The attempt is a shell function, so _yuruna_retry's generic stall
-    # bound cannot wrap it; bound the inner exec here instead. Same
-    # stalled-transfer exposure as the package managers (Install-Module
-    # fetches from PSGallery), same sudo-hoist rationale: timeout must
-    # signal pwsh directly, not sudo.
+    # See https://yuruna.link/4220a755-0004
+    # Bound the inner pwsh process directly, inside sudo.
     local stall="${YURUNA_PWSH_STALL_TIMEOUT_SECONDS:-600}"
     {
         printf '\n===== %s sudo pwsh attempt =====\n' \
@@ -446,6 +323,7 @@ _yuruna_pwsh_attempt() {
 }
 
 
+# --- REGION: yuruna_host_env
 # Guest update bootstrap shared by Ubuntu and Amazon Linux.
 yuruna_host_env() {
     [ -r /etc/yuruna/host.env ] || return 1
@@ -454,6 +332,7 @@ yuruna_host_env() {
     [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]
 }
 
+# --- REGION: yuruna_host_relocate
 # Force one refresh after a failed fetch instead of retrying stale coordinates.
 yuruna_host_relocate() {
     [ -x /usr/local/lib/yuruna/yuruna-host-locate.sh ] || return 1
@@ -462,6 +341,29 @@ yuruna_host_relocate() {
     yuruna_host_env
 }
 
+# Ask the host status service whether it is up the way fetch-and-execute.sh
+# does: four 2s asks, 3s apart. The service answers one request at a time, so
+# an ask that lands behind a slow request waits for it, and a single ask reads
+# that as a dead host and sends the guest to GitHub, which cannot serve a
+# private repository. The host is on the LAN: it is asked --no-proxy whatever
+# proxy the guest's other downloads use.
+yuruna_host_livecheck() {
+    local livecheck_url="http://${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}/livecheck"
+    local rounds=4 gap=3 round=1
+    while [ "$round" -le "$rounds" ]; do
+        if wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$livecheck_url" 2>/dev/null; then
+            if [ "$round" -gt 1 ]; then
+                echo "yuruna: host status service answered on probe ${round}/${rounds} at ${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}"
+            fi
+            return 0
+        fi
+        if [ "$round" -lt "$rounds" ]; then sleep "$gap"; fi
+        round=$((round + 1))
+    done
+    return 1
+}
+
+# --- REGION: yuruna_materialize_repositories
 yuruna_materialize_repositories() {
     local REAL_HOME="$1" REAL_USER="$2" FRAMEWORK_URL="$3" PROJECT_URL="$4"
 if [ ! -d "$REAL_HOME/yuruna" ]; then
@@ -476,9 +378,8 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
     else
       yuruna_host_env || break
     fi
-    LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
-    if wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
+    if yuruna_host_livecheck; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
       if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
@@ -521,9 +422,8 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
     else
       yuruna_host_env || break
     fi
-    PROJECT_LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     PROJECT_TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-project-archive.tar.gz"
-    if ! wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$PROJECT_LIVECHECK_URL" 2>/dev/null; then
+    if ! yuruna_host_livecheck; then
       echo "yuruna: host status service did not answer at ${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}"
       continue
     fi
@@ -558,13 +458,13 @@ sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
 }
 
+# --- REGION: yuruna_wait_network
 yuruna_wait_network() {
 if systemctl is-active --quiet NetworkManager && command -v nm-online >/dev/null 2>&1; then
   nm-online -q -t 30 || echo "WARNING: nm-online did not report 'online' within 30s; continuing."
 elif systemctl is-active --quiet systemd-networkd; then
-  # systemd-networkd-wait-online lives outside PATH; resolve it explicitly.
-  # --any: succeed once at least one link is online (single-NIC guests have
-  # no second link to wait on).
+  # See https://yuruna.link/4220a755-0014
+  # Resolve the non-PATH wait tool; --any waits for the single guest NIC.
   networkd_wait=""
   for cand in /usr/lib/systemd/systemd-networkd-wait-online /lib/systemd/systemd-networkd-wait-online; do
     if [ -x "$cand" ]; then
@@ -583,6 +483,7 @@ fi
 
 }
 
+# --- REGION: _yuruna_verify_key_fpr
 _yuruna_verify_key_fpr() {
     local keyfile="$1"; shift
     local required="${1^^}" allowed=("$@") present a fpr ok found=0
@@ -599,6 +500,8 @@ _yuruna_verify_key_fpr() {
     echo "  key verify: OK ($keyfile)"
 }
 
+# --- REGION: yuruna_install_pwsh_tarball
+# See https://yuruna.link/42d69dfa-0036
 # Install the same verified tarball on every Linux guest. Dependencies are caller-owned.
 yuruna_install_pwsh_tarball() (
     local arch="$1" ps_arch tag version package url want got
@@ -635,13 +538,8 @@ export -f _yuruna_retry _yuruna_retry_positive_integer _yuruna_retry_record \
     _yuruna_http_status_class _yuruna_classify_curl _yuruna_classify_wget \
     yuruna_ca_selfheal _yuruna_bump_trusted _yuruna_ca_trust
 
-# Pull in the pinned dependency versions ($YURUNA_K8S_MINOR, etc.) so every
-# guest script that sources this retry lib also gets the version pins, with
-# no second `source` line per script. The vars are exported by that file, so
-# they reach `bash << 'EOF'` heredocs too. Guarded: a guest provisioned before
-# the manifest shipped simply runs without the pins (the scripts that need a
-# pin fail loudly on the unset variable under `set -u`, which is the correct
-# signal that the seed predates this file).
+# See https://yuruna.link/4220a755-0008
+# Load exported dependency pins for callers and child Bash payloads.
 if [ -r /usr/local/lib/yuruna/yuruna-versions.sh ]; then
     . /usr/local/lib/yuruna/yuruna-versions.sh
 fi

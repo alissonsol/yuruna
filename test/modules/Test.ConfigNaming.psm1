@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 424e6b7b-ee0a-4ebd-a491-d47db10eedbc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,17 +131,7 @@ function Get-RetiredConfigKeyPresent {
 
 
 # --- REGION: Structural migration (parsed config, not raw text)
-# Test-RetiredConfigKeyLine answers "does this FILE still say it the old way",
-# which is what a local reconcile needs. A config fetched from another host
-# arrives already parsed, and the question there is different: rewrite the
-# retired spellings onto the current paths so the consumer -- which only ever
-# looks for current names -- sees the values instead of nothing.
-#
-# Nothing did that rewrite, and "sees nothing" is not inert: the networkStorage
-# converter reads a missing poolStorageNetworkPath as "the reference has no pool
-# storage" and CLEARS the tier, taking the user names with it and leaving the
-# credential sync with an empty user list. A reference host one rename behind
-# therefore erased the section it was supposed to supply.
+# See https://yuruna.link/4213a0b3-0034
 
 function Get-ConfigNamingOrdinalKey {
     <#

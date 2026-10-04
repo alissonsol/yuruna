@@ -502,6 +502,51 @@
       "sourceHash": "50e6aa9003fb79f4a4fdb19d858dbd4cf0e28112bcd7db489a6a27e48136fd18",
       "origin": "machine",
       "message": "{value1} פרוטוקול HTTP {value2}"
+    },
+    "aggregator.backfill_bad_flag": {
+      "sourceHash": "7d8400669bec858e88fd44e9a9f2693a8c05e57015f4074637c3e7d06f187325",
+      "origin": "machine",
+      "message": "השלמת היסטוריה: דגלים לא תקינים: {value1}"
+    },
+    "aggregator.backfill_cycle_unreadable": {
+      "sourceHash": "1a9622002ea5a703878770c54fc868ed0798b4994d99e1b7c81a49070f1c8928",
+      "origin": "machine",
+      "message": "השלמת היסטוריה: מארח {value1}: מחזור {value2} הושמט לאחר כשלונות חוזרים: {value3}"
+    },
+    "aggregator.backfill_host_failed": {
+      "sourceHash": "e301bd5f09f7d602c6c439879044c589c2a5d4d8a8cebbf55cdfe728fd399638",
+      "origin": "machine",
+      "message": "השלמת היסטוריה: מארח {value1}: {value2} (הסריקה הבאה תנסה שוב)"
+    },
+    "aggregator.backfill_index_failed": {
+      "sourceHash": "4b04e87e6039d832406b850e37948ef0fba001c3fd33eb41710f96dd1e8ece98",
+      "origin": "machine",
+      "message": "השלמת היסטוריה: מארח {value1}: לא ניתן לכתוב את אינדקס המחזורים שלו: {value2}"
+    },
+    "aggregator.backfill_pool_status_failed": {
+      "sourceHash": "920008193003db3cd3c6fdd8fdc51c8381107090cd89b778ef99cb5463805384",
+      "origin": "machine",
+      "message": "השלמת היסטוריה: לא ניתן לקרוא את מצב המאגר מהאוסף: {value1}"
+    },
+    "aggregator.backfill_prometheus_failed": {
+      "sourceHash": "d780374989433d6ea923f48d346a0688e618bd6f52453458501b264a4c221eec",
+      "origin": "machine",
+      "message": "השלמת היסטוריה: מארח {value1}: Prometheus דחה את דגימות ציר הזמן: {value2}"
+    },
+    "aggregator.backfill_started": {
+      "sourceHash": "2e2827bdf768ef90a3480369ce71a327847c1e4e511df895e545b10999c47466",
+      "origin": "machine",
+      "message": "השלמת היסטוריה: הופעלה; משחזרת מחזורים מתקופה של עד {value1} לאחור, בסריקה כל {value2}"
+    },
+    "aggregator.backfill_state_failed": {
+      "sourceHash": "d6dedbc53faf4be89503f13e2d2db8ccd631418c867683df23e093449a0cf4a2",
+      "origin": "machine",
+      "message": "השלמת היסטוריה: מארח {value1}: לא ניתן לשמור את מצבו: {value2}"
+    },
+    "aggregator.backfill_sweep_done": {
+      "sourceHash": "a58db505d0715741667a03430689374251661c114e517a9744d1ccbb5bbe9ea3",
+      "origin": "machine",
+      "message": "השלמת היסטוריה: הושלמה סריקה של {value1} מארחים: נכתבו {value2} מחזורים, אירועים של {value3} מחזורים, {value4} תקריות ו-{value5} דגימות ציר זמן; {value6} מחזורים לא ניתנים לקריאה; ל-{value7} מארחים יש היסטוריה שטרם נכתבה"
     }
   }
 }

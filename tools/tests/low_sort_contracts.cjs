@@ -1,3 +1,5 @@
+// LICENSEURI https://yuruna.link/license
+// Copyright (c) 2019-2026 by Alisson Sol et al.
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict'), path = require('node:path');
 const context = { window: {} }; vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../../test/extension/download-agent-service/server/internal/httpsrv/web/assets/sort.js'),'utf8'), context);
 const S = context.window.YSort;

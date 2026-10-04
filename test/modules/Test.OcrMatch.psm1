@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42623d37-5542-4fd6-8bd7-fcd92f20175d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,17 +50,7 @@ $script:OCRConfusionGroups = @(
     ':;.'       # :<->;<->. -- punctuation frequently mangled on terminal fonts
 )
 
-# Characters that are stripped entirely during normalization.
-# OCR engines frequently insert em/en dashes, smart quotes, or other
-# Unicode substitutions for ASCII punctuation on terminal screens.
-# Stripping these (along with their ASCII equivalents) prevents
-# mismatches when the pattern uses plain ASCII.
-#
-# '@' is NOT in this list -- it lives in the oO0@ confusion group
-# (above) because OCR mistakes for '0' are more common in this codebase
-# than '@' being dropped from a prompt. With '@' canonicalized to 'o',
-# a pattern with literal '@' (e.g. "[ec2-user@host]$") still matches
-# OCR text that reads '@' as '@' OR as '0' -- both canonicalize the same.
+# See https://yuruna.link/4213a0b3-00b1
 $script:OCRStripChars = [System.Collections.Generic.HashSet[char]]::new(
     [char[]]@(
         '-', [char]0x2014, [char]0x2013, [char]0x2012,  # hyphen, em dash, en dash, figure dash
@@ -153,14 +143,7 @@ function Test-OCRMatch {
     # matches "Password:" via the sliding window at 8/9 = 89%).
     $threshold = [int][Math]::Ceiling($normPattern.Length * 0.85)
     $patternChars = $normPattern.ToCharArray()
-    # Matched chars must fall inside the pattern's own length plus the same
-    # error budget the threshold grants: a pattern that forgives N dropped
-    # characters tolerates about N inserted ones, and no more. A budget tied
-    # to the pattern's whole length instead lets a long line of prose satisfy
-    # a short prompt pattern by scattering it -- the notice a guest prints
-    # before "New password:" spells that pattern in order once the confusion
-    # groups fold n->m and e->c, and a wait that accepts the notice types the
-    # secret into a terminal that has not switched off echo yet.
+    # See https://yuruna.link/4213a0b3-00b2
     $maxSpan = $normPattern.Length + ($normPattern.Length - $threshold)
     # Loop-invariant: depends only on $patternChars, hoisted from the
     # per-line foreach so multi-line OCR text doesn't reallocate per line.
@@ -225,16 +208,7 @@ function Test-OCRMatch {
     }
 
     # --- REGION: Strategy 3: Segment match (handles OCR word reordering)
-    # OCR may reorder parts of a line (e.g. "[ec2-user@test-amazon-linux01 ~]$"
-    # becomes "test-amazon-I inux01 login: ecZ-user").  Split the original pattern
-    # on characters that are stripped during normalization (@, -, etc.) to get
-    # meaningful segments, normalize each, and check that every segment appears
-    # somewhere in the full normalized text (across all lines).
-    #
-    # Unlike the two strategies above this one is bounded by nothing: no line,
-    # no order, no span. Every segment merely has to exist somewhere. A caller
-    # matching a prompt or deciding that something has gone wrong skips it:
-    # a coincidence must not send input early or fail a healthy guest.
+    # See https://yuruna.link/4213a0b3-00b3
     if ($NoSegmentMatch) { return $false }
     $normFull = Get-OCRNormalized $Text
     $splitPattern = [regex]::Split($Pattern, '[\s@\-\[\]$~"''`]+') | Where-Object { $_.Length -gt 0 }
@@ -262,15 +236,15 @@ function Test-OCRMatch {
 # Combine mode: 'Or' (default, resilient) vs 'And' (strict, fewer FPs);
 # switch via $env:YURUNA_OCR_COMBINE or the default in Get-OcrCombineMode below.
 
-<#
-.SYNOPSIS
-    Returns the OCR combine mode ('Or' or 'And'), honoring $env:YURUNA_OCR_COMBINE.
-.DESCRIPTION
-    Reads the YURUNA_OCR_COMBINE environment variable and returns 'And' when it
-    is set to that value, otherwise 'Or' (the default). Any other non-empty value
-    is rejected with a throw so a typo cannot silently fall back to the default.
-#>
 function Get-OcrCombineMode {
+    <#
+    .SYNOPSIS
+        Returns the OCR combine mode ('Or' or 'And'), honoring $env:YURUNA_OCR_COMBINE.
+    .DESCRIPTION
+        Reads the YURUNA_OCR_COMBINE environment variable and returns 'And' when it
+        is set to that value, otherwise 'Or' (the default). Any other non-empty value
+        is rejected with a throw so a typo cannot silently fall back to the default.
+    #>
     $envVal = $env:YURUNA_OCR_COMBINE
     if ($envVal -and $envVal -notin @('Or', 'And')) {
         throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_c8d3447d823adc70' -Arguments @{ envVal = "$envVal"; setting = 'YURUNA_OCR_COMBINE' })

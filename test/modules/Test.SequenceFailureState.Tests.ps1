@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,6 +79,8 @@ function Reset-FailState {
     # otherwise leave every later test in this file reporting a parked console or
     # an operator hold it never had.
     $f.WaitForTextConsoleStaticSeconds = 0
+    $f.WaitForTextInstallerStage = ''
+    $f.WaitForTextInstallerStageSeconds = 0
     # And the qualifier on those two slots, for the same reason: a test that
     # clears it would leave every later test in this file publishing nulls.
     $f.WaitForTextConsoleSignalsMeasured = $true
@@ -201,6 +203,16 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
         Assert-Equal -Expected 840 -Actual $r.File.context.causeDetail.consoleStaticSeconds `
             -Because 'a wall of text that stopped moving is the evidence that the guest is waiting, not working'
+    }
+
+    It 'records the observed installer stage and its age without claiming completion' {
+        $f = Reset-FailState
+        $f.WaitForTextInstallerStage = 'start: subiquity/Mirror/cmd-apt-config'
+        $f.WaitForTextInstallerStageSeconds = 1625
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'start: subiquity/Mirror/cmd-apt-config' -Actual $r.File.context.causeDetail.installerStage
+        Assert-Equal -Expected 1625 -Actual $r.File.context.causeDetail.installerStageUnchangedSeconds
+        Assert-Equal -Expected $r.File.context.causeDetail.installerStage -Actual $r.Event.causeInstallerStage
     }
 
     It 'reports the console fields as unmeasured, not as zero, when the wait never looked' {

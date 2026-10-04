@@ -223,6 +223,13 @@ autoinstall shipped, how subiquity/curtin progressed,
 whether cloud-init / systemd-networkd hit retries, and what the
 install boot's journal looked like.
 
+On a pre-login installer failure, the failure-capture path attempts the guest
+diagnostic before teardown and writes its availability manifest beside the
+screen evidence. These files require a reachable guest SSH or console shell;
+the live installer may offer neither. In that case the OCR stage and host-side
+network evidence are the available observations, and the manifest records why
+guest logs could not be collected.
+
 **Motivating case:** the `subiquity/Network/_send_update: CHANGE
 eth0` loop on `host/windows.hyper-v/` -- the discriminating signal
 (RAs vs. apt mirror retries vs. `hv_netvsc` VF flap) only exists in
@@ -356,6 +363,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42e0baf3-f2f9-48ca-aa27-fcf4d1a9763e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -229,13 +229,31 @@ Describe 'Concurrent-VM pre-flight' {
         Assert-True ($emitters -contains 'Write-Information') 'progress goes to the information stream'
     }
 
-    It 'runs before the refusal guard in both entry points' {
+    It 'runs through one shared admission in every entry point' {
+        # Three copies of "stop, then maybe refuse" drift apart; one function
+        # cannot. The entry points ask it and act on the verdict.
         foreach ($caller in @('test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/Debug-TestSequence.ps1')) {
             $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot $caller)
-            $stopAt  = $text.IndexOf('Stop-ConcurrentVM')
-            $guardAt = $text.IndexOf('Assert-NoConcurrentUtmVm -')
-            Assert-True ($stopAt -ge 0) "$caller must call Stop-ConcurrentVM"
-            Assert-True ($guardAt -lt 0 -or $stopAt -lt $guardAt) "$caller must stop before it refuses"
+            Assert-True ($text -match 'Invoke-CycleAdmissionStep') "$caller must ask the shared VM admission step"
+            Assert-True ($text -notmatch 'Invoke-HostVmAdmission') "$caller must go through the step, not the wrapped function"
+            Assert-True ($text -notmatch 'Stop-ConcurrentVM') "$caller must not carry its own stop step"
+            Assert-True ($text -notmatch 'Assert-NoConcurrentUtmVm') "$caller must not carry a host-specific refusal of its own"
+            Assert-True ($text -match [regex]::Escape('exit $admissionStep.ExitCode')) "$caller must exit with the step's code: 'cannot run' for an unknown host, 'failure' for an occupied one"
         }
+    }
+
+    It 'stops running VMs before it settles the verdict' {
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/modules/Test.HostContract.psm1')
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
+        $fn = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $n.Name -eq 'Invoke-HostVmAdmission' }, $true))
+        Assert-True ($fn.Count -eq 1) 'Invoke-HostVmAdmission is defined once'
+        $order = @($fn[0].FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] }, $true) |
+            Sort-Object { $_.Extent.StartOffset } |
+            ForEach-Object { $_.GetCommandName() } |
+            Where-Object { $_ -in @('Get-VmAdmission', 'Stop-ConcurrentVM') })
+        Assert-Equal -Expected 'Get-VmAdmission,Stop-ConcurrentVM,Get-VmAdmission' -Actual ($order -join ',') -Because 'read, stop what is left over, read again'
     }
 }

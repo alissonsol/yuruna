@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,6 +111,11 @@
     changed discovery/source/baseline files, filters, and UpdateBaseline.
 .PARAMETER PassThru
     Emit the result object on the pipeline.
+.PARAMETER FailFast
+    After a suite fails, stop its owned sibling processes and retain a result
+    for every cancelled or unlaunched suite with exit code 125. Such results
+    are incomplete and fail the run. Successful runs retain full coverage;
+    omit this switch to collect all failures. Existing suite deadlines still apply.
 .PARAMETER Quiet
     Print only the summary line.
 .EXAMPLE
@@ -137,6 +142,7 @@ param(
     [switch]$UpdateBaseline,
     [switch]$RegisterNewSuites,
     [switch]$PassThru,
+    [switch]$FailFast,
     [switch]$Quiet
 )
 
@@ -467,6 +473,7 @@ try {
     exit 1
 }
 
+$failureSignal = [Threading.ManualResetEventSlim]::new($false)
 try {
     $logDir = Join-Path $ResultsPath ('logs/' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + '-' + [guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $logDir
@@ -477,6 +484,7 @@ try {
 
     # --- REGION: Run
     $sw = [Diagnostics.Stopwatch]::StartNew()
+    if (-not $Quiet) { $InformationPreference = 'Continue' }
     $results = $ordered | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
         $rel     = $_
         $root    = $using:RepoRoot
@@ -484,7 +492,11 @@ try {
         $outDir  = $using:ResultsPath
         $logs    = $using:logDir
         $caps    = $using:timeoutFor
+        $signal  = $using:failureSignal
         $timeout = if ($caps.ContainsKey($rel)) { $caps[$rel] } else { $using:TimeoutSeconds }
+        if (-not $using:Quiet) {
+            Write-Information "Starting $rel (limit ${timeout}s)" -InformationAction Continue
+        }
 
         $xml = Join-Path $outDir ('nunit-' + ($rel -replace '[\\/]', '_') + '.xml')
         # Clear only this suite's stale XML; a filtered run must preserve other
@@ -492,13 +504,24 @@ try {
         if (Test-Path -LiteralPath $xml) { Remove-Item -LiteralPath $xml -Force }
         $stdoutLog = Join-Path $logs ([IO.Path]::GetFileNameWithoutExtension($xml) + '.stdout.log')
         $stderrLog = Join-Path $logs ([IO.Path]::GetFileNameWithoutExtension($xml) + '.stderr.log')
+        if ($using:FailFast -and $signal.IsSet) {
+            $reason = 'not launched after another suite failed (FailFast)'
+            [IO.File]::WriteAllText($stdoutLog, '', [Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText($stderrLog, $reason, [Text.UTF8Encoding]::new($false))
+            return [pscustomobject]@{
+                path = $rel; rc = 125; haveXml = $false; total = 0; failed = 0; errors = 0; skipped = 0
+                seconds = 0; message = $reason; stdoutLog = $stdoutLog; stderrLog = $stderrLog
+            }
+        }
         $psi = [Diagnostics.ProcessStartInfo]::new()
         $psi.FileName               = (Get-Process -Id $PID).Path
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError  = $true
         $psi.UseShellExecute        = $false
         $psi.WorkingDirectory       = $root
-        foreach ($a in @('-NoProfile', '-File', $shim, '-Suite', (Join-Path $root $rel), '-Xml', $xml)) {
+        # NonInteractive is process-local; every nested launcher must set it so
+        # an unexpected host prompt fails instead of waiting on the operator.
+        foreach ($a in @('-NoProfile', '-NonInteractive', '-File', $shim, '-Suite', (Join-Path $root $rel), '-Xml', $xml)) {
             $psi.ArgumentList.Add($a)
         }
 
@@ -510,16 +533,32 @@ try {
         # when the child exits successfully. Logs stay quiet unless evidence fails.
         $stdout = $p.StandardOutput.ReadToEndAsync()
         $stderr = $p.StandardError.ReadToEndAsync()
-        $timedOut = -not $p.WaitForExit($timeout * 1000)
-        if ($timedOut) {
-            # Already timing out; a failure to kill changes nothing the caller can
-            # act on, and the rc=124 below is the signal that matters.
+        $cancelled = $false
+        if ($using:FailFast -or -not $using:Quiet) {
+            $waitClock = [Diagnostics.Stopwatch]::StartNew()
+            $timedOut = $false
+            $nextProgress = 30
+            while ($true) {
+                $remaining = [Math]::Max(1, [int][Math]::Ceiling($timeout * 1000 - $waitClock.Elapsed.TotalMilliseconds))
+                if ($p.WaitForExit([Math]::Min(1000, $remaining))) { break }
+                if ($using:FailFast -and $signal.IsSet) { $cancelled = $true; break }
+                if ($waitClock.Elapsed.TotalSeconds -ge $timeout) { $timedOut = $true; break }
+                if (-not $using:Quiet -and $waitClock.Elapsed.TotalSeconds -ge $nextProgress) {
+                    Write-Information ("Still running {0}: {1:n0}s elapsed, limit {2}s" -f $rel,
+                        $waitClock.Elapsed.TotalSeconds, $timeout) -InformationAction Continue
+                    $nextProgress += 30
+                }
+            }
+        } else { $timedOut = -not $p.WaitForExit($timeout * 1000) }
+        if ($timedOut -or $cancelled) {
+            # Only this worker's owned child and its descendants are stopped.
+            # A failed stop cannot turn timeout or cancellation into a passing row.
             try { $p.Kill($true) } catch { Write-Debug "kill after timeout failed: $($_.Exception.Message)" }
             $null = $p.WaitForExit(5000)
         }
         $t0.Stop()
 
-        $rc  = if ($timedOut) { 124 } else { $p.ExitCode }
+        $rc  = if ($timedOut) { 124 } elseif ($cancelled) { 125 } else { $p.ExitCode }
         $out = if ($stdout.Wait(5000)) { $stdout.Result } else { '[stdout did not close after process exit or timeout]' }
         $err = if ($stderr.Wait(5000)) { $stderr.Result } else { '[stderr did not close after process exit or timeout]' }
         [IO.File]::WriteAllText($stdoutLog, $out, [Text.UTF8Encoding]::new($false))
@@ -527,6 +566,7 @@ try {
         $p.Dispose()
         $err = $err.Trim()
         if ($timedOut) { $err = "timed out after ${timeout}s`n$err".Trim() }
+        if ($cancelled) { $err = "cancelled after another suite failed (FailFast)`n$err".Trim() }
 
         $total = $failed = $skipped = $errors = 0
         $haveXml = Test-Path -LiteralPath $xml -PathType Leaf
@@ -551,7 +591,14 @@ try {
             # Keep Pester's original diagnostic, which can be emitted only on stdout.
             $err = (@($err, $out.Trim(), "Worker logs: $stdoutLog ; $stderrLog") | Where-Object { $_ }) -join "`n"
         }
+        if ($using:FailFast -and ($rc -ne 0 -or -not $haveXml -or $total -eq 0 -or $failed -gt 0 -or $errors -gt 0)) {
+            $signal.Set()
+        }
 
+        if (-not $using:Quiet) {
+            Write-Information ("Finished {0} in {1:n1}s: rc={2}, tests={3}, failed={4}, errors={5}, XML={6}" -f
+                $rel, $t0.Elapsed.TotalSeconds, $rc, $total, $failed, $errors, $haveXml) -InformationAction Continue
+        }
         [pscustomobject]@{
             path    = $rel
             rc      = $rc
@@ -763,5 +810,6 @@ try {
     }
     exit 0
 } finally {
+    $failureSignal.Dispose()
     $resultLock.Dispose()
 }

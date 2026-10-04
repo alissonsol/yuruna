@@ -417,7 +417,7 @@
           "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
-            { "refId": "A", "expr": "{pool=\"$pool\", src=\"incident\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+            { "refId": "A", "expr": "{pool=~\"$pool\", src=\"incident\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
           ],
           "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
         },
@@ -429,7 +429,7 @@
           "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
-            { "refId": "A", "expr": "sum by (failureClass, severity) (count_over_time({pool=\"$pool\", src=\"event\"} | json | event=\"step_failure\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+            { "refId": "A", "expr": "sum by (failureClass, severity) (count_over_time({pool=~\"$pool\", src=\"event\"} | json | event=\"step_failure\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
           ],
           "transformations": [
             { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "failureClass": "Failure class", "severity": "Severity", "Value": "Count", "Value #A": "Count" } } }
@@ -444,7 +444,7 @@
           "gridPos": { "h": 9, "w": 24, "x": 0, "y": 40 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
-            { "refId": "A", "expr": "{pool=\"$pool\", src=\"event\"} | json | event=\"step_failure\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+            { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json | event=\"step_failure\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
           ],
           "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
         },
@@ -456,7 +456,7 @@
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 49 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
-            { "refId": "A", "expr": "{pool=\"$pool\", src=\"event\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+            { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
           ],
           "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
         },
@@ -468,7 +468,7 @@
           "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
-            { "refId": "A", "expr": "{pool=\"$pool\"} | json | overallStatus=~\".+\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+            { "refId": "A", "expr": "{pool=~\"$pool\"} | json | overallStatus=~\".+\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
           ],
           "options": { "showTime": true, "showLabels": true, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
         },
@@ -480,7 +480,7 @@
           "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
-            { "refId": "A", "expr": "sum by (dominantClass) (count_over_time({pool=\"$pool\", src=\"incident\"} | json | event=\"incident_open\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+            { "refId": "A", "expr": "sum by (dominantClass) (count_over_time({pool=~\"$pool\", src=\"incident\"} | json | event=\"incident_open\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
           ],
           "transformations": [
             { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "dominantClass": "Failure class", "Value": "Incidents", "Value #A": "Incidents" } } }
@@ -504,7 +504,7 @@
           "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
           "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
           "targets": [
-            { "refId": "A", "expr": "windows_memory_available_bytes{pool=\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            { "refId": "A", "expr": "windows_memory_available_bytes{pool=~\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
           ],
           "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
           "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": [ "min", "lastNotNull" ] }, "tooltip": { "mode": "multi", "sort": "desc" } }
@@ -517,7 +517,7 @@
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
           "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
           "targets": [
-            { "refId": "A", "expr": "windows_memory_commit_limit{pool=\"$pool\"} - windows_memory_committed_bytes{pool=\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            { "refId": "A", "expr": "windows_memory_commit_limit{pool=~\"$pool\"} - windows_memory_committed_bytes{pool=~\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
           ],
           "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
           "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": [ "min", "lastNotNull" ] }, "tooltip": { "mode": "multi", "sort": "desc" } }

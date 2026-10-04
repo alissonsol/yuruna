@@ -40,9 +40,11 @@ and places seed + VHDX there.
   seeded by
   [host/vmconfig/amazon.linux.2023.base.user-data](../../vmconfig/amazon.linux.2023.base.user-data).
   Upgrade if prompted by `dnf check-release-update`.
-- `/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh`
+- `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh`
   installs the GUI and tools (cloud-init seeded `fetch-and-execute.sh`
-  into `/usr/local/lib/yuruna/`; workloads pull from GitHub on demand).
+  into `/usr/local/lib/yuruna/`; workloads pull from GitHub on demand). The
+  fetcher requires the script's SHA-256; see
+  [Supplying the digest by hand](../../../guest/README.md#supplying-the-digest-by-hand).
 - `sudo reboot now` -- boots into the GUI.
 
 **CHECKPOINT**: good moment for a Hyper-V checkpoint
@@ -61,6 +63,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,24 +84,7 @@ $script:RecommendationEnum = @(
 )
 
 # --- REGION: Auto-remediation policy
-#
-# WHICH failures the runner may retry without an operator, and HOW MANY times.
-# The list lives here, beside the registry that classifies failures, because
-# keeping it beside the registry prevents the set that CLASSIFIES a failure
-# from drifting away from the set that may ACT on one. In particular, all
-# classes whose handlers recommend a harmless retry must be represented here.
-#
-# A class earns a place here only when retrying is the whole repair and a
-# repeat is harmless. Everything else -- a bad plan, a missing payload, an
-# expired vault, a full disk -- stays advisory, because retrying it either
-# cannot help or destroys the evidence an operator needs.
-#
-# credential_expired is deliberately absent: an expired vault stays advisory.
-# No production path calls the available re-authentication primitive, and the
-# class's registered handler asks for an operator rather than a retry.
-# Membership does not dispatch a repair in any case; its only
-# effect is to end the post-failure pause early, which is the wrong answer for
-# a credential nobody has fixed yet.
+# See https://yuruna.link/4213a0b3-00da
 $script:AutoRemediationAllowList = [ordered]@{
     # The transient three: the condition is external and usually gone by the
     # next attempt, so the retry IS the repair.
@@ -342,14 +325,7 @@ function Invoke-Remediation {
         return 0
     }
 
-    # Inner-cause routing. An exhausted `retry` reports the outer class
-    # 'retry_exhausted', which masks the deepest verb's actionable cause the
-    # record preserved in innerFailureClass. Route on the inner class when it is
-    # present AND has its own registered handler, so the recommendation targets
-    # the real failure instead of the generic retry wrapper. Severity /
-    # suggestedRecoveries follow the routed class; the outer class is preserved as
-    # $routedFromClass (surfaced as RoutedFromFailureClass / outerFailureClass) so
-    # the audit trail still shows the masking.
+    # See https://yuruna.link/4213a0b3-00db
     $routedFromClass = $null
     $innerClass = if ($FailureRecord.Contains('innerFailureClass') -and $FailureRecord['innerFailureClass']) { [string]$FailureRecord['innerFailureClass'] } else { '' }
     # Skip a self-equal inner class ($innerClass -ne $failureClass): routing to
@@ -563,24 +539,10 @@ function Register-BuiltinRecoveryHandler {
         }
     }
 
-    # Deliberately NOT restart_from_snapshot, which is what ocr_timeout above
-    # recommends. The two look alike in the record -- a wait that ended without
-    # its pattern -- but the assumption behind replaying from a snapshot is that
-    # the screen diverged from the recorded path and a clean run will follow it
-    # again. Here the screen never became readable: something filled the console
-    # faster than the pattern could be matched off it, and a replay reproduces
-    # that at the same rate. The console content is the evidence and a person has
-    # to read it, so this class stops rather than spending another full timeout.
+    # See https://yuruna.link/4213a0b3-00dc
     Register-RecoveryHandler -FailureClass 'console_flooded' -Handler {
         param([hashtable]$c)
-        # Two screens reach this class. One is still moving: a line repeating
-        # faster than the pattern can be read off it, where the answer is to fix
-        # what is repeating. The other stopped moving a long time ago and only
-        # LOOKS like a flood, because the repeat count is measured within a single
-        # frame -- a wall of already-scrolled text on a guest that is waiting for
-        # something. Naming a churning network on the second sends the reader
-        # after a fault that is not there, so the static reading decides which
-        # cause is described.
+        # See https://yuruna.link/4213a0b3-00dd
         $staticSecs = [int]$c.Context.consoleStaticSeconds
         $heldSecs   = [int]$c.Context.pauseBeforeStepSeconds
         # A static reading of zero is only evidence when a static reading was

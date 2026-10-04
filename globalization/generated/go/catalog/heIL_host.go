@@ -128,6 +128,7 @@ const DataheILhost = `{
     },
     "; libvirt משנה שם רק לתחום שדווח בוודאות כעצור."
   ],
+  "host.kvm_running_cache_unreachable": "המכונה הווירטואלית caching-proxy-service פועלת, אך שרת ה-proxy שלה אינו נגיש. הפעילו test/service/Start-CachingProxyServiceVM.ps1 כדי לשחזר אותו, או העבירו -CachingProxyServiceUrl \"\" כדי להוריד ישירות.",
   "host.kvm_start_network_action": "הפעילו את רשת libvirt שאינה פעילה",
   "host.kvm_start_unit_action": "הפעילו את יחידת libvirt שנעצרה",
   "host.operator_005bab80fe0f8f32": [

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 424e6972-d523-4837-8d0f-f7e8f6aa351c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,29 +20,7 @@
 .SYNOPSIS
     Put this host's settings back the way Enable-TestAutomation found them.
 .DESCRIPTION
-    Host-neutral entry point, mirroring Enable-TestAutomation.ps1. Detects the
-    host type and runs that host's Disable-TestAutomation.ps1 in a child pwsh
-    rooted in its own folder; arguments are forwarded verbatim and the child's
-    exit code is returned.
-
-    What is restored comes from the capture Enable wrote before it changed
-    anything (status/runtime/host.pre-automation.json). On a host enabled before
-    that capture existed, only what is additive AND provably ours is reversed --
-    the status-port firewall rule and the Yuruna ICMP rule. Everything else is
-    printed as a command to run by hand rather than guessed at.
-
-    Deliberately NOT reversed, and reported instead: installed packages, PSGallery
-    modules, macOS TCC grants, the credential vault, cloned repos / VM images /
-    history, the vmms service, and everything the networkStorage
-    questionnaire wrote (config keys, vaulted credential, mounts). Tearing down
-    storage on a "disable settings" is a surprise, so it is offered as explicit
-    commands.
-
-        host/windows.hyper-v/Disable-TestAutomation.ps1   (needs Administrator)
-        host/macos.utm/Disable-TestAutomation.ps1         (asks for sudo)
-        host/ubuntu.kvm/Disable-TestAutomation.ps1        (asks for sudo)
-
-    Idempotent: safe to re-run.
+    See https://yuruna.link/42010605-0003.
 .PARAMETER RemainingArguments
     Anything not declared here is forwarded to the per-host script verbatim
     (-WhatIf and -StopServices among them), so a parameter added there needs no

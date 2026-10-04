@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4240031a-e567-4a6d-aba2-bb96dd5753f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,6 +112,19 @@ Describe 'payload-unavailable reasons (cross-language)' {
         Assert-True ($script:shSrc -match 'integrity mismatch') 'the producer still refuses on a digest mismatch'
         foreach ($r in $script:reasons) {
             Assert-True (-not $r.Contains('integrity')) 'an integrity refusal must not be classified as a retryable shortage'
+        }
+    }
+
+    It 'leaves out the missing-digest refusal too: nothing ran, and a retry cannot supply a digest' {
+        # A run given no expected digest is refused on every attempt, so the
+        # wrapper reports it under its own reason, which must not match any
+        # reason the handler treats as worth retrying. Test-GuestPayloadUnavailable
+        # matches by substring, so the check is whether any listed reason occurs
+        # inside the parenthetical the wrapper prints.
+        $refusal = '(no expected digest -- refusing to run)'
+        Assert-True ($script:shSrc.Contains($refusal)) 'the producer reports a missing digest under its own reason'
+        foreach ($r in $script:reasons) {
+            Assert-True (-not $refusal.Contains([string]$r, [StringComparison]::Ordinal)) "the reason '$r' must not match a missing-digest refusal"
         }
     }
 }

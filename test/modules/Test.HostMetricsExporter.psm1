@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42c7f1a9-3e60-4b2d-9a55-1f0c8b6d24ae
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,18 +60,7 @@ $script:HostMetricsPort = 9182
 # The Windows service name the exporter's own installer registers.
 $script:HostMetricsServiceName = 'windows_exporter'
 
-# The collectors this host must publish, and why each one is on the list:
-#   memory       -- committed bytes and the commit limit, the pair that
-#                   explains a refused allocation; nothing else exposes them.
-#   os           -- host identity and operating-system information.
-#   cpu          -- per-core time, to separate a stalled host from a busy one.
-#   logical_disk -- free space, which fails a guest's disk creation the same
-#                   silent way a commit ceiling fails its memory.
-#   hyperv       -- per-VM state, so a host's VM census at an incident is a
-#                   recorded series rather than a memory of what was running.
-# Kept deliberately short: every collector is scraped on every interval, and
-# the exporter's defaults differ between releases, so the set is stated rather
-# than inherited.
+# See https://yuruna.link/4213a0b3-0086
 $script:HostMetricsCollector = @('cpu', 'hyperv', 'logical_disk', 'memory', 'os')
 
 # The package the exporter is acquired as. Named here rather than only in the
@@ -79,14 +68,7 @@ $script:HostMetricsCollector = @('cpu', 'hyperv', 'logical_disk', 'memory', 'os'
 # unattended acquisition and the two must not be able to drift apart.
 $script:HostMetricsPackageId = 'Prometheus.WindowsExporter'
 
-# How long one unattended install attempt may run before it is stopped, and the
-# only place that number is written. The work behind it is a package download of
-# a few tens of megabytes and a service registration, so three minutes is
-# several times what it costs -- reaching this bound is evidence that something
-# is wrong rather than slow. It is a ceiling on what a cycle can lose to
-# telemetry it does not need in order to run, which is the only reason it is
-# bounded at all. Callers do not carry a second copy of it: two owners of one
-# bound is how a bound stops being enforced without anybody noticing.
+# See https://yuruna.link/4213a0b3-0087
 $script:HostMetricsInstallTimeoutSec = 180
 
 # How long a FAILED attempt stays quiet. The failures that do not clear on
@@ -784,15 +766,7 @@ function Get-YurunaHostMetricsInstallAttempt {
         $record = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         if (-not $record -or -not $record.lastAttemptUtc) { return $null }
         $stamp = $record.lastAttemptUtc
-        # ConvertFrom-Json recognizes a round-trip timestamp and hands back a
-        # [datetime], already carrying the right instant and Kind. Formatting
-        # that back into a string to re-parse it is what breaks: the default
-        # format drops the zone marker, so the re-parse reads a UTC instant as a
-        # local one and the record lands one whole UTC offset away -- which on a
-        # host west of the meridian reads as an attempt in the FUTURE and
-        # cancels the interval, and east of it silences the install for hours
-        # longer than intended. So the typed value is used as the typed value,
-        # and only a value that really is text is parsed as text.
+        # See https://yuruna.link/4213a0b3-0088
         if ($stamp -is [datetime]) { return ([datetime]$stamp).ToUniversalTime() }
         return ([datetimeoffset]::Parse("$stamp", [cultureinfo]::InvariantCulture)).UtcDateTime
     } catch {
@@ -903,26 +877,7 @@ function Test-YurunaHostMetricsInstallDue {
 }
 
 function Invoke-YurunaWingetInstall {
-    # The install call itself, kept as its own seam so every caller above can be
-    # exercised without a package manager. The argument list it runs -- and the
-    # reason nothing in that list can lead to a prompt -- is
-    # Get-YurunaHostMetricsInstallArgument.
-    #
-    # The streams are deliberately NOT redirected, and neither -Wait nor the
-    # parameterless WaitForExit() is used. Redirecting any stream turns on
-    # handle inheritance for the whole subtree, which is how a descendant that
-    # outlives this call pins the pipe an enclosing process is reading and hangs
-    # it with no output and no timeout (see feedback_windows-detached-grandchild-
-    # pins-pipe). Passing no streams makes this a ShellExecute spawn, which
-    # hands down no inheritable handles at all; the timed WaitForExit overload
-    # waits on this process alone; and the package manager's own log file is
-    # where the diagnostic goes instead.
-    #
-    # Killing on the deadline stops this process waiting -- it does not stop an
-    # installer already handed to the operating system's own installer service.
-    # That is why the caller decides the outcome by looking for the service
-    # afterward rather than by trusting the exit code: an install that lands a
-    # minute after the deadline is found by the next cycle's presence check.
+    # See https://yuruna.link/4213a0b3-0089
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
     param(

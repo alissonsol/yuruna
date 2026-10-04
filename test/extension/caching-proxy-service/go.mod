@@ -1,3 +1,5 @@
+// LICENSEURI https://yuruna.link/license
+// Copyright (c) 2019-2026 by Alisson Sol et al.
 module yuruna.com/test/extension/caching-proxy-service
 
 go 1.25.0

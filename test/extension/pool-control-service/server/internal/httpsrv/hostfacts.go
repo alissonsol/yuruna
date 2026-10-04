@@ -25,9 +25,8 @@ type hostFactsRow struct {
 	StorageTotalBytes int64 `json:"storageTotalBytes,omitempty"`
 	StorageFreeBytes  int64 `json:"storageFreeBytes,omitempty"`
 	// FrameworkAccess and ProjectAccess are the host's answer about the two
-	// repositories it runs on: the repository NAME it holds ("yuruna",
-	// "amisad.dev"), "No access" when it was configured with one it cannot
-	// read, or empty when it has neither a clone nor a configured url.
+	// repositories it can read: their names ("yuruna", "amisad.dev"), or empty
+	// when unreadable, unconfigured or unprobed. AccessState carries the condition.
 	//
 	// Not the same value as hostRegistration.ProjectAccess, which is the
 	// pool's question -- can this member read what its POOL assigned -- and
@@ -37,12 +36,9 @@ type hostFactsRow struct {
 	FrameworkAccess string `json:"frameworkAccess,omitempty"`
 	ProjectAccess   string `json:"projectAccess,omitempty"`
 	// The condition behind those two, as a stable token: "readable", "denied",
-	// "unconfigured" or "unprobed". The fields above conflate data with a
-	// condition -- one carries a repository name, the other carries the words
-	// "No access" -- so recovering the condition meant matching English prose,
-	// and that made the phrase a contract spanning PowerShell, this relay and
-	// the browser. Empty from a host older than these fields, which is why the
-	// page still falls back to the phrase.
+	// "unconfigured" or "unprobed". The browser renders the condition in its
+	// selected language, independently of the repository name. A host without
+	// these fields supplies no typed condition; its name remains display data.
 	FrameworkAccessState string `json:"frameworkAccessState,omitempty"`
 	ProjectAccessState   string `json:"projectAccessState,omitempty"`
 	// Where each of those repositories lives, already normalized by the host

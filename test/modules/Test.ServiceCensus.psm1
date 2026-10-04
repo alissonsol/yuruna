@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 422e4da5-c4d3-416f-8529-84b6ec995443
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,38 +23,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.CriticalRecord.psm1') -DisableNameC
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.ExtensionService.psm1') -DisableNameChecking
 
-# The service census: what this host last knew about each managed service,
-# which lifecycle operation an operator last asked for, and who may start or
-# stop a service right now.
-#
-# Four things live here and nowhere else, all under the private state root
-# ($HOME/.yuruna/host-refresh, never inside a served tree):
-#
-#   * service-census.record -- one checksummed, generation-numbered record
-#     (Test.CriticalRecord) holding per-service evidence and the newest
-#     explicit start/stop intent. Written only under service-census.lock.
-#   * service-census.lock -- the short merge lock (rank CensusMerge). Never
-#     held while waiting for a longer lock, so it cannot deadlock a service
-#     operation.
-#   * service-operation.<key>.lock -- one per logical service (rank
-#     ServiceKey). Start and Stop scripts, the reboot sweep and the refresh
-#     worker all take it, in ordinal key order, before touching a service.
-#   * the capability table -- which uses of census evidence a platform has
-#     earned, as a pure declaration.
-#
-# This module deliberately names no command that can raise an Apple Event,
-# query hypervisor state through the control channel, or start or stop a
-# guest: the beacon runs its tick every few seconds on a host whose control
-# channel may be the thing that is wedged, and one blocked call there would
-# stall the beacon's own announcements. Addresses come only from the
-# platform's passive resolver (Get-VMPassiveAddressContext,
-# Get-VMPassiveAddress, Get-PortMapTarget), resolved by name at call time,
-# and from files. A static scan of this file pins the rule.
-#
-# Timestamps are authoritative as ...UnixMs numbers. Nothing here parses an
-# ISO string back for a decision: ConvertFrom-Json turns those into local
-# DateTime values, and a comparison of those drifts with the host's time zone
-# (feedback_datetime-compare-is-timezone-sensitive.md).
+# See https://yuruna.link/4213a0b3-016a
 
 $script:CensusSchemaVersion      = 1
 $script:CensusRecordName         = 'service-census.record'

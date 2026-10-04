@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42d2ed87-fda6-40a4-8e87-7605f8be0616
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,15 +16,7 @@
 
 #requires -version 7
 
-# Canonical log-level cascade. Why this lives in its own module: it is
-# the single source for the rank table + preference-cascade logic shared
-# by Invoke-TestRunnerInnerLoop.ps1, Debug-TestSequence.ps1, Test.SequenceEngine.psm1,
-# and every host/<platform>/guest.<x>/{Get-Image,New-VM}.ps1 (28+
-# consumers). A new level (or a tweak to ProgressPreference) is a single
-# edit here instead of a hand edit in every copy.
-#
-# See docs/loglevels.md for the cascade semantics and why env-var
-# propagation is the only way to reach child pwsh processes.
+# See https://yuruna.link/4213a0b3-00a5
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'Eviction-safe anchors: the transcript writer and the captured ProgressPreference are singletons for the PROCESS, and must survive -Force re-imports of this module by nested in-process scripts.')]
@@ -39,27 +31,9 @@ $script:LogLevelRank = [ordered]@{
     Debug       = 5
 }
 
-# The two values below are deliberately NOT in module scope. `Import-Module
-# -Force` builds a fresh module instance with fresh session state, so a guard
-# kept in $script: stops guarding the moment a nested in-process script
-# re-imports this module (feedback_module_force_import_evicts_global) -- and
-# both of these describe the process, not a module instance. The $global: scope
-# belongs to the runspace and a forced re-import leaves it intact, so it is the
-# widest variable scope reachable from here; module load must therefore never
-# overwrite a value an earlier instance left behind.
-# Test-Path over the variable drive rather than Get-Variable: the probe runs on
-# every import, and a Get-Variable miss records a "Cannot find a variable" entry
-# in $Error even under -ErrorAction SilentlyContinue, which is noise in exactly
-# the postmortem this module exists to make readable.
+# See https://yuruna.link/4213a0b3-00a6
 if (-not (Test-Path -LiteralPath 'Variable:global:YurunaChildTranscriptPath')) {
-    # Path this process is transcribing to, or $null when it is not, paired with
-    # the pid that opened it -- the same key the file name is built from, so a
-    # value that does not describe THIS process can never suppress its
-    # transcript. Without the guard a second Start-Transcript succeeds (PS 7
-    # allows concurrent transcripts): both writers open the one path in Append
-    # mode, each seeks to end-of-file once at construction and then advances its
-    # own offset, so the later writer overwrites the earlier one's lines instead
-    # of following them, and the file ends with one start block and N end blocks.
+    # See https://yuruna.link/4213a0b3-00a7
     $global:YurunaChildTranscriptPath     = $null
     $global:YurunaChildTranscriptOwnerPid = 0
 }

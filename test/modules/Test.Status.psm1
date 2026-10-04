@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,15 +77,7 @@ function Reset-StatusDocumentForCycleStart {
             if ($prev.host)           { $hostType       = $prev.host }
             if ($prev.hostname)       { $hostnameValue  = $prev.hostname }
         } catch {
-            # Prior status.json is unparseable -- preserve the corrupt
-            # copy under a timestamped name so an operator (or remediator)
-            # can diff it against the fresh doc instead of finding only
-            # a silent counter reset. Stamp is millisecond-precision to
-            # tolerate same-second rotations (write-write race against
-            # the status service). Emit an NDJSON event into the current
-            # cycle's ndjson so dashboards / autonomous remediators see
-            # the gap explicitly instead of inferring it from a missing
-            # history entry.
+            # See https://yuruna.link/4213a0b3-017c
             $reasonMsg = $_.Exception.Message
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7e50599bce26a067' -Arguments @{ reasonMsg = "$reasonMsg" })
             try {
@@ -599,16 +591,7 @@ function New-CycleHistoryEntry {
         $guestSummary[$g.guestKey] = $guestEntry
     }
 
-    # Per-sequence rollup, parallel to guestSummary. The dashboard's Recent
-    # Cycles table renders one button per sequence (the test.runner.yml
-    # entries this cycle ran), each linking to that sequence's results
-    # folder. Built from the cycle's ordered sequences[] joined to the
-    # per-guest status + folder URL already gathered in $guestSummary. The
-    # status rank mirrors the dashboard's aggregateStatus
-    # (fail > running > pass > skipped > pending) so a sequence row's badge
-    # matches the Latest Cycle sequence card. A 1:1 sequence links straight
-    # to its guest's per-VM folder; a sequence that fans out to >1 guest
-    # links to the cycle folder so every guest subfolder stays reachable.
+    # See https://yuruna.link/4213a0b3-017d
     $statusRank = @{ fail = 5; running = 4; pass = 3; skipped = 2; pending = 1 }
     $sequenceSummary = @(
         foreach ($seq in $Document.sequences) {
@@ -632,18 +615,7 @@ function New-CycleHistoryEntry {
         }
     )
 
-    # History entries carry their OWN gitCommits snapshot so a row
-    # written months ago still links to the right framework + project
-    # commits even if the runner has since picked up a new repo URL or
-    # added/removed a project clone. The dashboard renders these as
-    # comma-separated linked SHAs (framework first, project second).
-    # cycleFolderUrl is snapshotted too so the history-row cycle-id
-    # link survives even after the live $Doc rolls to the next cycle.
-    # totalDurationSeconds is the cycle's wall-clock seconds; the dashboard
-    # already derives this from startedAt/finishedAt on the fly, so the
-    # field is additive -- its purpose is to let programmatic trend
-    # analysis (jq / Python) read a number directly without re-parsing
-    # ISO timestamps.
+    # See https://yuruna.link/4213a0b3-017e
     return [ordered]@{
         cycleStartUtc          = $Document.cycleStartUtc
         startedAt        = $Document.startedAt
@@ -777,17 +749,7 @@ function Write-StatusJson {
                 ForEach-Object { $_.Trim() } | Where-Object { $_ })
         } catch { @() }
     } else { @() })
-    # Per-writer unique temp name: the runner and the status-service
-    # process both flush status.json, so a shared fixed "$File.tmp"
-    # lets one process's Move-Item rename the other's half-written temp.
-    # A PID+GUID suffix keeps each writer's temp private; the rename to
-    # the final path stays atomic. Suffix ends in .tmp so existing
-    # *.tmp cleanup/ignore rules still match.
-    # Atomic temp-write + rename via the shared primitive: guarantees no BOM
-    # (Set-Content -Encoding utf8 emits one on PS5.1, and a leading BOM breaks
-    # fetch().json() in the browser) and keeps the per-PID temp-name concurrency
-    # safety in one place. -Compress:$false preserves the pretty-printed on-disk
-    # shape; -Depth 10 matches the document nesting.
+    # See https://yuruna.link/4213a0b3-017f
     $ok = $false
     if ($script:PreserveNested) {
         # A nested child process may have written the `nested` subtree since
@@ -1011,22 +973,7 @@ function Get-GuestProvenance {
 }
 
 # --- REGION: Nested-cycle support
-# A Debug-TestSequence run either OWNS status.json (standalone, or the outermost
-# orchestration) or runs NESTED inside another run's process tree -- a
-# host-action step that re-enters Debug-TestSequence.ps1 in a child pwsh (e.g.
-# Set-Resource.ps1 fanning out per-stage guest builds). Exactly ONE process --
-# the outermost -- owns the top-level document (guests[]/sequences[]/history +
-# Reset/Initialize/Complete-Run). A nested run NEVER resets the doc: it attaches
-# a node into the `nested` map (nodeId -> node) and updates ONLY its own node.
-#
-# Ownership is partitioned by JSON key: the owner authors everything EXCEPT
-# `nested`; a nested run authors ONLY `nested[<its id>]`. Both sides write the
-# whole file, so both run their read-modify-write under a shared status-file
-# lock (Enter/Exit-StatusLock) -- the owner re-reads `nested` before its flush
-# (Write-StatusJson, gated on $script:PreserveNested), and a nested writer
-# re-reads the whole doc before touching its node. Neither can lose the other's
-# section. The single "am I nested?" signal is the inherited
-# $env:YURUNA_CYCLE_CONTEXT handle; its absence == standalone owner.
+# See https://yuruna.link/4213a0b3-0180
 
 function Get-CycleContext {
     <#
@@ -1049,14 +996,7 @@ function Get-CycleContext {
     $ctx = $null
     try { $ctx = $raw | ConvertFrom-Json -AsHashtable } catch { return $null }
     if ($null -eq $ctx) { return $null }
-    # cycleStartUtc is published as text and comes back as a [DateTime]:
-    # the JSON reader promotes anything ISO-8601-shaped. Casting that
-    # object to [string] renders it in the process's current culture, so
-    # the correlation key a nested run stamps on its events and status
-    # nodes stops matching the one the owner wrote -- the two describe the
-    # same instant in two different notations, and every join on them
-    # silently returns nothing. Re-normalize at the single point the
-    # coercion happens, so callers keep receiving the string they published.
+    # See https://yuruna.link/4213a0b3-0181
     if ($ctx.Contains('cycleStartUtc') -and $ctx['cycleStartUtc'] -is [DateTime]) {
         $dt = [DateTime]$ctx['cycleStartUtc']
         # An Unspecified kind is already the UTC instant that was written;

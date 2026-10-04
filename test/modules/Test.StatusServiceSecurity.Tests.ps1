@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 427642c0-6914-46fa-a327-c4a7e4ddc547
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,12 +53,24 @@ BeforeAll {
     foreach ($relative in @('test/test.config.yml', '.git/config', 'test/status/ssh/yuruna_ed25519',
             'test/status/runtime/host-config-ca/ca.pfx', 'test/status/runtime/host-config-ca/server.pfx',
             'test/status/runtime/client.p12', 'test/status/runtime/poolstorage.42.fixture.cifs.cred',
-            'test/status/runtime/status.json', 'test/status/runtime/host-refresh.state.json', 'README.md')) {
+            'test/status/runtime/status.json', 'test/status/runtime/host-refresh.state.json', 'README.md',
+            # Private-key file names that sit where no directory rule looks: a
+            # project's hand-off directory, a key beside an unrelated tree, the
+            # OpenSSH default names at depth, and the runtime mount.
+            'test/status/handoff/amisad-demo-key', 'test/status/ssh/foo_ed25519',
+            'test/status/x/y/id_rsa', 'test/status/x/y/id_ecdsa', 'test/status/runtime/deploy_key',
+            'test/status/runtime/operator.ppk',
+            # The public halves and ordinary hand-off files that must keep being served.
+            'test/status/handoff/amisad-demo-key.pub', 'test/status/ssh/yuruna_ed25519.pub',
+            'test/status/handoff/edge.ip.txt')) {
         $file = Join-Path $script:Roots.Repo $relative
         $null = [IO.Directory]::CreateDirectory((Split-Path -Parent $file))
         [IO.File]::WriteAllText($file, 'synthetic-fixture')
     }
     [IO.File]::WriteAllText((Join-Path $script:Roots.Log 'cycle.txt'), 'synthetic-log')
+    $null = [IO.Directory]::CreateDirectory((Join-Path $script:Roots.Log 'handoff'))
+    [IO.File]::WriteAllText((Join-Path $script:Roots.Log 'handoff/edge.ip.txt'), '192.0.2.15')
+    [IO.File]::WriteAllText((Join-Path $script:Roots.Log 'handoff/amisad-demo-key'), 'synthetic-fixture')
 
     $start = $script:ServerText.IndexOf('            # Dispatch file serving by URL prefix', [StringComparison]::Ordinal)
     $end = $script:ServerText.IndexOf('                $origLocal = $req.Url.LocalPath', $start, [StringComparison]::Ordinal)
@@ -126,6 +138,36 @@ Describe 'status file authorization uses the resolved path' {
         @{ Path = '/status/runtime/host-config-ca/ca.pfx' }
         @{ Path = '/yuruna-repo/test/status/runtime/poolstorage.42.fixture.cifs.cred' }
         @{ Path = '/yuruna-repo/../outside.txt' }
+        # The NTFS named-stream spelling of a refused file reads the file's own
+        # bytes through a name no pattern matches.
+        @{ Path = '/yuruna-repo/test/test.config.yml::$DATA' }
+        @{ Path = '/runtime/host-config-ca/ca.pfx::$DATA' }
+        @{ Path = '/handoff/amisad-demo-key::$DATA' }
+        @{ Path = '/yuruna-repo/test/status/handoff/amisad-demo-key:stream' }
+    ) {
+        param($Path)
+        $result = & $script:FileHarness $script:Roots $Path
+        Assert-Equal 403 $result.Status $Path
+        Assert-False $result.Allowed $Path
+    }
+
+    # A private key is refused by the shape of its NAME, wherever it sits. A rule
+    # keyed on one directory protects only the files its author remembered, and
+    # a project that parks a key in a directory of its own (a hand-off folder a
+    # guest downloads from) is outside every such rule. The file below exists on
+    # disk in each case, so a pass means the listener refused bytes it had.
+    It 'denies a private key by its name in <Path>' -TestCases @(
+        @{ Path = '/handoff/amisad-demo-key' }
+        @{ Path = '/handoff//amisad-demo-key' }
+        @{ Path = '/status/handoff/amisad-demo-key' }
+        @{ Path = '/log/handoff/amisad-demo-key' }
+        @{ Path = '/yuruna-repo/test/status/handoff/amisad-demo-key' }
+        @{ Path = '/ssh/foo_ed25519' }
+        @{ Path = '/x/y/id_rsa' }
+        @{ Path = '/x/y/id_ecdsa' }
+        @{ Path = '/yuruna-repo/test/status/x/y/id_rsa' }
+        @{ Path = '/runtime/deploy_key' }
+        @{ Path = '/runtime/operator.ppk' }
     ) {
         param($Path)
         $result = & $script:FileHarness $script:Roots $Path
@@ -138,6 +180,11 @@ Describe 'status file authorization uses the resolved path' {
         @{ Path = '/runtime//host-refresh.state.json' }
         @{ Path = '/yuruna-repo/README.md' }
         @{ Path = '/log/cycle.txt' }
+        # The public halves of keys and the hand-off files the lab reads back.
+        @{ Path = '/handoff/edge.ip.txt' }
+        @{ Path = '/log/handoff/edge.ip.txt' }
+        @{ Path = '/handoff/amisad-demo-key.pub' }
+        @{ Path = '/ssh/yuruna_ed25519.pub' }
     ) {
         param($Path)
         $result = & $script:FileHarness $script:Roots $Path
@@ -159,9 +206,22 @@ Describe 'status file authorization uses the resolved path' {
 
     It 'shares private key and credential exclusions with the archive packer' {
         $shapes = & ([scriptblock]::Create($script:ShapeText + "`nreturn ,`$secretNameShapes"))
-        foreach ($name in @('ca.pfx', 'server.p12', 'poolstorage.42.fixture.cifs.cred')) {
+        foreach ($name in @('ca.pfx', 'server.p12', 'poolstorage.42.fixture.cifs.cred',
+                'amisad-demo-key', 'deploy_key', 'id_rsa', 'id_ed25519', 'id_ecdsa', 'id_dsa', 'operator.ppk')) {
             $matched = @($shapes | Where-Object { $name -like $_ })
             Assert-True ($matched.Count -gt 0) "$name must be excluded from archives too"
+        }
+    }
+
+    It 'leaves the public halves of keys out of the name shapes' {
+        # The shapes are shared with the archive packer and the repository mount,
+        # so a shape that also caught a public key or an address file would
+        # silently drop it from a cycle archive and refuse it to every guest.
+        $shapes = & ([scriptblock]::Create($script:ShapeText + "`nreturn ,`$secretNameShapes"))
+        foreach ($name in @('amisad-demo-key.pub', 'yuruna_ed25519.pub', 'id_rsa.pub', 'edge.ip.txt',
+                'handoff', 'ca.crt', 'yuruna-release-signing.pub.pem', 'ubuntu-image-signing-keys.asc')) {
+            $matched = @($shapes | Where-Object { $name -like $_ })
+            Assert-Equal 0 $matched.Count "$name must not match a secret name shape ($($matched -join ', '))"
         }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42eeeb9d-fb5a-4c19-9424-9b112f3e3721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,23 +19,7 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 
-# The host side of the extension interface: what an area DECLARES about itself,
-# and the runtime marker that says this host is running it.
-#
-# The declaration -- which VM, which health port, which start script, which
-# label -- belongs in the area's own <area>.config.yml `service:` block
-# (schema: test/schemas/extension-config.schema.yml), and every marker is
-# written through one function, which always emits the uniform base-URL key
-# whatever else an area declares. Neither may be spread across per-service
-# Start scripts, a hardcoded host roster, or a per-service block in the
-# registration writer: that shape makes the services unenumerable and puts a
-# framework edit in the path of every new one. A new extension service is
-# discovered by existing.
-#
-# Every read here is best-effort and file-only: a malformed manifest or an
-# unreadable marker reports nothing rather than throwing, because a discovery
-# nicety must never be able to fail a bring-up, a teardown, or a registration
-# write.
+# See https://yuruna.link/4213a0b3-0056
 
 $script:RepoRoot     = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $script:ExtensionDir = Join-Path $script:RepoRoot 'test/extension'

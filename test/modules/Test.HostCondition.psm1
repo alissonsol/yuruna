@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 421a49fd-aa32-431c-979f-99704a673b48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,23 +94,7 @@ function Register-HostConditionProvider {
         # lost one network path but kept another runs on the one it kept.
         # $null for a host with no way to answer the question.
         [scriptblock]$NetworkHealth = $null,
-        # Optional per-cycle convergence for this host's metrics exporter:
-        # install one where there is none, then give it the collectors, port
-        # and firewall rule the host publishes. Signature: `param()`, returns a
-        # record with Status and Reason. Invoked by
-        # Initialize-HostMetricsExporter.
-        #
-        # Its own slot rather than part of Assert for the reason Assert and Set
-        # are separate everywhere else here: Assert decides whether a cycle may
-        # run and says so with a bool, and a host mutation hidden behind that
-        # answer is invisible to every reader of the call.
-        #
-        # $null for a host where this work would have to ask for its privilege.
-        # That is the line: the unattended loop makes no repair that stops to
-        # ask, because a loop waiting on a credential nobody is present to type
-        # is a hang. A host registers this slot only when the cycle already
-        # holds what the repair needs -- which is why the caller is placed after
-        # the elevation gate rather than before it.
+        # See https://yuruna.link/4213a0b3-0073
         [scriptblock]$MetricsExporter = $null
     )
     & $script:HostConditionRegistry.Register $HostType ([ordered]@{

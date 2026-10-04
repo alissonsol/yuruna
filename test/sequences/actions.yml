@@ -2,28 +2,9 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# Consolidated catalog of actions available in sequence files
-# (start.guest.*.yml, workload.guest.*.yml, and their *.ssh.yml
-# variants under sequences/). Individual sequence files reference this catalog
-# instead of redeclaring each action's description. Action names here
-# match the 'action' field in each step. Every step also accepts a
-# step-level 'description' (string, free-form label shown in the cycle
-# log and dashboard) -- not repeated under each action's parameter list.
-# Source of truth for which actions actually exist is the registry
-# populated by the Register-SequenceAction calls in
-# test/modules/Test.SequenceHandler.psm1; keep this file in sync when
-# adding or removing a registration (Get-SequenceActionName lists the
-# registered names).
-#
-# Rendered, prose-style companion (with per-host Yuruna.Host contract
-# notes -- including the saveDiskSnapshot rename behavior and its
-# divergence across Hyper-V / KVM / UTM): see docs/test-sequences.md.
-#
-# Besides the actions below, a step may be a SNIPPET REFERENCE -- a step
-# whose only key is `snippet: <name>` (no `action:`). The loader splices
-# the named step list (from the `_snippets.yml` library alongside the
-# sequences) in place, including inside retry blocks. See the Snippets
-# section of docs/test-sequences.md.
+# Action names follow the Register-SequenceAction registry; see
+# https://yuruna.link/428e4df6-0001 for the catalog contract and host notes.
+# Snippet references use a separate step form; see https://yuruna.link/428e4df6-000a.
 
 # Define defaults per sequence file. ${vmName}, ${hostType}, ${guestKey}
 # and ${hostname} are built-in; ${hostname} is seeded from the VM name and

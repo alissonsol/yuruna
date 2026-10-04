@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42944d84-a340-428d-8b14-0273934cf4fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -182,17 +182,7 @@ if ($listing.ExitCode -ne 0) {
     exit 1
 }
 
-# utmctl exits 0 even when it could not ask UTM anything -- Apple Events
-# denied (typical from SSH, launchd, or any non-Automation-entitled host
-# process), a request that timed out, or any other Apple Event fault. It
-# just emits the error to stderr and prints the header with zero data
-# rows. This script would then treat EVERY bundle as orphaned and -- with
-# -Force -- delete them all even though UTM still has the VMs registered.
-# Bail loudly instead.
-#
-# Matched on ANY OSStatus code rather than an enumerated few: the set that
-# can appear here is open, the cost of missing one is a deleted VM disk,
-# and no OSStatus value has "believe the empty list" as its right reading.
+# See https://yuruna.link/42e5cdfd-000c
 $utmText = ($utmOutput | ForEach-Object { "$_" }) -join "`n"
 if ($utmText -match 'OSStatus error|couldn.t be completed|utmctl does not work from SSH') {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_2bb96dc39812d94e' -Arguments @{ utmText = "$utmText" })
@@ -214,18 +204,7 @@ foreach ($line in $utmOutput) {
     }
 }
 
-# Read VM UUID from a bundle's config.plist. utmctl list may only return
-# running VMs; UUID-based `utmctl status` works for stopped VMs too --
-# without this, a stopped service VM (e.g. caching-proxy-service) is misclassified
-# as orphaned and deleted by the -Force cleanup path.
-#
-# `plutil -extract Information.UUID raw` (not `-convert json`):
-#   * UTM stores the UUID at Information.UUID, not a top-level key.
-#   * `-convert json` fails outright on these bundles because config.plist
-#     contains a <data> blob (MachineIdentifier) that JSON can't represent
-#     -- plutil exits 1 and ConvertFrom-Json throws, which would make the
-#     whole function silently return $null and let the orphan check fall
-#     through, misclassifying a live VM as orphaned.
+# See https://yuruna.link/42e5cdfd-000d
 function Get-UTMBundleUUID {
     param([string]$BundlePath)
     $configPlist = Join-Path $BundlePath "config.plist"

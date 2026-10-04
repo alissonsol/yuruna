@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 426b2ade-32fc-41ee-bab9-d00d395635bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,19 +72,40 @@ function Invoke-DiagnosticWorker {
         [string]$WorkDirectory,
         [string]$DiagnosticScriptPath,
         [int]$TimeoutSeconds = 30,
-        [int]$MaxReportBytes = 4194304
+        [int]$MaxReportBytes = 4194304,
+        [switch]$UTF8WorkerContext
     )
     $workDir = if ($WorkDirectory) { $WorkDirectory } else { $Scratch.WorkDirectory }
     $script = if ($DiagnosticScriptPath) { $DiagnosticScriptPath } else { $Scratch.Diagnostic }
     $saved = @{}
-    foreach ($name in @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    foreach ($name in @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_DIAGNOSTIC_WORKER_PATH')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
     try {
         # Windows derives the home directory from USERPROFILE, not HOME.
         $env:HOME = $Scratch.Home
         $env:USERPROFILE = $Scratch.Home
         $env:YURUNA_RUNTIME_DIR = $Scratch.Runtime
         $env:YURUNA_LOG_DIR = $Scratch.Log
-        $output = & $script:Pwsh -NoProfile -NonInteractive -File $script:Worker -RunId $RunId -DiagnosticScriptPath $script `
+        $workerPath = $script:Worker
+        if ($UTF8WorkerContext) {
+            $workerPath = Join-Path $Scratch.Root 'Invoke-Utf8DiagnosticWorker.ps1'
+            $wrapper = @'
+param(
+    [string]$RunId,
+    [string]$DiagnosticScriptPath,
+    [string]$WorkDirectory,
+    [string]$WorkingDirectory,
+    [int]$TimeoutSeconds,
+    [int]$MaxReportChars,
+    [int]$MaxReportBytes
+)
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+& $env:YURUNA_DIAGNOSTIC_WORKER_PATH @PSBoundParameters
+exit $LASTEXITCODE
+'@
+            [IO.File]::WriteAllText($workerPath, $wrapper, [Text.UTF8Encoding]::new($false))
+            $env:YURUNA_DIAGNOSTIC_WORKER_PATH = $script:Worker
+        }
+        $output = & $script:Pwsh -NoProfile -NonInteractive -File $workerPath -RunId $RunId -DiagnosticScriptPath $script `
             -WorkDirectory $workDir -WorkingDirectory $Scratch.Root -TimeoutSeconds $TimeoutSeconds -MaxReportChars 65536 -MaxReportBytes $MaxReportBytes 2>&1 | Out-String
         $code = $LASTEXITCODE
     } finally {
@@ -167,6 +188,103 @@ Describe 'the host diagnostic runs detached, bounded and single flight' {
             $text = $strict.GetString($bytes)
             Assert-Match 'runner\.host_diagnostic_worker_truncated|truncated' $text 'the report ends with its truncation notice'
             Assert-True ($text.IndexOf([char]0xFFFD) -lt 0) 'no character was split by the cut'
+            Assert-True ($text.StartsWith([string][char]0xE9, [StringComparison]::Ordinal)) 'the original non-ASCII character survives before the cut'
+        } finally { Remove-YurunaTestTempDir $scratch.Root }
+    }
+
+    It 'preserves non-ASCII stdout and stderr in inherited and explicit UTF8 worker contexts' {
+        $body = @'
+[Console]::Out.WriteLine(('stdout-' + [char]0xC9 + [char]0xE9 + [char]0x03A9 + [char]0x4E2D))
+[Console]::Error.WriteLine(('stderr-' + [char]0xC9 + [char]0xE9 + [char]0x03A9 + [char]0x4E2D))
+'@
+        $suffix = [string][char]0xC9 + [char]0xE9 + [char]0x03A9 + [char]0x4E2D
+        foreach ($utf8Context in @($false, $true)) {
+            $scratch = New-DiagnosticScratch -DiagnosticBody $body
+            try {
+                $run = Invoke-DiagnosticWorker -Scratch $scratch -UTF8WorkerContext:$utf8Context
+                Assert-Equal 0 $run.ExitCode "the worker failed: $($run.Output)"
+                Assert-Equal 0 ([int]$run.State.exitCode)
+                Assert-Match ([regex]::Escape('stdout-' + $suffix)) $run.Result 'stdout characters survive exactly'
+                Assert-Match ([regex]::Escape('stderr-' + $suffix)) $run.Result 'stderr characters survive exactly'
+                Assert-True ($run.Result.IndexOf([char]0xFFFD) -lt 0) 'no decoder replacement characters'
+            } finally { Remove-YurunaTestTempDir $scratch.Root }
+        }
+    }
+
+    It 'runs a diagnostic whose literal path contains spaces and an apostrophe' {
+        $scratch = New-DiagnosticScratch -DiagnosticBody "Write-Output 'literal diagnostic path reached'"
+        try {
+            $literalPath = Join-Path $scratch.Root "diagnostic space's.ps1"
+            [IO.File]::Move($scratch.Diagnostic, $literalPath)
+            $scratch.Diagnostic = $literalPath
+            $run = Invoke-DiagnosticWorker -Scratch $scratch
+            Assert-Equal 0 $run.ExitCode "the worker failed: $($run.Output)"
+            Assert-Equal 0 ([int]$run.State.exitCode)
+            Assert-Match 'literal diagnostic path reached' $run.Result
+        } finally { Remove-YurunaTestTempDir $scratch.Root }
+    }
+
+    It 'records implicit successful completion as zero after a last native child exits seven' {
+        $body = @'
+Write-Output 'native child follows'
+& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -Command 'exit 7'
+'@
+        $scratch = New-DiagnosticScratch -DiagnosticBody $body
+        try {
+            $run = Invoke-DiagnosticWorker -Scratch $scratch
+            Assert-Equal 0 $run.ExitCode "the worker failed: $($run.Output)"
+            Assert-StringEqual 'completed' $run.State.phase
+            Assert-Equal 0 ([int]$run.State.exitCode) 'normal -File completion does not propagate a stale native exit code'
+            Assert-Match 'native child follows' $run.Result
+        } finally { Remove-YurunaTestTempDir $scratch.Root }
+    }
+
+    It 'records an uncaught diagnostic exception as child exit one and serves its error' {
+        $scratch = New-DiagnosticScratch -DiagnosticBody "throw 'diagnostic fixture failure'"
+        try {
+            $run = Invoke-DiagnosticWorker -Scratch $scratch
+            Assert-Equal 0 $run.ExitCode "the worker failed: $($run.Output)"
+            Assert-StringEqual 'completed' $run.State.phase
+            Assert-Equal 1 ([int]$run.State.exitCode)
+            Assert-Match 'diagnostic fixture failure' $run.Result
+        } finally { Remove-YurunaTestTempDir $scratch.Root }
+    }
+
+    It 'retains a nonterminating diagnostic error and a following successful output' {
+        $scratch = New-DiagnosticScratch -DiagnosticBody "Write-Error 'nonterminating fixture warning'`nWrite-Output 'continued after warning'"
+        try {
+            $run = Invoke-DiagnosticWorker -Scratch $scratch
+            Assert-Equal 0 $run.ExitCode "the worker failed: $($run.Output)"
+            Assert-Equal 0 ([int]$run.State.exitCode)
+            Assert-Match 'nonterminating fixture warning' $run.Result
+            Assert-Match 'continued after warning' $run.Result
+        } finally { Remove-YurunaTestTempDir $scratch.Root }
+    }
+
+    It 'records a diagnostic parse error as child exit one' {
+        $scratch = New-DiagnosticScratch -DiagnosticBody 'if ('
+        try {
+            $run = Invoke-DiagnosticWorker -Scratch $scratch
+            Assert-Equal 0 $run.ExitCode "the worker failed: $($run.Output)"
+            Assert-StringEqual 'completed' $run.State.phase
+            Assert-Equal 1 ([int]$run.State.exitCode)
+            Assert-True (-not [string]::IsNullOrEmpty($run.Result)) 'the parser error is retained'
+        } finally { Remove-YurunaTestTempDir $scratch.Root }
+    }
+
+    It 'records a statement error explicitly promoted to terminating by the diagnostic' {
+        $body = @'
+$ErrorActionPreference = 'Stop'
+Write-Error 'promoted fixture error'
+Write-Output 'should not continue'
+'@
+        $scratch = New-DiagnosticScratch -DiagnosticBody $body
+        try {
+            $run = Invoke-DiagnosticWorker -Scratch $scratch
+            Assert-Equal 0 $run.ExitCode "the worker failed: $($run.Output)"
+            Assert-Equal 1 ([int]$run.State.exitCode)
+            Assert-Match 'promoted fixture error' $run.Result
+            Assert-False ($run.Result.Contains('should not continue')) 'the target stops on its promoted error'
         } finally { Remove-YurunaTestTempDir $scratch.Root }
     }
 

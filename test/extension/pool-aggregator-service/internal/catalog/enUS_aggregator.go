@@ -12,6 +12,158 @@ const DataenUSaggregator = `{
   "aggregator.announce_disabled": "announce disabled",
   "aggregator.announced_address_did_not_serve_status_json": "announced address did not serve status.json",
   "aggregator.announced_address_serves_a_different_hostid": "announced address serves a different hostId",
+  "aggregator.backfill_bad_flag": [
+    "history backfill: invalid flags: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_cycle_unreadable": [
+    "history backfill: host ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": cycle ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    " left out after repeated failures: ",
+    {
+      "arg": "value3",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_host_failed": [
+    "history backfill: host ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (the next sweep tries again)"
+  ],
+  "aggregator.backfill_index_failed": [
+    "history backfill: host ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": cannot write its cycle index: ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_pool_status_failed": [
+    "history backfill: cannot read the pool status from the collector: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_prometheus_failed": [
+    "history backfill: host ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": Prometheus refused the timeline samples: ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_started": [
+    "history backfill: started; restores up to ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " of past cycles, sweeping every ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_state_failed": [
+    "history backfill: host ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": cannot save its state: ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.backfill_sweep_done": [
+    "history backfill: sweep done for ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " host(s): wrote ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    " cycle(s), events of ",
+    {
+      "arg": "value3",
+      "type": "detail",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "value4",
+      "type": "detail",
+      "trust": "external"
+    },
+    " incident(s) and ",
+    {
+      "arg": "value5",
+      "type": "detail",
+      "trust": "external"
+    },
+    " timeline sample(s); ",
+    {
+      "arg": "value6",
+      "type": "detail",
+      "trust": "external"
+    },
+    " cycle(s) unreadable; ",
+    {
+      "arg": "value7",
+      "type": "detail",
+      "trust": "external"
+    },
+    " host(s) with history still to write"
+  ],
   "aggregator.batch_mixes_multiple_hostids": "batch mixes multiple hostIds",
   "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte": "control-proof verification disabled: this aggregator holds no internal authentication key",
   "aggregator.encode_failed": "encode failed",

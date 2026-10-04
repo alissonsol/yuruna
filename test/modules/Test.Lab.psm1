@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4208c0a7-cacd-4e3f-a54a-dc38c6dcd0b3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,20 +16,7 @@
 
 #requires -version 7
 
-# Lab-level knowledge shared by the lab entry points: what a lab vault records,
-# where a machine's labs put their storage, and which credentials the machine
-# already holds. One module owns the lab-vault format so a reader and a writer
-# cannot drift on it.
-#
-# The two vaults this module touches are NOT interchangeable:
-#   * the LAB vault (lab.<name>.vault.yml) is per-lab and deliberately COPYABLE
-#     to the lab's other machines;
-#   * the HOST vault (vault.yml) is per-machine and is what the harness reads.
-# Where they carry the same credential they must agree, which is the reason
-# Get-YurunaMachineCredential exists -- see its description.
-#
-# Everything here is READ-ONLY. Nothing in this module creates, rotates, or
-# stores a credential.
+# See https://yuruna.link/4213a0b3-0090
 
 # Turns a lab vault's poolPath ('<root>/yuruna.pool') into the storage root.
 # Both separators are handled explicitly rather than via Split-Path, which

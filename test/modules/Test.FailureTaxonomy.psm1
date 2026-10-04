@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42a11720-948f-47cf-8739-5beedf5f7176
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,14 +16,7 @@
 
 #requires -version 7
 
-# Canonical FailureClass + Severity taxonomy: the single source of truth for
-# the Register-SequenceAction ValidateSet (Test.SequenceAction.psm1) and the
-# schema validator's enum check (Test.EventSchema.psm1). A ValidateSet
-# ATTRIBUTE argument must be a constant expression and cannot reference these
-# arrays, so Test.SequenceAction keeps a literal copy and calls
-# Assert-FailureTaxonomyInSync at module load to catch silent drift; every
-# OTHER consumer reads the arrays here. Leaf module: imports nothing, so it is
-# safe to load first in any module set.
+# See https://yuruna.link/4213a0b3-0057
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:FailureClassEnum = @(

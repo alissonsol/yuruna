@@ -402,6 +402,51 @@
     "aggregator.unusable_cycle_results_folder_for_that_host_at_that_time": {
       "sourceHash": "c8f806233bbb5e5c197421ee5c4025c6a56e74f5bb76b0517cb3dcffe5add608",
       "message": "pasta de resultados de ciclo inutilizável para essa máquina nesse momento"
+    },
+    "aggregator.backfill_bad_flag": {
+      "sourceHash": "7d8400669bec858e88fd44e9a9f2693a8c05e57015f4074637c3e7d06f187325",
+      "origin": "machine",
+      "message": "preenchimento do histórico: opções inválidas: {value1}"
+    },
+    "aggregator.backfill_cycle_unreadable": {
+      "sourceHash": "1a9622002ea5a703878770c54fc868ed0798b4994d99e1b7c81a49070f1c8928",
+      "origin": "machine",
+      "message": "preenchimento do histórico: hospedeiro {value1}: ciclo {value2} omitido após falhas repetidas: {value3}"
+    },
+    "aggregator.backfill_host_failed": {
+      "sourceHash": "e301bd5f09f7d602c6c439879044c589c2a5d4d8a8cebbf55cdfe728fd399638",
+      "origin": "machine",
+      "message": "preenchimento do histórico: hospedeiro {value1}: {value2} (a próxima varredura tentará novamente)"
+    },
+    "aggregator.backfill_index_failed": {
+      "sourceHash": "4b04e87e6039d832406b850e37948ef0fba001c3fd33eb41710f96dd1e8ece98",
+      "origin": "machine",
+      "message": "preenchimento do histórico: hospedeiro {value1}: não foi possível gravar seu índice de ciclos: {value2}"
+    },
+    "aggregator.backfill_pool_status_failed": {
+      "sourceHash": "920008193003db3cd3c6fdd8fdc51c8381107090cd89b778ef99cb5463805384",
+      "origin": "machine",
+      "message": "preenchimento do histórico: não foi possível ler o estado do grupo no coletor: {value1}"
+    },
+    "aggregator.backfill_prometheus_failed": {
+      "sourceHash": "d780374989433d6ea923f48d346a0688e618bd6f52453458501b264a4c221eec",
+      "origin": "machine",
+      "message": "preenchimento do histórico: hospedeiro {value1}: o Prometheus recusou as amostras da linha do tempo: {value2}"
+    },
+    "aggregator.backfill_started": {
+      "sourceHash": "2e2827bdf768ef90a3480369ce71a327847c1e4e511df895e545b10999c47466",
+      "origin": "machine",
+      "message": "preenchimento do histórico: iniciado; restaura ciclos de até {value1} atrás, com varreduras a cada {value2}"
+    },
+    "aggregator.backfill_state_failed": {
+      "sourceHash": "d6dedbc53faf4be89503f13e2d2db8ccd631418c867683df23e093449a0cf4a2",
+      "origin": "machine",
+      "message": "preenchimento do histórico: hospedeiro {value1}: não foi possível salvar seu estado: {value2}"
+    },
+    "aggregator.backfill_sweep_done": {
+      "sourceHash": "a58db505d0715741667a03430689374251661c114e517a9744d1ccbb5bbe9ea3",
+      "origin": "machine",
+      "message": "preenchimento do histórico: varredura concluída para {value1} hospedeiro(s): gravou {value2} ciclo(s), eventos de {value3} ciclo(s), {value4} incidente(s) e {value5} amostra(s) da linha do tempo; {value6} ciclo(s) ilegível(is); {value7} hospedeiro(s) ainda com histórico a gravar"
     }
   }
 }

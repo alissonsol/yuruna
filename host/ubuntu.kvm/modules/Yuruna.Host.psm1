@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,14 +95,7 @@ function Resolve-HostTag {
     return $script:HostTag
 }
 
-# The supporting test/modules become callable from our function bodies;
-# Export-ModuleMember below decides which of OUR functions become visible
-# to test/ orchestration. Yuruna.Host.psm1's exports shadow any same-name
-# exports the supporting modules also produce.
-# These dependency modules are imported -Global: Yuruna.Host is -Force re-imported
-# mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
-# EVICTS the global copy other modules call via qualified names (e.g.
-# Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
+# See https://yuruna.link/42e5cdfd-0002
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
@@ -139,16 +132,7 @@ function Invoke-Virsh {
     [CmdletBinding()]
     [OutputType([System.Object[]])]
     param([Parameter(Mandatory)][string[]]$VirshArgs)
-    # virsh puts its own output through gettext -- domain states, field labels
-    # and error text alike -- and the callers below read those words. On a host
-    # whose operator runs a non-English locale, "running" arrives translated and
-    # every state comparison silently answers 'unknown'.
-    #
-    # LC_MESSAGES rather than LC_ALL: it pins the words while leaving encoding
-    # and collation on the operator's own locale, so a name with an accent in it
-    # still survives the round trip. LC_ALL has to be cleared for the duration
-    # because it outranks LC_MESSAGES -- an operator who exports it would
-    # otherwise get translated output regardless.
+    # See https://yuruna.link/42e5cdfd-000f
     $priorAll = $env:LC_ALL
     $priorMessages = $env:LC_MESSAGES
     try {
@@ -283,20 +267,7 @@ function New-VM {
     # -ExposeVirtualizationExtensions
     # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
     $result = Invoke-PerGuestNewVm -HostSubdir 'host/ubuntu.kvm' @PSBoundParameters
-    # Some per-guest builders boot the domain themselves -- an --import that is
-    # not told otherwise, and the define+start pair the ISO installers use. Those
-    # guests reach Start-VM already running, and its early return must not arm,
-    # because for every other caller a running domain's first ask is long past.
-    # Here it is not: the domain came up moments ago, inside the call above, so
-    # this is the last point at which a window can still contain its first
-    # DISCOVER. Gated on the domain actually running, so a builder that leaves it
-    # defined and shut off is armed by Start-VM instead -- earlier still, before
-    # the guest has drawn power at all.
-    #
-    # The create's exit code is put back afterwards: the state read and the arm
-    # run virsh lookups of their own, and a caller reading $LASTEXITCODE after
-    # this function would otherwise be reading the diagnostic's result as the
-    # create's.
+    # See https://yuruna.link/42e5cdfd-0010
     $newVmExitCode = $LASTEXITCODE
     if ($result -and $result.success -and (Get-VirshDomState -VMName $VMName) -eq 'running') {
         [void](Start-VMDhcpCapture -VMName $VMName)
@@ -328,16 +299,7 @@ function Start-VM {
     if ($LASTEXITCODE -ne 0) {
         return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_f5d119c4d88afb7b' -Arguments @{ join = "$($output -join '; ')" }) }
     }
-    # Arm the DHCP evidence window here and only here: the guest's first
-    # DISCOVER lands seconds after firmware, before any sequence step runs, so
-    # nothing later could open a window that contains it. The already-running
-    # path above deliberately does not arm -- that transaction is already in
-    # the past, and a window opened after it would show an empty slice for a
-    # guest that did ask, which reads as the opposite of what happened.
-    #
-    # The start's exit code is put back afterwards: arming runs virsh lookups
-    # of its own, and a caller that reads $LASTEXITCODE after this function
-    # would otherwise be reading the diagnostic's result as the start's.
+    # See https://yuruna.link/42e5cdfd-0011
     $startExitCode = $LASTEXITCODE
     [void](Start-VMDhcpCapture -VMName $VMName)
     if ($null -ne $startExitCode) { $global:LASTEXITCODE = $startExitCode }
@@ -621,17 +583,7 @@ function Remove-VM {
         }
     }
 
-    # Per-VM artifact directory (qcow2, seed.iso, autounattend.iso, nvram).
-    # New-VM.ps1 places everything under ~/yuruna/vms/<vmname>/. This is
-    # what actually deletes the per-VM disk; the virsh undefine above
-    # only drops the libvirt domain definition + tracked NVRAM file.
-    #
-    # Only once the domain is gone. A defined domain whose disk has been
-    # deleted is worse than a leaked file: the next run finds the VM
-    # "already there", skips creation, and every guest step fails against
-    # a domain that cannot boot. Files kept here stay claimed by the
-    # surviving domain, which is exactly what the orphan-file sweep
-    # expects to skip.
+    # See https://yuruna.link/42e5cdfd-0012
     $filesRemoved = $true
     $vmDir = Join-Path $script:VmRootDir $VMName
     if ($undefined -and (Test-Path -LiteralPath $vmDir)) {
@@ -1808,15 +1760,7 @@ function Get-KvmNeighborIp {
     # because a statically configured entry is as good as a probed one.
     $usableState = @('REACHABLE', 'STALE', 'DELAY', 'PROBE', 'PERMANENT', 'NOARP')
     # --- REGION: https://yuruna.link/4220a755-0043
-    # A guest that renumbers leaves its OLD address in this table under the same
-    # MAC, and the kernel does not remove it -- it ages to STALE and sits there.
-    # Taking the first matching line therefore returns whichever entry the hash
-    # order happens to yield, which is as likely to be the address the guest has
-    # already left as the one it holds now. Every candidate is collected and
-    # ranked instead: a REACHABLE entry was confirmed by the kernel within the
-    # last few seconds, while STALE means only that it was true at some point.
-    # Ties are broken by a single bounded ping, because two stale entries carry
-    # no information to choose between and asking is cheap.
+    # See https://yuruna.link/42e5cdfd-0013
     $rank = @{ 'REACHABLE' = 0; 'PERMANENT' = 1; 'NOARP' = 1; 'DELAY' = 2; 'PROBE' = 2; 'STALE' = 3; '' = 4 }
     $candidate = [System.Collections.Generic.List[object]]::new()
     foreach ($line in @($NeighborLine)) {
@@ -1883,14 +1827,7 @@ function Update-GuestNeighborCache {
         return $false
     }
     # --- REGION: https://yuruna.link/4220a755-0044
-    # A host between leases has no default-route IPv4 for a few seconds, and
-    # Get-HostIpv4Prefix answers with nothing. That window is not a reason to
-    # skip the sweep -- it is the window the sweep exists for, because a host
-    # that just renumbered is exactly when the guest's neighbor entry is stale
-    # and a lookup is about to fail. The subnet does not move when the address
-    # within it does, so the last prefix this host held is still the right place
-    # to look, and remembering it turns "no sweep, no address" into a sweep that
-    # answers.
+    # See https://yuruna.link/42e5cdfd-0014
     $prefix = Get-HostIpv4Prefix
     if ($prefix) {
         $script:LastKnownHostPrefix = $prefix
@@ -1958,17 +1895,7 @@ function Get-VMIp {
         $prefixInfo = Get-HostIpv4Prefix
         $hostPrefix = if ($prefixInfo) { $prefixInfo.Prefix } else { '' }
 
-        # Rung bodies only. The shared runner owns the ordering, first-answer-wins
-        # and the per-rung narration, so those cannot drift between this driver
-        # and the other two.
-        #
-        # Each probe reads what it needs from the $State bag rather than from this
-        # function's locals, and none of them is a closure. Both halves matter:
-        # the runner invokes a probe with `&`, which runs it in the session state
-        # where it was defined -- this module, so Invoke-Virsh and the private
-        # selectors below resolve -- while GetNewClosure() would bind the locals
-        # at the cost of that resolution, because the closure carries the calling
-        # scope instead of the module's.
+        # See https://yuruna.link/42e5cdfd-0015
         $state = @{ Mac = $mac; HostPrefix = $hostPrefix }
         # The lease rung asks the network's own lease table first, because that
         # is the only view carrying expiry -- and expiry is the only thing that
@@ -2001,19 +1928,7 @@ function Get-VMIp {
             Select-VirshDomifaddrIp -Line $lines -Mac $s.Mac -HostPrefix $s.HostPrefix
         }
         # --- REGION: https://yuruna.link/4220a755-0045
-        # Agent first, then the caches. The agent asks the guest what addresses
-        # it holds RIGHT NOW, over a virtio-serial channel that carries no IP and
-        # so cannot itself be broken by the renumbering this exists to survive.
-        # The lease database and the ARP/neighbor table are both records of what
-        # was true earlier, and on a guest that has just moved they are confidently
-        # wrong rather than merely empty -- which is worse, because a wrong answer
-        # ends the ladder just as surely as a right one.
-        #
-        # It is a preference and not an authority: the channel needs a
-        # qemu-guest-agent that has finished starting, so it is absent for the
-        # whole boot window after each snapshot restore, which is exactly when a
-        # cycle does most of its address lookups. The cache rungs stay beneath it
-        # for that window, unchanged.
+        # See https://yuruna.link/42e5cdfd-0015
         $rungs = @(
             @{ Name = 'virsh agent'; Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'agent' } }
             @{ Name = 'virsh net lease'; Probe = { param($vm, $s) & $s.NetLeaseProbe $vm $s } }
@@ -2074,17 +1989,7 @@ function Get-ExternalNetwork {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    # libvirt convention: a bridged 'external' network ($env:YURUNA_EXTERNAL_NETWORK
-    # or 'yuruna-external' if defined) is preferred when present; otherwise
-    # fall back to the built-in NAT 'default' network. Callers compare the
-    # returned name to the cache VM's interface in Test-CacheVMOnExternalNetwork.
-    #
-    # Only ACTIVE networks qualify: virt-install refuses an inactive
-    # network at create time, and a failed bridge build can leave
-    # 'yuruna-external' defined but deliberately stopped (see
-    # New-YurunaExternalNetwork's rebuild-failure branch). Attaching a
-    # guest to that network would strand it with no DHCP, so a candidate
-    # that is defined but inactive is skipped with a pointer at the fix.
+    # See https://yuruna.link/42e5cdfd-0016
     $candidates = @()
     if ($Env:YURUNA_EXTERNAL_NETWORK) { $candidates += $Env:YURUNA_EXTERNAL_NETWORK }
     $candidates += @('yuruna-external', 'default')
@@ -2147,20 +2052,7 @@ function Test-YurunaIfaceIsWifi {
     return (Test-Path "/sys/class/net/$Iface/wireless")
 }
 
-# Internal. The reason $Iface cannot serve as a bridge's uplink port,
-# or '' when it can. Only plain wired Ethernet works: bond/vlan/tunnel
-# devices need their own netplan sections (declaring them under
-# ethernets: misrenders or is rejected), and a name with characters
-# outside the safe set would inject into the generated netplan yaml.
-# Wi-Fi is checked separately by callers (it has its own operator-facing
-# message).
-#
-# This is the Linux/KVM view of the same "uplink not bridgeable" decision
-# that host.windows.hyper-v Test-WindowsUplinkNotBridgeable and
-# host.macos.utm Test-MacUplinkNotBridgeable make for their hypervisors.
-# The criteria differ: a Linux host bridge carries USB Ethernet fine (it
-# is ARPHRD_ETHER type 1, plain wired), so -- unlike Hyper-V -- USB is not
-# a blocker here.
+# See https://yuruna.link/42e5cdfd-0017
 function Get-YurunaIfaceBridgeBlocker {
     [CmdletBinding()]
     [OutputType([string])]
@@ -2332,16 +2224,7 @@ function Test-YurunaNetworkManagerActive {
     return ("$state".Trim() -eq 'running')
 }
 
-# Internal. True iff NetworkManager actually MANAGES $Nic -- not merely that
-# the NM daemon is running. On Ubuntu Server the netplan renderer defaults to
-# systemd-networkd, so NM can be RUNNING yet manage zero devices: every NIC
-# shows STATE 'unmanaged' in `nmcli device status`. Building a bridge with
-# nmcli then adds the connection profiles fine but `nmcli connection up
-# <bridge>` fails with "Failed to find a compatible device for this
-# connection", and the cache silently falls back to NAT. So the bridge-backend
-# choice must key off management of the target NIC, not the daemon's presence.
-# The $StatusLines seam lets the classification be unit-tested without a live
-# nmcli; omitted, it queries `nmcli -t -f DEVICE,STATE device status` live.
+# See https://yuruna.link/42e5cdfd-0017
 function Test-YurunaNicManagedByNetworkManager {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -2436,17 +2319,7 @@ function Clear-YurunaExternalBridgeResidue {
         [Parameter(Mandatory)][string]$Nic,
         [Parameter(Mandatory)][string]$BridgeName
     )
-    # Safety latches, not just comments: never sweep anything that could
-    # be carrying the host's connectivity.
-    #   * $Nic enslaved to $BridgeName: that bridge IS the host's uplink.
-    #   * $Nic is itself a bridge: the caller mis-resolved (a leftover
-    #     netplan bridge holding the default route after a reboot lands
-    #     here if the reuse checks were skipped) -- deleting it would cut
-    #     the host off with nothing left to restore it.
-    #   * $BridgeName has some OTHER physical port, or holds the default
-    #     route: it is somebody's live bridge (e.g. the default route
-    #     moved to a second NIC between runs while the bridge still
-    #     enslaves the first) -- not residue.
+    # See https://yuruna.link/42e5cdfd-0018
     if ((Get-YurunaIfaceBridgeMaster -Iface $Nic) -eq $BridgeName) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_51d154571ef1e845' -Arguments @{ nic = "$Nic"; bridgeName = "$BridgeName" })
         return
@@ -2512,15 +2385,7 @@ function Clear-YurunaExternalBridgeResidue {
         }
     }
 
-    # 4. Give the NIC back to NetworkManager when OUR netplan residue is
-    #    what had unmanaged it. Scoped on purpose: if any REMAINING
-    #    netplan file references the NIC (Ubuntu Server's cloud-init
-    #    config, an operator file), networkd is its rightful owner and
-    #    forcing NM onto it would start the exact two-daemon fight the
-    #    sweep exists to end. `nmcli device set managed` is runtime-only
-    #    state, but a previous run's 'managed no' survives for the rest
-    #    of the boot and would silently pin the backend choice to
-    #    netplan on hosts that should use nmcli.
+    # See https://yuruna.link/42e5cdfd-0018
     if ($sweptNetplan -and (Test-YurunaNetworkManagerActive)) {
         $nicState = @(& nmcli -t -f DEVICE,STATE device status 2>$null) |
             Where-Object { $_ -match "^$([regex]::Escape($Nic)):unmanaged(\b|$)" }
@@ -3039,14 +2904,7 @@ function New-YurunaExternalNetwork {
     }
 
     # --- REGION: Step 3: Reuse an already-bridged NIC
-    # If the operator (or a previous run) already put the WAN NIC on a
-    # bridge, reuse it. This keeps the host networking change to zero:
-    # we only need to define the libvirt network pointing at the existing
-    # bridge. $BridgeName becomes a no-op suggestion in that case.
-    # The default-route interface can also BE a bridge already (a
-    # netplan-built bridge holds the route after a reboot) -- reuse it
-    # directly; treating it as a NIC to enslave would try to put a
-    # bridge inside itself.
+    # See https://yuruna.link/42e5cdfd-0019
     if (Test-Path -LiteralPath "/sys/class/net/$nic/bridge") {
         # Only a bridge that actually has its uplink is worth reusing. A
         # dead bridge can still hold a STALE default route (the kernel
@@ -3128,16 +2986,7 @@ function New-YurunaExternalNetwork {
         # the sweep removes carries the host's connectivity.
         Clear-YurunaExternalBridgeResidue -Nic $nic -BridgeName $BridgeName
 
-        # Pick the bridge backend by whether NetworkManager actually MANAGES the
-        # NIC -- not merely whether the NM daemon is running. On Ubuntu Server the
-        # default netplan renderer is systemd-networkd, so NM can be running yet
-        # manage no devices; nmcli then builds the bridge PROFILES but
-        # `nmcli connection up` fails with "Failed to find a compatible device for
-        # this connection" and the cache silently drops to NAT (the exact failure
-        # this branch now avoids). netplan (systemd-networkd) is the native backend
-        # there. When NM does manage the NIC (desktop / NM-rendered hosts) nmcli is
-        # correct; fall back to netplan if it fails anyway so a plugin/version quirk
-        # doesn't cost the LAN exposure + pool dashboard.
+        # See https://yuruna.link/42e5cdfd-001a
         $ok = $false
         if ((Test-YurunaNetworkManagerActive) -and (Test-YurunaNicManagedByNetworkManager -Nic $nic)) {
             $ok = New-YurunaBridgeViaNmcli -Nic $nic -BridgeName $BridgeName
@@ -3270,15 +3119,7 @@ function New-YurunaBridgeViaNmcli {
         return $false
     }
 
-    # Record which profile currently holds $Nic -- needed twice: the
-    # success epilogue disables its autoconnect (so on reboot the bridge
-    # activates, not the bare NIC re-grabbing the LAN IP and starving
-    # the bridge of carrier), and the failure paths re-activate it so a
-    # failed build NEVER strands the host without networking. It is NOT
-    # modified before activation: the explicit slave 'up' below already
-    # overrides a competing active profile, and touching autoconnect
-    # early opens a window where a failure (or crash) leaves the NIC
-    # with no profile that will ever reconnect it.
+    # See https://yuruna.link/42e5cdfd-001b
     $oldConn = (& nmcli -t -f NAME,DEVICE connection show --active 2>$null |
                 Where-Object { $_ -match "^([^:]+):$Nic`$" } |
                 ForEach-Object { ($_ -split ':', 2)[0] } |
@@ -3293,14 +3134,7 @@ function New-YurunaBridgeViaNmcli {
         }
     }
 
-    # Activate the bridge profile. This creates the kernel bridge
-    # interface under NM's control but does NOT yet take $Nic's
-    # carrier -- contrary to a tempting reading, `nmcli c up <bridge>`
-    # does not auto-enslave member ports. The bridge sits up with no
-    # uplink until the slave is brought up below; DHCP on the bridge
-    # will start, time out at ~45 s with `ip-config-unavailable`, and
-    # loop -- which is exactly the failure mode that strands the cache
-    # VM with no IP if this branch is skipped.
+    # See https://yuruna.link/42e5cdfd-001b
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_41630aabf4bd4c06' -Arguments @{ bridgeName = "$BridgeName" })
     $brUpOut = & sudo nmcli connection up $BridgeName 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -3310,17 +3144,7 @@ function New-YurunaBridgeViaNmcli {
         return $false
     }
 
-    # Critical: explicitly activate the slave so $Nic actually gets
-    # enslaved to the bridge. The slave profile's autoconnect alone
-    # is NOT sufficient when another profile (netplan-<nic>, "Wired
-    # connection N", etc.) currently holds $Nic -- NM will not
-    # auto-deactivate a competing active profile to satisfy a slave's
-    # autoconnect. A user-initiated `nmcli c up $slaveConn` overrides
-    # that policy: NM deactivates the conflicting profile, binds $Nic
-    # to the slave, the bridge sees new carrier, and DHCP succeeds.
-    # This is the moment SSH sessions over $Nic flap; with the cloned
-    # MAC above the new DHCP lease should be the same IP and SSH
-    # reconnects within a few seconds.
+    # See https://yuruna.link/42e5cdfd-001b
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_7c0523905b3ee3ea' -Arguments @{ nic = "$Nic"; bridgeName = "$BridgeName" })
     $slUpOut = & sudo nmcli connection up $slaveConn 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -3434,17 +3258,7 @@ function New-YurunaBridgeViaNetplan {
     # Stale profiles/devices from previous attempts were already removed
     # by Clear-YurunaExternalBridgeResidue in the caller's build path.
 
-    # If NetworkManager currently manages the NIC (this path also runs as
-    # the fallback after a failed nmcli build on an NM host), hand the
-    # NIC off BEFORE apply. netplan's generated udev NM_UNMANAGED rule
-    # only takes effect on the next device event, and in the window
-    # between `netplan apply` restarting systemd-networkd and NM noticing,
-    # both daemons configure the NIC: networkd tries to enslave it while
-    # NM re-activates its profile on it -- and the bridge ends up
-    # uplink-less, so guests never see a DHCP offer. `nmcli device set
-    # managed no` releases the device immediately (runtime-only; the udev
-    # rule makes it stick), and autoconnect off on the bound profile
-    # stops NM re-grabbing it at its next restart.
+    # See https://yuruna.link/42e5cdfd-001c
     $handedOff = $false
     $oldConn = $null
     if (Test-YurunaNicManagedByNetworkManager -Nic $Nic) {
@@ -3460,17 +3274,7 @@ function New-YurunaBridgeViaNetplan {
         $handedOff = $true
     }
 
-    # Local rollback: put the host back exactly as it was, so a $false
-    # return never leaves a half-applied netplan layout behind (a stale
-    # one is what makes the NEXT run's nmcli path fail with "no
-    # compatible device"). `netplan apply` -- not merely generate -- is
-    # load-bearing: generate only rewrites files under /run, and the
-    # RUNNING systemd-networkd keeps the ingested bridge-slave/no-DHCP
-    # view of the NIC until told to re-read. On a pure-networkd host
-    # (the primary audience of this backend) apply is the only thing
-    # that re-hands the NIC to the surviving original netplan config and
-    # restores its DHCP; without it a failed build leaves the host
-    # addressless until a manual apply or reboot.
+    # See https://yuruna.link/42e5cdfd-001c
     $netplanPath = "/etc/netplan/99-yuruna-external.yaml"
     $rollback = {
         & sudo rm -f $netplanPath 2>&1 | ForEach-Object { Write-Verbose "$_" }
@@ -3564,14 +3368,7 @@ function Test-CacheVMOnExternalNetwork {
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$VMName = 'yuruna-caching-proxy-service')
-    # Matches the Hyper-V contract semantic: true iff the cache VM has
-    # its own LAN-routable IP -- consumers on the LAN can hit it
-    # directly with no host-side portproxy in the path. On KVM this is
-    # equivalent to "VM's <source network='...'/> is NOT the NAT
-    # 'default' network". 'yuruna-external' (bridge), any user-defined
-    # YURUNA_EXTERNAL_NETWORK, or a custom bridge all qualify; only the
-    # built-in NAT 'default' (192.168.122/24, host-only without a port
-    # forwarder) does not.
+    # See https://yuruna.link/42e5cdfd-001d
     $state = Get-VirshDomState -VMName $VMName
     if (-not $state) { return $false }
     $xml = Invoke-Virsh -VirshArgs @('dumpxml', $VMName)
@@ -4124,14 +3921,7 @@ function Assert-Virtualization {
         }
         Write-Verbose "Assert-Virtualization: libvirtd is idle (state=$active); libvirtd.socket is listening."
     }
-    # libvirtd being active is not the same as THIS process being able to
-    # reach it. A user added to 'libvirt' via usermod -aG only gets the
-    # group in their effective set after a re-login -- and on systemd-
-    # logind systems with user lingering, even a desktop logout/login
-    # often does NOT refresh existing terminal sessions. Without this
-    # check, the runner cruises past Assert-Virtualization, spends ~8
-    # minutes downloading ISOs, and only THEN crashes inside New-VM.ps1
-    # with the verbatim libvirt-sock "Permission denied" line.
+    # See https://yuruna.link/42e5cdfd-001e
     & virsh --connect $script:VirshUri list --name >$null 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Verbose "Assert-Virtualization: virsh list failed (exit $LASTEXITCODE) -- this process cannot reach $script:VirshUri."
@@ -4730,14 +4520,7 @@ $script:YurunaDhcpWireRefusal = ''
 # and a missing capability does not change inside a run.
 $script:YurunaDhcpGapReported = @{}
 
-# Say why the DHCP evidence is not there. The capture is armed on every VM
-# start and copied only on the failure path, so a cycle that ends with no
-# dhcp.capture.txt cannot distinguish a window that was never armed from a save
-# that declined -- and that is precisely the cycle where someone is looking for
-# the file. Reported on two surfaces because neither is complete alone: the
-# warning reaches the console and the process transcript but not the cycle's
-# own event stream, and the degradation event lands beside the missing artifact
-# but is dropped silently when no cycle folder is open.
+# See https://yuruna.link/42e5cdfd-001f
 function Write-YurunaDhcpGap {
     [CmdletBinding()]
     [OutputType([void])]

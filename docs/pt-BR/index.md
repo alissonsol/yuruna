@@ -23,6 +23,14 @@ nunca é alterado por uma tradução.
 | [Kubernetes](kubernetes.md) | [`docs/kubernetes.md`](../kubernetes.md) |
 | [Autenticação](authentication.md) | [`docs/authentication.md`](../authentication.md) |
 | [Soluções alternativas](workarounds.md) | [`docs/workarounds.md`](../workarounds.md) |
+| [Guia de administração de grupos](pool-admin.md) | [`docs/pool-admin.md`](../pool-admin.md) |
+| [Infraestrutura de testes](test-harness.md) | [`docs/test-harness.md`](../test-harness.md) |
+| [API de extensões](extensions-api.md) | [`docs/extensions-api.md`](../extensions-api.md) |
+| [Esquema do registro de falha](failure-schema.md) | [`docs/failure-schema.md`](../failure-schema.md) |
+| [Referência dos tópicos de vmconfig](vmconfig.md) | [`docs/vmconfig.md`](../vmconfig.md) |
+| [Notas de implementação do framework](framework-implementation-notes.md) | [`docs/framework-implementation-notes.md`](../framework-implementation-notes.md) |
+| [Notas de implementação do hospedeiro](host-implementation-notes.md) | [`docs/host-implementation-notes.md`](../host-implementation-notes.md) |
+| [Notas de implementação de projetos e testes](project-implementation-notes.md) | [`docs/project-implementation-notes.md`](../project-implementation-notes.md) |
 
 O projeto de exemplo tem seu próprio conjunto traduzido, no repositório
 `yuruna-project`, em `docs/pt-BR/`.

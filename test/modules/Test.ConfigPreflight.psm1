@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,17 +17,7 @@
 #requires -version 7
 
 # --- REGION: https://yuruna.link/42d38664-0006
-# Pre-cycle config gate: spawn Test-Config.ps1 in a fresh pwsh so an
-# Out-Of-Order ::Stop / early exit inside Test-Config can't unwind the
-# caller's eternal loop. -SkipSend is mandatory in this gating context:
-# the notification path inside Test-Config is a smoke test, and
-# delivering an email on every outer relaunch / dev iteration would
-# flood the subscribers["config.smoke"] list.
-#
-# Centralizing the gate here keeps Start-TestRunner outer-startup,
-# Debug-TestSequence, and Invoke-TestProject agreeing on the same gate semantics --
-# a new gate parameter reaches every caller from one place instead of
-# drifting between near-identical copy-pastes.
+# See https://yuruna.link/4213a0b3-0035
 
 # One-release compatibility window for Test-Config producers that predate the
 # structured sidecar. Remove the stdout FAILURES-block reader in release
@@ -108,22 +98,7 @@ function Invoke-ConfigGate {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6c78ee15c3d85e9a' -Arguments @{ callerName = "$CallerName"; skipReason = "$SkipReason" }) -InformationAction Continue
         return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray(); failureLines = @() }
     }
-    # Hidden-mode invocation: Test-Config's ~80-line transcript is captured
-    # silently and reaches the CONSOLE only when the gate fails (the failures
-    # block is re-emitted under the gate-failed banner below), so a green gate
-    # shows the operator nothing -- matching every other pre-flight check in the
-    # harness. It is returned to the caller either way; see .OUTPUTS.
-    # The capture includes 2>&1 so child stderr joins the same list and the
-    # FAILURES-block extractor sees the full transcript whichever stream
-    # Test-Config wrote to.
-    # Resolve the running pwsh via the shared, macOS-hardened resolver: a
-    # bare (Get-Process -Id $PID).Path is null on macOS (no /proc) and a
-    # null child-pwsh path makes the spawn below throw. The Sequence entry
-    # point loads this gate WITHOUT Test.InnerSpawn, so import it on demand;
-    # -Global avoids the nested-import global-eviction class
-    # (feedback_module_force_import_evicts_global.md). The call is module-
-    # qualified because the Windows host module exports a same-named
-    # Get-PwshExePath with different semantics.
+    # See https://yuruna.link/4213a0b3-0036
     if (-not (Get-Module -Name 'Test.InnerSpawn')) {
         Import-Module (Join-Path $PSScriptRoot 'Test.InnerSpawn.psm1') -Global -Force -DisableNameChecking -Verbose:$false
     }
@@ -159,14 +134,7 @@ function Invoke-ConfigGate {
         Remove-Item -LiteralPath $sidecarPath -Force -ErrorAction SilentlyContinue
     }
     if ($gateExit -ne 0) {
-        # Pull the FAILURES block (the section between the "FAILURES (N) --"
-        # header and the matching "END OF FAILURES (N)" footer, including
-        # the === banner lines around them) so we can repeat it under the
-        # gate-failed banner. Test.Output's Write-Summary already includes
-        # per-section WARN messages there, so this single excerpt carries
-        # the full reason chain (FAIL + the warnings it pointed at).
-        # Collected as it is written so what the caller gets back and what the
-        # console showed cannot drift apart.
+        # See https://yuruna.link/4213a0b3-0037
         $failureLines = [System.Collections.Generic.List[string]]::new()
         $startIdx = -1
         $endIdx = -1

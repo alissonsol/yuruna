@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42ba7625-4a32-4a9d-9627-423df940b755
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,19 +41,7 @@ param()
     here -- they belong in the other two.
 #>
 
-# The one definition of what a step rule looks like.
-#
-# The transcript's document outline is built from these lines, and until this
-# was shared the shape lived twice: once in the orchestrator that writes the
-# rule and once in a regex here that recovers it. Two copies of a format drift,
-# and the failure is silent in the worst way -- the transcript still renders,
-# it simply has no headings, so a reader navigating tens of kilobytes of one
-# <pre> loses every landmark and nothing reports a problem.
-#
-# Recovering structure from rendered text is the weaker half of the answer and
-# is kept only for the accessibility affordance on the page itself. The
-# machine-readable outline is emitted as structured events beside the
-# transcript, where a consumer never has to read prose at all.
+# See https://yuruna.link/4213a0b3-000d
 function Test-YurunaStepRuleLine {
     <#
     .SYNOPSIS
@@ -201,15 +189,7 @@ function Write-Error {
             $text = if ($Message) { $Message } elseif ($Exception) { $Exception.Message } else { '' }
             Add-YurunaLogLine $text -Severity 'error'
         }
-        # Splat the caller's own bound parameters straight through. This proxy's
-        # parameter sets mirror Write-Error's (NoException = Message,
-        # WithException = Exception [+ optional Message]), so $PSBoundParameters
-        # is always a valid Write-Error invocation and never a Message+Exception
-        # combination Write-Error rejects. Copying it preserves
-        # the common parameters (-ErrorAction, -ErrorVariable, ...) that an
-        # explicit per-set reconstruction would silently drop. (There is no
-        # InputObject parameter here to strip -- this is Write-Error, not the
-        # Write-Output proxy.) Supply the effective ErrorAction when omitted.
+        # See https://yuruna.link/4213a0b3-000e
         $forward = @{} + $PSBoundParameters
         if (-not $forward.ContainsKey('ErrorAction')) { $forward.ErrorAction = $PSCmdlet.SessionState.PSVariable.GetValue('ErrorActionPreference', $ErrorActionPreference) }
         Microsoft.PowerShell.Utility\Write-Error @forward

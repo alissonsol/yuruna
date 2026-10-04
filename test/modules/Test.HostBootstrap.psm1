@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42b7a403-f88e-4a99-bea6-e01180846f3b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,14 +26,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 # Test.Host{Detection,Condition,Git} siblings with -Global so importing
 # THIS module alone gives a caller the full Test.Host* surface area.
 
-# Import the three sibling modules so a caller that only imports
-# Test.HostBootstrap (or Test.HostContract -- the facade re-imports
-# Bootstrap) still gets the full Test.Host* surface area. -Global so the
-# names land in the caller's session; -DisableNameChecking because Get-* /
-# Test-* / Assert-* / Set-* / Update-* / Install-* span many noun families.
-# NOT -Force: these are SHARED siblings other modules pull in transitively,
-# and a -Force re-import would evict/reinitialize them (and their $script:
-# state) out from under those callers -- import only when absent.
+# See https://yuruna.link/4213a0b3-0063
 foreach ($mod in @('Test.HostDetection.psm1','Test.HostCondition.psm1','Test.HostGit.psm1')) {
     $p = Join-Path $PSScriptRoot $mod
     if ((Test-Path $p) -and -not (Get-Module -Name ([System.IO.Path]::GetFileNameWithoutExtension($mod)))) {

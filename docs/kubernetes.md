@@ -25,16 +25,33 @@ cd yuruna
 ./Add-AutomationToPath.ps1
 ```
 
-Create the HTTPS dev certificate (the `ubuntu.server.24.k8s.sh` workload
-does this automatically on that guest):
+Create the HTTPS dev certificate. The `k8s` workloads of the Ubuntu Server and
+Windows 11 guests do this automatically: they export `~/.aspnet/https/aspnetapp.pfx`
+under a random password (32 bytes as 64 hex characters) and keep that password in
+`aspnetapp.pfx.password` beside it, readable by its owner only. The examples read the
+password from `ASPNETCORE_Kestrel__Certificates__Default__Password` when that variable
+is set and from the file otherwise, so a guest needs no variable. No fixed password
+remains: a PFX with no password file (for example, one exported under a fixed
+password) must be replaced, so run the `k8s` workload again. On your own machine:
 
 ```
 $pfxDir = Join-Path $HOME ".aspnet/https"
 if (!(Test-Path $pfxDir)) { New-Item -ItemType Directory -Path $pfxDir -Force | Out-Null }
+# The password lives in this shell only, in the variable the deployment step reads
+# to open the file. It is never written to the repository or an image.
+$env:ASPNETCORE_Kestrel__Certificates__Default__Password = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
 openssl req -x509 -newkey rsa:4096 -keyout "$pfxDir/aspnetapp.key" -out "$pfxDir/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>$null
-openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.key" -in "$pfxDir/aspnetapp.crt" -password pass:password
+openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.key" -in "$pfxDir/aspnetapp.crt" -passout env:ASPNETCORE_Kestrel__Certificates__Default__Password
 Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
 ```
+
+Keep that variable set in the shell that runs the deploy commands below, or save
+the password once in `$pfxDir/aspnetapp.pfx.password` (one line) and leave the variable
+unset. The images carry no certificate: the workload step opens this file with the
+password, re-protects the certificate under a new random password inside a
+Kubernetes Secret, and the pod mounts the Secret. Automation with no developer
+certificate sets `YURUNA_EXAMPLE_SELF_SIGNED_CERT=1` instead and the step
+issues a throwaway certificate.
 
 Deploy:
 
@@ -165,20 +182,24 @@ can both do this.
 ## Guest-side prerequisites
 
 The guest workloads install the common local-cluster toolchain: Git, Docker,
-Kubernetes, PowerShell, Helm, OpenTofu, and mkcert. Windows additionally
-installs Graphviz and the Azure, AWS, and Google Cloud CLIs. Ubuntu intentionally
-omits those optional tools: cloud CLIs are needed only by examples that deploy
-to a cloud, Graphviz is recommended rather than required, and installing the
-full set adds substantial transfer and setup cost while some vendor packages
-remain unavailable on ARM64. Add them through an explicit opt-in workload when
-a guest needs them instead of slowing every local-cluster image build. See
+Kubernetes, PowerShell, Helm, OpenTofu, and mkcert. They also create the HTTPS
+development certificate and its password file, as described in the quick start.
+Windows additionally installs Graphviz and the Azure, AWS, and Google Cloud CLIs.
+Ubuntu intentionally omits those optional tools: cloud CLIs are needed only by
+examples that deploy to a cloud, Graphviz is recommended rather than required,
+and installing the full set adds substantial transfer and setup cost while some
+vendor packages remain unavailable on ARM64. Add them through an explicit
+opt-in workload when a guest needs them instead of slowing every local-cluster
+image build. See
 [Preflight dependencies](operator.md#b2-preflight-dependencies). Guest workload
-pattern: [Yuruna Architecture](architecture.md).
+pattern: [Yuruna Architecture](architecture.md). The fetcher requires the
+script's expected SHA-256 as `E_SHA` in front of the Linux commands below; see
+[Supplying the digest by hand](../guest/README.md#supplying-the-digest-by-hand).
 
 | Guest | Command |
 |---|---|
-| **Ubuntu Server 24.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` |
-| **Ubuntu Server 26.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` |
+| **Ubuntu Server 24.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` |
+| **Ubuntu Server 26.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` |
 | **Windows 11** | `irm ".../guest/windows.11/windows.11.k8s.ps1$nc" \| iex` (see [Windows 11 ...](../guest/windows.11/README.md)) |
 
 **Ubuntu -- optional after:** change hostname with
@@ -253,6 +274,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42551ffa-1dbb-4832-a894-196282de212c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -236,16 +236,7 @@ function Get-YurunaRootHomeArtifact {
     $rootHome = Get-YurunaRootHomePath
     if (-not $rootHome) { return $null }
     $target = "$rootHome/yuruna"
-    # Unprivileged first: on a host where root's home is traversable this answers
-    # without involving sudo at all.
-    #
-    # -ErrorAction SilentlyContinue because a DENIED probe is an expected answer
-    # here, not a fault. macOS keeps /var/root at 0700, so an unprivileged
-    # Test-Path returns $false AND writes a red "Access to the path is denied"
-    # error to the caller's console -- during setup, in the middle of the step
-    # list, on a check that goes on to succeed by asking sudo instead. The
-    # sudo-backed probe below is the one that decides; this branch is only the
-    # shortcut for hosts where the answer is free.
+    # See https://yuruna.link/4213a0b3-00de
     if (Test-Path -LiteralPath $target -ErrorAction SilentlyContinue) {
         return New-RootArtifactRecord -Kind 'root-home' -Blocking $false `
             -Summary (Format-YurunaOperatorMessage -Key 'runner.operator_ffcbfaedf4c6f6c3' -Arguments @{ target = "$target" }) `

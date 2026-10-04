@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42961225-d68b-4663-995b-dff524fe4af1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,16 +87,7 @@ $script:RefreshPreservedControlName = @(
     'control.lab-hold', 'lab-hold.json', 'control.lab-hold-release', 'control.cycle-restart'
 )
 
-# Cycle-folder name patterns. Two shapes:
-#
-#   Bare:           NNNNNN.YYYY-MM-DD.HH-mm-ss.HOSTID
-#                   (clean close)
-#   With suffix:    NNNNNN.YYYY-MM-DD.HH-mm-ss.HOSTID.incomplete
-#                   (in progress, OR crashed before Stop-LogFile's rename)
-#
-# Anything else under status/log/ is left alone (operator-created
-# folders, history.YYYY-MM-DD buckets, prior .aborted.<UTC> archives,
-# etc.).
+# See https://yuruna.link/4213a0b3-00d7
 $script:CycleFolderPattern           = '^\d{6}\..+\..+\..+$'
 $script:CycleFolderIncompletePattern = '^\d{6}\..+\..+\..+\.incomplete$'
 
@@ -329,16 +320,7 @@ function Clear-StalePidFile {
     $proc = Get-Process -Id $filePid -ErrorAction SilentlyContinue
     $recycled = $false
     if ($proc) {
-        # The PID is live, but the OS may have recycled a dead prior
-        # occupant's PID onto an unrelated process. Trust the pidfile as
-        # live only when the live process's StartTime matches the recorded
-        # companion StartTime (runner.start, written by Write-RunnerPidFile
-        # as ToString('o')). 2s tolerance matches Get-RunnerInstanceState:
-        # DateTimeOffset.Parse + StartTime can lose precision across the
-        # round-trip on some kernels, but the window is far narrower than
-        # any real recycle. When identity cannot be established (no
-        # companion StartTime, or the live StartTime is unreadable), stay
-        # conservative and treat it as live.
+        # See https://yuruna.link/4213a0b3-00d8
         $recordedStart = $null
         if ($CompanionPath -and (Test-Path -LiteralPath $CompanionPath)) {
             try {

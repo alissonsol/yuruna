@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,7 @@ BeforeAll {
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:ProjectRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
     $script:LinkRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna.link'
+    $script:AmisadRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'alius-git/amisad.dev'
     $script:SeedRoot = Join-Path $script:RepoRoot 'host/vmconfig'
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
@@ -100,25 +101,20 @@ BeforeAll {
 
     function Get-ConsistencySourceFile {
         if (Get-Variable -Name ConsistencySourceFiles -Scope Script -ErrorAction SilentlyContinue) { return $script:ConsistencySourceFiles }
-        $roots = @(
-            'host', 'guest', 'test', 'tools', 'automation', 'install', 'dev-only' |
-                ForEach-Object { Join-Path $script:RepoRoot $_ }
-        )
-        if (Test-Path -LiteralPath $script:ProjectRoot) {
-            $roots += @('book', 'example', 'template', 'test' |
-                ForEach-Object { Join-Path $script:ProjectRoot $_ } |
-                Where-Object { Test-Path -LiteralPath $_ })
-        }
-        if (Test-Path -LiteralPath $script:LinkRoot) {
-            $roots += $script:LinkRoot
-        }
-        $extensions = @('.ps1', '.psm1', '.sh', '.yml', '.yaml', '.user-data',
-            '.go', '.js', '.cs', '.py', '.html', '.service', '.cmd')
+        $roots = @($script:RepoRoot, $script:ProjectRoot, $script:LinkRoot, $script:AmisadRoot |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+        $extensions = @('.ps1', '.psm1', '.sh', '.yml', '.yaml', '.user-data', '.xml',
+            '.go', '.js', '.cs', '.py', '.html', '.service', '.timer', '.cmd',
+            '.plist', '.template', '.network-config', '.meta-data', '.ini', '.cfg')
         $script:ConsistencySourceFiles = @(foreach ($root in $roots) {
-            Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object {
-                $_.Extension -in $extensions -and
-                $_.FullName -notmatch '[\\/]test[\\/]status[\\/]runtime[\\/]' -and
-                $_.FullName -notmatch '[\\/](?:bin|obj|node_modules|globalization)[\\/]'
+            $paths = @(& git -C $root ls-files --cached --others --exclude-standard)
+            if ($LASTEXITCODE -ne 0) { throw "Could not inventory consistency sources in $root." }
+            foreach ($relative in $paths | Sort-Object -Unique) {
+                $path = Join-Path $root $relative
+                if ([IO.Path]::GetExtension($path) -notin $extensions -or
+                    $relative -match '(^|/)(?:\.test-results|bin|obj|node_modules|vendor|runtime)(/|$)' -or
+                    -not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+                Get-Item -LiteralPath $path
             }
         })
         return $script:ConsistencySourceFiles
@@ -138,6 +134,8 @@ BeforeAll {
             $script:ProjectRoot
         } elseif ($File.FullName.StartsWith($script:LinkRoot, [StringComparison]::Ordinal)) {
             $script:LinkRoot
+        } elseif ($File.FullName.StartsWith($script:AmisadRoot, [StringComparison]::Ordinal)) {
+            $script:AmisadRoot
         } else {
             $script:RepoRoot
         }
@@ -619,11 +617,10 @@ Describe 'Shared source regions' {
     It 'uses only canonical regions in test-sequence YAML' {
         $findings = @()
         $allowed = @('resource', 'component', 'workload')
-        $sequenceFiles = @(Get-ChildItem (Join-Path $script:RepoRoot 'test/sequences') -File -Filter '*.yml')
-        if (Test-Path -LiteralPath $script:ProjectRoot) {
-            $sequenceFiles += @(Get-ChildItem -LiteralPath $script:ProjectRoot -File -Recurse -Filter '*.yml' |
-                Where-Object { $_.FullName -match '[\\/]test[\\/]' })
-        }
+        $sequenceFiles = @(Get-ConsistencySourceFile | Where-Object {
+            $_.Extension -in @('.yml', '.yaml') -and $_.FullName -match '[\\/]test[\\/]' -and
+            (Get-ConsistencySourceText -Path $_.FullName) -match '(?m)^(?:sequenceGuid|sequenceRevision|resource|component|workload):'
+        })
         foreach ($file in $sequenceFiles) {
             $text = Get-ConsistencySourceText -Path $file.FullName
             $markers = [regex]::Matches($text, '(?m)^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)\r?\n(?:(?:[ \t]*# See https://yuruna\.link/[^\r\n]+)\r?\n)*(?<next>[^\r\n]*)')
@@ -643,13 +640,12 @@ Describe 'Shared source regions' {
 
     It 'matches YAML REGION names to the same-indent keys they precede' {
         $findings = @()
-        foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.yml', '.yaml', '.user-data')) {
+        foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.yml', '.yaml', '.user-data', '.network-config', '.meta-data')) {
             $text = Get-ConsistencySourceText -Path $file.FullName
             $markers = [regex]::Matches($text,
                 '(?m)^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)\r?\n(?:(?:\k<indent># See https://yuruna\.link/[^\r\n]+)\r?\n)*\k<indent>(?<key>[A-Za-z0-9_.-]+):')
             foreach ($marker in $markers) {
                 $name = $marker.Groups['name'].Value
-                if ($name -like 'https://*') { continue }
                 $key = $marker.Groups['key'].Value
                 if ($name -cne $key) {
                     $location = Format-SourceMatch -File $file -Text $text -Match $marker
@@ -660,17 +656,32 @@ Describe 'Shared source regions' {
         $findings | Should -BeNullOrEmpty -Because 'a REGION immediately before a same-indent YAML key uses that key exact name and case'
     }
 
+    It 'matches systemd and INI REGION names to the bracketed sections they precede' {
+        $findings = @()
+        foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.service', '.timer', '.ini', '.cfg', '.sh', '.user-data', '.template')) {
+            $text = Get-ConsistencySourceText -Path $file.FullName
+            $markers = [regex]::Matches($text,
+                '(?m)^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)\r?\n(?:(?:\k<indent># See https://yuruna\.link/[^\r\n]+)\r?\n)*\k<indent>(?<section>\[[A-Za-z][A-Za-z0-9_. -]*\])[ \t]*\r?$')
+            foreach ($marker in $markers) {
+                if ($marker.Groups['name'].Value -cne $marker.Groups['section'].Value) {
+                    $location = Format-SourceMatch -File $file -Text $text -Match $marker
+                    $findings += "${location}: REGION '$($marker.Groups['name'].Value)' precedes '$($marker.Groups['section'].Value)'"
+                }
+            }
+        }
+        $findings | Should -BeNullOrEmpty -Because 'systemd and INI structural regions use the following bracketed section exact name and case'
+    }
+
     It 'matches native HTML REGION names to the elements they precede' {
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -eq '.html') {
             $text = Get-ConsistencySourceText -Path $file.FullName
             $markers = [regex]::Matches($text,
-                '(?m)^[ \t]*<!--[ \t]*REGION:[ \t]*(?<name>[^\r\n]*?)[ \t]*-->\r?\n(?:(?:[ \t]*<!--[ \t]*See https://yuruna\.link/[^\r\n]*-->)[ \t]*\r?\n)*[ \t]*<(?<element>html|script|style|body)\b',
+                '(?m)^[ \t]*<!--[ \t]*REGION:[ \t]*(?<name>[^\r\n]*?)[ \t]*-->\r?\n(?:(?:[ \t]*<!--[ \t]*See https://yuruna\.link/[^\r\n]*-->)[ \t]*\r?\n)*[ \t]*<(?<element>[A-Za-z][A-Za-z0-9:-]*)\b',
                 [Text.RegularExpressions.RegexOptions]::IgnoreCase)
             foreach ($marker in $markers) {
                 $name = $marker.Groups['name'].Value
-                if ($name -like 'https://*') { continue }
-                $element = $marker.Groups['element'].Value.ToLowerInvariant()
+                $element = $marker.Groups['element'].Value
                 if ($name -cne $element) {
                     $location = Format-SourceMatch -File $file -Text $text -Match $marker
                     $findings += "${location}: REGION '$name' precedes '<$element>'"
@@ -678,6 +689,36 @@ Describe 'Shared source regions' {
             }
         }
         $findings | Should -BeNullOrEmpty -Because 'native HTML structural regions use the following element exact name and case'
+    }
+
+    It 'matches XML REGION names to the elements they precede' {
+        $findings = @()
+        foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.xml', '.plist', '.template')) {
+            $text = Get-ConsistencySourceText -Path $file.FullName
+            $markers = [regex]::Matches($text,
+                '(?m)^[ \t]*<!--[ \t]*REGION:[ \t]*(?<name>[^\r\n]*?)[ \t]*-->\r?\n(?:(?:[ \t]*<!--[ \t]*See https://yuruna\.link/[^\r\n]*-->)[ \t]*\r?\n)*[ \t]*(?:<key>(?<key>[^<]+)</key>|<(?<element>[A-Za-z][A-Za-z0-9_.:-]*)\b)')
+            foreach ($marker in $markers) {
+                $name = $marker.Groups['name'].Value
+                $element = if ($marker.Groups['key'].Success) { $marker.Groups['key'].Value } else { $marker.Groups['element'].Value }
+                if ($name -cne $element) {
+                    $location = Format-SourceMatch -File $file -Text $text -Match $marker
+                    $findings += "${location}: REGION '$name' precedes '$element'"
+                }
+            }
+        }
+        $findings | Should -BeNullOrEmpty -Because 'XML structural regions use the following element exact name and case'
+    }
+
+    It 'uses stable short links rather than repository paths in REGION labels' {
+        $findings = @()
+        foreach ($file in Get-ConsistencySourceFile) {
+            $text = Get-ConsistencySourceText -Path $file.FullName
+            foreach ($match in [regex]::Matches($text,
+                    '(?m)^[ \t]*(?:(?:#|//)[ \t]*---[ \t]+|<!--[ \t]*)REGION:[ \t]*(?:docs/|\.\./)[^\r\n]*')) {
+                $findings += Format-SourceMatch -File $file -Text $text -Match $match
+            }
+        }
+        $findings | Should -BeNullOrEmpty -Because 'a REGION rationale links to its stable yuruna.link heading'
     }
 
     It 'keeps documentation links as ordinary comments beside named regions' {
@@ -728,7 +769,7 @@ Describe 'Shared source regions' {
     }
 
     It 'keeps comment-based help inside a function when a REGION precedes it' {
-        $pattern = '(?ms)^[ \t]*# --- REGION:[^\r\n]+\r?\n(?:[ \t]*#(?! --- REGION:)[^\r\n]*\r?\n)*[ \t]*<\#(?:(?!#>)[\s\S])*?#>[ \t]*\r?\n[ \t]*function[ \t]+'
+        $pattern = '(?m)^[ \t]*# --- REGION:[^\r\n]+\r?\n(?:(?:[ \t]*#(?! --- REGION:)[^\r\n]*)?[ \t]*\r?\n)*[ \t]*<\#(?:(?!#>)[\s\S])*?#>[ \t]*\r?\n[ \t]*function[ \t]+'
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.ps1', '.psm1')) {
             $text = Get-ConsistencySourceText -Path $file.FullName

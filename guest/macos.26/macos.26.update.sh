@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: Initialize environment
 set -euo pipefail
 
 # --- REGION: Detect architecture
@@ -25,8 +26,7 @@ esac
 echo ""
 echo -e "\e[1;36m==== Ensure PowerShell is installed ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
-  # Resolve the latest-stable release tag via HEAD-follow of /releases/latest.
-  # Avoids the 60/hr unauthenticated GitHub API rate limit.
+  # Follow the latest-release redirect without consuming GitHub API quota.
   PS_TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
     "https://github.com/PowerShell/PowerShell/releases/latest")
   PS_TAG="${PS_TAG##*/}"
@@ -75,6 +75,27 @@ for attempt in 1 2 3; do
 done
 sudo pwsh -NoProfile -Command "Import-Module powershell-yaml; ConvertFrom-Yaml 'k: v' | Out-Null"
 
+# The retry lib's host probe, restated with curl because macOS has no wget and
+# this script loads no lib: four 2s asks, 3s apart. The host status service
+# answers one request at a time, so a single ask that lands behind a slow
+# request reads as a dead host. Every request to the host goes --noproxy: it is
+# on the LAN, whatever proxy the guest's other downloads use.
+yuruna_host_livecheck() {
+    local livecheck_url="http://${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}/livecheck"
+    local rounds=4 gap=3 round=1
+    while [ "$round" -le "$rounds" ]; do
+        if curl -fsS --noproxy '*' --max-time 2 -o /dev/null "$livecheck_url" 2>/dev/null; then
+            if [ "$round" -gt 1 ]; then
+                echo "yuruna: host status service answered on probe ${round}/${rounds} at ${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}"
+            fi
+            return 0
+        fi
+        if [ "$round" -lt "$rounds" ]; then sleep "$gap"; fi
+        round=$((round + 1))
+    done
+    return 1
+}
+
 # --- REGION: Early yuruna framework extraction
 # See https://yuruna.link/42d69dfa-0037
 # Use curl here; the Git fallback follows the developer-tools install.
@@ -87,12 +108,11 @@ if [ -r /etc/yuruna/host.env ]; then
   . /etc/yuruna/host.env
 fi
 if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ] && [ ! -d "$REAL_HOME/yuruna" ]; then
-  LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
   TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
-  if curl -fsS --max-time 2 -o /dev/null "$LIVECHECK_URL" 2>/dev/null; then
+  if yuruna_host_livecheck; then
     mkdir -p "$REAL_HOME/yuruna"
     # --- REGION: https://yuruna.link/42e220c4-0005
-    if curl -fsSL --connect-timeout 30 --speed-limit 1024 --speed-time 60 \
+    if curl -fsSL --noproxy '*' --connect-timeout 30 --speed-limit 1024 --speed-time 60 \
          "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
       sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
       echo -e "\e[1;32m---- Yuruna framework available at $REAL_HOME/yuruna (early extract). ----\e[0m"
@@ -111,9 +131,8 @@ echo "TESTHACK: Disabling services that may suspend the machine."
 sudo pmset -a displaysleep 0 sleep 0 disksleep 0 || true
 
 # --- REGION: Update system packages
-# `softwareupdate -l` lists available updates; `-i -a` installs every
-# pending one and reboots when needed. `--agree-to-license` keeps the
-# step non-interactive for sequences that drive the workload.
+# See https://yuruna.link/42e220c4-0005
+# Accept the license so unattended update checks cannot prompt.
 echo ""
 echo -e "\e[1;36m==== macOS update list ====\e[0m"
 sudo softwareupdate -l || true
@@ -122,14 +141,12 @@ echo ""
 echo -e "\e[1;36m==== Update system packages ====\e[0m"
 sudo softwareupdate -i -a --agree-to-license || true
 
-# --- REGION: Ensure Git is installed (Command Line Developer Tools)
+# --- REGION: Ensure Git is installed
 # macOS supplies Git and Swift through Command Line Developer Tools.
 echo ""
 echo -e "\e[1;36m==== Ensure Git is installed (Command Line Developer Tools) ====\e[0m"
 if ! xcode-select -p >/dev/null 2>&1; then
-  # Trigger the on-demand install path used by every fresh macOS box.
-  # `softwareupdate` then picks the published label and installs it
-  # non-interactively.
+  # Publish the on-demand developer-tools label for softwareupdate.
   sudo touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
   PROD=$(softwareupdate -l 2>/dev/null \
     | grep -E 'Label: Command Line Tools' \
@@ -149,11 +166,15 @@ FRAMEWORK_URL=""
 PROJECT_URL=""
 if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
   CFG_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/control/test-config"
-  if cfg_body=$(curl -fsS --max-time 5 "$CFG_URL" 2>/dev/null); then
+  if cfg_body=$(curl -fsS --noproxy '*' --max-time 5 "$CFG_URL" 2>/dev/null); then
     FRAMEWORK_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("frameworkUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
     PROJECT_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("projectUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
   fi
 fi
+
+# host.env keeps clone URLs available while the status service is unreachable.
+: "${FRAMEWORK_URL:=${YURUNA_FRAMEWORK_URL:-}}"
+: "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 
 # --- REGION: Keep git non-interactive
 # See https://yuruna.link/4220a755-004f
@@ -167,12 +188,11 @@ fi
 if [ ! -d "$REAL_HOME/yuruna" ]; then
   HOST_OK=false
   if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
-    LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
-    if curl -fsS --max-time 2 -o /dev/null "$LIVECHECK_URL" 2>/dev/null; then
+    if yuruna_host_livecheck; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
-      if curl -fsSL --connect-timeout 30 --speed-limit 1024 --speed-time 60 \
+      if curl -fsSL --noproxy '*' --connect-timeout 30 --speed-limit 1024 --speed-time 60 \
            "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
         HOST_OK=true
       else
@@ -202,17 +222,21 @@ fi
 if [ ! -d "$REAL_HOME/yuruna/project" ]; then
   PROJECT_HOST_OK=false
   if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
-    PROJECT_TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-project-archive.tar.gz"
-    echo "yuruna: trying project tarball at $PROJECT_TARBALL_URL"
-    mkdir -p "$REAL_HOME/yuruna/project"
-    if curl -fsSL --connect-timeout 5 --speed-limit 1024 --speed-time 5 \
-         "$PROJECT_TARBALL_URL" 2>/dev/null \
-         | tar -xz -C "$REAL_HOME/yuruna/project" 2>/dev/null \
-         && [ -n "$(ls -A "$REAL_HOME/yuruna/project" 2>/dev/null)" ]; then
-      PROJECT_HOST_OK=true
+    if ! yuruna_host_livecheck; then
+      echo "yuruna: host status service did not answer at ${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}"
     else
-      echo "yuruna: project tarball not served (or empty) - falling back to git clone"
-      rm -rf "$REAL_HOME/yuruna/project"
+      PROJECT_TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-project-archive.tar.gz"
+      echo "yuruna: trying project tarball at $PROJECT_TARBALL_URL"
+      mkdir -p "$REAL_HOME/yuruna/project"
+      if curl -fsSL --noproxy '*' --connect-timeout 5 --speed-limit 1024 --speed-time 5 \
+           "$PROJECT_TARBALL_URL" 2>/dev/null \
+           | tar -xz -C "$REAL_HOME/yuruna/project" 2>/dev/null \
+           && [ -n "$(ls -A "$REAL_HOME/yuruna/project" 2>/dev/null)" ]; then
+        PROJECT_HOST_OK=true
+      else
+        echo "yuruna: project tarball not served (or empty) - falling back to git clone"
+        rm -rf "$REAL_HOME/yuruna/project"
+      fi
     fi
   fi
   if [ "$PROJECT_HOST_OK" = "false" ] && [ -n "$PROJECT_URL" ]; then

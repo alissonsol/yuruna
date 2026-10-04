@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4201fdd8-53b7-4416-b2a6-1f61d3cff3af
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -142,18 +142,7 @@ function Get-YurunaHostId {
     # hex = 32 chars.
     $id = Resolve-SeededHostId
     if (-not $id) { $id = '42' + ([Guid]::NewGuid().ToString('N')).Substring(2, 30) }
-    # Atomic first-write, shared with Get-PerfHostUuid on this same host.uuid: two
-    # processes hitting first-use at once would each generate a DIFFERENT id, so a
-    # plain overwrite would leave the host with two identities. The create itself is
-    # the lock -- FileMode.CreateNew is O_CREAT|O_EXCL on POSIX and CREATE_NEW on
-    # Windows, so exactly one caller can bring the path into existence and everyone
-    # else adopts what that caller wrote. A temp-then-rename cannot hold this line on
-    # POSIX: [System.IO.File]::Move tests for the destination and then renames, so
-    # racers that pass the test together all rename successfully, the last one lands
-    # on disk, and every earlier one walks away with an id that was never persisted.
-    # A genuine persist failure is fatal to the caller (return $null, per the OUTPUTS
-    # contract) rather than an unpersisted id the next call would silently
-    # re-generate as a different one.
+    # See https://yuruna.link/4213a0b3-0193
     $claim = $null
     try {
         $claim = [System.IO.File]::Open($uuidFile, [System.IO.FileMode]::CreateNew,

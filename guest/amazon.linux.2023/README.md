@@ -12,8 +12,11 @@ Create the guest VM first:
 In a guest terminal:
 
 ```
-/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.<workload>.sh
+E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.<workload>.sh
 ```
+
+`E_SHA` is the script's expected SHA-256, which the fetcher requires; see
+[Supplying the digest by hand](../README.md#supplying-the-digest-by-hand).
 
 Run `amazon.linux.2023.update.sh` first.
 
@@ -36,6 +39,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../../README.md)

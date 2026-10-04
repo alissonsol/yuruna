@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42ebb62d-e1a8-4c57-811c-f982498db617
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -344,6 +344,39 @@ Describe 'the committed-content tarball names the commit it was cut from' {
             Assert-Match -Pattern '^[0-9a-f]{40}$' -Actual ($entries['.yuruna-revision'].Trim()) `
                 'an abbreviated revision cannot be compared against a candidate commit without ambiguity'
         } finally { Remove-YurunaTestTempDir -Path $repo.Path }
+    }
+
+    It 'cuts byte-identical archive bytes for one commit, however many times it is cut' {
+        # A launch command can carry the SHA-256 of this tarball so a guest can
+        # verify it before extracting. The digest is taken from one cut and the
+        # guest's download may be another (a restarted service, an evicted
+        # cache entry), so the digest means something only while a cut of one
+        # commit is the same bytes every time: tar entries carry the commit
+        # time, not the wall clock, and the gzip header carries no timestamp.
+        # The second cut comes from a clone in another directory, so the
+        # streamer's per-repository cache cannot answer it, and it waits long
+        # enough for any embedded clock to differ.
+        $source = New-ArchiveFixtureRepo
+        $cloneDir = New-YurunaTestTempDir -Prefix 'archive-provenance-clone'
+        try {
+            & git clone --quiet $source.Path $cloneDir 2>&1 | Out-Null
+            & git -C $cloneDir remote remove origin 2>&1 | Out-Null
+            Assert-StringEqual -Expected $source.Head -Actual ((& git -C $cloneDir rev-parse HEAD 2>$null | Select-Object -First 1).Trim()) `
+                'the clone must hold the same commit or the comparison proves nothing'
+
+            $first = & $script:InvokeArchive $source.Path 'GET'
+            Start-Sleep -Seconds 2
+            $second = & $script:InvokeArchive $cloneDir 'GET'
+            Assert-Equal -Expected 200 -Actual $first.StatusCode 'the first cut failed'
+            Assert-Equal -Expected 200 -Actual $second.StatusCode 'the second cut failed'
+            $firstDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($first.Bytes))
+            $secondDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($second.Bytes))
+            Assert-StringEqual -Expected $firstDigest -Actual $secondDigest `
+                'a re-cut of the same commit is different bytes, so a digest taken from one cut cannot verify the other'
+        } finally {
+            Remove-YurunaTestTempDir -Path $cloneDir
+            Remove-YurunaTestTempDir -Path $source.Path
+        }
     }
 
     It 'answers a HEAD request with the same length and no body' {

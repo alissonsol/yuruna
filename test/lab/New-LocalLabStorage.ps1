@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 425548c6-683c-4519-9712-2f32b36e15e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,63 +23,7 @@
     network stack, and write the result into test.config.yml.
 
 .DESCRIPTION
-    A lab with no NAS still needs the pool and stash tiers. Standing them up by
-    hand is a dozen elevated, per-platform steps -- create two folders, create
-    two accounts, enable a file server, publish two shares, set ACLs, add host
-    aliases, store two passwords in a vault, mount two shares, edit six config
-    keys -- with nothing to check the result. This does all of it, on Windows,
-    macOS, and Ubuntu, and is safe to re-run.
-
-    FOR LOCAL MACHINES ONLY. The accounts and permissions it creates are local
-    to this machine. A real NAS or a separate file server owns its own accounts
-    and its own access control, and neither can be configured from here: on
-    those, create the users and grant the share permissions ON THE REMOTE
-    DEVICE, then point networkStorage.* at it (docs/test-config.md). The script
-    says this and asks for confirmation before it changes anything.
-
-    The shares are LOCAL but are consumed as if they were REMOTE. Each tier gets
-    a host alias (ypool-nas, ystash-nas) resolving to the loopback address, and
-    the share is mounted over SMB through that name by the same
-    Connect-YurunaPoolStorage the unattended cycle uses. The benefit is
-    uniformity: the runner, the config gate, the replication drain, and the
-    guest seeds all take the one network path, so a single-machine lab exercises
-    the same code as a lab with a NAS -- and moving to real hardware later
-    changes the alias and nothing else.
-
-    The storage root is resolved first (prompted, with the platform's convention
-    offered as the default: /srv/yuruna on Ubuntu, /Users/Shared/yuruna on macOS,
-    <drive>\Shares\yuruna on Windows -- the first fixed drive that is not the
-    system drive). The eight numbered steps then run in this order:
-
-      1. Folders, lab vault, and pool-intent repository, by calling New-Lab.ps1.
-         The two share passwords are the ones it generates; a lab that already
-         exists keeps the passwords it has, so a re-run does not rotate the
-         credentials the lab's other machines are using.
-      2. SMB server. Started (Windows), enabled (macOS File Sharing), or
-         installed and configured (Ubuntu: samba + cifs-utils). Before the
-         accounts so step 4 can publish and probe in the same run.
-      3. Storage accounts. One local account per tier, each scoped to its own
-         share: not an administrator, no interactive shell, and on Ubuntu the
-         OS password stays locked (the SMB credential lives in Samba's passdb).
-         On macOS the SMB-NT hash type is enabled and the password re-set, which
-         is the only thing that makes the account usable over SMB at all.
-      4. Shares. One per tier, each granting only that tier's account; on macOS
-         each credential is then proved against the running SMB server.
-      5. Loopback. Host aliases for both server names, plus, on Windows, the
-         NTLM loopback exemption and EnableLinkedConnections.
-      6. Vault. Each password is mapped to a vaultKey in users.yml and stored,
-         so the harness never auto-generates a password the share would reject.
-      7. Config. The six networkStorage keys in test/test.config.yml.
-      8. Mount. Both shares, at the platform's conventional mount points --
-         after the config, so what mounts is what the runner will later read.
-         A share already standing at one of those points is unmounted first,
-         so what is mounted is what step 5's alias now resolves to.
-
-    Account names are deliberately NOT parameters -- they are the two script
-    variables below. They have to agree with the accounts on a NAS if this lab
-    ever moves to one, so they are a lab-wide constant to be edited once, not a
-    per-run choice that could differ between machines.
-
+    See https://yuruna.link/42010605-0003.
 .PARAMETER Root
     Storage root, skipping the prompt. Omit it for the interactive prompt,
     which offers this platform's convention as the default.
@@ -139,12 +83,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script (install/setup.ps1, a runner cycle). After the
-# line above on purpose: an explicit level is the operator's choice and replaces
-# this script's own default. $InformationPreference is then re-read from the
-# global the cascade writes, because the script-scoped assignment above shadows
-# it for the rest of this file. See docs/loglevels.md.
+# See https://yuruna.link/42010605-0003
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -208,6 +147,7 @@ try {
 
 $Platform = Get-LocalLabStoragePlatform
 
+# --- REGION: Confirm-Step
 function Confirm-Step {
     param(
         [Parameter(Mandatory)][string]$Question,
@@ -228,14 +168,10 @@ function Confirm-Step {
 }
 
 # --- REGION: Step progress
-# Almost every second this script spends is inside a native tool that prints
-# nothing until it is finished: `sysadminctl -addUser`, `pwpolicy`, `apt-get
-# install`, a nested `sudo pwsh` for the hosts file, and two SMB mounts each
-# bounded by a multi-second timeout. Announcing the work BEFORE it starts, and
-# timing it, is what separates a slow step from a hung one for the operator
-# watching it -- the same reason the module's own OS calls narrate themselves.
+# See https://yuruna.link/42010605-0003
 $Script:StepTimer = [System.Diagnostics.Stopwatch]::new()
 
+# --- REGION: Complete-LabStorageStep
 function Complete-LabStorageStep {
     [CmdletBinding()]
     param()
@@ -247,6 +183,7 @@ function Complete-LabStorageStep {
     if ($seconds -ge 2) { Write-Information ("      ({0:N0}s)" -f $seconds) }
 }
 
+# --- REGION: Write-LabStorageStep
 function Write-LabStorageStep {
     [CmdletBinding()]
     param(
@@ -259,7 +196,7 @@ function Write-LabStorageStep {
     $Script:StepTimer.Restart()
 }
 
-# --- REGION: Elevation -- Windows arm
+# --- REGION: Test-IsElevated
 # Windows refuses rather than prompting, so checking first costs the operator
 # nothing: a session that cannot do the work should not be asked to confirm it
 # or to name a storage root. The sudo arm is further down, after the local-only
@@ -491,13 +428,7 @@ if ($Platform -eq 'macos' -and -not $WhatIfPreference) {
         switch ($verdict) {
             'ok'          { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5833b283f23b8ad6' -Arguments @{ account = "$($t.Account)" }) }
             'auth'        {
-                # Step 3 writes the credential, verifies it, and rebuilds the
-                # account when it cannot -- so reaching here means the account has
-                # the record and smbd still refuses it, which is not something the
-                # operator can fix by repeating what this script already did.
-                # Stop rather than continue: the mount at step 8 would fail with
-                # "No such file or directory", a message about a missing share for
-                # a credential that was never accepted.
+                # See https://yuruna.link/42010605-0003
                 throw ("'$($t.Account)' carries a password record but the SMB server still refuses it, so the $($t.Kind) share cannot be mounted. " +
                        "The account and its password are in $labVault.")
             }
@@ -566,27 +497,10 @@ if ($wrote) {
 }
 
 # --- REGION: Step 8 -- mount
-# Mounted through Connect-YurunaPoolStorage rather than a mount call of its own:
-# it is the same code the unattended cycle runs, so a share that mounts here is
-# a share the cycle can mount, and a failure here is a failure the cycle would
-# otherwise have hit later with nobody watching.
-#
-# The tier records are re-read from the written config through the harness's own
-# readers, which is also what applies the '~' expansion the macOS mount point
-# needs -- passed through unexpanded, mount_smbfs would create a directory
-# literally named '~' and the mount check would never match it again.
+# See https://yuruna.link/42010605-0003
 Write-LabStorageStep -Number 8 -Title 'Mount'
 if ($IsLinux) {
-    # The cifs mount runs `sudo -n`, which never prompts; without the drop-in it
-    # fails and the runner buffers locally instead of archiving.
-    #
-    # -NonInteractive is bound from the same predicate every other question in
-    # this script uses, because installing the drop-in writes /etc/sudoers.d
-    # through a bare `sudo tee`. sudo takes its password from /dev/tty, so under
-    # a caller that has taken the console -- stdin closed, stdout captured -- that
-    # write raises a prompt nothing displays and nothing answers, and the run
-    # stops there having already created the accounts and the shares. Declined,
-    # the call returns the exact commands to install the drop-in by hand.
+    # See https://yuruna.link/42010605-0003
     $sudoers = Set-PoolStorageSudoers -NonInteractive:(-not (Test-YurunaCanPrompt)) -WhatIf:$WhatIfPreference
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c70a278ff660af73' -Arguments @{ action = "$($sudoers.Action)"; message = "$($sudoers.Message)" })
 }
@@ -608,14 +522,7 @@ if ($WhatIfPreference -or -not $wrote) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d86220aef2724166' -Arguments @{ kind = "$($t.Kind)"; configPath = "$configPath" })
             continue
         }
-        # Clear what would otherwise serve this mount from the wrong place. Two
-        # kinds, and the second is the one that is invisible: an SMB client keeps
-        # ONE session per server name and reuses it, so while any share from the
-        # old NAS is still mounted under 'ypool-nas', a mount of the repointed
-        # 'ypool-nas' is answered by the OLD session -- it looks for our share on
-        # the NAS, does not find it, and mount_smbfs says "No such file or
-        # directory". Step 5 repointing the alias does not undo that; only
-        # dropping the session does, and the session goes when its mounts do.
+        # See https://yuruna.link/42010605-0003
         $superseded = @(Get-PoolStorageSupersededMount -Config $cfg)
         $blocked = $false
         foreach ($old in $superseded) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4238bc78-c11a-402a-968a-b632c68efcf0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,15 +90,7 @@ function Get-PortListenerPid {
         return @()
     }
 
-    # Windows: HTTP.sys hides the real owner from Get-NetTCPConnection
-    # (OwningProcess reports 4, the System kernel account), so netsh is
-    # the only reliable source for url-group -> PID mapping. Output is
-    # grouped per "Request queue name:" block; within a block,
-    # `Processes: ID: <pid>` lists user-mode PIDs and `Registered URLs:`
-    # lists URL prefixes. Flush a block's PIDs to the result set when
-    # its URL list contains :$Port. The regex matches both
-    # "HTTP://*:8080/" and the rarer "HTTP://127.0.0.1:8080:127.0.0.1/"
-    # host-binding form.
+    # See https://yuruna.link/4213a0b3-00ce
     $raw = @(netsh http show servicestate 2>$null)
     if (-not $raw) {
         if ($Diagnostic) { $Diagnostic.Value = (Format-YurunaOperatorMessage -Key 'remediation.port_netsh_empty' -Arguments @{ command = 'netsh http show servicestate' }) }
@@ -337,15 +329,7 @@ function Get-PortHolderServiceInfo {
         $doc = $resp.Content | ConvertFrom-Json -ErrorAction Stop
         if ($doc) {
             $names = @($doc.PSObject.Properties.Name)
-            # Require the field COMBINATION a Yuruna status.json always emits, not
-            # any single common key: schemaVersion + overallStatus together are a
-            # Yuruna signature present in EVERY served doc (both live per-cycle docs
-            # and the bootstrap status.json.template the server answers with before
-            # the first cycle), whereas 'host' / 'hostname' / 'schemaVersion' alone
-            # appear in plenty of unrelated JSON and would misclassify a foreign
-            # service on this port as ours. hostId is deliberately NOT required: the
-            # bootstrap template omits it, so requiring it would drop the owner name
-            # from the conflict banner for a peer that has just launched.
+            # See https://yuruna.link/4213a0b3-00cf
             $isYurunaDoc = ($names -contains 'schemaVersion') -and
                            ($names -contains 'overallStatus')
             if ($isYurunaDoc) {
@@ -433,15 +417,7 @@ function Get-PortHolderDescription {
     return "PID $ProcessId"
 }
 
-# Internal: a live sudo authorization for the takeover, or $false.
-#
-# sudo reads its password from /dev/tty, NOT from stdin -- so a prompt raised
-# from a run whose output is captured (every service bring-up called through
-# Start-YurunaStatusServiceIfEnabled, every runner cycle) prints into a log
-# nobody is watching and then waits for a keystroke nobody knows to press. The
-# probe is therefore always `-n`, and the one place that may actually ask is
-# gated on Test-YurunaCanPrompt: a person who can both SEE the question and
-# ANSWER it. Everywhere else this returns $false and the caller reports instead.
+# See https://yuruna.link/4213a0b3-00d0
 function Request-PortReclaimElevation {
     [CmdletBinding()]
     [OutputType([bool])]

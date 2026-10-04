@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42008bcd-66da-4584-84a4-c4454a7f8958
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,20 +105,7 @@ $stopProxyReason = if ($IsMacOS) {
 Write-Output "  Proceeding unattended (no further prompts)."
 
 # --- REGION: Clear an abandoned caching-proxy-service bring-up lock
-# Stopping the service IS the operator's reset action, so it owns the recovery
-# from a leaked caching-proxy-service.lock. The leak does not self-heal: a .ps1
-# runs inside the caller's pwsh, so a bring-up that exits without releasing
-# records the operator's long-lived interactive shell as the holder -- that shell
-# stays alive, the acquire-time stale drain never fires, and every later Start is
-# refused ("Another caching-proxy-service bring-up holds the lock").
-# A genuinely LIVE FOREIGN holder (a real rebuild in another process, still
-# inside the age ceiling) is only reported: Stop must not steal the lock from it.
-# Done FIRST -- before the teardown touches the VM -- so that warning reaches the
-# operator while aborting is still cheap.
-# The runtime dir mirrors Start-CachingProxyServiceVM.ps1's $envSidecarDir exactly;
-# the module's own fallback is the temp dir, which is NOT where Start writes.
-# Get-Command-guarded like Invoke-TestRunnerInnerLoop.ps1 guards its lock calls, so
-# a partial module set degrades to the previous (no-op) behavior instead of erroring.
+# See https://yuruna.link/42e5cdfd-004a
 $cpLockRuntimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path $PSScriptRoot '../status/runtime' }
 if (Get-Command Clear-CachingProxyServiceLock -ErrorAction SilentlyContinue) {
     $cpLockClear = Clear-CachingProxyServiceLock -RuntimeDir $cpLockRuntimeDir
@@ -136,17 +123,7 @@ if (Get-Command Clear-CachingProxyServiceLock -ErrorAction SilentlyContinue) {
 }
 
 # --- REGION: Clear the host proxy
-# Symmetric with Test-CachingProxyService.ps1 -SetHostProxy. Runs UNCONDITIONALLY
-# and uses Remove-HostProxy (definitive wipe) rather than the older
-# Clear-HostProxy (snapshot/restore from $HOME/.yuruna/host-proxy.backup.json).
-# Definitive wipe is the right model here: any HTTP_PROXY/HTTPS_PROXY env
-# var or WinINet ProxyServer string left after Stop-CachingProxyServiceVM is, by
-# definition, pointing at a cache VM we are tearing down -- restoring
-# whatever was there before just leaks a stale IP into the next cycle.
-# Done first so a failure tearing down the VM doesn't leave the host
-# pointing at a dead proxy for the rest of the session.
-# On macOS networksetup requires root -- the sudo preamble above guarantees
-# we are already elevated by the time this runs.
+# See https://yuruna.link/42e5cdfd-004b
 try {
     Import-Module (Join-Path $PSScriptRoot '../modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42c1c329-52af-4255-9e3b-0caf47235605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,6 +72,25 @@ function Register-SequenceAction {
         failure_screenshot_<vm>.png. The engine reads this to skip its
         generic post-failure capture so the verb's in-context frame is
         not overwritten.
+    .PARAMETER ReplaySafety
+        What running THIS step a second time, in place, on top of whatever a
+        failed first attempt left behind, can do. A warm resume replays the
+        failed step; without a restore point to discard the residue it may only
+        do so for a step that cannot make the residue worse. Every verb
+        declares one, and an undeclared verb reads as 'unclassified', which a
+        resume treats as unsafe.
+          observe         reads the screen, waits, or captures evidence; a
+                          second run costs time and nothing else.
+          input           sends keystrokes, text or clicks to the guest; a
+                          second run types over whatever the first left on the
+                          command line or screen.
+          state-changing  changes guest, host or external state that outlives
+                          the step (a fetched script, a snapshot, a network
+                          lease, an extension call).
+          restore-point   makes the guest's state known again; the boundary a
+                          resume rewinds to.
+          composite       runs an inner step list and has no behavior of its
+                          own; its safety is that of the steps it wraps.
     .PARAMETER Handler
         Optional scriptblock that runs the action. Signature:
             param([hashtable]$Context)
@@ -117,7 +136,9 @@ function Register-SequenceAction {
         # verb-name list (which silently drifts as verbs are added).
         # Flag semantics: the .PARAMETER help above.
         [bool]$UsesWaitSignals = $false,
-        [bool]$CapturesOwnFailureScreenshot = $false
+        [bool]$CapturesOwnFailureScreenshot = $false,
+        [ValidateSet('observe','input','state-changing','restore-point','composite','unclassified')]
+        [string]$ReplaySafety = 'unclassified'
     )
     # SuggestedRecoveries must draw from the same recovery vocabulary the
     # remediation dispatcher routes on (Test.Remediation). Late-bound via
@@ -146,6 +167,7 @@ function Register-SequenceAction {
         SuggestedRecoveries         = @($SuggestedRecoveries)
         UsesWaitSignals             = $UsesWaitSignals
         CapturesOwnFailureScreenshot = $CapturesOwnFailureScreenshot
+        ReplaySafety                = $ReplaySafety
     }
     & $script:SequenceActionRegistry.Register $Name $entry
     foreach ($alias in $Aliases) {
@@ -215,6 +237,28 @@ function Get-SequenceAction {
     [OutputType([System.Collections.IDictionary])]
     param([Parameter(Mandatory)][string]$Name)
     return (& $script:SequenceActionRegistry.Get $Name)
+}
+
+function Get-SequenceActionReplaySafety {
+    <#
+    .SYNOPSIS
+        The replay-safety class a verb declared when it registered (see
+        Register-SequenceAction -ReplaySafety).
+    .DESCRIPTION
+        'unclassified' for a name that is not registered at all: a resume must
+        not read "I do not know this verb" as "replaying it is harmless".
+    .OUTPUTS
+        [string] observe | input | state-changing | restore-point | composite |
+        unclassified.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Name)
+    $entry = & $script:SequenceActionRegistry.Get $Name
+    if ($null -eq $entry -or -not $entry.Contains('ReplaySafety') -or [string]::IsNullOrWhiteSpace([string]$entry['ReplaySafety'])) {
+        return 'unclassified'
+    }
+    return [string]$entry['ReplaySafety']
 }
 
 function Get-SequenceActionName {
@@ -316,4 +360,4 @@ function Clear-SequenceAction {
     }
 }
 
-Export-ModuleMember -Function Register-SequenceAction, Get-SequenceAction, Get-SequenceActionName, Get-SequenceActionFailureLabel, Get-SequenceActionRequirementMap, Test-SequenceActionHasHandler, Invoke-SequenceActionHandler, Clear-SequenceAction
+Export-ModuleMember -Function Register-SequenceAction, Get-SequenceAction, Get-SequenceActionReplaySafety, Get-SequenceActionName, Get-SequenceActionFailureLabel, Get-SequenceActionRequirementMap, Test-SequenceActionHasHandler, Invoke-SequenceActionHandler, Clear-SequenceAction

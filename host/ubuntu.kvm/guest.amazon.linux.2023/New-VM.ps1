@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,22 +26,13 @@
     base image; default user is ec2-user (matches AL2023 conventions).
 #>
 
+# AL2023 resolves its dnf proxy at runtime; see https://yuruna.link/42e220c4-0004.
 param(
     [string]$VMName = "amazon-linux01",
-    # No -CachingProxyServiceUrl: this guest boots a prebuilt cloud image, so a
-    # templated dnf proxy is written before anything can confirm the address
-    # still answers, and a stale one strands every transaction with no way back.
-    # amazon.linux.2023.update.sh derives and probes the address at run time
-    # instead, so the cache is still used -- just not through the seed. Matches
-    # the Hyper-V/UTM AL2023 New-VM.ps1. Invoke-PerGuestNewVm only forwards
-    # -CachingProxyServiceUrl to scripts that declare it, so omitting it here is
-    # contract-safe.
     # Greppable test user added on top of ec2-user; force-expired by
     # cloud-init chpasswd default so the rotation flow runs.
     [string]$Username = 'yauser1',
-    # cloud-init local-hostname for the guest. Empty means "follow the VM
-    # name", which keeps host-side lookups that assume hostname == VM name
-    # working for every caller that does not ask for a specific hostname.
+    # An empty hostname follows the VM name for host-side lookup.
     [string]$Hostname = ''
 )
 

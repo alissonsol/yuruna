@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42b17423-c407-4384-96bd-8aa338c885ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,35 +20,7 @@
 .SYNOPSIS
     Show, step by step, where a Lab token exchange stops.
 .DESCRIPTION
-    Set-LabToken reports one sentence when the exchange fails, and for the
-    commonest failure that sentence is misleading: it blames a stale code or the
-    wrong proxy, which are the two things that produce a clean 403 rather than
-    the message it prints. When the aggregator SEALED the reply and the client
-    could not open it, the cause is on the client and none of that advice
-    applies.
-
-    This script prints every step between the code and the recovered token, so
-    the failing one names itself:
-
-      - which runtime and OS are asking, because the client is the half that
-        varies across the hosts in a lab;
-      - the HTTP status, which separates a refusal (403 -- the code really was
-        wrong or expired) from a seal the client then failed to open (200);
-      - the raw reply and how this PowerShell parsed it, since the envelope is
-        read by key and a parser that returns a different dictionary type is
-        the kind of difference that only shows up on one host;
-      - the four envelope fields with their lengths, because
-        Unprotect-LabTokenEnvelope returns an empty string SILENTLY when any of
-        them is missing, which is indistinguishable from a failed decrypt in
-        the message the operator sees;
-      - the decrypt itself, with the real exception rather than the swallowed
-        one.
-
-    Read-only. It redeems a code, which the aggregator counts as an `ok`
-    exchange and audits like any other, but stores nothing: no vault write, no
-    config change, no token kept. The code stays redeemable until it rotates,
-    so running this does not cost the operator the enrollment they were about
-    to perform.
+    See https://yuruna.link/42010605-0003.
 .PARAMETER LabToken
     The 6-character code from the Yuruna hosts dashboard's Lab token tile.
 .PARAMETER CachingProxyService
@@ -87,6 +59,7 @@ $EnvelopeIterations = 600000
 $KeyBytes           = 32
 $TagBytes           = 16
 
+# --- REGION: Write-Step
 function Write-Step {
     <#
     .SYNOPSIS

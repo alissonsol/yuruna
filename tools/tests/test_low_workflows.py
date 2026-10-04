@@ -7,12 +7,13 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT.parent / 'yuruna-project'
-AMISAD = ROOT.parent / 'amisad.dev'
+AMISAD = ROOT.parent / 'alius-git' / 'amisad.dev'
 
 
 def bash(source, env=None):
@@ -20,11 +21,71 @@ def bash(source, env=None):
 
 
 class ShellContracts(unittest.TestCase):
+    def test_service_readiness_requires_active_unit_and_optional_http_health(self):
+        source = (ROOT / 'automation/yuruna-service-bringup.sh').read_text()
+        function = re.search(r'yuruna_service_wait_active\(\) \{.*?\n}', source, re.S)[0]
+        cases = [('ready', 'http://fixture/healthz', 0, '1 1 0'),
+                 ('starting', 'http://fixture/healthz', 0, '3 2 2'),
+                 ('inactive', 'http://fixture/healthz', 1, '3 0 3'),
+                 ('unhealthy', 'http://fixture/healthz', 1, '3 3 3'),
+                 ('ready', '', 0, '1 0 0')]
+        mocks = r'''
+unit_calls=0; health_calls=0; sleeps=0
+sudo() {
+    [ "$*" = 'systemctl is-active --quiet fixture.service' ] || return 99
+    unit_calls=$((unit_calls+1))
+    [ "$MODE" != inactive ] && { [ "$MODE" != starting ] || [ "$unit_calls" -gt 1 ]; }
+}
+curl() {
+    [ "$*" = '-fsS --max-time 2 http://fixture/healthz' ] || return 99
+    health_calls=$((health_calls+1))
+    [ "$MODE" != unhealthy ] && { [ "$MODE" != starting ] || [ "$health_calls" -gt 1 ]; }
+}
+sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
+'''
+        for mode, health, expected, counts in cases:
+            with self.subTest(mode=mode, health=health):
+                command = (mocks + '\n' + function + '\n' +
+                           f"if yuruna_service_wait_active fixture.service 3 '{health}'; " +
+                           'then rc=0; else rc=$?; fi\n' +
+                           'printf "%s %s %s\\n" "$unit_calls" "$health_calls" "$sleeps"\nexit "$rc"')
+                result = bash(command, {**os.environ, 'MODE': mode})
+                self.assertEqual(result.returncode, expected, result.stderr)
+                self.assertEqual(result.stdout.strip(), counts)
+
+    def test_service_installers_select_common_readiness_budget_and_health_route(self):
+        for service in ('download-agent-service', 'pool-control-service', 'stash-service'):
+            source = (ROOT / f'guest/ubuntu.server.26/ubuntu.server.26.{service}.sh').read_text()
+            start = source.split('# --- REGION: Start the service and wait for readiness\n', 1)[1]
+            # Stop before diagnostics and summaries; execute the real readiness call.
+            end = re.search(r'(?m)^fi$', start)
+            self.assertIsNotNone(end, service)
+            start = start[:end.end()]
+            for address in (':8123', '') if service == 'stash-service' else (':8123',):
+                with self.subTest(service=service, address=address):
+                    mocks = ('sudo() { :; }; ss() { :; }\n'
+                             'yuruna_service_wait_active() { printf "%s|%s|%s\\n" "$1" "$2" "$3"; }\n'
+                             f"HTTP_ADDR='{address}'; POOL_DIR=fixture; STATE_DIR=fixture\n")
+                    result = bash(mocks + start)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    health = 'http://127.0.0.1:8123/healthz' if address else ''
+                    self.assertIn(f'{service}.service|30|{health}\n', result.stdout)
+
+    def test_standalone_powershell_installers_keep_strict_checksum_contract(self):
+        canonical = (ROOT / 'automation/yuruna-retry.sh').read_text()
+        function = re.search(r'(?ms)^yuruna_install_pwsh_tarball\(\) \(\n.*?^\)\n', canonical)[0]
+        for relative in ('guest/shared/ubuntu.update.sh',
+                         'guest/amazon.linux.2023/amazon.linux.2023.update.sh',
+                         'guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh'):
+            source = (ROOT / relative).read_text()
+            copied = re.search(r'(?ms)^    yuruna_install_pwsh_tarball\(\) \(\n.*?^    \)\n', source)[0]
+            self.assertEqual(re.sub(r'(?m)^    ', '', copied), function, relative)
+
     def test_osinfo_stream_and_failure(self):
         source = (ROOT / 'install/ubuntu.kvm.sh').read_text()
         function = re.search(r'osinfo_has_variant\(\) \{.*?\n}', source, re.S)[0]
         for mode, expected in [('match', 0), ('missing', 1), ('failed', 1)]:
-            producer = '''virt-install() { printf 'ubuntu24.04\\n'; python3 -c 'print("other\\n"*100000)'; }'''
+            producer = "virt-install() { printf 'ubuntu24.04\\n'; printf 'other\\n%.0s' {1..100000}; }"
             if mode == 'missing':
                 producer = "virt-install() { printf 'other\\n'; }"
             if mode == 'failed':
@@ -33,7 +94,37 @@ class ShellContracts(unittest.TestCase):
             self.assertEqual(result.returncode == 0, expected == 0, result.stderr)
 
     def test_guest_wrappers_and_pins(self):
-        subprocess.run(['python3', str(ROOT / 'tools/Sync-GuestWorkflows.py'), '--check'], check=True)
+        subprocess.run([sys.executable, str(ROOT / 'tools/Sync-GuestWorkflows.py'), '--check'], check=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'tools').mkdir()
+            shutil.copy(ROOT / 'tools/Sync-GuestWorkflows.py', root / 'tools')
+            (root / 'VERSION').write_text('2026.09.30\n', newline='')
+            (root / 'guest/shared').mkdir(parents=True)
+            for release in ('24', '26'):
+                (root / f'guest/ubuntu.server.{release}').mkdir()
+            for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+                (root / f'guest/shared/ubuntu.{name}.sh').write_text('#!/bin/bash\nprintf "%s\\n" "$@"\nexit 17\n', newline='')
+            subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
+            for release in ('24', '26'):
+                for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+                    path = root / f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh'
+                    result = subprocess.run(['bash', path.as_posix(), 'arg with spaces'], text=True, capture_output=True)
+                    self.assertEqual((result.returncode, result.stdout), (17, 'arg with spaces\n'))
+                    # bash -c is how the installed fetcher runs downloaded payloads.
+                    # Intercept only the final exec; assert its destination and digest.
+                    digest = hashlib.sha256((root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
+                    intercept = f'''exec() {{ [ "$1" = /usr/local/lib/yuruna/fetch-and-execute.sh ]; [ "$2" = guest/shared/ubuntu.{name}.sh ]; [ "$3" = 'arg with spaces' ]; [ "$E_SHA" = '{digest}' ]; exit 19; }}\n'''
+                    result = subprocess.run(['bash', '-c', intercept + path.read_text(), 'fixture', 'arg with spaces'], capture_output=True)
+                    self.assertEqual(result.returncode, 19, result.stderr)
+            with (root / 'guest/shared/ubuntu.code.sh').open('a', newline='') as f:
+                f.write('# drift\n')
+            result = subprocess.run(['bash', (root / 'guest/ubuntu.server.24/ubuntu.server.24.code.sh').as_posix()], capture_output=True)
+            self.assertEqual(result.returncode, 3)
+
+    def test_guest_workflow_version_stamp(self):
+        # A release stamp changes the bytes protected by every wrapper.
+        # The generator must refresh all ten pins and their version lines.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'tools').mkdir()
@@ -42,22 +133,96 @@ class ShellContracts(unittest.TestCase):
             for release in ('24', '26'):
                 (root / f'guest/ubuntu.server.{release}').mkdir()
             for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
-                (root / f'guest/shared/ubuntu.{name}.sh').write_text('#!/bin/bash\nprintf "%s\\n" "$@"\nexit 17\n')
-            subprocess.run(['python3', str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
+                shared = root / f'guest/shared/ubuntu.{name}.sh'
+                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.09.30\nexit 17\n')
+            (root / 'VERSION').write_text('2026.09.30\n')
+            subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
+
+            (root / 'VERSION').write_text('2026.10.04\n')
+            for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+                shared = root / f'guest/shared/ubuntu.{name}.sh'
+                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.10.04\nexit 17\n')
+            stale = subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py'), '--check'], capture_output=True, text=True)
+            self.assertNotEqual(stale.returncode, 0)
+            self.assertEqual(len(stale.stderr.splitlines()) - 1, 10)
+            subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
+            subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py'), '--check'], check=True)
             for release in ('24', '26'):
                 for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
-                    path = root / f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh'
-                    result = subprocess.run(['bash', str(path), 'arg with spaces'], text=True, capture_output=True)
-                    self.assertEqual((result.returncode, result.stdout), (17, 'arg with spaces\n'))
-                    # bash -c is how the installed fetcher runs downloaded payloads.
-                    # Intercept only the final exec; assert its destination and digest.
-                    intercept = f'''exec() {{ [ "$1" = /usr/local/lib/yuruna/fetch-and-execute.sh ]; [ "$2" = guest/shared/ubuntu.{name}.sh ]; [ "$3" = 'arg with spaces' ]; [ "$E_SHA" = "$(sha256sum '{root}/guest/shared/ubuntu.{name}.sh' | cut -d' ' -f1)" ]; exit 19; }}\n'''
-                    result = subprocess.run(['bash', '-c', intercept + path.read_text(), 'fixture', 'arg with spaces'], capture_output=True)
-                    self.assertEqual(result.returncode, 19, result.stderr)
-            with (root / 'guest/shared/ubuntu.code.sh').open('a') as f:
-                f.write('# drift\n')
-            result = subprocess.run(['bash', str(root / 'guest/ubuntu.server.24/ubuntu.server.24.code.sh')], capture_output=True)
-            self.assertEqual(result.returncode, 3)
+                    wrapper = (root / f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh').read_text()
+                    digest = hashlib.sha256((root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
+                    self.assertIn('# Version: 2026.10.04\n', wrapper)
+                    self.assertIn(f'expected="{digest}"', wrapper)
+
+    def test_guest_workflow_pre_commit_stages_pins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'tools/githooks').mkdir(parents=True)
+            (root / 'guest/shared').mkdir(parents=True)
+            for release in ('24', '26'):
+                (root / f'guest/ubuntu.server.{release}').mkdir()
+            hook = root / 'tools/githooks/pre-commit'
+            shutil.copy(ROOT / 'tools/githooks/pre-commit', hook)
+            hook.chmod(0o755)
+            shutil.copy(ROOT / 'tools/Sync-GuestWorkflows.py', root / 'tools')
+            # SBOM content is covered separately; this fixture checks workflow pins.
+            (root / 'tools/Sync-Sbom.py').write_text('raise SystemExit(0)\n')
+            (root / 'tools/Test-AsciiNoBom.ps1').write_text('')
+            (root / 'VERSION').write_text('2026.09.30\n')
+            for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+                (root / f'guest/shared/ubuntu.{name}.sh').write_bytes(
+                    b'#!/bin/bash\n# Version: 2026.09.30\nexit 0\n')
+            subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
+
+            env = os.environ.copy()
+            env['GIT_CONFIG_GLOBAL'] = os.devnull
+            env['GIT_CONFIG_NOSYSTEM'] = '1'
+            # Windows has non-runnable Store aliases for python3 and pwsh.
+            # The hook should find the installed Python via its fallback.
+            env['PATH'] = os.pathsep.join(
+                part for part in env['PATH'].split(os.pathsep) if 'WindowsApps' not in part)
+
+            def git(*args):
+                return subprocess.run(['git', *args], cwd=root, env=env,
+                                      text=True, capture_output=True, check=True)
+
+            git('init', '--initial-branch=main', '--quiet')
+            git('config', 'user.name', 'Fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            git('config', 'commit.gpgsign', 'false')
+            git('add', '-A')
+            git('-c', 'core.hooksPath=', 'commit', '-q', '-m', 'seed')
+            git('config', 'core.hooksPath', 'tools/githooks')
+
+            (root / 'VERSION').write_text('2026.10.04\n')
+            for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+                (root / f'guest/shared/ubuntu.{name}.sh').write_bytes(
+                    b'#!/bin/bash\n# Version: 2026.10.04\nexit 0\n')
+            git('add', 'VERSION', 'guest/shared')
+            committed = git('commit', '-q', '-m', 'version stamp')
+            self.assertIn('regenerated and staged Ubuntu workflow checksum pins', committed.stderr)
+            self.assertEqual(git('status', '--porcelain').stdout, '')
+            subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py'), '--check'], check=True)
+            for release in ('24', '26'):
+                for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+                    path = f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh'
+                    wrapper = git('show', f'HEAD:{path}').stdout
+                    digest = hashlib.sha256(
+                        (root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
+                    self.assertIn(f'expected="{digest}"', wrapper)
+                    self.assertIn('# Version: 2026.10.04', wrapper)
+
+            # A staged version with an unstaged workflow edit must not pin
+            # bytes that the proposed commit does not contain.
+            (root / 'VERSION').write_text('2026.10.05\n')
+            git('add', 'VERSION')
+            shared = root / 'guest/shared/ubuntu.update.sh'
+            shared.write_bytes(shared.read_bytes() + b'# unstaged\n')
+            blocked = subprocess.run(['git', 'commit', '-q', '-m', 'mixed sources'],
+                                     cwd=root, env=env, text=True, capture_output=True)
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertIn('unstaged edits', blocked.stderr)
+            self.assertEqual(git('diff', '--cached', '--name-only').stdout.strip(), 'VERSION')
 
     def test_scenario_http_and_archive_paths(self):
         lib = AMISAD / 'poc/test/amisad-scenario.sh'
@@ -88,7 +253,7 @@ class ShellContracts(unittest.TestCase):
                 (project / f'example/{name}/components/frontend/{component}').mkdir(parents=True)
                 config = project / f'example/{name}/config/localhost'
                 config.mkdir(parents=True)
-                (config / 'resources.output.yml').write_text('clusterDnsPrefix: fixture\n')
+                (config / 'resources.output.yml').write_text('clusterDnsPrefix: fixture\n', newline='')
             bins = home / 'bin'
             bins.mkdir()
             fixture = '''#!/bin/bash
@@ -108,15 +273,18 @@ esac
 '''
             for command in ('sudo', 'mkcert', 'docker', 'curl', 'pwsh', 'kubectl', 'cp', 'sleep'):
                 p = bins / command
-                p.write_text(fixture)
+                p.write_text(fixture, newline='')
                 p.chmod(0o755)
+            shell_home = subprocess.run(['bash', '-c', 'pwd -P'], cwd=home, text=True,
+                                        capture_output=True, check=True).stdout.strip()
             for path in paths:
                 for mode in ('hit', 'registry', 'pull', 'build', 'push'):
                     log = home / 'commands.log'
                     log.write_text('')
-                    source = re.sub(r'^REAL_HOME=.*$', f'REAL_HOME="{home}"', path.read_text(), flags=re.M)
-                    env = {**os.environ, 'PATH': f'{bins}:' + os.environ['PATH'], 'MODE': mode, 'FIXTURE_LOG': str(log), 'http_proxy': 'http://fixture:3128'}
-                    result = bash(source, env)
+                    source = re.sub(r'^REAL_HOME=.*$', lambda _: 'REAL_HOME="$FIXTURE_HOME"', path.read_text(), flags=re.M)
+                    env = {**os.environ, 'MODE': mode, 'USER': 'fixture', 'FIXTURE_HOME': shell_home,
+                           'FIXTURE_LOG': shell_home + '/commands.log', 'http_proxy': 'http://fixture:3128'}
+                    result = bash('export PATH="$FIXTURE_HOME/bin:$PATH"\n' + source, env)
                     self.assertEqual(result.returncode == 0, mode == 'hit', f'{path} {mode}: {result.stderr}\n{result.stdout}')
                     commands = log.read_text()
                     if mode == 'hit':
@@ -125,6 +293,163 @@ esac
                         self.assertIn('Set-Workload.ps1', commands)
                     else:
                         self.assertNotIn('Set-Workload.ps1', commands)
+
+    def test_service_seed_framework_fetch_bounds_preserve_fallback_and_provenance(self):
+        import textwrap
+
+        mocks = r'''
+wget() {
+    local url="${@: -1}"
+    printf 'wget %s\n' "$*" >> "$FIXTURE_LOG"
+    case "$url" in
+        */livecheck) [ "$MODE" = host ] || [ "$MODE" = archive_failure ];;
+        */yuruna-archive.tar.gz)
+            [ "$*" = "--no-proxy --timeout=30 --tries=1 -qO- $url" ] || return 99
+            [ "$MODE" != archive_failure ] || return 7
+            printf 'ARCHIVE\n';;
+        *) return 99;;
+    esac
+}
+tar() {
+    [ "$*" = "-xz -C $FIXTURE_DEST" ] || return 99
+    local content; content=$(cat)
+    [ "$content" = ARCHIVE ] || return 2
+    printf 'fixture-host-version\n' > "$FIXTURE_DEST/VERSION"
+}
+git() {
+    [ "$*" = "-c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 https://github.com/alissonsol/yuruna $FIXTURE_DEST" ] || return 99
+    printf 'git %s\n' "$*" >> "$FIXTURE_LOG"
+    [ "$MODE" != git_failure ] || return 9
+    command mkdir -p "$FIXTURE_DEST"
+    printf 'fixture-mirror-version\n' > "$FIXTURE_DEST/VERSION"
+}
+mkdir() {
+    [ "$*" = "-p $FIXTURE_DEST" ] || [ "$*" = "-p $FIXTURE_DIR" ] || return 99
+    command mkdir "$@"
+}
+sleep() { :; }
+chown() { :; }
+rm() { [ "$*" = "-rf $FIXTURE_DEST" ] || return 99; command rm "$@"; }
+'''
+        for service in ('stash-service', 'pool-control-service', 'download-agent-service'):
+            seed = (ROOT / f'host/vmconfig/{service}.base.user-data').read_text()
+            match = re.search(
+                r'(?ms)^(?P<indent>[ \t]*)# --- REGION: Fetch the framework\n'
+                r'(?P<body>.*?)^(?P=indent)# --- REGION: Build and start the service\n', seed)
+            self.assertIsNotNone(match, service)
+            lines = match['body'].splitlines()
+            if lines[0].strip() == '- |':
+                lines.pop(0)
+                body_indent = match['indent'] + '  '
+                limit = next((i for i, line in enumerate(lines)
+                              if line.strip() and not line.startswith(body_indent)), len(lines))
+                lines = lines[:limit]
+            block = textwrap.dedent('\n'.join(lines))
+            for mode in ('host', 'mirror', 'archive_failure', 'git_failure'):
+                with self.subTest(service=service, mode=mode), tempfile.TemporaryDirectory() as tmp:
+                    fixture = Path(tmp)
+                    host_env = fixture / 'host.env'
+                    host_env.write_text('YURUNA_STATUS_SERVICE_IP=192.0.2.10\nYURUNA_STATUS_SERVICE_PORT=8080\n')
+                    log = fixture / 'commands.log'
+                    log.write_text('')
+                    destination = fixture / 'checkout'
+                    self.assertEqual(destination.resolve().parent, fixture.resolve())
+                    source = re.sub(r'(?m)^[ \t]*DEST=.*$', 'DEST="$FIXTURE_DEST"', block)
+                    source = source.replace('/etc/yuruna', '"$FIXTURE_DIR"')
+                    env = {**os.environ, 'MODE': mode, 'FIXTURE_LOG': log.as_posix(),
+                           'FIXTURE_DEST': destination.as_posix(), 'FIXTURE_DIR': fixture.as_posix()}
+                    result = bash(mocks + source + '\nprintf "DAEMON_CONTINUES\\n"', env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn('DAEMON_CONTINUES\n', result.stdout)
+                    commands = log.read_text()
+                    provenance = (fixture / 'framework-source').read_text()
+                    if mode == 'host':
+                        self.assertNotIn('git ', commands)
+                        self.assertIn('source=host\n', provenance)
+                        self.assertIn('version=fixture-host-version\n', provenance)
+                    else:
+                        self.assertEqual(commands.count('git '), 1)
+                        self.assertIn('source=mirror\n', provenance)
+                        if mode == 'git_failure':
+                            self.assertIn('could not obtain the framework source', result.stderr)
+                        else:
+                            self.assertIn('version=fixture-mirror-version\n', provenance)
+
+    def test_download_agent_optional_powershell_requires_verified_tarball(self):
+        seed = (ROOT / 'host/vmconfig/download-agent-service.base.user-data').read_text()
+        match = re.search(
+            r'(?m)^  # --- REGION: https://yuruna.link/429f3d06-008a\n  - \|\n'
+            r'(?P<body>(?:^    .*\n|^\n)+)', seed)
+        self.assertIsNotNone(match)
+        block = re.sub(r'(?m)^    ', '', match['body'])
+        package = 'powershell-7.6.1-linux-x64.tar.gz'
+        archive = b'fixture PowerShell archive\n'
+        digest = hashlib.sha256(archive).hexdigest()
+        valid = f'{digest}  {package}\r\n'
+        hashes = {
+            'missing': None,
+            'malformed': f'{"g" * 64}  {package}\n'.encode(),
+            'absent_filename': f'{digest}  {package}.sig\n'.encode(),
+            'mismatch': f'{"0" * 64}  {package}\n'.encode(),
+            'local_hash_missing': valid.encode(),
+            'utf16_malformed': b'\xff\xfe' + valid.encode('utf-16-le') + b'x',
+            'verified': valid.encode(),
+            'verified_uppercase': f'{digest.upper()} *{package}\n'.encode(),
+            'verified_utf16': b'\xff\xfe' + valid.encode('utf-16-le'),
+        }
+        mocks = r'''
+command() { [ "$*" != '-v pwsh' ] || return 1; builtin command "$@"; }
+wget() { return 1; }
+uname() { printf 'x86_64\n'; }
+curl() {
+    local url="${@: -1}" output='' next=0 arg
+    for arg in "$@"; do
+        if [ "$next" -eq 1 ]; then output="$arg"; next=0; fi
+        [ "$arg" != -o ] || next=1
+    done
+    case "$url" in
+        */releases/latest) printf 'https://github.com/PowerShell/PowerShell/releases/tag/v7.6.1';;
+        */powershell-7.6.1-linux-x64.tar.gz) cp "$FIXTURE_ARCHIVE" "$output";;
+        */hashes.sha256)
+            [ "$MODE" != missing ] || return 1
+            cp "$FIXTURE_HASHES" "$output";;
+        *) return 99;;
+    esac
+}
+sha256sum() { [ "$MODE" != local_hash_missing ] || return 1; command sha256sum "$@"; }
+mkdir() { [ "$*" = '-p /opt/microsoft/powershell/7' ]; }
+tar() { printf 'EXTRACT\n' >> "$FIXTURE_LOG"; }
+chmod() { [ "$*" = '+x /opt/microsoft/powershell/7/pwsh' ]; }
+ln() { [ "$*" = '-sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh' ]; }
+'''
+        for mode, published in hashes.items():
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                fixture = Path(tmp)
+                archive_path = fixture / 'archive.fixture'
+                hashes_path = fixture / 'hashes.fixture'
+                log = fixture / 'commands.log'
+                archive_path.write_bytes(archive)
+                hashes_path.write_bytes(published or b'')
+                log.write_text('')
+                env = {
+                    **os.environ,
+                    'MODE': mode,
+                    'FIXTURE_ARCHIVE': archive_path.as_posix(),
+                    'FIXTURE_HASHES': hashes_path.as_posix(),
+                    'FIXTURE_LOG': log.as_posix(),
+                    'FIXTURE_DIR': fixture.as_posix(),
+                }
+                source = block.replace('/tmp/', '"$FIXTURE_DIR"/')
+                result = bash(mocks + source + '\nprintf "DAEMON_CONTINUES\\n"', env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('DAEMON_CONTINUES\n', result.stdout)
+                if mode.startswith('verified'):
+                    self.assertEqual(log.read_text(), 'EXTRACT\n')
+                    self.assertIn('verified) installed from the release tarball.', result.stdout)
+                else:
+                    self.assertEqual(log.read_text(), '')
+                    self.assertIn('NOT installed.', result.stderr)
+                    self.assertIn('Windows 11 family stays unavailable.', result.stderr)
 
 
 if __name__ == '__main__':

@@ -3,8 +3,8 @@
   "recordedUtc": "2026-09-30T17:16:40.8543919Z",
   "pesterVersion": "5.9.0",
   "totals": {
-    "suites": 334,
-    "tests": 6642,
+    "suites": 349,
+    "tests": 7286,
     "failed": 0,
     "skipped": 39
   },
@@ -322,6 +322,11 @@
       "skipped": 0,
       "seconds": 10.91
     },
+    "test/modules/Test.DigestExtension.Tests.ps1": {
+      "total": 43,
+      "skipped": 0,
+      "seconds": 5.61
+    },
     "test/modules/Test.DisplayScaleIssue.Tests.ps1": {
       "total": 18,
       "skipped": 0,
@@ -463,6 +468,15 @@
       "skipped": 0,
       "seconds": 4.55
     },
+    "test/modules/Test.GuestK8sCertificate.Tests.ps1": {
+      "total": 31,
+      "skipped": 0,
+      "seconds": 9.24,
+      "platformTotal": {
+        "linux": 27,
+        "macos": 27
+      }
+    },
     "test/modules/Test.GuestLeaseRelease.Tests.ps1": {
       "total": 14,
       "skipped": 0,
@@ -587,6 +601,11 @@
       "total": 4,
       "skipped": 0,
       "seconds": 1.65
+    },
+    "test/modules/Test.HostGitProjectSwap.Tests.ps1": {
+      "total": 26,
+      "skipped": 0,
+      "seconds": 9.02
     },
     "test/modules/Test.HostGitRepoAccess.Tests.ps1": {
       "total": 19,
@@ -743,6 +762,11 @@
       "skipped": 0,
       "seconds": 3.41
     },
+    "test/modules/Test.InstallerCheckoutRepair.Tests.ps1": {
+      "total": 13,
+      "skipped": 0,
+      "seconds": 2.24
+    },
     "test/modules/Test.InstallManifest.Tests.ps1": {
       "total": 3,
       "skipped": 1,
@@ -752,6 +776,11 @@
       "total": 23,
       "skipped": 0,
       "seconds": 3.23
+    },
+    "test/modules/Test.InstallTestModule.Tests.ps1": {
+      "total": 21,
+      "skipped": 0,
+      "seconds": 2.3
     },
     "test/modules/Test.JsSuites.Tests.ps1": {
       "total": 6,
@@ -847,6 +876,11 @@
       "total": 8,
       "skipped": 0,
       "seconds": 3.09
+    },
+    "test/modules/Test.LogEventDelivery.Tests.ps1": {
+      "total": 8,
+      "skipped": 0,
+      "seconds": 3.66
     },
     "test/modules/Test.MacInstallVersionFloor.Tests.ps1": {
       "total": 15,
@@ -1138,6 +1172,31 @@
       "skipped": 0,
       "seconds": 3.87
     },
+    "test/modules/Test.RecoveryActions.Tests.ps1": {
+      "total": 116,
+      "skipped": 0,
+      "seconds": 25.16
+    },
+    "test/modules/Test.RecoveryAdoption.Tests.ps1": {
+      "total": 14,
+      "skipped": 0,
+      "seconds": 3.38
+    },
+    "test/modules/Test.RecoveryContract.Tests.ps1": {
+      "total": 113,
+      "skipped": 0,
+      "seconds": 6.2
+    },
+    "test/modules/Test.RecoveryLedger.Tests.ps1": {
+      "total": 104,
+      "skipped": 0,
+      "seconds": 14.82
+    },
+    "test/modules/Test.RecoveryOuterLoop.Tests.ps1": {
+      "total": 13,
+      "skipped": 0,
+      "seconds": 17.47
+    },
     "test/modules/Test.ReferenceFixture.Tests.ps1": {
       "total": 10,
       "skipped": 0,
@@ -1240,6 +1299,11 @@
       "total": 64,
       "skipped": 0,
       "seconds": 10.45
+    },
+    "test/modules/Test.RunnerOutcomeRecord.Tests.ps1": {
+      "total": 50,
+      "skipped": 0,
+      "seconds": 5.58
     },
     "test/modules/Test.RunnerOuterLoop.Tests.ps1": {
       "total": 49,
@@ -1446,6 +1510,11 @@
       "skipped": 0,
       "seconds": 10.35
     },
+    "test/modules/Test.SourceMetadata.Tests.ps1": {
+      "total": 58,
+      "skipped": 0,
+      "seconds": 33.12
+    },
     "test/modules/Test.Ssh.Tests.ps1": {
       "total": 40,
       "skipped": 0,
@@ -1615,6 +1684,11 @@
       "skipped": 0,
       "seconds": 4.46
     },
+    "test/modules/Test.UbuntuInstallRyzenAiPlatform.Tests.ps1": {
+      "total": 12,
+      "skipped": 0,
+      "seconds": 1.94
+    },
     "test/modules/Test.UtmctlOutsideDriver.Tests.ps1": {
       "total": 25,
       "skipped": 0,
@@ -1629,6 +1703,11 @@
       "total": 23,
       "skipped": 0,
       "seconds": 4.63
+    },
+    "test/modules/Test.VmAdmission.Tests.ps1": {
+      "total": 22,
+      "skipped": 0,
+      "seconds": 3.93
     },
     "test/modules/Test.VmNameSweep.Tests.ps1": {
       "total": 22,
@@ -1701,6 +1780,81 @@
       "tests": 28,
       "sourceSha256": {
         "test/modules/Test.SystemDiagnosticSelfContained.Tests.ps1": "1E6B9381830D38402DB9860034DD9AA58247B5A2DA64C10C3F95E78FED0DF7D7"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-02T04:38:16.4890696Z",
+      "pesterVersion": "5.8.0",
+      "suites": [
+        "test/modules/Test.DigestExtension.Tests.ps1",
+        "test/modules/Test.HostGitProjectSwap.Tests.ps1",
+        "test/modules/Test.LogEventDelivery.Tests.ps1",
+        "test/modules/Test.RunnerOutcomeRecord.Tests.ps1",
+        "test/modules/Test.SourceMetadata.Tests.ps1",
+        "test/modules/Test.VmAdmission.Tests.ps1"
+      ],
+      "tests": 202,
+      "sourceSha256": {
+        "test/modules/Test.DigestExtension.Tests.ps1": "47936F482891A4347B9F8F050E752DE6365EC2F63999249F9D04C07281B8F94C",
+        "test/modules/Test.HostGitProjectSwap.Tests.ps1": "3B8F04D9376E55C8C785F1B632B2C775B1A4377AB83848ED4CD8330FF6AC772D",
+        "test/modules/Test.LogEventDelivery.Tests.ps1": "618ABD6A35B8DEAED55D8BDE7AAB6F4B50E2D627B13E05F77D869AA91B7C3E3D",
+        "test/modules/Test.RunnerOutcomeRecord.Tests.ps1": "EE7020F622298781460671B50B3BC1AEC30E7EDE5379A5B5F5BBE9C3F163FD32",
+        "test/modules/Test.SourceMetadata.Tests.ps1": "8F28E1D4D84B5B72CF34E925B107DFC9534B0E09C0DF844DA472E0A5C1159F8B",
+        "test/modules/Test.VmAdmission.Tests.ps1": "B98781E6B5605A4954FCE42C300E54D2CDB838DDA18A4E88F39BAABCE0F6403C"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-02T15:27:33.9442903Z",
+      "pesterVersion": "5.8.0",
+      "suites": [
+        "test/modules/Test.GuestK8sCertificate.Tests.ps1",
+        "test/modules/Test.RecoveryActions.Tests.ps1",
+        "test/modules/Test.RecoveryAdoption.Tests.ps1",
+        "test/modules/Test.RecoveryContract.Tests.ps1",
+        "test/modules/Test.RecoveryLedger.Tests.ps1",
+        "test/modules/Test.RecoveryOuterLoop.Tests.ps1"
+      ],
+      "tests": 391,
+      "sourceSha256": {
+        "test/modules/Test.GuestK8sCertificate.Tests.ps1": "8B0FAF7DB0B1032711342753746F24EEC839D68D1F647C2D9DC8966956A97CDB",
+        "test/modules/Test.RecoveryActions.Tests.ps1": "A25BEA881FAF5B8502B6574FAE574513DEE385CDDDD07BF6CE58F011158725BB",
+        "test/modules/Test.RecoveryAdoption.Tests.ps1": "388CA222DFD14CB55A4B2FE50C7B125AEDBC4ABD4680BC6AE3E2FE1D67458D68",
+        "test/modules/Test.RecoveryContract.Tests.ps1": "FD37C4BA319BFF93C54418E6C5DB44712058A1B9E3F27B7633E7A2A0C2F06CCF",
+        "test/modules/Test.RecoveryLedger.Tests.ps1": "AC949F124AED1D2244817FE0778FC13D3C648263485531626CFEEDD17A5490F1",
+        "test/modules/Test.RecoveryOuterLoop.Tests.ps1": "6CC3165F8EEA72BB105247B02B550C3396757F1E357ECCBF7BFE4B3C4B25714F"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-04T13:56:29.3756927Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.UbuntuInstallRyzenAiPlatform.Tests.ps1"
+      ],
+      "tests": 12,
+      "sourceSha256": {
+        "test/modules/Test.UbuntuInstallRyzenAiPlatform.Tests.ps1": "C0DDD892CAAE6576162756DB5E8D5A474925C2E0C7BA3C70D29C4830E5D3D7BC"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-04T14:26:31.8960442Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.InstallTestModule.Tests.ps1"
+      ],
+      "tests": 21,
+      "sourceSha256": {
+        "test/modules/Test.InstallTestModule.Tests.ps1": "F55953A15EBB40E163B55EC9C4429D392F1D7BBC5AD6F4D0FB0DD0B990584764"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-04T16:34:28.2592482Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.InstallerCheckoutRepair.Tests.ps1"
+      ],
+      "tests": 13,
+      "sourceSha256": {
+        "test/modules/Test.InstallerCheckoutRepair.Tests.ps1": "67A4A07CC6205CEE4A821CE78F724A9CEDC712BBE1BDD2F8065DA4102A7250FE"
       }
     }
   ]

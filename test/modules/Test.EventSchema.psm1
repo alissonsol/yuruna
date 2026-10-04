@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,6 +102,8 @@ $script:TypedField = @{
     reproCommand        = 'string'
     causeOcrTail        = 'string'
     causePatternsSought = 'array'
+    causeInstallerStage = 'string'
+    causeInstallerStageUnchangedSeconds = 'int'
     staleEvidence       = 'array'
     error               = 'string'
     reason              = 'string'
@@ -118,6 +120,9 @@ $script:TypedField = @{
     stack               = 'string'
     attempt             = 'int'
     maxAttempts         = 'int'
+    configuredMaxAttempts = 'int'
+    permittedMaxAttempts = 'int'
+    retrySuppressionReason = 'string'
     # Warm resume. resumeFromStep is the step actually restarted; checkpointStep
     # and rewoundSteps appear only when that differs from the recorded
     # checkpoint, i.e. when the resume was pulled back to a restore boundary and
@@ -210,15 +215,7 @@ function Test-CycleEventSchema {
             'string'       { $value -is [string] }
             'int'          { ($value -is [int]) -or ($value -is [long]) }
             'bool'         { $value -is [bool] }
-            # $null is accepted as a valid empty array because PowerShell's
-            # if-pipeline flattens both single-element AND empty arrays out
-            # of an if-statement's output; `[string[]]$x = if (...) { @() }`
-            # yields $null on the empty branch even though the emitter's
-            # intent was "no entries". Treating $null as an empty array in
-            # the validator is the durable fix -- emission sites that hit
-            # the trap stay valid without needing to be hunted down one
-            # at a time. A truly missing field (key absent from the
-            # hashtable) is still caught by the required-field loop above.
+            # See https://yuruna.link/4213a0b3-0054
             'array'        { ($null -eq $value) -or ($value -is [array]) -or ($value -is [System.Collections.IList]) }
             'hashtable'    { $value -is [System.Collections.IDictionary] }
             'int-or-null'  { ($null -eq $value) -or ($value -is [int]) -or ($value -is [long]) }

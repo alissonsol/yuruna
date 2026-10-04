@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,15 +17,14 @@
 #requires -version 7
 
 # The default VMName must not collide with the base image name.
+# AL2023 resolves its dnf proxy at runtime; see https://yuruna.link/42e220c4-0004.
 param(
     [Parameter(Position = 0)]
     [string]$VMName = "amazon-linux01",
     # Greppable test user added on top of ec2-user; force-expired by
     # cloud-init chpasswd default so the rotation flow runs.
     [string]$Username = 'yauser1',
-    # cloud-init local-hostname for the guest. Empty means "follow the VM
-    # name", which keeps host-side lookups that assume hostname == VM name
-    # working for every caller that does not ask for a specific hostname.
+    # An empty hostname follows the VM name for host-side lookup.
     [string]$Hostname = ''
 )
 

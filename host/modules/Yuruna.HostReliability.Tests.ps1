@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4270c5ae-4f32-42b7-a8e4-08bd28d7d218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,91 @@ Describe 'Cache host discovery honors explicit remote topology' {
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = 'invalid'
             Resolve-CacheHostIp | Should -BeNullOrEmpty
         } finally { $env:YURUNA_CACHING_PROXY_SERVICE_IP = $prior }
+    }
+}
+Describe 'Windows guest bootstrap inputs agree across hosts' {
+    It 'forwards configured clone URLs with the token on <Platform>' -ForEach @(
+        @{ Platform = 'windows.hyper-v' }, @{ Platform = 'ubuntu.kvm' }, @{ Platform = 'macos.utm' }
+    ) {
+        $path = Join-Path $script:RepoRoot "host/$Platform/guest.windows.11/New-VM.ps1"
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+        $resolve = $ast.Find({ param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left.Extent.Text -eq '$ghSource'
+        }, $true)
+        $bootstrap = $ast.Find({ param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and
+            $node.GetCommandName() -eq 'New-WindowsGuestBootstrap'
+        }, $true)
+        function Get-YurunaGitHubSource {
+            param($RepoRoot)
+            return @{ Token = 'fixture-token'; FrameworkUrl = 'https://example.com/framework'; ProjectUrl = 'https://example.com/project' }
+        }
+        function New-WindowsGuestBootstrap {
+            param($RepoRoot, $StatusServiceIp, $StatusServicePort, $HostId, $CachingProxyIp, $GhToken, $FrameworkUrl, $ProjectUrl)
+            return @{ Token = $GhToken; FrameworkUrl = $FrameworkUrl; ProjectUrl = $ProjectUrl }
+        }
+        $result = & ([scriptblock]::Create($resolve.Extent.Text + "`n" + $bootstrap.Extent.Text))
+        $result.Token | Should -Be 'fixture-token'
+        $result.FrameworkUrl | Should -Be 'https://example.com/framework'
+        $result.ProjectUrl | Should -Be 'https://example.com/project'
+    }
+    It 'loads the UTM driver before discovering a standalone bridged interface' {
+        $source = Get-Content (Join-Path $script:RepoRoot 'host/macos.utm/guest.windows.11/New-VM.ps1') -Raw
+        $start = $source.IndexOf('# --- REGION: Resolve network interface for Bridged mode')
+        $end = $source.IndexOf('# --- REGION:', $start + 15)
+        $body = $source.Substring($start, $end - $start).Replace('$PSScriptRoot', '$script:FixtureGuestRoot')
+        function Import-Module { $script:DriverReady = $true }
+        function Get-MacDefaultRouteInterface {
+            if (-not $script:DriverReady) { throw 'Host driver has not loaded.' }
+            return 'en0'
+        }
+        $script:DriverReady = $false
+        $script:FixtureGuestRoot = Join-Path $script:RepoRoot 'host/macos.utm/guest.windows.11'
+        $NetworkMode = 'Bridged'
+        $BridgeInterface = ''
+        . ([scriptblock]::Create($body))
+        $BridgeInterface | Should -Be 'en0'
+    }
+}
+Describe 'Standalone KVM Ubuntu cache selection follows the shared policy' {
+    BeforeAll {
+        $source = Get-Content (Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/New-UbuntuServerVM.ps1') -Raw
+        $start = $source.IndexOf('# --- REGION: Detect the caching-proxy service')
+        $end = $source.IndexOf('# --- REGION:', $start + 15)
+        $script:CacheSelection = [scriptblock]::Create('[CmdletBinding()]param([AllowEmptyString()][string]$CachingProxyServiceUrl)' +
+            "`n" + $source.Substring($start, $end - $start) + "`nreturn `$CachingProxyServiceUrl")
+    }
+    BeforeEach {
+        $script:CacheProbeCalls = 0
+        $script:CacheProbeUrl = ''
+        $script:CacheState = 'absent'
+        function Test-CachingProxyServiceAvailable { $script:CacheProbeCalls++; return $script:CacheProbeUrl }
+        function Get-VMState { return $script:CacheState }
+    }
+    It 'discovers an unbound URL from the host cache probe' {
+        $script:CacheProbeUrl = 'http://192.0.2.8:3128'
+        & $script:CacheSelection | Should -Be 'http://192.0.2.8:3128'
+        $script:CacheProbeCalls | Should -Be 1
+    }
+    It 'preserves an explicitly bound <Case> without probing' -ForEach @(
+        @{ Case = 'empty direct-fetch opt-out'; Url = '' },
+        @{ Case = 'runner-selected URL'; Url = 'http://192.0.2.9:3128' }
+    ) {
+        & $script:CacheSelection -CachingProxyServiceUrl $Url | Should -Be $Url
+        $script:CacheProbeCalls | Should -Be 0
+    }
+    It 'permits direct fetching when the cache is <State>' -ForEach @(
+        @{ State = 'absent' }, @{ State = 'stopped' }
+    ) {
+        $script:CacheState = $State
+        & $script:CacheSelection | Should -BeNullOrEmpty
+        $script:CacheProbeCalls | Should -Be 1
+    }
+    It 'fails before apt rendering when the running cache cannot be reached' {
+        $script:CacheState = 'running'
+        $ErrorActionPreference = 'Stop'
+        { & $script:CacheSelection } | Should -Throw '*host.kvm_running_cache_unreachable*'
     }
 }
 Describe 'Image lookup includes every installed guest builder' {

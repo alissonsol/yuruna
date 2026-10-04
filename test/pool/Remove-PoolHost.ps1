@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 427d5433-30b3-40c0-aa3e-59e31c0c828b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,25 +21,7 @@
     Purge a stale host from the pool: delete its NAS records (identity +
     replicated cycles) and strip it from every pool's members[].
 .DESCRIPTION
-    Pool garbage-collection CLI. Given a stable hostId, removes the host's entire
-    footprint so it stops showing up in the "Yuruna hosts" / Extension-hosts set:
-
-      1. STORAGE. Deletes, under networkStorage.poolStorageLocalPath (read from
-         test.config.yml):
-           * <poolStorageLocalPath>/hosts/info.<hostId>.yml  -- the identity record the
-             aggregator lists a host from.
-           * <poolStorageLocalPath>/<hostId>/                -- the host's replicated
-             cycle folders (reclaims NAS disk).
-      2. MEMBERSHIP. Strips the hostId from EVERY pool's members[] in the intent
-         store (pools.yml), then commits + pushes.
-
-    Ephemeral hosts (a disposable nested-host cycle, a reimaged box) mint a fresh
-    hostId each rebuild, so without cleanup each run leaves a dead entry behind.
-
-    Guards: refuses to remove THIS host's own uuid (runtime/host.uuid) or a
-    record last seen < 24h ago (it may still be live) unless -Force. Idempotent;
-    SupportsShouldProcess (-WhatIf / -Confirm). Distinct from Remove-HostFromPool,
-    which only edits ONE named pool's membership and never touches storage.
+    See https://yuruna.link/42010605-0004.
 .PARAMETER HostId
     Stable hostId to purge -- the record's hostUuid / runtime/host.uuid:
     '42' + 30 hex. The GUID-dashed spelling every panel and UI reveals a full id
@@ -230,13 +212,7 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
 }
 
 # --- REGION: Evict from the live dashboard view (aggregator forget-host, best-effort)
-# The "Yuruna hosts" panel is the pool-aggregator-service's in-memory view (Prometheus
-# yuruna_pool_host_info), NOT the NAS records above -- a host it discovered by
-# POLLING status services lingers there for the aggregator's host TTL (-host-ttl, default 24h) after last contact, so the
-# deletions so far do not clear it. When an internal authentication key + caching-proxy-service are
-# configured, ask the aggregator to forget the host NOW. Opt-in + best-effort: a
-# missing token, unknown proxy, or unreachable aggregator is a silent skip (pull +
-# TTL still converge) and never fails the purge or throws.
+# See https://yuruna.link/42010605-0004
 try {
     if ($PSCmdlet.ShouldProcess('pool-aggregator-service :9400', (Format-YurunaOperatorMessage -Key 'runner.operator_243d23ca0fc2d079' -Arguments @{ hostId = "$HostId" }))) {
         if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {

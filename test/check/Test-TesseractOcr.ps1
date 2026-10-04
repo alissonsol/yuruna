@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 424c7cc6-4425-4493-95dc-35c015c4f9ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,21 +21,7 @@
     Alternative OCR option using Tesseract (open-source), independent of WinRT.
 
 .DESCRIPTION
-    Test-WinRtOcr.ps1 demonstrates the WinRT Windows.Media.Ocr engine, which
-    requires shelling out to PowerShell 5.1 due to .NET 6+ dropping WinRT support.
-
-    This script demonstrates a completely different approach: Tesseract OCR, an
-    open-source engine that runs as a standalone executable. It works directly
-    from pwsh (no powershell.exe shim), runs on Windows/macOS/Linux, and does
-    not depend on any Windows Runtime API.
-
-    Install Tesseract via any of:
-      winget install UB-Mannheim.TesseractOCR
-      choco install tesseract
-      scoop install tesseract
-      brew install tesseract          (macOS)
-      sudo apt install tesseract-ocr  (Linux)
-
+    See https://yuruna.link/42010605-0002.
 .PARAMETER ImagePath
     Path to a PNG or image file to OCR. Required.
 

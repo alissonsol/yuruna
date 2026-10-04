@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42311ad0-61e0-4919-8d94-c9e0e25c84a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,22 +24,7 @@
     Justification = 'global:__YurunaCycleFolder is the cross-module cycle folder handle set by Test.Log.psm1''s Start-LogFile and read here as a fallback when no -CycleFolder is supplied; intentionally process-wide.')]
 param()
 
-# Send-YurunaNotification is a thin dispatcher to the active extensions
-# under test/extension/notification/. Each extension exports the contract verb
-#   Send-Notification -EventCode <string> -EventMessage <string> -EventNote <string>
-# and the dispatcher invokes it.
-#
-# The dispatcher is deliberately NOT called Send-Notification. Extensions are
-# imported into the GLOBAL scope, so a dispatcher sharing the contract verb's
-# name would be shadowed by the extension the moment the first one loads -- and
-# every unqualified caller from then on would reach the transport directly,
-# skipping the dispatch loop, the -EventData gate, and the delivery ledger. That
-# failure is silent by construction: the caller's own try/catch swallows the
-# parameter-binding error and the alert is simply never sent. Two distinct names
-# make the collision impossible rather than merely unlikely.
-#
-# Format-FailureMessage stays here so callers can build the EventNote
-# body from structured fields without re-implementing the format.
+# See https://yuruna.link/4213a0b3-00a8
 
 # Import the extension loader once. Test.Extension imports the active
 # notification module(s) into the global scope; the dispatcher resolves each
@@ -151,16 +136,7 @@ function Send-YurunaNotification {
             $statusValue = if ($delivered) { 'ok' } else { 'fail' }
             Write-NotificationDelivery -ExtensionName $n -EventCode $EventCode -Status $statusValue -ErrorMessage $deliveryErr -ModeIsAsync $false
         } else {
-            # Fire-and-forget; the cycle's failure path returns immediately.
-            # The thread job inherits the runspace's module table so $cmd
-            # resolves the same way as the synchronous branch.
-            #
-            # Delivery outcome is persisted to <cycleFolder>/notification.delivery.json
-            # (append-only JSON Lines) from inside the thread job so an
-            # autonomous remediator can see whether the escalation channel
-            # actually received the alert. Without this, a Resend HTTP 503
-            # is swallowed at Write-Warning and the cycle's transcript looks
-            # like the operator was notified when no one was.
+            # See https://yuruna.link/4213a0b3-00a9
             $deliveryFunc = ${function:Write-NotificationDelivery}
             $cycleFolder  = $global:__YurunaCycleFolder
             $null = Start-ThreadJob -Name "Send-Notification-$n" -ScriptBlock {
@@ -376,27 +352,7 @@ function Get-FailureEventData {
         $CycleFolder = [string]$global:__YurunaCycleFolder
     }
 
-    # Where the record IS depends on when we are asked. While a cycle runs, the
-    # engine and the infra stages write last_failure.json to the log ROOT
-    # ($env:YURUNA_LOG_DIR) and mirror it under the cycle folder; the root copy
-    # is cleared at every sequence start. Looking in either place alone finds
-    # nothing at some moment a live caller needs the classified cause, and every
-    # consumer then silently receives the synthesized 'unknown' payload below.
-    #
-    # Most specific first: the failing guest's own mirror, which provably
-    # belongs to THIS cycle and THIS guest; then the cycle-folder copy, which
-    # provably belongs to this cycle but to whichever guest failed last; then
-    # the live root, shared across cycles as well as guests.
-    #
-    # A caller that names its guest also refuses a shared copy naming a
-    # different one. A host that runs several guests per cycle and does not stop
-    # at the first failure leaves one guest's record in both shared places, so
-    # without this a later guest whose own failure produced no record -- a
-    # warm-resume target that is not in the list, a missing sequence file for
-    # the second or a later sequence -- would be handed its predecessor's cause,
-    # on the dashboard summary and in the per-guest quarantine streak. A record
-    # that names no guest at all is a host-level failure and is still offered to
-    # everyone.
+    # See https://yuruna.link/4213a0b3-00aa
     $payload = $null
     $recordPaths = New-Object System.Collections.Generic.List[hashtable]
     if ($CycleFolder -and $VMName) {
@@ -455,21 +411,7 @@ function Get-FailureEventData {
     $payload['gitCommit']     = $GitCommit
     $payload['projectCommit'] = $ProjectCommit
 
-    # Cycle folder URL: the cycle log's basename appended to the status
-    # server's mount. Consumers can deep-link from the notification
-    # straight to the HTML transcript + artifacts.
-    #
-    # Base URL precedence:
-    #   1. $env:YURUNA_STATUS_PUBLIC_URL -- explicitly published reachable
-    #      address (operator sets this on hosts whose dashboard is
-    #      exposed via a reverse proxy, a tunneled hostname, or a LAN
-    #      IP). An off-host LLM remediator can follow the link.
-    #   2. http://<HOST_FQDN>:<statusService.port> -- best guess from the
-    #      cycle's recorded hostname + the running status service port,
-    #      when both are known. Works on most LANs where the dashboard
-    #      hostname resolves.
-    #   3. http://localhost:8080/ -- last-resort fallback. Only useful
-    #      to a consumer running on the same host as the runner.
+    # See https://yuruna.link/4213a0b3-00ab
     $cycleFolderBaseUrl = $null
     if ($env:YURUNA_STATUS_PUBLIC_URL) {
         $cycleFolderBaseUrl = $env:YURUNA_STATUS_PUBLIC_URL.TrimEnd('/')

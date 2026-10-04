@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42f7b847-f2dc-43ee-b9f7-f70bdc728c72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,7 @@ $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $TestRoot
 $ModulesDir = Join-Path $TestRoot "modules"
 
+# --- REGION: Write-Status
 function Write-Status {
     [CmdletBinding()]
     param([Parameter(ValueFromPipeline)][string]$Message)
@@ -74,12 +75,7 @@ function Write-Status {
     }
 }
 
-# Resolve $Prefix: explicit -Prefix wins, then test.config.yml's
-# vmStart.cleanupVmNamePrefixes, then vmStart.testVmNamePrefix, then the
-# "test-" fallback. Reading the config matters when the operator runs this
-# script directly after a stopped runner -- the runner passes -Prefix from
-# the same config, so a manual invocation that fell back to "test-" would
-# miss VMs whenever the operator had customized the prefixes.
+# See https://yuruna.link/42010605-0002
 if (-not $ExplicitPrefix) {
     $configPath = Join-Path $TestRoot 'test.config.yml'
     if (Test-Path $configPath) {
@@ -146,14 +142,7 @@ $prefixLabel = ($Prefix -join "', '")
 Write-Status "Stopping VMs with prefix '$prefixLabel'..."
 Write-Status ""
 
-# Track every VM we attempted, with a final disposition. Per-VM ops MUST
-# NOT abort the whole loop: on a long-running host, a single stuck VM
-# (locked .vhdx, wedged vmms, UTM helper holding a file handle) would
-# otherwise throw under $ErrorActionPreference='Stop' and skip every later
-# matching VM, so survivors accumulate cycle after cycle. Each VM is wrapped
-# in try/catch with its own continue-on-failure path; survivors are reported
-# at the end and the orphan-file cleanup still runs so we reclaim disk
-# even when one VM resists deletion.
+# See https://yuruna.link/42010605-0002
 $survivors = [System.Collections.Generic.List[string]]::new()
 $removedCount = 0
 
@@ -230,12 +219,7 @@ if ($survivors.Count -gt 0) {
 }
 Write-Status ""
 
-# Release the per-cycle display surface this host attaches for screen-capture
-# (the Hyper-V usbmmidd virtual display). The cycle-start path attaches it via
-# Initialize-HostDisplay; tearing it down here cleans up a stale/duplicate
-# monitor left by a mid-cycle KVM switch so it doesn't linger once the machine
-# stops running tests. Dispatcher no-ops on hosts that attach nothing
-# (macOS/Linux) and never throws.
+# See https://yuruna.link/42010605-0002
 Write-Status "Releasing host virtual display (if attached)..."
 Remove-HostDisplay -HostType $HostType
 Write-Status ""
@@ -247,15 +231,7 @@ if (-not (Test-Path $cleanupScript)) {
     exit 1
 }
 
-# Always run the orphan-file sweep -- even if some VMs survived the
-# registry-removal step. Their on-disk files are still claimed by the
-# surviving registration so the orphan script will skip them, but
-# files left over from earlier failures (the actual symptom on
-# long-running hosts) get reclaimed. The "Running orphaned VM file
-# cleanup: <path>" line stays Write-Output (unconditional) so an
-# automated caller running with -Quiet still sees a single line that
-# proves the orphan sweep was attempted; -Quiet propagates down so
-# Remove-OrphanedVMFiles itself emits no chatter.
+# See https://yuruna.link/42010605-0002
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0727e0f3d5181249' -Arguments @{ cleanupScript = "$cleanupScript" })
 Write-Status ""
 $orphanArgs = @{ Force = $true }

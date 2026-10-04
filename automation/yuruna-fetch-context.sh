@@ -2,10 +2,12 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Seeded fetch context launcher. Values in the context are data, never shell code.
+# --- REGION: Initialize environment
 set -euo pipefail
 caller_umask=$(umask)
 umask 077
 
+# --- REGION: Context validation
 fail() { printf 'YFE_%s\n' "$1" >&2; exit 125; }
 valid_id() { [[ ${1-} =~ ^[0-9a-f]{11}$ ]]; }
 valid_sha() { [[ ${1-} =~ ^[0-9a-f]{64}$ ]]; }
@@ -64,6 +66,7 @@ validate_context() {
     fi
 }
 
+# --- REGION: Prepare context
 if [[ ${1-} == --prepare ]]; then
     [[ $# == 4 ]] || fail ARGUMENTS
     id=$2 expected_bytes=$3 expected_sha=$4
@@ -87,6 +90,7 @@ if [[ ${1-} == --prepare ]]; then
     exit 0
 fi
 
+# --- REGION: Consume context
 [[ $# == 4 && ${2-} == bash && ${3-} == -c ]] || fail ARGUMENTS
 id=$1 command=$4
 valid_id "$id" || fail ARGUMENTS
@@ -107,4 +111,5 @@ export E_SHA E_RETRY_SHA EXEC_REQUIRE_SHA256 E_FB_REPO E_FB_REF E_SI E_QI EXEC_P
 rm -rf -- "$claim"
 trap - EXIT
 umask "$caller_umask"
+# --- REGION: Execute payload
 exec bash -c "$command"

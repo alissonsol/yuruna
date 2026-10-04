@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42507b72-36d6-40f8-9a02-4a16e5a058b9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,16 +74,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Force -DisableNam
 # in the same change.
 $script:StateEnum = @('idle', 'cycle-start', 'in-cycle', 'cycle-end', 'fault', 'paused')
 
-# Adjacency map of valid transitions. Last writer in the same
-# transition stays; a fault-from-anywhere fallback comes from the
-# boot-recovery synthetic transitions below.
-#
-# The healthy pool-hold loop enters each iteration at 'cycle-start'
-# (set before the intent pull) and, on a pulled desiredState=paused,
-# moves to 'paused', then re-enters 'cycle-start' on the next 30s poll.
-# Both edges are legitimate, so they are in the map -- otherwise every
-# hold iteration logged two "not in the canonical adjacency map"
-# warnings, flooding the outer log for the duration of the hold.
+# See https://yuruna.link/4213a0b3-011b
 $script:ValidTransition = @{
     'idle'        = @('cycle-start', 'fault')
     'cycle-start' = @('in-cycle', 'fault', 'paused')

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 423c7308-8393-45aa-a74f-97c52bf1c3df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,14 +36,7 @@
     when that becomes useful.
 #>
 
-# Pull in Resolve-SequencePath and Read-SequenceFile from the engine module
-# so prereqs resolve the same way Invoke-Sequence does.
-#
-# -Global is required: -Force without -Global yanks the engine module out of
-# the global session (see the module-force-evict trap in repo memory). The
-# runner imports Invoke-Sequence at startup; if any later -Force import here
-# evicts it, every caller that built a function reference to e.g.
-# Invoke-SequenceByName / Read-SequenceFile loses visibility.
+# See https://yuruna.link/4213a0b3-0165
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:EngineModule = Join-Path $PSScriptRoot "Test.SequenceEngine.psm1"
 if (Test-Path $script:EngineModule) {

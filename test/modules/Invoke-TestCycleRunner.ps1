@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42b78fbd-8036-4aa8-93eb-161e72bdba4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,11 @@
     could be mistaken for a real failure. The pause that follows a transient outcome
     is the caller's: a sleep here could not be interrupted by the Ctrl+C the
     operator pressed in the runner's own shell.
+
+    The record is required of every cycle, not only the transient ones: the caller
+    scores a pass only from a record that names its generation. When this process
+    cannot record a clean cycle it exits with a non-zero code instead of 0, and a
+    cycle that produced no result at all is recorded as a failure.
 
     A host refresh reaches this process through the environment the runner
     sets around the spawn: a handoff token with YURUNA_REFRESH_PREFLIGHT makes
@@ -172,18 +177,7 @@ if (-not $refreshPreflight) {
 $refreshBarrierRequestId = if ($env:YURUNA_REFRESH_BARRIER) { [string]$env:YURUNA_REFRESH_BARRIER } else { $null }
 
 # --- REGION: Run one cycle
-# Called BARE, and never captured: `$result = Invoke-RunnerOuterCycle ...` reads
-# the cycle off the success stream, and that one assignment is enough to make
-# PowerShell give the inner pwsh an anonymous pipe for stdout instead of letting it
-# inherit this process's console. The call operator inside then returns when that
-# pipe reaches EOF rather than when the inner exits -- and the status service the
-# inner spawns holds the write end open for its whole life (Start-Process
-# -RedirectStandard* sets bInheritHandles=TRUE, which hands it a duplicate of every
-# inheritable handle the inner has). The host completes one cycle and stops: the
-# inner logs "about to exit with code 0" and "outer runner back in control" never
-# follows. Windows-only, because the POSIX detach replaces the descriptors.
-# The result comes back through the module instead; letting the stream reach the
-# host also puts the cycle's own output back on the operator's console.
+# See https://yuruna.link/4213a0b3-0013
 Invoke-RunnerOuterCycle -Cycle $Cycle -State @{
     RepoRoot                  = $RepoRoot
     ConfigPath                = $ConfigPath
@@ -210,29 +204,12 @@ Invoke-RunnerOuterCycle -Cycle $Cycle -State @{
 }
 $result = Get-LastOuterCycleResult
 
-$outcome  = if ($result -and $result.Outcome) { [string]$result.Outcome } else { 'completed' }
-$exitCode = if ($result -and $null -ne $result.ExitCode) { [int]$result.ExitCode } else { 0 }
-
 # --- REGION: Write the cycle result
 # Written before exiting so the caller can distinguish "the inner failed" from
-# "the cycle never got that far".
+# "the cycle never got that far". The caller scores a pass only from this
+# record, so the publisher withholds a clean exit code when the record cannot be
+# verified, and a cycle that produced no result at all is recorded as a failure.
 $outcomeFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.cycle.outcome.json'
-try {
-    $json = [ordered]@{
-        outcome         = $outcome
-        exitCode        = $exitCode
-        cycleGeneration = if ($CycleGeneration) { $CycleGeneration } else { $null }
-    } | ConvertTo-Json -Compress
-    # The [bool] result is consumed rather than left on the success stream: this
-    # process runs with its parent's console attached, so anything it returns
-    # uncaptured prints a bare value between the caller's per-cycle lines. It
-    # reports a failed write by returning $false rather than throwing, so the
-    # catch below would not see one.
-    if (-not (Write-YurunaStateFile -Path $outcomeFile -Content $json -Confirm:$false)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_28a938238a1f9f61' -Arguments @{ outcomeFile = "$outcomeFile" })
-    }
-} catch {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d1c2444b71ef8fde' -Arguments @{ message = "$($_.Exception.Message)" })
-}
+$exitCode = Publish-CycleOutcomeRecord -Result $result -OutcomeFile $outcomeFile -CycleGeneration $CycleGeneration
 
 exit $exitCode

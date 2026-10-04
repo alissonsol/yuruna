@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42ab6d19-74c3-4f80-9e25-3d0c81af57b6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,7 +98,7 @@ $SiblingRoot = Join-Path (Split-Path -Parent $RepoRoot) 'yuruna-project'
 if (-not $Manifest) { $Manifest = Join-Path $RepoRoot 'globalization/manifests/doc-anchors.json' }
 if (-not $Update) { $Check = $true }
 
-$AnchorPattern = '^<a id="(42[0-9a-f]{6})-([0-9a-f]{4})"></a>$'
+$AnchorPattern = '^<a id="(42[0-9a-f]{6})-([0-9a-f]{4})"></a>\r?$'
 
 function Get-RepoRootFor {
     param([Parameter(Mandatory)][string]$Repo)
@@ -110,23 +110,25 @@ function Get-RepoRootFor {
 # docs/ that already have translations. A file with no id cannot be a link
 # target in any language but English.
 #
-# Top level only, deliberately. docs/design/ holds internal design records
-# that no short link addresses and no reader reaches by anchor, so giving
-# them ids would add churn to every one of those files and buy nothing.
-# Adding a design record to the link catalog is what should bring it in here.
+# Individual design records remain outside this registry. The design
+# overview is enrolled explicitly because its published links need stable
+# heading addresses; the other records remain unchanged.
 function Get-SourceDocument {
     $list = [Collections.Generic.List[hashtable]]::new()
     foreach ($f in (Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'docs') -Filter '*.md' -File | Sort-Object Name)) {
         $list.Add(@{ Repo = 'yuruna'; Source = "docs/$($f.Name)" })
     }
-    foreach ($extra in @('README.md', 'install/README.md')) {
+    foreach ($extra in @('README.md', 'install/README.md', 'docs/design/README.md')) {
         $list.Add(@{ Repo = 'yuruna'; Source = $extra })
     }
     foreach ($extra in @('README.md', 'template/README.md', 'example/README.md',
-                         'example/website/README.md', 'example/text-to-sql/README.md')) {
+                         'example/website/README.md', 'example/text-to-sql/README.md',
+                         'example/website/components/frontend/website/README.md', 'docs/globalization.md')) {
         $list.Add(@{ Repo = 'yuruna-project'; Source = $extra })
     }
-    return , $list
+    # The complete SBOM subtree is exempt from globalization and localization,
+    # including anchor registration if another document is added here later.
+    return , @($list | Where-Object { $_.Source -notmatch '^docs/sbom/' })
 }
 
 # docs/operator.md -> docs/<locale>/operator.md. Dropping the leading docs/
@@ -238,7 +240,11 @@ try {
 $existingManifest = @{}
 if (Test-Path -LiteralPath $Manifest -PathType Leaf) {
     $loaded = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Manifest))
-    foreach ($f in @($loaded.files)) { $existingManifest["$($f.repo)|$($f.source)"] = $f }
+    foreach ($f in @($loaded.files)) {
+        # Do not preserve old registrations for the excluded SBOM subtree.
+        if ($f.source -match '^docs/sbom/') { continue }
+        $existingManifest["$($f.repo)|$($f.source)"] = $f
+    }
 }
 
 $documents = Get-SourceDocument

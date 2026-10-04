@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -289,15 +289,7 @@ function Update-TestConfigFromTemplate {
     # are surfaced for hand-migration.
     $shapeMatchesTemplate = Test-ConfigMatchesTemplateShape -Template $template -Current $current
 
-    # Notification config (including secrets) lives at
-    # test/status/extension/notification/transports.yml. The template
-    # ships in-tree at test/extension/notification/transports.yml.template.
-    # The legacy keys secrets.resend and notification.toEmailAddress in
-    # test.config.yml are no longer schema-valid. The merge
-    # (ConvertTo-MergedHashtable) drops template-orphan keys, so any
-    # populated legacy values would vanish silently -- warn the operator
-    # to move them by hand. Soft migration: do NOT auto-move credentials
-    # across files.
+    # See https://yuruna.link/4213a0b3-0044
     $statusExtNotif  = Join-Path -Path (Split-Path -Parent $ConfigPath) `
                           -ChildPath 'status' `
                           -AdditionalChildPath 'extension', 'notification'
@@ -348,16 +340,7 @@ function Update-TestConfigFromTemplate {
         -Config $merged -ObsoleteEntry $obsolete
 
     # --- REGION: Schema migration (shape departed)
-    # The on-disk file no longer matches the template's nested shape (the schema
-    # changed). Back the previous file up, then write the value-preserving merge
-    # (NOT a bare template reset): every field that still maps to the same path in
-    # the new schema has its value carried forward from the previous file, and
-    # template-only nodes are filled with their defaults. Fields that genuinely no
-    # longer map (top-level orphans, or values under a node whose shape changed)
-    # cannot be carried -- if any carried a real value, stop the run so the
-    # operator can hand-migrate them from the .backup; otherwise (a purely
-    # additive schema change -- a new node the file simply lacked) continue, since
-    # nothing was lost and the unattended loop must not halt on a benign bump.
+    # See https://yuruna.link/4213a0b3-0045
     if (-not $shapeMatchesTemplate) {
         $backupPath = "$ConfigPath.backup"
         Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
@@ -395,29 +378,19 @@ function Update-TestConfigFromTemplate {
 }
 
 # --- REGION: https://yuruna.link/42b11c32-0003
-# Rendering the live config from the TEMPLATE TEXT, not from ConvertTo-Yaml.
-# YAML was chosen for this file so each knob could carry its explanation, but a
-# ConvertFrom-Yaml/ConvertTo-Yaml round-trip drops every comment -- an operator's
-# test.config.yml ended up with none of the template's 29 comment lines. The
-# template is already the schema source of truth AND canonically ordered, so it
-# doubles as the rendering skeleton: walk its lines, keep comments/blank
-# lines/order verbatim, and substitute the operator's value wherever the file has
-# one. Keys the template no longer defines are written back as commented-out
-# `#   path: value` entries instead of vanishing, so a rename leaves its old value
-# in view for hand-migration (Test.ConfigNaming's scanner skips comment lines, so a
-# key parked there stops failing the retired-key check).
+# See https://yuruna.link/4213a0b3-0046
 
-<#
-.SYNOPSIS
-    Render one value as a YAML scalar, quoting only where YAML needs it.
-.DESCRIPTION
-    Matches the style the previous ConvertTo-Yaml writer produced, so switching
-    renderers is not a whole-file diff: bare where unambiguous, single-quoted
-    (with '' escaping) otherwise, "" for empty, lowercase true/false for booleans.
-    Strings that would otherwise READ BACK as a bool/number/null are quoted so a
-    round-trip cannot change a value's type.
-#>
 function Format-YamlScalarValue {
+    <#
+    .SYNOPSIS
+        Render one value as a YAML scalar, quoting only where YAML needs it.
+    .DESCRIPTION
+        Matches the style the previous ConvertTo-Yaml writer produced, so switching
+        renderers is not a whole-file diff: bare where unambiguous, single-quoted
+        (with '' escaping) otherwise, "" for empty, lowercase true/false for booleans.
+        Strings that would otherwise READ BACK as a bool/number/null are quoted so a
+        round-trip cannot change a value's type.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter()][AllowNull()]$Value)

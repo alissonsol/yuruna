@@ -7,12 +7,12 @@
   },
   "totals": {
     "domains": 16,
-    "files": 529,
-    "candidates": 7408,
-    "fragments": 1713,
-    "catalogCalls": 5377,
+    "files": 539,
+    "candidates": 7570,
+    "fragments": 1714,
+    "catalogCalls": 5391,
     "pages": 15,
-    "markdown": 111,
+    "markdown": 122,
     "yamlFields": 178
   },
   "projectScope": {
@@ -263,9 +263,9 @@
       "domain": "pool-aggregator",
       "repository": "yuruna",
       "present": true,
-      "files": 18,
-      "candidates": 99,
-      "fragments": 27,
+      "files": 25,
+      "candidates": 129,
+      "fragments": 28,
       "catalogCalls": 0,
       "pages": 0,
       "markdown": 1,
@@ -277,19 +277,19 @@
         },
         {
           "file": "test/extension/pool-aggregator-service/main.go",
-          "candidates": 29
+          "candidates": 28
         },
         {
           "file": "test/extension/pool-aggregator-service/handover.go",
           "candidates": 23
         },
         {
-          "file": "test/extension/pool-aggregator-service/default.psm1",
-          "candidates": 9
+          "file": "test/extension/pool-aggregator-service/backfill.go",
+          "candidates": 21
         },
         {
-          "file": "test/extension/pool-aggregator-service/localization.go",
-          "candidates": 1
+          "file": "test/extension/pool-aggregator-service/default.psm1",
+          "candidates": 9
         }
       ]
     },
@@ -349,10 +349,10 @@
       "domain": "runner",
       "repository": "yuruna",
       "present": true,
-      "files": 125,
-      "candidates": 1681,
+      "files": 128,
+      "candidates": 1810,
       "fragments": 262,
-      "catalogCalls": 2307,
+      "catalogCalls": 2320,
       "pages": 0,
       "markdown": 1,
       "yamlFields": 0,
@@ -367,7 +367,7 @@
         },
         {
           "file": "test/modules/Test.SequenceHandler.psm1",
-          "candidates": 78
+          "candidates": 85
         },
         {
           "file": "test/modules/Test.RunnerInnerLoop.psm1",
@@ -386,7 +386,7 @@
       "files": 79,
       "candidates": 749,
       "fragments": 102,
-      "catalogCalls": 1747,
+      "catalogCalls": 1748,
       "pages": 0,
       "markdown": 28,
       "yamlFields": 0,
@@ -452,7 +452,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 5,
-      "candidates": 500,
+      "candidates": 503,
       "fragments": 125,
       "catalogCalls": 84,
       "pages": 0,
@@ -461,7 +461,7 @@
       "topFiles": [
         {
           "file": "install/windows.hyper-v.ps1",
-          "candidates": 249
+          "candidates": 253
         },
         {
           "file": "install/setup.ps1",
@@ -469,11 +469,11 @@
         },
         {
           "file": "guest/windows.11/windows.11.update.ps1",
-          "candidates": 35
+          "candidates": 33
         },
         {
           "file": "guest/windows.11/windows.11.k8s.ps1",
-          "candidates": 25
+          "candidates": 26
         },
         {
           "file": "guest/windows.11/windows.11.code.ps1",
@@ -490,7 +490,7 @@
       "fragments": 0,
       "catalogCalls": 0,
       "pages": 0,
-      "markdown": 58,
+      "markdown": 69,
       "yamlFields": 0,
       "topFiles": []
     },

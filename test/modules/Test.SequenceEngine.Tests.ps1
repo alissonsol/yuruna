@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -394,6 +394,26 @@ Describe 'Get-ConsoleTextSignature' {
     }
 }
 
+Describe 'Get-InstallerConsoleStage' {
+    It 'keeps the last substantive installer stage ahead of network chatter' {
+        $ocr = @(
+            'start: subiquity/Install/install'
+            'start: subiquity/Network/_send_update: CHANGE eth0'
+            'start: subiquity/Mirror/cmd-apt-config: curtin command apt-config'
+            'finish: subiquity/Network/_send_update: CHANGE eth0'
+        ) -join "`n"
+        $stage = & (Get-Module Test.SequenceEngine) { param($text) Get-InstallerConsoleStage -Text $text } $ocr
+        Assert-Equal -Expected 'start: subiquity/Mirror/cmd-apt-config' -Actual $stage
+    }
+
+    It 'reports no installer stage on an early boot or language menu' {
+        foreach ($ocr in 'Setting up console keyboard', 'Bahasa Indonesia') {
+            $stage = & (Get-Module Test.SequenceEngine) { param($text) Get-InstallerConsoleStage -Text $text } $ocr
+            Assert-Equal -Expected '' -Actual $stage
+        }
+    }
+}
+
 Describe 'Module export surface' {
     # Assert against the Export-ModuleMember statement text, not ExportedFunctions:
     # Get-PollDelay is defined in Test.Backoff (never in this module), so PowerShell
@@ -753,5 +773,12 @@ Describe 'Wait-ForText -SinceStepStart ignores what was already on screen' {
     It 'leaves a tail-confined match alone when the gate is off' {
         Assert-True (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($script:alreadyOnScreen) -Pattern @('ew password:') -Since $false -Fresh $true) `
             'the existing window is unchanged by a gate nobody asked for'
+    }
+
+    It 'records a visible installer stage during a tail-confined login wait' {
+        $frame = "start: subiquity/Mirror/cmd-apt-config: curtin command apt-config`nstart: subiquity/Network/_send_update: CHANGE eth0"
+        Assert-False (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($frame) -Pattern @('yuuser26 login:') -Since $false -Fresh $true -TimeoutSeconds 2)
+        $failure = Get-SequenceFailureState
+        Assert-Equal -Expected 'start: subiquity/Mirror/cmd-apt-config' -Actual $failure.WaitForTextInstallerStage
     }
 }

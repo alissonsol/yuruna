@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,18 +52,7 @@ if (-not (Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ErrorA
 $script:GuestSshUserOverrides = Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ValueOnly
 
 # --- REGION: https://yuruna.link/4220a755-003d
-# Addresses that ssh has actually authenticated to, per VM. Global-anchored for
-# the same reason as the user overrides: the harness -Force re-imports this
-# module mid-cycle, and a memo wiped at that moment is a memo that is empty
-# exactly when a renumber is in progress.
-#
-# This is the last word in address discovery, not the first. Every other source
-# is a report about the guest -- the agent's, the lease database's, the kernel
-# neighbor table's -- and each can decline. A proven address is different in
-# kind: ssh completed a key exchange with the guest there. That does not make it
-# current (the guest may have moved since), which is why it is consulted only
-# when every discovery rung has declined, where today the harness dials the bare
-# VM name and fails inside getaddrinfo.
+# See https://yuruna.link/4213a0b3-016e
 if (-not (Get-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -ErrorAction SilentlyContinue)) {
     Set-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -Value @{}
 }
@@ -422,18 +411,7 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
         }
     }
 
-    # Fallback path for standalone Test.Ssh use (no Yuruna.Host loaded),
-    # so SSH-client users (Wait-SshReady / Invoke-GuestSsh) work even when
-    # callers forget to call Initialize-YurunaHost first.
-    #
-    # Deliberately only the CHEAP lookups, and therefore weaker than the
-    # driver's Get-VMIp: a bridged UTM guest is invisible to both of them
-    # (no agent, and the shared-NAT lease file cannot hold its lease) and
-    # is found only by matching the bundle MAC in the host ARP table --
-    # which needs an ICMP sweep, and is host-driver work this module has
-    # no business duplicating. A caller that must resolve a bridged guest
-    # has to have the driver in scope; without it the VM name is returned
-    # and ssh's own resolution is the last route left.
+    # See https://yuruna.link/4213a0b3-016f
     if ($IsWindows -and (Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue)) {
         try {
             $addrs = (Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop).IPAddresses
@@ -648,15 +626,7 @@ name_unresolved, network_unreachable, handshake_failed.
     if (-not $IpDiscovered)                                                  { return 'ip_not_discovered' }
     # 3. A real IP, but the network path to it never came up.
     if ($e -match 'Could not resolve|Name or service not known|nodename nor servname') { return 'name_unresolved' }
-    # An address that never answered ANYTHING is a different fault from a live
-    # address whose path broke, and the two send a reader to different machines.
-    # A lease table can hold several addresses for one guest -- a rebuilt guest
-    # takes a new one and the old rows stay until they expire -- so an address
-    # can be discovered, unexpired, and belong to a machine that no longer
-    # exists. This does not prove the discovery was stale rather than the path
-    # broken; it says only that nothing ever replied on what was handed over,
-    # which is the point at which the address's provenance is worth reading
-    # before the network is.
+    # See https://yuruna.link/4213a0b3-0170
     if (-not $IpAnswered -and $e -match 'No route to host|Network is unreachable|Connection timed out|Operation timed out|timed out') {
         return 'ip_never_answered'
     }
@@ -950,16 +920,7 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         }
     }
 
-    # Failure path. Classify WHY before dumping diagnostics, so the dumps and
-    # the operator guidance target the actual cause.
-    # The whole dump is Verbose: readiness failure is soft (callers fall back to
-    # the console rung and the cycle still passes), and the same multi-line block
-    # repeats for every diagnostic capture on a guest whose sshd is unreachable.
-    # The structured ssh_handshake_failed event below is the durable signal;
-    # raise the log level when actually debugging a handshake.
-    # Choose which probe's words the cause is read from instead of taking
-    # whatever landed last: the final probe is frequently the one killed at the
-    # deadline, and it then carries no verdict about the target at all.
+    # See https://yuruna.link/4213a0b3-0171
     $evidence = @{ text = [string]$lastError; source = 'host_driver_vm_state' }
     if ($vmState -eq 'stopped') {
         $cause = 'vm_not_running'
@@ -1038,20 +999,7 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         Write-Verbose "  --- end verbose handshake ---"
     }
 
-    # Surface the failure as a structured NDJSON event so an autonomous
-    # remediator routes on `event=ssh_handshake_failed` without having to
-    # regex-parse the Write-Warning stream. `cause` is the granular
-    # discriminator (ip_not_discovered vs auth_denied vs connection_refused
-    # ...) whose remediations differ; `ipDiscovered` says whether the wait
-    # ever saw a real address and `ipAnswered` whether anything replied at it.
-    # lastError carries the final probe output;
-    # attempts / timeout pin down whether the gate was time- or attempt-bounded.
-    # An account the guest itself has expired is a credential fault, not a
-    # transport one, and the two send a reader to different machines. Filing it
-    # under the transport class buries the one line in the probe output that
-    # names the repair behind advice to wait and try again, which cannot rotate
-    # a password. Every other cause here is a wait that ran out of budget while
-    # the caller falls back to the console rung, so those stay soft.
+    # See https://yuruna.link/4213a0b3-0172
     $failureClass = if ($cause -eq 'password_expired') { 'credential_expired' } else { 'network_timeout' }
     $severity     = if ($cause -eq 'password_expired') { 'hard' } else { 'soft' }
     # The diagnostic worker runs in its own process without Test.Log, and this
@@ -1383,17 +1331,7 @@ with a different owner, that is likewise invisible in the exit status.
     $loginUser = if ($User) { $User } else { Get-GuestSshUser -GuestKey $GuestKey }
     $keyPath = if ($PrivateKeyPath) { $PrivateKeyPath } else { Get-YurunaSshPrivateKeyPath }
     $address = if ($ResolvedAddress) { $ResolvedAddress } else { Get-GuestAddress -VMName $VMName }
-    # Get-GuestAddress answers with the VM name when nothing discovered an
-    # address. That sentinel is truthy and shaped like a hostname, so on its own
-    # it reaches ssh as a target and fails inside getaddrinfo -- a resolver error
-    # naming nothing about the real fault, and one no guest-side change can fix.
-    # Discovery misses are typically sub-second, so re-resolve on a bounded loop
-    # rather than spending the step on a stale cache.
-    #
-    # The Test-IpAddress clause carries the whole predicate: -VMName is
-    # documented as accepting an address, and for such a caller the sentinel
-    # comparison is true on a perfectly good address. Testing the shape as well
-    # is what keeps that case out of the wait.
+    # See https://yuruna.link/4213a0b3-0173
     $addressResolved = -not ($address -eq $VMName -and -not (Test-IpAddress $address))
     if (-not $addressResolved -and $AddressWaitSeconds -gt 0) {
         Write-Debug "Invoke-GuestSsh: no address discovered for '$VMName'; re-resolving for up to ${AddressWaitSeconds}s"
@@ -1426,15 +1364,7 @@ with a different owner, that is likewise invisible in the exit status.
     }
     $cmd = [string]$Command
     # --- REGION: https://yuruna.link/4220a755-003e
-    # Detached mode changes what an attempt costs. A re-run gets the full
-    # TimeoutSeconds because it starts the work over; an attach does not, because
-    # the work has been running the whole time and the step's budget has been
-    # draining with it. Giving each attach a fresh full budget would let a step
-    # declared at 1800s occupy an hour and a half across three reconnects. So the
-    # deadline is computed once here and every attach is bounded by what is left
-    # of it, while the number of reconnects is bounded only by that deadline --
-    # at a change every ten minutes, a fixed small retry count is the thing that
-    # would run out first.
+    # See https://yuruna.link/4213a0b3-0174
     $detached      = -not [string]::IsNullOrWhiteSpace($DetachToken)
     $deadlineUtc   = (Get-Date).ToUniversalTime().AddSeconds($TimeoutSeconds)
     $maxAttempt    = if ($detached) { [int]::MaxValue } else { 1 + [Math]::Max(0, $TransportRetryCount) }
@@ -1472,16 +1402,7 @@ with a different owner, that is likewise invisible in the exit status.
                     }
                 }
             } else {
-                # Let the guest reap what the dead session left behind before
-                # dialing again. sshd only tears the old session down when its own
-                # keepalive gives up, and until it does, the command from the
-                # previous attempt is still running -- re-running now would put two
-                # copies against the same apt/dpkg locks and turn a recoverable
-                # blip into a new failure. The wait matches the guest-side
-                # ClientAlive bound seeded in host/vmconfig/ubuntu.server.base.user-data,
-                # plus margin. A guest from an image predating that seed reaps on
-                # the kernel's TCP timeout instead, far outside any wait worth
-                # spending here, which is the case -TransportRetryCount 0 exists for.
+                # See https://yuruna.link/4213a0b3-0175
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_39a418c70f35ba4d' -Arguments @{ vMName = "$VMName"; transportReapSeconds = "${script:TransportReapSeconds}"; attempt = "$attempt"; maxAttempt = "$maxAttempt" })
                 Start-Sleep -Seconds $script:TransportReapSeconds
             }
@@ -1520,17 +1441,7 @@ with a different owner, that is likewise invisible in the exit status.
         $debugCommand = if ($Command.Contains('yfe --prepare ')) { '[YFE_CONTEXT_REDACTED]' } else { $Command }
         Write-Debug "Invoke-GuestSsh: target=$target command=$debugCommand timeout=${attemptTimeout}s attempt=$attempt detached=$detached fromLine=$fromLine"
 
-        # Process exit does not imply pipe EOF, and process-tree cleanup can
-        # block inside the runtime. The shared helper bounds both independently.
-        # ServerAliveInterval/CountMax are the only thing that ends a session
-        # whose peer stopped answering: without application-level keepalives a
-        # half-open connection holds the step until its own timeout, which on a
-        # long provisioning step is most of an hour of a green-looking runner.
-        # The 15s x 4 bound gives a full minute of silence before giving up, far
-        # longer than any hiccup this is not meant to react to, and sshd answers
-        # a keepalive regardless of what the remote command is doing -- so a
-        # busy guest is never mistaken for an absent one. TCPKeepAlive stays on
-        # as the second, kernel-level path to the same verdict.
+        # See https://yuruna.link/4213a0b3-0176
         $sshArguments = @(
                 '-i', $keyPath,
                 '-o', 'BatchMode=yes') +
@@ -1690,20 +1601,7 @@ with a different owner, that is likewise invisible in the exit status.
             }
         }
         # --- REGION: https://yuruna.link/4220a755-0040
-        # No exit marker. The supervisor announces itself before it streams
-        # anything, so a start or attach line with no exit line means the session
-        # ended while the run was still live -- which is a lost transport by
-        # construction, whatever ssh did or did not say about it. That inference
-        # is available only here, and it is worth more than the wording: with
-        # LogLevel=ERROR the client's own explanation is frequently absent, and
-        # relying on it meant a step whose payload was mid-wait was reported as
-        # the guest script failing.
-        #
-        # Only the supervisor's own stream is classified when the marker is
-        # missing too. Payload bytes arrive on stdout by the supervisor's
-        # contract, so merging them in buries a one-line ssh message under
-        # kilobytes of provisioning output -- and the empty-output rule that
-        # catches a silent 255 can then never fire at all.
+        # See https://yuruna.link/4213a0b3-0177
         $transportLost = Test-DetachedRunInterrupted -ExitCode $exit -StdErr $stderrText
         if (-not $transportLost) {
             return @{
@@ -2031,15 +1929,7 @@ System.String. An IPv4 address, or '' when the guest could not be identified.
     try { $address = [string](Get-GuestAddress -VMName $VMName) } catch { Write-Verbose "Resolve-GuestDiagnosticAddress: Get-GuestAddress: $($_.Exception.Message)" }
     if ($address -and $address -ne $VMName) { return $address }
 
-    # The portable rung, and the one that works on every host: ask the driver to
-    # warm the host's neighbor cache, then re-run the ordinary lookup. Every
-    # driver's address discovery includes a MAC-keyed read of that cache, so
-    # warming it is exactly what turns a silent lookup into an answering one --
-    # and both halves are contract verbs, so this needs no per-host branch.
-    #
-    # This used to gate on a UTM-only function, which made the whole resolver a
-    # no-op on the other two hosts: they returned '' unconditionally and the
-    # second-chance probe built on top of this could never recover anything.
+    # See https://yuruna.link/4213a0b3-0178
     if (Get-Command Update-GuestNeighborCache -ErrorAction SilentlyContinue) {
         try {
             $null = Update-GuestNeighborCache -VMName $VMName -Confirm:$false
@@ -2349,15 +2239,7 @@ final observation, in words) and Reachability.
         # The VM-name fallback is not an address; passing it on would have the
         # wait dial a name that does not resolve.
         if ($addr -eq $name) { $addr = '' }
-        # An empty answer is not a discovery that the guest has no address. The
-        # wait keeps probing the last address it held -- including the one the
-        # caller seeded from the hypervisor -- so forgetting it here would put
-        # "no guest address discovered yet, so nothing has been probed" on screen
-        # while a probe runs against a known address every poll. That is the same
-        # unmeasured claim this wrapper exists to remove, merely inverted. It
-        # would also make the line flip text on every poll whenever discovery is
-        # intermittent, which is what floods a log. Only a NEW address replaces
-        # the one in hand.
+        # See https://yuruna.link/4213a0b3-0179
         if ($addr -and $addr -ne $o.Address) {
             $o.Address = $addr
             # A reading taken against the address the guest left proves nothing

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 428d9261-f6c4-49d0-94e9-7a19661cc048
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Release-prep for the bootstrap installers: regenerate install/install.sha256
     from the live installer files, sign it with the release private key, and run
-    the ASCII/no-BOM gate as a HARD precondition.
+    the ASCII/no-BOM and Ubuntu workflow-pin gates as HARD preconditions.
 
 .DESCRIPTION
     Reads the CalVer release from the repo-root VERSION file and produces the
@@ -36,6 +36,10 @@
     the release if a byte-parsed bootstrap script carries a BOM or a non-ASCII
     byte -- the authoritative backstop the per-cycle gate and the pre-commit
     hook point at for the published artifact.
+
+    Before writing release artifacts, it also checks the SHA-256 pins that the
+    Ubuntu 24/26 entrypoints enforce at runtime. A version stamp changes the
+    shared scripts' bytes; stale entrypoints must not reach a release tag.
 
     It also repoints the release pins that are still hard-coded -- the README
     verified-path snippets' signed-download URLs and the pinned convenience
@@ -128,6 +132,32 @@ $installers = @(
     'install/ubuntu.kvm.sh',
     'install/windows.hyper-v.ps1'
 )
+
+function Assert-UbuntuWorkflowPin {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Version)
+
+    foreach ($name in 'update', 'code', 'n8n', 'openclaw', 'postgresql') {
+        $shared = Join-Path $Root "guest/shared/ubuntu.$name.sh"
+        if (-not (Test-Path -LiteralPath $shared -PathType Leaf)) { throw "Missing shared Ubuntu workflow: $shared" }
+        $sharedBanner = [regex]::Match([IO.File]::ReadAllText($shared), '(?m)^# Version: ([^\r\n]+)\r?$')
+        if (-not $sharedBanner.Success -or $sharedBanner.Groups[1].Value -cne $Version) {
+            throw "Stale shared Ubuntu workflow version: $shared"
+        }
+        $digest = (Get-FileHash -LiteralPath $shared -Algorithm SHA256).Hash.ToLowerInvariant()
+        foreach ($release in '24', '26') {
+            $entrypoint = Join-Path $Root "guest/ubuntu.server.$release/ubuntu.server.$release.$name.sh"
+            if (-not (Test-Path -LiteralPath $entrypoint -PathType Leaf)) { throw "Missing Ubuntu workflow entrypoint: $entrypoint" }
+            $body = [IO.File]::ReadAllText($entrypoint)
+            $pin = [regex]::Match($body, '(?m)^expected="([0-9a-f]{64})"\r?$')
+            $banner = [regex]::Match($body, '(?m)^# Version: ([^\r\n]+)\r?$')
+            if (-not $pin.Success -or $pin.Groups[1].Value -cne $digest -or
+                -not $banner.Success -or $banner.Groups[1].Value -cne $Version) {
+                throw "Stale Ubuntu workflow entrypoint: $entrypoint. Run tools/Sync-GuestWorkflows.py before release."
+            }
+        }
+    }
+}
 
 # --- REGION: Signing key preconditions
 # These checks precede every write. Existence is not readability -- Test-Path
@@ -305,6 +335,11 @@ if (Test-Path -LiteralPath $asciiGate) {
 } else {
     Write-Warning "Test-AsciiNoBom.ps1 not found at $asciiGate; ASCII gate SKIPPED."
 }
+
+# The version updater regenerates these before it calls this release tool.
+# Check again here so a direct release invocation cannot publish stale pins.
+Assert-UbuntuWorkflowPin -Root $RepoRoot -Version $version
+Write-Information 'Ubuntu workflow checksum pins: PASS' -InformationAction Continue
 
 # --- REGION: Build install.sha256 candidate
 # Lowercase hex, two-space GNU text format so `sha256sum -c install.sha256`

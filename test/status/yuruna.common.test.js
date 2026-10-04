@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.30
+  Version: 2026.10.04
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -188,12 +188,12 @@ assert.strictEqual(pbt(false, true, 'pass', null, true, ['stash-service']),
 //     is quietly costing a boot-time prompt into something an operator can see.
 //     The age is bucketed on purpose -- the banner is an aria-live region, and a
 //     per-minute counter would re-announce itself for as long as the hold lasts.
-var pausedAction = { line: '[sequence start] Paused (waiting for resume)', vmName: 'test-guest.ubuntu.server.24-01' };
+var pausedAction = { code: 'sequence_paused_waiting_resume', vmName: 'test-guest.ubuntu.server.24-01' };
 var ageMinutes = function(m) { return new Date(Date.now() - m * 60000).toISOString(); };
-assert.strictEqual(pbt(true, false, 'running', { line: '[1/5] Paused (waiting for resume)' }, false, [], ageMinutes(0)),
+assert.strictEqual(pbt(true, false, 'running', { code: 'sequence_paused_waiting_resume' }, false, [], ageMinutes(0)),
   'Test paused',
   'a hold younger than the first bucket reads as a plain pause');
-assert.strictEqual(pbt(true, false, 'running', { line: '[1/5] Paused (waiting for resume)' }, false, [], ageMinutes(7)),
+assert.strictEqual(pbt(true, false, 'running', { code: 'sequence_paused_waiting_resume' }, false, [], ageMinutes(7)),
   'Test paused -- 5m+',
   'the age is reported at the bucket it has crossed, not to the minute');
 assert.strictEqual(pbt(true, false, 'running', pausedAction, false, [], ageMinutes(35)),
@@ -211,10 +211,17 @@ assert.strictEqual(pbt(true, false, 'running',
     { code: 'step_running', line: '[3/9] Paused (waiting for resume)' }, false, [], ageMinutes(0)),
   'Test pausing (after step)',
   'a different code keeps the armed pause from being upgraded by the stale sentence');
-assert.strictEqual(pbt(true, false, 'running',
-    { line: '[1/5] Paused (waiting for resume)' }, false, [], ageMinutes(0)),
-  'Test paused',
-  'a sidecar from a runner older than the code field is still read correctly');
+['', undefined, null, 'unknown_state'].forEach(function (code) {
+  assert.strictEqual(pbt(true, false, 'running',
+      { code: code, line: '[1/5] Paused (waiting for resume)' }, false, [], ageMinutes(0)),
+    'Test pausing (after step)',
+    'a missing/empty/unknown code cannot use display prose to establish a pause');
+});
+assert.strictEqual(Y.actionText({ code: 'sequence_paused_waiting_resume', label: '[1/5]', line: 'Pausado.' }),
+  '[1/5] Paused, waiting for resume.',
+  'coded actions render from the reader catalog while preserving the structural label');
+assert.strictEqual(Y.actionText({ line: 'Producer display detail' }), 'Producer display detail',
+  'untyped display details remain visible without deciding machine state');
 assert.strictEqual(pbt(true, false, 'running', pausedAction, false, [], ageMinutes(150)),
   'Test paused -- 2h+, guest test-guest.ubuntu.server.24-01 running',
   'holds past an hour read in hours');

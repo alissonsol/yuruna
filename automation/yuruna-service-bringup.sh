@@ -1,9 +1,10 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Shared local service provisioning primitives; sourcing performs no mutations.
 
+# --- REGION: yuruna_service_find_repo
 yuruna_service_find_repo() {
     local module="$1" candidate
     for candidate in "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" /home/*/yuruna; do
@@ -12,6 +13,7 @@ yuruna_service_find_repo() {
     return 1
 }
 
+# --- REGION: yuruna_service_packages
 yuruna_service_packages() {
     if command -v apt_retry >/dev/null 2>&1; then
         apt_retry sudo apt-get update -y
@@ -22,6 +24,7 @@ yuruna_service_packages() {
     fi
 }
 
+# --- REGION: yuruna_service_stage
 yuruna_service_stage() {
     local server="$1" name="$2" stage sdk
     sdk="$(cd "$server/../.." && pwd)/extension-sdk"
@@ -33,13 +36,13 @@ yuruna_service_stage() {
     printf '%s' "$stage"
 }
 
+# --- REGION: yuruna_service_build
 yuruna_service_build() {
     local stage="$1" name="$2" version="$3" tags="${4:-}" attempt delay=10
     local flags=()
     [ -z "$tags" ] || flags+=( -tags "$tags" )
-    # Build the checked-in module graph without go mod tidy: tidy could rewrite
-    # it in the staged tree. Retry transient module fetch and compiler failures
-    # with bounded backoff; a persistent error still fails the bring-up.
+    # See https://yuruna.link/42e220c4-000f
+    # Preserve the checked-in module graph and retry transient build failures.
     for attempt in 1 2 3; do
         if (cd "$stage/server" && go build "${flags[@]}" -ldflags "-X main.version=$version" -o "$name" .); then return 0; fi
         if [ "$attempt" -eq 3 ]; then echo "go build failed after $attempt attempts" >&2; return 1; fi
@@ -49,6 +52,7 @@ yuruna_service_build() {
     done
 }
 
+# --- REGION: yuruna_service_install
 yuruna_service_install() {
     local source="$1" destination="$2"
     sudo install -m 0755 -o root -g root "$source" "$destination" || return 1
@@ -56,6 +60,7 @@ yuruna_service_install() {
     sudo setcap 'cap_net_bind_service=+ep' "$destination" || true
 }
 
+# --- REGION: yuruna_service_wait_active
 yuruna_service_wait_active() {
     local unit="$1" attempts="${2:-6}" health="${3:-}" attempt
     # systemd can report active before the Go server has bound its health route;

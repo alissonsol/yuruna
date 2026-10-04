@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42aee21f-6c39-49b6-e04d-daf28d2639f1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,8 +56,99 @@
         ' runner records it could not prove stale.'
     )
     'runner.critical_record_replace' = 'Replace a private critical record'
+    'runner.cycle_outcome_rejected_kept' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] the rejected outcome record is kept at '
+        @{
+            'arg' = 'rejectedPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' for diagnosis.'
+    )
+    'runner.cycle_outcome_unrecorded' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] the cycle process exited '
+        @{
+            'arg' = 'childExit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' after '
+        @{
+            'arg' = 'ranForSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's without a usable outcome record ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). It is NOT counted as a pass: whether the cycle completed cannot be established, so this is a fault of the runner on this host rather than a test verdict. Pausing as for a failed cycle.'
+    )
+    'runner.cycle_outcome_unrecorded_log' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] outcome-unrecorded: exit '
+        @{
+            'arg' = 'childExit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' after '
+        @{
+            'arg' = 'ranForSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's, record '
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
     'runner.cycle_record_clear_action' = 'Remove the runner cycle record of an exited cycle'
     'runner.cycle_record_write_action' = 'Write the runner cycle record'
+    'runner.cycle_result_missing' = 'The cycle returned without publishing a result. Recording it as a failed cycle (no-cycle-result) instead of a completed one.'
+    'runner.cycle_success_withheld' = @(
+        'The cycle finished cleanly but its outcome could not be recorded, so the runner cannot count it as a pass. Exiting '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' instead of 0.'
+    )
     'runner.detached_handshake_write_action' = 'Write the detached worker''s identity handshake'
     'runner.detached_launch_action' = 'Launch a detached worker process'
     'runner.diagnostic_budget_exhausted' = @(
@@ -22044,8 +22135,74 @@
     'runner.pool_status_repositories_none' = '  repositories: (none)'
     'runner.prior_runner_cleanup_action' = "  Action:  stopping it and running`n           Remove-TestVMFiles.ps1 before start"
     'runner.process_start_record_write_action' = 'Write a process start-time record'
+    'runner.project_previous_cleanup_failed' = @(
+        'Could not delete the displaced project checkout at '
+        @{
+            'arg' = 'previousDir'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. The new checkout is in place; the next refresh removes the leftover.'
+    )
+    'runner.project_swap_recovered' = @(
+        'Recovered an interrupted project refresh under '
+        @{
+            'arg' = 'repoRoot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '.'
+    )
     'runner.readiness_ack_remove_action' = 'Remove a stale refresh readiness acknowledgment'
     'runner.readiness_ack_write_action' = 'Write the refresh readiness acknowledgment'
+    'runner.recovery_applied' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] recovery action '''
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ''' ran for a '
+        @{
+            'arg' = 'failClass'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' failure (attempt '
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '); the failure pause is skipped and the next cycle starts at once.'
+    )
+    'runner.recovery_result_write_failed' = @(
+        'Could not record the recovery result at '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). The cycle outcome is unaffected.'
+    )
     'runner.refresh_barrier_held' = @(
         'Resumed after host refresh '
         @{
@@ -23184,6 +23341,21 @@
     )
     'runner.status_worker_directory_prepare_action' = 'Prepare the private worker directory'
     'runner.status_worker_state_write_action' = 'Publish the worker state record'
+    'runner.telemetry_event_dropped' = @(
+        'A cycle event could not be recorded ('''
+        @{
+            'arg' = 'eventName'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ''': '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). The cycle continues, but its event stream is now incomplete; the count and the reason are in cycle.events.delivery.json. Further losses this cycle are counted, not repeated.'
+    )
     'runner.transcript_title' = 'Yuruna test-runner log'
     'runner.vault_retired_entries' = @(
         'removed '
@@ -23193,6 +23365,36 @@
             'trust' = 'external'
         }
     )
+    'runner.vm_admission_occupied' = @(
+        'Refusing to start a cycle: these VMs are running on the host and would not stop: '
+        @{
+            'arg' = 'occupants'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Stop or delete them, then run the cycle again.'
+    )
+    'runner.vm_admission_unknown' = @(
+        'Refusing to start a cycle: the host could not show that no other VM is running ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' after '
+        @{
+            'arg' = 'probes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' read(s): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Two cycles on one VM set corrupt each other, so the runner will not guess; it tries again on its next loop. Check the hypervisor command line tools and VM inventory on this host.'
+    )
     'runner.vm_cleanup_terminating_error' = @(
         'Remove-TestVMFiles.ps1 raised a terminating error; cycle exit code will still reflect the cycle''s pass/fail. Error: '
         @{
@@ -23200,5 +23402,32 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.warm_resume_declined_unverified' = @(
+        '  WARM-RESUME declined: '''
+        @{
+            'arg' = 'resumeSequence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' failed at step '
+        @{
+            'arg' = 'resumeFromStep'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'failureClass'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ') and replaying it cannot be shown to be safe (reason: '
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '). The original failure stands.'
     )
 }

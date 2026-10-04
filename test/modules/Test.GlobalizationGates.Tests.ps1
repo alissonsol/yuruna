@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1323,6 +1323,84 @@ Describe 'enabled production locales use the complete product matrix' {
             $result = Invoke-Gate -Script $tool -Arguments @('-Quiet')
             Assert-Equal 0 $result.Code $result.Output
         }
+    }
+}
+
+Describe 'independent tool processes preserve complete gate evidence' {
+    BeforeEach {
+        foreach ($name in @('Get-GateRemediation', 'Add-Row', 'Invoke-ToolGateBatch')) {
+            . ([scriptblock]::Create((Get-CrossRepoFunction -Name $name)))
+        }
+        $script:rows = [Collections.Generic.List[object]]::new()
+        $script:BatchRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        [void][IO.Directory]::CreateDirectory($script:BatchRoot)
+        $script:BatchTool = Join-Path $script:BatchRoot 'tool.ps1'
+        [IO.File]::WriteAllText($script:BatchTool, @'
+param([string]$Root, [string]$Name, [int]$Peers = 1, [int]$Code = 0)
+$ErrorActionPreference = 'Stop'
+$start = [DateTime]::UtcNow.Ticks
+[IO.File]::WriteAllText((Join-Path $Root ("ready-$Name")), 'ready')
+if ($Peers -eq 2 -and $Name -in @('alpha', 'beta')) {
+    $other = if ($Name -eq 'alpha') { 'beta' } else { 'alpha' }
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not [IO.File]::Exists((Join-Path $Root ("ready-$other")))) {
+        if ([DateTime]::UtcNow -gt $deadline) { throw 'the second process did not start' }
+        Start-Sleep -Milliseconds 20
+    }
+}
+Start-Sleep -Milliseconds 150
+[IO.File]::WriteAllText((Join-Path $Root ("$Name.json")), (@{
+    pid = $PID; start = $start; finish = [DateTime]::UtcNow.Ticks
+} | ConvertTo-Json))
+Write-Output "fixture-$Name"
+exit $Code
+'@, [Text.UTF8Encoding]::new($false))
+    }
+
+    It 'honors throttle <Limit> while preserving ordered results and separate process identities' -ForEach @(
+        @{ Limit = 1 }, @{ Limit = 2 }
+    ) {
+        $work = @(foreach ($name in @('alpha', 'beta', 'gamma')) {
+            [pscustomobject]@{ Name = $name; Arguments = @('-NoProfile', '-File', $script:BatchTool,
+                '-Root', $script:BatchRoot, '-Name', $name, '-Peers', [string]$Limit) }
+        })
+        Invoke-ToolGateBatch -Work $work -ThrottleLimit $Limit
+        @($script:rows.Gate) | Should -Be @('alpha', 'beta', 'gamma')
+        @($script:rows | Where-Object State -NE 'pass') | Should -HaveCount 0
+        @($script:rows | Where-Object { $_.Seconds -le 0 }) | Should -HaveCount 0
+        $events = @(foreach ($name in @('alpha', 'beta', 'gamma')) {
+            Get-Content -LiteralPath (Join-Path $script:BatchRoot "$name.json") -Raw | ConvertFrom-Json
+        })
+        @($events.pid | Select-Object -Unique) | Should -HaveCount 3
+        $active = $peak = 0
+        $timeline = @(foreach ($processEvent in $events) {
+            @{ Tick = $processEvent.start; Change = 1 }; @{ Tick = $processEvent.finish; Change = -1 }
+        })
+        foreach ($processEvent in $timeline | Sort-Object Tick) {
+            $active += $processEvent.Change
+            $peak = [Math]::Max($peak, $active)
+        }
+        $peak | Should -Be $Limit
+        $active | Should -Be 0
+    }
+
+    It 'retains a failure and a cannot-run result without hiding the passing sibling' {
+        $work = @(foreach ($case in @(@{ Name = 'alpha'; Code = 0 }, @{ Name = 'beta'; Code = 1 }, @{ Name = 'gamma'; Code = 2 })) {
+            [pscustomobject]@{ Name = $case.Name; Arguments = @('-NoProfile', '-File', $script:BatchTool,
+                '-Root', $script:BatchRoot, '-Name', $case.Name, '-Code', [string]$case.Code) }
+        })
+        Invoke-ToolGateBatch -Work $work -ThrottleLimit 2
+        @($script:rows.State) | Should -Be @('pass', 'fail', 'cannot-run')
+        $script:rows[1].Detail | Should -BeExactly 'fixture-beta'
+    }
+
+    It 'reports every missing worker as cannot-run rather than shrinking the gate census' {
+        Mock ForEach-Object {}
+        $work = @([pscustomobject]@{ Name = 'alpha'; Arguments = @() },
+            [pscustomobject]@{ Name = 'beta'; Arguments = @() })
+        Invoke-ToolGateBatch -Work $work -ThrottleLimit 2
+        $script:rows | Should -HaveCount 2
+        @($script:rows | Where-Object State -NE 'cannot-run') | Should -HaveCount 0
     }
 }
 

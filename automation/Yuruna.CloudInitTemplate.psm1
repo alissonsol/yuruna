@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4234ea6a-ddae-4da7-be02-26d47d418045
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -401,19 +401,7 @@ function New-CloudInitUserData {
         $fullReplacement['YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER'] = $b64.HostLocate
     }
     # --- REGION: https://yuruna.link/4220a755-002d
-    # The two identities that let a guest repair a host address that has gone
-    # stale. Defaulted here rather than per-caller for the same reason the
-    # script bodies are: every seed wants the identical answer, and a
-    # per-caller copy is a per-caller chance to seed a guest that cannot find
-    # its way home. A caller with a better answer still wins -- the
-    # service-VM seeds pass a hostId they already resolved.
-    #
-    # Both are read from the ambient environment rather than resolved through
-    # the harness modules that own them, keeping this leaf dependency-free
-    # (the same soft, call-time convention Get-PortMapStatePath documents).
-    # Empty is a supported outcome, not a failure: a lab with no pool
-    # directory seeds empty values and its guests behave exactly as they did
-    # before this indirection existed.
+    # See https://yuruna.link/4213a0b3-0009
     if (-not $fullReplacement.ContainsKey('YURUNA_HOST_ID_PLACEHOLDER')) {
         $hostUuid = ''
         if ($env:YURUNA_RUNTIME_DIR) {

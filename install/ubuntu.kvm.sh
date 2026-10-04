@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -126,8 +126,18 @@ trap _yuruna_on_err ERR
 # name service and reports a grant the running session does not yet carry.
 # Exit codes only: sudo's refusal wording differs between the C sudo and the Rust
 # rewrite, so a message matcher silently stops matching.
+#
+# group_names is shared word for word with the macOS installer. id exits 1 when
+# one of the groups has no name (deleted mid-session, or a directory group that
+# does not resolve) even though it printed every name it could; under pipefail
+# that status, not the names, would decide a pipeline. Callers use
+# `grep -x ... >/dev/null` rather than -q, which stops reading at the first
+# match and can leave the writer to die of SIGPIPE, which pipefail also reports.
+group_names() {
+  { id -Gn ${1:+"$1"} 2>/dev/null || true; } | tr ' ' '\n'
+}
 _yuruna_whoami="${USER:-$(id -un)}"
-if ! sudo -n -v 2>/dev/null && ! id -nG | tr ' ' '\n' | grep -qxE 'sudo|wheel'; then
+if ! sudo -n -v 2>/dev/null && ! group_names | grep -xE 'sudo|wheel' >/dev/null; then
   die "$_yuruna_whoami cannot elevate: this session is in neither the 'sudo' nor the 'wheel' group, so sudo will refuse and the installer cannot continue.
 
    From an account that can already elevate, run:
@@ -139,6 +149,12 @@ if ! sudo -n -v 2>/dev/null && ! id -nG | tr ' ' '\n' | grep -qxE 'sudo|wheel'; 
 fi
 
 ARCH="$(uname -m)"
+
+# The AMD Ryzen AI Developer Platform is Debian trixie underneath; regions
+# further down adjust to it. Matched on the release name it ships.
+is_amd_ryzen_ai_platform() {
+  [[ "${PRETTY_NAME:-}" == "AMD Ryzen AI Developer"* ]]
+}
 
 log "Yuruna Ubuntu KVM installer starting"
 log "  distro : ${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}"
@@ -453,6 +469,49 @@ log "Installing virt-manager (with recommends, so its console works)"
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y virt-manager \
   || note_issue "Installing virt-manager failed; guest consoles remain available through virt-viewer."
 
+# --- REGION: Remove a standalone python3 that shadows the system interpreter
+# Hosts of the AMD Ryzen AI Developer Platform can carry a standalone CPython
+# under /opt/cpython linked as /usr/local/bin/python3. virt-install and the
+# platform's own tools run `python3` from PATH and need /usr/bin/python3's
+# modules, so that link stops every VM build. It is removed before the osinfo
+# check below, the first step that runs virt-install.
+#
+# Provenance comes from the python3 link alone, because that name is the one
+# that shadows the system interpreter. When it points into /opt/cpython, it goes,
+# then any python3.N link into the same version directory, then that directory
+# when its name is a CPython version, then /opt/cpython if that left it empty.
+# Anything else there stays, including a CPython someone unpacked and links only
+# as python3.N, runs by full path, or keeps virtual environments on, and a
+# --prefix=/opt/cpython install whose link has no version directory. The
+# directories are arguments so tests can point them elsewhere.
+remove_standalone_python() {
+  local bin_dir="${1:-/usr/local/bin}" opt_dir="${2:-/opt/cpython}" target ver link
+  [[ -L "$bin_dir/python3" ]] || return 0
+  target="$(readlink "$bin_dir/python3")"
+  [[ "$target" == "$opt_dir"/* ]] || return 0
+  ver="${target#"$opt_dir"/}"; ver="${ver%%/*}"
+  if ! sudo rm -f "$bin_dir/python3"; then
+    note_issue "Could not remove $bin_dir/python3, which points at $target; virt-install cannot run while it shadows /usr/bin/python3. Remove it with: sudo rm $bin_dir/python3"
+    return 0
+  fi
+  log "  removed $bin_dir/python3 (it pointed at $target)"
+  for link in "$bin_dir"/python3.[0-9]*; do
+    [[ -L "$link" && "$(readlink "$link")" == "$opt_dir/$ver/"* ]] || continue
+    sudo rm -f "$link" && log "  removed $link"
+  done
+  [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -d "$opt_dir/$ver" && ! -L "$opt_dir/$ver" ]] || return 0
+  if sudo rm -rf "$opt_dir/$ver"; then
+    log "  removed $opt_dir/$ver"
+    sudo rmdir "$opt_dir" 2>/dev/null || true
+  else
+    warn "  could not remove $opt_dir/$ver; the links into it are gone, so it can be deleted by hand."
+  fi
+}
+if is_amd_ryzen_ai_platform; then
+  remove_standalone_python
+  hash -r
+fi
+
 # --- REGION: osinfo-db refresh
 osinfo_has_variant() {
   local v="$1"
@@ -460,17 +519,35 @@ osinfo_has_variant() {
   virt-install --osinfo list 2>/dev/null \
     | grep -E "(^|[[:space:],])${re}([[:space:],]|$)" >/dev/null
 }
+# Succeeds when virt-install starts. It runs through `python3` from PATH
+# (`#!/usr/bin/env python3`), so a python3 ahead of /usr/bin/python3 that lacks
+# the system's gi and libvirt modules stops it, and every VM build with it. On
+# failure, prints the last line it reported.
+virt_install_runs() {
+  local out
+  if out="$(virt-install --version 2>&1)"; then return 0; fi
+  printf '%s\n' "${out##*$'\n'}"
+  return 1
+}
 osinfo_db_diag() {
-  local label="$1"
+  local label="$1" listing ubu d rc=0
   log "    [$label] osinfo-db package: $(dpkg-query -W -f='${Version}' osinfo-db 2>/dev/null || echo 'not installed')"
-  local count
-  count=$(virt-install --osinfo list 2>/dev/null | wc -l)
-  log "    [$label] virt-install --osinfo list count: $count lines"
-  local ubu
-  ubu=$(virt-install --osinfo list 2>/dev/null | grep -iE '^ubuntu' | tr '\n' ' ')
-  log "    [$label] ubuntu* short-ids visible: ${ubu:-<none>}"
+  # Diagnostics only, so nothing here may end the run: under pipefail a
+  # virt-install that fails, or a listing with no ubuntu entry, fails the
+  # pipeline, and an assignment from it would take the installer down. Every
+  # substitution is guarded, not only the assignments: errtrace carries the ERR
+  # trap into a command substitution, where an unguarded failure prints the
+  # installer's abort banner even though the run goes on.
+  listing="$(virt-install --osinfo list 2>&1)" || rc=$?
+  if (( rc != 0 )); then
+    log "    [$label] virt-install --osinfo list exited $rc: ${listing##*$'\n'}"
+  else
+    log "    [$label] virt-install --osinfo list count: $(printf '%s\n' "$listing" | wc -l || true) lines"
+    ubu="$(printf '%s\n' "$listing" | grep -iE '^ubuntu' | tr '\n' ' ' || true)"
+    log "    [$label] ubuntu* short-ids visible: ${ubu:-<none>}"
+  fi
   for d in /usr/share/osinfo /usr/local/share/osinfo "$HOME/.local/share/osinfo"; do
-    log "    [$label] $d exists: $(test -d "$d" && echo yes || echo no); ubuntu-24.04*.xml: $(find "$d" -name 'ubuntu-24.04*.xml' 2>/dev/null | head -3 | tr '\n' ' ')"
+    log "    [$label] $d exists: $(test -d "$d" && echo yes || echo no); ubuntu-24.04*.xml: $(find "$d" -name 'ubuntu-24.04*.xml' 2>/dev/null | head -3 | tr '\n' ' ' || true)"
   done
 }
 
@@ -480,6 +557,13 @@ ensure_osinfo_db_has_ubuntu24() {
     return
   fi
   log "Checking osinfo-db for 'ubuntu24.04' variant"
+  # A virt-install that cannot start lists nothing, which reads as missing data
+  # and would send the refresh below after a database that is not the problem.
+  local why
+  if ! why="$(virt_install_runs)"; then
+    warn "  virt-install does not run ($why) -- skipping the osinfo-db check; the final preflight reports it."
+    return
+  fi
   if osinfo_has_variant 'ubuntu24.04'; then
     log "  ubuntu24.04 already present in osinfo-db (no refresh needed)"
     return
@@ -709,7 +793,7 @@ sudo systemctl enable --now virtlogd
 
 NEEDS_RELOG=0
 for grp in libvirt kvm; do
-  if ! id -nG "$USER" | tr ' ' '\n' | grep -qx "$grp"; then
+  if ! group_names "$USER" | grep -x "$grp" >/dev/null; then
     log "  adding $USER to group $grp"
     sudo usermod -aG "$grp" "$USER"
     NEEDS_RELOG=1
@@ -817,6 +901,79 @@ use_dev_branch_if_needed() {
   fi
 }
 
+# --- REGION: Checkout repair helpers
+# Shared word for word between the macOS and Ubuntu installers (a test holds the
+# copies equal) and kept to bash 3.2. Both run where a checkout is already on
+# disk, so a failure is recorded and the run goes on with what is there.
+
+# A backup path for $1 that does not exist yet. The name is stamped to the
+# second, and a numeric suffix covers the rest: `mv` onto a directory that is
+# already there would move the checkout INSIDE it, and the put-back below would
+# then restore the wrong tree.
+unique_backup_path() {
+  local base candidate n=1
+  base="$1.backup.$(date +%Y-%m-%d.%H-%M-%S)"
+  candidate="$base"
+  while [[ -e "$candidate" || -L "$candidate" ]]; do
+    candidate="$base.$n"
+    n=$(( n + 1 ))
+  done
+  printf '%s\n' "$candidate"
+}
+
+# Re-clones into $YURUNA_DIR after the existing checkout was moved to $1. A clone
+# that cannot finish (the remote unreachable, a pinned tag not published yet)
+# would otherwise end the run with no checkout at all, and the exit trap would
+# delete the preserved test status with it. The moved checkout goes back
+# instead, and the run continues on it as it does when the pull is skipped.
+reclone_checkout() {
+  local backup="$1" remote="$2"
+  log "Cloning fresh Yuruna into $YURUNA_DIR from $remote"
+  if git clone --branch "$YURUNA_BRANCH" "$remote" "$YURUNA_DIR"; then
+    return 0
+  fi
+  rm -rf "$YURUNA_DIR" 2>/dev/null || true
+  # Something still at the path would take the moved checkout inside it.
+  if [[ ! -e "$YURUNA_DIR" && ! -L "$YURUNA_DIR" ]] && mv "$backup" "$YURUNA_DIR"; then
+    YURUNA_BACKUP_CREATED=""
+    note_issue "Re-cloning from $remote ('$YURUNA_BRANCH') failed, so the previous checkout was put back at $YURUNA_DIR and used as-is. Re-run the installer once the remote and the ref are reachable."
+    return 0
+  fi
+  die "Re-cloning from $remote failed and the previous checkout could not be put back. It is at $backup, with its test/status runtime state inside."
+}
+
+# Rebuilds the working tree under the current .gitattributes, best effort. A
+# held .git/index.lock (left by a git that crashed, or taken by an editor's
+# `git status` racing this step) fails `rm --cached` or `reset`, and the first
+# may already have emptied the index; the index is put back from HEAD and the
+# operator gets the one command that finishes the job. A held .git/config.lock
+# fails the config writes the same way, and neither is worth ending the run.
+renormalize_checkout() {
+  log "Renormalizing repo line endings (per .gitattributes)"
+  git -C "$YURUNA_DIR" config core.autocrlf input \
+    || warn "  could not set core.autocrlf in $YURUNA_DIR -- continuing."
+  if ! git -C "$YURUNA_DIR" config --get-all include.path 2>/dev/null \
+       | grep -Fx '../.gitconfig.yuruna' >/dev/null; then
+    if git -C "$YURUNA_DIR" config --local --add include.path '../.gitconfig.yuruna'; then
+      log "  Enabled pull.rebase via .gitconfig.yuruna include"
+    else
+      warn "  could not add the .gitconfig.yuruna include to $YURUNA_DIR -- continuing."
+    fi
+  fi
+  git -C "$YURUNA_DIR" update-index --refresh >/dev/null 2>&1 || true
+  if ! git -C "$YURUNA_DIR" diff-index --quiet HEAD -- 2>/dev/null; then
+    warn "  Working tree has uncommitted changes -- only renormalizing the index."
+    git -C "$YURUNA_DIR" add --renormalize . || true
+    warn "  After resolving local changes, run: git checkout HEAD -- ."
+  elif git -C "$YURUNA_DIR" rm -r --cached --quiet . \
+       && git -C "$YURUNA_DIR" reset --hard HEAD >/dev/null; then
+    log "  Working tree rebuilt under current .gitattributes (LF for *.sh, etc.)"
+  else
+    git -C "$YURUNA_DIR" reset --quiet HEAD 2>/dev/null || true
+    note_issue "Could not rebuild $YURUNA_DIR under .gitattributes; another git process may hold .git/index.lock, or a crashed one left it behind. Once it is free, run: git -C '$YURUNA_DIR' reset --hard HEAD"
+  fi
+}
+
 # --- REGION: Clone / update the repo
 YURUNA_BACKUP_CREATED=""
 preserve_test_status
@@ -870,7 +1027,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
     # keeps a mode flip (PIN_VERSION on/off) robust to a dirty working tree.
     if ! { git -C "$YURUNA_DIR" checkout "$YURUNA_BRANCH" \
            && git -C "$YURUNA_DIR" pull --ff-only origin "$YURUNA_BRANCH"; }; then
-      YURUNA_BACKUP_DIR="${YURUNA_DIR}.backup.$(date +%Y-%m-%d.%H-%M)"
+      YURUNA_BACKUP_DIR="$(unique_backup_path "$YURUNA_DIR")"
       warn "git pull --ff-only failed -- moving the existing checkout aside and re-cloning."
       warn "  from: $YURUNA_DIR"
       warn "  to:   $YURUNA_BACKUP_DIR"
@@ -879,8 +1036,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
       fi
       YURUNA_BACKUP_CREATED="$YURUNA_BACKUP_DIR"
       reclone_remote="${actual_remote:-$YURUNA_REPO}"
-      log "Cloning fresh Yuruna into $YURUNA_DIR from $reclone_remote"
-      git clone --branch "$YURUNA_BRANCH" "$reclone_remote" "$YURUNA_DIR"
+      reclone_checkout "$YURUNA_BACKUP_DIR" "$reclone_remote"
     fi
   fi
 else
@@ -894,25 +1050,7 @@ fi
 
 # --- REGION: Renormalize line endings under .gitattributes
 if [[ -d "$YURUNA_DIR/.git" ]]; then
-  log "Renormalizing repo line endings (per .gitattributes)"
-  git -C "$YURUNA_DIR" config core.autocrlf input
-
-  if ! git -C "$YURUNA_DIR" config --get-all include.path 2>/dev/null \
-       | grep -Fxq '../.gitconfig.yuruna'; then
-    git -C "$YURUNA_DIR" config --local --add include.path '../.gitconfig.yuruna'
-    log "  Enabled pull.rebase via .gitconfig.yuruna include"
-  fi
-
-  git -C "$YURUNA_DIR" update-index --refresh >/dev/null 2>&1 || true
-  if ! git -C "$YURUNA_DIR" diff-index --quiet HEAD -- 2>/dev/null; then
-    warn "  Working tree has uncommitted changes -- only renormalizing the index."
-    git -C "$YURUNA_DIR" add --renormalize . || true
-    warn "  After resolving local changes, run: git checkout HEAD -- ."
-  else
-    git -C "$YURUNA_DIR" rm -r --cached --quiet .
-    git -C "$YURUNA_DIR" reset --hard HEAD >/dev/null
-    log "  Working tree rebuilt under current .gitattributes (LF for *.sh, etc.)"
-  fi
+  renormalize_checkout
 fi
 
 # --- REGION: Pin to the current release (opt-in)
@@ -1026,6 +1164,249 @@ bring_powershell_to_required_version() {
 }
 bring_powershell_to_required_version
 
+# --- REGION: AMD Ryzen AI Developer Platform floor repair
+# The platform is Debian trixie underneath, and a Debian stable archive keeps
+# git, python3, curl and qemu-img below the floors in
+# automation/Yuruna.Requirement.yml, which track the Ubuntu 26.04 archive. The
+# apt-get install above already took the newest version trixie carries, so
+# without this region the closing check reports the same four shortfalls on every
+# run and no re-run can clear them.
+#
+# Each tool takes the nearest source that reaches its floor without replacing
+# the platform's base libraries. curl and qemu-img come from trixie-backports.
+# git builds from its signed release tarball, because forky's git pulls in a
+# newer glibc; the Debian package stays installed and the build wins the command
+# name from /usr/local/bin.
+#
+# python3 stays at the platform's version and is left out of the closing check
+# here. The platform's amd-halo-box package depends on python3-torch-rocm,
+# which pins the archive python3 below 3.14. No other interpreter can take the
+# name either: virt-install, virt-manager, virt-clone, virt-xml and the
+# platform's own tools (vllm-start, amd-halo-*) run `#!/usr/bin/env python3`
+# and need the system modules (gi, libvirt, ROCm torch) that only
+# /usr/bin/python3 carries. A python3 earlier on PATH breaks every VM build.
+
+# The first dotted number on the first line `<tool> --version` prints:
+# "git version 2.47.3", "Python 3.13.5", "curl 8.14.1 (x86_64-pc-linux-gnu) ...",
+# "qemu-img version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)".
+tool_version() {
+  "$1" --version 2>/dev/null | head -1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1
+}
+
+# Succeeds when the tool answers below its floor. The requirement rows for these
+# tools are named after the command itself. An absent tool or an unreadable floor
+# is left to the closing check, which reports both.
+tool_below_floor() {
+  local tool="$1" floor have
+  floor="$(requirement_floor "$tool" || true)"
+  have="$(tool_version "$tool" || true)"
+  [[ -n "$floor" && -n "$have" ]] || return 1
+  if version_ge "$have" "$floor"; then
+    log "  $tool $have meets the $floor floor"
+    return 1
+  fi
+  log "  $tool $have is below the $floor floor"
+  return 0
+}
+
+# After a repair, say what the command name answers with now. A shortfall left
+# here also reaches the closing summary; naming the binary that answered is what
+# that line cannot say, and it shows a copy elsewhere on PATH winning the name.
+confirm_tool_floor() {
+  local tool="$1" floor have
+  floor="$(requirement_floor "$tool" || true)"
+  have="$(tool_version "$tool" || true)"
+  if version_ge "$have" "$floor"; then
+    log "  $tool now answers $have"
+  else
+    warn "  $tool answers ${have:-nothing} after the repair, still below the $floor floor (resolved: $(command -v "$tool" || echo none))."
+  fi
+}
+
+# Adds a Debian suite as an apt source unless one is already configured. The
+# match skips commented lines and the -sloppy suite, and reads only the files apt
+# reads, so a leftover .save copy does not count as configured.
+enable_debian_backports() {
+  local suite="$1" list="/etc/apt/sources.list.d/yuruna-$1.sources"
+  local keyring=/usr/share/keyrings/debian-archive-keyring.gpg
+  if grep -qsE "^[^#]*[[:space:]]${suite}([[:space:]]|\$)" \
+       /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; then
+    log "  $suite is already an apt source"
+    return 0
+  fi
+  if [[ ! -r "$keyring" ]]; then
+    warn "  $keyring is missing, so $suite could not be verified -- not adding it."
+    return 1
+  fi
+  log "  adding $suite as an apt source ($list)"
+  printf '%s\n' 'Types: deb' 'URIs: http://deb.debian.org/debian' "Suites: $suite" \
+    'Components: main' "Signed-By: $keyring" | sudo tee "$list" >/dev/null || return 1
+  if ! sudo apt-get update -q; then
+    # Remove only the source this attempt created; leave prior configuration alone.
+    sudo rm -f "$list" || true
+    return 1
+  fi
+}
+
+# Backports is NotAutomatic: apt never selects it on its own, so the target
+# release is named for the packages that need it. ButAutomaticUpgrades keeps the
+# installed backports current on an ordinary upgrade afterwards.
+raise_tool_from_suite() {
+  local suite="$1" tool="$2"; shift 2
+  tool_below_floor "$tool" || return 0
+  log "  installing $* from $suite"
+  if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -t "$suite" "$@"; then
+    note_issue "Installing $* from $suite failed, so $tool stays below its floor -- see the apt output above."
+    return 0
+  fi
+  confirm_tool_floor "$tool"
+}
+
+build_git_from_source() {
+  local ver="$1" work="$2" suite="${3:-}"
+  local base="https://www.kernel.org/pub/software/scm/git" tarball="$work/git-$ver.tar"
+  # Junio C Hamano's key; the tarballs are signed by one of its subkeys. Refresh
+  # on a key rotation: `gpg --list-packets git-<ver>.tar.sign` names the signing
+  # subkey, and the key it belongs to is the new primary fingerprint.
+  local GIT_RELEASE_KEY_FPR='96E07AF25771955980DAD10020D04E5A713660A7'
+  local -a deps=(make gcc libc6-dev libcurl4-openssl-dev libexpat1-dev libssl-dev libpcre2-dev zlib1g-dev gettext gpg gpgv)
+  log "  installing the packages git $ver builds against"
+  # libcurl4-openssl-dev requires exactly the installed libcurl4t64, so once curl
+  # comes from backports the headers have to come from there too.
+  if [[ -n "$suite" ]]; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -t "$suite" "${deps[@]}" || return 1
+  else
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${deps[@]}" || return 1
+  fi
+
+  log "  downloading git $ver from kernel.org"
+  curl -fsSL --retry 3 -o "$tarball.gz" "$base/git-$ver.tar.gz" || return 1
+  curl -fsSL --retry 3 -o "$tarball.sign" "$base/git-$ver.tar.sign" || return 1
+  # kernel.org signs the uncompressed tar, so the signature is checked against it
+  # and the build unpacks those same verified bytes.
+  gzip -dc "$tarball.gz" > "$tarball" || return 1
+
+  # FAIL CLOSED: an unverified tarball is never built. The key is fetched over
+  # plain HTTPS rather than `gpg --recv-keys`, whose dirmngr cannot reach a
+  # keyserver from some networks and containers. Where the key comes from does
+  # not matter: only a signature by the pinned primary key passes the check below.
+  # gpgv checks against that one keyring with no agent, trust database or home
+  # directory; full gpg exits non-zero on an import whenever gpg-agent, which it
+  # only recommends, is absent.
+  local key="$work/git-release-key" vstatus
+  if ! { curl -fsSL --retry 3 -o "$key.asc" \
+           "https://git.kernel.org/pub/scm/docs/kernel/pgpkeys.git/plain/keys/${GIT_RELEASE_KEY_FPR: -16}.asc" \
+         || curl -fsSL --retry 3 -o "$key.asc" \
+           "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x$GIT_RELEASE_KEY_FPR"; } \
+     || ! gpg --batch --dearmor -o "$key.gpg" "$key.asc" >/dev/null 2>&1; then
+    warn "  could not fetch the git release key $GIT_RELEASE_KEY_FPR -- not building unverified source."
+    return 1
+  fi
+  vstatus="$(gpgv --keyring "$key.gpg" --status-fd 1 "$tarball.sign" "$tarball" 2>/dev/null || true)"
+  # VALIDSIG names the signing subkey first and its primary key last.
+  if ! printf '%s\n' "$vstatus" \
+       | awk -v fpr="$GIT_RELEASE_KEY_FPR" '$2 == "VALIDSIG" && $NF == fpr { ok = 1 } END { exit !ok }'; then
+    warn "  git-$ver.tar is not signed by the git release key $GIT_RELEASE_KEY_FPR -- not building it."
+    return 1
+  fi
+  log "  GPG signature verified (git release key $GIT_RELEASE_KEY_FPR)"
+
+  tar -xf "$tarball" -C "$work" || return 1
+  log "  building git $ver"
+  # Tcl/Tk is not installed, and gitk/git-gui are not what the floor asks about.
+  # PCRE2 keeps `git grep -P` and --perl-regexp working, as they do with the
+  # Debian git this build shadows.
+  local -a knobs=(prefix=/usr/local NO_TCLTK=1 USE_LIBPCRE2=YesPlease)
+  if ! make -C "$work/git-$ver" -j"$(nproc)" "${knobs[@]}" all > "$work/git-build.log" 2>&1 \
+     || ! sudo make -C "$work/git-$ver" "${knobs[@]}" install >> "$work/git-build.log" 2>&1; then
+    tail -n 40 "$work/git-build.log" >&2
+    return 1
+  fi
+  log "  installed git $ver under /usr/local"
+  # git-subtree lives in contrib, outside `make install`, but the Debian git
+  # package ships it. Core git already meets the floor, so a failure here is a
+  # warning rather than a failed build.
+  if make -C "$work/git-$ver/contrib/subtree" "${knobs[@]}" >> "$work/git-build.log" 2>&1 \
+     && sudo make -C "$work/git-$ver/contrib/subtree" "${knobs[@]}" install >> "$work/git-build.log" 2>&1; then
+    log "  installed git-subtree beside it"
+  else
+    warn "  git-subtree could not be installed under /usr/local, so 'git subtree' is unavailable from this build."
+  fi
+}
+
+# Succeeds when the git that answers on PATH is the /usr/local build and lacks
+# what the Debian git it shadows provides: PCRE2 (`git grep -P`, --perl-regexp)
+# or git-subtree. It identifies the build by path only; the caller decides
+# whether the build is this region's to replace. The probe needs a Perl-only
+# construct and a real file: git compiles a plain pattern as a fixed string and
+# compiles nothing when there is no file. The argument is the build's path, so
+# tests can point it elsewhere.
+local_git_incomplete() {
+  local git_bin="${1:-/usr/local/bin/git}" probe rc=0
+  [[ "$(command -v git || true)" == "$git_bin" ]] || return 1
+  [[ -x "$("$git_bin" --exec-path 2>/dev/null || true)/git-subtree" ]] || return 0
+  probe="$(mktemp -d)" || return 1
+  printf 'probe\n' > "$probe/probe"
+  "$git_bin" -C "$probe" grep --no-index -P 'p(?=robe)' -- probe >/dev/null 2>&1 || rc=$?
+  rm -rf "$probe"
+  (( rc != 0 ))
+}
+
+bring_amd_ryzen_ai_platform_to_floors() {
+  is_amd_ryzen_ai_platform || return 0
+  local codename="${DEBIAN_CODENAME:-trixie}"
+  local suite="${codename}-backports" work floor have
+  log "AMD Ryzen AI Developer Platform detected (Debian $codename base) -- raising the tools its archive keeps below the floors"
+  if enable_debian_backports "$suite"; then
+    raise_tool_from_suite "$suite" curl curl
+    # qemu-system moves with qemu-utils so the emulator and the image tool stay
+    # on one release.
+    raise_tool_from_suite "$suite" qemu-img qemu-utils "$qemu_kvm_pkg"
+  else
+    note_issue "Could not enable $suite as an apt source, so curl and qemu-img stay at the versions the $codename archive ships."
+    suite=""
+  fi
+  # Said here once, because floor_check_tools leaves python3 out of the closing
+  # check on this platform; the region comment above has the reasons.
+  floor="$(requirement_floor python3 || true)"
+  have="$(tool_version python3 || true)"
+  if [[ -n "$floor" && -n "$have" ]] && ! version_ge "$have" "$floor"; then
+    log "  python3 $have stays below the $floor floor: virt-install, virt-manager and the platform's own tools need its interpreter"
+  fi
+  # An incomplete /usr/local git is rebuilt only at exactly the floor, the one
+  # version this region builds. A newer one is someone else's build, and
+  # rebuilding it at the floor would downgrade it; an unreadable floor leaves
+  # nothing to build.
+  local build_git=0
+  floor="$(requirement_floor git || true)"
+  if tool_below_floor git; then
+    build_git=1
+  elif [[ -n "$floor" ]] && local_git_incomplete; then
+    have="$(tool_version git || true)"
+    if [[ "$have" == "$floor" ]]; then
+      log "  the /usr/local git lacks PCRE2 or git-subtree, which the Debian git it shadows has -- rebuilding it"
+      build_git=1
+    else
+      warn "  /usr/local/bin/git $have lacks PCRE2 or git-subtree but is newer than the $floor floor this installer builds, so it is left as it is."
+    fi
+  fi
+  if (( build_git )); then
+    if ! work="$(mktemp -d)"; then
+      note_issue "Could not create a work directory, so git was not raised to its floor."
+      return 0
+    fi
+    if build_git_from_source "$floor" "$work" "$suite"; then
+      hash -r
+      confirm_tool_floor git
+    else
+      note_issue "Building git $floor from its release tarball failed -- see the output above."
+    fi
+    # sudo: the git install step runs make as root inside the work tree.
+    sudo rm -rf "$work" || true
+  fi
+}
+bring_amd_ryzen_ai_platform_to_floors
+
 # --- REGION: Seed test.config.yml from template
 TEST_DIR="$YURUNA_DIR/test"
 if [[ ! -f "$TEST_DIR/test.config.yml" && -f "$TEST_DIR/test.config.yml.template" ]]; then
@@ -1087,6 +1468,31 @@ if [[ -f "$REMOVE_TEST_VMS" ]]; then
 else
   warn "Remove-TestVMFiles.ps1 not found at $REMOVE_TEST_VMS -- skipping test-VM cleanup."
 fi
+
+# --- REGION: Test modules (Pester 5, PSScriptAnalyzer)
+# The version policy lives in tools/Install-TestModule.ps1, shared by the
+# installer of every host platform, so it runs once the checkout exists. Each
+# MODULE-ISSUE line it prints reaches the closing summary; a missing test module
+# does not stop the install.
+install_test_modules() {
+  local script="$YURUNA_DIR/tools/Install-TestModule.ps1" out rc=0 line
+  if [[ ! -f "$script" ]]; then
+    warn "tools/Install-TestModule.ps1 not found under $YURUNA_DIR -- skipping the test modules."
+    return 0
+  fi
+  log "Installing the PowerShell modules the tests need (Pester 5, PSScriptAnalyzer)"
+  out="$(pwsh -NoLogo -NoProfile -File "$script" 2>&1)" || rc=$?
+  while IFS= read -r line; do
+    case "$line" in
+      'MODULE-ISSUE: '*) note_issue "${line#MODULE-ISSUE: }" ;;
+      *) if [[ -n "$line" ]]; then printf '%s\n' "$line"; fi ;;
+    esac
+  done <<< "$out"
+  if (( rc != 0 )); then
+    note_issue "tools/Install-TestModule.ps1 could not run (exit $rc), so Pester 5 and PSScriptAnalyzer may be missing -- see the output above."
+  fi
+}
+install_test_modules
 
 # --- REGION: Enable-TestAutomation.ps1 hint
 HOST_SETUP="$YURUNA_DIR/host/ubuntu.kvm/Enable-TestAutomation.ps1"
@@ -1188,14 +1594,25 @@ if ! command -v virt-install >/dev/null 2>&1; then
   PREFLIGHT_ERRORS+=("'virt-install' not on PATH -- the 'virtinst' apt package did not install.")
 fi
 
-if command -v virt-install >/dev/null 2>&1; then
+# Present is not the same as runnable, and a virt-install that cannot start
+# lists no OS variants, so it is checked first rather than reported as missing
+# osinfo data. Appends to PREFLIGHT_ERRORS / PREFLIGHT_WARNINGS; a virt-install
+# that is absent is reported above.
+check_virt_install_ready() {
+  local why
+  command -v virt-install >/dev/null 2>&1 || return 0
+  if ! why="$(virt_install_runs)"; then
+    PREFLIGHT_ERRORS+=("'virt-install' is on PATH but does not run: $why. It starts through the python3 found on PATH (now $(command -v python3 || echo 'none')), which must be /usr/bin/python3 or carry its gi and libvirt modules.")
+    return 0
+  fi
   if ! osinfo_has_variant 'linux2022'; then
     PREFLIGHT_WARNINGS+=("osinfo-db is missing variant 'linux2022' -- per-guest scripts may fail to find any usable variant.")
   fi
   if ! osinfo_has_variant 'ubuntu24.04' && ! osinfo_has_variant 'ubuntu22.04'; then
     PREFLIGHT_WARNINGS+=("osinfo-db has neither 'ubuntu24.04' nor 'ubuntu22.04' -- guest.ubuntu.server.24 New-VM.ps1 will fall back to the 'linux2022' generic profile (still boots, just less hypervisor tuning). Update the osinfo-db package on the host to silence this.")
   fi
-fi
+}
+check_virt_install_ready
 
 case "$ARCH" in
   x86_64)
@@ -1236,7 +1653,7 @@ fi
 
 # --- REGION: Done summary
 NEEDS_RELOG_HINT=0
-ACTIVE_GROUPS=$(id -Gn 2>/dev/null | tr ' ' '\n')
+ACTIVE_GROUPS=$(group_names)
 for grp in libvirt kvm; do
   group_members="$(getent group "$grp" 2>/dev/null | awk -F: '{print $4}')"
   if [[ ",${group_members}," == *",${USER},"* ]] && \
@@ -1295,13 +1712,36 @@ EOF
 # Warn, never fail. Finishing SILENTLY below a floor is the failure mode this
 # closes -- that is how a host ran for weeks on a PowerShell too old to do the
 # crypto every lab enrollment needs, and surfaced it as a rejected Lab token.
+#
+# A shortfall no re-run can clear stays out of the summary, whose closing line
+# promises that a re-run retries every entry. On the AMD Ryzen AI Developer
+# Platform that is python3; the platform floor repair says why when it runs.
+floor_check_tools() {
+  local tools="PowerShell,git,qemu-img,wget,tesseract,curl,python3"
+  if is_amd_ryzen_ai_platform; then tools="${tools%,python3}"; fi
+  printf '%s\n' "$tools"
+}
+# With -WarnOnly the check exits 0 whenever it ran, so any other status means it
+# could not run -- a missing powershell-yaml module is the usual cause -- and its
+# silence then says nothing about the versions. Its own output is printed whole,
+# with NO_COLOR keeping pwsh's error text free of escape codes, because a last
+# line cut from a wrapped error names nothing.
+report_floor_check() {
+  local out rc=0 line
+  out="$(NO_COLOR=1 pwsh -NoProfile -File "$YURUNA_DIR/automation/Test-Requirement.ps1" \
+           -Tool "$(floor_check_tools)" -WarnOnly 2>&1)" || rc=$?
+  if (( rc != 0 )); then
+    printf '%s\n' "$out" >&2
+    note_issue "The version floors could not be checked: automation/Test-Requirement.ps1 exited $rc, with its output printed above. A missing powershell-yaml module is the usual cause; install it with: pwsh -Command 'Install-Module powershell-yaml -Scope CurrentUser', then re-run this installer."
+    return 0
+  fi
+  while IFS= read -r line; do
+    if [[ -n "$line" ]]; then note_issue "$line"; fi
+  done <<< "$(printf '%s\n' "$out" | sed -n 's/^REQUIREMENT-ISSUE: //p')"
+}
 if command -v pwsh >/dev/null 2>&1 && [[ -f "$YURUNA_DIR/automation/Test-Requirement.ps1" ]]; then
   log "Checking installed versions against the required floors"
-  while IFS= read -r issue_line; do
-    note_issue "${issue_line#REQUIREMENT-ISSUE: }"
-  done < <(pwsh -NoProfile -File "$YURUNA_DIR/automation/Test-Requirement.ps1" \
-             -Tool "PowerShell,git,qemu-img,wget,tesseract,curl,python3" -WarnOnly 2>/dev/null \
-           | grep '^REQUIREMENT-ISSUE: ' || true)
+  report_floor_check
 fi
 
 # --- REGION: Backup notice

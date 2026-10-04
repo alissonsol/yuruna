@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4233151b-e2c8-4ea3-ba1b-6cdcb3e630f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,18 +20,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
 
 
-# Per-host Config CA backing the config service (mTLS): one SERVER leaf
-# for the service, one CLIENT leaf per VM (baked into its cloud-init seed) --
-# proof the VM was created by THIS host. Persisted under
-# $env:YURUNA_RUNTIME_DIR/host-config-ca/ (gitignored).
-# See docs/test-config.md.
-#
-# Crypto is operator-approved security posture (do not change without sign-off,
-# see feedback_no_unauthorized_security_changes): EC P-256, SHA-256, CA 10y,
-# leaves 2y. The server leaf's SAN is a STABLE dns name (ConfigServerSan); guests
-# reach the host's current IP via `curl --connect-to <san>:<port>:<hostIp>:<port>`
-# so a host DHCP change never invalidates the leaf (it only invalidates the baked
-# host IP, the same staleness the status-service fetch already has).
+# See https://yuruna.link/4213a0b3-0038
 
 $script:ConfigCaDirName  = 'host-config-ca'
 $script:ConfigServerSan  = 'yuruna-host-config'
@@ -42,14 +31,7 @@ $script:ConfigLeafYears  = 2
 $script:OidServerAuth    = '1.3.6.1.5.5.7.3.1'
 $script:OidClientAuth    = '1.3.6.1.5.5.7.3.2'
 
-# X509 key-storage flags for loading the CA signing material (ca.pfx). On Windows
-# and Linux, EphemeralKeySet keeps the private key purely in memory, so the
-# frequent per-VM signing leaves no residue in the host key store. macOS does NOT
-# support EphemeralKeySet -- the loader throws "This platform does not support
-# loading with EphemeralKeySet" -- so it loads with Exportable instead, the same
-# flag the server leaf already uses. The CA key is already at rest in ca.pfx
-# (chmod 600), so the macOS path adds no new at-rest exposure; the EC P-256 /
-# SHA-256 crypto posture is unchanged on every platform.
+# See https://yuruna.link/4213a0b3-0039
 $script:ConfigCaPfxLoadFlags = if ($IsMacOS) {
     [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable
 } else {
@@ -358,15 +340,7 @@ function Get-YurunaConfigCaPublicCertificate {
         try { return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($ca.RawData) }
         finally { $ca.Dispose() }
     }
-    # Load from the DER bytes parsed out of the PEM, NOT the X509Certificate2 file
-    # constructor: that constructor auto-detects the file format via the platform
-    # crypto backend, which reads PEM on Windows but NOT on macOS -- there it throws,
-    # which killed the detached -Serve process before it could listen (the launcher
-    # never loads ca.crt as a cert, so the failure showed up only in the service).
-    # DER bytes load identically on every platform. (CreateFromPem takes a
-    # ReadOnlySpan<char> that PowerShell cannot reliably bind a [string] to across
-    # versions -- see Test.ConfigServiceCA.Tests.ps1; the .Tests file uses the same
-    # strip-headers -> base64 -> DER reconstruction.)
+    # See https://yuruna.link/4213a0b3-003a
     $pem = [System.IO.File]::ReadAllText($caCrt)
     return ConvertFrom-YurunaPemCertificate -Pem $pem
 }

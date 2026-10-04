@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,17 +270,7 @@ if ($missingPkgs.Count -gt 0) {
 }
 
 # --- REGION: libvirt services + default network
-# Whether these steps run is decided by whether root is reachable RIGHT NOW,
-# never by who started the run. Only install/ubuntu.kvm.sh performs these
-# commands ahead of time; every other caller does not, so a gate keyed on the
-# caller's identity leaves libvirtd disabled on those hosts while claiming a
-# wrapper already handled it.
-#
-# Re-running them after the bash wrapper already did is safe: systemctl enable
-# --now, virsh net-start and virsh net-autostart are all idempotent, and paying
-# for that is the price of not guessing. Every call goes out with `sudo -n`, so
-# a cold credential is an exit code rather than a password prompt on a terminal
-# whose output is being captured.
+# See https://yuruna.link/42e5cdfd-0020
 $canSudo = Test-UbuntuSudoAvailable
 
 if (-not $libvirtReady) {
@@ -331,16 +321,7 @@ if (-not $libvirtReady) {
 }
 
 # --- REGION: Status-service LAN reachability (host firewall)
-# Start-StatusService binds http://*:<port>/ (every interface), but a host
-# firewall silently DROPs inbound TCP on non-loopback interfaces without an
-# allow rule -- so localhost answers while the pool-aggregator service (and an operator's
-# browser) time out, and the host disappears from the pool dashboard. The
-# Windows path opens this in Set-WindowsHostConditionSet; do the ufw equivalent
-# here so an Ubuntu host is reachable too. This is the PERSISTENT fix: a host
-# whose runner is stopped never re-runs the per-cycle status start, so the
-# status-service self-heal cannot fire there -- the rule set once at setup is
-# what survives. Port from test.config.yml (8080 default), the same source
-# Start-StatusService reads. No-op when ufw is inactive/absent.
+# See https://yuruna.link/42e5cdfd-0021
 $statusPort = 8080
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Config.psm1') -Force
 $statusConfigPath = Join-Path $RepoRoot 'test/test.config.yml'
@@ -357,14 +338,7 @@ Invoke-Step -Description "Allow inbound TCP :$statusPort (status service) throug
 }
 
 # --- REGION: Host clock
-# libvirt seeds each guest's clock from this host at power-on, so a host
-# that has drifted starts every VM equally wrong and the guest's own NTP
-# client steps it to real time seconds into the boot -- mid-startup for
-# whatever that guest is bringing up. On a Kubernetes guest that leaves
-# pods Running but never Ready and every NodePort refusing, with nothing
-# in the picture pointing back at a clock. The Windows and macOS paths do
-# this inside their Set-*HostConditionSet; this host has no equivalent, so
-# the same call lands here.
+# See https://yuruna.link/42e5cdfd-0022
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostCondition.psm1') -Force -DisableNameChecking
 Invoke-Step -Description 'Put the host clock under NTP discipline (timedatectl set-ntp true)' -Action {
     $clockResult = Sync-LinuxHostClock
@@ -387,14 +361,7 @@ foreach ($d in @($imgDir, $vmDir)) {
 }
 
 # --- REGION: networkStorage pool SMB mount point (optional NAS replication target)
-# networkStorage pool (test.config.yml) mounts an SMB share at localPath. The test
-# runner runs UNPRIVILEGED; when localPath sits under a root-owned parent
-# (e.g. /mnt/ypool-nas under /mnt 0755 root:root), Connect-YurunaPoolStorage's own
-# New-Item cannot create the directory and the mount is never even attempted
-# -- a reachable NAS that silently never replicates. Pre-create the mount
-# point here, where this host-setup script can elevate, owned by the runner so
-# the unprivileged mount path finds it already present and writable. The
-# mount.cifs helper itself comes from cifs-utils (install/ubuntu.kvm.sh).
+# See https://yuruna.link/42e5cdfd-0023
 $cfgPath = Join-Path $RepoRoot 'test/test.config.yml'
 if (Test-Path -LiteralPath $cfgPath) {
     $modulesDir = Join-Path $RepoRoot 'test/modules'

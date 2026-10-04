@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42e8622b-95b2-4be6-8609-d3f74ffc4bd0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -719,15 +719,7 @@ function Test-YurunaHostRefreshAuthorization {
 
 # --- REGION: Provisioning
 function Write-HostRefreshSecretFile {
-    # Writes one or more secret lines owner-only from the first byte. Each
-    # temporary file is created beside its destination with mode 0600 (Unix)
-    # or an owner-only ACL (Windows) and verified private before any secret
-    # byte is written, then flushed. Only once every file is staged are they
-    # renamed into place, in order: a failure while creating, checking or
-    # writing leaves every destination as it was, and only a rename failing
-    # after an earlier one succeeded leaves the set partly replaced, which its
-    # own refusal names. Every refusal names paths, never content, and removes
-    # each temporary file not yet renamed.
+    # See https://yuruna.link/4213a0b3-008b
     [CmdletBinding()]
     [OutputType([void])]
     param(

@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
-<!-- REGION: https://yuruna.link/42fa6f45-0023 -->
+<!-- REGION: html -->
+<!-- See https://yuruna.link/42fa6f45-0023 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -346,6 +347,21 @@
       .tree-bool-switch { height: var(--touch-min); }
       .tree-bool-track  { top: 50%; bottom: auto; height: 1.2rem; margin-top: -.6rem; }
     }
+
+    /* A touch pointer can coexist with a mouse on a wide viewport. */
+    @media (any-pointer: coarse) {
+      .tree-toggle, .tree-input, .ydd, .ydd-item, .tree-bool-switch {
+        min-height: 44px; min-width: 44px;
+      }
+      .tree-toggle { display: inline-flex; align-items: center; justify-content: center; }
+      .ydd-item { display: flex; align-items: center; }
+      .tree-bool-switch { height: 44px; }
+      .tree-bool-track {
+        top: 50%; right: auto; bottom: auto; left: 50%;
+        width: 2.4rem; height: 1.2rem;
+        margin-top: -.6rem; margin-left: -1.2rem;
+      }
+    }
   </style>
 </head>
 <body>
@@ -366,7 +382,7 @@
       <a href="config.html" aria-current="page" data-i18n="status.config">Config</a>
       <a href="performance.html" data-i18n="status.performance">Performance</a>
       <a href="diagnostics.html" data-i18n="status.diagnostics">Diagnostics</a>
-      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
+      <a class="menu-out" href="https://yuruna.link/42ad660e" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
     </nav>
   </div>
 </header>

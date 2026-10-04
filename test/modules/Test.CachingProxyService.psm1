@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -354,14 +354,7 @@ function Invoke-CachingProxyServiceProbe {
         @{ Port = 80;         Name = 'Apache (CA cert)';       Level = 'WARN' }
         @{ Port = 3000;       Name = 'Grafana dashboard';      Level = 'FAIL' }
     )
-    # Connect policy for the shared probe. 3 attempts because a single deadline
-    # spuriously FAILs a cache that is actually up: on Wi-Fi a cold radio plus an
-    # ARP-over-air round trip can burn most of the budget, and one AP retransmit
-    # or roam pushes it past the cliff (the first attempt warms ARP / wakes the
-    # radio; a follow-up connects in milliseconds). 3s/attempt because a remote /
-    # cross-host cache (e.g. UTM/macOS squid over bridged networking) routinely
-    # takes 600ms-1s+ to ACCEPT; the cap is free for a fast local cache -- connect
-    # returns the instant the port accepts.
+    # See https://yuruna.link/4213a0b3-0028
     $connectAttempts    = 3
     $connectTimeoutMs   = 3000
     $connectBackoffMs   = 200
@@ -849,17 +842,7 @@ function Get-PoolAggregatorServiceSeedUrl {
     # the resolution is memoized below.
     $stateIp = Get-CachingProxyServiceStateIp
 
-    # Repair a stored address that lost to a live one, so the next call pays
-    # no probe to disprove it again. Only an address this host already
-    # recorded is rewritten: an empty key means "I run no proxy of my own",
-    # and filling it with a proxy someone else runs would assert an ownership
-    # this host does not have.
-    #
-    # ShouldProcess, not $WhatIfPreference: preference variables resolve in the
-    # module's OWN session state, where $WhatIfPreference reads $false however
-    # the caller was invoked, and an unbound -WhatIf is not forwarded across
-    # that boundary either. A caller that must not write has to pass -WhatIf by
-    # hand, and this gate is what gives that pass an effect.
+    # See https://yuruna.link/4213a0b3-0029
     if ($stateIp -and $stateIp -ne $winner.Address -and
         $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_78b4ffefb2c4b66c' -Arguments @{ stateIp = "$stateIp" }), (Format-YurunaOperatorMessage -Key 'runner.operator_f89c2e068682b179' -Arguments @{ address = "$($winner.Address)" }))) {
         try {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42c869eb-bcb1-4640-9d26-b9f3f7fbc926
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,19 +20,7 @@
 .SYNOPSIS
     Set or clear the framework and project repositories a pool's hosts run.
 .DESCRIPTION
-    Pool admin CLI. With -FrameworkUrl and -ProjectUrl it sets the pool's
-    `repositories` in pools.yml, replacing any previous pair; with -Clear it
-    removes them. A pooled runner overrides its own repositories.frameworkUrl /
-    repositories.projectUrl with the pool's pair for the cycle and runs that
-    project's own test.runner.yml. A pool without repositories leaves each host
-    on its own configured repositories. GH_TOKEN is never part of pool intent --
-    it stays host-local.
-
-    Both URLs are trimmed and must be non-empty, free of whitespace and control
-    characters, and must not start with '-'. The auto-enrollment target pool
-    (autoEnrollment.targetPoolId) can never carry repositories, so setting them
-    there is refused; clearing them there is allowed, because that is how an
-    intent store that breaks the rule gets repaired.
+    See https://yuruna.link/42010605-0004.
 .PARAMETER PoolId
     Target pool id.
 .PARAMETER FrameworkUrl
@@ -111,17 +99,7 @@ if ($Clear) {
     if ($pool.Contains('repositories')) { $pool.Remove('repositories') }
     $message = "pool: clear repositories on $PoolId"
 } else {
-    # The auto-enrollment target pool can NEVER carry repositories. Hosts arrive
-    # there automatically, without anyone choosing it for them, so a project set
-    # here would silently repoint every auto-enrolled host in the lab on its
-    # next cycle -- the single largest blast radius in the whole pool layer.
-    #
-    # Bound to autoEnrollment.targetPoolId rather than the literal 'default', so
-    # renaming the target carries the protection with it. This lives in code
-    # because it is a cross-field constraint that JSON Schema cannot express;
-    # Test-PoolIntent.ps1 re-checks it as the authoritative validator. The id
-    # compared is the one stored on the pool found above, not -PoolId as typed:
-    # the lookup ignores case, so a differently cased id must not slip past.
+    # See https://yuruna.link/42010605-0004
     $targetPoolId = if ($doc['autoEnrollment'] -is [System.Collections.IDictionary]) { [string]$doc['autoEnrollment']['targetPoolId'] } else { '' }
     if ($targetPoolId -and [string]::Equals([string]$pool['poolId'], $targetPoolId, [StringComparison]::Ordinal)) {
         Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_f1dc62bfb0f61720' -Arguments @{ poolId = "$PoolId"; frameworkUrl = "$FrameworkUrl"; projectUrl = "$ProjectUrl" }) -ErrorAction Continue

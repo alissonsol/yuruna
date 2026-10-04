@@ -128,6 +128,7 @@ const DataenUShost = `{
     },
     "; libvirt renames only a domain positively reported as stopped."
   ],
+  "host.kvm_running_cache_unreachable": "The caching-proxy-service VM is running but its proxy is unreachable. Run test/service/Start-CachingProxyServiceVM.ps1 to restore it, or pass -CachingProxyServiceUrl \"\" to fetch directly.",
   "host.kvm_start_network_action": "Start the inactive libvirt network",
   "host.kvm_start_unit_action": "Start the stopped libvirt unit",
   "host.operator_005bab80fe0f8f32": [

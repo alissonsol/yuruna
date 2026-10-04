@@ -44,8 +44,99 @@ const DataptBRrunner = `{
     " registros do runner que não pôde provar que estavam obsoletos."
   ],
   "runner.critical_record_replace": "Substituir um registro crítico privado",
+  "runner.cycle_outcome_rejected_kept": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] o registro de resultado rejeitado foi mantido em ",
+    {
+      "arg": "rejectedPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    " para diagnóstico."
+  ],
+  "runner.cycle_outcome_unrecorded": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] o processo do ciclo encerrou com código ",
+    {
+      "arg": "childExit",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " após ",
+    {
+      "arg": "ranForSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s sem um registro de resultado utilizável (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Ele NÃO é contado como aprovado: não é possível determinar se o ciclo foi concluído, portanto esta é uma falha do executor neste hospedeiro, e não um veredito do teste. Aplicando a pausa de um ciclo com falha."
+  ],
+  "runner.cycle_outcome_unrecorded_log": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] outcome-unrecorded: saída ",
+    {
+      "arg": "childExit",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " após ",
+    {
+      "arg": "ranForSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s, registro ",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")"
+  ],
   "runner.cycle_record_clear_action": "Remover o registro de ciclo do runner de um ciclo encerrado",
   "runner.cycle_record_write_action": "Gravar o registro de ciclo do runner",
+  "runner.cycle_result_missing": "O ciclo retornou sem publicar um resultado. Registrando como um ciclo com falha (no-cycle-result) em vez de um ciclo concluído.",
+  "runner.cycle_success_withheld": [
+    "O ciclo terminou sem erros, mas seu resultado não pôde ser registrado, portanto o executor não pode contá-lo como aprovado. Encerrando com código ",
+    {
+      "arg": "exitCode",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " em vez de 0."
+  ],
   "runner.detached_handshake_write_action": "Gravar o handshake de identidade do worker desanexado",
   "runner.detached_launch_action": "Iniciar um processo worker desanexado",
   "runner.diagnostic_budget_exhausted": [
@@ -21977,8 +22068,74 @@ const DataptBRrunner = `{
   "runner.pool_status_repositories_none": "  repositórios: (nenhum)",
   "runner.prior_runner_cleanup_action": "Ação: parando-o e rodando\nRemove-TestVMFiles.ps1 antes de iniciar",
   "runner.process_start_record_write_action": "Gravar um registro de hora de início do processo",
+  "runner.project_previous_cleanup_failed": [
+    "Não foi possível excluir o checkout anterior do projeto em ",
+    {
+      "arg": "previousDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". O novo checkout está no lugar; a próxima atualização removerá o que restou."
+  ],
+  "runner.project_swap_recovered": [
+    "Recuperada uma atualização interrompida do projeto em ",
+    {
+      "arg": "repoRoot",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "action",
+      "type": "token",
+      "trust": "internal"
+    },
+    "."
+  ],
   "runner.readiness_ack_remove_action": "Remover uma confirmação de prontidão de atualização obsoleta",
   "runner.readiness_ack_write_action": "Gravar a confirmação de prontidão da atualização",
+  "runner.recovery_applied": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] a ação de recuperação '",
+    {
+      "arg": "action",
+      "type": "token",
+      "trust": "internal"
+    },
+    "' foi executada para uma falha ",
+    {
+      "arg": "failClass",
+      "type": "token",
+      "trust": "internal"
+    },
+    " (tentativa ",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "); a pausa por falha é ignorada e o próximo ciclo começa imediatamente."
+  ],
+  "runner.recovery_result_write_failed": [
+    "Não foi possível registrar o resultado da recuperação em ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). O resultado do ciclo não é afetado."
+  ],
   "runner.refresh_barrier_held": [
     "Retomado após a atualização do hospedeiro ",
     {
@@ -23117,6 +23274,21 @@ const DataptBRrunner = `{
   ],
   "runner.status_worker_directory_prepare_action": "Preparar o diretório privado do worker",
   "runner.status_worker_state_write_action": "Publicar o registro de estado do worker",
+  "runner.telemetry_event_dropped": [
+    "Não foi possível registrar um evento do ciclo ('",
+    {
+      "arg": "eventName",
+      "type": "token",
+      "trust": "internal"
+    },
+    "': ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). O ciclo continua, mas seu fluxo de eventos agora está incompleto; a contagem e o motivo estão em cycle.events.delivery.json. Outras perdas neste ciclo são contadas, sem repetir o aviso."
+  ],
   "runner.transcript_title": "Registro do corredor de testes Yuruna",
   "runner.vault_retired_entries": [
     "removido ",
@@ -23126,6 +23298,36 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
+  "runner.vm_admission_occupied": [
+    "Recusando o início de um ciclo: estas VMs estão em execução no hospedeiro e não pararam: ",
+    {
+      "arg": "occupants",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Pare ou exclua essas VMs e execute o ciclo novamente."
+  ],
+  "runner.vm_admission_unknown": [
+    "Recusando o início de um ciclo: o hospedeiro não pôde comprovar que nenhuma outra VM está em execução (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    " após ",
+    {
+      "arg": "probes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " leitura(s): ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Dois ciclos no mesmo conjunto de VMs corrompem um ao outro, portanto o executor não fará suposições; ele tentará novamente na próxima iteração. Verifique as ferramentas de linha de comando do hipervisor e o inventário de VMs neste hospedeiro."
+  ],
   "runner.vm_cleanup_terminating_error": [
     "Remove-TestVMFiles.ps1 levantou um erro ao terminar; o código de saída do ciclo ainda irá refletir o passo/falha do ciclo. Erro: ",
     {
@@ -23133,6 +23335,33 @@ const DataptBRrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.warm_resume_declined_unverified": [
+    "  WARM-RESUME recusado: '",
+    {
+      "arg": "resumeSequence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' falhou na etapa ",
+    {
+      "arg": "resumeFromStep",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "failureClass",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") e não foi possível comprovar que sua repetição é segura (motivo: ",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "). A falha original permanece."
   ]
 }
 `

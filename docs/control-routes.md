@@ -616,6 +616,25 @@ admission locks, critical records (`*.record`, `*.record.prev`), launch handshak
 (`*.key`, `*.credential`). The public progress files `host-refresh.state.json` and
 `start-cycle.state.json` match none of them.
 
+Private SSH keys are refused by file name on every route, wherever they sit: the
+`*-key`, `*_key` and `*.ppk` shapes, plus the `*_rsa`, `*_ecdsa`, `*_ed25519` and
+`*_dsa` suffixes that also cover the OpenSSH default names `id_rsa`, `id_ecdsa`,
+`id_ed25519` and `id_dsa`. A rule keyed on one folder (`status/ssh/`) protects only the keys its
+author remembered, so a project that parks a key in a folder of its own -- a
+hand-off directory its guests download from -- would otherwise publish it to every
+machine that can reach the port. The public halves (`*.pub`), `ca.crt` and the
+hand-off address files (`log/handoff/<vm>.ip.txt`) match none of the shapes and stay
+served. The shapes are a backstop, not a delivery mechanism: a key a guest needs
+should be generated inside that guest, with only the public half crossing to the
+machines that trust it over an authenticated channel such as the harness's SSH
+verbs. The same list guards the `archive/<cycle-folder>.zip` packer, so a key
+that lands in a cycle folder is left out of the download too.
+
+A served path containing a colon is refused outright. NTFS reads a named stream
+through the file name (`name::$DATA` is the file's own bytes), and the canonical
+path keeps that suffix, so the spelling would reach a refused file under a name no
+pattern above matches. No file this service serves has a colon in its name.
+
 `archive/<cycle-folder>.zip` is dispatched *before* this by-prefix step and
 never reaches it: it names a folder to pack rather than a file to serve, and it
 carries its own grammar in place of the StartsWith pin (see below).
@@ -760,6 +779,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 429aa9e5-4b47-42a5-adc9-b48244e14f6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -318,6 +318,14 @@ Describe 'the script renders what the shared renderer renders' {
     It 'returns the key itself for a message nobody ships' {
         Reset-DiagnosticRenderer -Root (Join-Path $TestDrive 'empty')
         Format-YurunaOperatorMessage -Key 'automation.no_such_fixture_message' | Should -BeExactly 'automation.no_such_fixture_message'
+    }
+
+    It 'keeps failed endpoint counts and targets in the network problem' {
+        Reset-DiagnosticRenderer -Root $script:RepoRoot -Locale 'en-US'
+        $message = Format-YurunaOperatorMessage -Key 'automation.operator_b6be1dbdabe6cc70' -Arguments @{
+            count = '1'; count2 = '3'; join = 'mirror.example:443'
+        }
+        $message | Should -BeExactly 'NETWORK: 1/3 endpoint(s) unreachable: mirror.example:443'
     }
 
     It 'evaluates composite format bindings as Yuruna.Globalization does' {

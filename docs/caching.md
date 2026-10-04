@@ -1641,6 +1641,14 @@ destructive VM lifecycle and the host port-map writes cannot interleave -- two
 concurrent `Start-CachingProxyServiceVM` runs, or a bring-up racing the runner's
 per-cycle `Add-PortMap`.
 
+The last check inside the guarded rebuild section requires a discovered cache
+VM address. State publication and LAN port maps both depend on that address;
+without it, a successful exit would report a ready proxy while configuring no
+caching for later guests. The check belongs to the bring-up step that owns the
+failure, before its success summary, so the next service step does not waste its
+readiness budget on an unreachable VM. Exiting inside the `try` still runs the
+`finally` lock release.
+
 Lock identity mirrors `runner.pid` (`Test.SingleInstance`): a holder counts as
 alive only if its PID still exists **and** its recorded process `StartTime`
 still matches, so a reused PID cannot impersonate a dead holder. A dead or
@@ -2455,7 +2463,7 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)
 

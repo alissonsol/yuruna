@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 424d0ae7-c25c-4fdf-b29d-12a4768bb7d1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@
       * the clone a host holds answers before the network does. It is the truth
         about what the machine tracks (a pool assignment overrides the
         configured url for a cycle), and it costs no round trip.
-      * a configured url this host cannot read says so ('No access'), while
+      * a configured url this host cannot read reports a typed denied state, while
         NOTHING configured stays blank. Those are different operator states: a
         credential to fix vs. the in-tree project layout, which is fine.
       * the answer carries WHERE that repository is, so the column can link to
@@ -106,6 +106,7 @@ Describe 'Get-HostRepositoryAccess -- the clone this host holds answers first' {
         # repository the machine is actually on.
         $r = Get-HostRepositoryAccess -RepoDir $script:cloned -ConfiguredUrl 'https://github.com/alius-git/some-other-project'
         Assert-Equal 'amisad.dev' $r.Access
+        Assert-Equal 'readable'   $r.AccessState
         Assert-Equal 'clone'      $r.Source
         # The name travels with where it was read from, so the column can offer
         # the repository itself -- and it is the CLONE's origin, matching the
@@ -131,6 +132,7 @@ Describe 'Get-HostRepositoryAccess -- the clone this host holds answers first' {
     It 'reports nothing for a host with neither a clone nor a configured url (in-tree project layout)' {
         $r = Get-HostRepositoryAccess -RepoDir $script:notARepo -ConfiguredUrl ''
         Assert-Equal ''             $r.Access
+        Assert-Equal 'unconfigured' $r.AccessState
         Assert-Equal 'unconfigured' $r.Source
     }
     It 'falls through a repo with no origin remote to the configured url' {
@@ -144,6 +146,7 @@ Describe 'Get-HostRepositoryAccess -- the probe is opt-in and decides the blank'
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand { throw 'the probe must be opt-in' }
         $r = Get-HostRepositoryAccess -RepoDir $script:notARepo -ConfiguredUrl 'https://github.com/alius-git/yuruna'
         Assert-Equal ''         $r.Access
+        Assert-Equal 'unprobed' $r.AccessState
         Assert-Equal 'unprobed' $r.Source
         # Nothing to point at while the answer is pending: the column renders a
         # blank here, and a blank must not carry a link.
@@ -154,27 +157,30 @@ Describe 'Get-HostRepositoryAccess -- the probe is opt-in and decides the blank'
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand { return @{ ExitCode = 0; Output = '' } }
         $r = Get-HostRepositoryAccess -RepoDir $script:notARepo -ConfiguredUrl 'https://github.com/alius-git/yuruna.git' -Probe
         Assert-Equal 'yuruna' $r.Access
+        Assert-Equal 'readable' $r.AccessState
         Assert-Equal 'probe'  $r.Source
         Assert-Equal 'https://github.com/alius-git/yuruna' $r.Url
     }
-    It 'says No access when the credential is refused, and keeps the reason' {
+    It 'reports denied when the credential is refused without putting prose in the repository name' {
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand {
             return @{ ExitCode = 128; Output = "fatal: Authentication failed for 'https://github.com/alius-git/private.git/'" }
         }
         $r = Get-HostRepositoryAccess -RepoDir $script:notARepo -ConfiguredUrl 'https://github.com/alius-git/private' -Probe
-        Assert-Equal 'No access' $r.Access
+        Assert-Equal ''          $r.Access
+        Assert-Equal 'denied'    $r.AccessState
         Assert-Equal 'denied'    $r.Source
         # The url it could NOT read is exactly the one an operator opens next:
         # a url naming the wrong repository looks identical to a missing
         # credential until someone follows it.
         Assert-Equal 'https://github.com/alius-git/private' $r.Url
     }
-    It 'says No access for an outage too -- the column has one failure word' {
+    It 'reports denied for an outage and retains the unreachable reason' {
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand {
             return @{ ExitCode = 128; Output = "fatal: unable to access: Could not resolve host: github.com" }
         }
         $r = Get-HostRepositoryAccess -RepoDir $script:notARepo -ConfiguredUrl 'https://github.com/alius-git/yuruna' -Probe
-        Assert-Equal 'No access'   $r.Access
+        Assert-Equal ''            $r.Access
+        Assert-Equal 'denied'      $r.AccessState
         Assert-Equal 'unreachable' $r.Source
     }
 }

@@ -359,19 +359,20 @@ handler in long sweeps).
 | Project commit | `git ls-remote <projectUrl> HEAD` | Same `ls-remote` at poll time |
 | Local config edit | `Get-OuterConfigMtime` | Same call at poll time; `-ne` comparison handles changed / created / deleted in one shot |
 | Status-UI start request | (none) | Existence of `$YURUNA_RUNTIME_DIR/control.cycle-restart` |
-| Auto-remediation (default off) | (none) | `last_failure.json`'s class is one the [remediation dispatcher](failure-schema.md#remediation-dispatcher) maps to a clearly-safe retry |
+| Auto-remediation (default off) | (none) | The failure's class is one the [remediation dispatcher](failure-schema.md#remediation-dispatcher) maps to a clearly-safe retry, and the [recovery ledger](failure-schema.md#recovery-result-and-ledger) still has budget for the failure's fingerprint |
 
 Network / IO failure on any individual probe is treated as "no
 change for now" (return `$null` / unchanged baseline) so a flaky
 network can't cut a pause short and a missing config file can't
 crash the loop.
 
-The auto-remediation trigger is capped per consecutive-failure streak, and
-the streak is held in the loop process rather than the per-cycle child: a
-fresh process each cycle would reset it every time, so the cap would
-never be reached and a deterministic transient would auto-retry forever. A
-passing cycle re-arms the budget. Everything the dispatcher does not classify
-as clearly-safe keeps the full wait-for-human pause.
+The auto-remediation trigger is one of the bounded repairs described under
+[Recovery after a failed cycle](#recovery-after-a-failed-cycle). Its attempt budget
+is kept in the recovery ledger (`runtime/recovery.ledger.ndjson`), keyed by the
+failure's fingerprint, and not in the loop process: a runner restart does not hand
+a deterministic transient a fresh set of retries. A passing cycle re-arms the
+budget, and so does the passage of 24 hours. Everything the dispatcher does not
+classify as clearly-safe keeps the full wait-for-human pause.
 
 The automatic host-refresh decision runs after every dispatch, through
 `Test.HostRefreshTrigger` when that module is present (it is off by default;
@@ -442,12 +443,14 @@ The **pool-storage space check** runs immediately after the `last_failure.json`
 wipe, and the ordering is load-bearing. On a host archiving in move mode it
 refuses to spawn a cycle whose
 results the share has no room for, recording a `pool_storage_full`
-`last_failure.json` of its own -- and the failure pause classifies from exactly that
-file. Placed *before* the wipe, the previous cycle's record would still be there;
-if its class happened to be a transient one, auto-remediation would cut the storage
-pause short and the runner would spend the day re-discovering that nobody has
-deleted anything yet. The check returns the `storage-full` outcome, which is
-deliberately absent from the short-hold list so it takes the full pause.
+`last_failure.json` of its own -- and the fault status in `status.json` reads exactly that
+file. Placed *before* the wipe, the previous cycle's record would still be there and
+would name the wrong cause. The check returns the `storage-full` outcome, which is
+deliberately absent from the short-hold list so it takes the full pause. The
+recovery planner does not depend on the order: a `storage-full` result is classed
+`pool_storage_full` from the outcome itself, and no repair covers that class, so
+the runner does not spend the day re-discovering that nobody has deleted anything
+yet.
 
 Order matters elsewhere too: `Remove-Item` first, then a "force-fresh"
 `WriteAllText` on `runner.stepHeartbeat`. If `Remove-Item` fails on
@@ -456,6 +459,43 @@ about to arm would read the stale mtime and kill the new inner
 within one poll. The unconditional `WriteAllText` defends against
 that -- the new inner overwrites it again immediately at startup, so
 the force-touch is harmless when the wipe succeeded.
+
+<a id="42f909ad-0028"></a>
+
+## VM admission at cycle start
+
+Two cycles on one VM set corrupt each other, so every entry point that starts
+cycles -- the runner's inner, the project run through it, and
+`Debug-TestSequence.ps1` (its orchestration and single-sequence paths alike) --
+asks the same function before it touches the host: `Invoke-HostVmAdmission`.
+Its answer has three states, because "could not look" is not "nothing there":
+
+| State | Meaning | The entry point |
+|---|---|---|
+| `clear` | The inventory was read and nothing outside the service VMs is running. | Proceeds. |
+| `occupied` | A VM outside the allow-list is running and did not stop. | Exits 1. |
+| `unknown` | The inventory failed, no host driver is loaded, or some VM's state could not be determined, on every read. | Exits 2 (cannot run). |
+
+A running guest is stopped first and the host read again: a guest left behind by
+a cycle that died before its teardown is the common case, and refusing over it
+strands the host, since the sweep that would remove it only runs once a cycle
+starts. Stopping never deletes. The inventory is re-read up to three times, a few
+seconds apart, because a hypervisor CLI that is merely slow answers the second
+time and one that is wedged does not; a VM seen running ends the reads at once.
+
+`unknown` refuses. Proceeding with a warning when the inventory cannot be read is
+how a cycle ends up sharing a host it never looked at. The cost is one refused
+cycle on a host whose hypervisor tooling is broken and says so; the failure pause then gives it time to recover or be fixed,
+and the next loop asks again.
+
+Every verdict, `clear` included, is written to `runtime/vm-admission.json`
+(`state`, `reason`, `occupants`, `probes`, `detail`, `hostType`, `observedUtc`)
+so a later verdict replaces an earlier refusal. After a failed cycle the loop
+reads the record when it is newer than the cycle's spawn and names the fault for
+what it is: `status.json` carries `lastFailure.failureClass`
+`vm_admission_unknown` or `vm_admission_occupied`, and `runnerStateReason` reads
+"VM admission unknown (inventory-failed); inner exited 2" instead of a bare exit
+code that points at the tests.
 
 <a id="42f909ad-0022"></a>
 
@@ -677,6 +717,81 @@ A regression test rebuilds the cycle -> inner -> status-service topology in a
 temporary directory and asserts that the cycle process returns once the inner
 exits, so a future refactor that captures the stream fails a suite instead of a
 lab.
+
+<a id="42f909ad-0027"></a>
+
+## A cycle is scored from its outcome record
+
+The cycle process reports through `runtime/runner.cycle.outcome.json`, a small
+JSON object with an `outcome` name, an integer `exitCode` and the
+`cycleGeneration` the loop issued, plus, when the cycle knows them, a
+`failureClass` and a redacted `detail` that never decide validity. The record is
+required: the loop counts a
+cycle as a pass only when a record exists, parses, carries both fields, and
+names the generation of the cycle it just ran. An exit code of 0 is not
+evidence, because a process can exit 0 having failed to say anything, and
+reading an absent file as `completed` turns every failure to record into a
+green host.
+
+Anything else is the outcome `outcome-unrecorded`, with the reason on the
+result: `missing` (no file), `malformed` (not a JSON object, or a field absent
+or of the wrong kind) or `stale-generation` (another cycle's record, or one with
+no stamp). It is an infrastructure fault of the runner on that host, not a test
+verdict, so it takes the failure branch: the state machine goes to `fault`,
+`status.json` carries `lastFailure.failureClass` `outcome_unrecorded` (unless the
+inner left a classified failure of its own, which wins) with the reason in
+`runnerStateReason`, and the failure pause applies. The auto-remediation
+shortcut can end that pause early only for a failure the inner itself
+classified; the unrecorded outcome alone gives it nothing to match. A non-zero
+child exit code is kept as the exit code (a failure stays a failure whether or
+not it was recorded); a clean one is replaced by 70, so nothing downstream reads
+the cycle as a success. A rejected record is kept as
+`runtime/runner.cycle.outcome.rejected.json` for diagnosis.
+
+A child that dies within seconds of its spawn, with a non-zero exit and no
+record, remains `cycle-aborted`: it never ran a cycle, and the loop holds briefly
+and retries instead of pausing.
+
+The cycle process writes the record through `Publish-CycleOutcomeRecord`, which
+reads it back through the same validator (`Read-CycleOutcomeRecord`, both in
+[`Test.RecoveryContract`](../test/modules/Test.RecoveryContract.psm1)) before it
+lets the process exit cleanly. When the write or the read-back fails, the process exits 70, not 0.
+A cycle that returned without publishing any result is recorded as
+`no-cycle-result` with a failing exit code instead of defaulting to a clean
+completion, and the fault it raises carries the same `outcome_unrecorded` class
+and says the cycle returned no result.
+
+<a id="42f909ad-0029"></a>
+
+## Recovery after a failed cycle
+
+After every dispatch the loop records the cycle's typed result in
+`runtime/recovery.result.json` (the fields are in the
+[failure schema](failure-schema.md#recovery-result-and-ledger)). It is built from the
+dispatch outcome, the outcome record, `last_failure.json` and `vm-admission.json`;
+the outcomes that say no cycle ran to a conclusion (`drain`, `refresh-gated`,
+`refresh-preflight`, `paused`, `shutdown`) produce none. A `passed` result appends a
+`resolved` line to the recovery ledger, which re-arms every repair budget.
+
+Bounded repairs run at three points, all gated by `testCycle.autoRemediation.enabled`
+(default off; with it off the result says `advised` and nothing is written to the
+ledger):
+
+1. **A failed framework pull** (`pull-error`), before the short hold. The pull runs in
+   the cycle process, so its redacted failure text reaches the loop through the
+   outcome record's `detail`; a stale `.git/index.lock` is the case this serves.
+2. **The failure branch**, after the fault accounting, the host-refresh decision and
+   the status-service check, and before the pause. A repair that applied replaces the
+   pause: the state machine goes `fault -> idle`, `outer.log` names the repair, and the
+   next cycle is its proof.
+3. **Inside the pause**, as trigger 5 above: the early end for a transient class, which
+   waits for the first poll interval as it always did and is decided once per pause.
+
+The ledger decides every time, so a restart between two identical failures changes
+nothing. What each repair does, and the ledger's rules, are in the
+[failure schema](failure-schema.md#the-repairs). `Debug-TestSequence` and
+`Invoke-TestProject` never run repairs: an operator-driven run should not change the
+machine behind the operator's back, so their results are `advised` or `none`.
 
 <a id="42f909ad-0011"></a>
 
@@ -977,6 +1092,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

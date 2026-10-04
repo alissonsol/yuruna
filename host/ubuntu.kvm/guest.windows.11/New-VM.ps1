@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4210ad59-ce3d-4890-bc1a-eb6a22a42087
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,8 +81,8 @@ Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDi
 if (-not (Assert-YurunaBaseImage -BaseImageFile @($winIso, $virtioIso) -GuestFolder $ScriptDir -ArtifactLabel 'Required image(s)' -ManualHint 'Run Get-Image.ps1 manually and follow its instructions.')) { exit 1 }
 
 Write-Verbose "Creating VM '$VMName' using image: $winIso"
-# Provenance side-channel for operators reading the transcript. Emits
-# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
+# --- REGION: Base image provenance
+# Emit the source URL from a healthy sidecar; warn when provenance is incomplete.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $winIso
 
@@ -120,9 +120,11 @@ $YurunaHostIp = Get-GuestReachableHostIp
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_kvmRepoRoot
 $YurunaHostPort = $_statusSeed.Port
+$ghSource = Get-YurunaGitHubSource -RepoRoot $_kvmRepoRoot
 $_kvmBootstrap = New-WindowsGuestBootstrap -RepoRoot $_kvmRepoRoot `
     -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
-    -GhToken (Get-YurunaGitHubSource -RepoRoot $_kvmRepoRoot).Token
+    -GhToken $ghSource.Token `
+    -FrameworkUrl $ghSource.FrameworkUrl -ProjectUrl $ghSource.ProjectUrl
 
 $autoXml = (Get-Content -Raw -LiteralPath $autoTemplate).
     Replace('COMPUTERNAME_PLACEHOLDER', $VMName).

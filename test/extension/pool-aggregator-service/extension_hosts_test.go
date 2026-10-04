@@ -188,16 +188,17 @@ func TestFetchCurrentActionStepPause(t *testing.T) {
 	cases := []struct {
 		name string
 		line string
+		code string
 		want bool
 	}{
-		{"parked at the boundary", "[3/9] Paused (waiting for resume)", true},
-		{"still running the step", "[3/9] takeScreenshot: capture the desktop", false},
-		{"no sidecar written yet", "", false}, // 404
+		{"parked at the boundary", "[3/9] awaiting resume", stepPauseCode, true},
+		{"still running the step", "[3/9] takeScreenshot: capture the desktop", "", false},
+		{"no sidecar written yet", "", "", false}, // 404
 	}
 	for _, c := range cases {
 		body := ""
 		if c.line != "" {
-			body = `{"guestKey":"g1","vmName":"vm1","line":"` + c.line + `","updatedAt":"2026-08-03T00:00:00Z"}`
+			body = `{"guestKey":"g1","vmName":"vm1","line":"` + c.line + `","code":"` + c.code + `","updatedAt":"2026-08-03T00:00:00Z"}`
 		}
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/runtime/current-action.json" || body == "" {
@@ -221,8 +222,7 @@ func TestFetchCurrentActionStepPause(t *testing.T) {
 
 // The pause is stated in a code, so the sentence beside it is ordinary prose:
 // it can be reworded, or written in the operator's own language, without this
-// service losing sight of a parked runner. The sentence is still read when no
-// code is present, because a runner older than the field writes none.
+// service losing sight of a parked runner. A sentence cannot establish state.
 func TestFetchCurrentActionPauseCode(t *testing.T) {
 	cases := []struct {
 		name string
@@ -231,10 +231,18 @@ func TestFetchCurrentActionPauseCode(t *testing.T) {
 	}{
 		{"code says parked, sentence is translated",
 			`{"line":"Pausado, aguardando retomada.","code":"sequence_paused_waiting_resume"}`, true},
+		{"code says parked without display prose",
+			`{"code":"sequence_paused_waiting_resume"}`, true},
+		{"code says parked, display prose has a different type",
+			`{"line":{"ignored":"display detail"},"code":"sequence_paused_waiting_resume"}`, true},
 		{"code says running, stale sentence must not override it",
 			`{"line":"[3/9] Paused (waiting for resume)","code":"step_running"}`, false},
-		{"no code: a runner older than the field is still read",
-			`{"line":"[3/9] Paused (waiting for resume)"}`, true},
+		{"no code: display prose does not establish state",
+			`{"line":"[3/9] Paused (waiting for resume)"}`, false},
+		{"empty code: display prose does not establish state",
+			`{"line":"[3/9] Paused (waiting for resume)","code":""}`, false},
+		{"unknown code: display prose does not establish state",
+			`{"line":"[3/9] Paused (waiting for resume)","code":"unknown_state"}`, false},
 		{"no code and not parked", `{"line":"[3/9] takeScreenshot"}`, false},
 	}
 	for _, c := range cases {

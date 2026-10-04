@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42c69a51-1c69-4dba-ad62-2dda7b368e9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,21 +16,7 @@
 
 #requires -version 7
 
-# Reusable PASS / FAIL / WARN reporter for check-style scripts. Lets
-# check scripts (Test-Config, Test-CachingProxyService, future health-checks)
-# share the same operator-facing format without copy-pasting the
-# counters and Write-Summary banner.
-#
-# One of THREE Yuruna logger modules with disjoint responsibilities. See
-# ../../docs/loglevels.md and test/modules/README.md "Three loggers, three
-# jobs" before adding helpers here -- this module owns ONLY the per-script
-# PASS/FAIL tally + Write-Summary banner + Exit-WithSummary helper.
-#
-# Eviction-safe counters: $global:YurunaOutputState anchors the live
-# state so Test-Config's helpers and any module that imports this one
-# (e.g. Test.ConfigValidator) share the same PASS/FAIL/WARN tally
-# regardless of -Force re-imports. See repo-memory
-# feedback_module_force_import_evicts_global.md.
+# See https://yuruna.link/4213a0b3-00bb
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'Cross-module-eviction-safe anchor; PASS/FAIL/WARN counts must survive -Force re-imports of either Test.Output or its callers (Test.ConfigValidator).')]

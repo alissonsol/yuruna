@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 424f9ac4-a8c5-484f-9b6f-760e69d94781
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,34 +16,7 @@
 
 #requires -version 7
 
-# The automatic host-refresh policy: when the resident runner may start a
-# hypervisor repair on its own, and how it proves the repair ran.
-#
-# Three processes are involved and only files cross between them. The inner
-# runner observes the hypervisor (the service-VM restore sweep) and writes one
-# evidence file per cycle, stamped with the generation the resident outer
-# minted for that cycle; the per-cycle process only relays its exit; the
-# resident outer consumes the file right after the dispatch, keeps the
-# timeout count in a private file and decides. A sidecar from any other
-# cycle is rejected by its generation, so a stale observation can never
-# count twice or count for the wrong cycle.
-#
-# The count and the daily budget live in separate private files on purpose:
-# a responsive observation clears the count, but nothing but the passage of
-# a UTC day frees the budget, and a clock set back never does. The budget
-# ledger is a checksummed critical record written under the admission lock
-# before any request exists, so a crash after the reservation still counts
-# the day as used -- the fail-safe direction for an unattended restart.
-#
-# Every platform is declared unqualified until a native canary proves the
-# repair on it; the runner still reads the knob, counts the evidence and says
-# once why it does not act. The module joins no entry-point module set: the
-# resident outer and the inner import it guarded at their call sites, and
-# everything heavy (the repair journal, the lock, the critical record, the
-# private-root helpers, the refresh-gate reader the journal's admission
-# consults) resolves lazily by name, so a missing piece yields a
-# structured 'dependency-missing:<module>' refusal instead of an exception in
-# a loop that must keep running.
+# See https://yuruna.link/4213a0b3-008d
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -DisableNameChecking

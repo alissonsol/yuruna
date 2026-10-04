@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: Initialize environment
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
@@ -10,9 +11,8 @@ export NONINTERACTIVE=1
 # --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
-# Architecture does not imply host platform: this lab runs aarch64 guests on
-# Hyper-V and UTM. Report virtualization detected inside the guest instead of
-# inferring the host from uname.
+# See https://yuruna.link/42e220c4-0005
+# Detect virtualization independently from CPU architecture.
 echo "Detected virtualization: $(systemd-detect-virt 2>/dev/null || echo unknown)"
 case "$ARCH" in
   x86_64)
@@ -50,9 +50,8 @@ fi
 # --- REGION: Install .NET SDK
 echo ""
 echo -e "\e[1;36m==== .NET SDK ====\e[0m"
-# Install the latest LTS SDK via Microsoft's dotnet-install.sh (no pinned
-# major). apt has no latest-tracking metapackage -- only versioned ones --
-# and from 24.04 on packages.microsoft.com no longer ships .NET for Ubuntu.
+# See https://yuruna.link/42e220c4-0005
+# Use dotnet-install.sh because Ubuntu has no current-LTS SDK metapackage.
 sudo mkdir -p /usr/local/dotnet
 curl_retry -fsSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
 chmod +x /tmp/dotnet-install.sh

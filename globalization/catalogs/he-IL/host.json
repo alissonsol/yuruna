@@ -3,6 +3,11 @@
   "domain": "host",
   "locale": "he-IL",
   "messages": {
+    "host.kvm_running_cache_unreachable": {
+      "sourceHash": "81042c1a1152d4a8d96f13c8007b4cd1eb09b5b61b1e8f1152b1fe97e110ad65",
+      "origin": "machine",
+      "message": "המכונה הווירטואלית caching-proxy-service פועלת, אך שרת ה-proxy שלה אינו נגיש. הפעילו test/service/Start-CachingProxyServiceVM.ps1 כדי לשחזר אותו, או העבירו -CachingProxyServiceUrl \"\" כדי להוריד ישירות."
+    },
     "host.clock_service_description": {
       "sourceHash": "5a15326d1b76f3fc950232711437544b25ca4014d0c608159929a9c8454af79e",
       "origin": "machine",

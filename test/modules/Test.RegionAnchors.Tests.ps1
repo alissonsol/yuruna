@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42a1c8e3-5b47-4f60-9d2a-7e83b415cc09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,6 +121,44 @@ Describe 'document anchor history survives partial updates and deletions' {
         Assert-Equal '42aaaaaa-0003' $entry.anchors[1].id 'a later invocation cannot give an old public link to unrelated text'
         Assert-Equal 1 @($entry.retiredAnchorIds).Count 'retired history remains separate from live link targets'
     }
+
+    It 'preserves CRLF source and translation anchors across repeated updates' {
+        $fixture = Join-Path $script:Sandbox 'crlf/yuruna'
+        foreach ($dir in @('tools', 'test/modules', 'docs/pt-BR', 'globalization/manifests')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force
+        }
+        $generator = Join-Path $fixture 'tools/Invoke-DocAnchor.ps1'
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1') -Destination $generator
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/modules/Test.Prelude.psm1') -Destination (Join-Path $fixture 'test/modules/Test.Prelude.psm1')
+        $readme = Join-Path $fixture 'README.md'
+        $translation = Join-Path $fixture 'docs/pt-BR/README.md'
+        $sourceText = "<a id=`"42dddddd-0007`"></a>`r`n`r`n<a id=`"legacy-heading`"></a>`r`n`r`n# Existing heading`r`n"
+        $translatedText = "<a id=`"42dddddd-0007`"></a>`r`n`r`n# Titulo existente`r`n"
+        [IO.File]::WriteAllText($readme, $sourceText)
+        [IO.File]::WriteAllText($translation, $translatedText)
+        $manifest = Join-Path $fixture 'globalization/manifests/doc-anchors.json'
+        $record = [ordered]@{
+            id = '42dddddd'; repo = 'yuruna'; source = 'README.md'
+            translations = [ordered]@{ 'pt-BR' = 'docs/pt-BR/README.md' }
+            anchors = @([ordered]@{ id = '42dddddd-0007'; heading = 'Existing heading'; slug = 'existing-heading' })
+        }
+        $manifestText = ([ordered]@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } |
+            ConvertTo-Json -Depth 8).Replace("`r`n", "`n").TrimEnd() + "`n"
+        [IO.File]::WriteAllText($manifest, $manifestText)
+
+        foreach ($pass in 1..2) {
+            $output = & pwsh -NoProfile -File $generator -Update -Path README.md -Quiet 2>&1 | Out-String
+            Assert-Equal 0 $LASTEXITCODE "CRLF update $pass changed existing anchors: $output"
+            Assert-Match 'Injected 0 anchor\(s\); wrote 0 file\(s\); 0 problem\(s\)' $output
+            Assert-StringEqual $sourceText ([IO.File]::ReadAllText($readme)) 'source bytes, including CRLF and the legacy alias, remain unchanged'
+            Assert-StringEqual $translatedText ([IO.File]::ReadAllText($translation)) 'translation bytes and its original stable id remain unchanged'
+            Assert-StringEqual $manifestText ([IO.File]::ReadAllText($manifest)) 'the current anchor index remains unchanged'
+            $entry = (Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).files[0]
+            Assert-Equal 1 @($entry.anchors).Count 'no duplicate anchor was injected'
+            Assert-Equal '42dddddd-0007' $entry.anchors[0].id 'a noninitial suffix remains attached to its heading'
+            Assert-False ($entry.PSObject.Properties.Name -contains 'retiredAnchorIds') 'an existing CRLF anchor must not become retired'
+        }
+    }
 }
 
 Describe 'the anchor gate says which of the three things happened' {
@@ -215,9 +253,17 @@ Describe 'the anchor gate says which of the three things happened' {
         # external reference a build break.
         $map = New-LinkMap -Name 'external-only.json' -Entry @(
             , @('5whys', 'Why?', 'https://alissonsol.blogspot.com/2020/02/why.html'))
-        $run = Invoke-Gate -Argument @('-Quiet', '-LinkMap', $map)
+        $external = Join-Path $script:Sandbox 'external-slug'
+        $null = New-Item -ItemType Directory -Path $external -Force
+        $null = & git -C $external init --quiet 2>&1
+        Assert-Equal 0 $LASTEXITCODE 'the disposable external-slug repository initializes'
+        [IO.File]::WriteAllText((Join-Path $external 'consumer.ps1'),
+            '# https://yuruna.link/' + '5whys#overview')
+        $run = Invoke-Gate -Argument @('-Quiet', '-AdditionalSourceRoot', $external,
+            '-Path', $external, '-LinkMap', $map)
         Assert-Equal -Expected 0 -Actual $run.ExitCode `
             -Because "an unresolvable slug is reported, not failed:`n$($run.Output)"
+        Assert-Match 'UNRESOLVABLE' $run.Output
     }
 
     It 'resolves every pointer against the real map when the sibling checkout is there' {
@@ -270,5 +316,211 @@ Describe 'the anchor gate says which of the three things happened' {
         Assert-Match -Pattern $pattern `
             -Actual $crossRepo `
             -Because 'the staged project checkout is not supplied to the region-anchor leaf'
+    }
+}
+
+Describe 'the anchor gate inventories additional source repositories' {
+    BeforeAll {
+        $script:AdditionalMap = New-LinkMap -Name 'additional-source.json' -Entry @(
+            , @('fixture-doc', 'Fixture', 'https://github.com/alissonsol/yuruna/blob/main/docs/source-consistency.md'))
+        $script:PointerPrefix = '# See https://yuruna.link/'
+    }
+
+    BeforeEach {
+        $script:AdditionalRepo = Join-Path $script:Sandbox ('extra-source-' + [Guid]::NewGuid().ToString('n'))
+        $null = New-Item -ItemType Directory -Path $script:AdditionalRepo
+        $null = & git -C $script:AdditionalRepo init --quiet 2>&1
+        Assert-Equal 0 $LASTEXITCODE 'the disposable additional source repository initializes'
+    }
+
+    It 'rejects an invalid pointer in an additional repository included by default' {
+        [IO.File]::WriteAllText((Join-Path $script:AdditionalRepo 'consumer.ps1'),
+            $script:PointerPrefix + '42ffffff-dead')
+        $run = Invoke-Gate -Argument @('-Quiet', '-AdditionalSourceRoot', $script:AdditionalRepo,
+            '-LinkMap', $script:AdditionalMap)
+        Assert-Equal 1 $run.ExitCode $run.Output
+        Assert-Match 'extra-source-[^/]+/consumer\.ps1' $run.Output
+        Assert-Match '42ffffff-dead' $run.Output
+    }
+
+    It 'checks and accepts a valid pointer in an explicitly selected additional repository' {
+        [IO.File]::WriteAllText((Join-Path $script:AdditionalRepo 'consumer.ps1'),
+            $script:PointerPrefix + '42e220c4-0003')
+        $run = Invoke-Gate -Argument @('-AdditionalSourceRoot', $script:AdditionalRepo,
+            '-Path', $script:AdditionalRepo, '-LinkMap', $script:AdditionalMap)
+        Assert-Equal 0 $run.ExitCode $run.Output
+        Assert-Match '1 pointer\(s\) checked' $run.Output
+    }
+
+    It 'keeps gitignored files outside an additional repository inventory' {
+        [IO.File]::WriteAllText((Join-Path $script:AdditionalRepo '.gitignore'), 'ignored.ps1')
+        [IO.File]::WriteAllText((Join-Path $script:AdditionalRepo 'ignored.ps1'),
+            $script:PointerPrefix + '42ffffff-dead')
+        [IO.File]::WriteAllText((Join-Path $script:AdditionalRepo 'consumer.ps1'),
+            $script:PointerPrefix + '42e220c4-0003')
+        $run = Invoke-Gate -Argument @('-AdditionalSourceRoot', $script:AdditionalRepo,
+            '-Path', $script:AdditionalRepo, '-LinkMap', $script:AdditionalMap)
+        Assert-Equal 0 $run.ExitCode $run.Output
+        Assert-Match '1 pointer\(s\) checked' $run.Output
+        Assert-False ($run.Output.Contains('ignored.ps1')) $run.Output
+    }
+
+    It 'applies explicit Path filtering inside an additional repository' {
+        $selected = Join-Path $script:AdditionalRepo 'selected'
+        $null = New-Item -ItemType Directory -Path $selected
+        [IO.File]::WriteAllText((Join-Path $selected 'consumer.ps1'),
+            $script:PointerPrefix + '42e220c4-0003')
+        [IO.File]::WriteAllText((Join-Path $script:AdditionalRepo 'excluded.ps1'),
+            $script:PointerPrefix + '42ffffff-dead')
+        $run = Invoke-Gate -Argument @('-AdditionalSourceRoot', $script:AdditionalRepo,
+            '-Path', $selected, '-LinkMap', $script:AdditionalMap)
+        Assert-Equal 0 $run.ExitCode $run.Output
+        Assert-Match '1 pointer\(s\) checked' $run.Output
+    }
+
+    It 'reports that a missing explicitly requested source repository cannot be checked' {
+        $missing = Join-Path $script:Sandbox 'missing-source'
+        $run = Invoke-Gate -Argument @('-Quiet', '-AdditionalSourceRoot', $missing,
+            '-LinkMap', $script:AdditionalMap)
+        Assert-Equal 2 $run.ExitCode $run.Output
+        Assert-Match 'additional source checkout not found' $run.Output
+    }
+}
+
+Describe 'published nonlocalized SBOM anchor authority' {
+    BeforeEach {
+        $workspace = Join-Path $script:Sandbox ('sbom-' + [Guid]::NewGuid().ToString('n'))
+        $script:SbomRepo = Join-Path $workspace 'yuruna'
+        $script:SbomProject = Join-Path $workspace 'yuruna-project'
+        foreach ($directory in @('tools', 'test/modules', 'automation', 'docs/sbom', 'globalization/manifests')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $script:SbomRepo $directory) -Force
+        }
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:SbomProject 'docs/sbom') -Force
+        foreach ($relative in @('tools/Test-RegionAnchors.ps1', 'tools/Update-LinkCatalog.ps1',
+                'test/modules/Test.Prelude.psm1', 'automation/Yuruna.Globalization.psm1')) {
+            Copy-Item -LiteralPath (Join-Path $script:RepoRoot $relative) -Destination (Join-Path $script:SbomRepo $relative)
+        }
+        foreach ($repository in @($script:SbomRepo, $script:SbomProject)) {
+            $null = & git -C $repository init --quiet 2>&1
+            Assert-Equal 0 $LASTEXITCODE 'the disposable SBOM repository initializes'
+        }
+        $script:SbomDocument = Join-Path $script:SbomRepo 'docs/sbom/README.md'
+        $script:SbomProjectDocument = Join-Path $script:SbomProject 'docs/sbom/README.md'
+        [IO.File]::WriteAllText($script:SbomDocument, "<a id=`"42abcdef-0001`"></a>`n`n# Framework inventory`n")
+        [IO.File]::WriteAllText($script:SbomProjectDocument, "<a id=`"42fedcba-0001`"></a>`n`n# Project inventory`n")
+        $script:SbomConsumer = Join-Path $script:SbomRepo 'consumer.ps1'
+        $script:SbomPointerPrefix = '# https://yuruna.link/'
+        [IO.File]::WriteAllText($script:SbomConsumer, $script:SbomPointerPrefix + '42abcdef-0001')
+        $script:SbomManifest = Join-Path $script:SbomRepo 'globalization/manifests/doc-anchors.json'
+        [IO.File]::WriteAllText($script:SbomManifest, '{"schema":"yuruna.doc-anchors/v1","files":[]}')
+        $script:SbomCatalog = New-LinkMap -Name ('sbom-' + [Guid]::NewGuid().ToString('n') + '.json') -Entry @(
+            , @('42abcdef', 'Framework inventory', 'https://github.com/alissonsol/yuruna/blob/main/docs/sbom/README.md')
+            , @('42fedcba', 'Project inventory', 'https://github.com/alissonsol/yuruna-project/blob/main/docs/sbom/README.md'))
+    }
+
+    It 'accepts published framework and project SBOM ids without adding them to the manifest' {
+        [IO.File]::WriteAllText($script:SbomConsumer,
+            $script:SbomPointerPrefix + '42abcdef-0001 and ' + $script:SbomPointerPrefix + '42fedcba-0001')
+        $before = [IO.File]::ReadAllText($script:SbomManifest)
+        $output = & pwsh -NoProfile -File (Join-Path $script:SbomRepo 'tools/Test-RegionAnchors.ps1') `
+            -ProjectRoot $script:SbomProject -Path $script:SbomConsumer -LinkMap $script:SbomCatalog -Quiet 2>&1 | Out-String
+        Assert-Equal 0 $LASTEXITCODE $output
+        Assert-StringEqual $before ([IO.File]::ReadAllText($script:SbomManifest)) 'local validation does not enroll SBOM documents'
+    }
+
+    It 'rejects missing, deleted, fenced, unpublished, and mismatched SBOM ids' -ForEach @(
+        'missing', 'deleted', 'backtick-fenced', 'tilde-fenced', 'unpublished', 'mismatched', 'mismatched-prefix', 'conflicting-target') {
+        switch ($_) {
+            'missing' { Remove-Item -LiteralPath $script:SbomDocument }
+            'deleted' { [IO.File]::WriteAllText($script:SbomDocument, '# Framework inventory') }
+            'backtick-fenced' { [IO.File]::WriteAllText($script:SbomDocument, "````````markdown`n<a id=`"42abcdef-0001`"></a>`n````````") }
+            'tilde-fenced' { [IO.File]::WriteAllText($script:SbomDocument, "~~~markdown`n<a id=`"42abcdef-0001`"></a>`n~~~") }
+            'unpublished' { [IO.File]::WriteAllText($script:SbomCatalog, '[]') }
+            'mismatched' { [IO.File]::WriteAllText($script:SbomConsumer, $script:SbomPointerPrefix + '42abcdef-0002') }
+            'mismatched-prefix' { [IO.File]::WriteAllText($script:SbomDocument, '<a id="42aaaaaa-0001"></a>') }
+            'conflicting-target' {
+                $rows = ConvertFrom-Json -NoEnumerate -InputObject ([IO.File]::ReadAllText($script:SbomCatalog))
+                $rows[0][2] = @($rows[0][2], 'https://example.com/elsewhere')
+                [IO.File]::WriteAllText($script:SbomCatalog, (ConvertTo-Json -InputObject $rows -Depth 6))
+            }
+        }
+        $output = & pwsh -NoProfile -File (Join-Path $script:SbomRepo 'tools/Test-RegionAnchors.ps1') `
+            -ProjectRoot $script:SbomProject -Path $script:SbomConsumer -LinkMap $script:SbomCatalog -Quiet 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE $output
+        Assert-Match '42abcdef-000[12]' $output
+        Assert-Match 'names no heading' $output
+    }
+
+    It 'preserves published SBOM rows, other file ids, and slug rows across generation' {
+        $originalRows = ConvertFrom-Json -NoEnumerate -InputObject ([IO.File]::ReadAllText($script:SbomCatalog))
+        $rows = @($originalRows) + @(
+            , @('42aaaaaa', 'Unregistered public document', 'https://example.com/public.md')
+            , @('legacy-doc', 'Legacy document', 'https://example.com/legacy'))
+        [IO.File]::WriteAllText($script:SbomCatalog, (ConvertTo-Json -InputObject $rows -Depth 6))
+        $expected = @($rows | ForEach-Object { ConvertTo-Json -InputObject $_ -Depth 6 -Compress })
+        $output = & pwsh -NoProfile -File (Join-Path $script:SbomRepo 'tools/Update-LinkCatalog.ps1') `
+            -Catalog $script:SbomCatalog -Update 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE $output
+        $actual = ConvertFrom-Json -NoEnumerate -InputObject ([IO.File]::ReadAllText($script:SbomCatalog))
+        Assert-Equal 4 $actual.Count $output
+        foreach ($row in $actual) {
+            Assert-True ($expected -contains (ConvertTo-Json -InputObject $row -Depth 6 -Compress)) 'every published row retains its original identity'
+        }
+    }
+
+    It 'rejects an invalid published SBOM row without changing the catalog' -ForEach @('missing', 'fenced', 'mismatched', 'conflicting-target') {
+        switch ($_) {
+            'missing' { Remove-Item -LiteralPath $script:SbomDocument }
+            'fenced' { [IO.File]::WriteAllText($script:SbomDocument, "~~~`n<a id=`"42abcdef-0001`"></a>`n~~~") }
+            'mismatched' { [IO.File]::WriteAllText($script:SbomDocument, '<a id="42aaaaaa-0001"></a>') }
+            'conflicting-target' {
+                $rows = ConvertFrom-Json -NoEnumerate -InputObject ([IO.File]::ReadAllText($script:SbomCatalog))
+                $rows[0][2] = @($rows[0][2], 'https://example.com/elsewhere')
+                [IO.File]::WriteAllText($script:SbomCatalog, (ConvertTo-Json -InputObject $rows -Depth 6))
+            }
+        }
+        $before = [IO.File]::ReadAllText($script:SbomCatalog)
+        $output = & pwsh -NoProfile -File (Join-Path $script:SbomRepo 'tools/Update-LinkCatalog.ps1') `
+            -Catalog $script:SbomCatalog -Update 2>&1 | Out-String
+        Assert-Equal 2 $LASTEXITCODE $output
+        Assert-StringEqual $before ([IO.File]::ReadAllText($script:SbomCatalog)) 'invalid local authority cannot rewrite published keys'
+    }
+
+    It 'rejects a manifest collision that would retarget a published file id' {
+        $record = @{ id = '42abcdef'; repo = 'yuruna'; source = 'docs/other.md'; translations = @{}; anchors = @() }
+        [IO.File]::WriteAllText($script:SbomManifest, (@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } | ConvertTo-Json -Depth 6))
+        $before = [IO.File]::ReadAllText($script:SbomCatalog)
+        $output = & pwsh -NoProfile -File (Join-Path $script:SbomRepo 'tools/Update-LinkCatalog.ps1') `
+            -Catalog $script:SbomCatalog -Update 2>&1 | Out-String
+        Assert-Equal 2 $LASTEXITCODE $output
+        Assert-Match 'would change its document target' $output
+        Assert-StringEqual $before ([IO.File]::ReadAllText($script:SbomCatalog)) 'an existing file id cannot move to another document'
+    }
+
+    It 'rejects duplicate published keys with different targets before writing' {
+        $rows = ConvertFrom-Json -NoEnumerate -InputObject ([IO.File]::ReadAllText($script:SbomCatalog))
+        $rows = @($rows) + @(, @('42abcdef', 'Another target', 'https://example.com/other.md'))
+        [IO.File]::WriteAllText($script:SbomCatalog, (ConvertTo-Json -InputObject $rows -Depth 6))
+        $before = [IO.File]::ReadAllText($script:SbomCatalog)
+        $output = & pwsh -NoProfile -File (Join-Path $script:SbomRepo 'tools/Update-LinkCatalog.ps1') `
+            -Catalog $script:SbomCatalog -Update 2>&1 | Out-String
+        Assert-Equal 2 $LASTEXITCODE $output
+        Assert-Match 'repeats published file id' $output
+        Assert-StringEqual $before ([IO.File]::ReadAllText($script:SbomCatalog)) 'conflicting public keys cannot be silently retargeted'
+    }
+
+    It 'keeps slug aliases while refreshing a generated row for the same document' {
+        $record = @{ id = '42aaaaaa'; repo = 'yuruna'; source = 'README.md'; translations = @{}; anchors = @() }
+        [IO.File]::WriteAllText($script:SbomManifest, (@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } | ConvertTo-Json -Depth 6))
+        $rows = ConvertFrom-Json -NoEnumerate -InputObject ([IO.File]::ReadAllText($script:SbomCatalog))
+        $rows = @($rows) + @(, @(@('42aaaaaa', 'legacy-readme'), 'Existing title', 'https://github.com/alissonsol/yuruna/blob/main/README.md'))
+        [IO.File]::WriteAllText($script:SbomCatalog, (ConvertTo-Json -InputObject $rows -Depth 6))
+        $output = & pwsh -NoProfile -File (Join-Path $script:SbomRepo 'tools/Update-LinkCatalog.ps1') `
+            -Catalog $script:SbomCatalog -Update 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE $output
+        $actual = ConvertFrom-Json -NoEnumerate -InputObject ([IO.File]::ReadAllText($script:SbomCatalog))
+        $generated = @($actual | Where-Object { @($_[0]) -contains '42aaaaaa' })
+        Assert-Equal 1 $generated.Count 'the generated id remains unique'
+        Assert-True (@($generated[0][0]) -contains 'legacy-readme') 'the existing slug alias remains published'
     }
 }

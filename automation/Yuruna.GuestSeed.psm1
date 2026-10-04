@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 428d485e-047b-4cc1-8ed5-93ab18e050f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,45 +19,19 @@
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 
 
-<#
-.SYNOPSIS
-    Platform-agnostic guest-seed helpers shared by the three per-guest
-    New-VM.ps1 scripts (Hyper-V, KVM, UTM).
-.DESCRIPTION
-    Each host platform's guest.ubuntu.server.<release>/New-VM.ps1 builds the same
-    autoinstall seed from the same inputs, differing only in platform knobs
-    (mirror URI, image name, VM-creation calls). A step that is identical across
-    all three drifts whenever a fix lands in one copy and not the others -- the
-    same duplication class as the shared cloud-init base
-    ([[feedback_cache_userdata_three_platforms]]). This module owns such steps
-    so a fix lands once.
+# See https://yuruna.link/42e220c4-0006
 
-    Deliberately narrow: only steps whose OUTPUT is byte-identical across the
-    three platforms live here. Steps that merely look similar but diverge (the
-    password/vault resolution honoring $env:YURUNA_GUEST_PASSWORD only on KVM,
-    the caching-proxy-service CA fetch with UTM's VZ-bridge path, the SSH-key load and
-    image auto-fetch that differ in import flags / error text, the host-IP
-    resolution, and every VM-creation call) stay in the per-guest scripts:
-    unifying them would change behavior on the Hyper-V and UTM platforms that the
-    KVM-only test pool cannot exercise, which a pure dedup must not risk.
-#>
-
-<#
-.SYNOPSIS
-    Build the autoinstall `apt:` block for the cloud-init seed.
-.DESCRIPTION
-    Always emits `geoip: false` + a pinned `primary:` mirror (deterministic
-    election; `primary:` not `sources_list:`, see
-    feedback_macos_utm_apt_block_resolute_curtin_trap.md). When a caching-proxy service
-    is configured its `proxy:` line is appended to the `uri:` line with a leading
-    newline + 4-space indent so it lands at the same YAML level; with no proxy
-    the expansion is empty. -PrimaryUri is the one platform knob (UTM pins the
-    aarch64 ports mirror; Hyper-V and KVM resolve it by arch, since
-    archive.ubuntu.com carries amd64 only).
-.OUTPUTS
-    [string] the apt block, byte-identical across the three platform scripts.
-#>
+# --- REGION: New-AptProxyBlock
 function New-AptProxyBlock {
+    <#
+    .SYNOPSIS
+        Build the autoinstall `apt:` block for the cloud-init seed.
+    .DESCRIPTION
+        Builds deterministic mirror, proxy, and retry settings.
+        See https://yuruna.link/429f3d06-000a for platform mirror selection.
+    .OUTPUTS
+        [string] the apt block, byte-identical across the three platform scripts.
+    #>
     # Pure builder: returns the apt-block text and changes no host/system state,
     # exactly like the shipped pure New-* cmdlets (New-Guid, New-Object,
     # New-TimeSpan), none of which support ShouldProcess. The verb-based rule is a
@@ -88,59 +62,37 @@ function New-AptProxyBlock {
 "@
 }
 
-<#
-.SYNOPSIS
-    Build the Windows guest's seed scripts and compact first-logon launcher.
-.DESCRIPTION
-    Establishes the guest's Yuruna coordinates and, when a token is supplied,
-    its git credentials. Byte-identical across Hyper-V, UTM and KVM given the
-    same inputs, which is what puts it in this module: only the resolution of
-    those inputs differs per platform, and that stays in the per-guest scripts.
-
-    The coordinates are split by whether DHCP can invalidate them. A seed ISO
-    is burned BEFORE Windows Setup runs, and Setup takes longer than a short
-    lease, so an address written into it can already name a host that has
-    moved by the time the guest first reads it -- the ordinary outcome on a
-    lab whose router hands out 30-minute leases, not an edge case. An address
-    cannot be the contract when the medium carrying it outlives its validity.
-
-    What survives is identity: -HostId is permanent across reboots, reimages
-    and renumbering, and -CachingProxyIp is pinned by MAC reservation. Those
-    are seeded as facts. -StatusServiceIp is seeded as a HINT -- right in the
-    common case, cheap to check, and repaired against the pool directory by
-    the resolver when it is not.
-
-    The generated script does the coordinate work UNCONDITIONALLY and gates
-    only the token work. A guest in a token-free lab is the one that can least
-    afford to be left with no coordinates at all.
-
-    The bootstrap body lives in automation/windows-guest-bootstrap.ps1 and is
-    read and token-substituted here. It is a file because it needs nested
-    here-strings of its own, and a here-string containing here-strings is
-    terminated by the first inner `'@` at column zero; building it by escaping
-    instead yields a first-logon script whose failures are silent, on a VM
-    nobody is watching. As a file it also parses and lints like any other
-    script.
-.PARAMETER RepoRoot
-    Absolute path to the repository root; windows-guest-bootstrap.ps1 and
-    yuruna-host-locate.ps1 are read from $RepoRoot/automation.
-.PARAMETER StatusServiceIp
-    Best-known host address at seed time. A hint; may be empty.
-.PARAMETER StatusServicePort
-    The port the host's status service listens on.
-.PARAMETER HostId
-    The host's stable hostId. Defaults to $env:YURUNA_RUNTIME_DIR/host.uuid.
-.PARAMETER CachingProxyIp
-    The pool directory's address. Defaults to
-    $env:YURUNA_CACHING_PROXY_SERVICE_IP. Empty means no directory in this
-    lab, and the guest simply keeps the seeded hint.
-.PARAMETER GhToken
-    repositories.ghToken, or empty to skip the credential half entirely.
-.OUTPUTS
-    [pscustomobject] Files maps seed filenames to script text; EncodedCommand
-    is a small UTF-16LE launcher that finds the seed CD at first logon.
-#>
+# --- REGION: New-WindowsGuestBootstrap
 function New-WindowsGuestBootstrap {
+    <#
+    .SYNOPSIS
+        Build the Windows guest's seed scripts and compact first-logon launcher.
+    .DESCRIPTION
+        Builds trusted seed media for host discovery and optional Git credentials.
+        See https://yuruna.link/4220a755-002d and https://yuruna.link/42e220c4-0006.
+    .PARAMETER RepoRoot
+        Absolute path to the repository root; windows-guest-bootstrap.ps1 and
+        yuruna-host-locate.ps1 are read from $RepoRoot/automation.
+    .PARAMETER StatusServiceIp
+        Best-known host address at seed time. A hint; may be empty.
+    .PARAMETER StatusServicePort
+        The port the host's status service listens on.
+    .PARAMETER HostId
+        The host's stable hostId. Defaults to $env:YURUNA_RUNTIME_DIR/host.uuid.
+    .PARAMETER CachingProxyIp
+        The pool directory's address. Defaults to
+        $env:YURUNA_CACHING_PROXY_SERVICE_IP. Empty means no directory in this
+        lab, and the guest simply keeps the seeded hint.
+    .PARAMETER FrameworkUrl
+        Configured framework repository URL, retained when the host is unavailable.
+    .PARAMETER ProjectUrl
+        Configured project repository URL, retained when the host is unavailable.
+    .PARAMETER GhToken
+        repositories.ghToken, or empty to skip the credential half entirely.
+    .OUTPUTS
+        [pscustomobject] Files maps seed filenames to script text; EncodedCommand
+        is a small UTF-16LE launcher that finds the seed CD at first logon.
+    #>
     # Pure builder: returns seed file text and a launcher, and changes no
     # host/system state. Same false positive, and same rationale, as
     # New-AptProxyBlock above.
@@ -154,6 +106,8 @@ function New-WindowsGuestBootstrap {
         [Parameter()][AllowEmptyString()][string]$StatusServicePort = '8080',
         [Parameter()][AllowEmptyString()][string]$HostId = '',
         [Parameter()][AllowEmptyString()][string]$CachingProxyIp = '',
+        [Parameter()][AllowEmptyString()][string]$FrameworkUrl = '',
+        [Parameter()][AllowEmptyString()][string]$ProjectUrl = '',
         [Parameter()][AllowEmptyString()][string]$GhToken = ''
     )
 
@@ -197,6 +151,8 @@ function New-WindowsGuestBootstrap {
                       Replace('__STATUS_PORT__', $StatusServicePort).
                       Replace('__HOST_ID__',     $HostId).
                       Replace('__CACHE_IP__',    $CachingProxyIp).
+                      Replace('__FRAMEWORK_URL__', $FrameworkUrl).
+                      Replace('__PROJECT_URL__', $ProjectUrl).
                       Replace("`$token = '__TOKEN__'", "`$token = '$GhToken'")
 
     # Setup's command-line field is small. Keep only CD discovery here; the

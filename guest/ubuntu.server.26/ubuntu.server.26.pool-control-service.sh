@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/42e220c4-0005
@@ -29,9 +29,8 @@ esac
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   # --- REGION: https://yuruna.link/4220a755-0003
   . /usr/local/lib/yuruna/yuruna-retry.sh
-  # Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
-  # teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
-  # parent). Force unbounded until no image predates the lib's unbounded default.
+  # See https://yuruna.link/4220a755-0005
+  # Package transactions stay unbounded, including with an older baked retry library.
   export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 fi
 
@@ -66,9 +65,8 @@ SCAN_PORT="${POOL_CONTROL_SCAN_PORT:-8080}"
 SCAN_INTERVAL="${POOL_CONTROL_SCAN_INTERVAL-15m}"
 [ -n "$SCAN_INTERVAL" ] || SCAN_INTERVAL=0
 
-# The host validates and canonicalizes the lab-wide language before baking it
-# into pool.env. Pseudo negotiation is a separate, explicit reference-run gate
-# and stays false in every ordinary VM seed.
+# See https://yuruna.link/42fffc2c-000d
+# Use the canonical seeded locale; pseudo locales require explicit opt-in.
 POOL_CONTROL_LANGUAGE="$(sed -n 's/^YURUNA_LANGUAGE=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 [ -n "$POOL_CONTROL_LANGUAGE" ] || POOL_CONTROL_LANGUAGE=auto
 POOL_CONTROL_ALLOW_PSEUDO_LOCALE="$(sed -n 's/^YURUNA_ALLOW_PSEUDO_LOCALE=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
@@ -109,81 +107,57 @@ echo ""
 echo -e "\e[1;36m==== Package dependencies ====\e[0m"
 # libcap2-bin supplies setcap for the DIRECT (non-systemd) launch path; under
 # systemd the load-bearing grant is AmbientCapabilities (see the unit below).
-yuruna_service_packages golang-go git cifs-utils wget ca-certificates libcap2-bin
+yuruna_service_packages golang-go git cifs-utils wget curl ca-certificates libcap2-bin
 go version
 # --- REGION: https://yuruna.link/42d69dfa-0036
 # Resolute has no PowerShell package; use the cross-version release tarball.
 if ! command -v pwsh >/dev/null 2>&1; then
-  case "$ARCH" in
-    x86_64)  PS_ARCH="x64" ;;
-    aarch64) PS_ARCH="arm64" ;;
-  esac
   if command -v apt_retry >/dev/null 2>&1; then
     apt_retry sudo apt-get install -y curl tar gzip
   else
     sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y curl tar gzip
   fi
-  # curl_retry comes from the shared retry lib when the image has it; plain curl
-  # with its own retry budget otherwise, so a first boot that predates the lib
-  # still installs.
+  # See https://yuruna.link/42d69dfa-0036
+  # Retain a bounded curl fallback for images without the retry library.
   if ! command -v curl_retry >/dev/null 2>&1; then
     curl_retry() { curl --retry 5 --retry-delay 5 --retry-connrefused "$@"; }
   fi
 
-  if command -v yuruna_install_pwsh_tarball >/dev/null 2>&1; then
-    yuruna_install_pwsh_tarball "$ARCH"
-  else
-  # Resolve the latest-stable release tag via HEAD-follow of /releases/latest.
-  # Avoids the 60/hr unauthenticated GitHub API rate limit.
-  PS_TAG=$(curl_retry -fsSLI -o /dev/null -w '%{url_effective}' \
-    "https://github.com/PowerShell/PowerShell/releases/latest")
-  PS_TAG="${PS_TAG##*/}"
-  if [[ ! "$PS_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "pool-control-service: PowerShell version discovery failed (got: '$PS_TAG')" >&2
-    exit 1
+  if ! command -v yuruna_install_pwsh_tarball >/dev/null 2>&1; then
+    # --- REGION: yuruna_install_pwsh_tarball
+    # See https://yuruna.link/42d69dfa-0036
+    # Preserve the checksum gate when the baked retry library lacks this helper.
+    yuruna_install_pwsh_tarball() (
+        local arch="$1" ps_arch tag version package url want got
+        case "$arch" in x86_64) ps_arch=x64;; aarch64) ps_arch=arm64;; *) return 1;; esac
+        local work
+        work="$(mktemp -d /tmp/yuruna-pwsh.XXXXXX)" || return 1
+        trap 'rm -rf "$work"' EXIT
+        tag="$(curl_retry -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/PowerShell/PowerShell/releases/latest)" || return 1
+        tag="${tag##*/}"
+        [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid PowerShell release tag" >&2; return 1; }
+        version="${tag#v}"; package="powershell-${version}-linux-${ps_arch}.tar.gz"
+        url="https://github.com/PowerShell/PowerShell/releases/download/${tag}/${package}${YurunaCacheContent:+?nocache=${YurunaCacheContent}}"
+        curl_retry -fsSL -o "$work/package.tar.gz" "$url" || return 1
+        curl_retry -fsSL -o "$work/hashes.sha256" "https://github.com/PowerShell/PowerShell/releases/download/${tag}/hashes.sha256" || return 1
+        local bom
+        bom="$(od -An -tx1 -N2 "$work/hashes.sha256" | tr -d ' \n')"
+        if [ "$bom" = fffe ] || [ "$bom" = feff ]; then
+            iconv -f UTF-16 -t UTF-8 "$work/hashes.sha256" | tr -d '\r' > "$work/hashes.norm" || return 1
+        else tr -d '\r' < "$work/hashes.sha256" > "$work/hashes.norm"; fi
+        want="$(LC_ALL=C awk -v p="$package" '$2==p || $2=="*"p {print $1;exit}' "$work/hashes.norm")"
+        got="$(sha256sum "$work/package.tar.gz" | awk '{print $1}')"
+        [[ "$want" =~ ^[0-9a-fA-F]{64}$ ]] && [ "${want,,}" = "$got" ] || { echo "PowerShell checksum missing or mismatched" >&2; return 1; }
+        sudo mkdir -p /opt/microsoft/powershell/7 || return 1
+        sudo tar zxf "$work/package.tar.gz" -C /opt/microsoft/powershell/7 || return 1
+        sudo chmod +x /opt/microsoft/powershell/7/pwsh || return 1
+        sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
+    )
   fi
-  PS_VER="${PS_TAG#v}"
-  PS_PKG="powershell-${PS_VER}-linux-${PS_ARCH}.tar.gz"
-  PS_URL="https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/${PS_PKG}${YurunaCacheContent:+?nocache=${YurunaCacheContent}}"
-  echo "Installing PowerShell ${PS_VER} (${PS_ARCH}) from ${PS_URL}"
-  curl_retry -fsSL -o /tmp/powershell.tar.gz "$PS_URL"
-
-  # --- REGION: https://yuruna.link/429f3d06-008b
-  if curl_retry -fsSL -o /tmp/pwsh-hashes.sha256 \
-       "https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/hashes.sha256"; then
-    PS_B2=$(od -An -tx1 -N2 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d ' \n' || true)
-    if [ "$PS_B2" = "fffe" ] || [ "$PS_B2" = "feff" ]; then
-      iconv -f UTF-16 -t UTF-8 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d '\r' > /tmp/pwsh-hashes.norm || true
-    else
-      tr -d '\r' < /tmp/pwsh-hashes.sha256 > /tmp/pwsh-hashes.norm || true
-    fi
-    PS_WANT=$(LC_ALL=C awk -v p="$PS_PKG" 'index($0,p){print $1; exit}' /tmp/pwsh-hashes.norm 2>/dev/null || true)
-    PS_GOT=$(sha256sum /tmp/powershell.tar.gz 2>/dev/null | awk '{print $1}' || true)
-    if [ -z "$PS_WANT" ]; then
-      echo "PowerShell ${PS_VER}: no checksum line for ${PS_PKG} in hashes.sha256; proceeding unverified." >&2
-    elif [ -z "$PS_GOT" ]; then
-      echo "PowerShell ${PS_VER}: could not compute local SHA-256; proceeding unverified." >&2
-    elif [ "$PS_WANT" = "$PS_GOT" ]; then
-      echo "PowerShell ${PS_VER}: tarball SHA-256 verified."
-    else
-      echo "PowerShell ${PS_VER}: tarball SHA-256 MISMATCH (want ${PS_WANT}, got ${PS_GOT}); possible tamper/corruption -- aborting." >&2
-      exit 1
-    fi
-    rm -f /tmp/pwsh-hashes.sha256 /tmp/pwsh-hashes.norm
-  else
-    echo "PowerShell ${PS_VER}: could not fetch hashes.sha256 after retries; proceeding unverified." >&2
-  fi
-  sudo mkdir -p /opt/microsoft/powershell/7
-  sudo tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7
-  sudo chmod +x /opt/microsoft/powershell/7/pwsh
-  sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
-  rm -f /tmp/powershell.tar.gz
-  fi
+  yuruna_install_pwsh_tarball "$ARCH"
 fi
-# Hard gate: the daemon's every read and write shells out to pwsh, so a missing
-# interpreter is not a degraded mode -- it is a service that answers every UI
-# call with "fork/exec: no such file or directory". Fail here, where the log
-# still says why, instead of at the first request.
+# See https://yuruna.link/42e220c4-000f
+# PowerShell is required for pool-admin commands; fail before starting an unusable daemon.
 if ! command -v pwsh >/dev/null 2>&1; then
   echo "pool-control-service: pwsh is NOT installed; the daemon cannot run any pool-admin CLI. Aborting." >&2
   exit 1
@@ -255,14 +229,11 @@ if [[ -z "$INTENT_GIT_URL" ]] && mountpoint -q "$MOUNT" 2>/dev/null; then
   INTENT_GIT_URL="$INTENT_STORE"
 fi
 
-# Create + seed the store when the resolved URL is a LOCAL path with no repo yet.
-# Seeding matches the caching-proxy-service's own bootstrap byte for byte -- an empty,
-# schema-valid pools.yml on 'main' -- so a store created here and one created
-# there are interchangeable.
+# See https://yuruna.link/42e220c4-000f
+# Initialize every resolved local intent store with schema-valid empty pools on main.
 if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* ]] && ! sudo -u "$SERVICE_USER" git -C "$INTENT_GIT_URL" show-ref --verify --quiet refs/heads/main; then
-  # Never materialize a store on the local disk underneath an unmounted NAS
-  # mountpoint: the NAS mounting later would shadow it, silently stranding
-  # whatever intent had been written in the meantime.
+  # See https://yuruna.link/42e220c4-000f
+  # An unmounted NAS path must not hide locally written intent when it later mounts.
   if [[ "$INTENT_GIT_URL" == "$MOUNT"/* ]] && ! mountpoint -q "$MOUNT" 2>/dev/null; then
     echo "pool-control-service: $MOUNT is not mounted; refusing to create $INTENT_GIT_URL on local disk (a later mount would shadow it)." >&2
     INTENT_GIT_URL=''
@@ -271,18 +242,14 @@ if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* ]] && ! sudo -u "$SERVI
     # --- REGION: https://yuruna.link/42e220c4-0005
     if sudo -u "$SERVICE_USER" git init --bare --initial-branch=main "$INTENT_GIT_URL" >/dev/null 2>&1 &&
        sudo -u "$SERVICE_USER" git -C "$INTENT_GIT_URL" config core.fileMode false &&
-       # Refresh the dumb-HTTP indexes after every push, via git's built-in
-       # rather than a post-update hook: a hook on cifs never becomes executable
-       # (the mount fixes modes), so info/refs would go stale the moment this UI
-       # wrote intent and the proxy would keep serving runners the old refs.
+       # See https://yuruna.link/42e220c4-000f
+       # Use receive.updateServerInfo; CIFS cannot preserve an executable post-update hook.
        sudo -u "$SERVICE_USER" git -C "$INTENT_GIT_URL" config receive.updateServerInfo true; then
       SEED_TMP="$(sudo -u "$SERVICE_USER" mktemp -d)"
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" init -q --initial-branch=main
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" config core.fileMode false
-      # schemaVersion 3, matching pools.schema.yml's `const: 3` and the fresh-doc
-      # default in Read-YurunaPoolsDoc. A store seeded at an older version READS
-      # fine -- nothing validates on read -- and then fails every write at schema
-      # validation, so the UI looks healthy right up until the operator creates a pool.
+      # See https://yuruna.link/42e220c4-000f
+      # Match the current pools schema so the first write passes validation.
       printf 'schemaVersion: 3\npools: []\n' | sudo -u "$SERVICE_USER" tee "$SEED_TMP/pools.yml" >/dev/null
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" add -A
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" \
@@ -302,9 +269,8 @@ if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* ]] && ! sudo -u "$SERVI
   fi
 fi
 if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* ]]; then
-  # An operator debugging over SSH runs git as root or as themselves against a
-  # tree the mount says belongs to the service user; without this every such
-  # call stops at "dubious ownership" before reaching the actual problem.
+  # See https://yuruna.link/42e220c4-000f
+  # Permit diagnostic Git reads despite CIFS mapping ownership to the service user.
   sudo git config --system --add safe.directory "$INTENT_GIT_URL" 2>/dev/null || true
   if [[ -d "$INTENT_GIT_URL/refs" ]]; then
     echo "pool-control-service: intent store -> $INTENT_GIT_URL (writable)"
@@ -339,15 +305,15 @@ EOF
 echo ""
 echo -e "\e[1;36m==== /etc/systemd/system/pool-control-service.service ====\e[0m"
 sudo tee /etc/systemd/system/pool-control-service.service >/dev/null <<EOF
+# --- REGION: [Unit]
 [Unit]
 Description=Yuruna Pool control service
 Documentation=https://yuruna.link/4207d71a-000c
-# After= the cifs mount unit so the daemon starts once the state dir is up;
-# NOT Requires=/Wants= it -- the daemon is meant to start and degrade to no
-# persistence when the NAS is down, and on a guest with no pool storage the
-# mount unit does not exist (After= a missing unit is a harmless no-op).
+# See https://yuruna.link/42e220c4-000f
+# Order after the NAS mount without requiring it; offline service startup is supported.
 After=network-online.target mnt-yuruna\x2dpool.mount
 Wants=network-online.target
+# --- REGION: [Service]
 [Service]
 Type=simple
 User=$SERVICE_USER
@@ -358,6 +324,7 @@ RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
+# --- REGION: [Install]
 [Install]
 WantedBy=multi-user.target
 EOF

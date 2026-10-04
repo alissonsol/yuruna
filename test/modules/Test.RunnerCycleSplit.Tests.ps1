@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -342,7 +342,11 @@ Describe 'Cycle dispatch' {
         $priorRuntimeDir = $env:YURUNA_RUNTIME_DIR
         $env:YURUNA_RUNTIME_DIR = $dir
         try {
+            # The stand-in spawn leaves the record a real cycle process leaves; a
+            # clean exit with no record is not scored as a pass.
             Mock -CommandName Start-Process -MockWith {
+                Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.cycle.outcome.json') `
+                    -Value '{"outcome":"completed","exitCode":0,"cycleGeneration":null}' -Encoding utf8
                 [pscustomobject]@{ Id = $PID; HasExited = $true; ExitCode = 0 }
             } -ModuleName Test.RunnerOuterLoop
             $state = @{
@@ -351,6 +355,7 @@ Describe 'Cycle dispatch' {
                 ShutdownState = @{ Requested = $false }
             }
             $r = Invoke-OuterCycleDispatch -State $state -Cycle 3
+            $r.Outcome | Should -Be 'completed'
             $r.ExitCode | Should -Be 0
             Assert-MockCalled -CommandName Start-Process -ModuleName Test.RunnerOuterLoop -Exactly -Times 1 -Scope It -ParameterFilter {
                 $i = [array]::IndexOf([object[]]$ArgumentList, '-File')

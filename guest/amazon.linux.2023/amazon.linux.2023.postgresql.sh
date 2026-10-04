@@ -1,15 +1,15 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: Initialize environment
 set -euo pipefail
 
 # --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
-# Architecture does not imply host platform: this lab runs aarch64 guests on
-# Hyper-V and UTM. Report virtualization detected inside the guest instead of
-# inferring the host from uname.
+# See https://yuruna.link/42e220c4-0005
+# Detect virtualization independently from CPU architecture.
 echo "Detected virtualization: $(systemd-detect-virt 2>/dev/null || echo unknown)"
 case "$ARCH" in
   x86_64)
@@ -45,9 +45,8 @@ if sudo systemctl is-active postgresql &>/dev/null; then
   done
 fi
 
-# PostgreSQL packages are available for both x86_64 and aarch64 via dnf.
-# AL2023's native repos cap at PostgreSQL 17 (the Ubuntu guests get 18 via
-# the PGDG apt repo, which does not support Amazon Linux).
+# See https://yuruna.link/42e220c4-0005
+# AL2023 uses PostgreSQL 17; PGDG does not support Amazon Linux.
 dnf_retry sudo dnf install -y postgresql17-server postgresql17-contrib
 
 # Clear data directory to allow re-initialization

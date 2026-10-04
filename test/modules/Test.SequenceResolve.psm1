@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42eb20ad-6a27-430a-ba01-796c50a077ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -360,17 +360,7 @@ function Get-SequenceSearchPath {
 }
 
 # --- REGION: Step-snippet library
-# A snippet is a named, reusable list of steps spliced into a sequence wherever
-# a `{ snippet: <name> }` step appears (including inside retry.steps), so common
-# preambles like the cold-agetty login prime live in one place instead of being
-# copied across every workload sequence. Libraries are `_snippets.yml` files (a
-# map of name -> step-array) living beside the sequences: framework
-# `test/sequences/_snippets.yml` and project `project/<...>/test/_snippets.yml`.
-# Project entries override framework ones of the same name (mirrors
-# Resolve-SequencePath's project-wins layering);
-# two PROJECT libraries defining the same name is a fatal ambiguity. Expansion
-# runs inside Read-SequenceFile so every consumer (executor, planner, perf, step
-# windows) sees the already-spliced steps with no per-call-site wiring.
+# See https://yuruna.link/4213a0b3-0166
 
 function Copy-YamlNode {
     # Deep-clones a powershell-yaml node (OrderedDictionary / list / scalar) so a

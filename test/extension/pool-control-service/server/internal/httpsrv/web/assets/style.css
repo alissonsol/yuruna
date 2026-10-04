@@ -515,3 +515,22 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 .row-feedback { margin-top: .25rem; font-size: .8rem; }
 .row-feedback.ok { color: var(--ok); }
 .row-feedback.error { color: var(--err); }
+
+/* A touch pointer can coexist with a mouse on a wide viewport. */
+@media (any-pointer: coarse) {
+  button, input, .row > input, select, textarea, .id-toggle,
+  th > button.sort, #footer-bar .linkish {
+    min-height: 44px; min-width: 44px;
+  }
+  #footer-bar .linkish {
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+}
+
+/* A taller fixed footer must not cover the last content row. */
+@media (any-pointer: coarse) and (min-width: 601px) {
+  body.has-footer-bar main {
+    padding-bottom: calc(44px + .7rem);
+    padding-bottom: calc(44px + .7rem + env(safe-area-inset-bottom));
+  }
+}

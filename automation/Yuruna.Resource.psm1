@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -296,14 +296,7 @@ function Publish-ResourceListHelper {
                         $retryableTofu = $false
                     }
                 }
-                # Retry on a transient signal only; a real plan or null_resource
-                # provisioner error does not match the shared classifier and fails
-                # fast. docs/architecture.md#shared-transient-failure-retry-policy
-                #
-                # The closures capture the command and predicate by value because the
-                # retry scriptblock runs in the Yuruna.Retry module scope, which
-                # cannot see this module's private Invoke-DynamicExpression import
-                # by name -- so capture its CommandInfo here and invoke it via &.
+                # See https://yuruna.link/4213a0b3-000f
                 $dynExprCmd = Get-Command Invoke-DynamicExpression
                 $transientTest = Get-Command Test-YurunaTransientFailure
                 $applyBlock = { & $dynExprCmd -Command $resolvedCommand *>&1 }.GetNewClosure()

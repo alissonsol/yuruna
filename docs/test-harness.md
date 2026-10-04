@@ -19,7 +19,7 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 | `service/Start-StatusService.ps1` / `service/Stop-StatusService.ps1` | Detached HTTP status UI |
 | `Test-CachingProxyService.ps1`                            | Preflight a local or remote cache |
 | `Test-Config.ps1`                                  | Validate `test.config.yml` + optional notification send |
-| `Invoke-TestProject.ps1`                                 | One-shot variant: wipe + re-clone `<RepoRoot>/project`, run a single cycle |
+| `Invoke-TestProject.ps1`                                 | One-shot variant: verify a fresh clone, replace `<RepoRoot>/project`, run a single cycle |
 | `Debug-TestSequence.ps1`                                 | Dev helper: single sequence, any start/stop step |
 | `check/Test-TesseractOcr.ps1`                      | OCR sanity check via Tesseract (open-source; independent of WinRT) |
 | `check/Test-WinRtOcr.ps1`                          | OCR sanity check via WinRT -- also demonstrates the modern-pwsh "closed access" issue |
@@ -40,11 +40,11 @@ internals, not invoked directly). The repo-wide encoding gate lives at
 `Invoke-TestRunnerInnerLoop`, `Debug-TestSequence`, and `Invoke-TestProject`
 can never drift apart on it, and a future entry point does not have to
 copy-paste the `$PSScriptRoot`/`Split-Path`/`Join-Path` boilerplate to
-compute it. **Exit-code contract:** `0` means success, `1` means anything
-else. Distinct preflight failures surface through the `Stop-WithReason`
-banner text -- an operator or a CI parser reads the "STOP at &lt;Step&gt;"
-line, not the numeric code -- so standardizing every entry point on `0`/`1`
-means CI needs no per-script exit-code lookup table.
+compute it. **Exit-code contract:** `0` means success; preflight failures
+use `1`, and `Invoke-TestProject` forwards the inner cycle's exact exit code.
+Distinct preflight failures surface through the `Stop-WithReason` banner
+text -- an operator or a CI parser reads "STOP (exit 1) at &lt;Step&gt;"
+and the reason to distinguish them.
 
 <a id="42d38664-0003"></a>
 
@@ -148,7 +148,7 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.HostDetection`   | Host-type discovery, host-folder mapping, test VM-name derivation, minimum-requirement checks |
 | `Test.HostBootstrap`   | `Initialize-YurunaHost` -- imports the matching `Yuruna.Host` driver into the runner's session |
 | `Test.HostCondition` (+ `.Mac`, `.Windows`, `.Linux`) | Facade + per-platform Set/Assert/AssertMinimum triplets -- see [Host-condition registry](#host-condition-registry) |
-| `Test.HostGit`         | Cycle-start framework update (`Invoke-GitPull`), HEAD short hashes, project wipe-and-re-clone, Windows file-locker PID diagnosis after `Remove-Item` failures (Restart Manager / PEB current-directory scanner), repository-access answers for pool UIs (`Get-HostRepositoryAccess`), and on-demand PSGallery installs (`powershell-yaml`, `PSScriptAnalyzer`) PowerShell 7 does not ship |
+| `Test.HostGit`         | Cycle-start framework update (`Invoke-GitPull`), HEAD short hashes, verified project clone replacement, Windows file-locker PID diagnosis after `Remove-Item` failures (Restart Manager / PEB current-directory scanner), repository-access answers for pool UIs (`Get-HostRepositoryAccess`), and on-demand PSGallery installs (`powershell-yaml`, `PSScriptAnalyzer`) PowerShell 7 does not ship |
 | `Test.HostAutomationState` | Records each host knob's prior value before `Enable-TestAutomation` writes it, so `Disable` can restore rather than guess |
 | `Test.HostFacts`       | The machine's own hardware facts in the shape `/control/host-facts` serves them, including the storage-counting rules |
 | `Test.HostIdentity`    | Hardware fingerprint + the operator-confirmed uuid reclaim that keeps a reimaged host's pool history from forking |
@@ -1206,6 +1206,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

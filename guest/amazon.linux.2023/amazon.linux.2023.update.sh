@@ -1,15 +1,15 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: Initialize environment
 set -euo pipefail
 
 # --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
-# Architecture does not imply host platform: this lab runs aarch64 guests on
-# Hyper-V and UTM. Report virtualization detected inside the guest instead of
-# inferring the host from uname.
+# See https://yuruna.link/42e220c4-0005
+# Detect virtualization independently from CPU architecture.
 echo "Detected virtualization: $(systemd-detect-virt 2>/dev/null || echo unknown)"
 case "$ARCH" in
   x86_64)
@@ -50,6 +50,26 @@ yuruna_host_relocate() {
 }
 fi
 
+# A guest image can carry a retry lib older than this script. This copy of the
+# lib's host probe -- four spaced asks, never one -- stays identical to it.
+if ! command -v yuruna_host_livecheck >/dev/null 2>&1; then
+yuruna_host_livecheck() {
+    local livecheck_url="http://${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}/livecheck"
+    local rounds=4 gap=3 round=1
+    while [ "$round" -le "$rounds" ]; do
+        if wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$livecheck_url" 2>/dev/null; then
+            if [ "$round" -gt 1 ]; then
+                echo "yuruna: host status service answered on probe ${round}/${rounds} at ${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}"
+            fi
+            return 0
+        fi
+        if [ "$round" -lt "$rounds" ]; then sleep "$gap"; fi
+        round=$((round + 1))
+    done
+    return 1
+}
+fi
+
 # --- REGION: Point dnf at the caching proxy
 # See https://yuruna.link/42f6b05f-000d
 # See https://yuruna.link/42e220c4-0005
@@ -65,9 +85,8 @@ fi
 
 if [ -n "$CACHE_HOST" ]; then
     echo "Caching proxy: ${CACHE_HOST} -- dnf and this script's downloads go through it."
-    # Inserted under [main] rather than appended: appending lands the key in
-    # whatever section happens to be last, and a proxy set under a repo section
-    # binds to that repo alone. Removed first so re-runs cannot stack copies.
+    # See https://yuruna.link/42f6b05f-000d
+    # Replace the proxy under [main] so it applies to every repository.
     sudo sed -i '/^proxy[[:space:]]*=/d' /etc/dnf/dnf.conf
     sudo sed -i "/^\[main\]/a proxy=http://${CACHE_HOST}:3128" /etc/dnf/dnf.conf
     # sed succeeds on no match; verify that [main] actually received the proxy.
@@ -91,9 +110,8 @@ if [ -n "$CACHE_HOST" ]; then
         export https_proxy="http://${CACHE_HOST}:3128/"
         export HTTPS_PROXY="$https_proxy"
     fi
-    # Read by the later workload scripts, which run in their own shells and
-    # inherit nothing from this one. dnf.conf already covers their package
-    # transactions; this covers the downloads they make with curl and wget.
+    # See https://yuruna.link/42f6b05f-000d
+    # Persist proxy settings for workload shells that do not inherit this environment.
     sudo tee /etc/profile.d/yuruna-proxy.sh >/dev/null <<EOF
 export http_proxy="${http_proxy}"
 export https_proxy="${https_proxy}"
@@ -117,10 +135,6 @@ fi
 echo ""
 echo -e "\e[1;36m==== Ensure PowerShell is installed ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
-  case "$ARCH" in
-    x86_64)  PS_ARCH="x64" ;;
-    aarch64) PS_ARCH="arm64" ;;
-  esac
   # Keep curl-minimal: installing the full curl package conflicts on AL2023.
   dnf_retry sudo dnf -y install libicu tar gzip
   if ! command -v curl >/dev/null 2>&1; then
@@ -128,54 +142,38 @@ if ! command -v pwsh >/dev/null 2>&1; then
     exit 1
   fi
 
-  if command -v yuruna_install_pwsh_tarball >/dev/null 2>&1; then
-    yuruna_install_pwsh_tarball "$ARCH"
-  else
-  # Follow the latest-release redirect without consuming GitHub API quota.
-  PS_TAG=$(curl_retry -fsSLI -o /dev/null -w '%{url_effective}' \
-    "https://github.com/PowerShell/PowerShell/releases/latest")
-  PS_TAG="${PS_TAG##*/}"
-  if [[ ! "$PS_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "PowerShell version discovery failed (got: '$PS_TAG')" >&2
-    exit 1
+  if ! command -v yuruna_install_pwsh_tarball >/dev/null 2>&1; then
+    # --- REGION: yuruna_install_pwsh_tarball
+    # See https://yuruna.link/42d69dfa-0036
+    # Preserve the checksum gate when the baked retry library lacks this helper.
+    yuruna_install_pwsh_tarball() (
+        local arch="$1" ps_arch tag version package url want got
+        case "$arch" in x86_64) ps_arch=x64;; aarch64) ps_arch=arm64;; *) return 1;; esac
+        local work
+        work="$(mktemp -d /tmp/yuruna-pwsh.XXXXXX)" || return 1
+        trap 'rm -rf "$work"' EXIT
+        tag="$(curl_retry -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/PowerShell/PowerShell/releases/latest)" || return 1
+        tag="${tag##*/}"
+        [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid PowerShell release tag" >&2; return 1; }
+        version="${tag#v}"; package="powershell-${version}-linux-${ps_arch}.tar.gz"
+        url="https://github.com/PowerShell/PowerShell/releases/download/${tag}/${package}${YurunaCacheContent:+?nocache=${YurunaCacheContent}}"
+        curl_retry -fsSL -o "$work/package.tar.gz" "$url" || return 1
+        curl_retry -fsSL -o "$work/hashes.sha256" "https://github.com/PowerShell/PowerShell/releases/download/${tag}/hashes.sha256" || return 1
+        local bom
+        bom="$(od -An -tx1 -N2 "$work/hashes.sha256" | tr -d ' \n')"
+        if [ "$bom" = fffe ] || [ "$bom" = feff ]; then
+            iconv -f UTF-16 -t UTF-8 "$work/hashes.sha256" | tr -d '\r' > "$work/hashes.norm" || return 1
+        else tr -d '\r' < "$work/hashes.sha256" > "$work/hashes.norm"; fi
+        want="$(LC_ALL=C awk -v p="$package" '$2==p || $2=="*"p {print $1;exit}' "$work/hashes.norm")"
+        got="$(sha256sum "$work/package.tar.gz" | awk '{print $1}')"
+        [[ "$want" =~ ^[0-9a-fA-F]{64}$ ]] && [ "${want,,}" = "$got" ] || { echo "PowerShell checksum missing or mismatched" >&2; return 1; }
+        sudo mkdir -p /opt/microsoft/powershell/7 || return 1
+        sudo tar zxf "$work/package.tar.gz" -C /opt/microsoft/powershell/7 || return 1
+        sudo chmod +x /opt/microsoft/powershell/7/pwsh || return 1
+        sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
+    )
   fi
-  PS_VER="${PS_TAG#v}"
-  PS_URL="https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/powershell-${PS_VER}-linux-${PS_ARCH}.tar.gz${YurunaCacheContent:+?nocache=${YurunaCacheContent}}"
-  echo "Installing PowerShell ${PS_VER} (${PS_ARCH}) from ${PS_URL}"
-
-  curl_retry -fsSL -o /tmp/powershell.tar.gz "$PS_URL"
-  # --- REGION: https://yuruna.link/429f3d06-008b
-  PS_PKG="powershell-${PS_VER}-linux-${PS_ARCH}.tar.gz"
-  if curl_retry -fsSL -o /tmp/pwsh-hashes.sha256 \
-       "https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/hashes.sha256"; then
-    PS_B2=$(od -An -tx1 -N2 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d ' \n' || true)
-    if [ "$PS_B2" = "fffe" ] || [ "$PS_B2" = "feff" ]; then
-      iconv -f UTF-16 -t UTF-8 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d '\r' > /tmp/pwsh-hashes.norm || true
-    else
-      tr -d '\r' < /tmp/pwsh-hashes.sha256 > /tmp/pwsh-hashes.norm || true
-    fi
-    PS_WANT=$(LC_ALL=C awk -v p="$PS_PKG" 'index($0,p){print $1; exit}' /tmp/pwsh-hashes.norm 2>/dev/null || true)
-    PS_GOT=$(sha256sum /tmp/powershell.tar.gz 2>/dev/null | awk '{print $1}' || true)
-    if [ -z "$PS_WANT" ]; then
-      echo "PowerShell ${PS_VER}: no checksum line for ${PS_PKG} in hashes.sha256; proceeding unverified." >&2
-    elif [ -z "$PS_GOT" ]; then
-      echo "PowerShell ${PS_VER}: could not compute local SHA-256; proceeding unverified." >&2
-    elif [ "$PS_WANT" = "$PS_GOT" ]; then
-      echo "PowerShell ${PS_VER}: tarball SHA-256 verified."
-    else
-      echo "PowerShell ${PS_VER}: tarball SHA-256 MISMATCH (want ${PS_WANT}, got ${PS_GOT}); possible tamper/corruption -- aborting." >&2
-      exit 1
-    fi
-    rm -f /tmp/pwsh-hashes.sha256 /tmp/pwsh-hashes.norm
-  else
-    echo "PowerShell ${PS_VER}: could not fetch hashes.sha256 after retries; proceeding unverified." >&2
-  fi
-  sudo mkdir -p /opt/microsoft/powershell/7
-  sudo tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7
-  sudo chmod +x /opt/microsoft/powershell/7/pwsh
-  sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
-  rm -f /tmp/powershell.tar.gz
-  fi
+  yuruna_install_pwsh_tarball "$ARCH"
 fi
 pwsh --version
 
@@ -248,9 +246,8 @@ if [ -r /etc/yuruna/host.env ]; then
   . /etc/yuruna/host.env
 fi
 if yuruna_host_env && [ ! -d "$REAL_HOME/yuruna" ]; then
-  LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
   TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
-  if wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
+  if yuruna_host_livecheck; then
     mkdir -p "$REAL_HOME/yuruna"
     # --- REGION: https://yuruna.link/42e220c4-000e
     if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
@@ -308,9 +305,8 @@ if yuruna_host_env; then
   fi
 fi
 
-# The config endpoint lives ON the host, so a guest that cannot reach the host
-# gets nothing from it -- exactly when it most needs a URL to clone from.
-# host.env carries the same two URLs, baked at New-VM time, for that case.
+# See https://yuruna.link/42fa6f45-000c
+# host.env keeps clone URLs available while the status service is unreachable.
 : "${FRAMEWORK_URL:=${YURUNA_FRAMEWORK_URL:-}}"
 : "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 
@@ -339,9 +335,8 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
     else
       yuruna_host_env || break
     fi
-    LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
-    if wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
+    if yuruna_host_livecheck; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
       if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
@@ -384,9 +379,8 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
     else
       yuruna_host_env || break
     fi
-    PROJECT_LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     PROJECT_TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-project-archive.tar.gz"
-    if ! wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$PROJECT_LIVECHECK_URL" 2>/dev/null; then
+    if ! yuruna_host_livecheck; then
       echo "yuruna: host status service did not answer at ${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}"
       continue
     fi
@@ -432,9 +426,8 @@ else
 if systemctl is-active --quiet NetworkManager && command -v nm-online >/dev/null 2>&1; then
   nm-online -q -t 30 || echo "WARNING: nm-online did not report 'online' within 30s; continuing."
 elif systemctl is-active --quiet systemd-networkd; then
-  # systemd-networkd-wait-online lives outside PATH; resolve it explicitly.
-  # --any: succeed once at least one link is online (single-NIC guests have
-  # no second link to wait on).
+  # See https://yuruna.link/4220a755-0014
+  # Resolve the non-PATH wait tool; --any waits for the single guest NIC.
   networkd_wait=""
   for cand in /usr/lib/systemd/systemd-networkd-wait-online /lib/systemd/systemd-networkd-wait-online; do
     if [ -x "$cand" ]; then

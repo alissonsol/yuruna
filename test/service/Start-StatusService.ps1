@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,21 +106,7 @@ Import-Module (Join-Path $ModulesDir 'Test.SingleFlightLock.psm1') -Global -Disa
 Import-Module (Join-Path $ModulesDir 'Test.StatusControlRoute.psm1') -Global -DisableNameChecking
 
 # --- REGION: Startup serialization and the refresh-safe outcome
-# Two starts for one runtime must not interleave: a start that finds a server
-# not yet answering reads it as dead, and the normal path then stops it. The
-# startup lock serializes them. It lives in the private state root, keyed by
-# runtime, because the runtime directory is served and lock metadata there
-# would be public, and so two checkouts' listeners never wait on each other.
-# The normal start waits a bounded time and then proceeds without it (a
-# start that never happens is worse than the race); the refresh-safe start
-# refuses instead, because its whole promise is to disturb nothing.
-#
-# The lock is an open handle held by this process. The normal start is
-# &-invoked inside the long-lived inner runner, so a handle that leaked past
-# this script would block every later start for the life of that process:
-# every exit below releases it first, and the trap releases it on any
-# uncaught error while letting the error propagate unchanged (the tagged
-# port-conflict exception included).
+# See https://yuruna.link/42e5cdfd-003d
 $script:StatusStartupLock = $null
 $script:RefreshSafeResultPath = $null
 $script:RefreshSafeDeadline = $null
@@ -270,15 +256,7 @@ if ($Restart -and (Test-Path $PidFile)) {
 }
 
 # --- REGION: Check for an existing server
-# The detached server bakes the ~1.5 KLOC here-string (and the modules
-# it imports at startup) into its in-memory state. Files under test/status/
-# are served from disk per request, so frontend edits do NOT need a
-# restart; only a change in the framework code does. We persist the
-# framework HEAD SHA to server.sha at launch and compare it here, so the
-# zero-change cycle of the inner runner (the common case) is a no-op
-# instead of a 1 s teardown + multi-second relaunch. Cycle-start downtime
-# drops from "every cycle" to "only when `git pull` actually pulled
-# something that affects the server".
+# See https://yuruna.link/42e5cdfd-003e
 $ShaFile = Join-Path $RuntimeDir 'server.sha'
 
 # The refresh-safe start never stops a server. It classifies the pidfile's
@@ -394,21 +372,7 @@ if (-not $RefreshSafe -and (Test-Path $PidFile)) {
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
 
-# Resolve port conflicts from untracked orphan detached servers.
-# Why it's needed and the Test.PortOwner.psm1 dispatch contract:
-# https://yuruna.link/42d38664
-#
-# -Elevate: take the port even when the holder is one this account cannot stop.
-# The holder in that case is almost always a status service this same harness
-# left behind as ROOT during an earlier sudo run -- invisible to an unprivileged
-# lsof, immune to an unprivileged kill. Handing that back as instructions makes
-# the operator finish a cleanup the harness caused and can do itself; it already
-# has (or can ask once for) the authorization. Every target is named as it is
-# stopped, and this process, its ancestors and pid 1 are never candidates.
-#
-# The refresh-safe start takes nothing: a port anyone holds is reported, and
-# the privilege case is told apart from a real holder for the same reason the
-# normal path tells them apart.
+# See https://yuruna.link/42e5cdfd-003f
 if ($RefreshSafe) {
     if (-not (Test-PortListenerFree -Port $Port -BudgetMs 0)) {
         if (Test-PortPrivilegeBlocked -Port $Port) {
@@ -427,14 +391,7 @@ if ($RefreshSafe) {
 # the banner and the thrown message differ.
 if ($portResolution.Status -eq 'Conflict' -or $portResolution.Status -eq 'PrivilegeRequired') {
     foreach ($line in ($portResolution.Message -split "`n")) { Write-Warning $line.TrimEnd() }
-    # Refuse, and make the refusal PROPAGATE. A bare `exit 1` here would only
-    # set $LASTEXITCODE for the call-operator invocation the shared gate runs
-    # (`& $StartScript`), so the parent cycle would carry on without a status
-    # server -- the blind-cycle trap this guards against. Throw a tagged
-    # exception instead: Start-YurunaStatusServiceIfEnabled recognizes the tag
-    # and aborts the entry point cleanly; a standalone run exits non-zero on the
-    # uncaught throw. The detection is OS-agnostic (HttpListener bind probe), so
-    # this fires identically on macOS/UTM, Ubuntu/KVM, and Windows/Hyper-V.
+    # See https://yuruna.link/42e5cdfd-003f
     $reason = if ($portResolution.Status -eq 'PrivilegeRequired') {
         "Status-service port $Port is free, but this process may not reserve http://*:$Port/ (needs elevation, or a netsh urlacl); refusing to start."
     } else {
@@ -499,17 +456,7 @@ if (-not $RefreshSafe -and (Test-Path $StatusFile)) {
 }
 
 # --- REGION: Clean up leftovers from older layouts
-# server.heartbeat: server no longer reads this; tidy up so inspectors
-# don't think it's load-bearing.
-# Legacy paths directly under test/status/ and under the old
-# test/status/track/ (now test/status/runtime/): older on-disk layouts
-# place server.pid, runner.pid, status.json, server.err,
-# current-action.json, control.*-pause, .status-service.ps1 in those
-# locations. A checkout upgrade can leave those untracked (no longer
-# .gitignored), cluttering `git status`. Drop them on every start so
-# operator runs land on a clean status dir.
-# The refresh-safe start skips this sweep: it removes the break sidecar and
-# the continue flag, which a held runner still needs.
+# See https://yuruna.link/42e5cdfd-0040
 if (-not $RefreshSafe) {
     Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
     Remove-Item (Join-Path $RuntimeDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
@@ -535,18 +482,7 @@ if (-not $RefreshSafe) {
 }
 
 # --- REGION: Enumerate host IPs -> $env:YURUNA_RUNTIME_DIR/ipaddresses.txt
-# UI footer reads this to show reachable addresses. Loopback
-# (127.0.0.1, ::1) excluded -- useless for remote clients.
-#
-# File format:
-#   * No addresses  -> single line "No IP addresses detected"
-#   * Addresses     -> up to two lines:
-#       line 1: IPv4, comma-separated (omitted if none)
-#       line 2: IPv6, comma-separated (omitted if none)
-#
-# Split IPv4/IPv6 so the UI renders two short rows instead of one long
-# run. File is overwritten on every Start-StatusService invocation so
-# stale entries from a previous host/network are not preserved.
+# See https://yuruna.link/42e5cdfd-0041
 $IpAddressesFile = Join-Path $RuntimeDir "ipaddresses.txt"
 try {
     $collectedAddresses = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
@@ -602,14 +538,7 @@ try {
 }
 
 # --- REGION: Announce the forwarder teardown's sudo
-# macOS: the Remove-PortMap calls in the port-map region below are clear-ALL,
-# so they stop every host-side forwarder -- and killing the root-owned :80
-# forwarder that Start-CachingProxyServiceVM created on the Shared-NAT path
-# needs sudo. Left to itself that fires a bare "[sudo] password for ..." deep
-# in the run, including on the unattended per-cycle path. Detect the exact
-# condition and announce the reason NOW, so the prompt is never a surprise and
-# a host without such a forwarder is never asked. Mirrors the same detection in
-# Stop-CachingProxyServiceVM.ps1; self-contained (pidfile + /bin/ps), no import.
+# See https://yuruna.link/42e5cdfd-0042
 if ($IsMacOS -and -not $RefreshSafe) {
     $forwarderStateDir = Join-Path $HOME 'yuruna/image/caching-proxy-service'
     $hasRootForwarder  = $false
@@ -625,15 +554,7 @@ if ($IsMacOS -and -not $RefreshSafe) {
         }
     }
     if ($hasRootForwarder) {
-        # This script is reached IN-PROCESS by all four service bring-ups
-        # (Start-YurunaStatusServiceIfEnabled), and those run with their output
-        # captured by whatever started them -- install/setup.ps1, a runner cycle.
-        # A password prompt there is invisible: the text goes to a log and the
-        # run waits on a keystroke nobody knows to press. So when the caller has
-        # declared the run non-interactive, probe with -n and report instead of
-        # asking. The trigger is a root-owned forwarder from an earlier
-        # bring-up, i.e. precisely the re-run case, which is why this fires on
-        # the machines least able to answer it.
+        # See https://yuruna.link/42e5cdfd-0043
         if ($env:YURUNA_NONINTERACTIVE -eq '1') {
             & sudo -n -v 2>$null
             if ($LASTEXITCODE -ne 0) {
@@ -681,26 +602,7 @@ try {
         # entry-point module set (that set covers the probe, not the write),
         # so it is imported here next to its only consumer.
         Import-Module (Join-Path $ModulesDir 'Test.CachingProxyServiceLock.psm1') -Global -Force -DisableNameChecking -Verbose:$false
-        # -Quiet: this probe DECORATES the dashboard banner with the cache URL
-        # when a cache exists. Having none is an ordinary state -- and it is the
-        # GUARANTEED state when the caller is Start-CachingProxyServiceVM.ps1,
-        # which starts this service in the step right before it creates the
-        # cache. Warning there, and telling the operator to point
-        # YURUNA_CACHING_PROXY_SERVICE_IP at a remote cache, describes a problem
-        # nobody has. The runner's own bootstrap probe stays loud: a missing
-        # cache there silently costs the whole cycle its downloads.
-        #
-        # Resolve the operator's configured cache FIRST. The probe consults only
-        # $Env:YURUNA_CACHING_PROXY_SERVICE_IP and this host's own cache-VM state
-        # file -- never vmStart.cachingProxyIp -- and that environment variable is
-        # published by the cycle's caching-proxy gate. A status service started by
-        # anything other than a running cycle therefore probes with neither source
-        # set, finds nothing, and reports a remote cache that is up and serving as
-        # absent. The same file is where the Dashboards link comes from, so the
-        # wrong answer also removes the link at the moment an operator goes
-        # looking for it. Resolving here applies the same precedence and the same
-        # :3128 acceptance the cycle applies, so the banner names the cache the
-        # cycle would use -- or stays silent when nothing answers.
+        # See https://yuruna.link/42e5cdfd-0044
         $configuredCacheIp = ''
         if (-not $Env:YURUNA_CACHING_PROXY_SERVICE_IP) {
             try {
@@ -723,56 +625,19 @@ try {
         }
         $cachingProxyUrl = Test-CachingProxyServiceAvailable -Quiet
         if ($cachingProxyUrl) {
-            # Port mapping so the status-page banner reports the same
-            # state as Start-TestRunner's console output.
-            # Add-PortMap dispatches per-platform via the host driver
-            # (netsh portproxy on Hyper-V, detached TcpListener
-            # forwarders on macOS/UTM). Both channels read
-            # the same caching-proxy-service.txt so banner and console stay
-            # in lock-step.
-            #
-            # Windows: port lists across callers MUST match -- Add-PortMap
-            # runs Clear-AllCachingProxyServicePortMapping first (netsh clears all), so
-            # any port omitted here would be torn down. macOS: per-port pidfiles
-            # mean each caller manages its own subset independently; no match
-            # required. Port 80 is excluded on macOS (see below).
-            #
-            # External-cache branch: when $Env:YURUNA_CACHING_PROXY_SERVICE_IP
-            # is set, Test-CachingProxyServiceAvailable returns the remote URL and
-            # the remote host exposes all its ports itself. Skip the
-            # local portproxy/forwarder entirely -- the dashboard link
-            # points straight at the remote IP.
+            # See https://yuruna.link/42e5cdfd-0044
             $cachingProxyContent = $null
             $mapOk = $false
             $bestIp = $null
             $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_SERVICE_IP
             if ($isExternal) {
                 $externUrlIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
-                # External handling below removes this host's
-                # forwarders, so it may only run when the endpoint is
-                # POSITIVELY not this host. 'local': the endpoint is this
-                # host's own forwarder set fronting its NAT'd cache VM --
-                # removing it severs the listeners that just answered the
-                # probe (self-teardown). 'unknown': transient NIC-
-                # enumeration gaps must land on the local side, because a
-                # wrong 'external' verdict tears the forwarders down while
-                # a wrong 'local' verdict merely re-asserts a port map.
+                # See https://yuruna.link/42e5cdfd-0044
                 if ($externUrlIp -and ((Get-HostOwnIpVerdict -IpAddress $externUrlIp) -ne 'nonlocal')) {
                     $isExternal = $false
                 }
             }
-            # Initialize-YurunaHost was already called above; Add-PortMap /
-            # Remove-PortMap / Get-BestHostIp are now resolvable via Yuruna.Host.
-            #
-            # Serialize the whole discriminate-and-write block against the
-            # runner's per-cycle refresh and against a caching-proxy-service
-            # bring-up. Add-PortMap is clear-all-first, so two writers whose
-            # port lists differ tear each other's netsh mappings, firewall
-            # rules and forwarders down; and a forwarder installed in front of
-            # a BRIDGED cache replaces the direct LAN path with kernel NAT,
-            # which loses the client source IP squid logs. Try-once with the
-            # same policy the runner uses: a live holder owns the maps for the
-            # duration of its own work and the next start re-applies.
+            # See https://yuruna.link/42e5cdfd-0044
             $portMapDeferred = $false
             $cpPortLock = if (Get-Command Enter-CachingProxyServiceLock -ErrorAction SilentlyContinue) {
                 Enter-CachingProxyServiceLock -RuntimeDir $RuntimeDir -Role 'portmap' -TimeoutSeconds 0
@@ -790,19 +655,7 @@ try {
                     $bestIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
                     $mapOk = [bool]$bestIp
                 } else {
-                    # Local-cache port-map target IP: on Windows
-                    # Test-CachingProxyServiceAvailable returns the VM's direct
-                    # IP (Hyper-V Default Switch is reachable from the
-                    # host), so parsing works. On macOS the URL is
-                    # http://192.168.64.1:3128 -- the VZ-gateway URL
-                    # guests use, NOT the cache VM. Feeding 192.168.64.1
-                    # to Start-CachingProxyServiceForwarder would make the
-                    # forwarder tunnel to its own listen socket (self-
-                    # loop: TCP accepts succeed, nothing reaches squid,
-                    # subiquity sees "Connection failed [IP: 192.168.64.1
-                    # 3128]" and falls back to offline install). Read
-                    # the real VM IP from the yuruna-caching-proxy-service state
-                    # file written by Start-CachingProxyServiceVM.ps1.
+                    # See https://yuruna.link/42e5cdfd-0044
                     if ($IsMacOS) {
                         $vmIp = $null
                         $candidate = (Read-CachingProxyServiceState).ipAddress
@@ -818,26 +671,7 @@ try {
                             if ($stateVmIp) { $vmIp = $stateVmIp }
                         }
                     }
-                    # macOS: port 80 (<1024) is managed exclusively by
-                    # Start-CachingProxyServiceVM.ps1 (it calls `sudo -v` first). Including
-                    # it here would trigger a sudo prompt on every status-service
-                    # restart. On macOS each port is independent (per-port pidfile),
-                    # so excluding :80 does not affect the other ports.
-                    # Windows: all ports in one list -- netsh clears everything first.
-                    # All caching-proxy-service port mappings are repeated in EVERY caller's
-                    # list because Add-PortMap clears ALL Yuruna netsh /
-                    # pwsh-forwarder / firewall state first; omitting any here
-                    # would tear it down each status-service restart.
-                    #
-                    # Windows External-vSwitch fast path: when the cache
-                    # VM is bridged to LAN (its own routable IP), remote
-                    # clients reach it directly and squid sees real
-                    # client IPs at TCP level. Tear down any prior netsh
-                    # mappings so the alternate host:port path doesn't
-                    # silently NAT-rewrite a parallel route.
-                    # Yuruna.Host's Test-CacheVMOnExternalNetwork checks
-                    # for any External-type vSwitch on Windows; on macOS
-                    # always returns $true (VMnet shared).
+                    # See https://yuruna.link/42e5cdfd-0044
                     $cacheOnExternalSwitch = [bool](Test-CacheVMOnExternalNetwork)
                     if ($cacheOnExternalSwitch) {
                         [void](Remove-PortMap -Confirm:$false)
@@ -853,28 +687,10 @@ try {
                         $bestIp = Get-BestHostIp
                         if (-not $bestIp) { $bestIp = $vmIp }
                     } else {
-                        # HTTP/HTTPS port mapping is platform-divergent on the
-                        # Default-Switch fallback (see Start-TestRunner.ps1
-                        # for full rationale): macOS uses pwsh forwarder +
-                        # PROXY v1 (real LAN IPs); Windows uses plain netsh
-                        # portproxy because the user-mode listener path is
-                        # unreachable from LAN on this host (squid logs the
-                        # NAT-side IP -- see docs/caching.md).
-                        # macOS skips :80 -- Start-CachingProxyServiceVM.ps1 is the
-                        # sole sudo owner of the privileged bind.
-                        # Port values come from YURUNA_CACHING_PROXY_SERVICE_*_PORT
-                        # env vars (defaults 3128 / 3129).
+                        # See https://yuruna.link/42e5cdfd-0044
                         $cacheHttpPort  = Get-CachingProxyServicePort -Scheme http
                         $cacheHttpsPort = Get-CachingProxyServicePort -Scheme https
-                        # The exposed-port set (incl. 9302 caching-proxy-parser-service
-                        # live tail) comes from Get-CachingProxyServiceExposedPort so it
-                        # cannot drift from Start-CachingProxyServiceVM's install list;
-                        # Add-PortMap is clear-all-first, so a dropped port goes
-                        # dark on reinstall. macOS re-maps only the two ports an
-                        # operator opens by hand: Grafana, and 80 -- which is
-                        # where the caching-proxy VM's landing page lives, and
-                        # therefore where the Dashboards link below points.
-                        # Without 80 that link reaches nothing from a Mac host.
+                        # See https://yuruna.link/42e5cdfd-0044
                         $squidPorts = if ($IsMacOS) { @(80, 3000) } else { Get-CachingProxyServiceExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
                         if ($vmIp) {
                             $portMapArgs = @{
@@ -904,14 +720,7 @@ try {
                 $cachingProxyContent = '<span data-i18n="status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937">Caching-proxy service: detected (port map owned by a bring-up)</span>'
                 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_05564109830bf14c' -Arguments @{ cachingProxyServiceFile = "$CachingProxyServiceFile" })
             } elseif ($mapOk) {
-                # Port 80 on the caching-proxy VM, which serves that VM's landing
-                # page: an index of the Grafana dashboards and the extension
-                # services, each linked only where it is actually reachable.
-                # Deliberately NOT a deep link into Grafana -- that page is a
-                # single-page app, so an older browser that cannot run it lands
-                # on a blank screen with nothing to fall back to, while the
-                # landing page is plain server-rendered HTML that says what
-                # exists and lets the operator choose.
+                # See https://yuruna.link/42e5cdfd-0044
                 $dashboardUrl = "http://${bestIp}"
                 $cachingProxyContent = '<span data-i18n="status.cache_caching_proxy_service_306beb37">Caching-proxy service:</span> <a data-i18n="status.cache_detected_b96da48a" href="' + $dashboardUrl + '" target="_blank">detected</a>'
                 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8b6ee3aa9ee2accc' -Arguments @{ dashboardUrl = "$dashboardUrl"; cachingProxyServiceFile = "$CachingProxyServiceFile" })
@@ -940,15 +749,7 @@ try {
 }
 
 # --- REGION: Host guest-network state (served here, written elsewhere)
-# runtime/host-network.txt (the banner the status page renders) and
-# runtime/host-network.json (the record host.registration.json advertises) are
-# served by the /runtime/* handler below like every other runtime file, and are
-# written by exactly one owner: the runner's cycle-start guest-network gate.
-# That gate is the only thing that observes the host's switch state once per
-# cycle, so it alone can advance the consecutive-cycle count on the pair. A
-# second writer here would either re-open a banner the gate had just cleared or
-# freeze the count at whatever the last service start happened to see -- this
-# service is long-lived and restarts far more rarely than a cycle runs.
+# See https://yuruna.link/42e5cdfd-0044
 
 # --- REGION: Launch the server as a detached process
 # Where the detached workers' entry points resolve from. Always the
@@ -1041,10 +842,20 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.StatusControlRoute.psm1')
 # as well, so a root that ever resolved inside a served tree still leaks
 # nothing. The public progress files (host-refresh.state.json,
 # start-cycle.state.json) match none of them.
+#
+# Private SSH keys are refused by NAME rather than by directory. A rule keyed
+# on one folder (ssh/) protects only the keys its author remembered, while
+# anything dropped in a folder of its own -- a project's hand-off directory a
+# guest downloads from, say -- sits outside every such rule and is served to
+# the whole LAN. The default OpenSSH names (id_rsa, id_ecdsa, id_ed25519,
+# id_dsa) are covered by the _rsa/_ecdsa/_ed25519/_dsa suffix shapes, and the
+# -key/_key suffixes catch the names projects pick for their own pairs. The
+# public halves (*.pub) end in none of them, so they keep being served.
 `$secretNameShapes = @('*.snapshot.json', '*.snapshot.*.json', '*.backup', '*.bak', '*.tmp',
     'host-refresh/*', '*/host-refresh/*', '*host-refresh.journal*', '*host-refresh.request*',
     '*host-refresh.lock', '*host-refresh.admission.lock', '*.record', '*.record.prev',
     '*.handshake.json', '*.hop.json', '*.ack.json', '*.key', '*.credential', '*.cred', '*.pfx', '*.p12',
+    '*-key', '*_key', '*_rsa', '*_ecdsa', '*_ed25519', '*_dsa', '*.ppk',
     'host-config-ca', 'host-config-ca/*', '*/host-config-ca', '*/host-config-ca/*')
 `$stepPauseFile  = Join-Path `$runtimeDir 'control.step-pause'
 `$cyclePauseFile = Join-Path `$runtimeDir 'control.cycle-pause'
@@ -2014,18 +1825,48 @@ function Resolve-ArchivedLogPath {
     return ''
 }
 
-function Get-ArchivedCycleName {
-    # The archived leaf names, for the merged /log/ index and the cycle-number
-    # short link. Only sentinel-complete folders: a destination exists
-    # sentinel-less for the whole duration of its copy, and listing one would
-    # advertise a half-copied tree as a finished cycle.
+# Folders the completion sentinel was seen in, by name, with the folder's
+# last-write time at that moment. A finished copy is never written again, so a
+# later listing skips the existence check for every folder whose last-write time
+# still matches, and pays it only for new folders and ones changed since.
+`$script:ArchiveCompleteMark = @{}
+
+function Get-ArchivedCycleEntry {
+    # The archived cycle folders, for the merged /log/ index and the
+    # cycle-number short link. Only sentinel-complete folders: a destination
+    # exists sentinel-less for the whole duration of its copy, and listing one
+    # would advertise a half-copied tree as a finished cycle.
+    #
+    # One enumeration returns the folder objects themselves, which carry every
+    # property the index renders. Never look a name up again with Get-Item: on
+    # Linux every Get-Item enumerates the whole parent directory, so a per-name
+    # lookup makes the index quadratic. Over the pool share, a few thousand
+    # archived cycles then hold this single-threaded listener for tens of
+    # minutes, and every guest livecheck queued behind it fails.
     `$root = Get-ArchiveCycleRoot
     if ([string]::IsNullOrWhiteSpace(`$root)) { return @() }
     try {
-        return @(Get-ChildItem -LiteralPath `$root -Directory -ErrorAction SilentlyContinue |
-            Where-Object { `$_.Name -match '^\d{6}\..+\..+\..+' -and (Test-Path -LiteralPath (Join-Path `$_.FullName '.yuruna-complete')) } |
-            ForEach-Object { `$_.Name })
+        `$known = `$script:ArchiveCompleteMark
+        if (`$known -isnot [hashtable]) { `$known = @{} }
+        `$marks = @{}
+        `$found = [System.Collections.Generic.List[object]]::new()
+        foreach (`$dir in @(Get-ChildItem -LiteralPath `$root -Directory -ErrorAction SilentlyContinue)) {
+            if (`$dir.Name -notmatch '^\d{6}\..+\..+\..+') { continue }
+            `$stamp = `$dir.LastWriteTimeUtc.Ticks
+            `$complete = (`$known[`$dir.Name] -eq `$stamp) -or
+                [System.IO.File]::Exists([System.IO.Path]::Combine(`$dir.FullName, '.yuruna-complete'))
+            if (-not `$complete) { continue }
+            `$marks[`$dir.Name] = `$stamp
+            `$found.Add(`$dir)
+        }
+        `$script:ArchiveCompleteMark = `$marks
+        return `$found.ToArray()
     } catch { return @() }
+}
+
+function Get-ArchivedCycleName {
+    # The archived leaf names, for the cycle-number short link.
+    return @(Get-ArchivedCycleEntry | ForEach-Object { `$_.Name })
 }
 
 function Test-RunnerAlive {
@@ -4207,6 +4048,18 @@ try {
             # Apply access rules to the same canonical relative path that
             # file opening uses, so repeated separators cannot bypass them.
             `$relNorm = [System.IO.Path]::GetRelativePath(`$rootFull, `$file) -replace '\\', '/'
+            # NTFS reads a named stream through the file name (name::`$DATA is
+            # the file's own bytes), and GetFullPath leaves that suffix in
+            # place, so the spelling reaches a refused file under a name no
+            # pattern below recognizes. (An 8.3 alias needs no rule of its
+            # own: GetFullPath already resolves it to the long name above.)
+            # Nothing this service serves has a colon in its name, so such a
+            # spelling is refused outright rather than resolved.
+            if (`$relNorm.Contains(':')) {
+                `$res.StatusCode = 403
+                Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_forbidden_78342a09'
+                continue
+            }
             if (`$path -like 'yuruna-repo/*') {
                 # Deny-list: secrets, vault state, the .git directory.
                 # Pattern-based so future credential / event-log files
@@ -4309,18 +4162,13 @@ try {
                 if (`$path -eq 'log' -or `$path -eq 'log/') {
                     `$localNames = @{}
                     foreach (`$e in `$entries) { `$localNames[`$e.Name] = `$true }
-                    `$archiveRootDir = Get-ArchiveCycleRoot
-                    if (`$archiveRootDir) {
-                        `$extra = [System.Collections.Generic.List[object]]::new()
-                        foreach (`$an in @(Get-ArchivedCycleName)) {
-                            if (`$localNames.ContainsKey(`$an)) { continue }
-                            `$ai = Get-Item -LiteralPath (Join-Path `$archiveRootDir `$an) -ErrorAction SilentlyContinue
-                            if (`$ai) { `$extra.Add(`$ai) }
-                        }
-                        if (`$extra.Count -gt 0) {
-                            `$entries = @(@(`$entries) + @(`$extra) |
-                                Sort-Object @{Expression = { -not `$_.PSIsContainer }}, Name)
-                        }
+                    `$extra = [System.Collections.Generic.List[object]]::new()
+                    foreach (`$archived in @(Get-ArchivedCycleEntry)) {
+                        if (-not `$localNames.ContainsKey(`$archived.Name)) { `$extra.Add(`$archived) }
+                    }
+                    if (`$extra.Count -gt 0) {
+                        `$entries = @(@(`$entries) + @(`$extra) |
+                            Sort-Object @{Expression = { -not `$_.PSIsContainer }}, Name)
                     }
                 }
                 # Resolved BEFORE the rendering block below, not inside it. That
@@ -4573,35 +4421,14 @@ try {
 } finally { `$listener.Stop() }
 "@
 
-# Write the server script to a file and launch with -File rather than
-# base64-encoding it onto the command line. The server script grew past
-# ~23 KB of source, which becomes ~61 KB when base64(UTF-16LE) encoded --
-# that plus the pwsh.exe path (on Windows Store installs, pwsh resolves
-# to a 100+ char Microsoft.PowerShell_*_8wekyb3d8bbwe\pwsh.exe path)
-# pushes the command line past the Windows CreateProcess 32,767-char
-# limit. The failure mode is a Start-Process error reading
-# "The filename or extension is too long" which is obscure and easy to
-# misread as a path problem. -File sidesteps the size limit entirely:
-# pwsh reads the script from disk instead of its command line.
-# Drop the previously generated server script (.status-service.ps1) and its
-# stdout log (server.out) so an upgrade does not leave a stale, misleading copy
-# under the runtime dir that an inspector could mistake for the live server.
-# Runs before the current script is written below.
+# See https://yuruna.link/42e5cdfd-0045
 Remove-Item (Join-Path $RuntimeDir '.status-service.ps1') -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $RuntimeDir 'server.out') -Force -ErrorAction SilentlyContinue
 
 $serverScriptFile = Join-Path $RuntimeDir ".status-service.ps1"
 Set-Content -Path $serverScriptFile -Value $serverScript -Encoding UTF8BOM
 
-# The server body above is a here-string: THIS process only ever parses it as
-# text, and the detached child is the first thing that parses it as code. So a
-# syntax slip that survives the escaping -- "$var:" (a colon right after a
-# variable name reads as a scope qualifier), a `" that collapsed into a bare
-# quote -- costs nothing at write time and kills the child on its first line.
-# Without this gate the operator sees none of that: the launch "succeeds", the
-# readiness probe below burns its full budget, and the report names the PORT,
-# sending the search to port ownership when the real defect is a typo in the
-# generated file. Parse it here, where the error is exact and instant.
+# See https://yuruna.link/42e5cdfd-0045
 $serverScriptParseError = $null
 $null = [System.Management.Automation.Language.Parser]::ParseFile($serverScriptFile, [ref]$null, [ref]$serverScriptParseError)
 if ($serverScriptParseError -and $serverScriptParseError.Count) {
@@ -4619,20 +4446,7 @@ if ($serverScriptParseError -and $serverScriptParseError.Count) {
 # on a read nobody can answer; non-interactive, it fails that one request.
 try {
     if ($IsWindows) {
-        # Explicit stdio redirection on Windows is REQUIRED for outer-runner
-        # liveness. Without -RedirectStandardOutput / -RedirectStandardError,
-        # this grandchild inherits the parent's console handles. The chain
-        # is: Start-TestRunner.ps1 spawns modules/Invoke-TestRunnerInnerLoop.ps1 with
-        # Start-Process -NoNewWindow (shared console); the inner here spawns
-        # the long-running status service which without explicit redirection
-        # also inherits those shared handles. When the inner cycle ends and
-        # the outer's WaitForExit() returns, the grandchild still holds the
-        # console handles open -- which on Windows can keep the outer's
-        # Start-Process -Wait pinned past the inner's actual exit, producing
-        # the symptom "[outer cycle N] outer runner back in control" never
-        # firing on outer.log even though the inner clearly emitted its
-        # final cycleDelaySeconds-wait-complete line. Redirecting to files
-        # gives the grandchild dedicated handles and breaks the chain.
+        # See https://yuruna.link/42e5cdfd-0045
         $serverOut = Join-Path $RuntimeDir "server.out"
         $serverErrFile = Join-Path $RuntimeDir "server.err"
         # Wrap $serverScriptFile in literal double quotes before handing it to
@@ -4642,17 +4456,7 @@ try {
         # and reports: The argument 'C:\Users\Yuruna' is not recognized as the
         # name of a script file.
         $serverScriptQuoted = '"' + $serverScriptFile + '"'
-        # -RedirectStandardInput against a real empty file is non-optional on
-        # Windows: without an explicit stdin redirect, the detached child
-        # inherits the parent console's stdin handle and conhost cannot tear
-        # down when the parent pwsh exits, leaving the operator's PowerShell
-        # window in a multi-second to indefinite close-pending state. Passing
-        # 'NUL' / '\\.\NUL' does NOT work because Start-Process runs the value
-        # through Resolve-Path, which prepends the current directory and then
-        # the underlying FileStream open fails on the bogus cwd\NUL path. The
-        # macOS branch below achieves the same effect via '</dev/null' in the
-        # bash invocation -- bash's redirection accepts the device name
-        # directly, so no sentinel file is needed there.
+        # See https://yuruna.link/42e5cdfd-0045
         $stdinSink = Join-Path $RuntimeDir 'stdin.empty'
         if (-not (Test-Path -LiteralPath $stdinSink)) {
             [System.IO.File]::WriteAllBytes($stdinSink, [byte[]]@())
@@ -4665,16 +4469,7 @@ try {
             -PassThru
         Set-Content -Path $PidFile -Value $proc.Id
     } else {
-        # On macOS/Linux, detach the status service from the test-runner shell's
-        # terminal job. `bash -c` runs a NON-interactive shell, so job control is
-        # off and a bare `&` leaves the backgrounded process in the caller's
-        # process group: exiting that shell then lingers because its terminal job
-        # still has a live member. `set -m` turns job control on for this shell,
-        # so `&` places the server in its OWN process group (bash setpgid's it).
-        # `nohup` ignores SIGHUP and stdin/stdout/stderr are redirected off the
-        # tty, so the server cleanly outlives the caller. (macOS has no `setsid`,
-        # so a new session is not available here -- a new process group plus
-        # nohup is what decouples it from the caller's exit.)
+        # See https://yuruna.link/42e5cdfd-0045
         $stdErr = Join-Path $RuntimeDir "server.err"
         & bash -c "set -m; nohup pwsh -NoProfile -NonInteractive -File '$serverScriptFile' </dev/null >/dev/null 2>'$stdErr' & echo `$!" | Set-Variable -Name bgPid
         Set-Content -Path $PidFile -Value $bgPid
@@ -4714,47 +4509,13 @@ if (-not $serverReady) {
 }
 
 # --- REGION: https://yuruna.link/4220a755-002d
-# Host-address beacon. Guests resolve a moved host through the pool directory,
-# and that directory can only be as current as what reaches it: its own
-# discovery tails the squid access log, which is pull-only and so lags exactly
-# when it matters -- a host appears there when it or its guests pull through
-# the proxy, so between cycles the view ages out and still names the address
-# the host has just left. This is the push half.
-#
-# Spawned only once the port answered. The beacon advertises THIS service; an
-# announcement for an address nothing serves would be worse than none, and the
-# probe above is what distinguishes the two.
-#
-# Detached rather than a timer inside the server: that process waits
-# indefinitely for its next request (it wakes early only to finish a request
-# body it is reading), so it has no periodic tick site.
-# Same idiom as the pool push forwarder. Single-instance via its own lock, so
-# the per-cycle Start-StatusService call cannot stack beacons; spawn failure is
-# non-fatal, exactly like every other best-effort pool hook.
-#
-# -NonInteractive is load-bearing, not decoration: a cmdlet reached with a
-# missing Mandatory parameter PROMPTS, and a prompt in a detached process with
-# no console never returns. It converts that whole class from a silent hang
-# into a logged throw the error file captures.
+# See https://yuruna.link/42e5cdfd-0046
 if ($serverReady) {
     try {
         $beaconScript = Join-Path $RepoRoot 'test/modules/Invoke-HostAddressBeacon.ps1'
         if (Test-Path -LiteralPath $beaconScript) {
             $beaconErr = Join-Path $RuntimeDir 'hostaddress.beacon.err'
-            # Ask whether a beacon is already running BEFORE spawning, rather
-            # than spawning and letting its own lock turn the surplus process
-            # away. The beacon follows server.pid rather than a process handle,
-            # so one that predates this restart keeps ticking for the service
-            # started here and nothing needs launching -- while the spawn itself
-            # is not free of side effects: the redirection files below are opened
-            # by the PARENT, so a live beacon still holding them makes
-            # Start-Process throw before the new process ever reaches the lock.
-            # That turns the ordinary every-cycle case into an exception, which
-            # is why a real spawn failure has to be told apart from it here.
-            #
-            # An OPEN probe, not Test-Path: the beacon deletes the file on a
-            # clean exit, so a lock file that survives a kill names no holder and
-            # must not wedge the next beacon out.
+            # See https://yuruna.link/42e5cdfd-0047
             $beaconLock    = Join-Path $RuntimeDir 'hostaddress.beacon.lock'
             $beaconRunning = $false
             if (Test-Path -LiteralPath $beaconLock) {
@@ -4837,15 +4598,7 @@ Write-Output "  Host:   http://${machineName}:$Port/status/"
 Write-Output ""
 
 # --- REGION: Publish where this service can be reached
-# A caller that just started this service should not have to guess its address.
-# The pool-control service publishes a marker its callers read; with nothing
-# equivalent here, a prober falls back to whatever constant it was configured
-# with and can spend its whole timeout on a host this service never ran on.
-#
-# Written as its own file rather than through the extension-service marker
-# helpers: those are keyed by an extension area with a service manifest behind
-# it, and the status service is host-side infrastructure rather than an
-# extension. Reusing that mechanism would mean declaring it to be one.
+# See https://yuruna.link/42e5cdfd-0048
 $ServiceMarkerFile = Join-Path $RuntimeDir 'status-service.json'
 try {
     $markerHost = if ($script:PrimaryIpv4) { $script:PrimaryIpv4 } else { 'localhost' }
@@ -4865,18 +4618,7 @@ try {
 }
 
 # --- REGION: LAN reachability self-heal (all host types)
-# The server binds to http://*:$Port so the socket is on every interface, but a
-# host firewall silently DROPs inbound TCP on non-loopback interfaces without an
-# allow rule -- so the localhost probe above passes while a LAN browser (and the
-# pool-aggregator service) time out. Best-effort SELF-HEAL: ensure the allow rule when
-# this start is privileged (Windows admin / Linux root|sudo), else warn with the
-# durable-fix pointer only when we can positively determine it's blocked.
-# -NonInteractive so an unprivileged start never prompts and hangs; an
-# indeterminate state (e.g. can't read ufw unprivileged) stays quiet -- host
-# setup (Enable-TestAutomation) is the durable owner, which matters for a host
-# whose runner is stopped and so never re-runs this per-cycle start.
-# The refresh-safe start edits no firewall: a rule change is host
-# configuration, and the listener it restores was reachable before.
+# See https://yuruna.link/42e5cdfd-0049
 if (-not $RefreshSafe) {
     Import-Module (Join-Path $ModulesDir 'Test.StatusFirewall.psm1') -Force
     $fw = Set-YurunaStatusFirewallRule -Port $Port -NonInteractive

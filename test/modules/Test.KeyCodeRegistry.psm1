@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42db3d20-ddd1-4aab-b78d-7c8fd9fd6f28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -284,21 +284,7 @@ $script:KvmNamedKeyMap = @{
 }
 
 # --- REGION: Modifier chords
-# Control chords need their own map family: the *-Named maps hold a SCALAR
-# code per name and every backend dereferences them as a scalar, so an array
-# entry there would be read as a truthy object rather than a chord. A chord
-# is also not a character, so the *-Char maps (keyed on the literal char and
-# carrying a needsShift flag) cannot express it either.
-#
-# Naming a chord ('CtrlU') instead of widening Send-Key with a -Modifier
-# parameter keeps the whole keystroke stack untouched: the host facade
-# contract, the Invoke-Sequence dispatcher and the per-host registry
-# scriptblocks all forward a single KeyName string, so a named chord needs
-# no signature change anywhere.
-#
-# The two chords the harness relies on are the canonical-mode tty controls:
-# Ctrl-U is VKILL (discard the current input line) and Ctrl-C is VINTR
-# (interrupt the foreground process group).
+# See https://yuruna.link/4213a0b3-008f
 
 # macOS UTM chord table. Entries are
 # [modifierKeyCode, baseKeyCode, cgEventFlag] for the CGEvent path.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 425d0d82-ebe2-4d28-90df-3b22ff1c2915
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,50 +22,7 @@
     repository.
 
 .DESCRIPTION
-    A lab is a physically local set of hosts, which are then grouped into pools;
-    each pool can carry the framework and project repositories its hosts run.
-    Bringing one up by hand -- create two folders, share them, set ACLs, put
-    passwords in a vault -- leaves nothing to check the result. This creates all
-    three consistently and is safe to re-run.
-
-    What it creates under -Root:
-      <Root>/yuruna.pool          cycle-output replication + the intent repository
-      <Root>/yuruna.stash         the stash service's own durable store
-      <Root>/yuruna.pool/pool-intent.git
-                                  bare pool-intent repository, seeded schema-valid.
-                                  pool-control service serves this over git:// and that URL
-                                  becomes the lab's intentGitUrl.
-
-    The vault it writes is plain YAML protected by filesystem permissions. That is
-    deliberate and is the reason this script exists rather than reusing
-    Export-Clixml: a lab vault has to be COPYABLE to the other hosts in the lab, and
-    DPAPI-bound files do not decrypt on the machine they are copied to. See
-    test/schemas/lab.vault.schema.yml.
-
-    Sharing the folders over SMB is left to the operator: it is per-platform, needs
-    elevation, and the account it grants is a decision this script should not make.
-    The guide covers it. On a machine that serves its own storage,
-    test/lab/New-LocalLabStorage.ps1 does that half and calls this script for this one.
-
-    ADDING A LAB TO A MACHINE THAT ALREADY HAS STORAGE. The share accounts are
-    machine-wide, not per-lab: one `yuruna-pool` OS account serves every lab whose
-    storage lives here. So a credential this machine already has is REUSED rather
-    than regenerated -- a fresh random password would be recorded in the new lab
-    vault while the OS account, the SMB server, and the other machines in the lab
-    all still hold the old one, and every mount using the new vault would fail
-    against a share that never had that password.
-
-    Reuse reads the host vault (the store the harness itself reads) through the
-    same vaultKey indirection Get-Password uses. It is strictly read-only: a user
-    with no stored credential gets a freshly generated one, and no existing value
-    is ever overwritten. -Force regenerates the lab vault file but still reuses
-    the machine's credentials; rotating a password is a deliberate, separate act
-    (Set-Password) that has to reach the OS account and the share too.
-
-    -Root may be omitted once storage exists here: the root is read back from the
-    lab vault of a lab already on this machine, so a second lab does not have to
-    re-specify where the first one put its folders.
-
+    See https://yuruna.link/42010605-0003.
 .PARAMETER Name
     Lab name. Same charset as a pool id, so the two cannot disagree.
 .PARAMETER Root
@@ -127,6 +84,7 @@ if (-not (Test-Path -LiteralPath $authExtension)) {
 }
 Import-Module $authExtension -Global -Force -DisableNameChecking
 
+# --- REGION: Set-DirectoryPrivate
 function Set-DirectoryPrivate {
     <#
     .SYNOPSIS
@@ -166,6 +124,7 @@ Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_76f86f396906afe
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ec6f1fb93e933915' -Arguments @{ root = "$Root"; machine = "$(if ($rootReused) { ' (from a lab already on this machine)' })" })
 Write-Output "========"
 
+# --- REGION: Test-DirectoryWritable
 function Test-DirectoryWritable {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -181,6 +140,7 @@ function Test-DirectoryWritable {
     }
 }
 
+# --- REGION: New-DirectoryWithSudoFallback
 function New-DirectoryWithSudoFallback {
     # Also reclaims a directory a previous elevated run left root-owned: every
     # step after this (git init, the vault write) runs unprivileged and needs
@@ -218,13 +178,7 @@ foreach ($p in @($Root, $poolPath, $stashPath)) {
 }
 
 # --- REGION: Pool-intent repository
-# 'pool-intent.git' is the name every consumer already resolves to and cannot
-# discover: the apache Alias the caching proxy publishes, the guest mount path
-# the pool-control service commits to, and the writable path setup.ps1 hands
-# New-Pool. A lab-name-derived name would be reachable by none of them, so the
-# store would exist and nothing would ever open it. The lab name does not need
-# to be in the name -- each lab owns its own -Root, so the pool folder is
-# already lab-scoped.
+# See https://yuruna.link/42010605-0003
 $intentPath = Join-Path $poolPath 'pool-intent.git'
 # Adopt a store created under the older lab-name-derived name rather than
 # leaving its seeded history orphaned beside a fresh empty repo.

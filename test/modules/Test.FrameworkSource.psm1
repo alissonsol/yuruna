@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42765a89-9026-4dfc-bda8-481ccd6555ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,39 +16,7 @@
 
 #requires -version 7
 
-# Which framework snapshot an extension service VM is built from.
-#
-# The service daemons are Go binaries whose version is stamped at COMPILE time
-# (`go build -ldflags "-X main.version=$VERSION_STR"`, read from the VERSION
-# file of whatever enlistment the guest fetched). Nothing re-reads it later:
-# the guest builds once and the number it prints on its UI, in /api/hostinfo,
-# and in every diagnostics payload is frozen at that moment for the life of
-# the VM.
-#
-# That makes the FETCH the whole story. The cloud-init seed pulls this host's
-# enlistment from the status service (/yuruna-archive.tar.gz) and falls back to
-# cloning the public github mirror when the host does not answer. The mirror is
-# a release snapshot -- it lags the working enlistment by however long since
-# the last publish -- so the fallback silently swaps the code being deployed
-# for an older codebase, and the only evidence left behind is one line in the
-# guest's cloud-init log.
-#
-# This module makes that visible from both ends:
-#
-#   * BEFORE the build, Assert-GuestFrameworkSource refuses a bring-up whose
-#     guest could not possibly reach this host's enlistment. It is a cheap
-#     early stop -- it saves the half-hour in-guest build, nothing more. It
-#     cannot prove which address the seed will end up baking, because that is
-#     resolved per host type inside New-VM.ps1.
-#
-#   * AFTER the daemon serves, Assert-ServiceVmFrameworkSource reads what the
-#     guest ACTUALLY did (/etc/yuruna/framework-source, written by the seed)
-#     and what the daemon actually reports (/api/hostinfo). That one is
-#     authoritative, and it is the check that fails a bring-up.
-#
-# The split matters: the pre-flight is a prediction and the post-boot check is
-# an observation, so only the second may be trusted to say a deployed service
-# is running current code.
+# See https://yuruna.link/4213a0b3-0058
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Set-StrictMode -Version Latest

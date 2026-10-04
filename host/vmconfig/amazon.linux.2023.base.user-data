@@ -14,12 +14,15 @@ users:
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
 # See https://yuruna.link/429f3d06-000e
+# --- REGION: ssh_authorized_keys
 ssh_authorized_keys:
   - SSH_AUTHORIZED_KEY_PLACEHOLDER
 # See https://yuruna.link/429f3d06-000c
+# --- REGION: chpasswd
 chpasswd:
   list: |
     USERNAME_PLACEHOLDER:PLAINTEXT_PASSWORD_PLACEHOLDER
+# --- REGION: ssh_pwauth
 ssh_pwauth: true
 
 # See https://yuruna.link/429f3d06-001f
@@ -58,27 +61,32 @@ write_files:
   - path: /etc/systemd/system/yuruna-host-locate.service
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Refresh Yuruna host coordinates if the host has changed address
       After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
       Before=network-online.target
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       TimeoutStartSec=30
       ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=network-online.target
   # See https://yuruna.link/4220a755-000f
   - path: /etc/systemd/system/yuruna-dhcp-release.service
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Return this guest's DHCP lease before shutdown
       Wants=network.target
       After=network.target
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       RemainAfterExit=yes
@@ -86,19 +94,23 @@ write_files:
       ExecStop=/bin/bash /usr/local/lib/yuruna/yuruna-network.sh release
       TimeoutStopSec=15
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=multi-user.target
   - path: /etc/systemd/system/yuruna-host-locate.timer
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Periodic Yuruna host coordinate refresh
 
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=30s
       OnUnitActiveSec=60s
       AccuracySec=5s
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
   # See https://yuruna.link/42fa6f45-000c
@@ -117,10 +129,13 @@ write_files:
   - path: /etc/systemd/network/98-yuruna-fallback-dhcp.network
     permissions: '0644'
     content: |
+      # --- REGION: [Match]
       [Match]
       Name=eth* en*
+      # --- REGION: [Network]
       [Network]
       DHCP=yes
+      # --- REGION: [DHCPv4]
       [DHCPv4]
       ClientIdentifier=mac
 
@@ -176,6 +191,7 @@ runcmd:
   - mkdir -p /etc/xdg/autostart
   - |
     cat > /etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
+    # --- REGION: [Desktop Entry]
     [Desktop Entry]
     Type=Application
     Name=Open Terminal

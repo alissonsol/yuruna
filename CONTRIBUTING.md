@@ -304,12 +304,23 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   `PSUseBOMForUnicodeEncodedFile`. Resolve a genuine false positive with a
   scoped `[Diagnostics.CodeAnalysis.SuppressMessageAttribute(... ,
   Justification = '...')]` carrying a one-line reason, not a blanket exclusion.
+- **Software bill of materials** -- [SBOM maintenance](docs/sbom/README.md)
+  generates repository, host, and guest inventories from the staged snapshot,
+  stages changed files, and retains the preceding version as `.previous`.
+  All files under `docs/sbom/` are exempt from globalization and localization,
+  including the translation-surface census and documentation anchor registry.
+  The commit hook still refreshes and stages the SBOMs.
 - **Commit hook** -- a repo-tracked `tools/githooks/pre-commit` runs the
   ASCII/no-BOM gate (`tools/Test-AsciiNoBom.ps1`) and blocks a commit that
   would put a BOM or non-ASCII byte into a byte-parsed bootstrap script
   (`irm|iex` / `curl|bash`) or first-run guest script. The install scripts
   activate it automatically via `.gitconfig.yuruna`; on a clone set up by
   hand, enable it once with `git config --local core.hooksPath tools/githooks`.
+  When `VERSION`, a shared Ubuntu workflow, its generator, or a generated
+  entrypoint is staged, the hook regenerates all ten Ubuntu 24/26 entrypoints
+  and stages their runtime SHA-256 pins. It refuses unstaged edits to those
+  inputs or entrypoints and a partial commit that needs regeneration. Python 3
+  is required for this pass, including on hosts without PowerShell.
   When a commit stages catalog sources, the kernel, the locale manifest,
   either generator, or a generated catalog/runtime file, it also runs
   `tools/Invoke-CatalogCompile.ps1 -Update` and
@@ -331,6 +342,32 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   `pwsh` is absent and bypassable with `git commit --no-verify` -- so the
   release script must run the same gate as a hard precondition (the
   authoritative check for the published artifact).
+- **Source metadata** -- a code or manifest file in a format that takes comments
+  (PowerShell, shell, Python, Go, JavaScript, C#, Rust, YAML, HCL, TOML, HTML,
+  CSS, SQL and the like) opens with `LICENSEURI https://yuruna.link/license`
+  directly above `Copyright (c) 2019-2026 by Alisson Sol et al.`, written in the
+  language's comment syntax and placed below any first line that must stay first
+  (a shebang, `<?xml?>`, `#cloud-config`). A copyright without the pointer leaves
+  open which license the published repositories ship under. PowerShell keeps both
+  in the `<#PSScriptInfo` block, which also holds a `.GUID` that starts with `42`
+  and that no other file declares (mint one with the recipe in
+  [docs/test-perf.md](docs/test-perf.md)): the GUID is what keeps a script's
+  history joined through a rename, so a shared one merges two histories. JSON,
+  Markdown, lock files, images and `.template` skeletons (whose comments are
+  copied into operator files) are not covered. Only three kinds of file are
+  exempt, and only through an entry in
+  [tools/source-metadata.exemptions.json](tools/source-metadata.exemptions.json),
+  where each entry states its reason: generated files (the entry names the
+  generator, and the file must name it too), vendored files (they keep their
+  upstream header), and byte-identical synchronized copies that share a GUID by
+  design (the entry names the sync tool). A new generated file therefore needs a
+  reviewed entry before it passes. The commit hook runs
+  `tools/Test-SourceMetadata.ps1 -Staged`, which reads the index and blocks a gap
+  the commit introduces; a gap that already exists in a file you only edit is
+  reported and does not block. `pwsh tools/Test-SourceMetadata.ps1 -All` reports
+  the whole tree (`-Root` takes several repositories, and `-FailOnDebt` turns
+  any finding into a failure for a release gate). A project repository's hook can
+  run the same script with `-Staged -Root <that repository>`.
 - **Accessibility** -- run `pwsh tools/Invoke-A11yCheck.ps1` when you touch a
   page, a stylesheet, or anything that generates HTML. It drives the installed
   Chrome and measures what the browser paints -- contrast, reflow at 320 CSS px,
@@ -358,8 +395,16 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   - Option A -- clone on the guest,
 `git checkout your-branch`, run the script directly.
   - Option B -- push
-the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
+the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`. The fetcher
+requires the script's SHA-256, so hash the pushed file in your checkout of the
+branch and pass it as `E_SHA` (why, and when `EXEC_ALLOW_UNVERIFIED=1` is the
+last resort: [Supplying the digest by hand](guest/README.md#supplying-the-digest-by-hand)):
     ```
+    # in your checkout of your-branch-name:
+    sha256sum guest/ubuntu.server.24/ubuntu.server.24.code.sh
+
+    # in the guest, with that digest:
+    E_SHA=<digest> \
     EXEC_BASE_URL="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/your-branch-name/" \
     /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh
     ```
@@ -393,6 +438,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](README.md)

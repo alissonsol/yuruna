@@ -84,6 +84,11 @@
        instruction the operator has to act on before the message is worth
        sending, so it cannot read as fine print. */
     .share-note { color: var(--fg-primary); font-size: 1rem; line-height: 1.55; margin-top: 1.5rem; }
+
+    /* A touch pointer can coexist with a mouse on a wide viewport. */
+    @media (any-pointer: coarse) {
+      #share-steps a { min-height: 44px; min-width: 44px; }
+    }
   </style>
 </head>
 <body>
@@ -104,7 +109,7 @@
       <a href="config.html" data-i18n="status.config">Config</a>
       <a href="performance.html" data-i18n="status.performance">Performance</a>
       <a href="diagnostics.html" data-i18n="status.diagnostics">Diagnostics</a>
-      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
+      <a class="menu-out" href="https://yuruna.link/42ad660e" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
     </nav>
   </div>
 </header>

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/42e220c4-0005
@@ -29,9 +29,8 @@ esac
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   # --- REGION: https://yuruna.link/4220a755-0003
   . /usr/local/lib/yuruna/yuruna-retry.sh
-  # Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
-  # teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
-  # parent). Force unbounded until no image predates the lib's unbounded default.
+  # See https://yuruna.link/4220a755-0005
+  # Package transactions stay unbounded, including with an older baked retry library.
   export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 fi
 
@@ -70,9 +69,8 @@ AUTH_TOKEN_FILE="${DOWNLOAD_AGENT_AUTH_TOKEN_FILE:-/etc/yuruna/internal-auth.key
 AGGREGATOR_URL="$(sed -n 's/^YURUNA_AGGREGATOR_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 HOST_ID="$(sed -n 's/^YURUNA_HOST_ID=//p' /etc/yuruna/host.env 2>/dev/null | head -1 || true)"
 
-# Agent tunables. download-agent.env is 0600 root, so read it through sudo --
-# this script also runs from an interactive admin login, not only as cloud-init's
-# root.
+# See https://yuruna.link/4268e4cb-0005
+# Read the root-only agent tunables through sudo for interactive admin launches.
 read_agent_env() {
   sudo sed -n "s/^$1=//p" /etc/yuruna/download-agent.env 2>/dev/null | head -1 || true
 }
@@ -89,9 +87,8 @@ PREFETCH_LEAD="${PREFETCH_LEAD:-2h}"
 AUTO_SEED="${AUTO_SEED:-true}"
 
 # --- REGION: Storage paths
-# Pool NAS mount (CIFS) -> download pool + state dir. NAS host/share/cred come
-# from pool.env, matching Test.PoolStorage's networkStorage.poolStorageNetworkPath
-# contract.
+# See https://yuruna.link/42e220c4-000f
+# Read pool NAS coordinates from pool.env, matching the host storage contract.
 POOL_NAS_UNC="$(sed -n 's/^YURUNA_POOL_NETWORK_PATH=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 POOL_NAS_IP="$(sed -n 's/^YURUNA_POOL_NETWORK_IP=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 POOL_NAS_USER="$(sed -n 's/^YURUNA_POOL_NETWORK_USER=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
@@ -105,7 +102,7 @@ echo ""
 echo -e "\e[1;36m==== Package dependencies ====\e[0m"
 # libcap2-bin supplies setcap for the DIRECT (non-systemd) launch path; under
 # systemd the load-bearing grant is AmbientCapabilities (see the unit below).
-yuruna_service_packages golang-go git cifs-utils wget ca-certificates libcap2-bin
+yuruna_service_packages golang-go git cifs-utils wget curl ca-certificates libcap2-bin
 go version
 
 # --- REGION: Locate the daemon source
@@ -170,9 +167,8 @@ PROXY_CA=''
 if [[ -n "$CACHE_PROXY_IP" ]]; then
   PROXY_HTTP="http://$CACHE_PROXY_IP:3128"
   PROXY_HTTPS="http://$CACHE_PROXY_IP:3129"
-  # The bumped chain is signed by the cache's own CA, so HTTPS through :3129
-  # verifies only against this PEM. Seeded by cloud-init; absent means the
-  # daemon leaves the HTTPS proxy unpinned and falls back to a direct fetch.
+  # See https://yuruna.link/4268e4cb-0005
+  # Pin bumped HTTPS to the seeded cache CA; absent CA selects direct HTTPS.
   if [ -s /etc/yuruna/yuruna-squid-ca.crt ]; then
     PROXY_CA=/etc/yuruna/yuruna-squid-ca.crt
   else
@@ -204,24 +200,23 @@ DOWNLOAD_AGENT_PROXY_HTTP=$PROXY_HTTP
 DOWNLOAD_AGENT_PROXY_HTTPS=$PROXY_HTTPS
 DOWNLOAD_AGENT_PROXY_CA=$PROXY_CA
 EOF
-# Root-only: the file names the aggregator and the pool paths this daemon acts
-# on, and nothing outside the unit needs it. systemd reads EnvironmentFile as
-# root before dropping to User=, so the daemon still sees it.
+# See https://yuruna.link/4268e4cb-0005
+# systemd reads this root-only environment before dropping to the service user.
 sudo chmod 0600 /etc/yuruna/download-agent-service.env
 
 # --- REGION: systemd unit
 echo ""
 echo -e "\e[1;36m==== /etc/systemd/system/download-agent-service.service ====\e[0m"
 sudo tee /etc/systemd/system/download-agent-service.service >/dev/null <<EOF
+# --- REGION: [Unit]
 [Unit]
 Description=Yuruna Download-agent service
 Documentation=https://yuruna.link/4268e4cb
-# After= the cifs mount unit so the daemon starts once the pool is up;
-# NOT Requires=/Wants= it -- the daemon is meant to start and report
-# "pool unavailable" when the NAS is down, and on a guest with no pool storage
-# the mount unit does not exist (After= a missing unit is a harmless no-op).
+# See https://yuruna.link/42e220c4-000f
+# Order after the NAS mount without requiring it; offline service startup is supported.
 After=network-online.target mnt-yuruna\x2dpool.mount
 Wants=network-online.target
+# --- REGION: [Service]
 [Service]
 Type=simple
 User=$SERVICE_USER
@@ -232,6 +227,7 @@ RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
+# --- REGION: [Install]
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -240,7 +236,7 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now download-agent-service.service
 
-if yuruna_service_wait_active download-agent-service.service 6; then
+if yuruna_service_wait_active download-agent-service.service 30 "http://127.0.0.1:${HTTP_ADDR##*:}/healthz"; then
   ss -ltnp '( sport = :80 )' 2>/dev/null | sed -n '1,4p' || true
   echo "FETCHED AND EXECUTED: download-agent-service.service active on $HTTP_ADDR (pool=$POOL_DIR state=${STATE_DIR:-off})"
 else

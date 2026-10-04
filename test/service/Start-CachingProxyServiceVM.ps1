@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -246,15 +246,7 @@ foreach ($p in @($GetImageScript, $NewVMScript)) {
 }
 
 # --- REGION: Preflight
-# Past this point Start-CachingProxyServiceVM runs UNATTENDED -- it must not stop
-# for an interactive prompt. Everything that needs operator awareness is
-# surfaced and resolved HERE, at the start:
-#   * a host-networking change (the 'yuruna-external' bridge) is described
-#     up front via Get-YurunaExternalNetworkPlan, before anything happens;
-#   * sudo is primed once, with the reasons, so no step re-prompts;
-#   * hard requirements (/dev/kvm, libvirtd) are checked so a doomed run
-#     stops NOW with a clear explanation instead of failing deep inside
-#     Step 3 (virt-install) after a multi-minute image download.
+# See https://yuruna.link/42e5cdfd-0031
 Write-Verbose ""
 Write-Verbose "== Step 0: plan + preflight =="
 
@@ -301,17 +293,7 @@ if ($preflightErrors.Count -gt 0) {
     exit 1
 }
 
-# Prime sudo ONCE, now, with the reasons -- so the host-proxy wipe (Step 1)
-# and, on Linux, the bridge's `sudo nmcli` calls (Step 1.5) never prompt
-# mid-run. Initialize-SudoCache is idempotent + silent when the cache is
-# already warm or elevation isn't needed (e.g. running as root).
-# The Step 1 host-proxy wipe needs root, but the mechanism differs per
-# platform -- name the real one so the prompt box explains why THIS host
-# is asking. macOS clears the system proxy via networksetup; Linux edits
-# /etc/environment + the apt proxy config. (Windows skips sudo entirely,
-# so the text is never shown there.) Build the base reason as a scalar
-# first, then wrap with @() so the later += appends instead of string-
-# concatenating onto an unwrapped single-element array.
+# See https://yuruna.link/42e5cdfd-0032
 $proxyWipeReason = if ($IsMacOS) {
     "clear the macOS system HTTP/HTTPS proxy (networksetup)"
 } else {
@@ -458,14 +440,7 @@ try {
     Write-Warning "  Remove-HostProxy failed: $($_.Exception.Message). Cleanup will continue."
 }
 if ($IsMacOS) {
-    # Tear down any leftover host-side TCP forwarders from the retired
-    # shared-NAT path (forwarder.<port>.pid pwsh subprocesses under
-    # $HOME/yuruna/image/caching-proxy-service). With the bridged cache VM these
-    # forwarders are no longer needed -- and if left running on
-    # 0.0.0.0:3128 they would conflict with anyone who later sets
-    # YURUNA_CACHING_PROXY_SERVICE_IP=<host-lan-ip> pointing back at this Mac.
-    # No-op on a fresh install. Stop-CachingProxyServiceVM.ps1 also calls this
-    # symmetrically.
+    # See https://yuruna.link/42e5cdfd-0033
     try {
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.HostContract.psm1') -Force
         [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
@@ -574,14 +549,7 @@ if (-not (Test-Path $ImageFile)) {
 }
 
 # --- REGION: Start the host status service
-# The cache VM's cloud-init build block fetches the collector + parser source
-# from the LOCAL host working tree (http://<host>:<port>/yuruna-repo/) rather
-# than the public github mirror -- this repo is the source of truth. That needs
-# the status service running on this host when the guest builds (~20-35 min into
-# first boot). Start it now (detached; it persists past this script's exit) so a
-# standalone cache rebuild fetches local source. Honors statusService.enabled;
-# if disabled, the guest build falls back to github (the collector may be absent,
-# but the inlined Grafana dashboards still deploy).
+# See https://yuruna.link/42e5cdfd-0034
 Write-Verbose ""
 Write-Verbose "== Step 2.5: host status service (serves the local repo to the cache VM) =="
 Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -Force
@@ -611,14 +579,7 @@ if ($cpStatusDecision.ShouldStart) {
 }
 
 # --- REGION: Start the host config service
-# The cache VM mounts ystash-nas (for the Extension hosts crawl) and ypool-nas
-# using credentials it fetches at boot AND hourly from this service over mutual
-# TLS, so a rotated NAS password reaches the running VM with no rebuild (the fix
-# for the bake-once staleness). mTLS scopes access to VMs THIS host created --
-# each carries a client cert signed by this host's Config CA. Detached; persists
-# past this script. Best-effort: if it fails, the guest falls back to its baked
-# credential (rotation just won't propagate until the service is up). Honors
-# configService.enabled (default true).
+# See https://yuruna.link/42e5cdfd-0035
 Write-Verbose ""
 Write-Verbose "== Step 2.6: config service (serves NAS creds to this host's VMs over mTLS) =="
 # Shares the runner's lifecycle gate (Test.Prelude) so enabled / port / the
@@ -626,14 +587,7 @@ Write-Verbose "== Step 2.6: config service (serves NAS creds to this host's VMs 
 # cycle -- the config service is no longer started ONLY by this one-shot script.
 $cpConfigDecision = Start-YurunaConfigServiceIfEnabled -Config $cpConfig -StartScript (Join-Path $PSScriptRoot 'Start-ConfigService.ps1')
 if ($cpConfigDecision.ShouldStart) {
-    # The ensure above is best-effort: Start-ConfigService only WARNS (it never
-    # fails) when its port never comes up, so verify it HERE, before Step 3 builds
-    # the VM. New-VM mints the cache VM's mTLS client cert from THIS host's Config CA
-    # (which this service initializes) and bakes it into the seed; the VM then fetches
-    # its ystash-nas/ypool-nas credentials from this endpoint at boot. A service that
-    # is DOWN at build time is the silent cause of a cache VM that bakes EMPTY mTLS
-    # materials, never mounts ystash-nas, and shows an empty "Extension hosts" panel.
-    # Surface it now (loudly) instead of leaving the operator to discover it later.
+    # See https://yuruna.link/42e5cdfd-0036
     $cpConfigUp = Test-TcpEndpointOpen -Address '127.0.0.1' -Port ([int]$cpConfigDecision.Port) -TimeoutMilliseconds 3000
     if ($cpConfigUp) {
         Write-Verbose "  config service verified accepting on :$($cpConfigDecision.Port) (mTLS; serves NAS creds to this host's VMs)."
@@ -721,18 +675,7 @@ if ($IsMacOS) {
         Write-Error "Expected bundle '$UtmDir' missing after New-VM.ps1 ran."
         exit 1
     }
-    # Auto-dismiss UTM's modal "this VM uses custom QEMU arguments which is
-    # potentially dangerous" warning. The cache VM runs the QEMU backend with
-    # -vnc AdditionalArguments (guest.caching-proxy-service/config.plist.template), so
-    # UTM gates every launch behind that confirmation -- which would block
-    # this unattended bring-up until a human clicks Continue. UTM exposes no
-    # way to suppress it (it is a deliberate security gate), so reuse the same
-    # osascript watchdog Start-UtmVM uses for the Start-TestRunner path.
-    # Ensure the macOS host module (which exports the watchdog) is loaded --
-    # Step 2/3's Get-Image / New-VM run -Force imports that can evict the
-    # copy Step 1 loaded (feedback_module_force_import_evicts_global); only
-    # re-import when the function is actually missing so we don't trigger
-    # unnecessary nested-import churn.
+    # See https://yuruna.link/42e5cdfd-0037
     if (-not (Get-Command Start-UtmDialogWatchdog -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $RepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1') -Global -Force -DisableNameChecking
     }
@@ -782,25 +725,7 @@ if ($IsMacOS) {
         Write-Error "UTM did not register '$VMName' within 30 s. Open UTM manually to continue."
         exit 1
     }
-    # On a freshly-imported bundle, `utmctl start` can return 0 at the RPC
-    # level while UTM is still finalizing bundle ingestion, and the start
-    # request is silently dropped -- the VM stays in 'stopped'. Verify the
-    # transition by parsing `utmctl status` output and retry a few times.
-    # `utmctl status` prints one of: started / paused / stopped / suspended.
-    #
-    # Matched as an ALLOW-list on the one state that means "running". A
-    # deny-list of the states known to be bad reads the same until UTM reports
-    # something the list does not mention, and then it reads that as success:
-    # 'suspended' is a VM whose RAM has been written to disk and whose CPU is
-    # not executing, which passes a "not stopped, not paused" test while being
-    # exactly as unusable as 'stopped'. Everything after this point -- a 15
-    # minute discovery sweep, then whatever waits on the service inside the
-    # guest -- then spends its whole budget on a VM that is not running.
-    #
-    # The two accepted words are the pair Confirm-UtmVMStarted accepts, so this
-    # check and the host contract's cannot disagree about what running means. A
-    # stricter list here would be its own hazard: a state the shared helper calls
-    # running and this one does not is a bring-up that fails while the VM is up.
+    # See https://yuruna.link/42e5cdfd-0037
     Write-Verbose "  Registered. Starting VM..."
     $started = $false
     $lastState = ''
@@ -820,14 +745,7 @@ if ($IsMacOS) {
         $cpStartDeadline = [DateTime]::UtcNow.AddSeconds(15)
         while ([DateTime]::UtcNow -lt $cpStartDeadline) {
             Start-Sleep -Seconds 1
-            # The exit code comes back with the output it belongs to, never
-            # from $LASTEXITCODE, which a later pipeline stage or native call
-            # can leave describing a different command. A call that timed out,
-            # was cut short or truncated counts as no answer (-1). stderr is
-            # read with stdout, so a refused status (Apple Events denied prints
-            # "Error from event: ... OSStatus error -1743") is seen as text,
-            # and it never matches a state word, so it is never read as the
-            # VM's state.
+            # See https://yuruna.link/42e5cdfd-0037
             $cpStatusCall = & $cpUtmctl 'status' $VMName 10
             $statusRc = if (Test-BoundedNativeResultComplete -Result $cpStatusCall) { [int]$cpStatusCall.ExitCode } else { -1 }
             $statusOut = @(Get-BoundedNativeOutputLine -Result $cpStatusCall -IncludeError | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
@@ -846,14 +764,7 @@ if ($IsMacOS) {
     }
     if (-not $started) {
         Stop-UtmDialogWatchdog
-        # The observed state is named because the ones it can be need different
-        # things from the operator: 'stopped' is a start that never took,
-        # 'suspended' is a VM that started and was then saved to disk by
-        # something else on this machine, and 'paused' is one deliberately held.
-        # A status that never answered is its own fourth case -- utmctl reaches
-        # UTM over Apple Events, which a host that has not granted Automation
-        # denies outright -- so it is reported as silence rather than dressed up
-        # as a state UTM never named.
+        # See https://yuruna.link/42e5cdfd-0037
         $observed = if ($lastState) { "it reports '$lastState'" } else { 'utmctl never returned a status for it' }
         Write-Error ("UTM did not bring '$VMName' to 'started' after 3 attempts; $observed. " +
             "Open UTM, bring the VM to a running state, then re-run.")
@@ -876,16 +787,7 @@ if ($IsMacOS) {
         $httpPort  = Get-CachingProxyServicePort -Scheme http
         $httpsPort = Get-CachingProxyServicePort -Scheme https
         Import-Module (Join-Path $RepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1') -Global -Force -DisableNameChecking
-        # Identify the cache VM by its bundle MAC via ARP -- NOT by DHCP
-        # hostname. A rebuilt cache reuses the name 'yuruna-caching-proxy-service',
-        # so /var/db/dhcpd_leases accumulates stale same-named blocks from
-        # deleted predecessors; a name lookup that runs before THIS VM
-        # finishes DHCP locks onto a dead predecessor's IP and the forwarders
-        # then tunnel to an address nothing listens on (guards the stale-
-        # lease-discovery regression class). The VM is on UTM Shared NAT
-        # (192.168.64.0/24) with the host as its gateway, so it ARPs the host
-        # and appears in `arp -an`; Resolve-UtmGuestIpByMac also waits for
-        # squid on :$httpPort, so the IP it returns is one squid is serving.
+        # See https://yuruna.link/42e5cdfd-0038
         $sharedGw     = Get-GuestReachableHostIp           # 192.168.64.1
         $sharedPrefix = $sharedGw -replace '\d+$', ''      # 192.168.64.
         Write-Verbose "  Discovering cache VM by bundle MAC on ${sharedPrefix}0/24 + waiting for squid on :${httpPort} (up to 15 min)..."
@@ -902,15 +804,7 @@ if ($IsMacOS) {
             # so Add-PortMap / Get-BestHostIp resolve.
             Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
             [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
-            # MAC/ARP discovery above can run minutes -- longer than the ~5-min
-            # sudo timestamp primed in Step 0. Add-PortMap launches the :80
-            # (sub-1024) forwarder via `sudo -E pwsh`; with a cold timestamp
-            # that sudo prompts for a password ASYNCHRONOUSLY on the TTY,
-            # racing this script's output with no context (the operator sees a
-            # bare "Password:" mid-bring-up). Re-warm sudo now, with a clear
-            # reason, so the privileged forwarder binds silently. Best-effort:
-            # a declined prime just skips the :80 forwarder (a remote-LAN
-            # CA-cert convenience); everything else still comes up.
+            # See https://yuruna.link/42e5cdfd-0038
             if (Get-Command Initialize-SudoCache -ErrorAction SilentlyContinue) {
                 [void](Initialize-SudoCache -Reasons @("bind host port 80 to forward the cache VM's CA-cert page to remote LAN clients"))
             } elseif ((& /usr/bin/id -u).Trim() -ne '0') {
@@ -945,17 +839,7 @@ if ($IsMacOS) {
             [void](Save-CachingProxyServiceState -IpAddress $cacheIp -Confirm:$false)
         }
     } else {
-    # `utmctl ip-address` does not work for Apple Virtualization VMs
-    # ("Operation not supported by the backend"). The cache VM is
-    # bridged onto the host's LAN NIC (config.plist.template,
-    # VZBridgedNetworkDeviceAttachment), so its DHCP lease lands on the
-    # same /24 the host sits on. We identify OUR VM by the MAC the
-    # bundle was built with (random per-bundle, written into
-    # config.plist by guest.caching-proxy-service/New-VM.ps1) and look its IP up
-    # via the host's ARP table -- never by "first :3128 we find on the
-    # LAN", which would happily lock onto a peer host's yuruna-caching-
-    # proxy that DHCP'd before ours did. Matches the narrow
-    # Test-CachingProxyServiceAvailable contract: only caches we own.
+    # See https://yuruna.link/42e5cdfd-0038
     $httpPort = Get-CachingProxyServicePort -Scheme http
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
@@ -970,15 +854,8 @@ if ($IsMacOS) {
         exit 1
     }
 
-    # Identify OUR VM by the bundle MAC via ARP (Resolve-UtmGuestIpByMac):
-    # the bundle is brand new (Step 3 just built it), so its config.plist
-    # MAC is unambiguously the one the cache VM boots with. The helper
-    # ICMP-sweeps the /24 to populate the ARP cache, matches our MAC, and
-    # waits for squid on :$httpPort before returning -- never "first :3128
-    # we find", which would lock onto a peer host's cache that DHCP'd first.
-    # Same helper the Shared-NAT branch uses, so both paths share one
-    # tested implementation.
     # --- REGION: Step 5: macOS bridged -- wait for the cache VM to DHCP and squid to listen
+    # See https://yuruna.link/42e5cdfd-0038
     Write-Verbose ""
     Write-Verbose "== Step 5: wait for our cache VM (by bundle MAC) to DHCP on ${lanPrefix}0/24 and squid to listen on :${httpPort} (up to 15 min) =="
     Write-Verbose "  (first boot = cloud-init installs squid + apache2,"
@@ -1017,14 +894,7 @@ if ($IsMacOS) {
         Write-Verbose "== Step 6: tear down any legacy host-side forwarders (bridged cache is LAN-direct) =="
         [void](Remove-PortMap -Confirm:$false)
 
-        # Persist the cache VM's LAN IP so guest provisioners and the
-        # status service's fast path don't have to re-discover it. The
-        # host reaches the cache directly on the LAN (same /24); guest
-        # provisioners base64-embed the CA cert by fetching it via
-        # `curl http://<cacheIp>/yuruna-squid-ca.crt` from the host.
-        #
-        # The re-import is mandatory after Step 5's Initialize-YurunaHost:
-        # docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
+        # See https://yuruna.link/42e5cdfd-0039
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
         [void](Save-CachingProxyServiceState -IpAddress $cacheIp -Confirm:$false)
     }
@@ -1058,15 +928,7 @@ if ($IsMacOS) {
         [void](Save-CachingProxyServiceState -IpAddress $cacheIp -Confirm:$false)
     }
 
-    # LAN exposure. On a bridged 'yuruna-external' (or any non-default)
-    # network the VM has its own LAN IP and remote consumers reach it
-    # directly at $cacheIp. On the NAT 'default' network the VM is
-    # host-only, so Add-PortMap installs systemd socket-activated
-    # forwarders (systemd-socket-proxyd) and LAN clients reach the cache
-    # at the HOST's LAN IP. See Add-PortMap in host/ubuntu.kvm/modules/
-    # Yuruna.Host.psm1 for why socket forwarding rather than nftables
-    # DNAT: libvirt's own forward chain rejects DNAT'd inbound to its
-    # NAT guests, and overriding that is firewall-backend-specific.
+    # See https://yuruna.link/42e5cdfd-003a
     if ($cacheIp) {
         Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
         [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
@@ -1089,16 +951,7 @@ if ($IsMacOS) {
             } else {
                 Write-Warning "  Port-forwarder setup failed -- cache is reachable from THIS host only (at $cacheIp)."
             }
-            # The pool DASHBOARD does not work on this NAT path, and the forwarder
-            # cannot make it work: systemd-socket-proxyd re-originates every
-            # connection from the host, so squid records ONE client IP (the NAT
-            # gateway 192.168.122.1) for the entire LAN. The pool-aggregator-service
-            # discovers hosts by their real squid-log client IP, so it discovers
-            # none and http://<this-host>:3000/d/yuruna-pool/yuruna-hosts shows
-            # "No data". A caching-proxy service that only caches (same-host guests) is
-            # fine on NAT; the multi-host pool view needs the cache VM BRIDGED so
-            # squid sees real client IPs (the macOS UTM / Hyper-V cache VMs are
-            # bridged, which is why their pool dashboards populate).
+            # See https://yuruna.link/42e5cdfd-003a
             Write-Warning ""
             Write-Warning "  POOL DASHBOARD: the 'Yuruna hosts' dashboard on this cache VM will show NO"
             Write-Warning "  hosts while it is on the NAT 'default' network -- the host-side forwarder"
@@ -1151,29 +1004,11 @@ if ($IsMacOS) {
         [void](Save-CachingProxyServiceState -IpAddress $cacheIp -Confirm:$false)
     }
 
-    # Expose the cache VM's ports to the host's LAN so remote clients can
-    # reach squid (:3128 / :3129), Apache (:80 serving yuruna-squid-ca.crt),
-    # and Grafana (:3000). Local guests on the Default Switch already reach
-    # the VM directly (172.25.x.x NAT subnet is visible from the host and
-    # from every Hyper-V guest on that switch), so this portproxy adds LAN
-    # exposure without changing the local-guest path -- those still target
-    # the VM's private IP. The port list matches Start-TestRunner.ps1's
-    # Add-PortMap call; mismatched lists fight each other because
-    # the function runs Clear-AllCachingProxyServicePortMapping first. Requires
-    # elevation; Add-PortMap warns and no-ops otherwise.
+    # See https://yuruna.link/42e5cdfd-003b
     if ($cacheIp) {
         Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
         [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
-        # If the cache VM is on an External vSwitch, it has its own LAN
-        # IP via DHCP and remote clients reach it directly -- squid sees
-        # real client IPs at TCP level, no host-side forwarder needed.
-        # Tear down any leftover netsh portproxy / firewall rules from
-        # a prior Default-Switch cycle so they can't NAT-rewrite traffic
-        # to a stale host:port path. On the Default-Switch fallback,
-        # set up netsh portproxy as before -- kernel-mode IP Helper is
-        # the only LAN-reachable path on this Hyper-V host (the user-
-        # mode pwsh forwarder is silently dropped by Defender / EDR /
-        # WFP regardless of rules -- see docs/caching.md).
+        # See https://yuruna.link/42e5cdfd-003b
         if (Test-CacheVMOnExternalNetwork -VMName $VMName) {
             Write-Verbose "  Cache VM is on an External vSwitch (LAN-direct, real client IPs preserved). Skipping host portproxy."
             [void](Remove-PortMap -Confirm:$false)
@@ -1190,27 +1025,9 @@ if ($IsMacOS) {
     }
 }
 
-# Settled here, as the last thing inside the guarded section, because the exit
-# code is the only part of this a caller reads and every discovery path has
-# converged by now. Announcing success over a cache that never answered is what
-# let a failed bring-up report PASS: the step went green, and the NEXT step --
-# waiting on a service inside this VM -- spent its own full budget before
-# failing, naming a guest nobody could reach as the thing to inspect. A failure
-# has to be reported by the step that owns it.
-#
-# Inside the try rather than after the summary: exiting here runs the finally
-# that releases the serialization lock, so a waiting bring-up is not left behind
-# a lock this process no longer needs. The diagnosis is already on screen -- the
-# discovery warnings above name what to check -- and the summary below is the
-# success report, so nothing is lost by not reaching it.
-#
-# The address, not merely "something answered", because everything the cache is
-# FOR hangs off having recorded one: Save-CachingProxyServiceState and the LAN
-# port maps above are both gated on $cacheIp, setup reads that state file to
-# seed every guest's proxy, and a run that got this far without an address
-# configures no caching anywhere. Passing such a run would be the same false
-# green by a quieter route -- READY, exit 0, no proxy, and the next step left to
-# discover it.
+# --- REGION: Confirm caching proxy readiness
+# See https://yuruna.link/42f6b05f-003e
+# A successful bring-up must record the guest address before releasing its lock.
 if (-not $cacheIp) {
     Write-Output "== caching-proxy-service is NOT READY -- '$VMName' =="
     exit 1
@@ -1264,15 +1081,7 @@ if ($cacheIp) {
         Write-Verbose "    NOTE: a populated vmStart.cachingProxyIp in the remote host's"
         Write-Verbose "      test.config.yml is probed first and outranks the env var."
     } elseif ($IsMacOS) {
-        # Wi-Fi/Shared NAT: the cache is at $cacheIp (192.168.64.x). On macOS 26
-        # UTM vmnet-shared every VM joins one bridge (192.168.64.1) and guests
-        # route to each other directly, so THIS host AND a test VM started on
-        # the same Mac reach the cache at $cacheIp with no env var and no
-        # host-side forwarder -- the guest auto-discovers it. The pwsh
-        # forwarders at $cacheLanIp exist ONLY for remote LAN hosts and are
-        # best-effort: any cycle that runs Remove-PortMap (a test run, a
-        # status-service restart) tears them down, so $cacheLanIp is not a
-        # reliable steady-state address.
+        # See https://yuruna.link/42e5cdfd-003c
         Write-Verbose "  Local URL:   http://${cacheIp}:${summaryHttpPort}  (this host + same-Mac UTM test VMs, auto-discovered)"
         Write-Verbose "  HTTPS bump:  http://${cacheIp}:${summaryHttpsPort}  (squid SSL-bump listener)"
         Write-Verbose "  Grafana:     http://${cacheIp}:3000  (anonymous Viewer)"

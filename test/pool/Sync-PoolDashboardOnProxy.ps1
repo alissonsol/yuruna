@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 422ccca9-b2ae-4944-9d17-c8d6f481d268
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,46 +22,7 @@
     caching-proxy service VM, so a dashboard correction lands without a VM
     rebuild.
 .DESCRIPTION
-    test/extension/pool-aggregator-service/grafana-pool-dashboard.json is the
-    canonical dashboard. The proxy VM does not read it: cloud-init carries a
-    byte-identical inline copy and writes it once, at build time, to
-    /var/lib/grafana/dashboards/pool.json. A correction to the canonical file
-    therefore reaches a running proxy only by rebuilding the VM -- which costs
-    roughly a quarter hour and takes the cache, the aggregator, Grafana, Loki
-    and Prometheus down with it, all to replace one JSON file.
-
-    This runs from the HOST, not from the proxy: the host already holds the
-    harness SSH key, while a guest carries only an authorized PUBLIC key. Doing
-    it guest-side would mean baking a private key that grants sudo-capable
-    access to the proxy into the VM it administers.
-
-    Three things the push has to get right, because the baked copy gets them
-    right and a naive `scp` would not:
-
-      * The dashboard ships with the literal AGGREGATOR_BASE_PLACEHOLDER in its
-        `aggregator` variable. Cloud-init rewrites it to http://<vm-ip>:9400
-        after the VM has an address. The same rewrite runs here, in the guest,
-        from the guest's own `hostname -I` -- so the address is the one the VM
-        actually has, not one this host guessed.
-      * Grafana's file provider re-reads the dashboards directory every 30 s
-        (updateIntervalSeconds), so a replaced file is picked up on its own.
-        Nothing is restarted: a restart would blank every panel for the length
-        of a Grafana start to achieve what a provisioner poll achieves anyway.
-      * yuruna-fit-pool-dashboard.timer owns the three per-host panels'
-        gridPos.h on the proxy -- it sizes them to the live host count, and the
-        canonical file's heights are only pre-collector defaults. An overwrite
-        resets them, and the timer would not correct that for up to 5 minutes.
-        The fitter is therefore run once, immediately, right after the push.
-
-    Idempotent: the candidate is compared against what the proxy already serves
-    with the fitter-owned geometry (the three per-host panels and the row
-    panels) taken from the live file, so a proxy that is already current is
-    left untouched instead of being rewritten into a re-fit every run.
-
-    Safe to re-run, and non-destructive on failure: the new file is written to
-    a temporary path in the dashboards directory and moved into place only
-    after it parses as JSON in the guest, so a truncated transfer never
-    replaces a working dashboard.
+    See https://yuruna.link/42010605-0004.
 .PARAMETER ProxyAddress
     Proxy host/IP to push to. Omitted, the address is resolved the way the rest
     of the harness resolves it (Resolve-CachingProxyServiceEndpoint over

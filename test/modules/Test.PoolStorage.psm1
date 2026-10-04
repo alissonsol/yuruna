@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,20 +39,7 @@ $script:PoolStorageSmbCmdletTimeoutSeconds = 60
 # that a wedged one does not stall a cycle.
 $script:PoolStorageProbeTimeoutSeconds = 15
 
-# Move-mode policy. Code constants by design -- the same call as
-# CycleHistoryLimit and FailurePauseMaxSeconds: an operator greps and tunes them
-# in one place, without a config-schema migration and without two hosts on one
-# share disagreeing about how full "full" is.
-#
-# Reserve: what must STILL be free after a copy lands. The share is not this
-# feature's alone -- the guest-image download pool, the proxy's observability
-# archive and pool-intent.git all live on it -- so archiving is not allowed to
-# take the share to zero and break them.
-# Headroom: slack over the measured folder size, for the copy's own overhead.
-# Projection: the pre-spawn check has to guess what the NEXT cycle will cost.
-# It takes the MAX of the recent sample rather than the mean, because the cost of
-# guessing high is one skipped cycle while the cost of guessing low is a cycle
-# that runs to completion and then cannot be archived.
+# See https://yuruna.link/4213a0b3-00c1
 $script:PoolStorageReserveBytes            = 2GB
 $script:PoolStorageCopyHeadroom            = 1.10
 $script:PoolStorageProjectionSample        = 5
@@ -70,19 +57,7 @@ $script:PoolStoragePushDrainWaitSeconds    = 120
 # cause a mount can have. Written only by Connect; '' means "no failure recorded".
 $script:PoolStorageLastMountError = ''
 
-# Invoke-PoolStorageProcessResult runs a native command bounded by a wall-clock cap
-# and kills the whole process tree on timeout, so a hung mount/copy can never block
-# the loop. stdin is redirected + closed immediately, so a child that would
-# otherwise prompt (e.g. sudo asking for a password) gets EOF and fails fast
-# instead of stalling. Returns @{ ExitCode; StdOut; StdErr }, where ExitCode is 124
-# on timeout (conventional) or -1 if the process could not be started. Mirrors the
-# bounded Process.Start + WaitForExit + Kill($true) idiom used in Test.Ssh.psm1.
-#
-# The child's stderr has to be REDIRECTED (an un-drained pipe deadlocks a chatty
-# child), so it is captured either way -- returning it costs nothing and is the
-# difference between "sudo mount -t cifs rc=32" plus a guess at the cause and the
-# verbatim kernel/mount.cifs reason ("unknown filesystem type 'cifs'", "Permission
-# denied", "Host is down"), each of which needs a completely different fix.
+# See https://yuruna.link/4213a0b3-00c2
 function Invoke-PoolStorageProcessResult {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -195,14 +170,7 @@ function Test-PoolStorageCifsHelper {
     return [bool](Get-Command -CommandType Application -Name 'mount.cifs' -ErrorAction SilentlyContinue)
 }
 
-# Invoke-PoolStorageBoundedScript runs a scriptblock under a wall-clock cap via a
-# thread job, so a slow cmdlet (the Windows SMB redirector has no -TimeoutSec and
-# can stall for tens of seconds on an unreachable NAS) cannot block the loop. On
-# timeout it abandons the job and returns immediately; the orphaned call releases
-# itself when the redirector's own internal timeout fires. Returns a hashtable
-# @{ TimedOut; Result; Error }. Falls back to inline execution when Start-ThreadJob
-# is unavailable (still bounded by the redirector's internal timeout, just not the
-# tighter cap).
+# See https://yuruna.link/4213a0b3-00c3
 function Invoke-PoolStorageBoundedScript {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -987,17 +955,7 @@ function Dismount-PoolStorageShare {
     }
 }
 
-# Resolve-YurunaConfigDoc loads test.config.yml for the no-Config path of the
-# storage config readers: resolve $env:YURUNA_CONFIG_PATH, require it to exist AND
-# Read-TestConfig to be loaded, then read it inside a try/catch. Returns the parsed
-# config document, or $null when the feature is effectively off (no resolvable
-# path, Read-TestConfig unloaded, or the read threw). Read-TestConfig is ALWAYS
-# called with the RESOLVED $Path -- never by-name with $Path omitted -- because its
-# Mandatory $Path would stall forever on the interactive parameter prompt under the
-# headless runner (see feedback_byname_detection_mandatory_param_prompt_hang). The
-# Read-TestConfig-unloaded fallback keeps a caller that never imported Test.Config
-# (a storage reader can be dot-sourced standalone) from throwing. CallerName only
-# tags the verbose diagnostic so each reader's log line stays self-identifying.
+# See https://yuruna.link/4213a0b3-00c4
 function Resolve-YurunaConfigDoc {
     [CmdletBinding()]
     [OutputType([object])]
@@ -1275,15 +1233,7 @@ function Connect-YurunaPoolStorage {
     }
     if (-not $PSCmdlet.ShouldProcess($Config.LocalPath, (Format-YurunaOperatorMessage -Key 'runner.operator_704a925b206154f7' -Arguments @{ networkPath = "$($Config.NetworkPath)" }))) { return $false }
 
-    # Reaching here with an entry STILL in the mount table means the entry exists
-    # but the mount does not answer -- a dead SMB session whose server went away,
-    # whose credential was rotated, or that was left by another account. Tear it
-    # down before mounting: macOS mount_smbfs refuses an occupied mount point with
-    # "File exists" and Linux mount reports it busy, and that failure is then
-    # reported by the callers as a credential problem, which sends the operator to
-    # reset a password that was never wrong. Windows does not need this (Connect
-    # already drops the mapping first) but the call is harmless and keeps the three
-    # platforms on one path.
+    # See https://yuruna.link/4213a0b3-00c5
     if (Test-PoolStorageMountEntry -Config $Config) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_933b194d28de8e2c' -Arguments @{ localPath = "$($Config.LocalPath)" }) -InformationAction Continue
         if (-not (Dismount-PoolStoragePoint -MountPoint $Config.LocalPath)) {
@@ -1344,15 +1294,7 @@ function Connect-YurunaPoolStorage {
                 throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_3f7ce7bf346e3755' -Arguments @{ command = 'sudo apt-get install -y cifs-utils' })
             }
             if (-not (Test-Path -LiteralPath $Config.LocalPath)) {
-                # Create the mount point. Try unprivileged first -- it succeeds when
-                # the parent is user-writable (e.g. a localPath under $HOME). A
-                # root-owned parent like /mnt rejects it, so fall back to
-                # `sudo -n mkdir -p`: the SAME passwordless-sudo precondition the
-                # cifs mount below already needs, so no new privilege surface. `mount`
-                # does not create its target, so a missing mount point otherwise
-                # fails the mount with a misleading error. The unprivileged attempt
-                # is silenced: its denial on a root-owned parent is expected and
-                # handled by the fallback, so an error record there would be noise.
+                # See https://yuruna.link/4213a0b3-00c6
                 New-Item -ItemType Directory -Force -Path $Config.LocalPath -ErrorAction SilentlyContinue | Out-Null
                 if (-not (Test-Path -LiteralPath $Config.LocalPath)) {
                     $mk = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList @('-n', 'mkdir', '-p', $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
@@ -1385,15 +1327,7 @@ function Connect-YurunaPoolStorage {
                     # verbatim stderr is safe to show and is the only thing that
                     # distinguishes the several failures sharing exit 32.
                     $detail = Get-PoolStorageProcessErrorDetail -StdErr $mnt.StdErr
-                    # A refusal means mount never ran, so the NAS never saw the
-                    # credential -- say so, because the callers that only get a
-                    # bool otherwise report this as a rejected password and send
-                    # the operator to reset one that was always correct.
-                    #
-                    # Whether the NOPASSWD drop-in answers for mount is resolved
-                    # HERE, while the failure is happening: sudo-rs writes no log
-                    # entry for a refused `sudo -n`, so nothing on the host records
-                    # this moment and the question cannot be answered afterwards.
+                    # See https://yuruna.link/4213a0b3-00c7
                     $hint = if (Test-PoolStorageSudoRefusal -StdErr $mnt.StdErr) {
                         if (Test-PoolStorageSudoReady -Commands @((Get-PoolStorageSudoCommandPath).Mount)) {
                             (Format-YurunaOperatorMessage -Key 'runner.operator_2e2613f652d7e9ff')
@@ -1612,20 +1546,7 @@ function Set-PoolStorageSudoers {
     }
 }
 
-# Join-PoolStoragePath combines a localPath base with a relative subpath. A
-# Windows drive-qualified base ('y:' or 'y:\...') is composed by pure string via
-# [IO.Path]::Combine, NOT Join-Path: Join-Path resolves the base's drive
-# qualifier against the PSDrive table, so a drive letter for an SMB mount the
-# current runspace has not yet enumerated -- referenced before the mount, or
-# after the mapping silently dropped mid-cycle -- throws a NON-TERMINATING
-# DriveNotFoundException ("A drive with the name 'y' does not exist"); the call
-# then returns $null and the empty path surfaces downstream as a misleading
-# "null Path argument" folder-creation failure. A bare drive letter is also
-# drive-RELATIVE, so anchor it to the root ('y:' -> 'y:\') first or the join
-# targets the per-process CWD on that drive. Any other base (a '/'-rooted
-# macOS/Linux mount point) carries no drive qualifier, so Join-Path is safe there
-# and keeps its separator normalization. SubPath is taken verbatim; callers
-# normalize any embedded separators before passing it in.
+# See https://yuruna.link/4213a0b3-00c8
 function Join-PoolStoragePath {
     [CmdletBinding()]
     [OutputType([string])]
@@ -1695,11 +1616,11 @@ function Sync-YurunaPoolStorageFolder {
 # LOCAL ledger that is the source of truth). The pool share has no live reader, so
 # correctness rests on the local ledger, not on share-side atomicity.
 
-<#
-.SYNOPSIS
-Extracts the bare server host from a share path: '\\srv\share' / '//user@srv/share/sub' -> 'srv'. Pure + testable.
-#>
 function Get-PoolStorageServerName {
+    <#
+    .SYNOPSIS
+    Extracts the bare server host from a share path: '\\srv\share' / '//user@srv/share/sub' -> 'srv'. Pure + testable.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$NetworkPath)
@@ -1805,14 +1726,7 @@ function Merge-PoolStorageLedger {
         $replicated = $kept
     }
     $out = [ordered]@{ replicated = $replicated }
-    # Carry forward the prior scalar fields before overlaying $Status: a failure
-    # run supplies a $Status that omits lastCopied (only a successful copy sets
-    # it), so rebuilding purely from $Status would erase the prior run's
-    # lastCopied/lastConnectOk. Seeding from $Ledger first preserves an omitted
-    # key while a key present in $Status still overwrites it. 'replicated' is
-    # skipped -- it is already rebuilt (and pruned to LocalNames) above. This
-    # carries EVERY other ledger key forward (today all status scalars); a ledger
-    # key that must NOT persist across runs would need an explicit exclusion here.
+    # See https://yuruna.link/4213a0b3-00c9
     if ($Ledger -is [System.Collections.IDictionary]) {
         foreach ($lk in $Ledger.Keys) {
             if ([string]$lk -eq 'replicated') { continue }
@@ -1993,20 +1907,7 @@ function Test-PoolStorageStoredCredential {
     try { return [bool](Test-VaultEntry -VaultKey $resolvedKey) } catch { Write-Verbose "Test-VaultEntry failed: $($_.Exception.Message)"; return $false }
 }
 
-# Copy-PoolStorageCycle copies one cycle folder to
-# <localPath>/hosts/<HostId>/test-cycles/<CycleName>/ and commits it with a
-# .yuruna-complete sentinel written LAST. Any pre-existing copy WITHOUT a sentinel
-# (a crashed prior attempt) is deleted first and recopied, so a partial is never
-# trusted. Returns $true only when every step succeeds. Private; assumes the share
-# is already mounted.
-#
-# -Verify (move mode) compares the copy against its source BEFORE the sentinel is
-# written. The order matters twice over: the sentinel lives INSIDE the destination,
-# so a comparison made after writing it is always off by one file and one stamp's
-# worth of bytes; and the sentinel is what every reader treats as "committed", so
-# writing it over an unverified tree would publish a half-copy. A failed
-# verification removes the destination -- it is sentinel-less, so it is nobody's
-# archive -- and leaves the source untouched for the next run.
+# See https://yuruna.link/4213a0b3-00ca
 function Copy-PoolStorageCycle {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -2844,14 +2745,7 @@ function Get-PoolStorageDrainOrder {
     # oldest-head and newest-tail slices never overlap (no de-dup needed).
     $newestCount = [Math]::Max(0, [Math]::Min($NewestShare, $Max))
     $oldestCount = $Max - $newestCount
-    # Accumulate into a typed List, NOT `$x = if (...) { @(...) }` slices: a single-
-    # element `@(...)` emitted from an if-statement unwraps to a scalar (and an
-    # empty branch to $null), so `$newest + $oldest` would string-CONCATENATE when
-    # newestCount==1 and silently fuse/drop cycle names. The List is unwrap-proof.
-    # Newest FIRST: the drain commits in list order and breaks on the first copy
-    # failure (treated as a lost connection), so copying today's cycles before the
-    # oldest backfill guarantees recent data lands even if an old cycle later stalls
-    # the run. The oldest remainder follows and backfills across subsequent drains.
+    # See https://yuruna.link/4213a0b3-00cb
     $out = [System.Collections.Generic.List[string]]::new()
     if ($newestCount -gt 0) { foreach ($n in @($p | Select-Object -Last  $newestCount)) { $out.Add([string]$n) } }
     if ($oldestCount -gt 0) { foreach ($o in @($p | Select-Object -First $oldestCount)) { $out.Add([string]$o) } }

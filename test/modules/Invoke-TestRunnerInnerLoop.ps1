@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,16 +137,7 @@ $ConfigPath     = $paths.ConfigPath
 # Invoke-TestRunnerInnerLoop.ps1 by hand).
 $env:YURUNA_CONFIG_PATH = $ConfigPath
 
-# Canonical Inner-kind module set: Test.SingleInstance, Test.YurunaDir,
-# Test.Extension, Test.HostContract, Test.Status, Test.Notify, Test.Provenance,
-# Test.Start-GuestOS, Test.Start-GuestWorkload, Test.Log, Test.Sequence-
-# Planner, Test.CachingProxyService, Test.Perf, Test.HostIO, Test.Capability,
-# Test.Transport. One helper covers both the early-bootstrap modules
-# (Test.YurunaDir, Test.Extension, Test.SingleInstance) and the per-cycle
-# workhorse list, replacing per-site inline Import-Module calls. The
-# mid-cycle refresh loop re-calls this helper so a `git pull` between
-# cycles propagates source changes to every covered module in lockstep --
-# without having to maintain a parallel list.
+# See https://yuruna.link/4213a0b3-0014
 Initialize-YurunaEntryPointModuleSet -For Inner -ModulesDir $ModulesDir
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
@@ -169,18 +160,7 @@ $RefreshMode = Get-YurunaRefreshInnerMode -RuntimeDir $env:YURUNA_RUNTIME_DIR
 $TemplatePath = Join-Path $TestRoot "test.config.yml.template"
 
 # --- REGION: Single-instance guard
-# Defensive: if another Start-TestRunner.ps1 (the outer) is running,
-# stop it and wipe stranded test VMs. The normal call path is the
-# outer spawning THIS inner with YURUNA_RUNNER_RELAUNCH=1 -- in which
-# case this whole block is skipped (the outer owns the pidfile). This
-# branch only fires when an operator invokes
-# modules/Invoke-TestRunnerInnerLoop.ps1 directly (which they shouldn't --
-# it lives under modules/ for that reason, but the guard is the safety net
-# for when they do).
-# Shared implementation in Test.SingleInstance.psm1 -- same identity-
-# probe logic as outer, with the inner-specific cmdline pattern below
-# (matches only Start-TestRunner.ps1, never a sibling inner). Imported
-# by the Inner kind at file top.
+# See https://yuruna.link/4213a0b3-0015
 $RunnerPidFile = Join-Path $env:YURUNA_RUNTIME_DIR "runner.pid"
 if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
     $priorRunner = Get-RunnerInstanceState -RunnerPidFile $RunnerPidFile -CmdLinePattern 'Start-TestRunner\.ps1'
@@ -230,31 +210,9 @@ if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
 # also publishes its PID for any external monitor.
 $InnerPidFile      = Join-Path $env:YURUNA_RUNTIME_DIR "inner.pid"
 $HeartbeatFile     = Join-Path $env:YURUNA_RUNTIME_DIR "runner.heartbeat"
-# Companion file to runner.heartbeat. The threadpool-timer-driven
-# runner.heartbeat is proof of life at the process level but stays
-# fresh even when the runspace is wedged inside a non-terminating
-# OCR / SSH loop -- it can't catch in-runspace hangs. runner.step-
-# Heartbeat is touched from the runspace itself at the top of every
-# step in Invoke-Sequence; the outer watchdog reads its mtime to
-# detect a single step that has exceeded testCycle.stepTimeoutSeconds.
-# Seed here so the first watchdog poll sees a fresh file even before
-# the first sequence step runs.
+# See https://yuruna.link/4213a0b3-0016
 $StepHeartbeatFile = Join-Path $env:YURUNA_RUNTIME_DIR "runner.stepHeartbeat"
-# inner.pid: atomic temp-file + rename via the shared state-file
-# helper so a crash mid-write can't leave a truncated PID for the
-# outer watchdog to misread. UTF-8 no-BOM is correct here:
-# ASCII-clean digits, and the outer reads via [int]::Parse which
-# would reject a BOM prefix.
-# Check the write: a failed inner.pid leaves the inner un-targetable by the
-# outer's watchdog, so a hung inner would run unguarded. That is a degraded
-# (unmonitored) run, not a fatal one -- warn and continue. The console
-# Write-Warning here is only inherited by the outer (the Yuruna.Log Write-Warning
-# proxy is not imported yet, and the call-op spawn does not redirect stderr), so
-# also mirror it to outer.log via Write-InnerLog where it stays durable and
-# diagnosable next to the outer/watchdog entries.
-# The start record goes first, so a reader never pairs a new PID with an old
-# start time: inner.start + inner.pid are the exact identity a host refresh
-# checks before it may reclaim this inner.
+# See https://yuruna.link/4213a0b3-0017
 $null = Write-YurunaProcessStartRecord -Path (Join-Path $env:YURUNA_RUNTIME_DIR 'inner.start') -Confirm:$false
 $innerPidWritten = Write-YurunaStateFile -Path $InnerPidFile -Content ([string]$PID) -Confirm:$false
 if (-not $innerPidWritten) {
@@ -274,21 +232,7 @@ if (-not $innerPidWritten) {
 Start-RunnerHeartbeat -Path $HeartbeatFile
 
 # --- REGION: Unattended contract
-# The outer spawns this inner with the CALL OPERATOR, so the inner inherits the
-# launch terminal. Any prompt it raises therefore blocks the entire host until
-# the watchdog kills it -- and because runner.heartbeat is written by a
-# threadpool timer that keeps ticking through a blocked runspace, the dashboard
-# stays GREEN throughout. Neutralize every prompt this process can raise itself.
-#
-# NOT covered here, deliberately: `sudo` reads /dev/tty, NOT this process's
-# stdin, so redirecting or closing stdin does not stop a bare `sudo` in a host
-# driver from prompting. Those call sites move to `sudo -n` behind a shared
-# wrapper; until they do, the runner.phase bound below is what converts such a
-# stall into a fast, attributable kill instead of 45 minutes of green silence.
-#
-# YURUNA_NONINTERACTIVE is normally inherited from the outer; set it here too so
-# a direct-invoke inner (modules/Invoke-TestRunnerInnerLoop.ps1 run by hand) gets
-# the same contract rather than a different one that can hang.
+# See https://yuruna.link/4213a0b3-0018
 $env:YURUNA_NONINTERACTIVE = '1'
 # git: the network helpers in Test.HostGit already neutralize these per call,
 # but bare `& git` sites elsewhere inherit whatever the launch shell had.
@@ -335,16 +279,7 @@ if (Test-Path $yurunaRetryModule) {
     Import-Module $yurunaRetryModule -Global -Force
 }
 
-# The Inner kind import set covers Test.HostContract, Test.Status, Test.Notify,
-# Test.Provenance, Test.Start-GuestOS, Test.Start-GuestWorkload, Test.Log,
-# Test.SequencePlanner, Test.CachingProxyService, Test.Perf, Test.HostIO,
-# Test.Capability, Test.Transport (plus the early-bootstrap imports). The
-# file-top pass via Initialize-YurunaEntryPointModuleSet -For Inner is
-# repeated below to pick up a `git pull` between cycles. Windows chains
-# a fresh pwsh per cycle via Start-Process so modules reload automatically
-# there; the macOS in-process loop reuses cached modules unless we
-# explicitly force-reload, which means a mid-run `git pull` would otherwise
-# never propagate source changes.
+# See https://yuruna.link/4213a0b3-0019
 
 $global:VerbosePreference = $savedVerbose
 
@@ -394,21 +329,7 @@ $script:Config = $Config
 Resolve-LogLevel
 
 # --- REGION: Cycle-start config gate
-# One gate, at the front of the cycle, before any host work: the outer runner
-# gates once at startup, but it then runs cycles for days, so a startup-only
-# check says nothing about a config -- or a GitHub credential -- that went bad
-# in hour nine. Validating here means a cycle that cannot succeed is refused
-# in its first seconds, with Test-Config's FAILURES block naming what to fix,
-# instead of surfacing later as an opaque step failure partway through the
-# lab's VM builds.
-#
-# This is also the ONLY gate the cycle runs. Nested Debug-TestSequence stages
-# spawned by host actions inherit this verdict rather than re-running the
-# check per stage: the gate reaches the network, and a remote that stops
-# answering between two stages would otherwise abort a healthy cycle
-# mid-flight and discard every stage already built.
-# A preflight inner skips the gate: the resumed outer ran its startup gate in
-# the same chain seconds earlier, and the first ordinary cycle gates again.
+# See https://yuruna.link/4213a0b3-001a
 if ($RefreshMode.Mode -ne 'preflight') {
     Write-RunnerPhase -Phase 'config-gate'
     $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'cycle start'
@@ -496,44 +417,15 @@ if (Get-Command Update-StashServiceMarkerAddress -ErrorAction SilentlyContinue) 
 
 if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
 
-# --- REGION: UTM concurrent-VM pre-flight
-# On some macOS versions vmnet-shared puts each vmnet session on a separate
-# host-side bridge (bridge100, bridge101, ...) that don't route between each
-# other, so a foreign concurrent VM can split the test guests onto a
-# different bridge from the host's vmnet gateway and break the cloud-init
-# host-proxy URL baked into seed.iso. Refuse at cycle start if a foreign VM
-# is running. Service VMs are exempt inside Assert-NoConcurrentUtmVm because
-# the cycle consumes them; their presence does not block a guest run.
-# Stop first, refuse second. A leftover guest from a cycle that died before
-# its teardown is the common case here, and refusing over it strands the
-# host: the sweep that would remove it only runs once a cycle starts. Issue
-# the stop the operator would otherwise type by hand, then let the guard
-# refuse only over what would not stop.
-[void](Stop-ConcurrentVM)
-if ($HostType -eq 'host.macos.utm') {
-    if (-not (Assert-NoConcurrentUtmVm)) { exit $ExitFailure }
+# --- REGION: Concurrent-VM admission
+# See https://yuruna.link/4213a0b3-001b
+$admissionStep = Invoke-CycleAdmissionStep -HostType $HostType
+if (-not $admissionStep.Ok) {
+    exit $admissionStep.ExitCode
 }
 
 # --- REGION: Cycle-start host guest-network gate
-# A virtual-switch object outlives its uplink binding across a host reboot, so
-# the object's survival is not evidence that the bridge still carries traffic:
-# every guest attaches to a switch with no carrier while the host itself is
-# online and every other host check passes. Nothing else in the preamble asks
-# whether a guest created right now could reach anything, so the answer is
-# named here -- at cycle start -- instead of being inferred from a fleet of
-# identical guest failures a quarter of an hour later.
-#
-# Reports; it almost never refuses. A host that still has ANY usable path (a
-# working External vSwitch, or a Default Switch address -- NAT + DHCP, the
-# permanent steady state of every Wi-Fi host here) runs the full cycle on the
-# path it has and PASSES; the notification gate turns a persistent degradation
-# into one alert per streak rather than one per cycle. Only TOTAL loss, where
-# every guest is guaranteed to fail identically, can refuse.
-#
-# Placed after Stop-ConcurrentVM so a refusal never strands guests the previous
-# cycle left running: refusing before the stop leaves the host dirtier than a
-# normal cycle, and the leftovers are exactly what keeps the condition from
-# clearing. The refusal path runs the VM sweep for the same reason.
+# See https://yuruna.link/4213a0b3-001c
 Write-RunnerPhase -Phase 'host-network'
 # Consecutive total-loss observations required before refusing. The inner runs
 # one cycle per process, so the counter is file-backed alongside
@@ -576,16 +468,7 @@ if ($hostNetwork.Degraded -and $hostNetwork.Healthy) {
 }
 
 # --- REGION: Degraded-host pair -> runtime/host-network.txt + host-network.json
-# host-network.txt is ready-to-embed HTML the status page appends verbatim;
-# host-network.json is the machine-readable twin Write-HostRegistrationRecord
-# advertises to the pool. Same observation, two audiences -- so ONE writer owns
-# both, and it is this gate: the probe above is the only thing that looks at the
-# host's guest-network state exactly once per cycle, which is what lets a
-# consecutive-cycle count mean anything.
-#
-# "File present == degraded, file absent == healthy" is the entire contract, so
-# recovery DELETES both files. Blanking them leaves a degraded host in every
-# consumer that only tests for existence.
+# See https://yuruna.link/4213a0b3-001d
 $HostNetworkBannerFile = Join-Path $env:YURUNA_RUNTIME_DIR "host-network.txt"
 $HostNetworkRecordFile = Join-Path $env:YURUNA_RUNTIME_DIR "host-network.json"
 $hostNetworkDegradedSwitch  = $null
@@ -735,20 +618,7 @@ Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_71bb57cd92796a4
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4a30dc2d3855f67b' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
 
 # --- REGION: Stale cycle-restart flag sweep
-# control.cycle-restart is written by the status service's /control/start-
-# cycle endpoint. The inter-cycle delay loop consumes it on its next tick;
-# the per-step gate in Test.SequenceEngine.psm1 honors it too. But if a prior
-# session was killed mid-cycle before consuming the flag (operator Ctrl-C,
-# outer-runner restart, process crash), the file persists. A freshly
-# starting inner IS the restart the operator asked for, so consume the
-# flag here -- otherwise the brand-new cycle's first step would immediately
-# throw YurunaCycleRestart, mark the cycle failed, and loop until
-# ConsecutiveCrashes aborts the runner. The flag's job is to wake a
-# running inner, not to nag a fresh one.
-# -SkipInteractiveState: the inner's break-active + pause flags are the
-# parent's to sweep (the outer's boot recovery, or Invoke-TestProject's PreSpawn
-# handoff). A direct-invoke inner keeps a pause the operator set here, so
-# the inner never re-sweeps that class.
+# See https://yuruna.link/4213a0b3-001e
 if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
     $ctl = Clear-StaleControlState -Scope Startup -SkipInteractiveState -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
     if ($ctl.cycleRestartCleared) {
@@ -757,31 +627,11 @@ if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
     foreach ($w in $ctl.warnings) { Write-Verbose "Stale control-state sweep: $w" }
 }
 
-# Re-import Test.CachingProxyService with -Global -Force AFTER Initialize-YurunaHost.
-# Yuruna.Host.psm1 force-imports Test.CachingProxyService during its
-# module-load; per the eviction pattern,
-# that nested -Force pulls Test.CachingProxyService out of the global session,
-# so Invoke-CachingProxyServiceProbe stops resolving from this script even
-# though the Inner-kind bootstrap import above ran first. -Global -Force
-# here puts it back; same fix used by Start-StatusService.ps1 immediately
-# after its own Initialize-YurunaHost.
+# See https://yuruna.link/4213a0b3-001f
 Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking -Verbose:$false
 
 # --- REGION: Cycle-start service-VM restore
-# A host reboot leaves every service VM registered with the hypervisor and
-# powered OFF, and nothing else in the cycle turns them back on. The two
-# failures that produces do not look alike: the caching proxy merely degrades to
-# direct downloads, while the stash service is fatal -- the warm-up resolves it,
-# finds nothing, and skips every workload stage. So a rebooted host burns cycle
-# after cycle that cannot pass until an operator starts the VMs by hand.
-#
-# BEFORE the caching-proxy gate below, so a proxy restarted here is detected by
-# the very next probe instead of being reported absent for one more cycle. Runs
-# every cycle rather than only at boot: a service can also be stopped mid-session,
-# and on a healthy host this costs one state query per service.
-#
-# Starts only what is already built -- never rebuilds. A rebuild is ~15 minutes
-# and discards a warm squid cache; a start is seconds and keeps it.
+# See https://yuruna.link/4213a0b3-0020
 Write-RunnerPhase -Phase 'service-vm-restore'
 if (Get-Command Restore-YurunaServiceVM -ErrorAction SilentlyContinue) {
     $serviceRestore = @()
@@ -815,34 +665,13 @@ if (Get-Command Restore-YurunaServiceVM -ErrorAction SilentlyContinue) {
 }
 
 # --- REGION: Cycle-start External vSwitch repair (Hyper-V only)
-# HERE, and nowhere else in the cycle. A rebind takes carrier from every guest
-# on the switch and drops host networking on the target NIC for a moment -- both
-# are fine at a cycle boundary with no guests up, and neither is fine between
-# two guest builds. The switch helper called during a build stays detect-only.
-#
-# Get-Command-gated because only the Hyper-V driver defines this: a vSwitch that
-# outlives its uplink binding is a Windows-specific failure. The repair declines
-# itself on anything but a stale binding, caps its own attempts, and rolls back
-# if the host loses its default route -- see Repair-YurunaExternalSwitch.
-#
-# Best-effort by construction. A host that cannot repair its bridge still runs
-# the cycle on the Default Switch with port-forwarders, which is what it has
-# been doing; the repair only tries to win back the bridged path.
+# See https://yuruna.link/4213a0b3-0021
 if (Get-Command Repair-YurunaExternalSwitch -ErrorAction SilentlyContinue) {
     $switchRepairOk = $false
     try { $switchRepairOk = [bool](Repair-YurunaExternalSwitch -Confirm:$false) } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c3f68b5f80163e1f' -Arguments @{ message = "$($_.Exception.Message)" })
     }
-    # The gate above wrote the degraded pair from a probe taken BEFORE this
-    # repair ran, so a switch fixed here would keep advertising a fault it no
-    # longer has for the rest of the cycle -- on the status page and in the
-    # pool record alike, a quarter of an hour of wrong. Re-probe and clear.
-    #
-    # This branch only ever CLEARS. The gate stays the sole writer of a degraded
-    # pair, which is what lets its consecutive-cycle count mean anything; a
-    # repair can only move a host toward healthy, so there is nothing here to
-    # write. Gated on the record file so a host that was already healthy does
-    # not pay for a second probe every cycle.
+    # See https://yuruna.link/4213a0b3-0022
     if ($switchRepairOk -and (Test-Path -LiteralPath $HostNetworkRecordFile)) {
         $afterRepair = Test-HostGuestNetworkHealth -HostType $HostType
         if ($afterRepair.Healthy -and -not $afterRepair.Degraded) {
@@ -863,19 +692,7 @@ if (Get-Command Repair-YurunaExternalSwitch -ErrorAction SilentlyContinue) {
 }
 
 # --- REGION: Cycle-start caching-proxy-service gate
-# Probe the two operator sources in priority order (persistent
-# vmStart.cachingProxyIp config key, then the session env var) --
-# source priority and probe policy are documented on
-# Resolve-CachingProxyServiceEndpoint (Test.CachingProxyService.psm1). Acceptance is
-# :3128 reachability ONLY: keying on full probe Success would reject
-# barebones-squid caches that lack Grafana/ssl-bump and silently
-# destroy $env:YURUNA_CACHING_PROXY_SERVICE_IP for downstream code. With no
-# source set the env var is untouched (local discovery below runs
-# unchanged); with sources set but :3128 unreachable on each, the env
-# var is cleared so the same local-discovery fallback applies.
-# The port-map refresh below is the one preamble step that shells out to sudo,
-# and it is where an unanswerable password prompt actually stalled a host.
-# Naming the phase puts 'caching-proxy-gate' in the watchdog's kill line.
+# See https://yuruna.link/4213a0b3-0023
 Write-RunnerPhase -Phase 'caching-proxy-gate'
 $envCacheIp    = if ($env:YURUNA_CACHING_PROXY_SERVICE_IP) { $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() } else { '' }
 $configCacheIp = ''
@@ -904,16 +721,7 @@ if ($envCacheIp -or $configCacheIp) {
 # URL injected into autoinstall user-data by guest.ubuntu.server.24/New-VM.ps1.
 $cachingProxyUrl = Test-CachingProxyServiceAvailable
 
-# Port-map dispatch (external / Yuruna-External fast path /
-# Default-Switch fallback) and the Windows-vs-macOS port-list shape:
-# https://yuruna.link/42f6b05f-003c
-#
-# Serialize this per-cycle port-map write against a caching-proxy-service
-# bring-up. Try-once (non-blocking): if Start-CachingProxyServiceVM holds the lock (a
-# rebuild), skip this cycle's port-map -- the rebuild owns the maps and the
-# cache is down mid-rebuild anyway; the next cycle re-applies once it releases.
-# Get-Command-guarded so a long-running runner that predates the lock module
-# degrades to the unlocked behavior instead of erroring.
+# See https://yuruna.link/4213a0b3-0024
 $cpPortLock = if (Get-Command Enter-CachingProxyServiceLock -ErrorAction SilentlyContinue) {
     Enter-CachingProxyServiceLock -RuntimeDir $env:YURUNA_RUNTIME_DIR -Role 'portmap' -TimeoutSeconds 0
 } else { @{ Acquired = $true; PidPath = $null } }
@@ -921,31 +729,12 @@ if (-not $cpPortLock.Acquired) {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f5d13a74fd026605')
 } else {
     try {
-# There is deliberately NO sudo prime here any more. Elevation for an
-# unattended host is a launch-time concern (Assert-RunnerElevation, run once by
-# Start-TestRunner.ps1 before the loop) or an /etc/sudoers.d drop-in -- never
-# mid-cycle, where nobody is at the console to answer.
-#
-# A prime gated on Test-CacheVMOnExternalNetwork would be wrong as well: that
-# asks "is the LOCAL cache VM bridged?" and returns false BOTH for a NAT'd
-# local cache that needs forwarders AND for a host whose cache is a different
-# machine entirely. On the latter a prime would fire every cycle while the
-# dispatch below takes the external branch, where Remove-PortMap finds no units
-# and issues no sudo at all: a password prompt, every cycle, for work that
-# never happens.
+# See https://yuruna.link/4213a0b3-0025
 if ($cachingProxyUrl) {
     $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
     $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_SERVICE_IP
     if ($isExternal -and $vmIp) {
-        # External handling below removes this host's forwarders,
-        # so it may only run when the endpoint is POSITIVELY not this
-        # host. 'local': the "external" endpoint is this host's own
-        # forwarder set fronting its NAT'd cache VM -- removing it severs
-        # the very listeners that just answered the probe (self-teardown).
-        # 'unknown': NIC churn from per-cycle VM start/stop can blank the
-        # enumeration for a moment, and a wrong 'external' verdict tears
-        # the forwarders down while a wrong 'local' verdict merely
-        # re-asserts a port map -- so unknown must land on the local side.
+        # See https://yuruna.link/4213a0b3-0026
         $ownVerdict = Get-HostOwnIpVerdict -IpAddress $vmIp
         if ($ownVerdict -ne 'nonlocal') {
             Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_76d8c741d7d223ad' -Arguments @{ vmIp = "$vmIp"; ownVerdict = "$ownVerdict" })
@@ -984,14 +773,7 @@ if ($cachingProxyUrl) {
         } else {
             $cacheHttpPort  = Get-CachingProxyServicePort -Scheme http
             $cacheHttpsPort = Get-CachingProxyServicePort -Scheme https
-            # The exposed-port set (incl. 9302 caching-proxy-parser-service live tail)
-            # comes from Get-CachingProxyServiceExposedPort so it cannot drift from
-            # Start-CachingProxyServiceVM's install list; Add-PortMap is clear-all-first,
-            # so a dropped port goes dark on reinstall. macOS re-maps only the two
-            # ports an operator opens by hand: Grafana, and 80 -- which is where
-            # the caching-proxy VM's landing page lives, and therefore where the
-            # host status pages' Dashboards link points. Without 80 that link
-            # reaches nothing from a Mac host.
+            # See https://yuruna.link/4213a0b3-0027
             $CachingProxyServiceExposedPorts = if ($IsMacOS) { @(80, 3000) } else { Get-CachingProxyServiceExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
             $portMapArgs = @{
                 VMIp      = $portMapIp

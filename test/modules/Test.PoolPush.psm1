@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 425315a1-f9bf-4a7b-98ca-d7dfb8a509a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,14 +224,7 @@ function Invoke-PoolEventPush {
     )
     $summary = @{ sent = 0; batches = 0; lastStatus = 0; reason = '' }
     try {
-        # A cycle that ran host-action stages keeps its child runs' events in
-        # nested/<node>/cycle.events.ndjson, written there so each sub-run's
-        # transcript and its stream stay together. Those records describe
-        # work done inside THIS cycle and carry its identity, so reading only
-        # the top-level file drops the bulk of such a cycle's telemetry --
-        # and drops it invisibly, because the top-level file is always
-        # present and a short stream looks like a short cycle rather than a
-        # truncated one.
+        # See https://yuruna.link/4213a0b3-00c0
         $eventFiles = [System.Collections.Generic.List[string]]::new()
         $topFile = Join-Path $CycleFolder 'cycle.events.ndjson'
         if (Test-Path -LiteralPath $topFile) { $eventFiles.Add($topFile) }

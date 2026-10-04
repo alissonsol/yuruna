@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,27 +20,14 @@
 # Backend inventory and registry contract: https://yuruna.link/4222e5f2
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:DefaultCharDelayMs = 10
-# Settle window applied after Send-TextHyperV's batched scancode emit
-# (and after the JXA UTM CGEvent path). The guest's PS/2 buffer drains
-# asynchronously; without a settle the next action (an Enter press,
-# a screenshot capture) can race the buffer and observe a half-typed
-# field. 200 ms was measured as the empirical drain ceiling across the
-# 16-char user/password strings used in login sequences on this
-# hardware. Operators tuning a slow guest or a fast one can override via
-# test.config.yml's vmCommunication.settleMs.
+# See https://yuruna.link/4222e5f2-0005
+# Allow a typed field to settle before the next key or screenshot.
 $script:DefaultSettleMs    = 200
 $script:DefaultVncPort     = 5900
-# --- REGION: docs/host-io.md#hyper-v-ps2-scancode-behavior
-# Whether Send-TextHyperV may hand a whole payload to one TypeScancodes call.
-# An ARM64 Hyper-V host defaults to $false because the guest receives NONE of a
-# batched payload there: the CIM call returns 0, Send-Text reports success, and
-# the guest's console shows nothing -- every typed username, password and
-# command lands as an empty line, which reads downstream as a wrong credential
-# or a prompt that never advanced. Single-key sends are unaffected on the same
-# host and the same guest, which is what makes the failure so hard to place
-# from a transcript. Per-char pacing costs $CharDelayMs per character and is
-# the only shape that arrives. AMD64 keeps the batch it has always used;
-# vmCommunication.batchedTextSend overrides either way.
+# --- REGION: Hyper-V text batching default
+# See https://yuruna.link/4222e5f2-0005
+# ARM64 needs per-character sends; AMD64 defaults to batching.
+# vmCommunication.batchedTextSend overrides either default.
 $script:DefaultBatchedTextSend =
     -not ($IsWindows -and [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64)
 $script:TransportConfigLastRefreshUtc = [DateTime]::MinValue
@@ -476,14 +463,7 @@ function Send-TextVNC {
     $tcp = Connect-VNC -VMName $VMName -Port $Port
     if (-not $tcp) { return $false }
     Write-Debug "      VNC text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
-    # Empirically, UTM's QEMU VNC does NOT auto-shift from the keysym
-    # alone (e.g. `asterisk` arrives as `8`, `bar` arrives as `\`), so we
-    # must press LShift ourselves. 20ms down / 10ms up has tested clean
-    # for the supported guests and is matched against Send-TextHyperV's
-    # batched-scancode shift settle. If a future guest regresses, the
-    # cycle log's "VNC text send: failed" warning is the trigger -- a
-    # larger window (e.g. 80/40) is the conservative escape hatch.
-    # Hoisted out of the try so the finally can always name $shiftSym.
+    # See https://yuruna.link/4213a0b3-0183
     $shiftSym = $script:X11KeySyms["LShift"]
     $shiftDownMs = 20
     $shiftUpMs   = 10
@@ -523,14 +503,7 @@ function Send-TextVNC {
         $sendFailed = $true
         return $false
     } finally {
-        # Let go of whatever was still down. Reached when the loop is torn
-        # down between a key's press and its release -- a mid-send transport
-        # error, or an operator Ctrl-C (PowerShell runs finally on pipeline
-        # stop too). Doing nothing here is what turns a one-character glitch
-        # into a console that auto-repeats that character until the VM is
-        # rebuilt. Best effort: if the socket is what broke, these writes
-        # throw as well, and swallowing that keeps the original failure --
-        # already reported above -- as the one the caller sees.
+        # See https://yuruna.link/4213a0b3-0184
         if ($heldSym -or $shiftHeld) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2eff76aeff36d8bc')
             try {
@@ -937,22 +910,7 @@ return "window_not_found"
 }
 
 # --- REGION: libvirt KVM keystroke transport: virsh send-key
-# VNC (Connect-VNC + Send-TextVNC, the path UTM uses) does not work here.
-# Empirically, libvirt-managed QEMU on Ubuntu 24.04 accepts our TCP connect
-# and emits its 'RFB 003.008' greeting, then drops the connection
-# immediately after we write the client version -- before any auth or
-# security-types handshake. UTM's QEMU does not. Rather than chase the
-# libvirt-vs-stand-alone-QEMU handshake difference, KVM bypasses VNC entirely
-# and injects keystrokes via `virsh send-key`, which goes through libvirt's
-# QMP monitor and has none of the listen-address / port-discovery /
-# RFB-version moving parts.
-#
-# `virsh send-key <domain> [keycode...]` accepts Linux input event names
-# (KEY_A, KEY_LEFTSHIFT, KEY_ENTER, ...) and sends them as one chord
-# (all pressed simultaneously, then released). For text typing we send
-# one chord per character; shifted characters become a 2-key chord
-# (KEY_LEFTSHIFT + KEY_X).
-# KVM key maps live in Test.KeyCodeRegistry (KVM-Char / KVM-Named).
+# See https://yuruna.link/4213a0b3-0185
 $script:KvmCharKeyMap = Get-KeyCodeMap -Kind 'KVM-Char'
 
 function Send-KeyKvm {
@@ -967,14 +925,7 @@ function Send-KeyKvm {
         RFB handshake mid-stream.
     #>
     param([string]$VMName, [string]$KeyName)
-    # Chord map first (KVM-Chord), then the named map (KVM-Named). Anything in
-    # neither passes through verbatim so a sequence can write KEY_LEFTMETA,
-    # KEY_F2, etc. directly.
-    #
-    # `virsh send-key` presses every positional keycode simultaneously and
-    # releases them together, so a chord is just a multi-element argument
-    # list -- it must be SPLATTED, not stringified, or the two names collapse
-    # into one unrecognized argument.
+    # See https://yuruna.link/4213a0b3-0186
     $codes = @((Get-KeyCodeMap -Kind 'KVM-Chord')[$KeyName])
     if (-not $codes -or -not $codes[0]) {
         $codes = @((Get-KeyCodeMap -Kind 'KVM-Named')[$KeyName])
@@ -1053,15 +1004,9 @@ function Send-TextHyperV {
             0xE0, 0xDB,       # LMeta/LGUI break (E0-prefixed)
             0xE0, 0xDC        # RMeta/RGUI break (E0-prefixed)
         )
-        # --- REGION: docs/host-io.md#hyper-v-ps2-scancode-behavior
-        # The prefix is emitted only in batched mode. On the host that needs
-        # per-char pacing it does active harm: every character sent after it
-        # in the same session is swallowed, so a string that types perfectly
-        # on its own types nothing at all once the prefix leads it. Per-char
-        # sending does not need the defense the prefix provides either --
-        # each call carries its character's make AND break (and a shifted
-        # character's Shift pair with them), so no key and no modifier can be
-        # left latched for the next character to inherit.
+        # --- REGION: Reset modifiers for batched text
+        # See https://yuruna.link/4222e5f2-0005
+        # A modifier reset before per-character sends swallows later keys on ARM64.
         if ($script:DefaultBatchedTextSend) {
             if (-not (Send-ScanCode -Keyboard $kb -Codes $resetCodes)) {
                 # Single-shot reset failed -- continue anyway; per-char
@@ -1070,14 +1015,9 @@ function Send-TextHyperV {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9f57b55a58b15b7c')
             }
         }
-        # --- REGION: docs/host-io.md#hyper-v-ps2-scancode-behavior
-        # Batched, the whole payload goes in ONE Send-ScanCode CIM call and
-        # CharDelayMs is a settle budget applied AFTER the batch rather than a
-        # per-char delay. Per-char, each character is its own call and
-        # CharDelayMs paces them -- the shape an ARM64 Hyper-V host needs,
-        # where a batched payload reaches the guest as nothing at all.
-        # $script:DefaultBatchedTextSend carries the host default and
-        # vmCommunication.batchedTextSend overrides it.
+        # --- REGION: Select text send mode
+        # See https://yuruna.link/4222e5f2-0005
+        # CharDelayMs settles a batch or paces individual characters.
         $batched = $script:DefaultBatchedTextSend
         $codeList = [System.Collections.Generic.List[byte]]::new()
         $charCount = 0
@@ -1116,15 +1056,7 @@ function Send-TextHyperV {
                 return $false
             }
         }
-        # Post-batch settle: linear in char count up to a ceiling. The
-        # PS/2 controller drains asynchronously, so without a wait the
-        # next action (Enter, screenshot) can sample a half-typed field.
-        # Formula: min($DefaultSettleMs, $CharDelayMs * $charCount).
-        # $DefaultSettleMs (200 ms default) is the empirical ceiling that
-        # covered every login-prompt drain measured on this hardware;
-        # tune via test.config.yml's vmCommunication.settleMs for guests
-        # that need more (slow agetty) or less (KVM/SeaBIOS, where the
-        # buffer is faster).
+        # See https://yuruna.link/4213a0b3-0187
         if ($batched -and $CharDelayMs -gt 0 -and $charCount -gt 0) {
             $settleMs = [Math]::Min($script:DefaultSettleMs, $CharDelayMs * $charCount)
             Start-Sleep -Milliseconds $settleMs
@@ -1198,14 +1130,7 @@ function Send-TextUTM {
         [string]$VMName,
         [string]$Text,
         [int]$CharDelayMs = $script:DefaultCharDelayMs,
-        # Opt-in shell-side decoding. When set AND Text contains chars
-        # that need Shift after the keypad remap (uppercase letters and
-        # shifted punctuation other than '*' / '+'), rewrites Text as
-        # a two-stage eval wrapper so the bash prompt on the guest
-        # decodes the shifted chars from \xNN escapes. Default off: at
-        # login/password prompts there is no shell to decode the wrapper,
-        # so callers in those contexts (Send-Text via passwdPrompt) must
-        # NOT pass this switch.
+        # See https://yuruna.link/4213a0b3-0188
         [switch]$ShellEscape
     )
     # JXA CGEvent typing path.

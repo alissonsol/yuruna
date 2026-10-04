@@ -5,6 +5,7 @@
 # See https://yuruna.link/429f3d06
 # See https://yuruna.link/4207d71a-000c
 # See https://yuruna.link/42e220c4-0006
+# --- REGION: hostname
 hostname: yuruna-pool-control-service
 # --- REGION: users
 users:
@@ -17,13 +18,16 @@ users:
     plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
+# --- REGION: chpasswd
 chpasswd:
   expire: false
   users:
     - name: pool-control-service-admin
       password: PASSWORD_PLACEHOLDER
       type: text
+# --- REGION: ssh_pwauth
 ssh_pwauth: true
+# --- REGION: package_update
 package_update: true
 # --- REGION: packages
 packages:
@@ -92,29 +96,35 @@ write_files:
   - path: /etc/systemd/system/yuruna-host-locate.service
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Refresh Yuruna host coordinates if the host has changed address
       After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
       Before=network-online.target
 
+      # --- REGION: [Service]
       [Service]
       Type=oneshot
       TimeoutStartSec=30
       ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=network-online.target
   - path: /etc/systemd/system/yuruna-host-locate.timer
     permissions: '0644'
     content: |
+      # --- REGION: [Unit]
       [Unit]
       Description=Periodic Yuruna host coordinate refresh
 
+      # --- REGION: [Timer]
       [Timer]
       OnBootSec=30s
       OnUnitActiveSec=60s
       AccuracySec=5s
 
+      # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
 # --- REGION: runcmd
@@ -144,7 +154,7 @@ runcmd:
         # -s "$DEST/VERSION" is the extraction's success condition, not tar's exit
         # status: the archive arrives through a pipe, so a transfer cut partway
         # leaves tar reporting success over a truncated tree.
-        if wget --no-proxy -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST" && [ -s "$DEST/VERSION" ]; then
+        if wget --no-proxy --timeout=30 --tries=1 -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST" && [ -s "$DEST/VERSION" ]; then
           OK=1; SRC=host; SRC_URL="http://$YR_HOST:$YR_PORT"
           echo "yuruna pool-control-service: framework extracted from host $SRC_URL"
           break
@@ -160,12 +170,10 @@ runcmd:
     if [ "$OK" -eq 0 ]; then
       echo "yuruna pool-control-service: host status service did not serve the framework after 6 attempts; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
       rm -rf "$DEST"
-      git clone --depth 1 "$MIRROR_URL" "$DEST" && OK=1
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 "$MIRROR_URL" "$DEST" && OK=1
     fi
-    # Record which source won. Without this the answer survives only in this log,
-    # and the bring-up script on the host is left inferring it from a version
-    # number that cannot distinguish "older mirror" from "older host enlistment".
-    # World-readable on purpose: it is read back as the unprivileged seed account.
+    # See https://yuruna.link/42fffc2c-0013
+    # Record source provenance for the unprivileged seed account's readiness probe.
     mkdir -p /etc/yuruna
     {
       echo "source=$SRC"

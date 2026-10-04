@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4263c64f-234d-45a4-b9c8-83aed05f27d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,37 +16,7 @@
 
 #requires -version 7
 
-# Which language a reader gets, decided once and then carried.
-#
-# Every runtime that renders text has to answer the same question, and they
-# have to answer it the SAME way: a page in one language beside a transcript
-# in another is worse than either language alone. So the answer is defined by
-# a fixture corpus (globalization/fixtures/locale-matching.json) that this
-# module, the browser and Go each run, rather than by three implementations
-# that were written from the same paragraph of prose.
-#
-# The rules that are easy to get wrong, and why they are what they are:
-#
-#   q=0 is a refusal. RFC 9110 says a zero quality means "not acceptable",
-#   so a tag carrying it is removed from consideration rather than ranked
-#   last -- otherwise a client that explicitly rejected a language is served
-#   it whenever nothing else matches.
-#
-#   A bare wildcard takes the default. "*" states no preference, so answering
-#   it with the first supported tag makes the served language depend on the
-#   order of a table nobody thinks of as ordered.
-#
-#   An undeclared region falls back. pt-AO is not pt-BR: guessing that any
-#   Portuguese is Brazilian Portuguese hands a reader a dialect no reviewer
-#   approved. Only aliases the manifest declares are followed.
-#
-#   The resolved tag names a FILE. It is matched against the supported set and
-#   never used as a path fragment, because the input reaching this function
-#   arrives from an HTTP header.
-#
-# The context this produces is immutable and scoped to one cycle, one command
-# or one request. There is deliberately no process-global "current locale":
-# a service answering two readers at once must not have one.
+# See https://yuruna.link/4213a0b3-0092
 
 $script:LocaleManifest = $null
 

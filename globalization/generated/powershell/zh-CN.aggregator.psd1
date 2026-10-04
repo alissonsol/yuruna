@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 421bcf2d-5f7f-8b49-9f26-41fdd197f523
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,159 @@
     'aggregator.announce_disabled' = '通告已禁用'
     'aggregator.announced_address_did_not_serve_status_json' = '通告的地址未提供status.json'
     'aggregator.announced_address_serves_a_different_hostid' = '通告的地址提供了不同的hostId'
+    'aggregator.backfill_bad_flag' = @(
+        '历史回填：参数无效：'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'aggregator.backfill_cycle_unreadable' = @(
+        '历史回填：宿主机'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '：周期'
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '在多次失败后被跳过：'
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'aggregator.backfill_host_failed' = @(
+        '历史回填：宿主机'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '：'
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '（下次扫描会重试）'
+    )
+    'aggregator.backfill_index_failed' = @(
+        '历史回填：宿主机'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '：无法写入其周期索引：'
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'aggregator.backfill_pool_status_failed' = @(
+        '历史回填：无法从收集器读取池状态：'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'aggregator.backfill_prometheus_failed' = @(
+        '历史回填：宿主机'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '：Prometheus拒绝了时间线样本：'
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'aggregator.backfill_started' = @(
+        '历史回填：已启动；最多恢复过去'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '内的周期，每'
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '扫描一次'
+    )
+    'aggregator.backfill_state_failed' = @(
+        '历史回填：宿主机'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '：无法保存其状态：'
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'aggregator.backfill_sweep_done' = @(
+        '历史回填：已完成'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '台宿主机的扫描：写入了'
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '个周期、'
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '个周期的事件、'
+        @{
+            'arg' = 'value4'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '起故障事件和'
+        @{
+            'arg' = 'value5'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '个时间线样本；'
+        @{
+            'arg' = 'value6'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '个周期无法读取；'
+        @{
+            'arg' = 'value7'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '台宿主机仍有历史记录待写入'
+    )
     'aggregator.batch_mixes_multiple_hostids' = '批次混用了多个hostIds'
     'aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte' = '控制权证明验证已禁用：此聚合器未持有内部身份验证密钥'
     'aggregator.encode_failed' = '编码失败'

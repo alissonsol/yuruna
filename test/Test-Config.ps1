@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,12 +103,7 @@ $NotificationCfgPath  = Join-Path $ExtensionStateRoot "notification/transports.y
 $NotificationTmplPath = Join-Path $ExtensionRoot      "notification/transports.yml.template"
 
 # --- REGION: Helpers
-# Write-Pass / Write-Fail / Write-Warn / Write-Info / Write-Section /
-# Write-Summary / Exit-WithSummary are exported by Test.Output.psm1.
-# Test-IsSet / Test-AgainstSchema / Test-RepoFreshness are exported by
-# Test.ConfigValidator.psm1. Both modules share a $global: counters
-# anchor so every Write-Fail / Write-Pass from either module lands in
-# the same end-of-run summary.
+# See https://yuruna.link/42010605-0002
 $script:ModulesDir = Join-Path $TestRoot "modules"
 Import-Module (Join-Path $script:ModulesDir 'Test.Output.psm1')          -Global -Force
 Import-Module (Join-Path $script:ModulesDir 'Test.ConfigValidator.psm1') -Global -Force
@@ -129,6 +124,7 @@ Import-Module (Join-Path $script:ModulesDir 'Test.InnerSpawn.psm1')      -Global
 Import-Module (Join-Path (Split-Path -Parent $TestRoot) 'automation/Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 Initialize-OutputState
 
+# --- REGION: Test-TcpReachable
 function Test-TcpReachable {
     <#
     .SYNOPSIS
@@ -147,6 +143,7 @@ function Test-TcpReachable {
     return [bool](Test-TcpConnectOutcome -IpAddress $HostName -Port $Port -TimeoutMs $TimeoutMs).Reachable
 }
 
+# --- REGION: ConvertTo-YurunaBool
 function ConvertTo-YurunaBool {
     <#
     .SYNOPSIS
@@ -305,13 +302,7 @@ if (-not (Test-Path $TemplatePath)) {
 }
 
 # --- REGION: Section 3: Host requirements (quick)
-# Imports Test.HostContract.psm1 and runs the same fast pre-flight that
-# operator-facing helpers (Remove-TestVMFiles.ps1, ...) call: detects
-# the host type and verifies the absolute minimum (Administrator +
-# vmms on Hyper-V, virsh + /dev/kvm on Ubuntu, UTM.app + utmctl on
-# macOS). The pointer Write-Information inside Test-HostRequirement
-# is suppressed here because THIS script IS the deeper check it would
-# otherwise advertise.
+# See https://yuruna.link/42010605-0002
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_0eaac625cae7caa8')
 
@@ -332,12 +323,7 @@ if (-not (Test-Path $hostModPath)) {
         # access. No-op on other hosts / fresh shells.
         Invoke-LibvirtGroupReExecIfNeeded -HostType $HostType -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
         Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_7ad9a8cd1a9709db' -Arguments @{ hostType = "$HostType" })
-        # Capture Test-HostRequirement's Write-Warning lines via -WarningVariable
-        # and re-emit them through Write-Warn so they land under the current
-        # section in Test.Output's state. Without this, those warnings reach
-        # the host's Warning stream directly and never make it into the
-        # FAILURES-summary block, leaving the operator with a bare "see
-        # warnings above" pointer at content that has scrolled off.
+        # See https://yuruna.link/42010605-0002
         $reqWarns = $null
         $reqOk = Test-HostRequirement -HostType $HostType -InformationAction SilentlyContinue -WarningAction SilentlyContinue -WarningVariable reqWarns
         foreach ($w in $reqWarns) { Write-Warn "$w" }
@@ -350,24 +336,10 @@ if (-not (Test-Path $hostModPath)) {
 }
 
 # --- REGION: Section 3b: Host clock
-# Every hypervisor here seeds a guest's clock from the host at power-on, so
-# a drifting host starts every VM equally wrong and the guest's own NTP
-# client steps it to real time seconds into the boot -- mid-startup for
-# whatever that guest is bringing up. On a Kubernetes guest that leaves pods
-# Running but never Ready and every NodePort refusing, with nothing in the
-# picture pointing back at a clock. Cheap to measure here; expensive to
-# diagnose later.
+# See https://yuruna.link/42010605-0002
 
-# Interactive only: offer to resynchronize the clock right now. Returns $true
-# only when a sync actually succeeded (the caller then re-measures rather
-# than trusting the attempt). Where nobody can be asked -- the pre-cycle config
-# gate, an unattended runner -- it returns $false immediately and keeps the
-# printed instructions, because declining to offer is a complete outcome here
-# while blocking on a prompt is not.
-#
-# This is the one place a clock repair is attempted with an operator present,
-# so it is also the only place that may ask for a credential. A running cycle
-# never syncs -- it measures and warns (Write-HostClockDriftWarning).
+# --- REGION: Invoke-HostClockSyncOffer
+# See https://yuruna.link/42010605-0002
 function Invoke-HostClockSyncOffer {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$HostType)
@@ -427,17 +399,7 @@ if (-not $HostType) {
 }
 
 # --- REGION: Section 3c: Host setup freshness
-# The settings Enable-TestAutomation applies survive a reboot, but not reliably
-# a major OS upgrade: app preference domains are rebuilt from their defaults and
-# privacy grants are re-asked. The host then presents as one that was never set
-# up -- several unrelated-looking settings gone at once, each reported in its own
-# section further down, none of them naming the event they share. Said once,
-# here, ahead of the sections that report the consequences, the whole set reads
-# as one thing with one fix.
-#
-# WARN, never FAIL: an upgraded host whose settings all survived still runs, and
-# the ones that did not survive are refused on their own terms below. A second
-# refusal for the same host state would only make the first harder to find.
+# See https://yuruna.link/42010605-0002
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6b34b3231afbc220')
 
@@ -585,12 +547,7 @@ switch ($HostType) {
         if (Get-Command utmctl -ErrorAction SilentlyContinue) {
             Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_592b951962ee6c49')
         } else {
-            # UTM installs correctly and still leaves this failing: the CLI lives
-            # inside the app bundle and nothing puts that directory on PATH. Both
-            # repairs are printed because they are not interchangeable -- the
-            # first also applies the rest of the host settings and needs an
-            # interactive sudo, the second is one line an operator can paste into
-            # a session that already has a warm sudo timestamp.
+            # See https://yuruna.link/42010605-0002
             $utmctlFix = if (Get-Command Get-MacUtmctlRemediation -ErrorAction SilentlyContinue) {
                 Get-MacUtmctlRemediation
             } else {
@@ -602,21 +559,7 @@ switch ($HostType) {
 }
 
 # --- REGION: Section 5a: macOS permissions only a person can give
-# Checked HERE and not only inside the cycle. This script IS the pre-cycle gate,
-# so a host it passes and Assert-HostConditionSet then refuses has learned
-# nothing from the gate: the operator finds out one entry point later, with a
-# runner already waiting, from a message the gate never showed them.
-#
-# Detection and every word of the repair come from the operator-grant registry
-# that the per-cycle assertion uses, so the two cannot describe the same
-# permission differently -- which is the failure mode that costs an operator
-# most, because following one set of instructions and being refused by the other
-# gives no way to tell which is stale.
-#
-# None of these can be granted by a script, with or without a password: macOS
-# keeps them in SIP-protected TCC databases and only an MDM-delivered PPPC
-# profile can pre-authorize one. The gate does what is left -- name the exact
-# grant, the exact pane, and the exact application to enable.
+# See https://yuruna.link/42010605-0002
 
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacOperatorGrantState -ErrorAction SilentlyContinue)) {
     Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6bcdcf9aad9c55be')
@@ -659,16 +602,7 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacOperatorGrantState -
 }
 
 # --- REGION: Section 5a2: macOS screen lock / display sleep
-# Checked here for the same reason the operator grants above are: this script IS
-# the pre-cycle gate, and the per-cycle assertion refuses a cycle on exactly
-# these settings. A host this report passes and the runner then stops teaches
-# the operator nothing -- they meet the refusal one entry point later, with a
-# runner already waiting, in a warning this report never showed them.
-#
-# The findings come from Get-MacScreenLockIssue, which is also what the
-# per-cycle assertion prints, so the report and the gate cannot describe the
-# same host differently. FAIL rather than WARN: every line it returns is one the
-# gate refuses to start a cycle on.
+# See https://yuruna.link/42010605-0002
 
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacScreenLockIssue -ErrorAction SilentlyContinue)) {
     Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_ff747670f88f9812')
@@ -687,15 +621,7 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacScreenLockIssue -Err
 }
 
 # --- REGION: Section 5a3: UTM app lifetime
-# Its own section rather than a tail on the screen-lock findings above: neither
-# of these settings is a screen setting and neither needs sudo, so filing them
-# under a heading about display sleep -- beside a remedy that announces it will
-# ask for a password -- sends the operator into System Settings looking for a
-# pane that has no such knob. They are read from Get-MacUtmLifetimeIssue, which
-# is also what the per-cycle assertion prints, so the report and the gate cannot
-# describe the same host differently.
-#
-# FAIL, like 5a2: every line it returns is one the gate refuses to start on.
+# See https://yuruna.link/42010605-0002
 
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacUtmLifetimeIssue -ErrorAction SilentlyContinue)) {
     Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_9849668785458289')
@@ -717,15 +643,7 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacUtmLifetimeIssue -Er
 }
 
 # --- REGION: Section 5b: Host address stability
-# A host that draws a new lease on every renewal spends addresses at a rate the
-# lease time sets, not the machine count -- so the same fault is survivable on a
-# short lease and exhausts the pool within days on a long one, and the guests it
-# starves report "no IPv4 address", which reads as their own fault. The check
-# pairs what the address log observed with what the bridge asked for, because
-# a pin the DHCP server ignores looks like a working pin from the config and
-# like no pin at all from the log. Reported, never fatal: by the time this runs
-# the drift has already cost what it was going to cost, and a health report that
-# can fail a run is one operators stop running.
+# See https://yuruna.link/42010605-0002
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_31308c32d6152537')
 
@@ -743,14 +661,7 @@ if (-not (Test-Path -LiteralPath $beaconMod)) {
             'advisory' { Write-Info $stability.message }
             default    { Write-Pass $stability.message }
         }
-        # Apply the pin rather than print it. The remedy is set at bridge-build
-        # time and nobody rebuilds a working bridge, so a printed command reaches
-        # only the operator who happens to run this report by hand -- while this
-        # gate runs on every host at every runner start and its transcript is
-        # discarded when it passes. Safe unattended because the call writes the
-        # stored profile without reactivating it: the address in use does not
-        # move, and nothing drops. Only the NetworkManager backend is touched;
-        # see Set-HostBridgeDhcpIdentity for why netplan is reported instead.
+        # See https://yuruna.link/42010605-0002
         if ($stability.identity.backend -eq 'networkmanager' -and $stability.identity.pinned -eq $false) {
             $pin = Set-HostBridgeDhcpIdentity -Confirm:$false
             if ($pin.verified) {
@@ -769,25 +680,7 @@ if (-not (Test-Path -LiteralPath $beaconMod)) {
 }
 
 # --- REGION: Section 5c: Display scaling (OCR)
-# A host desktop above 100% scale composes a VM console window through a
-# scaled compositor, so the glyphs a window capture hands OCR arrive
-# resampled instead of at native resolution. Nothing errors when that bites:
-# the step spends its whole timeoutSeconds and reports 'pattern not found'
-# while the saved frame looks perfectly readable to a person, which is the
-# most expensive way for this to be discovered.
-#
-# Scoped per host family because the exposure is not uniform. The OCR wait
-# loop reads the guest framebuffer directly -- WMI on Hyper-V, VNC on UTM,
-# virsh on KVM -- and host scaling cannot reach any of those. It reaches OCR
-# only through the window-capture paths: the tapOn loop, which always asks
-# for a window, and the fallbacks each family drops to when its framebuffer
-# read fails. On KVM there is no such path at all, so the honest answer
-# there is that the setting does not apply rather than that it passed.
-#
-# WARN, never FAIL, and deliberately unlike Section 5a2 above: no per-cycle
-# assertion refuses a cycle over scaling, so a report that failed one here
-# would be inventing a gate the harness does not have -- and a health report
-# that can fail a run is one operators stop running.
+# See https://yuruna.link/42010605-0002
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_c4c48bd5e5d1638b')
 
@@ -825,23 +718,7 @@ if (-not $HostType) {
 }
 
 # --- REGION: Section 5d: Storage filter stack (guest throughput)
-# A guest install is tens of thousands of small writes with a flush behind
-# each one, and every one of them passes through whatever the host has
-# attached to the volume holding the VHDX. That cost is invisible from
-# inside the guest and invisible in the harness's own logs: what surfaces is
-# a package step that runs long and a step budget that expires, both of
-# which name the guest. Raising the budget then treats the symptom on the
-# wrong machine.
-#
-# Reported, never enforced, and reported even when it is fine. The host that
-# runs the lab is often also somebody's workstation, so a scanner on that
-# volume is a legitimate configuration rather than a defect -- but it has to
-# be a known one, because it silently rescales every duration the harness
-# records and every budget derived from them.
-#
-# Windows-only by nature: filesystem minifilters and volume shadow copies
-# are Windows constructs, and a KVM or UTM host's qcow2 has nothing
-# equivalent in the path.
+# See https://yuruna.link/42010605-0002
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_e2f867223580bc4d')
 
@@ -889,12 +766,7 @@ $projectClone = Join-Path $RepoRoot 'project'
 if (Test-Path (Join-Path $projectClone '.git')) {
     Test-RepoFreshness -Label "project ($projectClone)" -Path $projectClone
 } elseif (Test-Path $projectClone) {
-    # No .git -- could be the in-tree project layout (files committed to
-    # the framework repo) OR the post-failure empty-dir state where
-    # Update-ProjectClone wiped the previous clone and then `git clone`
-    # failed, leaving an empty target dir. Status-server then 404s
-    # /yuruna-project-archive.tar.gz and guests fall through to their
-    # own (also-broken) clone -- which is the cascade the operator hit.
+    # See https://yuruna.link/42010605-0002
     $entries = (Get-ChildItem -LiteralPath $projectClone -Force -ErrorAction SilentlyContinue | Measure-Object).Count
     if ($entries -eq 0) {
         $hint = if (Test-IsSet $projectUrlConfigured) {
@@ -944,12 +816,7 @@ if (Test-IsSet $projectUrlConfigured) {
             if ($ls.ExitCode -eq 0) {
                 Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_c382467dc6401b1e' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" })
             } elseif (Test-GitRemoteAuthFailure -Output $ls.Output) {
-                # github.com answered, and it rejected the credential -- so the URL
-                # is very likely fine and the generic causes below are a wrong
-                # trail. Say so, and carry the remedy INSIDE the FAIL: the
-                # pre-cycle gate re-emits only the FAILURES block to the console,
-                # so anything written outside it never reaches the operator who
-                # is looking at a refused cycle.
+                # See https://yuruna.link/42010605-0002
                 $remedy = (@(Get-GitAuthRefreshRemedy) -join '; ')
                 Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_53eb2318a1df9482' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; exitCode = "$($ls.ExitCode)"; remedy = "$remedy"; output = "$($ls.Output)" }) -FullPath $ConfigPath
             } else {
@@ -1258,15 +1125,7 @@ if (Test-Path $UsersPath) {
             }
         }
 
-        # Strict-mode completeness: every logical username referenced
-        # by an active sequence must be declared. Scan framework
-        # sequences under test/sequences/ AND project-tree sequences,
-        # which the flat project shape keeps directly in any directory
-        # named 'test' under <repoRoot>/project/ (e.g.
-        # `project/example/website/test/*.yml`) -- the same shape
-        # Get-ProjectFlatTestSearchDir walks at runtime, replicated here so
-        # Test-Config stays standalone and doesn't have to import the
-        # sequence engine module.
+        # See https://yuruna.link/42010605-0002
         if ($strict) {
             $RepoRoot = Split-Path -Parent $TestRoot
             $sequencesDirs = New-Object System.Collections.Generic.List[string]
@@ -1316,13 +1175,7 @@ if (Test-Path $UsersPath) {
 }
 
 # --- REGION: Section 9b2: Sequence files (parse + snippet expansion)
-# Read every sequence in the framework AND the default test project through the
-# same loader the runner uses (Read-SequenceFile, which splices `snippet:`
-# references from the _snippets.yml libraries). A YAML error, an unknown or
-# duplicate snippet name, or a snippet cycle FAILs the gate here -- before a
-# cycle starts -- instead of dropping steps or aborting mid-guest. Snippet
-# libraries are also shape-checked directly so a broken-but-unreferenced library
-# doesn't hide until first use.
+# See https://yuruna.link/42010605-0002
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6f57742886048a0c')
 
@@ -1390,15 +1243,7 @@ if (-not (Test-Path $seqResolveMod)) {
 }
 
 # --- REGION: Section 9b3: Stale SMB alias mappings (Windows)
-# A persistent Windows drive mapping can outlive the hosts-file alias it points
-# at: after a NAS alias is renamed/removed, the mapping still shows Status OK from
-# its cached connection, yet the dead-name session it holds BLOCKS a fresh mount
-# of the same physical NAS under a current alias (the redirector refuses a second
-# credentialed session to a server it is already stale-connected to). Mapping two
-# aliases of ONE NAS to the SAME IP is intentional and fine -- an UNRESOLVABLE
-# alias is the actual blocker. List them and, only with an operator at the
-# keyboard, offer to unmount each so the pool/stash mounts below are not
-# preempted. Headless runs never prompt: advisory WARN + the one-line manual fix.
+# See https://yuruna.link/42010605-0002
 if ($IsWindows) {
     $smbMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
     if (Test-Path $smbMod) {
@@ -1429,13 +1274,9 @@ if ($IsWindows) {
     }
 }
 
-# Linux-only: print the EXACT one-time passwordless-sudo setup the mount path
-# needs (resolved to this account + binary paths) the first time a mount-stage
-# pre-flight fails. Once per run -- the pool and stash shares share one drop-in.
-# The unattended RUNNER cannot self-apply it (`sudo -n` never prompts and
-# /etc/sudoers.d needs root), so this hint is its fallback; an INTERACTIVE
-# operator is offered the install directly by Invoke-LinuxSudoInstallOffer.
+# See https://yuruna.link/42010605-0002
 $script:LinuxSudoHintShown = $false
+# --- REGION: Show-LinuxSudoHintOnce
 function Show-LinuxSudoHintOnce {
     if (-not $IsLinux -or $script:LinuxSudoHintShown) { return }
     if (-not (Get-Command Get-PoolStorageLinuxSudoHint -ErrorAction SilentlyContinue)) { return }
@@ -1462,12 +1303,8 @@ function Show-LinuxSudoHintOnce {
     foreach ($line in $hint) { Write-Info $line }
 }
 
-# Linux + interactive only: offer to install the passwordless-sudo drop-in the
-# mount needs, right now, prompting once for sudo. Returns $true ONLY when the
-# drop-in was actually installed (so the caller retries the mount); a decline, a
-# session where nobody can be asked, or any non-install outcome returns $false
-# and the caller falls through to Show-LinuxSudoHintOnce. The unattended runner
-# never reaches the offer and must not self-elevate.
+# --- REGION: Invoke-LinuxSudoInstallOffer
+# See https://yuruna.link/42010605-0002
 function Invoke-LinuxSudoInstallOffer {
     if (-not $IsLinux) { return $false }
     if (-not (Get-Command Set-PoolStorageSudoers -ErrorAction SilentlyContinue)) { return $false }
@@ -1487,16 +1324,8 @@ function Invoke-LinuxSudoInstallOffer {
     }
 }
 
-# Interactive only: collect the missing pool NAS password and store it in the
-# vault, so an operator who has the secret in hand ends the run with a working
-# credential instead of a gate failure that points at a doc plus a second
-# command. The password is the one value the harness must never invent -- the SMB
-# account already exists on the NAS, so an auto-generated one is always junk it
-# rejects (cifs mount error(13)). Returns $true ONLY when a credential was
-# stored; the caller then re-runs the read-only pre-check rather than trusting
-# the write. Where nobody can be asked -- the pre-cycle config gate, the
-# unattended runner -- it returns $false at once and keeps the printed
-# instructions, which name the manual equivalent.
+# --- REGION: Invoke-PoolStorageVaultCredentialOffer
+# See https://yuruna.link/42010605-0002
 function Invoke-PoolStorageVaultCredentialOffer {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '',
         Justification = 'The password is read as a SecureString; the brief plaintext only feeds the vault Set-Password, which stores plaintext by design.')]
@@ -1580,12 +1409,8 @@ function Invoke-PoolStorageVaultCredentialOffer {
     return $true
 }
 
-# A bare drive-letter (e.g. 'z:') is a localPath value, never a valid SMB
-# username -- finding one in <prefix>NetworkUser means <prefix>NetworkUser and
-# <prefix>LocalPath were transposed in test.config.yml. A value swap keeps the
-# schema valid (both are strings), so nothing else flags it; the only visible
-# symptom is a misleading "no stored vault credential" warning keyed on the
-# drive letter, while the real account's password sits unused in the vault.
+# --- REGION: Show-NetworkStorageFieldSwapWarning
+# See https://yuruna.link/42010605-0002
 function Show-NetworkStorageFieldSwapWarning {
     param(
         [Parameter(Mandatory)]$Config,
@@ -1597,21 +1422,7 @@ function Show-NetworkStorageFieldSwapWarning {
 }
 
 # --- REGION: Section 9c: networkStorage pool (ypool-nas) archiving
-# Validate the optional NAS archiving tier: all three paths set, a usable vault
-# credential (so the mount won't silently auto-generate a junk SMB password), that
-# the SMB server answers on :445, and -- when both of those pass -- an ACTIVE mount
-# of localPath plus creation of the per-host folder '<localPath>/hosts/<hostId>',
-# then the free space that folder's next cycle will need. The active step is what
-# proves archiving will actually work (credentials, share name, Linux sudo, write
-# permission) instead of silently failing later; in MOVE mode a failure FAILs the
-# gate (stopping the cycle) because the local copy is about to be deleted, while in
-# copy mode it is advisory. The reachability probe stays a WARN either way, so a
-# merely-offline NAS -- which the loop retries each cycle -- never blocks a healthy
-# run.
-#
-# The space check runs ONLY behind a succeeded mount: on Linux/macOS `df` against an
-# existing-but-unmounted localPath succeeds and reports the PARENT filesystem, so
-# checking it on any other path would judge the share by the local disk's free space.
+# See https://yuruna.link/42010605-0002
 
 Write-Section "networkStorage: pool (ypool-nas) archiving"
 
@@ -1620,13 +1431,7 @@ if (-not (Test-Path $poolMod)) {
     Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_c178ba624b770623' -Arguments @{ poolMod = "${poolMod}" })
 } else {
     Import-Module $poolMod -Global -Force
-    # An absent or unpopulated pool tier is only "optional" to someone who never
-    # asked for shared storage. -ExpectStorageConfigured is the caller saying it
-    # just tried to stand storage up, and then the same absence is the proof that
-    # nothing landed -- the local-shares script writes these three keys as it
-    # builds the shares, and a NAS mount refuses to start without them, so a run
-    # that gets here without them has no storage at all while every step after it
-    # behaves as though it has.
+    # See https://yuruna.link/42010605-0002
     $storageGap = "Shared storage was configured in this run, but $ConfigPath records none of it"
     $psRaw = if ($Config.Contains('networkStorage')) { $Config['networkStorage'] } else { $null }
     if ($psRaw -isnot [System.Collections.IDictionary]) {
@@ -1719,13 +1524,7 @@ if (-not (Test-Path $poolMod)) {
                 }
             }
 
-            # mount(8) execs the external mount.cifs helper from cifs-utils, which
-            # nothing else in the harness pulls in. Establish it BEFORE the active
-            # pre-flight: without the helper every mount fails with the same exit
-            # code a credential rejection produces, so reporting the missing
-            # package is both the accurate finding and the only actionable one.
-            # The doomed mount attempt is then skipped rather than raising a second
-            # finding for the same cause.
+            # See https://yuruna.link/42010605-0002
             $psCanMount = $true
             if ($IsLinux) {
                 Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_a8133f2805b1809a')
@@ -1737,16 +1536,7 @@ if (-not (Test-Path $poolMod)) {
                 }
             }
 
-            # ACTIVE write-path pre-flight: actually mount localPath and create the
-            # per-host folder '<localPath>/<hostId>'. This is the check that catches
-            # the "reachable NAS, replicate=true, but replication silently never
-            # happens" class -- a wrong SMB password, a share-name typo, missing
-            # Linux passwordless sudo, or a read-only share -- which the passive
-            # reachability probe above cannot see (the host-side drain runs detached
-            # and only records the failure in the ledger, where no operator sees it).
-            # Only attempted when a credential is configured AND the server is
-            # reachable, so a merely-offline NAS stays the transient WARN above.
-            # FAIL (block the cycle) when replicate is on; advisory WARN when off.
+            # See https://yuruna.link/42010605-0002
             if ($psVaultReady -and $psReachable -and $psCanMount -and (Get-Command Initialize-PoolStorageHostFolder -ErrorAction SilentlyContinue)) {
                 if (-not (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue)) {
                     $ydMod = Join-Path $ModulesDir 'Test.YurunaDir.psm1'
@@ -1769,12 +1559,7 @@ if (-not (Test-Path $poolMod)) {
                     }
                     if ($poolReady.ok) {
                         Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_c7ba05194a3bd438' -Arguments @{ folder = "$($poolReady.folder)" })
-                        # Free space, checked ONLY behind a succeeded pre-flight. On
-                        # Linux/macOS `df` against an existing-but-unmounted localPath
-                        # succeeds and reports the PARENT filesystem, so running this
-                        # on any path where the mount was skipped or failed would
-                        # measure the local disk and pass or fail the gate on the
-                        # wrong number entirely.
+                        # See https://yuruna.link/42010605-0002
                         if ((Get-Command Get-PoolStorageFreeSpace -ErrorAction SilentlyContinue) -and
                             (Get-Command Test-PoolStorageSpaceSufficient -ErrorAction SilentlyContinue)) {
                             $psFree = Get-PoolStorageFreeSpace -Config $psCfg
@@ -1857,15 +1642,7 @@ if (-not (Test-Path $poolMod)) {
                 Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_5aeee726766bfcc2' -Arguments @{ stashSrv = "${stashSrv}" })
             }
         }
-        # ACTIVE write-path pre-flight: the stash share is configured as a SUBFOLDER
-        # ('\\server\share\yuruna.stash'); New-SmbMapping to a missing subfolder fails
-        # with a vague "network name cannot be found", so ensure the target folder
-        # exists (create it via the parent share when missing), then verify an actual
-        # mount of it. Advisory throughout -- the stash is optional and Start-StashServiceVM
-        # hard-fails at build time -- but this catches the "reachable NAS, credential
-        # stored, yet the mount still fails because the folder was never created" class
-        # the passive checks above cannot see. Only attempted when a credential is
-        # stored AND the server answered, so a merely-offline NAS stays the WARN above.
+        # See https://yuruna.link/42010605-0002
         if ($stashCredStored -and $stashReachable -and (Get-Command Initialize-PoolStorageTargetFolder -ErrorAction SilentlyContinue)) {
             $mk = Initialize-PoolStorageTargetFolder -Config $stashCfg -Confirm:$false
             if ($mk.ok) {
@@ -1891,21 +1668,7 @@ if (-not (Test-Path $poolMod)) {
 }
 
 # --- REGION: Section 9c2: Extension services registered with the pool
-# The stash storage checks above prove this host could BUILD a stash service.
-# This one asks the opposite question, and the one a cycle actually depends on:
-# which stash service will this host be sent to, and does it answer?
-#
-# A cycle resolves that address from the pool, so an unreachable registration
-# stops the cycle in its warm-up -- after the config check said everything was
-# fine. Two hosts advertising the same area is normal (each may run its own);
-# an advertised address that nothing answers is not, and it is invisible from
-# this host until the moment a cycle needs it.
-#
-# Advisory throughout. This gate refuses to START the runner loop on a FAIL, so
-# a service on another machine being down would wedge a lab that could otherwise
-# keep cycling and recover; and whether a stash is needed at all is the
-# project's business, not the framework's. Visibility is the goal: the operator
-# reads this before a cycle spends its budget discovering the same thing.
+# See https://yuruna.link/42010605-0002
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_396ff2b33b372c04')
 
@@ -1970,12 +1733,7 @@ if (-not (Test-Path $aggregatorMod)) {
                         Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_189c612ee620b50b' -Arguments @{ who = "$who" })
                         continue
                     }
-                    # Probe from HERE too: the pool answering for an address only
-                    # says the aggregator can reach it, and this host is the one
-                    # that has to. 'host' is the bare address the aggregator
-                    # already parsed out; an older one that does not send it
-                    # leaves the URL to parse here, and a value that will not
-                    # parse is skipped rather than thrown out of the section.
+                    # See https://yuruna.link/42010605-0002
                     $stashAddress = [string]$service.host
                     if ([string]::IsNullOrWhiteSpace($stashAddress)) {
                         $parsed = $null
@@ -2018,12 +1776,7 @@ if (-not (Test-Path $aggregatorMod)) {
 }
 
 # --- REGION: Section 9d: Pool (intent sync)
-# Validate the optional pool-intent PULL when configured: enabled implies a
-# non-empty intentGitUrl, and the LAN intent store answers a bounded git
-# ls-remote. Reachability is a WARN (the runner degrades to single-host when the
-# store is down), so a momentarily-offline proxy never blocks a healthy cycle.
-# The intent-store CONTENT (pools.yml shape) is validated by Test-PoolIntent.ps1;
-# this gate only checks the LOCAL config block + reachability.
+# See https://yuruna.link/42010605-0002
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_cd4a2a8be6258515')
 
@@ -2179,12 +1932,7 @@ Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", [Globalizat
 }
 
 # --- REGION: Section 13: Bootstrap script encoding (ASCII, no BOM)
-# The PS 5.1 `irm | iex` installer and the guest/windows.11 scripts the fresh
-# Windows guest runs the same way are parsed byte-for-byte before any
-# BOM-tolerant shell exists, so a UTF-8 BOM or non-ASCII byte aborts them at
-# line 1. Fold the shared Test-AsciiNoBom guard into this pre-cycle gate so an
-# accidental re-encode blocks the cycle here instead of breaking first-install
-# on the guest. See feedback_bootstrap_installer_no_bom.md.
+# See https://yuruna.link/42010605-0002
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_2d5e1292ca5d9fc6')
 
@@ -2193,13 +1941,7 @@ if (-not (Test-Path -LiteralPath $asciiGate)) {
     Write-Info "Test-AsciiNoBom.ps1 not found at ${asciiGate}; encoding gate skipped."
 } else {
     $asciiPwsh = Get-PwshExePath
-    # -Bootstrap, not the gate's default. The default is deliberately wider --
-    # every file type that is ASCII by policy -- because a developer or a merge
-    # check wants drift surfaced anywhere it lands. This call is different: it
-    # decides whether a runner may START, so its scope stays the set where a
-    # stray byte genuinely breaks first-install on a fresh host. Widening it
-    # here would let one character in any stylesheet or YAML file stop every
-    # runner in the pool, a blast radius the defect does not warrant.
+    # See https://yuruna.link/42010605-0002
     $asciiOut  = & $asciiPwsh -NoProfile -ExecutionPolicy Bypass -File $asciiGate -Quiet -Bootstrap 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_0ee5a858a1d212de')
@@ -2210,12 +1952,6 @@ if (-not (Test-Path -LiteralPath $asciiGate)) {
 }
 
 # --- REGION: Summary
-#
-# Exit-WithSummary prints the PASS/WARN/FAIL tally AND the repeated
-# FAILURES block (every Write-Fail's message + full path, grouped by
-# section). Centralized so every early-exit site upstream (missing
-# config file, YAML parse error, network probe failure, abort-before-
-# network-checks) lands on the same final layout -- the operator never
-# has to scroll up to find what failed.
+# See https://yuruna.link/42010605-0002
 
 Exit-WithSummary -Code ((Get-OutputState).FailCount -gt 0 ? 1 : 0)

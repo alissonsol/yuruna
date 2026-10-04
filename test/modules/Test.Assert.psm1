@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 423d6743-1531-4ed7-b6b3-7d5bf06035c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -355,7 +355,9 @@ function Invoke-YurunaTestShell {
         $path = Join-Path $directory 'fixture.sh'
         [IO.File]::WriteAllText($path, $Body.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
         $result = Invoke-BoundedNativeCommand -FilePath $Interpreter -ArgumentList @($path) -Environment $Environment -TimeoutSeconds $TimeoutSeconds
-        if (-not (Test-BoundedNativeResultComplete $result)) { throw "Shell fixture did not complete: $($result.Error)" }
+        if (-not (Test-BoundedNativeResultComplete $result)) {
+            throw "Shell fixture '$Interpreter' did not complete: StartError='$($result.StartError)'; Started=$($result.Started); TimedOut=$($result.TimedOut); DrainTimedOut=$($result.DrainTimedOut); OutputTruncated=$($result.OutputTruncated); KillFailed=$($result.KillFailed); DeadlineExhausted=$($result.DeadlineExhausted)"
+        }
         return @{ Output = ($result.StdOut + $result.StdErr).TrimEnd(); ExitCode = $result.ExitCode }
     } finally { Remove-YurunaTestTempDir $directory }
 }
@@ -426,6 +428,68 @@ function Get-YurunaTestBrowser {
     return $null
 }
 
+function Wait-YurunaTestBrowserEndpoint {
+    <# .SYNOPSIS
+    Waits for the browser's port file within the caller's existing deadline.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$PortFile, [Parameter(Mandatory)][datetime]$Deadline)
+    $endpoint = $null
+    while (-not $endpoint -and [DateTime]::UtcNow -lt $Deadline) {
+        if (Test-Path -LiteralPath $PortFile) {
+            try { $lines = [IO.File]::ReadAllLines($PortFile) }
+            catch {
+                $failure = $_.Exception.GetBaseException()
+                # Chrome can still own the newly created file during startup.
+                # Only the Windows sharing violation is transient here.
+                if (-not $IsWindows -or $failure -isnot [IO.IOException] -or ($failure.HResult -band 0xFFFF) -ne 32) { throw }
+                $lines = @()
+            }
+            if ($lines.Count -ge 2 -and $lines[1]) { $endpoint = "ws://127.0.0.1:$($lines[0])$($lines[1])" }
+        }
+        if (-not $endpoint) { Start-Sleep -Milliseconds 200 }
+    }
+    if (-not $endpoint) { throw 'the browser did not open a DevTools endpoint' }
+    return $endpoint
+}
+
+function Stop-YurunaTestBrowserProfile {
+    <#
+    .SYNOPSIS
+        Stops every browser process still running on a test profile directory.
+    .DESCRIPTION
+        Chrome started from an elevated process on Windows starts itself again
+        without elevation, and the process that was started exits. The browser
+        that answers the test is then one the test never held, so the profile
+        directory on its command line is all that identifies it. Returns how
+        many processes it stopped.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Stops only browsers running on a profile directory this module created for one test.')]
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][string]$Browser, [Parameter(Mandatory)][string]$ProfileDir)
+    if (-not $IsWindows) { return 0 }
+    $image = [IO.Path]::GetFileName($Browser).Replace("'", "''")
+    $owned = '--user-data-dir="?' + [regex]::Escape($ProfileDir) + '(?:"|\s|$)'
+    $stopped = 0
+    # Asked again until nothing answers: a child process outlives its browser
+    # for a moment, and the caller removes the profile directory next, which
+    # stays locked until the last of them is gone.
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        $running = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = '$image'" -ErrorAction SilentlyContinue |
+                Where-Object { [string]$_.CommandLine -match $owned })
+        foreach ($candidate in $running) {
+            # One that exits between the listing and the stop is already what was wanted.
+            try { Stop-Process -Id $candidate.ProcessId -Force -ErrorAction Stop; $stopped++ } catch { $null = $_ }
+        }
+        if ($running.Count) { Start-Sleep -Milliseconds 200 }
+    } while ($running.Count -and [DateTime]::UtcNow -lt $deadline)
+    return $stopped
+}
+
 function Get-YurunaTestBrowserDomCdp {
     <#
     .SYNOPSIS
@@ -434,7 +498,8 @@ function Get-YurunaTestBrowserDomCdp {
     .DESCRIPTION
         Mirrors --virtual-time-budget: navigate, wait for the document to load,
         then grant virtual time and read the document when the budget expires.
-        The browser process is killed afterwards.
+        The browser is stopped afterwards, including one that replaced the
+        process this started.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -453,16 +518,8 @@ function Get-YurunaTestBrowserDomCdp {
     $socket = $null
     try {
         $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-        $endpoint = $null
         $portFile = Join-Path $ProfileDir 'DevToolsActivePort'
-        while (-not $endpoint -and [DateTime]::UtcNow -lt $deadline) {
-            if (Test-Path -LiteralPath $portFile) {
-                $lines = [IO.File]::ReadAllLines($portFile)
-                if ($lines.Count -ge 2 -and $lines[1]) { $endpoint = "ws://127.0.0.1:$($lines[0])$($lines[1])" }
-            }
-            if (-not $endpoint) { Start-Sleep -Milliseconds 200 }
-        }
-        if (-not $endpoint) { throw 'the browser did not open a DevTools endpoint' }
+        $endpoint = Wait-YurunaTestBrowserEndpoint -PortFile $portFile -Deadline $deadline
         $socket = [Net.WebSockets.ClientWebSocket]::new()
         if (-not $socket.ConnectAsync([Uri]$endpoint, [Threading.CancellationToken]::None).Wait(15000)) { throw 'could not connect to the DevTools endpoint' }
 
@@ -515,8 +572,12 @@ function Get-YurunaTestBrowserDomCdp {
         return [string]$result.result.value
     } finally {
         if ($socket) { $socket.Dispose() }
+        # A launcher that has already exited handed the session to a browser it
+        # started, so killing the launcher's tree would stop nothing.
+        $replaced = $process -and $process.HasExited
         if ($process -and -not $process.HasExited) { try { $process.Kill($true); [void]$process.WaitForExit(5000) } catch { $null = $_ } }
         if ($process) { $process.Dispose() }
+        if ($replaced) { $null = Stop-YurunaTestBrowserProfile -Browser $Browser -ProfileDir $ProfileDir }
     }
 }
 function Get-YurunaTestBrowserDom {

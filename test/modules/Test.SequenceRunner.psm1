@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42876323-908f-424a-bc58-2069b325aa64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,19 +133,7 @@ function Resolve-TestSequencePlan {
     }
 
     # --- REGION: requiresSnapshot warm-path probe
-    # When the top-level sequence declares `requiresSnapshot: { id: <X> }`,
-    # the chain ends in a saveDiskSnapshot that renames `test-<guestKey>`
-    # -> <X>. Two paths:
-    #
-    #   WARM: persisted VM <X> exists AND already has snapshot <X> on disk.
-    #         Skip every prereq sequence and run only the top-level against
-    #         <X>. The top-level's first loadDiskSnapshot reverts the disk.
-    #
-    #   COLD: snapshot not present. Walk the full chain. The build VM is
-    #         created with the test-<guestKey> name (so Remove-TestVMFiles
-    #         can sweep a failed cold build); saveDiskSnapshot renames it
-    #         to <X> mid-chain, and subsequent entries operate on <X>. The
-    #         per-entry loop below detects the rename and updates $VMName.
+    # See https://yuruna.link/4213a0b3-0167
     $requiredSnapshotId = $null
     $warmPath           = $false
     $topLevelEntry      = $ChainEntries[$ChainEntries.Count - 1]

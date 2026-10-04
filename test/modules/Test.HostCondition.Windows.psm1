@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,16 +16,7 @@
 
 #requires -version 7
 
-# Windows sibling of Test.HostCondition.psm1: applies AND asserts the
-# per-host preconditions for unattended VM testing on host.windows.hyper-v
-# (Hyper-V service, display timeout, inactivity lock, host clock, firewall
-# rules for ICMPv4 + the status-service TCP port, and -- when
-# YURUNA_VIRTUAL_DISPLAY is set -- display/text scale = 100% so HiDPI
-# doesn't defeat OCR on VM screenshots), plus the report-only guest-network
-# probe the facade dispatches through its NetworkHealth slot. Loaded by the
-# Test.HostCondition.psm1 facade; callers continue to import the facade
-# and resolve these names through its Export-ModuleMember. See
-# Test.HostCondition.psm1 for the per-platform split rationale.
+# See https://yuruna.link/4213a0b3-0074
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.HostAutomationState.psm1') -Global -DisableNameChecking
@@ -174,14 +165,7 @@ function Install-YurunaVirtualDisplay {
 
     if (-not $IsWindows) { return 'Unsupported' }
 
-    # Opt-in gate: the virtual display (usbmmidd attach + clone / resolution /
-    # scale enforcement) runs only when YURUNA_VIRTUAL_DISPLAY is truthy.
-    # Unset/false makes this a complete no-op -- no virtual display is
-    # attached and the host's topology, resolution, and scaling are left
-    # untouched. Test-YurunaVirtualDisplayEnabled also honors a value persisted
-    # to the User/Machine scope so a runner launched from a shell that set it
-    # there (and thus has a stale process block) still attaches the display.
-    # See docs/host-hyperv.md.
+    # See https://yuruna.link/4213a0b3-0075
     if (-not (Test-YurunaVirtualDisplayEnabled)) {
         return 'Disabled'
     }
@@ -316,16 +300,7 @@ function Install-YurunaVirtualDisplay {
     if (-not $live) { return 'Failed' }
 
     # --- REGION: Mirror the main monitor, pin the virtual as primary, enforce
-    #       the OCR resolution floor.
-    # The virtual display must DUPLICATE (not extend) the physical one and be the
-    # primary so the captured surface stays alive when the physical monitor is
-    # removed (a cable unplug hot-removes the primary; if that were the physical
-    # the capture would freeze). Because the topology is a clone, host windows
-    # (Display Settings, etc.) still show on the physical monitor while it is
-    # attached. The clone source must be >=1920x1080 or OCR on the captured frame
-    # fails. Best-effort: a topology / resolution failure must not fail the cycle
-    # (the attached monitor is the load-bearing part), so warn and keep the
-    # monitor status.
+    # See https://yuruna.link/4213a0b3-0076
     try { $null = Set-YurunaDisplayCloneAndResolution -LogPath $logPath }
     catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c9ff158c02757ab8' -Arguments @{ message = "$($_.Exception.Message)" }) }
 
@@ -752,18 +727,7 @@ namespace Yuruna {
 
     if ($physical.Count -ge 1 -and $virtuals.Count -ge 1) {
         # --- REGION: Physical + virtual attached -> DUPLICATE (clone), always
-        # The VIRTUAL display is made the primary so the surface the runner
-        # captures is anchored to the always-present display; unplugging the
-        # physical monitor then only drops a secondary and the guest-console
-        # capture never freezes. A clone binds only when every active display
-        # shares one identical mode; the virtual display is fixed at 1920x1080
-        # (the "Force every VIRTUAL display to the 1920x1080 floor" region), so the physical monitor is normalized to 1920x1080 as well --
-        # downscaled if it was running higher. Downscaling a high-resolution
-        # monitor for the duration of a test run is the accepted cost of an
-        # always-duplicated surface; the alternative (leaving a high-res monitor
-        # extended) strands host windows on a separate desktop region. Because
-        # the topology is a clone, the operator still sees the identical image on
-        # the physical monitor while it is attached.
+        # See https://yuruna.link/4213a0b3-0077
         $virtTarget = ($virtuals | Where-Object { $_.IsPrimary } | Select-Object -First 1)
         if (-not $virtTarget) { $virtTarget = $virtuals[0] }
         $physTarget = ($physical | Where-Object { $_.IsPrimary } | Select-Object -First 1)
@@ -993,15 +957,7 @@ function Remove-YurunaVirtualDisplay {
         return $false
     }
 
-    # Tear down in escalating strength, stopping as soon as no usbmmidd monitor
-    # remains. `enableidd 0` disables the monitor surface but leaves the device
-    # staged for a fast `enableidd 1` next cycle. If a monitor still lingers (a
-    # wedged devnode, or a mid-cycle KVM switch that left it present-but-
-    # unhealthy), escalate to `stop usbmmidd`, which detaches the device node --
-    # the vendor's own uninstall step. The signed driver INF stays in the
-    # ProgramData cache either way, so the next run re-attaches without a
-    # re-download (Install-YurunaVirtualDisplay re-stages the devnode if `stop`
-    # removed it).
+    # See https://yuruna.link/4213a0b3-0078
     if (& $runVerb @('enableidd', '0') 'enableidd 0 (teardown)') { return 'Removed' }
 
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5f003c7db354854a')
@@ -1593,19 +1549,7 @@ function Set-WindowsHostConditionSet {
     }
 
     # --- REGION: Host metrics exporter
-    # A refused VM memory allocation is decided by the host's commit charge
-    # against its commit limit at that instant, and neither number survives in
-    # any artifact the harness writes -- the only host-side record is an
-    # Information-level Windows event nothing collects. A scraped exporter is
-    # what makes that measurable after the fact, and carries the host's CPU,
-    # disk and VM census with it.
-    #
-    # Never an unmet condition, however it turns out. Telemetry that exists to
-    # explain a failure must not become a reason for one, and a host reported
-    # degraded over a missing metrics endpoint -- while it provisions its guests
-    # perfectly -- is what teaches an operator to stop reading the degraded
-    # state that matters. It warns, naming the command that fixes it, and from
-    # then on the scrape target going down is the standing signal.
+    # See https://yuruna.link/4213a0b3-0079
     if (-not (Get-Command Set-YurunaHostMetricsExporter -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $PSScriptRoot 'Test.HostMetricsExporter.psm1') -DisableNameChecking
     }
@@ -1943,14 +1887,7 @@ function Test-WindowsGuestNetworkHealth {
                 $externalViable  = $true
                 $externalPending = $true
             }
-            # The uplink classifier is private to the Hyper-V driver module,
-            # which the operator-facing callers of this module (Test-Config,
-            # Enable-TestAutomation) never load. Its absence means the switch
-            # was not evaluated, which counts as usable.
-            # Call it with -SwitchName ONLY: binding any of its record
-            # parameters puts it in injected mode for all of them at once, so a
-            # partially-seeded call would judge the switch against adapter and
-            # address records nobody supplied.
+            # See https://yuruna.link/4213a0b3-007a
             $classifier = Get-Command Test-YurunaExternalSwitchUplink -ErrorAction SilentlyContinue
             foreach ($sw in $externalSwitch) {
                 $verdict = 'unknown'

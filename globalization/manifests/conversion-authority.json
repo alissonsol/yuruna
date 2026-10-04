@@ -29,32 +29,7 @@
     "No access",
     "Paused (waiting for resume)"
   ],
-  "protocolExceptions": [
-    {
-      "path": "test/modules/Test.HostGit.psm1",
-      "text": "No access",
-      "removeAfter": "2026-10-01",
-      "reason": "One-release compatibility payload beside repository_access=denied."
-    },
-    {
-      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js",
-      "text": "No access",
-      "removeAfter": "2026-10-01",
-      "reason": "One-release reader for hosts that do not yet emit repository_access codes."
-    },
-    {
-      "path": "test/extension/pool-aggregator-service/main.go",
-      "text": "Paused (waiting for resume)",
-      "removeAfter": "2026-10-01",
-      "reason": "One-release reader for runners that do not yet emit sequence_paused_waiting_resume."
-    },
-    {
-      "path": "test/status/yuruna.common.js",
-      "text": "Paused (waiting for resume)",
-      "removeAfter": "2026-10-01",
-      "reason": "One-release reader for archived and N-1 action payloads without sequence_paused_waiting_resume."
-    }
-  ],
+  "protocolExceptions": [],
   "literalContracts": [
     {
       "reason": "Exact external Git authentication diagnostic adapter, with C child-process diagnostic locale; callers receive typed repository-access states, never branch on rendered Yuruna messages.",

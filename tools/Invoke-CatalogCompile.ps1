@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,6 +103,58 @@ if (-not $Update) { $Check = $true }
 
 $script:Problem = [System.Collections.Generic.List[string]]::new()
 $script:Warning = [System.Collections.Generic.List[string]]::new()
+
+# Character-at-a-time PowerShell pipelines dominate large pseudo catalogs.
+# Keep the string transformations in one linear scan without changing their
+# UTF-16 escaping, protected tokens, or invariant casing contracts.
+if (-not ('Yuruna.CatalogTextV1' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Collections;
+using System.Globalization;
+using System.Text;
+using System.Text.RegularExpressions;
+namespace Yuruna {
+    public static class CatalogTextV1 {
+        public static string QuoteJs(string value) {
+            var output = new StringBuilder(value.Length + 2);
+            output.Append('\'');
+            foreach (char c in value) {
+                switch (c) {
+                    case '\\': output.Append("\\\\"); break;
+                    case '\'': output.Append("\\'"); break;
+                    case '\n': output.Append("\\n"); break;
+                    case '\r': output.Append("\\r"); break;
+                    default:
+                        if (c > 126) output.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                        else output.Append(c);
+                        break;
+                }
+            }
+            return output.Append('\'').ToString();
+        }
+        public static string Accent(string value, IDictionary map, Regex protectedTokens) {
+            var output = new StringBuilder(value.Length);
+            for (int i = 0; i < value.Length;) {
+                var token = protectedTokens.Match(value, i);
+                if (token.Success && token.Index == i) {
+                    output.Append(token.Value);
+                    i += token.Length;
+                    continue;
+                }
+                string character = value[i++].ToString();
+                string lower = character.ToLowerInvariant();
+                if (map.Contains(lower)) {
+                    string mapped = (string)map[lower];
+                    output.Append(character == lower ? mapped : mapped.ToUpperInvariant());
+                } else output.Append(character);
+            }
+            return output.ToString();
+        }
+    }
+}
+'@
+}
 
 function Add-Problem {
     param([Parameter(Mandatory)][string]$Message)
@@ -362,7 +414,7 @@ $script:PseudoMap = @{
 # accented no longer works, and a pseudo run should expose UI layout rather
 # than manufacture a broken link.
 $script:PseudoProtected = [regex]::new(
-    '^(?:\{[A-Za-z][A-Za-z0-9]*\}|<[^>]+>|https?://[^\s]+|(?:Ctrl|Alt|Shift|Cmd|Command|Option)(?:\+[A-Za-z0-9]+)+|(?:[A-Za-z0-9_-]+\.)+[A-Za-z0-9_-]+|/[A-Za-z0-9_./-]+)',
+    '\G(?:\{[A-Za-z][A-Za-z0-9]*\}|<[^>]+>|https?://[^\s]+|(?:Ctrl|Alt|Shift|Cmd|Command|Option)(?:\+[A-Za-z0-9]+)+|(?:[A-Za-z0-9_-]+\.)+[A-Za-z0-9_-]+|/[A-Za-z0-9_./-]+)',
     [Text.RegularExpressions.RegexOptions]::CultureInvariant)
 
 # Accent the letters and pad the result, leaving every {argument} untouched.
@@ -370,26 +422,7 @@ $script:PseudoProtected = [regex]::new(
 function ConvertTo-PseudoText {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Text, [switch]$Mirrored)
 
-    $out = [Text.StringBuilder]::new()
-    $i = 0
-    while ($i -lt $Text.Length) {
-        $protected = $script:PseudoProtected.Match($Text.Substring($i))
-        if ($protected.Success) {
-            [void]$out.Append($protected.Value)
-            $i += $protected.Length
-            continue
-        }
-        $c = [string]$Text[$i]
-        $lower = $c.ToLowerInvariant()
-        if ($script:PseudoMap.ContainsKey($lower)) {
-            $mapped = $script:PseudoMap[$lower]
-            if ($c -cne $lower) { $mapped = $mapped.ToUpperInvariant() }
-            [void]$out.Append($mapped)
-        } else {
-            [void]$out.Append($c)
-        }
-        $i++
-    }
+    $out = [Yuruna.CatalogTextV1]::Accent($Text, $script:PseudoMap, $script:PseudoProtected)
 
     # Roughly 40% growth, which is the expansion a Latin translation of short
     # English UI text reaches in practice.
@@ -521,15 +554,7 @@ function ConvertTo-JsLiteral {
     param([Parameter(Mandatory)][AllowNull()]$Value)
 
     if ($Value -is [string]) {
-        $escaped = $Value.Replace('\', '\\').Replace("'", "\'").Replace("`n", '\n').Replace("`r", '\r')
-        # Keep the emitted asset inside the source encoding the browser gate
-        # expects, so a translated string cannot depend on how the file is
-        # served.
-        $sb = [Text.StringBuilder]::new()
-        foreach ($ch in $escaped.ToCharArray()) {
-            if ([int]$ch -gt 126) { [void]$sb.Append('\u{0:x4}' -f [int]$ch) } else { [void]$sb.Append($ch) }
-        }
-        return "'" + $sb.ToString() + "'"
+        return [Yuruna.CatalogTextV1]::QuoteJs($Value)
     }
     if ($Value -is [System.Collections.IDictionary]) {
         $parts = foreach ($k in $Value.Keys) {
@@ -570,7 +595,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.09.30'
+        '.VERSION 2026.10.04'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -1001,7 +1026,7 @@ foreach ($translationKey in $translationProvenance.Keys) {
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.09.30'
+    compilerVersion = '2026.10.04'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash

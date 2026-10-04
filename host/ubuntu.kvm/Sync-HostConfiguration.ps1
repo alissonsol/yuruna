@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42040d67-5b20-4d5c-a82c-4a95c2371f44
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -113,16 +113,7 @@ Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -Re
     -AllowStaleReference:$AllowStaleReference -RequireReferenceCredential:$RequireReferenceCredential
 
 # --- REGION: Guest address-discovery readiness
-# Which of this driver's discovery rungs can answer AT ALL is decided by host
-# configuration, not by the harness: the lease rung needs libvirt to be the DHCP
-# server for the guest network, and the agent rung needs qemu-guest-agent inside
-# the guest. When both are structurally silent, discovery rests entirely on a
-# passive read of the host neighbor cache -- which decays, so lookups start
-# missing intermittently, and a miss surfaces to the operator as an ssh
-# name-resolution error that says nothing about any of this.
-#
-# Reporting it here turns that from something diagnosed across many failed
-# cycles into a line of setup output.
+# See https://yuruna.link/42e5cdfd-0025
 Write-Output ''
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fc3a019bfe08955e')
 $networkName = ''

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42f9c779-1132-4dfb-9658-60cfc646620d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,15 +178,7 @@ function Import-Extension {
     foreach ($n in $names) {
         $path = Join-Path $dir "$n.psm1"
         if (-not (Test-Path $path)) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_3045e8dd4d3523e0' -Arguments @{ area = "$Area"; n = "$n"; path = "$path" }) }
-        # Skip re-import if the same .psm1 path is already loaded. -Force
-        # on Import-Module evicts any module sharing the basename
-        # ('default') -- so a second area's default.psm1 gets re-loaded
-        # over the first, and the first's exports disappear from the
-        # global table even though the first call site never asked for
-        # a refresh. Match by absolute path so dev-time edits still
-        # re-import (operator hits Ctrl+C, makes a change, re-runs --
-        # the file mtime change isn't checked here, but explicit
-        # Remove-Module + re-Import-Extension still works).
+        # See https://yuruna.link/4213a0b3-0055
         $absPath = [System.IO.Path]::GetFullPath($path)
         $existing = Get-Module | Where-Object {
             $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $absPath)

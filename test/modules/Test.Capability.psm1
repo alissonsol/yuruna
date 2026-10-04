@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42a4a080-e1cd-4a2a-98ba-ffdbe804c002
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -420,20 +420,7 @@ function Write-HostRegistrationRecord {
         $cap = Get-HostCapabilityMatrix -HostType $HostType -RepoRoot $RepoRoot
         # host.windows.hyper-v -> hyper-v ; host.ubuntu.kvm -> kvm ; host.macos.utm -> utm
         $hypervisor = ($HostType -replace '^host\.[^.]+\.', '')
-        # poolId: this host's pool, DERIVED by the outer loop's pool-sync from
-        # pools.yml members[] (the single source of truth) and persisted to
-        # runtime/pool.state.json -- the cross-process channel, since this writer
-        # runs in the FRESH inner process that does not inherit the outer's
-        # $global. null when unpooled or intent not yet pulled (the aggregator then
-        # falls back to its own pool label). Read inline so Test.Capability keeps no
-        # dependency on Test.PoolSync.
-        # gating: the pool's advisory alert policy, carried alongside poolId in
-        # pool.state.json (null when the pool authored none). Forwarded verbatim so the
-        # aggregator parses the thresholds; a null/absent gating tells it to observe the
-        # pool's gauges but never page it.
-        # poolGuid: the pool's stable 42-GUID, carried
-        # alongside poolId in pool.state.json. Advertised so the aggregator can
-        # label host_info with it. null when unpooled.
+        # See https://yuruna.link/4213a0b3-002d
         $poolId   = $null
         $poolGuid = $null
         $gating   = $null
@@ -455,22 +442,7 @@ function Write-HostRegistrationRecord {
                 if ($cfgDoc -and $cfgDoc['statusService'] -and $cfgDoc['statusService']['port']) { $statusPort = [int]$cfgDoc['statusService']['port'] }
             }
         } catch { $null = $_ }
-        # activeExtensions: the extension areas this host is ACTIVELY running right
-        # now (distinct from capabilities.extensions, which is what it COULD run --
-        # true for every host). The pool-aggregator-service reads this to populate the
-        # dashboard's Extension hosts table WITHOUT mounting ystash-nas (no cross-host
-        # config service / NAS-credential dependency). Driven by per-service runtime
-        # markers a host writes when it brings a service up -- Start-StashServiceVM.ps1
-        # writes runtime/stash-service.json; Stop-StashServiceVM.ps1 removes it.
-        # extensionTargets carries the per-area deep-link the host advertises for its
-        # service (the service VM's UI base URL the host resolved via Get-VMIp), so the
-        # aggregator can redirect to it without an address store of its own. On a
-        # Shared-NAT UTM bundle that base URL is the HOST's forwarded address, not the
-        # guest IP, because the guest address is unreachable from the rest of the LAN.
-        #
-        # One loop over the markers rather than one block per service: a hardcoded
-        # copy per area would put an edit to this writer in the path of every new
-        # extension service that wants to be visible to the pool.
+        # See https://yuruna.link/4213a0b3-002e
         $activeExtensions = @()
         $extensionTargets = [ordered]@{}
         try {
@@ -488,20 +460,7 @@ function Write-HostRegistrationRecord {
                 Write-Verbose 'activeExtensions: Test.ExtensionService not loadable; this host advertises no extension services this write.'
             }
         } catch { Write-Verbose "activeExtensions: $($_.Exception.Message)" }
-        # projectUrl / projectCommit: the project this host's last cycle cloned,
-        # published as host facts next to its identity, so a registration reader
-        # learns what a member runs without cloning anything -- the host already
-        # has the clone, and its GH_TOKEN never has to leave it.
-        #
-        # Read from the project clone that the cycle already produced; local git
-        # reads only, matching this function's resolution policy. Best-effort: a
-        # clone that cannot be read reports nulls, because these facts must never
-        # be able to fail a registration write.
-        #
-        # NOTE (ordering): this record is written in Phase 0, BEFORE the pooled
-        # repos override and the project clone refresh, so both fields describe
-        # the PREVIOUS cycle's clone. After a pool's Project URL changes, the
-        # first registration still names the old project.
+        # See https://yuruna.link/4213a0b3-002f
         $projectUrl = $null; $projectCommit = $null
         try {
             $projectDir = Join-Path (Split-Path -Parent $runtimeDir) 'project'
@@ -527,14 +486,7 @@ function Write-HostRegistrationRecord {
                 $projectAccess = Get-Content -Raw -LiteralPath $accessMarker | ConvertFrom-Json -ErrorAction Stop
             }
         } catch { Write-Verbose "projectAccess marker: $($_.Exception.Message)" }
-        # network: this host's guest-network topology when it is NOT the healthy
-        # one. A Hyper-V vSwitch object outlives its uplink binding across a host
-        # reboot, so a host can be fully online, pass every host check, and still
-        # attach every guest to a switch with no carrier -- a state the cycle
-        # verdict alone cannot express, because such a host keeps running and
-        # passing on the Default Switch (NAT + DHCP). Absent marker = healthy, so
-        # the field stays null and an aggregator that never learned about it is
-        # unaffected. Read as a file, matching this function's resolution policy.
+        # See https://yuruna.link/4213a0b3-0030
         $network = $null
         try {
             $networkMarker = Join-Path $runtimeDir 'host-network.json'

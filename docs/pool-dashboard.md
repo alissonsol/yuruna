@@ -229,6 +229,12 @@ Panel height tracks the host count (`yuruna-fit-pool-dashboard.timer`) so rows k
 legible height instead of being squeezed -- the `gridPos.h` in the dashboard file is
 only the pre-collector default.
 
+On a rebuilt proxy, the stretch of each row before the collector first saw the host is
+written by the history backfill ([History after a rebuild](#422226cb-000c)). A click on
+a block weeks old still finds its cycle: the backfill keeps an index of every cycle
+folder each host holds, rotated `history.<date>/` buckets included, and the click
+resolves from it.
+
 <a id="422226cb-0008"></a>
 
 ## The smaller tiles
@@ -300,6 +306,66 @@ split one host's history each time the lease moved. That shared key is also what
 a memory reading sit beside a cycle outcome for the same host: `on(hostId)` joins the
 two.
 
+<a id="422226cb-000c"></a>
+
+## History after a rebuild
+
+The collector records only what it watches happen, so a rebuilt caching-proxy-service
+VM would open on an empty board while every host still keeps the cycles it ran. A
+second job on the same VM, **pool-history-backfill**, reads those cycles back -- from
+the pool share when it holds a committed copy, else from the host -- and writes them to
+Loki and Prometheus exactly as the collector would have, for the last 90 days:
+
+- every finished cycle's result: the Success%, Failed cycles and Total cycles tiles,
+  the Pass and Fail columns of *Pool hosts*, and the status transitions log;
+- the per-step events of the last 7 days, which is as long as Loki keeps events: the
+  step-failure and event-stream panels;
+- the per-host incidents the collector would have raised before it first saw the host;
+- the *Cycle outcome over time* row, wherever its live series has no samples.
+
+It backfills the hosts the collector reaches now, and a host that joins the pool later
+on its next sweep. All times are UTC from end to end: hosts write them, the job keeps
+them, and Loki and Prometheus store them. It never writes a cycle, an event or a
+timeline sample the stores already hold, so it is safe to leave running and to restart.
+
+What it cannot restore:
+
+- a cycle no readable copy of survives -- it is tried three times and then left out;
+- the host memory panels: those readings are taken live and never recorded on a host;
+- why a host was idle: a backfilled row holds a cycle's result for at most 30 minutes
+  after the cycle ended and is empty after that, where the live row would have shown
+  paused, stopped or unreachable;
+- pool-wide incidents, which correlate hosts the job reads one at a time, and an
+  incident still open when the collector first saw the host.
+
+**Pace.** The job runs at the lowest CPU and I/O priority, under a systemd CPU limit of a
+tenth of the VM less a point (`CPUQuota`), and it spaces its requests: at most one every
+2 seconds to any host's status service, 120 cycles a minute in all, and 1 MB/s of
+writes to Loki. Each sweep writes at most 200 cycles per host, newest first: the
+board refills backwards from the rebuild moment -- the cycles just before it land
+first, then yesterday's, then the day before's, out to the horizon. While history is
+left it sweeps every minute, then every 15.
+It asks a host for its cycle listing once and then at most hourly, working in between
+from the folders that listing found and from the pool share. A host's status service
+answers one request at a time, so a listing that takes longer than 10 seconds keeps
+that host's guests waiting: the job then sends the host nothing for a day, still restores
+its cycles from the pool share, and says until when in its log.
+Loki answers for a line stamped days in the past only once it has filed the line away,
+about half an hour after the write, so a backfilled cycle reaches the Loki panels that
+long after the job reports it written; the timeline row, read from Prometheus, shows it
+at once.
+
+**Watch it** with `journalctl -u pool-history-backfill -f` on the proxy: one line per
+sweep counts the cycles, events, incidents and timeline samples written, the cycles
+it could not read, and the hosts with history still to write.
+
+**Start over** by removing its state while it is stopped:
+`sudo systemctl stop pool-history-backfill`, then
+`sudo rm -rf /var/lib/pool-history-backfill/hosts`, then
+`sudo systemctl start pool-history-backfill`. Wait an hour after the job last wrote
+anything first: the state is how it remembers what Loki has not filed away yet, and
+without it a cycle written in that hour would be written twice.
+
 <a id="422226cb-000a"></a>
 
 ## See also
@@ -318,6 +384,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

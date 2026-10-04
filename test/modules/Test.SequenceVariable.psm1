@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 421a9ea0-8a3a-4785-ba40-4c509bf9d976
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,26 +16,10 @@
 
 #requires -version 7
 
-# Variable substitution for sequence step text: ${var} placeholders and
-# ${ext:area.Method(args)} extension expressions. See
-# ../../docs/test-sequences.md#variable-substitution-rules for the rules and
-# why this is kept outside the engine. -- Test.SequenceVariable.psm1
-# Private-use Unicode codepoint used as the placeholder for `$` after the
-# $$ -> sentinel pre-pass and before the sentinel -> $ post-pass. The
-# Unicode private-use area (U+E000-U+F8FF) is reserved for application-
-# specific use and effectively never appears in legitimate input, so it
-# is safe to round-trip through the regex pass without colliding with
-# something a user actually typed.
+# See https://yuruna.link/4213a0b3-0168
 $script:DollarSentinel = [char]0xE000
 
-# ${ext:area.Method(arg1, arg2, ...)} -- inline expression form. ArgList
-# may include nested ${var} placeholders, which are expanded BEFORE the
-# extension is invoked. Each call is dispatched fresh -- there is no
-# caching, so ${ext:authentication.NewRandomPassword()} returns a new
-# value every time it is evaluated. Side-effecting calls
-# (e.g. Set-Password) still belong in the dedicated `callExtension`
-# action; ${ext:...} is for value-producing reads. Parameter is named
-# ArgList (not Args) because $Args is a PowerShell automatic variable.
+# See https://yuruna.link/4213a0b3-0169
 function Invoke-ExtensionExpression {
     <#
     .SYNOPSIS

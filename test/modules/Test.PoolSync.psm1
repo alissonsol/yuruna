@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4238dc49-0c94-4ba6-a7be-b24343a6ca42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,15 +28,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -G
 $script:PoolSyncCloneTimeoutSeconds = 60
 $script:PoolSyncFetchTimeoutSeconds = 30
 
-# Invoke-PoolSyncGitCapture (and its exit-code wrapper Invoke-PoolSyncGit)
-# runs a git command bounded by a wall-clock cap and kills the
-# whole process tree on timeout, so a hung/unreachable remote can never block the
-# loop. stdin is closed immediately and the credential-prompt env is neutralized
-# (GIT_TERMINAL_PROMPT=0 + empty GIT_ASKPASS + GCM_INTERACTIVE=never), so a remote
-# that would otherwise prompt for a password fails fast instead of stalling.
-# Returns the exit code, 124 on timeout, or -1 if git could not be started.
-# Mirrors Invoke-PoolStorageProcess; kept local so Test.PoolSync has no dependency
-# on Test.PoolStorage.
+# See https://yuruna.link/4213a0b3-00cc
 function Invoke-PoolSyncGitCapture {
     <#
     .SYNOPSIS

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,17 +68,7 @@ function Initialize-SequenceFailureStateStore {
     # tell "never printed" from "printed, then pushed out of the window" -- two
     # failures with different owners and different fixes.
     $Store['WaitForTextFreshWindowNearMiss'] = [string[]]@()
-    # Populated at any wait that timed out having read some text: per engine and
-    # per sought pattern, the line on the final frame that came closest and how
-    # close. The near-miss slot above is empty for three unrelated screens, so on
-    # its own it cannot say whether anything resembling the pattern was there;
-    # this can, and on a frame shorter than the tail window -- where the window
-    # is incapable of hiding anything -- it is the only screen evidence in the
-    # record. Three states: entries, an empty array from a scan that compared the
-    # frame and found nothing like the pattern, and $null from no scan at all --
-    # a wait that ends on a failure pattern returns the moment it matches, and a
-    # failure outside a wait has no frame. Only the first two say anything about
-    # the screen, so the third must not arrive wearing the second's shape.
+    # See https://yuruna.link/4213a0b3-014e
     $Store['WaitForTextClosestOnScreen'] = $null
     # Populated when the console filled with one repeating log line while the
     # wait was seeking its pattern. That case is NOT the same failure as a
@@ -94,6 +84,11 @@ function Initialize-SequenceFailureStateStore {
     # already -- the second is a guest parked on something, and the wait it
     # failed was never going to end on its own.
     $Store['WaitForTextConsoleStaticSeconds'] = 0
+    # Last substantive Subiquity stage visible during the wait and seconds
+    # since that marker changed. Network update chatter is excluded; this is
+    # an observation, not proof that the stage is still executing.
+    $Store['WaitForTextInstallerStage'] = ''
+    $Store['WaitForTextInstallerStageSeconds'] = 0
     # Set only on timeout with sustained static content and an independent
     # hypervisor framebuffer confirmation. Never inferred from OCR absence.
     $Store['WaitForTextGuestBootStalled'] = $false
@@ -234,17 +229,12 @@ function New-SequenceFailureRecord {
     if ($null -ne $fail.WaitForTextClosestOnScreen) {
         [string[]]$closestOnScreen = @($fail.WaitForTextClosestOnScreen)
     }
-    # Both console fields describe a screen something looked at. When the wait
-    # confined its match to the console tail, nothing did: the flood check and the
-    # content-static tracker never ran, so 0 / '' are initializers rather than
-    # readings -- and they are exactly the values a measured healthy console
-    # produces. $null keeps both keys present while saying the wait did not look,
-    # so no consumer can read "the console was moving" out of a measurement that
-    # never happened. A store with no flag at all is treated as measured, so a
-    # record built from one keeps the shape it already had.
+    # See https://yuruna.link/4213a0b3-014f
     $consoleMeasured = ($null -eq $fail.WaitForTextConsoleSignalsMeasured) -or [bool]$fail.WaitForTextConsoleSignalsMeasured
     $consoleFlood = if (-not $consoleMeasured) { $null } elseif ($fail.WaitForTextConsoleFlood) { [string]$fail.WaitForTextConsoleFlood } else { '' }
     $consoleStaticSeconds = if (-not $consoleMeasured) { $null } elseif ($fail.WaitForTextConsoleStaticSeconds) { [int]$fail.WaitForTextConsoleStaticSeconds } else { 0 }
+    $installerStage = [string]$fail.WaitForTextInstallerStage
+    $installerStageSeconds = if ($installerStage) { [int]$fail.WaitForTextInstallerStageSeconds } else { 0 }
     # 0 / '' rather than $null when there was no hold, matching consoleFlood: the
     # fields are always present, so a consumer never has to tell "not paused" from
     # "this record predates the gate reporting it".
@@ -259,14 +249,7 @@ function New-SequenceFailureRecord {
         $label = if ($fail.LastFailureLabel) { [string]$fail.LastFailureLabel } else { "engine crash: $($CrashError.Exception.Message)" }
         $desc  = if ($fail.LastFailureDescription) { [string]$fail.LastFailureDescription } else { '(crash before step completion)' }
     } else {
-        # Wait-ForText short-circuit on a hard-block pattern reclassifies the step.
-        # The recoveries move with the class: the verb registry's hint describes
-        # its DEFAULT failure (a completion marker that never arrived, which is
-        # worth retrying), and a matched failure pattern is the opposite case --
-        # the guest script announced its own failure, so a retry only re-runs a
-        # command already known to fail. Leaving the registry's retry hint in
-        # place here would advertise a retry for exactly the failure that cannot
-        # benefit from one.
+        # See https://yuruna.link/4213a0b3-0150
         if ($matchedFailPattern) {
             $failureClass = 'pattern_matched_failure'
             [string[]]$suggested = @('pause_and_inspect')
@@ -297,15 +280,7 @@ function New-SequenceFailureRecord {
             $failureClass = 'ip_not_discovered'
             [string[]]$suggested = @('retry_with_backoff')
         }
-        # The session dropped while the command was running, so the registry's
-        # script_error is describing a script whose outcome nobody observed.
-        # network_timeout is both the honest name and the one an in-place warm
-        # resume acts on -- re-running the sequence from its last-good step on
-        # the same live guest is exactly the right answer to a path that broke
-        # under it, and is unreachable while the record says script_error.
-        # Ordered after the address check on purpose: an unresolved address is
-        # the more specific fault, and the two cannot both be true anyway --
-        # the ssh driver returns before dialing when it has no address.
+        # See https://yuruna.link/4213a0b3-0151
         elseif ($fail.StepGuestTransportLost) {
             $failureClass = 'network_timeout'
             [string[]]$suggested = @('reconnect','retry_with_backoff')
@@ -319,14 +294,7 @@ function New-SequenceFailureRecord {
             $failureClass = 'instrumentation_failure'
             [string[]]$suggested = @('restart_from_snapshot','pause_and_inspect')
         }
-        # Ordered last of the guest-side corrections, and that ordering is what
-        # makes it safe: this signal is read out of output the guest sent, so
-        # reaching it means the session held and the wrapper spoke. The three
-        # above describe the ways that does NOT happen -- no address, a dropped
-        # link, a run nobody could account for -- and each is the more specific
-        # fault where both could look true. What is left is a guest that ran the
-        # wrapper and was served nothing, so no script executed and the registry's
-        # script_error names a thing that does not exist.
+        # See https://yuruna.link/4213a0b3-0152
         elseif ($fail.StepGuestPayloadUnavailable) {
             $failureClass = 'payload_unavailable'
             [string[]]$suggested = @('retry_with_backoff')
@@ -351,20 +319,7 @@ function New-SequenceFailureRecord {
         elseif ($verbEntry)          { 'verb-registry' }
         else                         { 'unresolved-verb' }
 
-    # repro: a copy-paste command that re-runs the failing sequence (and its
-    # baseline chain) to reproduce the failure deterministically. The command
-    # deliberately OMITS -StartStep: stepNumber is file-local (1-based within
-    # this sequence file), but Debug-TestSequence's -StartStep is chain-GLOBAL, so a
-    # naive -StartStep would mis-target a leaf that still has an unbuilt
-    # baseline. The file-local failing step is exposed as resumeFromStep
-    # (advisory; valid as -StartStep on the warm / no-baseline path). Contract
-    # in docs/failure-schema.md.
-    # Strip characters that would break out of the double-quoted repro arguments
-    # ('"', backtick, '$') or split the command line (CR/LF). The repro is
-    # surfaced for copy-paste and for an autonomous remediator to run, so a
-    # hostile or malformed VM/guest name must not become an execution hazard.
-    # Identifiers are normally quote-free, so this only ever changes pathological
-    # names; the data fields (sequenceName, vmName, guestKey) keep the real value.
+    # See https://yuruna.link/4213a0b3-0153
     $shellSafe = { param([string]$v) ($v -replace '[`"$\r\n]', '') }
     $reproCommand = ''
     if ($sequenceName) {
@@ -384,26 +339,7 @@ function New-SequenceFailureRecord {
 
     $tsFile        = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
     $tsEvent       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-    # Cycle-dir-relative, naming where the artifacts actually land. The flat
-    # root-level form these carried was keyed only by VM name, so every cycle
-    # that failed on the same guest rewrote the same two files: a pointer read
-    # later could resolve to a DIFFERENT cycle's screenshot and give no sign
-    # that it had, which is worse than a path that resolves to nothing.
-    #
-    # Claimed only when the source artifact was written after the failing step
-    # began. Both sources are sticky per-VM files at the log root that only the
-    # verbs which read a screen ever rewrite, so a failure in a verb that reads
-    # none inherits whatever an earlier step left behind -- and a pointer to
-    # that reads as this failure's screen, sending the reader after a fault
-    # that belongs to a different step. The boundary is the step's START, not
-    # the failure instant: every artifact for a failure is written before the
-    # record describing it, so the instant would reject all of them. The
-    # 2-second slack absorbs filesystem timestamp granularity (FAT/exFAT round
-    # mtime to 2s), the only skew that can under-report a genuinely fresh
-    # write; a stale artifact is a whole step older at minimum, so the slack
-    # cannot reach one. With no step boundary recorded, both are claimed as
-    # before: nothing is known about their age, and an absent judgment is not
-    # evidence of staleness.
+    # See https://yuruna.link/4213a0b3-0154
     $failScreenName = "$VMName/failure_screenshot.png"
     $failOcrName    = "$VMName/failure_ocr.txt"
     $staleEvidence  = [System.Collections.Generic.List[string]]::new()
@@ -527,6 +463,8 @@ function New-SequenceFailureRecord {
                     # flooded" from "this record predates the check".
                     consoleFlood       = $consoleFlood
                     consoleStaticSeconds = $consoleStaticSeconds
+                    installerStage = $installerStage
+                    installerStageUnchangedSeconds = $installerStageSeconds
                     # The operator hold that ended before this step ran, if any.
                     # A guest keeps running through a hold, so a prompt printed
                     # during one is gone by the time the run resumes -- which
@@ -568,6 +506,8 @@ function New-SequenceFailureRecord {
         matchedFailurePattern   = $matchedFailPattern
         causeOcrTail            = $ocrTail
         causePatternsSought     = $patternsSought
+        causeInstallerStage     = $installerStage
+        causeInstallerStageUnchangedSeconds = $installerStageSeconds
         reproCommand            = $reproCommand
         failureScreenshotPath   = $failScreenName
         failureOcrPath          = $failOcrName
@@ -674,14 +614,7 @@ function New-InfraFailureRecord {
         description          = $ErrorMessage
         sequenceName         = ''
     }
-    # What the host itself held at the moment it refused. A provisioning
-    # failure is a statement about the machine rather than about the guest, and
-    # the machine's memory position is recoverable from nothing else the cycle
-    # keeps -- those numbers exist only in the instant of the call. Carried only
-    # when a driver actually measured; ABSENT otherwise, on the same discipline
-    # the screen-evidence pointers follow, because a zeroed block would be read
-    # as a machine measured and found empty. The file nests the reading and the
-    # event carries it flat, like every other nested value on this stream.
+    # See https://yuruna.link/4213a0b3-0155
     if ($HostMemory -and $HostMemory.Contains('commitLimitBytes')) {
         $file.context['hostMemory'] = [ordered]@{
             availableMb          = [int64]$HostMemory['availableMb']

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -7,14 +7,8 @@
 # ssh session that started it.
 #
 # --- REGION: https://yuruna.link/4220a755-0035
-# Contract:
-#   yuruna-run.sh --token T --from-line N --budget S --cmd-b64 B
-#   yuruna-run.sh --token T --cancel
-# Idempotent on T: starts the run if T is not running, attaches if it is. Streams
-# out.log from line N+1 on stdout and exits with the payload's status.
-#
-# stdout carries payload bytes ONLY -- the host counts stdout lines to know where
-# to resume, so every diagnostic this script emits goes to stderr.
+# Start/attach: --token T --from-line N --budget S --cmd-b64 B; cancel: --token T --cancel.
+# Keep diagnostics on stderr so the host's stdout resume cursor counts only payload lines.
 set -uo pipefail
 
 YR_TOKEN=''
@@ -56,13 +50,7 @@ case "$YR_BUDGET" in
 esac
 
 # --- REGION: https://yuruna.link/4220a755-0036
-# The run directory is scoped to the boot, not just to the token. Guests in this
-# harness are restored from disk snapshots ten times a cycle, and a snapshot
-# taken while a run was in flight carries that run's directory -- pid file,
-# out.log and all -- back onto a machine where the process it names does not
-# exist and the pid may since belong to something else. Scoping on boot_id makes
-# a restored corpse simply invisible: the attach cannot find it, so it starts a
-# clean run instead of streaming a dead file forever.
+# Scope runs to the boot so restored snapshots cannot attach to obsolete processes.
 YR_BOOT=''
 if [ -r /proc/sys/kernel/random/boot_id ]; then
     YR_BOOT="$(cut -c1-8 /proc/sys/kernel/random/boot_id 2>/dev/null)"
@@ -90,38 +78,16 @@ fi
 mkdir -p "$YR_BASE" 2>/dev/null
 
 # --- REGION: https://yuruna.link/4220a755-0037
-# `mkdir` of the run directory is the claim, and it is the whole concurrency
-# story: it either creates the directory or fails, atomically, with no window in
-# which two callers both believe they are the starter. A test-then-create would
-# have that window, and two supervisors running the same payload against the
-# same output file is precisely the double-execution this script exists to stop.
+# Atomic mkdir prevents two callers from starting the same payload.
 # --- REGION: https://yuruna.link/4220a755-0038
-# Nothing below ever removes a run directory. It is created once and from then
-# on only gains files, so the mkdir claim is monotonic: no later invocation can
-# ever win a token that has already been claimed, whatever it concludes about
-# the state of the run. A supervisor that tore the directory down on a bad
-# verdict -- an empty payload, an unreadable command, a run it judged dead --
-# would hand the token back, and the next attach would START A SECOND COPY of a
-# payload that may still be running. For a payload that seeds records and then
-# asserts counts over them, that is the exact double-execution this whole
-# mechanism exists to prevent, arrived at from the other direction. So a
-# terminal verdict is recorded as a status instead, which every later attach
-# reads and reports without running anything.
+# Record terminal status without deleting the claim; later attaches must not rerun payloads.
+# --- REGION: yr_terminate
 yr_terminate() {
     printf '%s' "$1" > "${YR_STATUS}.tmp" 2>/dev/null && mv "${YR_STATUS}.tmp" "$YR_STATUS" 2>/dev/null
 }
 
 # --- REGION: https://yuruna.link/4220a755-0039
-# `mkdir` is the claim, and on any POSIX filesystem it is decided by exactly one
-# caller. The tiebreak below is the belt to that brace: every winner appends its
-# pid and only the FIRST line proceeds to start the payload, so even a directory
-# creation that somehow admitted two winners still yields one runner. It costs
-# one append and a short settle on the start path only, which is paid once per
-# step, and it buys the guarantee the whole mechanism rests on -- a payload that
-# seeds records and asserts counts over them must run once or not at all, and
-# "the filesystem promised" is a thin thing to rest that on when the check is
-# this cheap. It is also what makes the guarantee testable on a filesystem whose
-# mkdir is not atomic.
+# Confirm the first claimant before starting a payload, including on unusual filesystems.
 yr_claimed=0
 if mkdir "$YR_DIR" 2>/dev/null; then
     echo "$$" >> "${YR_DIR}/claim" 2>/dev/null
@@ -146,20 +112,10 @@ if [ "$yr_claimed" = '1' ]; then
         exit 64
     fi
 
-    # The runner writes its OWN pid before starting anything, which is what makes
-    # "directory exists but pid does not" decidable: it means the payload
-    # provably never started, so an attacher may clear the claim and retry
-    # instead of waiting out the budget on a run that will never produce output.
-    #
+    # See https://yuruna.link/4220a755-0038
+    # Record the runner PID before starting the payload so an absent starter is diagnosable.
     # --- REGION: https://yuruna.link/4220a755-003a
-    # `set -m` puts the payload in a process group of its own, with $! as the
-    # group id. Two things depend on that. The budget watchdog signals the whole
-    # GROUP, so a payload that backgrounds helm/kubectl/cargo does not leave
-    # those running into the next step -- timeout(1), and any kill aimed at the
-    # payload's pid alone, reach only the direct child. And the runner is
-    # OUTSIDE that group, so the same signal does not take down the very process
-    # whose job is to record the exit status; a budget kill is reported as 124
-    # instead of looking like a run that vanished.
+    # Give the payload its own process group so cancellation reaches its children.
     cat > "${YR_DIR}/run.sh" <<'YR_RUNNER'
 #!/bin/bash
 YR_DIR="$1"
@@ -183,12 +139,8 @@ printf '%s' "$YR_RC" > "${YR_DIR}/status.tmp"
 mv "${YR_DIR}/status.tmp" "${YR_DIR}/status"
 YR_RUNNER
 
-    # setsid puts the runner in its own session, so the ssh session ending does
-    # not SIGHUP it. nohup is the fallback for an image without util-linux: it
-    # blocks the HUP rather than escaping it, which detaches the runner just as
-    # effectively here. The payload's own process group -- the thing the budget
-    # watchdog signals -- comes from `set -m` inside the runner either way, so
-    # neither path changes how the payload is bounded or reaped.
+    # See https://yuruna.link/4220a755-003a
+    # Detach the runner from SSH hangup; payload grouping still comes from set -m.
     if command -v setsid >/dev/null 2>&1; then
         setsid bash "${YR_DIR}/run.sh" "$YR_DIR" "$YR_BUDGET" </dev/null >/dev/null 2>&1 &
     else
@@ -203,10 +155,8 @@ else
     echo "YURUNA_RUN_ATTACH token=${YR_TOKEN} boot=${YR_BOOT} from=${YR_FROM_LINE}" >&2
 fi
 
-# Wait for the runner to record its pid. Absent both pid and status after this
-# grace period, the starter died between claiming the directory and exec'ing --
-# rare, but indistinguishable from a live run to every later attach, so it is
-# reported rather than waited on.
+# See https://yuruna.link/4220a755-0038
+# Bound startup grace; missing PID and status means the starter vanished.
 yr_wait=0
 while [ ! -r "$YR_PID" ] && [ ! -f "$YR_STATUS" ] && [ "$yr_wait" -lt 100 ]; do
     sleep 0.1
@@ -220,14 +170,10 @@ if [ ! -r "$YR_PID" ] && [ ! -f "$YR_STATUS" ]; then
 fi
 
 # --- REGION: https://yuruna.link/4220a755-003b
-# Replay is by COMPLETE lines only, on both ends. `wc -l` counts newlines, so a
-# half-written trailing line is never emitted here and never counted by the host
-# that is tracking where to resume from. Emitting a partial line would put the
-# two ends permanently out of step: the host would count it as delivered and ask
-# to resume past it, and the rest of that line would be lost from the transcript
-# the failure-pattern matcher and the retry-marker parser read.
+# Advance replay only by complete lines, matching the host resume cursor.
 yr_next=$((YR_FROM_LINE + 1))
 
+# --- REGION: yr_drain
 yr_drain() {
     local total
     total="$(wc -l < "$YR_OUT" 2>/dev/null || echo 0)"
@@ -239,10 +185,8 @@ yr_drain() {
 
 while [ ! -f "$YR_STATUS" ]; do
     yr_drain
-    # A live pid file whose process is gone, with no status written, means the
-    # payload's shell was killed outright (OOM, a stray group kill, a host
-    # reboot). Waiting out the budget on that would spend the step's whole
-    # timeout on a run that can never finish.
+    # See https://yuruna.link/4220a755-0038
+    # Report vanished runners promptly when no exit status was recorded.
     if [ -r "$YR_PID" ]; then
         yr_pid="$(cat "$YR_PID" 2>/dev/null)"
         if [ -n "$yr_pid" ] && ! kill -0 "$yr_pid" 2>/dev/null; then
@@ -259,10 +203,8 @@ while [ ! -f "$YR_STATUS" ]; do
     sleep 0.5
 done
 
-# The payload has exited, so nothing more can be appended. A final byte that is
-# not a newline is a complete line the payload simply did not terminate; give it
-# one so the last line is delivered rather than held back forever by the
-# complete-lines rule above.
+# See https://yuruna.link/4220a755-003b
+# Terminate a final partial line only after payload completion.
 if [ -s "$YR_OUT" ] && [ "$(tail -c 1 "$YR_OUT" 2>/dev/null | od -An -c 2>/dev/null | tr -d ' ')" != '\n' ]; then
     printf '\n' >> "$YR_OUT"
 fi

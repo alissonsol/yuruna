@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42236bc2-fc6c-4607-abaa-81fea9bc8e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -242,5 +242,153 @@ Describe 'the scaffolds' {
             (Get-YurunaTestFunctionAst -Path $f -Name 'Beta').Name | Should -Be 'Beta'
             (Get-YurunaTestFunctionAst -Path $f -Name 'Missing')   | Should -BeNullOrEmpty
         } finally { Remove-YurunaTestTempDir $dir }
+    }
+}
+
+Describe 'Invoke-YurunaTestShell failure diagnostics' {
+    It 'reports completion fields when the interpreter cannot be found' {
+        $interpreter = 'yuruna-absent-shell-' + [Guid]::NewGuid().ToString('N')
+        $failure = $null
+        try { $null = Invoke-YurunaTestShell -Body 'exit 0' -Interpreter $interpreter }
+        catch { $failure = $_ }
+        $failure | Should -Not -BeNullOrEmpty
+        $failure.Exception.Message | Should -Match ([regex]::Escape($interpreter))
+        $failure.Exception.Message | Should -Match 'Started=False'
+        $failure.Exception.Message | Should -Match 'StartError='
+        $failure.Exception.Message | Should -Not -Match "The property 'Error' cannot be found"
+    }
+}
+
+Describe 'the browser port-file sharing retry' -Skip:(-not $IsWindows) {
+    BeforeAll {
+        if (-not ('BrowserPortFileLockFixture' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+public sealed class BrowserPortFileLockFixture : IDisposable {
+    private FileStream stream;
+    public BrowserPortFileLockFixture(string path) {
+        stream = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    }
+    public void ReleaseAfter(int milliseconds) {
+        Task.Delay(milliseconds).ContinueWith(_ => Dispose());
+    }
+    public void Dispose() {
+        Interlocked.Exchange(ref stream, null)?.Dispose();
+    }
+}
+'@
+        }
+    }
+
+    It 'reads the endpoint after a sharing lock clears inside the deadline' {
+        $path = Join-Path $TestDrive 'clearing-port'
+        [IO.File]::WriteAllText($path, "9222`n/devtools/browser/fixture`n", [Text.UTF8Encoding]::new($false))
+        $lock = [BrowserPortFileLockFixture]::new($path)
+        try {
+            $lock.ReleaseAfter(250)
+            $endpoint = & (Get-Module Test.Assert) {
+                param($PortFile, $Deadline)
+                Wait-YurunaTestBrowserEndpoint -PortFile $PortFile -Deadline $Deadline
+            } $path ([DateTime]::UtcNow.AddSeconds(3))
+            $endpoint | Should -Be 'ws://127.0.0.1:9222/devtools/browser/fixture'
+        } finally { $lock.Dispose() }
+    }
+
+    It 'fails by the existing deadline when the sharing lock stays held' {
+        $path = Join-Path $TestDrive 'held-port'
+        [IO.File]::WriteAllText($path, "9222`n/devtools/browser/fixture`n", [Text.UTF8Encoding]::new($false))
+        $lock = [BrowserPortFileLockFixture]::new($path)
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        $failure = $null
+        try {
+            try {
+                & (Get-Module Test.Assert) {
+                    param($PortFile, $Deadline)
+                    Wait-YurunaTestBrowserEndpoint -PortFile $PortFile -Deadline $Deadline
+                } $path ([DateTime]::UtcNow.AddMilliseconds(300))
+            } catch { $failure = $_ }
+            $failure | Should -Not -BeNullOrEmpty
+            $failure.Exception.Message | Should -Be 'the browser did not open a DevTools endpoint'
+            $watch.ElapsedMilliseconds | Should -BeLessThan 1500
+        } finally { $lock.Dispose() }
+    }
+
+    It 'propagates an unrelated port-file access error immediately' {
+        $path = Join-Path $TestDrive 'port-is-directory'
+        $null = New-Item -ItemType Directory -Path $path
+        $failure = $null
+        try {
+            & (Get-Module Test.Assert) {
+                param($PortFile, $Deadline)
+                Wait-YurunaTestBrowserEndpoint -PortFile $PortFile -Deadline $Deadline
+            } $path ([DateTime]::UtcNow.AddSeconds(3))
+        } catch { $failure = $_ }
+        $failure | Should -Not -BeNullOrEmpty
+        $failure.Exception.GetBaseException() | Should -BeOfType ([UnauthorizedAccessException])
+    }
+}
+
+Describe 'the browser profile stop' -Skip:(-not $IsWindows) {
+    BeforeAll {
+        # A stand-in for a browser: this shell, idle, carrying a profile
+        # directory on its command line the way Chrome carries one.
+        $script:HolderScript = Join-Path $TestDrive 'profile-holder.ps1'
+        [IO.File]::WriteAllText($script:HolderScript,
+            'param([Parameter(ValueFromRemainingArguments)]$Rest) Start-Sleep -Seconds 120',
+            [Text.UTF8Encoding]::new($false))
+        $script:Shell = (Get-Process -Id $PID).Path
+
+        function Start-ProfileHolder {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Starts only an idle copy of this shell that the test stops again.')]
+            param([Parameter(Mandatory)][string]$ProfileDir)
+            $start = [Diagnostics.ProcessStartInfo]::new($script:Shell)
+            foreach ($argument in @('-NoProfile', '-NonInteractive', '-File', $script:HolderScript, "--user-data-dir=$ProfileDir")) {
+                $start.ArgumentList.Add($argument)
+            }
+            $start.UseShellExecute = $false
+            $start.CreateNoWindow = $true
+            return [Diagnostics.Process]::Start($start)
+        }
+    }
+
+    It 'stops the process on that profile directory and leaves its neighbor running' {
+        # The neighbor's directory starts with the same characters, so a match
+        # on the bare prefix would stop it too.
+        $owned = Join-Path $TestDrive 'profile'
+        $ownedHolder = Start-ProfileHolder -ProfileDir $owned
+        $neighbor = Start-ProfileHolder -ProfileDir "$owned-neighbor"
+        try {
+            $stopped = & (Get-Module Test.Assert) {
+                param($Browser, $ProfileDir)
+                Stop-YurunaTestBrowserProfile -Browser $Browser -ProfileDir $ProfileDir
+            } $script:Shell $owned
+            $stopped | Should -Be 1
+            $ownedHolder.WaitForExit(5000) | Should -BeTrue
+            $neighbor.HasExited | Should -BeFalse
+        } finally {
+            foreach ($holder in $ownedHolder, $neighbor) {
+                if (-not $holder.HasExited) { $holder.Kill() }
+                $holder.Dispose()
+            }
+        }
+    }
+
+    It 'stops nothing for a profile directory no process runs on' {
+        $bystander = Start-ProfileHolder -ProfileDir (Join-Path $TestDrive 'in-use')
+        try {
+            $stopped = & (Get-Module Test.Assert) {
+                param($Browser, $ProfileDir)
+                Stop-YurunaTestBrowserProfile -Browser $Browser -ProfileDir $ProfileDir
+            } $script:Shell (Join-Path $TestDrive 'unused')
+            $stopped | Should -Be 0
+            $bystander.HasExited | Should -BeFalse
+        } finally {
+            if (-not $bystander.HasExited) { $bystander.Kill() }
+            $bystander.Dispose()
+        }
     }
 }

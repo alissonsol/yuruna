@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 421d4450-b529-4d80-a244-126649692f4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -14,8 +14,6 @@
 .PRIVATEDATA
 #>
 
-# LICENSEURI https://yuruna.link/license
-# Copyright (c) 2026 by Alisson Sol et al.
 # Native regression contracts; no VM, firewall, or provider is modified.
 [CmdletBinding()]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '', Justification = 'Variables are consumed by the production writer scriptblock extracted at runtime.')]

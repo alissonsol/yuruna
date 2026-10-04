@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,14 +76,7 @@ function Write-InnerLog {
 }
 
 # --- REGION: Cycle-start guard: warn on working-tree drift vs HEAD
-# /yuruna-archive.tar.gz and /yuruna-project-archive.tar.gz are built via
-# `git archive HEAD`, so guests only ever see COMMITTED content. If the host
-# process is running working-tree code that references new file paths not yet
-# committed (rename in progress, new automation script staged but not pushed),
-# the host SSH/console calls invoke the new names while the guest still has
-# the old HEAD content -- the symptom is a baffling "script not found" with
-# the correct-looking command line. Write-Warning bypasses logLevel filtering
-# so this surfaces regardless of test.config.yml's logLevel setting.
+# See https://yuruna.link/4213a0b3-00e1
 function Convert-LocalRepoUrlToPath {
 <#
 .SYNOPSIS
@@ -136,22 +129,7 @@ function Write-UncommittedChangesWarning {
 }
 
 # --- REGION: Helper: pre-step caching-proxy-service reachability check
-# Background: a real-world failure mode is the host's Wi-Fi roaming to a
-# different SSID/subnet mid-cycle. The caching-proxy-service VM is on the host's
-# Default Switch (Hyper-V) / VZ shared-NAT (UTM) and remains routable from
-# the host, BUT the URL injected into guest cidata at New-VM time may have
-# pointed at the IP the host had on the prior network -- which guests can
-# no longer reach. Symptom: fetch-and-execute.sh times out on /livecheck
-# and silently falls back to GitHub, masking the broken proxy path.
-#
-# This helper TCP-probes the proxy URL detected at runner startup before
-# each step, so the operator sees the moment connectivity is lost. State
-# is tracked to keep the log readable: a one-shot loud "LOST" warning on
-# the down transition, terse "still unreachable" notes during a sustained
-# outage, and a "recovered" note when it comes back. No-op when no proxy
-# was detected at startup (nothing to lose) or when the URL doesn't parse
-# as http://ip:port. The down/up state is module-scoped: every probe goes
-# through this one function so the transition log stays coherent.
+# See https://yuruna.link/4213a0b3-00e2
 $script:CachingProxyServiceLastReachable = $true
 <#
 .SYNOPSIS
@@ -383,14 +361,7 @@ function Resolve-RunnerLogLevel {
     $null = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $State.CmdLineLogLevel -ConfigLevel $configLevel
 }
 
-# Per-step config-reload hook for the inner loop: re-read test.config.yml into
-# $State (Sync-RunnerCycleConfig) and refresh the per-step log level
-# (Resolve-RunnerLogLevel) in one call, so a step boundary is a single call plus
-# the knob mirror rather than the reload/log-level pair repeated after every step.
-# It also captures Sync-RunnerCycleConfig's result to track a sustained reload
-# outage: the primitive warns per failed reload, but a run of consecutive failures
-# means the runner is coasting on the last good config, so that is surfaced once,
-# loudly, instead of degrading silently.
+# See https://yuruna.link/4213a0b3-00e3
 function Sync-RunnerStepConfig {
 <#
 .SYNOPSIS
@@ -432,14 +403,7 @@ function Copy-FailureArtifactsToStatusLog {
         Justification = '$global:__YurunaCycleFolder / $global:__YurunaLogFile are the cross-module channels with Yuruna.Log for the per-cycle folder and the HTML transcript handle this function appends the artifact link to.')]
     param(
         [Parameter(Mandatory)][string]$VMName,
-        # Optional GuestKey: when supplied, the URL of the per-guest
-        # data folder produced is recorded on the live status doc via
-        # Set-GuestFailureArtifact so Complete-Run can promote it into
-        # history.guestSummary, and the dashboard hyperlinks the per-guest
-        # pill straight to the artifacts. The folder is created at the
-        # top of each guest iteration (so success cycles also have a
-        # place to land saveSystemDiagnostic output) -- this function just
-        # populates it with failure-specific files.
+        # See https://yuruna.link/4213a0b3-00e4
         [string]$GuestKey = '',
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$ModulesDir,
@@ -465,23 +429,7 @@ function Copy-FailureArtifactsToStatusLog {
         # the folder to <base>/.
         $cycleBase   = Get-StableCycleBaseName
 
-        # Three artifact sources, written by different code paths:
-        #   * screens_<VM>/raw_*.png         -- Wait-ForText ring buffer (GUI mode)
-        #   * failure_screenshot_<VM>.png    -- single frozen-moment shot from
-        #                                      non-waitForText failures (any
-        #                                      sequence step that isn't
-        #                                      waitForText/waitForAndEnter,
-        #                                      including runOverSsh)
-        #   * failure_ocr_<VM>.txt           -- last OCR text from waitForText
-        #
-        # All files land flat inside cycleGuestDataFolder (the per-guest
-        # folder under cycleFolder). At most one failure per guest per
-        # cycle in practice, so the raw_<stamp>.png filenames already
-        # encode their own ordering and don't need an additional prefix.
-        # Same cycle-folder-nested location Wait-ForText writes into via
-        # Get-CycleScreenDir. Falls back to $env:YURUNA_LOG_DIR for the
-        # no-cycle-folder edge case (defensive; shouldn't happen here
-        # because Start-LogFile ran upstream).
+        # See https://yuruna.link/4213a0b3-00e5
         $srcSequenceDir = Get-CycleScreenDir -VMName $VMName -WhatIf:$false
         $srcScreen      = Join-Path $env:YURUNA_LOG_DIR "failure_screenshot_${VMName}.png"
         $srcOcr         = Join-Path $env:YURUNA_LOG_DIR "failure_ocr_${VMName}.txt"
@@ -539,16 +487,7 @@ function Copy-FailureArtifactsToStatusLog {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f7277de3faa3266' -Arguments @{ message = "$($_.Exception.Message)" })
         }
 
-        # Last fetch-and-execute log capture. The guest's fetch-and-execute.sh
-        # tees every inner-script run to /tmp/yuruna-last-fetch-and-execute.log
-        # (truncated at each invocation), so this file holds the full stdout/
-        # stderr of whatever wrapper was running when the sequence failed --
-        # invaluable for the class of failure where the wrapper's `set -e`
-        # bailed silently while the OCR/screen capture was still focused on a
-        # downstream poll loop. Soft-failing like the other rungs: an SSH-down
-        # guest or a never-written log just logs a Verbose line.
-        # Save-GuestDiagnostic already proved SSH works via Wait-SshReady, so
-        # we can call Invoke-GuestSsh without re-doing the readiness handshake.
+        # See https://yuruna.link/4213a0b3-00e6
         try {
             if (-not (Get-Command 'Test.Ssh\Invoke-GuestSsh' -ErrorAction SilentlyContinue)) {
                 Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Force -Global -ErrorAction SilentlyContinue
@@ -608,14 +547,7 @@ function Copy-FailureArtifactsToStatusLog {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_518a128050a98b0a' -Arguments @{ message = "$($_.Exception.Message)" })
         }
 
-        # Host system-diagnostics capture. Separate from the guest snapshot
-        # above (Save-GuestDiagnostic SSHs into the guest); this one runs
-        # automation/Get-SystemDiagnostic.ps1 against the test-runner host
-        # itself so the operator can correlate host-side state (docker,
-        # kubectl, disk pressure, listening sockets, recent kernel events)
-        # with the failure. Forked into a child pwsh so the script's
-        # Start-Transcript and global $script:Problems list don't leak
-        # into the runner. Soft-failing in line with the guest path.
+        # See https://yuruna.link/4213a0b3-00e7
         try {
             $hostDiagScript = Join-Path $RepoRoot 'automation/Get-SystemDiagnostic.ps1'
             $hostDiagOut    = Join-Path $destSeqDir 'host.diagnostics.txt'
@@ -631,14 +563,7 @@ function Copy-FailureArtifactsToStatusLog {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5328fbca68e4396a' -Arguments @{ message = "$($_.Exception.Message)" })
         }
 
-        # Hypervisor-app crash reports (macOS). When UTM (or its per-VM QEMU
-        # launcher) dies mid-cycle, everything above records only symptoms --
-        # console I/O stops answering, screenshots stop landing, IP discovery
-        # goes quiet -- while the actual "why" is the .ips report macOS writes
-        # under ~/Library/Logs/DiagnosticReports. Copy the reports written
-        # since this cycle began (folder creation time is the cycle start) so
-        # the crash cause travels with the failure evidence instead of aging
-        # out on the host. Soft-failing like its neighbors.
+        # See https://yuruna.link/4213a0b3-00e8
         try {
             if ($IsMacOS) {
                 $reportsDir = Join-Path $HOME 'Library/Logs/DiagnosticReports'
@@ -658,14 +583,7 @@ function Copy-FailureArtifactsToStatusLog {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_082f38e63f37c36d' -Arguments @{ message = "$($_.Exception.Message)" })
         }
 
-        # DHCP wire capture (drivers that arm one at Start-VM). The guest-side
-        # network diagnostic can only say "no lease"; whether the DISCOVER
-        # never left the guest, died crossing the vSwitch or uplink, or went
-        # out unanswered is only visible on the host's packet path, and each
-        # of those shapes indicts a different machine. Guarded by Get-Command
-        # because only some host drivers implement it, and soft-failing like
-        # its neighbors: a diagnostic must never turn a failed step into a
-        # failed collection.
+        # See https://yuruna.link/4213a0b3-00e9
         try {
             if (Get-Command Save-VMDhcpCapture -ErrorAction SilentlyContinue) {
                 if (Save-VMDhcpCapture -VMName $VMName -OutputDirectory $destSeqDir) {
@@ -742,15 +660,7 @@ function Update-CycleModuleImport {
     # Reload the shared Inner module set at every cycle boundary.
     # See https://yuruna.link/42e220c4-0008
     Initialize-YurunaEntryPointModuleSet -For Inner -ModulesDir $ModulesDir
-    # Re-call Initialize-YurunaHost so the host driver (Yuruna.Host.psm1)
-    # AND the cross-host helpers (Test.VMUtility.psm1 -- Wait-VMRunning,
-    # Test-IpAddress, ...) are re-imported with -Global on every cycle.
-    # Without this, anything that wipes the runner's session mid-cycle
-    # (a sequence step calling Get-Module | Remove-Module, a transitive
-    # Import-Module without -Global, etc.) leaves the runner unable to
-    # find Wait-VMRunning at the next New-VM.Resource step -- a
-    # long-running in-process runner will eventually crash with
-    # "Wait-VMRunning is not recognized" without this defense.
+    # See https://yuruna.link/4213a0b3-00ea
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 }
 
@@ -1016,16 +926,7 @@ function Complete-CycleRun {
         [string]$HostType = ''
     )
     # --- REGION: https://yuruna.link/4220a755-000b
-    # A guest that was rebuilt under its own identity and came back on a
-    # different address has broken the one property that makes a long lease
-    # survivable, and it has already spent the address by the time anyone could
-    # look. Folded in HERE, at the single point that decides pass/fail, because
-    # a cycle whose guests each took a fresh lease is not a cycle that passed --
-    # it is one that worked while draining the pool it needs next time.
-    #
-    # A cycle already failing keeps the failure it has: the earlier one is the
-    # richer record and the one that names a step, and Write-CycleInfraFailure
-    # will not clobber it in any case. This only ever turns a pass into a fail.
+    # See https://yuruna.link/4213a0b3-00eb
     if ($OverallPassed -and (Get-Command Get-GuestAddressFootprintTally -ErrorAction SilentlyContinue)) {
         $footprint = Get-GuestAddressFootprintTally
         if ($footprint.unbounded -gt 0) {
@@ -1361,16 +1262,7 @@ function Get-CycleGuestAndSequenceList {
         # per-guest list.
         $SequenceList = Get-CyclePlanSequenceList -Plan $CyclePlan
         $Source       = 'plan'
-        # Write-Information, not Write-Output: this function's return value is
-        # assigned by its caller, and PowerShell hands the assignment EVERY
-        # success-stream object. A Write-Output progress line here makes the
-        # result an Object[] of [String, Hashtable] instead of the hashtable --
-        # member access still reads through it, so nothing looks broken, but an
-        # empty GuestList then enumerates to $null rather than @() and the line
-        # itself never reaches the transcript. Neither does this one: plan
-        # resolution runs before the cycle transcript is opened, so the count is
-        # a console breadcrumb only, and the guest set a log reader needs is
-        # written beside the config echo further into the cycle.
+        # See https://yuruna.link/4213a0b3-00ec
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f6a1e5218fec9db1' -Arguments @{ count = "$($CyclePlan.Count)"; count2 = "$($GuestList.Count)" }) -InformationAction Continue
     } else {
         $GuestList    = Get-GuestList -Config $Config
@@ -1557,19 +1449,7 @@ function Start-CycleHostDiagnostic {
                 # LogFile moves the folder to <base>/.
                 $cycleBaseName = Get-StableCycleBaseName
                 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_129990a926a40e2a' -Arguments @{ cycleBaseName = "$cycleBaseName" })
-                # The child also drops a machine-readable sibling next to the prose
-                # dump (<OutFile>.json, schema yuruna.diagnostic.problems/v1) whose
-                # per-class tallies are the only structured statement of what the
-                # host diagnostic actually found. Without reading it back the whole
-                # verdict lives in an artifact nobody opens until a post-mortem, so
-                # a host-scoped problem present at cycle start (a virtual switch
-                # whose uplink no longer forwards, disk pressure, a stopped
-                # service) stays invisible while the cycle burns its full budget.
-                # Console only, no alert: a per-cycle notification would fire on a
-                # standing condition every ~18 minutes. Its own catch inside the
-                # capture's catch, so a malformed sidecar reads as what it is
-                # instead of borrowing the "capture failed" wording from a capture
-                # that plainly succeeded -- and never fails a cycle either way.
+                # See https://yuruna.link/4213a0b3-00ed
                 $hostDiagSidecar = "$cycleHostDiagOut.json"
                 if (Test-Path -LiteralPath $hostDiagSidecar) {
                     try {
@@ -2101,14 +1981,7 @@ function Wait-CyclePauseFlag {
     $cyclePauseRequestedAt = Get-PauseFlagStamp -Path $FlagFile
     $cyclePauseHeldFrom    = [DateTime]::UtcNow
     Send-CyclePauseEvent -EventName 'sequence_paused' -RequestedAtUtc $cyclePauseRequestedAt
-    # Refresh runner.stepHeartbeat each iteration: the outer watchdog
-    # reads only this file's mtime and kills the inner after
-    # testCycle.stepTimeoutSeconds (default 2700) of staleness. A
-    # deliberate pause has no step boundaries to refresh it via
-    # Invoke-Sequence's normal path, so without this the watchdog
-    # would TerminateProcess the inner mid-pause, drop the outer into
-    # its failure backoff, and leave /control/cycle-resume and
-    # /control/start-cycle from index.html with nothing to talk to.
+    # See https://yuruna.link/4213a0b3-00ee
     $pauseAttempt = 1
     while ((Test-Path $FlagFile) -and (-not $ShutdownState['Requested'])) {
         try {
@@ -2249,15 +2122,7 @@ do {
     if (-not (Assert-HostConditionSet -HostType $HostType)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e0b5e1d79e3bf108')
         $hostCondErr = 'Host condition set failed at cycle start; the failing condition (elevation, hypervisor service, display/lock timeout) is named in the warnings above and is fixable only at the host console.'
-        # Ordering invariant for last_failure.json: Write-CycleInfraFailure never
-        # overwrites an existing record, and that rule exists to protect the
-        # RICHER engine-written record produced later in the SAME cycle. But
-        # $env:YURUNA_LOG_DIR is the log ROOT shared by every cycle, so a record
-        # sitting there at this point -- the first gate, before any cycle work --
-        # was left by an EARLIER cycle and is exactly what the outer loop's
-        # auto-remediation and warm resume would keep routing on. Clearing it is
-        # correct ONLY here, where nothing in this cycle can have written yet;
-        # moving this any later inverts the rule and destroys live evidence.
+        # See https://yuruna.link/4213a0b3-00ef
         $staleFailureRecord = if ($env:YURUNA_LOG_DIR) { Join-Path $env:YURUNA_LOG_DIR 'last_failure.json' } else { $null }
         if ($staleFailureRecord -and (Test-Path -LiteralPath $staleFailureRecord)) {
             Remove-Item -LiteralPath $staleFailureRecord -Force -ErrorAction SilentlyContinue
@@ -2297,36 +2162,7 @@ do {
     # See docs/host-hyperv.md.
     Initialize-HostDisplay -HostType $HostType
 
-    # Converge this host's metrics exporter -- a MUTATION, not a check, and
-    # placed here rather than inside the gate above for two reasons.
-    #
-    # The gate decides whether a cycle may run and reports that as a bool; a
-    # host change folded into it would be invisible to every reader of that
-    # call, and Assert-*/Set-* are kept apart everywhere else here.
-    #
-    # And this position is what makes an unattended privileged repair safe at
-    # all. The unattended loop makes no repair that has to ask for its
-    # privilege -- a loop waiting on a credential nobody is present to type is a
-    # hang, which is why the host clock is only ever measured here and repaired
-    # where a console can answer. This one never asks: on the single host type
-    # that registers a provider, the gate above begins with Assert-Elevation and
-    # refuses the cycle when it fails, so reaching this line is proof that
-    # Administrator is already held. No provider is registered for the hosts
-    # where the same work would need a sudo credential.
-    #
-    # Runs before any guest starts, so an install that restarts a service or
-    # touches the firewall can never land mid-provisioning. Costs one service
-    # lookup on a host that already has the exporter; a host that does not gets
-    # one bounded install attempt, and a failed attempt buys a quiet interval so
-    # a host that cannot install does not spend part of every cycle
-    # rediscovering it.
-    #
-    # Two belts, because this is telemetry and telemetry may not end a cycle.
-    # The try means not even a module that failed to import -- which would make
-    # the command itself unresolvable -- can raise here. Discarding the value
-    # means this step can never contribute to what the enclosing function
-    # returns; everything a person is meant to read is on the warning and
-    # information streams instead.
+    # See https://yuruna.link/4213a0b3-00f0
     try { $null = Initialize-HostMetricsExporter -HostType $HostType }
     catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e208ce7a4ad46b27' -Arguments @{ message = "$($_.Exception.Message)" }) }
 
@@ -2390,15 +2226,7 @@ do {
             Write-GitPullFailureBanner -DnsOk $dnsOk -TcpOk $tcpOk -NetDiag $netDiag
             $gitPullErr = "Git sync failed. Branch may have diverged, or network is unreachable."
             $gitPullCommit = (Get-CurrentGitCommit -RepoRoot $RepoRoot)
-            # Bootstrap-stage failure -- no cycle folder yet, so the helper
-            # builds a minimal payload from these scalars. The infra record above
-            # already wrote the canonical class (network_timeout when a DNS/TCP
-            # probe failed, else bootstrap_sync) + severity 'hard'; pass the same
-            # so extensions route on failureClass instead of free-text grep.
-            # Network sub-case (a DNS/TCP probe failed) is the transient, retryable
-            # kind -> network_timeout; otherwise a divergence / auth / dirty-tree
-            # git failure -> bootstrap_sync (operator). Write the schema-v2 record
-            # before the notification so its EventData picks up the real class.
+            # See https://yuruna.link/4213a0b3-00f1
             $gitClass = if (-not $dnsOk -or -not $tcpOk) { 'network_timeout' } else { 'bootstrap_sync' }
             Write-CycleInfraFailure -Stage 'GitPull' -FailureClass $gitClass -GuestKey '(bootstrap)' -ErrorMessage $gitPullErr -HostType $HostType
             # Route this bootstrap failure through the shared consecutive-failure
@@ -2422,15 +2250,7 @@ do {
     $GitCommit = Get-CurrentGitCommit -RepoRoot $RepoRoot
 
     # --- REGION: Pooled repos override
-    # When this host is in a pool that carries repositories
-    # (runtime/pool.manifest.json, written by the outer loop's
-    # Sync-YurunaPoolIntent), the pool's framework/project repo PAIR overrides this
-    # host's repositories.frameworkUrl / repositories.projectUrl for THIS cycle, so
-    # the project refresh + framework clone below use the pool's repos. GH_TOKEN is
-    # deliberately NOT overridden -- it stays host-local (never travels in pool
-    # intent). Unpooled hosts (no manifest / no repositories) are untouched.
-    # Cleared every cycle: a stale value would make an unpooled cycle probe (and
-    # possibly fail on) an assignment that no longer applies.
+    # See https://yuruna.link/4213a0b3-00f2
     $script:PoolAssignedProjectUrl = $null
     $script:PoolAssignedBy = $null
     if ($Config -is [System.Collections.IDictionary] -and $Config.repositories -is [System.Collections.IDictionary]) {
@@ -2448,15 +2268,7 @@ do {
     }
 
     # --- REGION: Assigned-project access probe
-    # A pool can hand this host a projectUrl its credential cannot read. Without
-    # this probe that surfaces only when the clone below fails, mid-cycle, as a
-    # generic bootstrap error -- and the person who MADE the assignment is not
-    # the person watching this host. Probe first, classify precisely, and
-    # publish the result so the pool-control board can name the blocked hosts.
-    #
-    # Runs only for a POOL-ASSIGNED url: a host's own projectUrl is already
-    # preflighted inside Update-ProjectClone, and duplicating that here would
-    # double every unpooled host's cycle-start network cost for nothing.
+    # See https://yuruna.link/4213a0b3-00f3
     if ($script:PoolAssignedProjectUrl -and -not $NoProjectClone) {
         $accessMarker = Join-Path $env:YURUNA_RUNTIME_DIR 'project.access.json'
         $probe = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $script:PoolAssignedProjectUrl, 'HEAD') -TimeoutSeconds 30
@@ -2539,7 +2351,8 @@ do {
             $cloneRes = @{ success = $true; skipped = $false; errorMessage = $null }
         }
     } else {
-        $cloneRes = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $projUrl -Confirm:$false
+        $cloneStep = Invoke-CycleCheckoutStep -RepoRoot $RepoRoot -ProjectUrl $projUrl
+        $cloneRes = @{ success = $cloneStep.Ok; skipped = $cloneStep.Skipped; errorMessage = $cloneStep.ErrorMessage; revision = $cloneStep.Revision }
     }
     if (-not $cloneRes.success) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_58ce825c6c8abbad' -Arguments @{ errorMessage = "$($cloneRes.errorMessage)" })
@@ -2602,16 +2415,7 @@ do {
     # --- REGION: Re-import modules so a mid-run `git pull` propagates code changes
     Update-CycleModuleImport -RepoRoot $RepoRoot -HostType $HostType -ModulesDir $ModulesDir
 
-    # The -Force re-import above replaces Test.Status's module instance, which
-    # discards the in-memory status document built at cycle start (status.json on
-    # disk is untouched). Rebuild it from that file so the rest of the cycle has a
-    # live document to mutate. A per-guest cycle would recreate it a few regions
-    # down at Initialize-StatusDocument, but a cycle whose top-level is an
-    # orchestration sequence skips that block entirely and would otherwise run
-    # every status write against no document until the orchestrator installs its
-    # own -- dropping infra-failure records and failing outright on the Get-Image
-    # timestamp. Cheap and idempotent: the same preserve-and-rewrite pass as the
-    # cycle-start call, reading back what it just wrote.
+    # See https://yuruna.link/4213a0b3-00f4
     Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
 
     # --- REGION: Re-read config (may have changed via git pull); sync against template
@@ -2630,14 +2434,7 @@ do {
     # start it on plain runner hosts that never host a caching-proxy service, and would not
     # help a dedicated caching-proxy-service host that doesn't run the runner.
 
-    # Build per-cycle execution plan from project/test/test.runner.yml.
-    # Each plan entry is a (top-level workload, guest, sequence chain) tuple;
-    # multiple top-levels can share a guest, so we dedupe to GuestList for
-    # the parts of the cycle that operate per unique VM (folder check,
-    # Get-Image, the cleanup -> create -> start -> verify per-guest loop).
-    # Falls back to the legacy guestSequence list when the cycle config is
-    # missing -- useful before the project repo clone bootstrap lands and
-    # for operators who haven't migrated yet.
+    # See https://yuruna.link/4213a0b3-00f5
     $script:CyclePlan = $null
     $plannerFatal     = $false
     $script:PoolCycle = $false
@@ -2653,14 +2450,7 @@ do {
         $script:PoolCycle = ($poolManifest -is [System.Collections.IDictionary]) -and ($poolManifest['repositories'] -is [System.Collections.IDictionary])
         $script:CyclePlan = Resolve-CyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType
     } catch {
-        # PlannerFatal (currently: duplicate project sequence files with the
-        # same name under different test/ folders) means the plan is
-        # ambiguous -- silently falling back to guestSequence would let the
-        # cycle run against an arbitrary winner. Print the error prominently
-        # and short-circuit GuestList to empty so the foreach loop below
-        # runs zero iterations. Cycle still flows through "Finalize cycle"
-        # naturally so $OverallPassed=false bumps ConsecutiveFailures and
-        # fires notifications on the same threshold as any other failure.
+        # See https://yuruna.link/4213a0b3-00f6
         if (Test-SequencePlannerFailure -ErrorObject $_) {
             Write-Output ""
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
@@ -2689,14 +2479,7 @@ do {
     $guestSetSource = $guestSeqLists.Source
 
     # --- REGION: Orchestration top-level (InvokeTestSequence playbook)
-    # A test.runner.yml entry can be an orchestration sequence (no resource:/
-    # baseline; steps are InvokeTestSequence). It contributes no per-guest plan
-    # entries, so it owns the whole cycle via Invoke-OrchestrationSequence
-    # (Test.Orchestrator) -- Reset/Initialize/Start-Log, one dashboard row per
-    # inner sequence, Complete/seal -- exactly as a standalone `Debug-TestSequence
-    # <orch>` run does. The runner delegates to it below instead of the per-guest
-    # VM lifecycle, and forces GuestList empty so the empty-plan fallback to the
-    # legacy guestSequence does NOT bring up a phantom guest.
+    # See https://yuruna.link/4213a0b3-00f7
     $isOrchestrationCycle = $false
     $orchestrationDoc     = $null
     $orchestrationName    = $null
@@ -2803,19 +2586,7 @@ do {
     $StopOnFailure        = $reloadable.StopOnFailure
 
     # --- REGION: Initialize status for this cycle
-    # Assign the helper's result DIRECTLY -- do NOT wrap the call in @(). The unary
-    # comma inside New-CycleGitCommitList already emits the whole list as one
-    # pipeline item (so even a one-element list stays an array). Wrapping that single
-    # array item in @() nests it one level deeper, yielding gitCommits = [[{...}]]
-    # instead of [{...}] -- the array-double-wrap trap class. That malformed shape is
-    # rejected by the status schema's gitCommits reader and by the pool-aggregator service,
-    # which then cannot parse the host's status.json at all.
-    # An orchestration cycle skips this whole block: Invoke-OrchestrationSequence
-    # (delegated at "Finalize cycle" below) does its own Reset/Initialize-Status
-    # Document + Start-LogFile so it owns the status doc + transcript. Running the
-    # runner's Initialize here too would create an empty guest cycle that the
-    # orchestrator then clobbers. $CycleStartUtc/$LogFile stay empty; the guest loop
-    # (empty GuestList) and the failure-notification tail tolerate that.
+    # See https://yuruna.link/4213a0b3-00f8
     if ($isOrchestrationCycle) {
         $CycleStartUtc = ''
         $LogFile = ''
@@ -2838,14 +2609,7 @@ do {
         Set-CycleGuestProvenance -GuestList $GuestList
 
         # --- REGION: Start log file (transcript captures all console output)
-        # CycleNumber is read AFTER Initialize-StatusDocument so it sees the
-        # incremented value (1, 2, 3, ...). Drives the 6-digit prefix in the
-        # cycleFolder name; Start-LogFile also publishes the folder URL onto
-        # the status doc via Set-CycleFolderUrl so the dashboard can build
-        # per-guest tile links from it.
-        # CycleNumber (also returned by the helper) is not read downstream in the
-        # cycle body -- it is consumed inside Start-CycleLogFile to name the cycle
-        # folder -- so only LogFile is captured here.
+        # See https://yuruna.link/4213a0b3-00f9
         $LogFile = (Start-CycleLogFile -TestRoot $TestRoot -CycleStartUtc $CycleStartUtc -Hostname (hostname) -GitCommits $GitCommitsList).LogFile
 
         # --- REGION: Cycle-start host diagnostic + perf-log open
@@ -3000,16 +2764,7 @@ do {
     # --- REGION: Cycle-start VM sweep
     Remove-CycleStartOrphanVM -TestRoot $TestRoot -Prefix $_sweepPrefixes
 
-    # Re-assert the host driver into the GLOBAL session before the guest loop.
-    # The &-invoked child scripts run just above (status-service restart, the
-    # Remove-TestVMFiles VM sweep) execute nested in this module's session
-    # state, where a -Force import without -Global pulls the host driver out of
-    # the global table (the legacy-eviction regression class). Host-contract
-    # calls made from THIS module's scope (New-VM/Start-VM) still resolve from
-    # the module copy, but a call made from a FOREIGN module mid-sequence
-    # (Invoke-Sequence's Restart-VMConsole repaint at sequence start) needs the
-    # GLOBAL copy. Re-importing here is idempotent and cheap, and restores the
-    # global contract for the sequence engine.
+    # See https://yuruna.link/4213a0b3-00fa
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
     # --- REGION: Test each guest sequentially: cleanup -> create -> start -> verify -> screenshots -> pool test -> stop
@@ -3166,15 +2921,7 @@ do {
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 
             if ($AlertArmed -and $ConsecutiveFailures -ge $FailuresBeforeAlert) {
-                # EventData: in-cycle alert -- the cycle folder is
-                # established, so Get-FailureEventData reads schema-v2
-                # last_failure.json (failureClass/severity/suggested
-                # Recoveries from the verb registry) and augments with
-                # cycle/host context. Built here so it can be remediated
-                # below before Send-CycleFailureNotification ships it --
-                # the body's JSON trailer and the -EventData payload carry
-                # the same hashtable; extensions that declare -EventData
-                # route on it, legacy ones still see it in the body.
+                # See https://yuruna.link/4213a0b3-00fb
                 $inCycleEventData = Get-FailureEventData `
                     -HostType      $HostType `
                     -Hostname      (hostname) `
@@ -3184,18 +2931,7 @@ do {
                     -CycleStartUtc       $CycleStartUtc `
                     -GitCommit     $GitCommit `
                     -ProjectCommit $ProjectGitCommit
-                # Close the self-heal observability loop: route the failure
-                # through the remediation dispatcher so it computes a recovery
-                # recommendation, emits the remediation_recommended NDJSON event
-                # (internally, via Send-CycleEventSafely), persists the durable
-                # last_remediation.json beside the failure (archived into the
-                # cycle folder and replicated to the pool), and logs the next
-                # step. Advisory only -- the dispatcher records the decision but
-                # never acts. Pass the in-memory payload so a cycle-boundary wipe
-                # of last_failure.json can't route this on a stale file. Auto-
-                # applying a recommendation is a separate, default-off feature
-                # that needs a per-cycle attempt cap and a class allow-list
-                # (and enough human review) before it can act.
+                # See https://yuruna.link/4213a0b3-00fc
                 if (Get-Command Invoke-Remediation -ErrorAction SilentlyContinue) {
                     $remediation = Invoke-Remediation -FailureRecord $inCycleEventData
                     if ($remediation) { Write-Output "  Remediation: $($remediation.Recommendation) -- $($remediation.Rationale)" }
@@ -3229,22 +2965,7 @@ do {
 
   } catch {
     # --- REGION: Cycle-restart abort (expected)
-    # Invoke-Sequence's per-step gate throws "YurunaCycleRestart: ..." when
-    # /control/start-cycle requests an abort mid-cycle. This is the
-    # operator clicking "Save and start cycle" while a cycle is actively
-    # executing steps: Remove-TestVMFiles has already torn down the VMs,
-    # the flag has been touched, and the cycle needs to unwind cleanly.
-    # Detected by message prefix (cross-module typed exceptions would
-    # need a shared assembly; the prefix is unique enough). Treated as a
-    # NORMAL cycle ending, not an UNHANDLED ERROR:
-    #   - No ConsecutiveCrashes increment -- this is not a code crash.
-    #   - No 60-line origin + stack dump banner -- the flag was visible to
-    #     the operator who set it, no postmortem needed.
-    #   - Cycle is finalized as 'fail' so status.json reflects the abort
-    #     rather than a phantom pass; teardown proceeds normally; the
-    #     inter-cycle delay loop's existing flag-check then consumes
-    #     control.cycle-restart on its first tick and exits inner, after
-    #     which outer respawns with a clean slate.
+    # See https://yuruna.link/4213a0b3-00fd
     $finalizationException = $_.Exception
     while ($finalizationException) {
         if ($finalizationException.Data['YurunaCycleFinalized']) { $script:CycleFinalized = $true; break }
@@ -3331,14 +3052,7 @@ do {
     }
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5ced5e66a6f6c7e0' -Arguments @{ consecutiveCrashes = "$ConsecutiveCrashes"; maxConsecutiveCrashes = "$MaxConsecutiveCrashes" })
 
-    # yuruna_retry-style auto-retry backoff: capped exponential with jitter.
-    # Applied on top of the existing inter-cycle delay so a transient failure
-    # (subiquity restore_apt_config exit 100, github.com 5xx during tofu init,
-    # ...) cools the retry off long enough for the upstream blip to pass
-    # without saturating MaxConsecutiveCrashes. Same policy as
-    # automation/yuruna-retry.sh: base doubles each consecutive crash,
-    # capped at MaxDelaySeconds. Skipped when Get-YurunaRetryBackoff is
-    # unavailable (early-bootstrap path before Yuruna.Retry imports).
+    # See https://yuruna.link/4213a0b3-00fe
     if (Get-Command Get-YurunaRetryBackoff -ErrorAction SilentlyContinue) {
         $autoRetryBase = 30 * [Math]::Pow(2, [Math]::Max(0, $ConsecutiveCrashes - 1))
         $autoRetryBase = [int][Math]::Min($autoRetryBase, 300)
@@ -3385,25 +3099,7 @@ do {
         if ((Wait-CyclePauseFlag -FlagFile $cyclePauseFlagFile -StepHeartbeatFile $StepHeartbeatFile -ShutdownState $ShutdownState) -eq 'shutdown') { break }
     }
 
-    # Inter-cycle delay LIVES IN THE INNER (not the outer) so the operator
-    # sees the countdown in the same console as the cycle's own output.
-    # Outer is intentionally dumb: it spawns us, waits, and either
-    # respawns immediately (success) or enters its failure-pause (non-
-    # zero exit). Putting the delay here means an "Start-TestRunner is
-    # idle for 30s between cycles" period is observable on the runner
-    # host -- with the delay in the outer, Windows hosts in particular go
-    # dark between cycles, since the outer's Write-Output can be swallowed
-    # by conhost while the inner pwsh is gone.
-    #
-    # The countdown is sliced into 1-second waits so Ctrl+C / shutdown /
-    # cycle-pause flag can break out without sitting through a long
-    # Start-Sleep. Write-Progress shows a percentage bar; Write-Output
-    # emits a coarser tick (every ~5 s) so a non-progress-rendering log
-    # collector still records forward motion.
-    # $CycleDelaySeconds is set inside the cycle's try block once config is
-    # merged; an early throw before that point would leave it null.
-    # Fall back to the script param so the inter-cycle wait is still
-    # respected on the rare crash-before-config path.
+    # See https://yuruna.link/4213a0b3-00ff
     $delayId       = 2
     $effectiveDelay = if ($null -ne $CycleDelaySeconds -and [int]$CycleDelaySeconds -gt 0) { [int]$CycleDelaySeconds } else { [int]$CycleDelaySeconds }
     if ($effectiveDelay -gt 0 -and -not $ShutdownState['Requested']) {
@@ -3431,15 +3127,7 @@ do {
         Write-InnerLog "[cycle $CycleCount] cycleDelaySeconds wait complete -- entering exit path"
     }
 
-    # Cycle-pause counterpart to the "Cycle-pause back-channel" gate above: a
-    # pause armed via the status UI DURING the cycleDelaySeconds wait is honored
-    # here -- after the wait runs to completion, before we exit the inner, so the
-    # outer respawns the next cycle only once resumed. This is what makes the
-    # UI's "Pause after cycle" button take effect right after the
-    # inter-cycle delay. Gated on $effectiveDelay so it only fires when a wait
-    # actually ran; with no inter-cycle delay the pre-delay gate above is the
-    # sole cycle boundary. Mirrors that gate's wait loop -- keep the heartbeat-
-    # refresh / resume / shutdown handling in sync.
+    # See https://yuruna.link/4213a0b3-0100
     if (($effectiveDelay -gt 0) -and (Test-Path $cyclePauseFlagFile) -and (-not $ShutdownState['Requested'])) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5b49762d5e7714cc')
         if ((Wait-CyclePauseFlag -FlagFile $cyclePauseFlagFile -StepHeartbeatFile $StepHeartbeatFile -ShutdownState $ShutdownState) -eq 'shutdown') { break }
@@ -3525,17 +3213,7 @@ function Complete-GuestStepFailure {
 }
 
 function Invoke-GuestProvisionIteration {
-    # One guest's full lifecycle: cleanup -> New-VM -> Start-VM -> Start-GuestOS ->
-    # New-VM.Resource -> screenshots -> workload -> stop. Lifted out of the cycle's
-    # guest foreach so it is unit-testable. The caller foreach dispatches on
-    # $IterState.Control: 'break' ends the guest sweep, 'continue' skips to the next
-    # guest, 'proceed' falls through. Mutable cycle state carries back two ways -- the
-    # four failure fields through $IterState, and the reloadable config through the
-    # shared bag $cfg (mutated in place by the per-step Sync; the caller re-reads the
-    # mirrors it needs from $cfg after the call). This helper re-reads only the knobs
-    # it acts on: $StopOnFailure (the stop guards) and the VM start/boot timeouts.
-    # Status Write-Output flows to the caller's stream exactly as when inline (the
-    # helper is invoked as a statement, not captured).
+    # See https://yuruna.link/4213a0b3-0101
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$GuestKey,
@@ -3595,37 +3273,14 @@ function Invoke-GuestProvisionIteration {
     }
 
     # --- REGION: Clean up stale per-VM failure artifacts from prior cycles
-    # failure_screenshot_<VM>.png and failure_ocr_<VM>.txt still live
-    # at the YURUNA_LOG_DIR root (shared across cycles, keyed only by
-    # VM name) so without this drop, a later cycle that fails before
-    # any sequence runs (e.g. New-VM aborts on a host-side precondition
-    # like missing openssl) would have Copy-FailureArtifactsToStatusLog
-    # copy the previous cycle's screenshot forward, misleading the
-    # operator. Done unconditionally at the top of each guest iteration
-    # so any artifact that lands in the per-cycle folder belongs to
-    # this cycle. The screens_<VM>/ ring buffer lives INSIDE the cycle
-    # folder (Get-CycleScreenDir) so it can't leak forward -- no cleanup
-    # needed for it here.
+    # See https://yuruna.link/4213a0b3-0102
     $staleScreen = Join-Path $env:YURUNA_LOG_DIR "failure_screenshot_${VMName}.png"
     $staleOcr    = Join-Path $env:YURUNA_LOG_DIR "failure_ocr_${VMName}.txt"
     Remove-Item -LiteralPath $staleScreen -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $staleOcr    -Force -ErrorAction SilentlyContinue
 
     # --- REGION: Constrained-host guest serialization
-    # On hosts with only a few hardware threads, guests still running
-    # from earlier sequences compete with this guest's OS install: vCPU
-    # totals above the host's thread count plus guest RAM above physical
-    # can deschedule an installer's vCPUs for seconds at a time, so the
-    # autoinstall console appears frozen until the step timeout gives up
-    # on it. Stop the cycle's other test guests first -- the guest sweep
-    # runs one full lifecycle at a time, so guests before this one are
-    # already past their sequences. Scoped to $VMNames (this cycle's
-    # guests only) so infra VMs -- e.g. the caching-proxy service, which every
-    # step asserts reachable -- are never touched. Force, because a
-    # guest sitting in an installer ignores ACPI shutdown.
-    # No continue/break in this loop: the enclosing helper's control-flow
-    # invariant (see Test.RunnerInnerLoop.Tests.ps1) reserves loop escapes
-    # for $IterState.Control signaling, so the skip logic nests instead.
+    # See https://yuruna.link/4213a0b3-0103
     if (([Environment]::ProcessorCount -le 4) -and $VMNames -and $VMNames.Count -gt 1 -and
         (Get-Command Get-VMState -ErrorAction SilentlyContinue) -and
         (Get-Command Stop-VM -ErrorAction SilentlyContinue)) {
@@ -3661,32 +3316,9 @@ function Invoke-GuestProvisionIteration {
 
     Assert-CachingProxyServiceStillReachable -ProxyUrl $cachingProxyUrl -StepName "New-VM" -GuestKey $GuestKey
     Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "running"
-    # Forward the cache URL detected at runner startup so every guest
-    # uses the same address. Without this, each guest's New-VM.ps1
-    # probes independently and races with transient listeners (stale
-    # DHCP leases, torn-down sibling VMs), baking a dead IP into the
-    # cidata seed -- seen on UTM where apt then fails with "No route
-    # to host" at install. This is the same URL Test-CachingProxyService.ps1
-    # probes; install VMs reach it directly: Default-Switch guests
-    # via Hyper-V's NAT-to-LAN, UTM guests via the vmnet-shared
-    # gateway forwarder. No cache detected -> pass "" so guests skip
-    # their probe: one detection event, one outcome.
+    # See https://yuruna.link/4213a0b3-0104
     $newVmProxy = if ($cachingProxyUrl) { $cachingProxyUrl } else { "" }
-    # Planner-cascaded username: a workload that overrides
-    # `variables.username` propagates that value back to the start
-    # sequence (and therefore to the cloud-init account this New-VM
-    # invocation provisions). Empty effectiveUsername falls through
-    # to the per-host New-VM.ps1 default, preserving today's
-    # behavior when no plan has been resolved (legacy guestSequence
-    # path).
-    #
-    # variables.hostname cascades the same way and becomes the guest's
-    # cloud-init local-hostname, which is the name the guest DHCP-registers
-    # under. Empty leaves the guest named after the VM. When it is set, the
-    # UTM dhcpd_leases lookup must key on the pinned name: blocks under the
-    # VM name are then predecessors' and resolve to dead addresses. The host
-    # driver reads the pinned name back out of the bundle's seed ISO, so it
-    # does not have to be threaded down from here.
+    # See https://yuruna.link/4213a0b3-0105
     $effectiveUser = ''
     $effectiveHost = ''
     # variables.memoryStartupBytes / variables.cores cascade the same way and
@@ -3759,22 +3391,7 @@ function Invoke-GuestProvisionIteration {
     $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
     if ($r.success) {
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "pass"
-        # Resolve the guest's host-side IP so the operator can ssh /
-        # vmconnect / VNC straight from the cycle log. Polls briefly --
-        # KVP integration services on Hyper-V and utmctl/dhcpd_leases on
-        # UTM typically need a few seconds after start to publish an
-        # address. "(pending)" means no host-side answer within the
-        # budget; the actual address shows up in later runner output
-        # (New-VM.Resource / extension scripts) once the guest is fully up.
-        #
-        # Where the host is not the DHCP server for the guest network, address
-        # discovery has no in-band source to ask and falls back to reading a
-        # host-side cache that holds the guest only while it happens to be
-        # talking to us. Warming that cache first is what makes the lookup below
-        # answer on the first attempt instead of the fifth.
-        # (memory: feedback_hyperv_external_vswitch_arp_discovery.md)
-        # A contract verb, so every driver answers: each decides for itself
-        # whether a sweep is the right move and bounds its own cost.
+        # See https://yuruna.link/4213a0b3-0106
         try { $null = Update-GuestNeighborCache -VMName $VMName } catch {
             Write-Verbose "Update-GuestNeighborCache (pre-Wait-VMIp) threw: $($_.Exception.Message)"
         }
@@ -3897,46 +3514,33 @@ function Invoke-GuestProvisionIteration {
                 if (-not $wrDec.ShouldResume) {
                     $wrDone = $true
                 } else {
-                    # The checkpoint names the step that FAILED, and its work may
-                    # be half-applied to the guest -- transient says why it
-                    # stopped, not how far it got. Restart from the restore point
-                    # that precedes it so the replayed steps run against the state
-                    # they were written for; with no such boundary the checkpoint
-                    # stands and behavior is unchanged.
-                    $wrStep     = [int]$wrCp.ResumeFromStep
-                    $wrRewound  = $false
-                    $wrBoundary = 0
-                    [string[]]$wrActions = @()
-                    if (Get-Command Get-WarmResumeRewindStep -ErrorAction SilentlyContinue) {
-                        # ResumeSequence is the workload-list entry verbatim, which is
-                        # allowed to carry a .yml suffix. The resolver appends its own,
-                        # so a suffixed name looks for <name>.yml.yml, finds nothing, and
-                        # the boundary lookup comes back empty -- which reads exactly like
-                        # a sequence with no restore point and drops the rewind without
-                        # saying so. Strip it the same way the decision does when matching.
-                        $wrSeqName = [string]$wrDec.ResumeSequence -replace '\.ya?ml$', ''
-                        $wrSeqPath = if (Get-Command Resolve-SequencePath -ErrorAction SilentlyContinue) {
-                            try { Resolve-SequencePath -SequencesDir $SequencesDir -Name $wrSeqName -HostType $HostType -RepoRoot $RepoRoot } catch { '' }
-                        } else { '' }
-                        [string[]]$wrActions = @(Get-WarmResumeStepAction -Path ([string]$wrSeqPath))
-                        $wrRw = Get-WarmResumeRewindStep -StepAction $wrActions `
-                            -ResumeFromStep ([int]$wrCp.ResumeFromStep)
-                        $wrStep     = [int]$wrRw.ResumeFromStep
-                        $wrRewound  = [bool]$wrRw.Rewound
-                        $wrBoundary = [int]$wrRw.BoundaryStep
+                    # Where to restart, and whether replaying is safe at all, is one
+                    # decision shared with every entry point: the plan rewinds to the
+                    # restore point that precedes the checkpoint, probes that the
+                    # snapshot exists, and declines when nothing but an observing step
+                    # would be replayed onto its own residue. The original failure
+                    # stands whenever it declines.
+                    $wrPlan = if (Get-Command Resolve-CycleReplayStep -ErrorAction SilentlyContinue) {
+                        Resolve-CycleReplayStep -Decision $wrDec -Checkpoint $wrCp -SequencesDir $SequencesDir -HostType $HostType -RepoRoot $RepoRoot -VMName $VMName
+                    } else {
+                        [pscustomobject]@{ ResumeFromStep = [int]$wrCp.ResumeFromStep; Rewound = $false; DeclineReason = 'safety-check-unavailable'; ReplayClass = 'unclassified' }
                     }
-                    # No restore point anywhere at or before the checkpoint, and
-                    # the step to replay hands work to the guest: there is
-                    # nothing to discard what the failed attempt already applied,
-                    # so the replay would run onto its own residue and report a
-                    # state conflict in place of the transient that stopped the
-                    # run. Decline, leaving $r -- and the real failure with it --
-                    # exactly as the original attempt left it.
-                    $wrReplayUnsafe = ($wrBoundary -le 0) -and
-                        (Get-Command Test-WarmResumeReplayIsSafe -ErrorAction SilentlyContinue) -and
-                        -not (Test-WarmResumeReplayIsSafe -StepAction $wrActions -ResumeFromStep ([int]$wrCp.ResumeFromStep))
-                    if ($wrReplayUnsafe) {
-                        Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_4fe10480f33d691d' -Arguments @{ resumeSequence = "$($wrDec.ResumeSequence)"; resumeFromStep = "$($wrCp.ResumeFromStep)"; failureClass = "$($wrCp.FailureClass)" }))
+                    $wrStep          = [int]$wrPlan.ResumeFromStep
+                    $wrRewound       = [bool]$wrPlan.Rewound
+                    $wrDeclineReason = [string]$wrPlan.DeclineReason
+                    if ($wrDeclineReason) {
+                        $wrReplayClass = [string]$wrPlan.ReplayClass
+                        if ($wrDeclineReason -eq 'no-restore-point') {
+                            Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_4fe10480f33d691d' -Arguments @{ resumeSequence = "$($wrDec.ResumeSequence)"; resumeFromStep = "$($wrCp.ResumeFromStep)"; failureClass = "$($wrCp.FailureClass)" }))
+                        } else {
+                            Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.warm_resume_declined_unverified' -Arguments @{ resumeSequence = "$($wrDec.ResumeSequence)"; resumeFromStep = "$($wrCp.ResumeFromStep)"; failureClass = "$($wrCp.FailureClass)"; reason = "$wrDeclineReason" }))
+                        }
+                        if ((Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) -and (Get-Command New-WarmResumeDeclinedEvent -ErrorAction SilentlyContinue)) {
+                            $wrDeclined = New-WarmResumeDeclinedEvent -GuestKey $GuestKey -VmName $VMName -SequenceName $wrDec.ResumeSequence `
+                                -ResumeFromStep ([int]$wrCp.ResumeFromStep) -FailureClass $wrCp.FailureClass -Reason $wrDeclineReason `
+                                -ReplayClass $wrReplayClass -HostType $HostType
+                            Send-CycleEventSafely -EventRecord ([hashtable]$wrDeclined)
+                        }
                         $wrDone = $true
                     } else {
                         $wrAttempt++
@@ -4007,14 +3611,7 @@ function Invoke-GuestProvisionIteration {
     Write-Verbose "  Removing VM '$VMName'..."
     Remove-VM -VMName $VMName -Confirm:$false | Out-Null
     $global:ProgressPreference = $savedProgress
-    # Serialization guard: guests run one at a time, so confirm this VM is
-    # actually gone before the next guest cold-starts -- otherwise a teardown
-    # that silently stalled (e.g. utmctl unresponsive under host memory
-    # pressure) leaves it running and the next guest doubles the load.
-    # Remove-VM's own return can't answer this: its status Write-Output lines
-    # fold into the [bool] cast, so probe Get-VMState directly. A VM still
-    # 'running' after one retry blocks the next guest; anything else (absent /
-    # stopped / can't-tell) proceeds.
+    # See https://yuruna.link/4213a0b3-0107
     if ((Get-VMState -VMName $VMName) -eq 'running') {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1ff2fa917cf9f21c' -Arguments @{ vMName = "$VMName" })
         Remove-VM -VMName $VMName -Confirm:$false | Out-Null

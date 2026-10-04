@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,6 +93,7 @@ if ($utmVersion) {
 Write-Verbose "All requirements met."
 
 # --- REGION: Resolve network interface for Bridged mode
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if ($NetworkMode -eq "Bridged") {
     if (-not $BridgeInterface) {
         $BridgeInterface = Get-MacDefaultRouteInterface
@@ -109,19 +110,16 @@ if ($NetworkMode -eq "Bridged") {
 Write-Output ""
 
 # --- REGION: Seek the base image
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward. The Win11 ISO has
-# no machine-fetchable URL -- the per-guest Get-Image.ps1 prints manual-
-# download instructions in that case, exits non-zero, and the recheck
-# below surfaces the actionable next step.
+# See https://yuruna.link/42e220c4-0003
+# Fetch missing media once; fail if manual-download requirements remain unmet.
 $baseImageName = "host.macos.utm.guest.windows.11"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot -ManualHint 'Run Get-Image.ps1 manually and follow its instructions.')) { exit 1 }
 
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
-# Provenance side-channel for operators reading the transcript. Emits
-# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
+# --- REGION: Base image provenance
+# Emit the source URL from a healthy sidecar; warn when provenance is incomplete.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
@@ -134,7 +132,6 @@ if (-not (Test-Path $spiceImageFile)) {
 }
 
 # --- REGION: Remove existing VM
-Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
@@ -178,9 +175,11 @@ $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_utmRepoRoot
 $YurunaHostPort = $_statusSeed.Port
+$ghSource = Get-YurunaGitHubSource -RepoRoot $_utmRepoRoot
 $_utmBootstrap = New-WindowsGuestBootstrap -RepoRoot $_utmRepoRoot `
     -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
-    -GhToken (Get-YurunaGitHubSource -RepoRoot $_utmRepoRoot).Token
+    -GhToken $ghSource.Token `
+    -FrameworkUrl $ghSource.FrameworkUrl -ProjectUrl $ghSource.ProjectUrl
 
 foreach ($seedFile in $_utmBootstrap.Files.Keys) {
     [IO.File]::WriteAllText((Join-Path $SeedDir $seedFile), $_utmBootstrap.Files[$seedFile], [Text.UTF8Encoding]::new($true))

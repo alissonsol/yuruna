@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42f22a5e-48c1-3fd5-e69f-18d26c84a20e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,8 +56,99 @@
         ' řúññéř řéçóřďš íţ çóúļď ñóţ ƥřóṽé šţáļé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.critical_record_replace' = '[!‮Řéƥļáçé á ƥříṽáţé çříţíçáļ řéçóřď‬ ~~~~~~~~~~~~~~]'
+    'runner.cycle_outcome_rejected_kept' = @(
+        '[!‮[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ţħé řéĵéçţéď óúţçóɱé řéçóřď íš ķéƥţ áţ '
+        @{
+            'arg' = 'rejectedPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ƒóř ďíáğñóšíš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.cycle_outcome_unrecorded' = @(
+        '[!‮[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ţħé çýçļé ƥřóçéšš éẋíţéď '
+        @{
+            'arg' = 'childExit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' áƒţéř '
+        @{
+            'arg' = 'ranForSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        'š ŵíţħóúţ á úšáƀļé óúţçóɱé řéçóřď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Íţ íš ÑÓŢ çóúñţéď áš á ƥášš: ŵħéţħéř ţħé çýçļé çóɱƥļéţéď çáññóţ ƀé éšţáƀļíšħéď, šó ţħíš íš á ƒáúļţ óƒ ţħé řúññéř óñ ţħíš ħóšţ řáţħéř ţħáñ á ţéšţ ṽéřďíçţ. Ƥáúšíñğ áš ƒóř á ƒáíļéď çýçļé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.cycle_outcome_unrecorded_log' = @(
+        '[!‮[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] óúţçóɱé-úñřéçóřďéď: éẋíţ '
+        @{
+            'arg' = 'childExit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' áƒţéř '
+        @{
+            'arg' = 'ranForSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        'š, řéçóřď '
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.cycle_record_clear_action' = '[!‮Řéɱóṽé ţħé řúññéř çýçļé řéçóřď óƒ áñ éẋíţéď çýçļé‬ ~~~~~~~~~~~~~~~~~~~~]'
     'runner.cycle_record_write_action' = '[!‮Ŵříţé ţħé řúññéř çýçļé řéçóřď‬ ~~~~~~~~~~~~]'
+    'runner.cycle_result_missing' = '[!‮Ţħé çýçļé řéţúřñéď ŵíţħóúţ ƥúƀļíšħíñğ á řéšúļţ. Řéçóřďíñğ íţ áš á ƒáíļéď çýçļé (ñó-çýçļé-řéšúļţ) íñšţéáď óƒ á çóɱƥļéţéď óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.cycle_success_withheld' = @(
+        '[!‮Ţħé çýçļé ƒíñíšħéď çļéáñļý ƀúţ íţš óúţçóɱé çóúļď ñóţ ƀé řéçóřďéď, šó ţħé řúññéř çáññóţ çóúñţ íţ áš á ƥášš. Éẋíţíñğ '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' íñšţéáď óƒ 0.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.detached_handshake_write_action' = '[!‮Ŵříţé ţħé ďéţáçħéď ŵóřķéř''š íďéñţíţý ħáñďšħáķé‬ ~~~~~~~~~~~~~~~~~~~]'
     'runner.detached_launch_action' = '[!‮Ļáúñçħ á ďéţáçħéď ŵóřķéř ƥřóçéšš‬ ~~~~~~~~~~~~~]'
     'runner.diagnostic_budget_exhausted' = @(
@@ -22621,8 +22712,74 @@
     'runner.pool_status_repositories_none' = '[!‮  řéƥóšíţóříéš: (ñóñé)‬ ~~~~~~~~~]'
     'runner.prior_runner_cleanup_action' = "[!‮  Áçţíóñ:  šţóƥƥíñğ íţ áñď řúññíñğ`n           Remove-TestVMFiles.ps1 ƀéƒóřé šţářţ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
     'runner.process_start_record_write_action' = '[!‮Ŵříţé á ƥřóçéšš šţářţ-ţíɱé řéçóřď‬ ~~~~~~~~~~~~~~]'
+    'runner.project_previous_cleanup_failed' = @(
+        '[!‮Çóúļď ñóţ ďéļéţé ţħé ďíšƥļáçéď ƥřóĵéçţ çħéçķóúţ áţ '
+        @{
+            'arg' = 'previousDir'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Ţħé ñéŵ çħéçķóúţ íš íñ ƥļáçé; ţħé ñéẋţ řéƒřéšħ řéɱóṽéš ţħé ļéƒţóṽéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.project_swap_recovered' = @(
+        '[!‮Řéçóṽéřéď áñ íñţéřřúƥţéď ƥřóĵéçţ řéƒřéšħ úñďéř '
+        @{
+            'arg' = 'repoRoot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.readiness_ack_remove_action' = '[!‮Řéɱóṽé á šţáļé řéƒřéšħ řéáďíñéšš áçķñóŵļéďğɱéñţ‬ ~~~~~~~~~~~~~~~~~~~]'
     'runner.readiness_ack_write_action' = '[!‮Ŵříţé ţħé řéƒřéšħ řéáďíñéšš áçķñóŵļéďğɱéñţ‬ ~~~~~~~~~~~~~~~~~]'
+    'runner.recovery_applied' = @(
+        '[!‮[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] řéçóṽéřý áçţíóñ '''
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ''' řáñ ƒóř á '
+        @{
+            'arg' = 'failClass'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ƒáíļúřé (áţţéɱƥţ '
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '); ţħé ƒáíļúřé ƥáúšé íš šķíƥƥéď áñď ţħé ñéẋţ çýçļé šţářţš áţ óñçé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.recovery_result_write_failed' = @(
+        '[!‮Çóúļď ñóţ řéçóřď ţħé řéçóṽéřý řéšúļţ áţ '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Ţħé çýçļé óúţçóɱé íš úñáƒƒéçţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.refresh_barrier_held' = @(
         '[!‮Řéšúɱéď áƒţéř ħóšţ řéƒřéšħ '
         @{
@@ -23779,6 +23936,21 @@
     )
     'runner.status_worker_directory_prepare_action' = '[!‮Ƥřéƥářé ţħé ƥříṽáţé ŵóřķéř ďířéçţóřý‬ ~~~~~~~~~~~~~~~]'
     'runner.status_worker_state_write_action' = '[!‮Ƥúƀļíšħ ţħé ŵóřķéř šţáţé řéçóřď‬ ~~~~~~~~~~~~~]'
+    'runner.telemetry_event_dropped' = @(
+        '[!‮Á çýçļé éṽéñţ çóúļď ñóţ ƀé řéçóřďéď ('''
+        @{
+            'arg' = 'eventName'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ''': '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Ţħé çýçļé çóñţíñúéš, ƀúţ íţš éṽéñţ šţřéáɱ íš ñóŵ íñçóɱƥļéţé; ţħé çóúñţ áñď ţħé řéášóñ ářé íñ cycle.events.delivery.json. Ƒúřţħéř ļóššéš ţħíš çýçļé ářé çóúñţéď, ñóţ řéƥéáţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.transcript_title' = '[!‮Ýúřúñá ţéšţ-řúññéř ļóğ‬ ~~~~~~~~~]'
     'runner.vault_retired_entries' = @(
         '[!‮řéɱóṽéď '
@@ -23789,6 +23961,36 @@
         }
         '‬ ~~~~~~]'
     )
+    'runner.vm_admission_occupied' = @(
+        '[!‮Řéƒúšíñğ ţó šţářţ á çýçļé: ţħéšé ṼⱮš ářé řúññíñğ óñ ţħé ħóšţ áñď ŵóúļď ñóţ šţóƥ: '
+        @{
+            'arg' = 'occupants'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Šţóƥ óř ďéļéţé ţħéɱ, ţħéñ řúñ ţħé çýçļé áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.vm_admission_unknown' = @(
+        '[!‮Řéƒúšíñğ ţó šţářţ á çýçļé: ţħé ħóšţ çóúļď ñóţ šħóŵ ţħáţ ñó óţħéř ṼⱮ íš řúññíñğ ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' áƒţéř '
+        @{
+            'arg' = 'probes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' řéáď(š): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Ţŵó çýçļéš óñ óñé ṼⱮ šéţ çóřřúƥţ éáçħ óţħéř, šó ţħé řúññéř ŵíļļ ñóţ ğúéšš; íţ ţříéš áğáíñ óñ íţš ñéẋţ ļóóƥ. Çħéçķ ţħé ħýƥéřṽíšóř çóɱɱáñď ļíñé ţóóļš áñď ṼⱮ íñṽéñţóřý óñ ţħíš ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.vm_cleanup_terminating_error' = @(
         '[!‮Remove-TestVMFiles.ps1 řáíšéď á ţéřɱíñáţíñğ éřřóř; çýçļé éẋíţ çóďé ŵíļļ šţíļļ řéƒļéçţ ţħé çýçļé''š ƥášš/fail. Éřřóř: '
         @{
@@ -23797,5 +23999,32 @@
             'trust' = 'external'
         }
         '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.warm_resume_declined_unverified' = @(
+        '[!‮  ŴÁŘⱮ-ŘÉŠÚⱮÉ ďéçļíñéď: '''
+        @{
+            'arg' = 'resumeSequence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ƒáíļéď áţ šţéƥ '
+        @{
+            'arg' = 'resumeFromStep'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'failureClass'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ') áñď řéƥļáýíñğ íţ çáññóţ ƀé šħóŵñ ţó ƀé šáƒé (řéášóñ: '
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '). Ţħé óříğíñáļ ƒáíļúřé šţáñďš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
 }

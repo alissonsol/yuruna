@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4235cf39-20c0-270a-724d-9125095a5d8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,6 +140,7 @@
         }
         '; libvirt renames only a domain positively reported as stopped.'
     )
+    'host.kvm_running_cache_unreachable' = 'The caching-proxy-service VM is running but its proxy is unreachable. Run test/service/Start-CachingProxyServiceVM.ps1 to restore it, or pass -CachingProxyServiceUrl "" to fetch directly.'
     'host.kvm_start_network_action' = 'Start the inactive libvirt network'
     'host.kvm_start_unit_action' = 'Start the stopped libvirt unit'
     'host.operator_005bab80fe0f8f32' = @(

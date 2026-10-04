@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4221a024-d615-4d3e-9f0b-4a285f85b611
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,24 +16,7 @@
 
 #requires -version 7
 
-# Host-side client for the download-agent service: find an agent, ask it about
-# an image, and take the bytes it already holds instead of pulling them from the
-# origin once per host.
-#
-# Two structural rules this file lives by, both load-bearing:
-#
-#   * It imports NOTHING -- no -Global, no -Force, no nested import at all -- and
-#     exports only three uniquely-named functions. The per-host drivers wrap
-#     Save-CachedHttpUri to inject their own cache resolver and the image helpers
-#     resolve that wrapper BY NAME, so a module re-exporting Save-CachedHttpUri
-#     (or Test-DownloadAlreadyCurrent) and imported after a driver would take the
-#     command-table slot, drop the cache-discovery closure, and send every
-#     download direct with no error anywhere -- the regression class the drivers'
-#     load-tail guards warn about.
-#   * Nothing here throws at the caller. Discovery collapses to '' and the
-#     request protocol to an outcome string, because every one of these calls
-#     sits in front of a Get-Image run whose fallback is the origin path. A
-#     broken agent must cost a warning line, never a cycle.
+# See https://yuruna.link/42e5cdfd-000e
 
 # The service VM name the local-VM rung of the ladder asks the driver about, and
 # the extension area slug the pool rung asks the aggregator about.

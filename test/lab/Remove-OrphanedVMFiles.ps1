@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42abb186-f4b8-4269-9bed-8d5f24f258e5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,24 +20,7 @@
 .SYNOPSIS
     Delete VM files on THIS host that no longer belong to a registered VM.
 .DESCRIPTION
-    Host-neutral entry point. Detects the host type and runs that host's
-    Remove-OrphanedVMFiles.ps1 in a child pwsh rooted in its own folder; this
-    shell stays in test/. Arguments are forwarded verbatim and the child's exit
-    code is returned.
-
-    What counts as orphaned differs per host and is owned by the per-host
-    script:
-
-        host/windows.hyper-v/Remove-OrphanedVMFiles.ps1  (needs Administrator)
-        host/macos.utm/Remove-OrphanedVMFiles.ps1
-        host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1
-
-    DESTRUCTIVE, and it prompts for confirmation unless -Force is given.
-
-    This only sweeps FILES left behind by VMs that are already gone. To tear
-    down the test VMs themselves and then sweep, use Remove-TestVMFiles.ps1 in
-    this folder -- it stops and unregisters every VM matching the test prefix
-    and calls this same per-host script afterwards.
+    See https://yuruna.link/42010605-0003.
 .PARAMETER Force
     Skip the confirmation prompt.
 .PARAMETER Quiet

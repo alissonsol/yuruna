@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42bcdf70-8f13-463a-8f88-0dcd1771f9c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -254,6 +254,43 @@ function Get-FixtureEvidence {
     }
 }
 
+function Resolve-SignedFixtureShell {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$ShellPath)
+    if (-not $IsWindows -or [IO.Path]::GetFileName($ShellPath) -ine 'bash.exe') { return $ShellPath }
+    # The Windows Git Bash launcher prepends its tools before the private PATH.
+    $lookup = Invoke-BoundedNativeCommand -FilePath $ShellPath -ArgumentList @('-c', 'cygpath -w -- "$BASH"') `
+        -Environment @{ BASH_ENV = ''; ENV = ''; LC_ALL = 'C' } -TimeoutSeconds 10
+    if (-not (Test-BoundedNativeResultComplete $lookup) -or $lookup.ExitCode -ne 0) {
+        throw "The fixture Bash interpreter lookup failed: $($lookup.StartError); $($lookup.StdErr)"
+    }
+    $reported = $lookup.StdOut.Trim()
+    if (-not $reported -or $reported -match '[\r\n]') { throw 'The fixture Bash interpreter lookup did not return one path.' }
+    $actual = [IO.Path]::GetFullPath($reported)
+    if ([IO.Path]::GetFileName($actual) -ine 'bash.exe' -or -not [IO.File]::Exists($actual)) {
+        throw 'The fixture Bash interpreter lookup did not name an existing bash.exe.'
+    }
+    return $actual
+}
+
+function Invoke-SignedFixtureShell {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$ShellPath, [Parameter(Mandatory)][string]$SnippetPath,
+        [Parameter(Mandatory)][string]$CurlPath, [Parameter(Mandatory)][hashtable]$Environment)
+    $actualShell = Resolve-SignedFixtureShell -ShellPath $ShellPath
+    # The check and snippet share a shell so lookup cannot bypass the recording stub.
+    $guard = @'
+resolved=$(command -v curl) || { printf 'FIXTURE CURL NOT SELECTED\n' >&2; exit 75; }
+[ -f "$resolved" ] && [ "$resolved" -ef "$1" ] || { printf 'FIXTURE CURL NOT SELECTED\n' >&2; exit 75; }
+. "$2"
+'@
+    $guard = $guard.Replace("`r`n", "`n")
+    return Invoke-BoundedNativeCommand -FilePath $actualShell -ArgumentList @('-c', $guard, 'signed-fixture', $CurlPath, $SnippetPath) `
+        -Environment $Environment -TimeoutSeconds 60
+}
+
 function Invoke-BashSnippet {
     param([Parameter(Mandatory)][hashtable]$Case, [Parameter(Mandatory)][string]$ShellPath)
     $fixture = New-SignedFixture -Case $Case
@@ -278,7 +315,7 @@ function Invoke-BashSnippet {
             PATH = "${pathPrefix}:/usr/bin:/bin"; TMPDIR = (Join-Path $fixture.Root 'tmp'); HOME = (Join-Path $fixture.Root 'home')
             ZDOTDIR = (Join-Path $fixture.Root 'home'); YURUNA_REFRESH = ''; BASH_ENV = ''; ENV = ''; LC_ALL = 'C'
         }
-        $r = Invoke-BoundedNativeCommand -FilePath $ShellPath -ArgumentList @($snippet) -Environment $environment -TimeoutSeconds 60
+        $r = Invoke-SignedFixtureShell -ShellPath $ShellPath -SnippetPath $snippet -CurlPath (Join-Path $fixture.Bin 'curl') -Environment $environment
         $evidence = Get-FixtureEvidence -Fixture $fixture
         $evidence['Started'] = [bool]$r.Started
         $evidence['TimedOut'] = [bool]$r.TimedOut
@@ -481,5 +518,47 @@ Describe 'The Windows verification snippet in a child pwsh' {
     It '<CaseName>' -ForEach $script:WindowsCases {
         $result = Invoke-WindowsSnippet -Case $_
         Confirm-SnippetOutcome -Result $result -Case $_ -Shell 'pwsh'
+    }
+}
+
+Describe 'The recording curl guard under <ShellName>' -ForEach @($script:Shells | ForEach-Object {
+    @{ ShellName = $_.ShellName; ShellPath = $_.ShellPath
+        FixtureCase = @($script:BashCases | Where-Object { $_.CaseName -eq 'a valid signed manifest runs the installer' })[0] }
+}) {
+    It 'selects the known recording stub and reads only the local served file' {
+        $case = $FixtureCase
+        $fixture = New-SignedFixture -Case $case
+        try {
+            $output = Join-Path $fixture.Root 'guard-download'
+            $snippet = Join-Path $fixture.Root 'guard-probe.sh'
+            Write-StubScript -Path $snippet -Text "curl -fsSL 'https://fixture.invalid/refs/tags/2099.01.01/install/macos.utm.sh' -o '$output'`n"
+            $environment = @{ PATH = "$($fixture.Bin):/usr/bin:/bin"; BASH_ENV = ''; ENV = ''; LC_ALL = 'C' }
+            $result = Invoke-SignedFixtureShell -ShellPath $ShellPath -SnippetPath $snippet -CurlPath (Join-Path $fixture.Bin 'curl') -Environment $environment
+            Assert-True (Test-BoundedNativeResultComplete $result) "recording-stub probe completion: $($result.StartError)"
+            Assert-Equal 0 $result.ExitCode "the recording stub is selected under $ShellName"
+            Assert-StringEqual -Expected ([IO.File]::ReadAllText((Join-Path $fixture.Srv 'install/macos.utm.sh'))) -Actual ([IO.File]::ReadAllText($output))
+            Assert-Equal 1 @(Get-FixtureEvidence -Fixture $fixture | Select-Object -ExpandProperty Urls).Count 'the local recording stub was called once'
+        } finally { Remove-YurunaTestTempDir $fixture.Root }
+    }
+
+    It 'blocks a substituted curl before any curl or snippet can execute' {
+        $case = $FixtureCase
+        $fixture = New-SignedFixture -Case $case
+        try {
+            $alternate = Join-Path $fixture.Root 'alternate-bin'
+            $curlMarker = Join-Path $fixture.Root 'unexpected-curl-ran'
+            $snippetMarker = Join-Path $fixture.Root 'unexpected-snippet-ran'
+            $snippet = Join-Path $fixture.Root 'guard-refusal.sh'
+            Write-StubScript -Path (Join-Path $alternate 'curl') -Text "#!/bin/bash`nprintf 'ran' > '$curlMarker'`n"
+            Write-StubScript -Path $snippet -Text "printf 'ran' > '$snippetMarker'`n"
+            $environment = @{ PATH = "${alternate}:$($fixture.Bin):/usr/bin:/bin"; BASH_ENV = ''; ENV = ''; LC_ALL = 'C' }
+            $result = Invoke-SignedFixtureShell -ShellPath $ShellPath -SnippetPath $snippet -CurlPath (Join-Path $fixture.Bin 'curl') -Environment $environment
+            Assert-True (Test-BoundedNativeResultComplete $result) "recording-stub refusal completion: $($result.StartError)"
+            Assert-Equal 75 $result.ExitCode 'the fixture guard refuses a different curl identity'
+            Assert-Match 'FIXTURE CURL NOT SELECTED' $result.StdErr 'the fixture refusal is explicit'
+            Assert-False (Test-Path -LiteralPath $curlMarker) 'the substituted curl never ran'
+            Assert-False (Test-Path -LiteralPath $snippetMarker) 'the snippet never ran'
+            Assert-Equal 0 @(Get-FixtureEvidence -Fixture $fixture | Select-Object -ExpandProperty Urls).Count 'the recording stub also never ran'
+        } finally { Remove-YurunaTestTempDir $fixture.Root }
     }
 }

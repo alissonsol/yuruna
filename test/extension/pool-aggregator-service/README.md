@@ -337,11 +337,21 @@ unaffected (graceful degradation).
 - `main.go`, `handover.go`, and `mcp.go` -- the collector, durable host-identity ledger, and MCP routes. `localization.go` and `internal/catalog/` supply the compiled UI and API messages. Stdlib plus the shared extension SDK (a static binary, no Go toolchain at
   runtime), cross-platform (no host-specific syscalls; builds + vets on the
   Windows harness toolchain identically to the Linux target).
+- `backfill.go`, `backfill_index.go`, `backfill_loki.go`, `backfill_prom.go`,
+  `backfill_record.go`, `backfill_source.go`, and `backfill_state.go` -- the history
+  backfill, the same binary's second mode (`pool-aggregator-service backfill`; see
+  *History backfill* below). It builds its Loki lines with the collector's own
+  builders, so the two cannot drift apart.
 - `go.mod` -- module + Go version. Zero external dependencies.
 - `pool-aggregator-service.service` -- systemd unit (`User=proxy`, hardened,
   `ReadOnlyPaths=/var/log/squid` to read the access log; `:9400`; `ExecStart`
   carries `-auth-token-file /etc/yuruna/internal-auth.key -host-ttl 24h
   -lab-token-rotate 60s -handover-state-file /var/lib/pool-aggregator-service/handovers.json`).
+- `pool-history-backfill.service` -- systemd unit for the history backfill (`User=proxy`,
+  hardened like the collector's, `StateDirectory=pool-history-backfill`, lowest CPU and
+  I/O priority, `GOMAXPROCS=1`, `MemoryMax=512M`, and `CPUQuota=39%` -- a tenth of the
+  smallest 4-vCPU VM less a point; cloud-init's drop-in `cpu-quota.conf` sets the value
+  for the VM it builds).
 - `pool-aggregator-service.config.yml` / `pool-aggregator-service.contract.yml` -- the Yuruna
   extension area scaffolding (mirrors `caching-proxy-parser-service`).
 - `default.psm1` -- `Get-PoolAggregatorServiceManifest` (metadata; nothing runs on the
@@ -406,7 +416,50 @@ the ledger in its systemd `StateDirectory`) -
 `-host-metrics-port` (default `9182`; the port each Windows host's metrics
 exporter listens on, as published in `/api/v1/prometheus-targets`) - `-tls-cert` /
 `-tls-key` (PEM paths; the listener is HTTPS when both name readable files,
-plain HTTP otherwise).
+plain HTTP otherwise) - `-backfill-state-dir` (default
+`/var/lib/pool-history-backfill`; where `/go/cycle` reads the history backfill's
+cycle indexes; empty skips them).
+
+### History backfill
+
+`pool-aggregator-service backfill` restores the history a rebuilt proxy lost, for the
+hosts in the pool now: every 15 minutes (every minute while history is left) it reads
+`/api/v1/pool-status`, lists each host's cycle folders -- `log/`, the rotated
+`log/history.<date>/` buckets, and committed copies on the pool share -- and writes
+what Loki and Prometheus lack, exactly as the collector would have: the cycle's
+transition lines, its event lines when it started within the last 167 hours, the
+per-host incidents that were over before the collector first saw the host, and
+`yuruna_pool_host_status` samples where the series has none, through Prometheus
+remote write. Cycles are written newest first, so the dashboard refills
+backwards from the rebuild. Times are UTC throughout. The operator view is in
+[pool-dashboard.md](../../../docs/pool-dashboard.md) (*History after a rebuild*).
+
+It keeps one state file per host in `<state-dir>/hosts/` (what it wrote, what it gave up
+on, which history buckets it already read, when it last listed the host) and one cycle
+index per host in `<state-dir>/index/` (every folder the host holds and the outcome the
+backfill wrote for it). It remembers what it wrote rather than asking Loki again, because
+Loki answers for a line stamped days in the past only once it has filed it away; the
+timeline and the incident replay are built from the index for the same reason.
+
+A host's log listing is the one expensive request: the status service is a single
+PowerShell listener, and a guest waits behind whatever it is serving. So a host is
+listed once and then at most hourly; the passes between work from the folders the index
+recorded and from the pool share. A listing request slower than 10 seconds, or one that
+timed out, sets `listingDeferredUntil` in the host's state file, and for the next 24 hours
+the host is sent no request at all while its pool-share copies are still restored. A
+listing that fails does not end the host's pass either. Both are logged with the time the
+host is asked again.
+
+Flags, all with working defaults: `-aggregator` (`http://127.0.0.1:9400`) - `-loki` -
+`-prometheus` (`http://127.0.0.1:9090`) - `-state-dir`
+(`/var/lib/pool-history-backfill`) - `-archive-root` (empty; the unit passes
+`/mnt/ypool-nas/hosts`) - `-horizon` (`2160h`) - `-event-horizon` (`167h`; Loki keeps
+events 168h) - `-sweep-interval` (`15m`) - `-start-delay` (`3m`, so the collector has
+found the hosts after a boot) - `-host-interval` (`2s` between requests to one host,
+doubled after a slow answer) - `-host-concurrency` (`4`) - `-cycles-per-minute`
+(`120`) - `-incident-fails` / `-incident-window` (the collector's `3` / `2h`) -
+`-sample-step` (`2m`; must be shorter than the 5-minute lookback) - `-settle` (`30m`;
+a cycle that ended more recently is the collector's) - `-once` (one sweep, then exit).
 
 ## Endpoints (`:9400`)
 
@@ -421,7 +474,7 @@ the leaf is absent.
 | `/api/v1/pool-status` | GET | none | JSON snapshot of every discovered host's last poll |
 | `/api/v1/prometheus-targets` | GET | none | the pool's Windows hosts as a Prometheus HTTP service-discovery document -- `[{"targets":["<ip>:<port>"],"labels":{"pool","hostId","hostIdDashed","hostType"}}]` -- so the local Prometheus scrapes each host's machine-metrics exporter without holding a single host address of its own. Only hosts this service currently REACHES are listed, and only types that run the exporter: a host that is switched off leaves the scrape pool within one refresh instead of failing in it for as long as it stays off. The port is `-host-metrics-port`. Open, like `pool-status` -- it re-shapes addresses that endpoint already serves, and the labels match the ones `/metrics` exports so the two join on `hostId` |
 | `/api/v1/extension-hosts[?area=<slug>]` | GET | none | where the pool currently sees each extension area served. With `?area=` one entry (`area`, `host`, `target`, `hostId`, `source`, `lastSeenUnixMs`, plus the health fields) and **404** when no live host serves it; without it every area (`areas`) plus every known registration (`services`), including the ones the pool refuses. Only addresses the aggregator has itself reached are answered (point 5c-ii); usable first, then live announce over registration over rehydrated announce, then freshest, then lowest hostId; a TTL-expired announce is skipped at read time. The lookup a host uses to find the stash / pool-control service knowing only the caching-proxy-service address |
-| `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click -> 302 to that cycle's results. **Archive-first**: once the cycle is committed on the pool share the redirect goes to this service's own `/archive/...` copy, which answers from local disk and keeps working when the host is off or reimaged; otherwise it goes to the host, resolving its **current** IP from the live view (so the link survives a host IP change). The cycle covering `t` is resolved from the archive listing, else the host's `/log/` listing, else the Loki transition feed (current cycle in-memory short-circuits all three); degrades to the host's status root when the folder can't be resolved |
+| `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click -> 302 to that cycle's results. **Archive-first**: once the cycle is committed on the pool share the redirect goes to this service's own `/archive/...` copy, which answers from local disk and keeps working when the host is off or reimaged; otherwise it goes to the host, resolving its **current** IP from the live view (so the link survives a host IP change). The cycle covering `t` is resolved from the history backfill's cycle index, else the archive listing, else the host's `/log/` listing -- which follows the rotated `history.<date>/` buckets newest first -- else the Loki transition feed (current cycle in-memory short-circuits all four); degrades to the host's status root when the folder can't be resolved |
 | `/archive/<hostId>/test-cycles/<cycle>/...` | GET, HEAD | none | archived cycle results served straight off the pool share (`-pool-archive-root`, the proxy's existing `/mnt/ypool-nas/hosts` mount). Read-only, Range-capable, with directory listings for folder URLs. The path shape IS the authorization: 32-hex hostId, the literal `test-cycles`, and a bare cycle identity (no `.incomplete` / `.aborted` suffix -- on-share leaves are always the stripped identity) are validated before any filesystem call, and `os.Root` contains the rest in the kernel. The root is re-opened **per request**, because the proxy's CIFS mount is `nofail` and arrives asynchronously after boot. Absent flag => route not registered; mount away => 404 and `yuruna_pool_archive_available 0` |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click -> 302 to that host's status-page **root**. Same `host` uuid -> **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder -- the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash-service VM), resolved through the same source merge as the dashboard cell -- the service's own live announce first, the host's `extensionTargets` when nothing is announcing (see 5c-i). For IP-free, hostId-only consumers -- the dashboard table itself links directly via the `target` label. Unknown host/target -> 404 |
@@ -467,6 +520,8 @@ signed by the pool CA, published at `http://<proxy>/yuruna-pool-ca.crt` for pinn
 
 ```
 systemctl status pool-aggregator-service
+systemctl status pool-history-backfill             # the history backfill, same binary
+journalctl -u pool-history-backfill -n 20          # one line per sweep
 curl -sk https://localhost:9400/healthz            # -> ok
 curl -sk https://localhost:9400/api/v1/pool-status | jq   # discovered hosts (after some proxy traffic)
 curl -sk https://localhost:9400/api/v1/extension-hosts | jq              # every area the pool can locate
@@ -566,7 +621,8 @@ dashboard's 30s refresh, with no Grafana or dashboard action.
   networkStorage.pool* **service replication** (an hourly guest-side `ypool-nas-replicate.timer`),
   so a reimaged proxy can be restored. Squid + zot caches are excluded. See
   [docs/pool-storage.md](../../../docs/pool-storage.md) (Service replication +
-  restore procedure).
+  restore procedure). Where no replica exists, the **history backfill** rebuilds the
+  last 90 days from the hosts themselves (see *History backfill* under Flags).
 - The pool telemetry is **hostname-free**: hosts are identified by `hostId`
   everywhere. The `hostname` label is dropped from every metric; the transition (`src=cycle`) and
   incident (`src=incident`) Loki lines carry no hostname (cross-host incidents

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42c5f69b-6d9e-428a-b35d-8794342a81a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,14 +25,7 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:GuestQuarantineFileName = 'runner.quarantine.json'
 
-# Failure classes whose cause lives on the HOST, not in any one guest. The
-# circuit breaker counts a per-guest same-class streak, so a host-scoped fault
-# -- which produces the identical class on every network-touching guest at the
-# same time -- would trip quarantine on all of them within failuresToQuarantine
-# cycles and then SKIP them, leaving a green cycle over a broken host. These
-# classes therefore never start or extend a streak: the breaker exists to
-# suppress a guest that is individually broken, and a host fault is neither
-# suppressible nor attributable to the guest that reported it.
+# See https://yuruna.link/4213a0b3-0059
 $script:HostScopedFailureClass = @('host_network_degraded')
 
 function Get-GuestQuarantineHostScopedClass {

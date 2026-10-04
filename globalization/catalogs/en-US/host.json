@@ -3,6 +3,11 @@
   "domain": "host",
   "locale": "en-US",
   "messages": {
+    "host.kvm_running_cache_unreachable": {
+      "message": "The caching-proxy-service VM is running but its proxy is unreachable. Run test/service/Start-CachingProxyServiceVM.ps1 to restore it, or pass -CachingProxyServiceUrl \"\" to fetch directly.",
+      "description": "Ubuntu KVM New-VM error when standalone cache discovery finds a running cache without a reachable URL. Preserve the service name, script path and parameter name.",
+      "lifecycle": "active"
+    },
     "host.clock_service_description": {
       "message": "Windows Time service (W32Time)",
       "description": "Operator-facing permission or restore description; the corresponding operating-system selector remains invariant.",

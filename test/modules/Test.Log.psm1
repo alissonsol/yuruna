@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,19 +16,7 @@
 
 #requires -version 7
 
-# One of THREE Yuruna logger modules with disjoint responsibilities --
-# see test/modules/README.md "Three loggers, three jobs" before adding
-# helpers here. This module owns ONLY the cycle-filesystem layout:
-# Start-LogFile, Stop-LogFile, Get-CycleGuestDataFolder, Get-CycleScreenDir,
-# Write-CycleNdjsonEvent, Write-CycleManifest. Sibling modules: Yuruna.Log
-# (stream interceptor) and Test.Output (per-script PASS/FAIL tally).
-# Don't add Write-* cmdlet wrappers or PASS-counting helpers here -- they
-# belong in the other two.
-#
-# Two cross-module channels are intentionally process-wide: __YurunaLogFile
-# (set here, read by the Yuruna.Log proxy) and __YurunaCycleFolder (the
-# cycle's folder under test/status/log/, read by failure / diagnostics
-# helpers so the path doesn't have to thread through every call site).
+# See https://yuruna.link/4213a0b3-0099
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'global:__YurunaLogFile is the cross-module log-file handle read by Yuruna.Log.psm1; global:__YurunaCycleFolder is the cycle folder path read by failure / diagnostics handlers; global:__YurunaCycleStartUtc is the stable per-cycle correlation key stamped on every NDJSON event by Write-CycleNdjsonEvent; global:__YurunaRunId is the per-runner-process GUID stamped on every NDJSON event so a multi-host pool consumer can join (runId, cycleStartUtc) to identify a specific cycle on a specific host. All four are intentionally process-wide.')]
 param()
@@ -453,15 +441,7 @@ function Start-LogFile {
         [string](Get-YurunaHostId)
     } else { '' }
     $cycleBase = Format-CycleFolderBaseName -CycleNumber $CycleNumber -CycleStartUtc $CycleStartUtc -HostId $folderHostId
-    # Allocate the cycle folder with a `.incomplete` suffix so a
-    # crashed cycle is visible at the folder-name level (in addition to
-    # the in-folder marker file). Stop-LogFile renames to the bare
-    # <base>/ on clean close; boot recovery renames to
-    # <base>.aborted.<UTC>/ when it sees the crash on startup. Every
-    # NDJSON event records the bare <base> as `cycleFolder` (the
-    # cycle's stable identity) regardless of which suffix is on disk
-    # at emit time -- consumers join events across the rename boundary
-    # without seeing the suffix flip mid-cycle.
+    # See https://yuruna.link/4213a0b3-009a
     $cycleFolder = Join-Path $logDir "$cycleBase.incomplete"
     $logFile = Join-Path $cycleFolder "$cycleBase.html"
     if ($PSCmdlet.ShouldProcess($logFile, (Format-YurunaOperatorMessage -Key 'runner.operator_c63cab32a51863c0'))) {
@@ -504,23 +484,13 @@ function Start-LogFile {
         $preamble | Microsoft.PowerShell.Utility\Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
         $global:__YurunaLogFile = $logFile
         $global:__YurunaCycleFolder = $cycleFolder
-        # The OWNING cycle's identity, held separately from the folder
-        # events are written into. A nested run repoints __YurunaCycleFolder
-        # at its own sub-folder so its transcript and events land beside it,
-        # and deriving the cycleFolder stamp from that would label a child's
-        # events with the child's leaf -- splitting one cycle into as many
-        # apparent cycles as it has nested nodes, none of them joinable to
-        # the cycle that actually ran. This handle is what the stamp comes
-        # from, and a nested run inherits rather than replaces it.
+        # A new cycle folder is a new stream: its ledger starts empty, and its
+        # first loss warns again.
+        $script:CycleEventDelivery = [ordered]@{ attempted = 0; delivered = 0; dropped = 0; lastDroppedEvent = ''; lastDropReason = ''; lastDropAtUtc = '' }
+        $script:CycleEventDropWarned = $false
+        # See https://yuruna.link/4213a0b3-009b
         $global:__YurunaCycleIdentity = Get-CycleFolderIdentity -Path $cycleFolder
-        # Stable run-correlator stamped on every NDJSON record by Write-
-        # CycleNdjsonEvent. cycleFolder alone IS unique on a single host,
-        # but a multi-host pool consumer joining live streams off three
-        # boxes would otherwise have to parse the leaf name to recover
-        # the originating cycle time. cycleStartUtc is the ISO timestamp the
-        # outer assigned at cycle start, so two events with the same
-        # cycleStartUtc are guaranteed to belong to the same cycle even when
-        # the cycleFolder leaf names diverge across hosts.
+        # See https://yuruna.link/4213a0b3-009c
         $global:__YurunaCycleStartUtc = [string]$CycleStartUtc
         # Fallback: import the proxy module if not already loaded
         if (-not (Get-Module Yuruna.Log)) {
@@ -544,14 +514,7 @@ function Start-LogFile {
             cycleFolder  = $cycleBase
             hostname     = [string]$Hostname
         }
-        # Which code produced this cycle, carried on the event itself: a
-        # consumer reading the stream off-host has only these lines, and the
-        # host's status document by then describes whatever cycle is running
-        # now rather than the one these events belong to. Same {sha, repoUrl}
-        # shape the status document and each of its history rows use, so one
-        # reader parses commits everywhere. Omitted rather than emitted empty --
-        # a cycle whose commits were never resolved must not arrive looking
-        # like a cycle that ran no code.
+        # See https://yuruna.link/4213a0b3-009d
         $commitList = @(@($GitCommits) | Where-Object { $_ })
         if ($commitList.Count -gt 0) { $cycleStartEvent['gitCommits'] = $commitList }
         Write-CycleNdjsonEvent -EventRecord $cycleStartEvent
@@ -765,6 +728,7 @@ function Write-CycleManifest {
                 '*.html'                 { 'transcript'; break }
                 'cycle.events.ndjson'    { 'ndjson'; break }
                 'cycle.events.gaps'      { 'ndjson-gaps'; break }
+                'cycle.events.delivery.json' { 'ndjson-delivery'; break }
                 'last_failure.json'      { 'failure'; break }
                 # The failing guest's own copy of the record, written beside its
                 # other per-guest artifacts. Its own kind, not 'failure': a
@@ -774,15 +738,7 @@ function Write-CycleManifest {
                 'last_remediation.json'  { 'remediation'; break }
                 'failure_screenshot*.png'{ 'screenshot-failure'; break }
                 'failure_ocr*.txt'       { 'ocr-failure'; break }
-                # Save-StepFailureEvidence copies the ring-buffer frames and the
-                # failure pair into <VM>/failed_<label>/, so they arrive carrying
-                # a path prefix that the anchored patterns above and below cannot
-                # match, and without these they are filed as 'other'. Matching
-                # The relocated ring frames keep the RAW kinds: they are the
-                # same frames, only copied, and the raw kinds are the ones the
-                # manifest skips hashing. Hashing a whole ring per failed
-                # attempt costs seconds of cycle time and tells an operator
-                # nothing the frame itself does not.
+                # See https://yuruna.link/4213a0b3-009e
                 '*/failed_*/raw_*.png'   { 'screenshot-raw'; break }
                 '*/failed_*/raw_*.txt'   { 'ocr-raw'; break }
                 '*/failed_*/failure_screenshot.png' { 'screenshot-failure'; break }
@@ -879,25 +835,8 @@ function Stop-LogFile {
     )
     if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_c2f83ae6c19216a6'), (Format-YurunaOperatorMessage -Key 'runner.operator_c0875435d41486ec'))) {
         if ($global:__YurunaCycleFolder) {
-            # cycle_end emitted BEFORE the manifest so the manifest's
-            # artifact scan picks up the now-completed
-            # cycle.events.ndjson. NDJSON write is best-effort; the
-            # gap-sentinel inside Write-CycleNdjsonEvent surfaces
-            # any failure.
             # --- REGION: https://yuruna.link/4220a755-004a
-            # How many times this host's address moved while the cycle ran. On a
-            # host whose lease is deliberately short, that number is what makes
-            # the verdict mean something: a pass with three changes inside it is
-            # evidence the harness survives IP instability, and a pass with none
-            # is evidence only that the network was quiet. Without it the two are
-            # the same word in the same place. Soft dependency, and zero when the
-            # beacon module is absent, so a host that never renumbers reports 0
-            # rather than failing to close its cycle.
-            # -1, not 0, when the count cannot be taken. Zero is a MEANINGFUL
-            # answer here -- it is the one that says this cycle ran on a quiet
-            # network and proves nothing about surviving churn -- so a failure to
-            # measure must not be able to imitate it. Reporting an unmeasured
-            # cycle as zero is worse than reporting nothing: it reads as evidence.
+            # See https://yuruna.link/4213a0b3-009f
             $addressChanges = -1
             # Imported rather than probed for. A Get-Command guard on a module
             # nothing else in this session state loads is a guard that is always
@@ -958,14 +897,7 @@ function Stop-LogFile {
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b21320666af1282e' -Arguments @{ addressChanges = "$addressChanges" }) -InformationAction Continue
             }
             # --- REGION: https://yuruna.link/4220a755-004a
-            # The count above says what this ONE cycle met. The verdict says
-            # whether the host is bounded at all, which is the question a
-            # week-long lease makes urgent and which no single cycle can answer.
-            # Emitted as its own event so it reaches the same log the dashboard
-            # already reads: the periodicity verdict existed for a while with no
-            # route off the host, which made it detection nobody could act on.
-            # Best-effort and never fatal -- a cycle must still close if the
-            # bridge cannot be interrogated.
+            # See https://yuruna.link/4213a0b3-00a0
             if (Get-Command Get-HostAddressStabilityReport -ErrorAction SilentlyContinue) {
                 try {
                     $footprint = Get-HostAddressStabilityReport -RuntimeDir $runtimeDir
@@ -995,27 +927,7 @@ function Stop-LogFile {
             "</pre></body></html>" | Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -Encoding utf8 -ErrorAction SilentlyContinue
         }
         if ($global:__YurunaCycleFolder) {
-            # Mirror the cycle's last_failure.json into the cycle folder BEFORE
-            # the manifest sweep, so the full schema-v2 record -- matched
-            # pattern, label, OCR tail, repro, inner cause -- persists with the
-            # cycle for post-hoc analysis, not just the flattened step_failure
-            # event in cycle.events.ndjson. Write-CycleManifest classifies both
-            # the cycle-level copy and each guest's own, so the mirrored files
-            # are cataloged automatically.
-            #
-            # This is the refresh pass, not the only chance: every writer of the
-            # record mirrors it at classification time through
-            # Copy-CycleFailureRecord, because the root copy under
-            # $env:YURUNA_LOG_DIR is cleared at every sequence start and is
-            # routinely gone by the time a cycle ends.
-            #
-            # A cycle that recovered -- a warm resume re-ran the failed sequence
-            # and it passed -- reaches a pass outcome with the first attempt's
-            # mirrors still in the folder. A record anywhere under the cycle
-            # folder means "this cycle failed", and the manifest catalogs it as
-            # such, so a pass clears every copy, the per-guest ones included; the
-            # step_failure event keeps the recovered attempt observable in the
-            # stream.
+            # See https://yuruna.link/4213a0b3-00a1
             if ($Outcome -eq 'pass') {
                 Get-ChildItem -LiteralPath $global:__YurunaCycleFolder -Filter 'last_failure.json' -Recurse -File -ErrorAction SilentlyContinue |
                     Remove-Item -Force -ErrorAction SilentlyContinue
@@ -1027,22 +939,7 @@ function Stop-LogFile {
                 # root copy has been cleared -- the mirrors are then the only
                 # copies of the failure this cycle actually had.
                 $null = Copy-CycleFailureRecord
-                # The remediation dispatcher's decision (Invoke-Remediation) rides
-                # the same archive path as the failure it routed on, so the cycle
-                # folder -- and the pool copy of it -- carries the recommendation
-                # next to the failure. Only on a non-pass outcome: a passing cycle
-                # has no remediation of its own, so any file present is stale.
-                #
-                # A non-pass outcome alone is not enough to prove ownership. The
-                # source sits in the log ROOT, shared by every cycle, and the
-                # dispatcher does NOT run for every failure -- one that stops
-                # before classification (a pre-flight refusing to start the
-                # cycle) leaves the root file untouched. Copying on presence
-                # then hands this cycle the PREVIOUS cycle's recommendation,
-                # which reads as a diagnosis of a failure it never saw and sends
-                # the operator after the wrong cause. Match the run stamp
-                # instead; an unstamped record predates the stamp and is
-                # likewise not ours.
+                # See https://yuruna.link/4213a0b3-00a2
                 $srcRemediation = Join-Path $env:YURUNA_LOG_DIR 'last_remediation.json'
                 $remediationIsThisRun = $false
                 if (Test-Path -LiteralPath $srcRemediation) {
@@ -1201,6 +1098,65 @@ function Stop-NestedLogFile {
     $global:__YurunaCycleIdentity = $null
 }
 
+# --- REGION: Event delivery ledger
+# See https://yuruna.link/4213a0b3-00a3
+$script:CycleEventDelivery = [ordered]@{ attempted = 0; delivered = 0; dropped = 0; lastDroppedEvent = ''; lastDropReason = ''; lastDropAtUtc = '' }
+$script:CycleEventDropWarned = $false
+
+function Add-CycleEventDeliveryRecord {
+    <#
+    .SYNOPSIS
+        Counts one emission as delivered or dropped, and persists a drop.
+    .DESCRIPTION
+        'no-cycle-folder' is counted but never warned about or persisted: with no
+        cycle open there is no stream to be incomplete, and tools and tests emit
+        in that state routinely. Every other reason names a real loss.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'Append-only telemetry bookkeeping; the only file it writes is the ledger beside the cycle stream.')]
+    param(
+        [Parameter(Mandatory)][ValidateSet('delivered', 'dropped')][string]$Outcome,
+        [string]$EventName = '',
+        [string]$Reason = '',
+        [string]$CycleFolder = ''
+    )
+    $script:CycleEventDelivery.attempted++
+    if ($Outcome -eq 'delivered') { $script:CycleEventDelivery.delivered++; return }
+    $script:CycleEventDelivery.dropped++
+    $script:CycleEventDelivery.lastDroppedEvent = if ($EventName) { $EventName } else { '(unknown)' }
+    $script:CycleEventDelivery.lastDropReason   = $Reason
+    $script:CycleEventDelivery.lastDropAtUtc    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    if ($Reason -eq 'no-cycle-folder') { return }
+    if ($CycleFolder -and (Test-Path -LiteralPath $CycleFolder -PathType Container)) {
+        try {
+            [System.IO.File]::WriteAllText((Join-Path $CycleFolder 'cycle.events.delivery.json'),
+                ($script:CycleEventDelivery | ConvertTo-Json -Compress), [System.Text.UTF8Encoding]::new($false))
+        } catch {
+            Write-Verbose "Add-CycleEventDeliveryRecord: ledger write failed: $($_.Exception.Message)"
+        }
+    }
+    if (-not $script:CycleEventDropWarned) {
+        $script:CycleEventDropWarned = $true
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.telemetry_event_dropped' -Arguments @{ eventName = "$($script:CycleEventDelivery.lastDroppedEvent)"; reason = "$Reason" })
+    }
+}
+
+function Get-CycleEventDelivery {
+    <#
+    .SYNOPSIS
+        How many cycle events this process has tried to emit, delivered and
+        lost since the current cycle opened, and what the last loss was.
+    .OUTPUTS
+        [pscustomobject] attempted, delivered, dropped, lastDroppedEvent,
+        lastDropReason, lastDropAtUtc.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    return [pscustomobject]$script:CycleEventDelivery
+}
+
 function Write-CycleNdjsonEvent {
     <#
     .SYNOPSIS
@@ -1227,22 +1183,13 @@ function Write-CycleNdjsonEvent {
     param([Parameter(Mandatory)][hashtable]$EventRecord)
     $cycleFolder = $global:__YurunaCycleFolder
     if (-not $cycleFolder -and $env:YURUNA_LOG_DIR) { $cycleFolder = $env:YURUNA_LOG_DIR }
-    if (-not $cycleFolder) { return }
+    $eventName = if ($EventRecord.Contains('event')) { [string]$EventRecord['event'] } else { '' }
+    if (-not $cycleFolder) {
+        Add-CycleEventDeliveryRecord -Outcome dropped -EventName $eventName -Reason 'no-cycle-folder'
+        return
+    }
     $path = Join-Path $cycleFolder 'cycle.events.ndjson'
-    # Stamp cycleFolder + cycleStartUtc on every record so off-host consumers
-    # can join events back to their cycle without reparsing the file
-    # path or the leaf-name format. Existing values from the caller win
-    # (cycle_start in particular already carries both); only set when
-    # missing. cycleStartUtc is the multi-host correlation key -- two events
-    # with the same cycleStartUtc belong to the same cycle even when emitted
-    # by sibling runners on different hosts.
-    #
-    # Stamp cycleFolder as the cycle's stable IDENTITY, not the
-    # on-disk leaf -- the on-disk folder transitions
-    # <base>.incomplete/ -> <base>/ -> <base>.aborted.<UTC>/, and the
-    # NDJSON stream must NOT flip the cycleFolder field across those
-    # renames or a streaming consumer's join would break. Get-Cycle-
-    # FolderIdentity strips any of the three suffixes.
+    # See https://yuruna.link/4213a0b3-00a4
     if (-not $EventRecord.Contains('cycleFolder')) {
         $EventRecord['cycleFolder'] = if ($global:__YurunaCycleIdentity) {
             [string]$global:__YurunaCycleIdentity
@@ -1272,9 +1219,11 @@ function Write-CycleNdjsonEvent {
     try {
         $json = $EventRecord | ConvertTo-Json -Compress -Depth 5
         Add-Content -LiteralPath $path -Value $json -Encoding utf8NoBOM -ErrorAction Stop
+        Add-CycleEventDeliveryRecord -Outcome delivered
     } catch {
         $errMsg = $_.Exception.Message
         Write-Verbose "Write-CycleNdjsonEvent: $errMsg"
+        Add-CycleEventDeliveryRecord -Outcome dropped -EventName $eventName -Reason "write-failed: $errMsg" -CycleFolder $cycleFolder
         # Sentinel: surface the dropped event so a remediator polling
         # cycle.events.ndjson knows the stream has gaps. Best-effort
         # (a disk-full state will also defeat this) -- but on the
@@ -1321,16 +1270,22 @@ function Send-CycleEventSafely {
         record -- a malformed event is still written so a consumer
         sees what was actually emitted next to the violation report.
 
-        Returns silently when Write-CycleNdjsonEvent isn't available
-        (Test.Log not imported in this scope) and when the call itself
-        throws (open-file race, disk full). The cycle never fails
-        because telemetry failed.
+        Never throws, and the cycle never fails because telemetry failed.
+        A loss is not silent, though: when Write-CycleNdjsonEvent isn't
+        available, throws, or finds no cycle to write into, the event is
+        counted as dropped (Get-CycleEventDelivery) and, apart from the
+        no-cycle case, recorded with its reason in cycle.events.delivery.json
+        and warned about once per cycle.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
         '', Justification = 'Append-only telemetry pass-through; no destructive operation.')]
     param([Parameter(Mandatory)][hashtable]$EventRecord)
-    if (-not (Get-Command Write-CycleNdjsonEvent -ErrorAction SilentlyContinue)) { return }
+    $sendName = if ($EventRecord.Contains('event')) { [string]$EventRecord['event'] } else { '' }
+    if (-not (Get-Command Write-CycleNdjsonEvent -ErrorAction SilentlyContinue)) {
+        Add-CycleEventDeliveryRecord -Outcome dropped -EventName $sendName -Reason 'writer-unavailable' -CycleFolder $global:__YurunaCycleFolder
+        return
+    }
     # Schema validation. Soft import -- a consumer that loaded Test.Log
     # without Test.EventSchema (test fixture, unusual entry-point) still
     # gets the emit; validation just no-ops in that case.
@@ -1359,7 +1314,7 @@ function Send-CycleEventSafely {
     try {
         Write-CycleNdjsonEvent -EventRecord $EventRecord
     } catch {
-        $null = $_
+        Add-CycleEventDeliveryRecord -Outcome dropped -EventName $sendName -Reason "writer-threw: $($_.Exception.Message)" -CycleFolder $global:__YurunaCycleFolder
     }
 }
 
@@ -1466,4 +1421,4 @@ function Add-OcrHistoryFrame {
     }
 }
 
-Export-ModuleMember -Function Add-OcrHistoryFrame, Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Copy-CycleFailureRecord, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation
+Export-ModuleMember -Function Add-OcrHistoryFrame, Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Copy-CycleFailureRecord, Write-CycleNdjsonEvent, Get-CycleEventDelivery, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation

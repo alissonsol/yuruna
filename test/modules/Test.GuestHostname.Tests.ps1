@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,7 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.SequenceResolve.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.OcrMatch.psm1') -Force -Global -DisableNameChecking
 
 function Get-SequenceStepRecord {
     param($Steps, [int]$Depth = 0, [int]$TopIndex = -1)
@@ -287,8 +288,29 @@ Describe 'agetty periodic redraw -- Ubuntu cold installs keep one wait deadline'
             "$name must recognize the restarted live installer"
         Assert-True (@($restartStep['pattern']) -contains '${hostLabel} login:') `
             "$name must also recognize an already-installed guest"
-        Assert-Equal -Expected '${hostLabel} login:' -Actual ([string]$restartStep['skipInputPattern']) `
-            -Because "$name must never type the autoinstall answer at a login prompt"
+        foreach ($laterState in '${hostLabel} login:', 'subiquity/Install/install/configure_apt', 'subiquity/Install/install/curtin_install') {
+            Assert-True (@($restartStep['skipInputPattern']) -contains $laterState) `
+                "$name must never type the autoinstall answer at $laterState"
+        }
+        # Subiquity prints these before it asks. A confirmation wait that stops
+        # on one leaves the prompt unanswered while the login wait times out.
+        $preConfirmation = @(
+            'start: subiquity/Install/install'
+            'start: subiquity/Mirror/cmd-apt-config: curtin command apt-config'
+        )
+        $nestedSteps = @($topSteps | ForEach-Object { @($_['steps']) + @($_['stepsAfterVmRestart']) })
+        $confirmSteps = @(@($topSteps) + $nestedSteps | Where-Object {
+            $_ -and $_['action'] -eq 'waitForAndEnter' -and @($_['pattern']) -contains 'Continue with autoinstall?'
+        })
+        Assert-True ($confirmSteps.Count -ge 2) "$name must answer the autoinstall prompt initially and after a cold restart"
+        foreach ($confirmStep in $confirmSteps) {
+            foreach ($laterState in @($confirmStep['pattern']) + @($confirmStep['skipInputPattern']) | Where-Object { $_ -ne 'Continue with autoinstall?' }) {
+                foreach ($line in $preConfirmation) {
+                    Assert-False (Test-OCRMatch -Text $line -Pattern $laterState -NoSegmentMatch) `
+                        "$name must not treat '$line' as past the prompt via '$laterState'"
+                }
+            }
+        }
         $retryActions = @($retry['steps'] | ForEach-Object { [string]$_['action'] })
         Assert-Equal -Expected 'pressKey,waitForSeconds,waitForTextWithNudge' -Actual ($retryActions -join ',') `
             -Because "$name may retry only pre-login, non-secret steps"
@@ -403,9 +425,12 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
             Assert-Equal -Expected 'waitForTextWithNudge' -Actual (@($postRetry['steps'] | ForEach-Object { [string]$_['action'] }) -join ',') `
                 -Because "$name must retry only the installed login wait, never provisioning or credentials"
         } else {
-            Assert-Equal -Expected 1 -Actual $rotationRetries.Count `
-                -Because "$name must retain its existing new/retype-password rotation retry"
-            Assert-True ($rotationRetries[0].TopIndex -lt $tokenInputs[0].TopIndex) `
+            Assert-Equal -Expected 0 -Actual $rotationRetries.Count `
+                -Because "$name must never replay password mutation after PAM accepts it"
+            Assert-Equal -Expected 0 -Actual @($passwordPrompts | Where-Object { $_.Depth -ne 0 }).Count `
+                -Because "$name must keep every password mutation outside retry"
+            Assert-Equal -Expected 2 -Actual $newPasswordPrompts.Count -Because "$name must retain its new/retype-password rotation"
+            Assert-True ($newPasswordPrompts[-1].TopIndex -lt $tokenInputs[0].TopIndex) `
                 "$name computes the token before password rotation finishes"
         }
         Assert-Equal -Expected 1 -Actual $tokenInputs.Count -Because "$name must ask a live shell to compute the confirmation token"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 421e2d93-7e74-4a5d-90d5-4a730e5dc48f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -309,17 +309,64 @@ Describe 'the locale terminology and style-guide sources' {
         $root = New-TerminologyFixture -Name 'document-count'
         Add-FixtureLocale -Root $root -Tag 'yy-YY'
         $run = Invoke-TerminologyGate -Root $root
-        Assert-Equal -Expected 0 -Actual $run.Code 'thirteen pt-BR rows and no yy-YY rows is a valid manifest'
+        Assert-Equal -Expected 0 -Actual $run.Code 'twenty-two pt-BR rows and no yy-YY rows is a valid manifest'
 
         $relative = 'globalization/manifests/doc-translations.json'
         $manifest = Read-FixtureJson -Root $root -RelativePath $relative
         $manifest.documents = @($manifest.documents | Select-Object -Skip 1)
         Write-FixtureJson -Root $root -RelativePath $relative -Value $manifest
         $run = Invoke-TerminologyGate -Root $root
-        Assert-Equal -Expected 1 -Actual $run.Code 'a locale mapping twelve of the thirteen documents passed'
-        Assert-Match -Pattern 'pt-BR: document manifest maps 12 documents; a locale maps either none or the 13-document subset' `
+        Assert-Equal -Expected 1 -Actual $run.Code 'a locale mapping twenty-one of the twenty-two documents passed'
+        Assert-Match -Pattern 'pt-BR: document manifest maps 21 documents; a locale maps either none or the 22-document subset' `
             -Actual $run.Output 'the partial document set is not named with its locale'
         Assert-False -Condition ($run.Output -match 'yy-YY: document manifest') `
             -Because 'a locale with no documents is valid'
+    }
+
+    It 'refuses an extra source beyond the complete document scope' {
+        $root = New-TerminologyFixture -Name 'document-extra'
+        $relative = 'globalization/manifests/doc-translations.json'
+        $manifest = Read-FixtureJson -Root $root -RelativePath $relative
+        $manifest.documents = @($manifest.documents) + @([pscustomobject]@{
+                repo = 'yuruna'; source = 'docs/unregistered.md'; locale = 'pt-BR'
+                translated = 'docs/pt-BR/unregistered.md'; sourceHash = ''; origin = 'machine'
+            })
+        Write-FixtureJson -Root $root -RelativePath $relative -Value $manifest
+        $run = Invoke-TerminologyGate -Root $root
+        Assert-Equal -Expected 1 -Actual $run.Code 'an extra document outside the approved scope passed'
+        Assert-Match -Pattern 'pt-BR: document manifest maps 23 documents' -Actual $run.Output `
+            'the extra row count is not reported'
+        Assert-Match -Pattern 'document manifest includes an unregistered source: yuruna:docs/unregistered.md' `
+            -Actual $run.Output 'the unexpected source is not named'
+    }
+
+    It 'refuses a same-count manifest with a replaced source' {
+        $root = New-TerminologyFixture -Name 'document-replaced'
+        $relative = 'globalization/manifests/doc-translations.json'
+        $manifest = Read-FixtureJson -Root $root -RelativePath $relative
+        $missing = '{0}:{1}' -f $manifest.documents[0].repo, $manifest.documents[0].source
+        $manifest.documents[0].source = 'docs/unregistered.md'
+        Write-FixtureJson -Root $root -RelativePath $relative -Value $manifest
+        $run = Invoke-TerminologyGate -Root $root
+        Assert-Equal -Expected 1 -Actual $run.Code 'twenty-two rows concealed an omitted document'
+        Assert-Match -Pattern ([regex]::Escape("document manifest omits source: $missing")) `
+            -Actual $run.Output 'the omitted source is not named'
+        Assert-Match -Pattern 'document manifest includes an unregistered source:' -Actual $run.Output `
+            'the replacement is not reported'
+    }
+
+    It 'refuses a same-count manifest with a duplicated source' {
+        $root = New-TerminologyFixture -Name 'document-duplicate'
+        $relative = 'globalization/manifests/doc-translations.json'
+        $manifest = Read-FixtureJson -Root $root -RelativePath $relative
+        $manifest.documents[0].repo = $manifest.documents[1].repo
+        $manifest.documents[0].source = $manifest.documents[1].source
+        Write-FixtureJson -Root $root -RelativePath $relative -Value $manifest
+        $run = Invoke-TerminologyGate -Root $root
+        Assert-Equal -Expected 1 -Actual $run.Code 'twenty-two rows concealed a duplicate document'
+        Assert-Match -Pattern 'document manifest repeats source:' -Actual $run.Output `
+            'the duplicate source is not reported'
+        Assert-Match -Pattern 'document manifest omits source:' -Actual $run.Output `
+            'the source displaced by the duplicate is not reported'
     }
 }

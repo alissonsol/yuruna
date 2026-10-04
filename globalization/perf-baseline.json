@@ -213,8 +213,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.aggregator.js": {
-      "rawBytes": 14144,
-      "gzipBytes": 4206,
+      "rawBytes": 16435,
+      "gzipBytes": 4582,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.auth.js": {
@@ -288,8 +288,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/he-IL.aggregator.js": {
-      "rawBytes": 29954,
-      "gzipBytes": 5619,
+      "rawBytes": 34484,
+      "gzipBytes": 6083,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/he-IL.auth.js": {
@@ -363,8 +363,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.aggregator.js": {
-      "rawBytes": 15630,
-      "gzipBytes": 4989,
+      "rawBytes": 18057,
+      "gzipBytes": 5419,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.auth.js": {
@@ -438,8 +438,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.aggregator.js": {
-      "rawBytes": 35455,
-      "gzipBytes": 5874,
+      "rawBytes": 40898,
+      "gzipBytes": 6377,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.auth.js": {
@@ -513,8 +513,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.aggregator.js": {
-      "rawBytes": 36758,
-      "gzipBytes": 5967,
+      "rawBytes": 42318,
+      "gzipBytes": 6476,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.auth.js": {
@@ -588,8 +588,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/zh-CN.aggregator.js": {
-      "rawBytes": 18511,
-      "gzipBytes": 5312,
+      "rawBytes": 20790,
+      "gzipBytes": 5698,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/zh-CN.auth.js": {

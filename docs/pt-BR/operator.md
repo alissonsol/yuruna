@@ -764,10 +764,13 @@ do usuário: [stash-guide.md](../stash-guide.md).
 pwsh test/Invoke-TestProject.ps1
 ```
 
-Ciclo único: apaga `project/`, reclona `repositories.projectUrl`,
-executa um único ciclo exatamente como o executor faria, e sai. Depure
-aqui até ficar verde -- um ciclo sem laço em volta é o lugar mais
-barato para depurar.
+Ciclo único: substitui `project/` por um clone novo de
+`repositories.projectUrl`, executa um único ciclo exatamente como o executor
+faria, e sai. O clone é criado ao lado do checkout anterior e só o substitui
+quando está completo. Assim, um clone que falha ou é interrompido preserva
+o último `project/` íntegro (uma atualização interrompida durante a troca
+é recuperada pela próxima). Depure aqui até ficar verde -- um ciclo sem
+laço em volta é o lugar mais barato para depurar.
 
 <a id="42ad660e-0020"></a>
 
@@ -942,6 +945,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.30
+Última revisão: 2026.10.04
 
 Voltar para [Yuruna](../../README.md)

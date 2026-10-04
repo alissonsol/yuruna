@@ -374,6 +374,10 @@ install/setup.answers.*.yml
 
 # Project tree (cloned per cycle from test.config.yml's repositories.projectUrl)
 project/
+# A refresh clones beside the checkout and swaps it in; these hold the
+# replacement and the displaced copy while a swap is in flight.
+project.incoming/
+project.previous/
 
 # All harness runtime state lives under test/status/<subdir>/ -- one
 # umbrella rule covers every subdirectory the runner creates:

@@ -1088,6 +1088,9 @@ All five `automation/*.sh` helpers land in the canonical
 - `fetch-and-execute.sh` -- the harness's invocation point; the
   test-sequence YAMLs call it as
   `/usr/local/lib/yuruna/fetch-and-execute.sh <relative/path/script.sh>`.
+  The harness supplies the script's expected SHA-256 itself and the fetcher
+  refuses to run without one; a hand run passes `E_SHA` (see
+  [Supplying the digest by hand](../guest/README.md#supplying-the-digest-by-hand)).
 - `yuruna-network.sh` -- guest network diagnostics and DHCP lease
   release.
 - `yuruna-host-locate.sh` -- re-resolves the host's status-service
@@ -1631,7 +1634,7 @@ An optional `-ProxyAddress` overrides the configured caching-proxy address. The 
 
 ### Loki tiered retention
 
-The seed binds Loki to 127.0.0.1:3100 and Prometheus to 127.0.0.1:9090, overriding their 0.0.0.0 defaults. Tiered retention: 30d for transitions (src=cycle) + incidents (src=incident) -- the dashboard's count_over_time Pass/Fail + incident history span a month -- and 7d for per-step events (src=event), the recent-focused drill-down (caps disk). Pre-written here because cloud-init's --force-confold preserves it through package upgrades.
+The seed binds Loki to 127.0.0.1:3100 and Prometheus to 127.0.0.1:9090, overriding their 0.0.0.0 defaults. Tiered retention: 90d for transitions (src=cycle) + incidents (src=incident) -- the dashboard's count_over_time Pass/Fail + incident history span 90 days -- and 7d for per-step events (src=event), the recent-focused drill-down (caps disk). Pre-written here because cloud-init's --force-confold preserves it through package upgrades.
 
 <a id="429f3d06-0048"></a>
 
@@ -2269,9 +2272,9 @@ Latest-stable is resolved by following `/releases/latest`, not the GitHub API: u
 
 The tarball is verified against the release's published hashes before unpacking, because this interpreter runs Fido with the daemon's privileges.
 
-The `hashes.sha256` asset is UTF-16 LE (Windows-generated), so it is normalized to UTF-8 before parsing -- a byte-order-mark probe picks the branch.
+The `hashes.sha256` asset can be UTF-16 (Windows-generated), so a byte-order-mark probe selects normalization to UTF-8. Conversion must succeed before parsing. The checksum row must name the exact archive, with the optional `*` prefix used by checksum tools. Both digests must contain 64 hexadecimal characters and match after case normalization.
 
-A **mismatch aborts** the install and leaves nothing behind. A hashes file that cannot be fetched or parsed only **warns** and proceeds, so a GitHub blip does not cost the family.
+Only a verified archive is unpacked. A missing, malformed, absent-file, or mismatched checksum skips the optional PowerShell installation and logs the reason. Without PowerShell the Windows 11 family remains unavailable; the download-agent daemon can still build and serve its other families.
 
 <a id="429f3d06-008c"></a>
 
@@ -2537,6 +2540,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

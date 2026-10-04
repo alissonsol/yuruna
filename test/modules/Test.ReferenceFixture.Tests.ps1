@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 425c19e6-01ab-4b44-b9fe-f6dbc6860439
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -266,3 +266,102 @@ Describe 'the recorded captures answer to the producers' {
 }
 
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Describe 'the document review reference uses private document state' {
+    It 'derives only private hashes, retains machine origins, and still detects source drift' {
+        $realManifest = Join-Path $script:RepoRoot 'globalization/manifests/doc-translations.json'
+        $before = [IO.File]::ReadAllText($realManifest)
+        $capturedLines = [IO.File]::ReadAllLines((Join-Path $script:FixtureRoot 'en-US/cli-document-review-clean.txt'))
+        . ([scriptblock]::Create((Get-ToolFunctionText -Name @('New-ReferenceDocumentReviewFixture', 'ConvertTo-ReferenceDocumentReviewCommand'))))
+        $fixture = New-ReferenceDocumentReviewFixture -SourceRoot $script:RepoRoot -Directory (Join-Path $TestDrive 'document-review')
+        $records = ConvertFrom-Json -InputObject $before
+        $privateRecords = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($fixture.Manifest))
+        Assert-Equal -Expected 13 -Actual $privateRecords.documents.Count
+        Assert-True ($records.documents.Count -gt 13) 'the expanded real manifest stays outside the frozen private subset'
+        $checkerText = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'tools/Test-DocTranslation.ps1'))
+        $scope = [regex]::Match($checkerText, '(?ms)^\$Document = @\(\r?\n(.*?)^\)')
+        Assert-Equal -Expected 22 -Actual ([regex]::Matches($scope.Groups[1].Value, "@\{ Repo = '").Count) 'the shipping checker retains all 22 real sources'
+        $selectedRecords = @($records.documents | Where-Object { "$($_.repo):$($_.source)" -cin $fixture.Paths })
+        Assert-Equal -Expected 13 -Actual $selectedRecords.Count
+        foreach ($record in $selectedRecords) {
+            $privateRow = @($privateRecords.documents | Where-Object { $_.repo -ceq $record.repo -and $_.source -ceq $record.source -and $_.locale -ceq $record.locale })
+            Assert-Equal -Expected 1 -Actual $privateRow.Count
+            $capturedLine = @($capturedLines | Where-Object { $_ -match ('^ok\s+' + [regex]::Escape("$($record.repo)/$($record.source)") + ' \(pt-BR, (?:accepted|machine draft)\)$') })
+            Assert-Equal -Expected 1 -Actual $capturedLine.Count
+            $capturedOrigin = if ($capturedLine[0] -match '\(pt-BR, machine draft\)$') { 'machine' } else { '' }
+            $fixtureOrigin = if ($privateRow[0].PSObject.Properties['origin']) { [string]$privateRow[0].origin } else { '' }
+            Assert-Equal -Expected $capturedOrigin -Actual $fixtureOrigin
+            $ownerRoot = if ($record.repo -ceq 'yuruna') { $fixture.Root } else { $fixture.ProjectRoot }
+            Assert-Equal -Expected (Get-LocalizationDocumentHash -FullPath (Join-Path $ownerRoot $record.source)) -Actual $privateRow[0].sourceHash
+        }
+        foreach ($relative in @('tools/Test-DocTranslation.ps1', 'test/modules/Test.LocalizationExchange.psm1', 'test/modules/Test.CanonicalJson.psm1')) {
+            Assert-Equal -Expected (Get-FileHash -LiteralPath (Join-Path $script:RepoRoot $relative)).Hash -Actual (Get-FileHash -LiteralPath (Join-Path $fixture.Root $relative)).Hash
+        }
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -Global -DisableNameChecking
+        $arguments = @('-NoProfile', '-NonInteractive', '-Command', (ConvertTo-ReferenceDocumentReviewCommand -Fixture $fixture))
+        $current = Invoke-BoundedNativeCommand -FilePath $script:PowerShell -ArgumentList $arguments -TimeoutSeconds 30
+        Assert-True (Test-BoundedNativeResultComplete $current) "private producer completion: $($current.StartError)"
+        Assert-Equal -Expected 0 -Actual $current.ExitCode
+        Assert-Match '13 document\(s\), 0 problem\(s\), 5 machine draft\(s\)' $current.StdOut 'the frozen subset excludes new real source rows'
+        [IO.File]::AppendAllText((Join-Path $fixture.Root 'README.md'), "Changed fixture source.`n", [Text.UTF8Encoding]::new($false))
+        $stale = Invoke-BoundedNativeCommand -FilePath $script:PowerShell -ArgumentList $arguments -TimeoutSeconds 30
+        Assert-True (Test-BoundedNativeResultComplete $stale) "stale private producer completion: $($stale.StartError)"
+        Assert-Equal -Expected 1 -Actual $stale.ExitCode
+        Assert-StringEqual -Expected $before -Actual ([IO.File]::ReadAllText($realManifest))
+    }
+
+    It 'keeps synthetic review output fixed when copied live origins change and leaves all real bytes untouched' {
+        . ([scriptblock]::Create((Get-ToolFunctionText -Name @('New-ReferenceDocumentReviewFixture', 'ConvertTo-ReferenceDocumentReviewCommand', 'Get-OrdinalSortedLine', 'ConvertTo-NormalizedFixtureText'))))
+        $realManifest = Join-Path $script:RepoRoot 'globalization/manifests/doc-translations.json'
+        $capturedPath = Join-Path $script:FixtureRoot 'en-US/cli-document-review-clean.txt'
+        $realBefore = (Get-FileHash -LiteralPath $realManifest).Hash
+        $captureBefore = (Get-FileHash -LiteralPath $capturedPath).Hash
+        $sourceRoot = Join-Path $TestDrive 'copied-live-origin-source'
+        $dependencies = @('tools/Test-DocTranslation.ps1', 'test/modules/Test.LocalizationExchange.psm1',
+            'test/modules/Test.CanonicalJson.psm1', 'globalization/manifests/doc-translations.json',
+            'globalization/fixtures/reference/en-US/cli-document-review-clean.txt')
+        foreach ($relative in $dependencies) {
+            $target = Join-Path $sourceRoot $relative
+            $null = New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force
+            [IO.File]::Copy((Join-Path $script:RepoRoot $relative), $target, $true)
+        }
+        $beforeFixture = New-ReferenceDocumentReviewFixture -SourceRoot $sourceRoot -Directory (Join-Path $TestDrive 'before-live-origins')
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -Global -DisableNameChecking
+        $beforeRun = Invoke-BoundedNativeCommand -FilePath $script:PowerShell -ArgumentList @(
+            '-NoProfile', '-NonInteractive', '-Command', (ConvertTo-ReferenceDocumentReviewCommand -Fixture $beforeFixture)
+        ) -TimeoutSeconds 30
+        Assert-True (Test-BoundedNativeResultComplete $beforeRun) "before producer completion: $($beforeRun.StartError)"
+        Assert-Equal -Expected 0 -Actual $beforeRun.ExitCode
+        $copiedManifest = Join-Path $sourceRoot 'globalization/manifests/doc-translations.json'
+        $copied = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($copiedManifest))
+        foreach ($record in $copied.documents) {
+            if ("$($record.repo):$($record.source)" -cnotin $beforeFixture.Paths) { continue }
+            if ($record.PSObject.Properties['origin']) { $record.PSObject.Properties.Remove('origin') }
+            else { $record | Add-Member -NotePropertyName 'origin' -NotePropertyValue 'machine' }
+            $record | Add-Member -NotePropertyName 'fixtureReceipt' -NotePropertyValue 'disposable metadata that must not enter synthetic acceptance states'
+        }
+        [IO.File]::WriteAllText($copiedManifest, (ConvertTo-Json -InputObject $copied -Depth 8), [Text.UTF8Encoding]::new($false))
+        $changedCopyBefore = (Get-FileHash -LiteralPath $copiedManifest).Hash
+        $afterFixture = New-ReferenceDocumentReviewFixture -SourceRoot $sourceRoot -Directory (Join-Path $TestDrive 'after-live-origins')
+        $afterRun = Invoke-BoundedNativeCommand -FilePath $script:PowerShell -ArgumentList @(
+            '-NoProfile', '-NonInteractive', '-Command', (ConvertTo-ReferenceDocumentReviewCommand -Fixture $afterFixture)
+        ) -TimeoutSeconds 30
+        Assert-True (Test-BoundedNativeResultComplete $afterRun) "after producer completion: $($afterRun.StartError)"
+        Assert-Equal -Expected 0 -Actual $afterRun.ExitCode
+        $expected = ConvertTo-NormalizedFixtureText -Text ([IO.File]::ReadAllText($capturedPath))
+        Assert-StringEqual -Expected $expected -Actual (ConvertTo-NormalizedFixtureText -Text ("exit: $($beforeRun.ExitCode)`n" + $beforeRun.StdOut))
+        Assert-StringEqual -Expected $expected -Actual (ConvertTo-NormalizedFixtureText -Text ("exit: $($afterRun.ExitCode)`n" + $afterRun.StdOut))
+        $private = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($afterFixture.Manifest))
+        Assert-Equal -Expected 13 -Actual $private.documents.Count
+        Assert-Equal -Expected 5 -Actual @($private.documents | Where-Object { $_.PSObject.Properties['origin'] -and $_.origin -ceq 'machine' }).Count
+        foreach ($row in $private.documents) {
+            Assert-False ([bool]$row.PSObject.Properties['fixtureReceipt']) 'copied review metadata is not part of the synthetic scenario'
+            foreach ($property in $row.PSObject.Properties.Name) {
+                Assert-True ($property -cin @('repo', 'source', 'locale', 'translated', 'sourceHash', 'origin')) 'only checker-required fields enter private records'
+            }
+        }
+        Assert-Equal -Expected $changedCopyBefore -Actual (Get-FileHash -LiteralPath $copiedManifest).Hash 'the fixture does not rewrite even its copied live records'
+        Assert-Equal -Expected $realBefore -Actual (Get-FileHash -LiteralPath $realManifest).Hash 'real review receipts are untouched'
+        Assert-Equal -Expected $captureBefore -Actual (Get-FileHash -LiteralPath $capturedPath).Hash 'the frozen capture is not rewritten'
+    }
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42785eb2-7793-490d-933e-6ced2c275f4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1138,11 +1138,11 @@ Describe 'Inner entry script source order' {
             return $call.Extent.StartLineNumber
         }
         $barrier = & $first 'Wait-YurunaHeldControlBarrier'
-        foreach ($later in @('Update-StashServiceMarkerAddress', 'Assert-HostConditionSet', 'Stop-ConcurrentVM', 'Restore-YurunaServiceVM', 'Clear-StaleControlState')) {
+        foreach ($later in @('Update-StashServiceMarkerAddress', 'Assert-HostConditionSet', 'Invoke-CycleAdmissionStep', 'Restore-YurunaServiceVM', 'Clear-StaleControlState')) {
             Assert-True ($barrier -lt (& $first $later)) "the barrier precedes $later"
         }
         $preflightExit = & $first 'Wait-YurunaRefreshRelease'
-        foreach ($later in @('Write-HostRegistrationRecord', 'Update-StashServiceMarkerAddress', 'Initialize-YurunaHost', 'Stop-ConcurrentVM')) {
+        foreach ($later in @('Write-HostRegistrationRecord', 'Update-StashServiceMarkerAddress', 'Initialize-YurunaHost', 'Invoke-CycleAdmissionStep')) {
             Assert-True ($preflightExit -lt (& $first $later)) "the preflight ends before $later"
         }
         Assert-True ((& $first 'Write-YurunaProcessStartRecord') -lt (& $first 'Write-YurunaStateFile')) 'inner.start is written before inner.pid'

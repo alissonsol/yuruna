@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,20 +34,7 @@
     inner -- is just another failure that the outer absorbs and retries.
 
 .DESCRIPTION
-    Two-process design: a thin outer (this file) and a single-cycle
-    inner (modules/Invoke-TestRunnerInnerLoop.ps1 -- intentionally placed
-    under modules/ so it's not mistaken for an entry-point script in the
-    test/ folder; the operator never invokes it directly).
-    Why the split:
-      * fresh pwsh per cycle on every host -- one code path, no platform-
-        specific in-process / spawn fork
-      * O(1) resident memory; outer is the only resident process and
-        spends most of its time in Start-Process -Wait
-      * backoff with commit polling stops infinite-failure burn
-
-    See test/README.md for cycle flow, config, notifications, and the
-    YURUNA_CACHING_PROXY_SERVICE_IP knob; docs/test-harness.md for harness architecture.
-
+    See https://yuruna.link/42010605-0002.
 .PARAMETER ConfigPath           test.config.yml path (forwarded to inner)
 .PARAMETER NoGitPull            Skip git pull (forwarded; outer also skips its own pull)
 .PARAMETER NoStatusService      Skip the built-in HTTP status service (forwarded)
@@ -140,12 +127,7 @@ $TestRoot    = $paths.TestRoot
 $RepoRoot    = $paths.RepoRoot
 $ModulesDir  = $paths.ModulesDir
 $ConfigPath  = $paths.ConfigPath
-# Publish the resolved config path so every cross-module reload site
-# (Sync-RuntimeConfig in the inner runner, Update-TransportDefault in
-# Test.Transport, future similar callers) reads the SAME file when the
-# operator passes -ConfigPath <elsewhere>. Without this, Test.Transport
-# falls back to the in-tree template and the operator's dashboard edits
-# to vmCommunication.* never take effect.
+# See https://yuruna.link/42010605-0002
 $env:YURUNA_CONFIG_PATH = $ConfigPath
 $InnerScript = Join-Path $ModulesDir 'Invoke-TestRunnerInnerLoop.ps1'
 if (-not (Test-Path -LiteralPath $InnerScript)) {
@@ -159,14 +141,7 @@ if (-not (Test-Path -LiteralPath $InnerScript)) {
 # Initialize-YurunaEntryPointModuleSet for the per-kind module lists.
 Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
 
-# Auto-relaunch under `sg libvirt -c "..."` on host.ubuntu.kvm when this
-# shell's running supplementary group set lacks libvirt. Done BEFORE we
-# spawn any inner pwsh -- the inner inherits the outer's group set, so
-# fixing it here means every cycle's virt-install / virsh call inside
-# the inner runner reaches /var/run/libvirt/libvirt-sock cleanly. No-op
-# on macOS/Windows and on shells that already have libvirt in the
-# effective set. See Invoke-LibvirtGroupReExecIfNeeded for the full
-# rationale (sg + initgroups, why $env: would leak, etc.).
+# See https://yuruna.link/42010605-0002
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # Surface the credential a cycle may need BEFORE the operator walks away from a
@@ -200,12 +175,7 @@ $null = Initialize-YurunaLogDir
 $global:__YurunaHostId = Get-YurunaHostId
 
 # --- REGION: Host-refresh gate at startup
-# A normal start refuses while a host refresh holds this host's runner: it
-# would race the repair, and the repair restarts the runner itself when it
-# finishes. A resumed start (launched by the refresh worker) must present a
-# handoff token that validates for this runtime; a refused token writes a
-# failed acknowledgment the worker is waiting for, when the gate still holds
-# that token.
+# See https://yuruna.link/42010605-0002
 $refreshToken = $null
 if ($RefreshResume) {
     $refreshToken = Test-YurunaRunnerHandoffToken -TokenId $RefreshHandoffToken -Role outer -RuntimeDir $env:YURUNA_RUNTIME_DIR
@@ -258,12 +228,7 @@ foreach ($n in $script:ForwardEnvNames) {
     }
 }
 
-# Sync-ForwardEnv lives in [Test.RunnerOuterLoop](modules/Test.RunnerOuterLoop.psm1)
-# and Write-OuterLog in [Test.OuterLog](modules/Test.OuterLog.psm1), which the
-# outer loop re-exports, so the loop body and the entry-point script see the
-# same implementations. Sync-ForwardEnv takes the snapshot as a parameter (no
-# script-scope read); Write-OuterLog reads YURUNA_RUNTIME_DIR from env at call
-# time (resolved by Initialize-YurunaRuntimeDir above).
+# See https://yuruna.link/42010605-0002
 
 # --- REGION: Single-instance guard
 # Outer owns the runner.pid file across the whole resilient lifetime. Inner
@@ -356,12 +321,7 @@ $completeLaunchRecord = {
 }
 
 # --- REGION: Ctrl+C handler
-# Shared registration lives in Test.Prelude (Register-EntryPointCancelHandler): a
-# Register-ObjectEvent CancelKeyPress subscription that flips the returned hashtable's
-# 'Requested' flag on the pipeline thread (a raw .NET delegate would fire on a
-# Runspace-less thread-pool thread). The outer runner surrenders after the current
-# CYCLE -- the eternal loop and the failure-pause loop both poll
-# $script:ShutdownState['Requested'] at their next iteration -- so pass -ExitAfterLabel 'cycle'.
+# See https://yuruna.link/42010605-0002
 $script:ShutdownState = Register-EntryPointCancelHandler -ExitAfterLabel 'cycle'
 
 # --- REGION: Build inner argument list
@@ -369,23 +329,12 @@ $script:ShutdownState = Register-EntryPointCancelHandler -ExitAfterLabel 'cycle'
 # -NoProfile, and single-quote escaping live in the helper, not here:
 # see test/modules/Test.InnerSpawn.psm1.
 $pwshExe = Get-PwshExePath
-# Every switch here forwards, -NoConfigGate included: the inner gates each
-# cycle it runs, so an operator who bypassed the startup gate for an
-# in-progress edit would otherwise be stopped by that same check one layer
-# down, on the very run they asked to bypass it for.
-# The refresh transport parameters are this script's own and never reach the
-# inner, whose strict binding would refuse them.
+# See https://yuruna.link/42010605-0002
 $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundParameters `
     -ExcludeParameter @('RefreshResume', 'RefreshHandoffToken')
 
 # --- REGION: Helpers
-# git / config / watchdog / Sync-ForwardEnv / Write-OuterLog helpers all
-# live in sibling modules so the entry point stays thin and the
-# heartbeat-watchdog + cycle dispatcher are unit-testable independent of
-# this file. See modules/Test.RunnerWatchdog.psm1,
-# modules/Test.RunnerOuterLoop.psm1 and modules/Test.OuterLog.psm1; all three
-# were loaded with -Global -Force by Initialize-YurunaEntryPointModuleSet
-# -For Outer above.
+# See https://yuruna.link/42010605-0002
 
 # --- REGION: Banner
 # First line written to runtime/outer.log on every outer startup. If this line
@@ -431,17 +380,7 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
 }
 
 # --- REGION: Pre-flight: elevation
-# Resolve elevation ONCE, here, while an operator is still at the console --
-# the only moment a password can be answered. Every cycle after this runs in a
-# fresh pwsh with a cold sudo timestamp, and the inner inherits this terminal,
-# so a prompt raised mid-cycle would park the host with the dashboard still
-# green. Assert-RunnerElevation returns $false only after printing the exact
-# /etc/sudoers.d commands to run; refusing to start is the correct outcome
-# because a host that needs a password typed needs hands on it, exactly like a
-# host with a broken network. No-op on Windows/macOS and when already covered
-# by a drop-in, in which case nothing prints and nothing prompts.
-# Get-Command-guarded so a runner whose framework clone predates the module
-# degrades to the previous behavior rather than failing to launch.
+# See https://yuruna.link/42010605-0002
 $elevationHostType = Get-HostType
 # A resumed start has nobody at a console, so it never prompts: a missing
 # credential is a refusal the worker reports.
@@ -470,12 +409,7 @@ if (-not $gate.passed) {
 }
 
 # --- REGION: Eternal loop
-# Cycle body lives in Test.RunnerOuterLoop.psm1 so it can be unit-tested
-# without spawning a real inner pwsh. The State hashtable threads
-# everything the loop needs (paths, tunables, ShutdownState reference,
-# the call-op argv) so the function reads no caller-scope variables
-# implicitly. ShutdownState is reference-shared with the Ctrl+C handler
-# above; flipping ['Requested'] there ends the loop here.
+# See https://yuruna.link/42010605-0002
 $CycleScript = Join-Path $ModulesDir 'Invoke-TestCycleRunner.ps1'
 if (-not (Test-Path -LiteralPath $CycleScript)) {
     # Not fatal: the loop falls back to running the cycle in-process, which behaves

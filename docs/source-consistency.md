@@ -33,7 +33,8 @@ role; do not introduce synonyms such as `Install logging`, `Storage dirs`, or
 `Cleanup temporary files`.
 
 When a region introduces a standard marker, use that marker's exact name and
-case: the YAML key, plist key, or XML/HTML element name. Do not expand it into
+case: the YAML key, plist key, XML/HTML element name, or bracketed systemd/INI
+section such as `[Service]`. Do not expand it into
 a descriptive title. A substitution placeholder is not such a marker: naming a
 `<NAME>_PLACEHOLDER` token in any comment makes that comment a second injection
 site, because substitution is substring-based over the whole file. A multi-line
@@ -148,6 +149,18 @@ A replacement build validates the base image before removing an existing VM.
 It then stops and unregisters that VM before replacing its disk or seed files.
 Writing a disk still attached to a running VM can damage both the current guest
 and the replacement. Stop or removal failure must prevent those writes.
+
+Ubuntu builders on all three hosts discover the caching proxy when its URL
+parameter is unbound. A missing or stopped cache permits direct fetching; a
+running cache with an unreachable proxy stops provisioning. An explicitly
+bound URL, including an empty value for direct fetching, bypasses discovery.
+
+Amazon Linux 2023 boots a prebuilt cloud image. Its builders do not seed a dnf
+proxy address: the address could go stale before the guest can verify it, which
+would strand package transactions. The guest update script discovers and probes
+the caching proxy at run time. `Invoke-PerGuestNewVm` forwards
+`-CachingProxyServiceUrl` only to builders that declare it, so its omission from
+all three Amazon builders is intentional.
 
 Hyper-V creates and starts a registered VM through host cmdlets. KVM imports and
 starts a libvirt domain. UTM first creates a bundle; the caller registers and
@@ -331,11 +344,33 @@ backslashes do not escape that PowerShell interpolation.
 
 Ubuntu 24 and 26 carry the same update, Code, Kubernetes, n8n, OpenClaw, and PostgreSQL installer logic. A release name is not a reason to omit retry behavior, installed-tool checks, or diagnostics. Common phases use the same region names and order. Amazon Linux retains dnf/RPM paths, Amazon Corretto, NodeSource RPM installation, and PostgreSQL 17; Ubuntu uses apt, nvm, and PostgreSQL 18. PostgreSQL is stopped after Ubuntu's package installation because its post-install script starts a cluster, and before Amazon's installation because its RPM leaves initialization to the caller. Windows uses elevation and Windows package tools. The macOS update workload runs after Setup Assistant; the IPSW restore already supplies its initial operating system.
 
+Architecture detection reports the guest's CPU architecture independently of
+its hypervisor. An x64 guest does not identify its host provider. JDK and .NET
+suppliers follow the packages supported by each OS; keep their versions and
+availability checks aligned rather than forcing identical download formats.
+
+Kubernetes certificate exports use a random PFX password with an owner-only
+sidecar consumed by workload deployment. Linux disables xtrace while producing
+the secret. Windows uses PowerShell 7 for secure-string conversion because the
+initial Windows PowerShell 5.1 environment has different certificate tooling.
+These differences preserve the same certificate and password contract.
+
 <a id="42e220c4-000d"></a>
 
 ### Host discovery and package initialization
 
 Linux update workloads re-read `/etc/yuruna/host.env` before using the host status service. Framework and project archive downloads retry once after invoking `yuruna-host-locate.sh`; a failed resolver must remain a failure, with stderr preserved. A readable file containing an old DHCP address does not prove that the host is reachable. Re-resolving prevents an unnecessary fallback to a possibly private Git repository. Windows also disables Git Credential Manager interaction: `GIT_TERMINAL_PROMPT=0` alone does not suppress its credential dialog. See [host-coordinate recovery](https://yuruna.link/4220a755-004d) and [noninteractive Git](https://yuruna.link/4220a755-004f).
+
+Windows and macOS retain the seeded framework and project repository URLs when
+host archive transfer fails. Every guest therefore falls back to the configured
+repositories before using the public defaults. Repository identity must survive
+a host-address change or an unavailable status service.
+
+The standalone PowerShell tarball installer fallbacks copy the shared retry
+library's installer exactly. Both paths require a usable publisher checksum
+list and verify SHA-256 before extracting or installing the payload. A missing
+checksum is a failure; it must not become an unchecked installation merely
+because the retry library was unavailable.
 
 Bash and PowerShell retry settings accept positive decimal integers within the
 Int32 range. Invalid, zero, negative, or overflowing values fall back to five
@@ -369,6 +404,12 @@ second for 60 seconds.
 ### Service guests
 
 Service installers export `HOME` before building Go code because cloud-init may omit it and Go requires it to locate its module cache. All three select a service user, resolve storage and tunables, build, install a systemd unit, and start the daemon; their storage and runtime dependencies justify different intervening steps.
+
+All three service installers allow 30 readiness probes and require both an
+active systemd unit and a successful `/healthz` HTTP response. Stash retains
+active-only readiness when `STASH_HTTP_ADDR` is explicitly empty because HTTP
+is disabled. Missing NAS storage remains a runtime health detail and does not
+prevent the daemon from starting.
 
 | Guest | Dependencies and storage |
 | --- | --- |
@@ -410,15 +451,24 @@ does not prevent cloud-init completion. Download-agent additionally installs the
 proxy CA and prepares Windows-image tooling; those blocks have no pool-control
 equivalent.
 
-All service seeds write `/etc/yuruna/host.env` in the same key order: host ID,
+All service seeds and the Windows bootstrap write `host.env` in the same key order: host ID,
 status-service IP and port, then caching-proxy IP. The caching-proxy VM points
 that last key to its own loopback address; the other guests receive the seeded
 cache address. Keep the order aligned so a diff isolates the intentional value
 exception.
 
+Windows seed generation keeps its first-logon body in a separate, parsable
+PowerShell 5.1 template because nested here-string terminators cannot safely
+live inside an outer here-string. Trusted seed media carries both the bootstrap
+and host locator. A compact encoded launcher finds that media without requiring
+networking; repository URLs follow the common host coordinates in the env file.
+
 Framework fetches retry the host status service six times, re-reading `host.env`
 after each wait because the host locator may have corrected a stale address.
-The public mirror is the bounded fallback for an off-LAN build. The VERSION file
+Each archive attempt bounds stalled network I/O at 30 seconds and makes one
+wget attempt; the six outer host attempts remain authoritative. Mirror clones
+stop when throughput stays below 1024 bytes per second for 60 seconds. The
+public mirror is the fallback for an off-LAN build. The VERSION file
 must exist after extraction, and `/etc/yuruna/framework-source` records the source,
 URL, version, and UTC fetch time. Keep it readable by the seed account so host
 readiness checks can distinguish a published mirror from the local enlistment.
@@ -724,7 +774,7 @@ can be lost when the disposable VM disk is removed.
 
 ## Project examples
 
-Website workloads for Ubuntu 24 and 26 and the text-to-sql application workload use the same container acquisition and deployment flow, differing in project/component names. Their PowerShell certificate-copy and base-image seed scripts share behavior. Dockerfiles retain application dependencies such as the website's LibMan restore; database setup and connection settings belong specifically to text-to-sql.
+Website workloads for Ubuntu 24 and 26 and the text-to-sql application workload use the same container acquisition and deployment flow, differing in project/component names. Their PowerShell certificate-check, certificate-Secret and base-image seed scripts share behavior. Dockerfiles retain application dependencies such as the website's LibMan restore; database setup and connection settings belong specifically to text-to-sql.
 
 Both Helm deployments request ephemeral storage so kubelet accounts for the pod
 before its node reaches the 85% eviction threshold; the limit caps a runaway
@@ -747,7 +797,7 @@ Base images are acquired from the local Docker store, then the configured cache,
 
 Shell command bounds use `timeout --foreground` to avoid stopping terminal-dependent children with SIGTTIN/SIGTTOU, returning 124 for retryable expiry. If `timeout` is unavailable the command runs without that bound. PowerShell's Docker wrapper bounds the process tree and keeps command output off the success stream, which contains only the exit code.
 
-The Dockerfile's `REGISTRY` prefix must end in `/`; its default permits ordinary MCR builds outside the harness. Component preparation copies the development certificate into the build directory and fails immediately when it is absent, without changing the caller's working directory. Visual Studio's Dockerfile integration is described in [Microsoft's container development guidance](https://aka.ms/containerfastmode).
+The Dockerfile's `REGISTRY` prefix must end in `/`; its default permits ordinary MCR builds outside the harness. Component preparation only verifies that the development certificate opens with the password in `ASPNETCORE_Kestrel__Certificates__Default__Password`, and fails immediately when it cannot, without changing the caller's working directory. The image carries no certificate: the workloads phase creates a Kubernetes Secret holding it under a generated password (a throwaway self-signed certificate when `YURUNA_EXAMPLE_SELF_SIGNED_CERT=1`), and the pod mounts that Secret. Visual Studio's Dockerfile integration is described in [Microsoft's container development guidance](https://aka.ms/containerfastmode).
 
 The development launcher stops when Docker build fails so an old tagged image
 cannot masquerade as the new build. It also reports a failed Docker run and
@@ -773,7 +823,7 @@ Cert-manager cleanup selects installed resources by `app.kubernetes.io/instance=
 
 The generic template creates a namespace and registry pull secret, leaving `TO-SET` for the user's component. The website localhost configuration supplies a complete mkcert/ingress example; its Azure configuration demonstrates cert-manager using a single `certManagerLatest` variable.
 
-Text-to-sql initializes PostgreSQL before deploying its application. The pod's `status.hostIP` identifies the node running PostgreSQL, `$(HOST_IP)` expands from the preceding environment variable, and `TEXT2SQL_PG_CONN` overrides the localhost application default. PostgreSQL listens on the node network and permits the pod CIDR. Npgsql connects lazily, so pod readiness or HTTP 200 alone does not establish database connectivity. See [text-to-sql integration](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/README.md).
+Text-to-sql initializes PostgreSQL before deploying its application. The pod's `status.hostIP` identifies the node running PostgreSQL, `$(HOST_IP)` and `$(TEXT2SQL_PG_PASSWORD)` expand from the environment variables defined before them in the pod, the password arriving from the `text-to-sql-db` Secret that the setup script's owner-only password file feeds. The application has no built-in connection string: `TEXT2SQL_PG_CONN`, `ConnectionStrings:Postgres` or `TEXT2SQL_PG_PASSWORD` must be set, or startup fails. PostgreSQL listens on the node network and permits the pod CIDR. Npgsql connects lazily, so pod readiness or HTTP 200 alone does not establish database connectivity. See [text-to-sql integration](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/README.md).
 
 <a id="42e220c4-000a"></a>
 
@@ -782,10 +832,11 @@ Text-to-sql initializes PostgreSQL before deploying its application. The pod's `
 Run the focused consistency suite with
 `Invoke-Pester -Path test/modules/Test.SourceConsistency.Tests.ps1`.
 It compares common regions and verifies seed/provider contracts without starting
-a VM. Its source scan covers the framework, project examples, and short-link
-site: region markers have no following blank line, structural links remain
+a VM. Its source scan covers `yuruna`, `yuruna-project`, `yuruna.link`, and
+`alius-git/amisad.dev`: region markers have no following blank line, structural links remain
 ordinary comments, test sequences use only their three canonical regions,
-YAML and HTML regions match the same-indent key or element they introduce,
+YAML, XML/plist, HTML, and systemd/INI regions match the key, element, or
+bracketed section they introduce,
 decorative headers do not return, and PowerShell help stays inside a function
 when a region precedes it. The suite also compares Ubuntu release sequences and
 the common service-lifecycle preamble. Run the affected guest, image, and
@@ -802,6 +853,9 @@ unrelated providers must survive a suite running in an existing session.
 After changing documentation links, run `tools/Invoke-DocAnchor.ps1 -Update`,
 `tools/Update-LinkCatalog.ps1 -Update`, and `tools/Test-RegionAnchors.ps1 -Quiet`
 with the project and link repositories checked out beside the framework.
+The anchor gate also scans the AmisAd checkout and accepts extra source roots;
+Git ignores continue to exclude generated artifacts. Anchor generation accepts
+LF and CRLF equally so a Windows checkout cannot reissue existing heading IDs.
 Static checks complement a real Windows, macOS, and Ubuntu guest cycle; they
 cannot verify host networking, GUI console behavior, or vendor image availability.
 
@@ -874,6 +928,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

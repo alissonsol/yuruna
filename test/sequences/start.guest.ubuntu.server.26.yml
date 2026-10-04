@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 427b2ba5-58ee-4873-9737-869138b121fe
-sequenceRevision: 9
+sequenceRevision: 11
 
 description: "Ubuntu Server 26.04: first login, change password, run update script, then power-cycle into the workload CPU count."
 keystrokeMechanism: gui
@@ -26,13 +26,18 @@ component:
     description: "Wait for installer confirmation (cold restart on ARM64 Hyper-V boot stall)"
     steps:
       - action: waitForAndEnter
-        pattern: "Continue with autoinstall?"
+        pattern: ["Continue with autoinstall?", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
+        noSegmentMatch: true
         timeoutSeconds: 1800
         text: "yes"
+        # Only stages Subiquity opens after confirmation prove the prompt is
+        # past. The parent Install/install context and the Mirror apt-config
+        # check both print before the prompt, so matching them skips the answer.
+        skipInputPattern: ["subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
         blindAfterSeconds: 120
         # The language menu means autoinstall never engaged; never type the
         # blind answer into the list and mistake navigation for acceptance.
-        blindSkipPattern: "Bahasa Indonesia"
+        blindSkipPattern: ["Bahasa Indonesia", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
         description: "OCR: Continue with autoinstall?"
 
   - action: retry
@@ -42,13 +47,13 @@ component:
     # piece of boot state needed before another login wait can be meaningful.
     stepsAfterVmRestart:
       - action: waitForAndEnter
-        pattern: ["Continue with autoinstall?", "${hostLabel} login:"]
+        pattern: ["Continue with autoinstall?", "${hostLabel} login:", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
         noSegmentMatch: true
         timeoutSeconds: 1800
         text: "yes"
-        skipInputPattern: "${hostLabel} login:"
+        skipInputPattern: ["${hostLabel} login:", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
         blindAfterSeconds: 120
-        blindSkipPattern: "Bahasa Indonesia"
+        blindSkipPattern: ["Bahasa Indonesia", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
         description: "OCR after cold restart: Continue with autoinstall?"
     description: "Wait for installed login prompt (cold restart on ARM64 Hyper-V timeout)"
     steps:

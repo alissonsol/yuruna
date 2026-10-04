@@ -26,16 +26,35 @@ cd yuruna
 ./Add-AutomationToPath.ps1
 ```
 
-Crie o certificado de desenvolvimento HTTPS (a carga de trabalho
-`ubuntu.server.24.k8s.sh` faz isso automaticamente nesse convidado):
+Crie o certificado de desenvolvimento HTTPS. As cargas de trabalho `k8s` dos
+convidados Ubuntu Server e Windows 11 fazem isso automaticamente: exportam
+`~/.aspnet/https/aspnetapp.pfx` com uma senha aleatória (32 bytes como 64
+caracteres hexadecimais) e guardam essa senha em `aspnetapp.pfx.password`, ao
+lado dele, legível apenas pelo proprietário. Os exemplos leem a senha de
+`ASPNETCORE_Kestrel__Certificates__Default__Password` quando essa variável está
+definida e do arquivo caso contrário, então um convidado não precisa de variável.
+Nenhuma senha fixa permanece: um PFX sem arquivo de senha (por exemplo, um
+exportado com uma senha fixa) deve ser substituído, então execute a carga de
+trabalho `k8s` novamente. Na sua própria máquina:
 
 ```
 $pfxDir = Join-Path $HOME ".aspnet/https"
 if (!(Test-Path $pfxDir)) { New-Item -ItemType Directory -Path $pfxDir -Force | Out-Null }
+# The password lives in this shell only, in the variable the deployment step reads
+# to open the file. It is never written to the repository or an image.
+$env:ASPNETCORE_Kestrel__Certificates__Default__Password = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
 openssl req -x509 -newkey rsa:4096 -keyout "$pfxDir/aspnetapp.key" -out "$pfxDir/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>$null
-openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.key" -in "$pfxDir/aspnetapp.crt" -password pass:password
+openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.key" -in "$pfxDir/aspnetapp.crt" -passout env:ASPNETCORE_Kestrel__Certificates__Default__Password
 Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
 ```
+
+Mantenha essa variável definida no shell que executa os comandos de implantação
+abaixo, ou salve a senha uma vez em `$pfxDir/aspnetapp.pfx.password` (uma linha)
+e deixe a variável sem definir. As imagens não carregam certificado: a etapa da
+carga de trabalho abre esse arquivo com a senha, reprotege o certificado com uma
+nova senha aleatória dentro de um Secret do Kubernetes, e o pod monta o Secret.
+A automação sem certificado de desenvolvimento define
+`YURUNA_EXAMPLE_SELF_SIGNED_CERT=1` e a etapa emite um certificado descartável.
 
 Implante:
 
@@ -168,7 +187,8 @@ podem fazer isso.
 
 As cargas de trabalho dos convidados instalam o conjunto comum de ferramentas
 do cluster local: Git, Docker, Kubernetes, PowerShell, Helm, OpenTofu e mkcert.
-O Windows instala adicionalmente o Graphviz e as CLIs do Azure, da AWS e do
+Elas também criam o certificado de desenvolvimento HTTPS e seu arquivo de senha,
+como descrito no início rápido. O Windows instala adicionalmente o Graphviz e as CLIs do Azure, da AWS e do
 Google Cloud. O Ubuntu omite intencionalmente essas ferramentas opcionais: as
 CLIs de nuvem são necessárias apenas nos exemplos que implantam em uma nuvem,
 o Graphviz é recomendado em vez de obrigatório e instalar o conjunto completo
@@ -178,12 +198,14 @@ por meio de uma carga de trabalho explícita e opcional quando um convidado
 precisar deles, em vez de tornar mais lenta a compilação de todas as imagens
 para clusters locais. Veja [Dependências de
 preflight](../operator.md#b2-preflight-dependencies). Padrão de carga de
-trabalho de convidado: [Arquitetura do Yuruna](../architecture.md).
+trabalho de convidado: [Arquitetura do Yuruna](../architecture.md). O buscador
+exige o SHA-256 esperado do script como `E_SHA` na frente dos comandos Linux
+abaixo; veja [Fornecer o digest manualmente](../../guest/README.md#supplying-the-digest-by-hand).
 
 | Convidado | Comando |
 |---|---|
-| **Ubuntu Server 24.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` |
-| **Ubuntu Server 26.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` |
+| **Ubuntu Server 24.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` |
+| **Ubuntu Server 26.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` |
 | **Windows 11** | `irm ".../guest/windows.11/windows.11.k8s.ps1$nc" \| iex` (veja [Windows 11 ...](../../guest/windows.11/README.md)) |
 
 **Ubuntu -- opcional depois:** altere o nome da máquina com
@@ -260,6 +282,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.30
+Última revisão: 2026.10.04
 
 Voltar para [Yuruna](../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4258c050-6380-4115-a3fa-d4c318889f35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -14,8 +14,6 @@
 .PRIVATEDATA
 #>
 
-# LICENSEURI https://yuruna.link/license
-# Copyright (c) 2026 by Alisson Sol et al.
 [CmdletBinding()]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '', Justification = 'The extracted production scriptblock consumes the deployment variable dynamically.')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Harmless fixtures implement the production command signatures.')]

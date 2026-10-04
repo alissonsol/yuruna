@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,16 +60,7 @@ function Initialize-YurunaEntryPoint {
     }
 }
 
-# Canonical exit codes. Stop-WithReason / Write-Summary surface the "why"
-# in stdout; the numeric code stays coarse so a consumer does not need a
-# per-script lookup.
-#
-# 2 is not a softer 1. It says the gate could not reach a verdict at all --
-# a missing tool, a missing input, an absent browser -- and it exists so
-# that state stops reading as success. A gate that cannot run has proved
-# nothing, so a caller that requires full evidence must treat 2 as fatal;
-# a caller that is deliberately advisory may let it through, but only by
-# naming that choice.
+# See https://yuruna.link/4213a0b3-00d1
 $script:ExitOk        = 0
 $script:ExitFailure   = 1
 $script:ExitCannotRun = 2
@@ -147,14 +138,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # inner must never re-open the question mid-cycle, where there is
             # nobody to answer. Leaf; resolves sudo/id at call time.
             'Test.RunnerElevation.psm1',
-            # Boot-time recovery sweep + atomic state-file helper + runner
-            # state machine. Order matters: Test.EventSchema before
-            # Test.Log so Send-CycleEventSafely validates emits at module
-            # load; Test.StateFile before Test.Recovery so Resolve-Orphan-
-            # IncompleteCycle resolves the helper at load time; Test.Log
-            # before Test.RunnerState so state-transition emits land
-            # cleanly; Test.RunnerState last so Initialize-RunnerState's
-            # synthetic transitions reach a fully-loaded emit path.
+            # See https://yuruna.link/4213a0b3-00d2
             'Test.FailureTaxonomy.psm1', 'Test.EventSchema.psm1', 'Test.StateFile.psm1',
             'Test.Log.psm1', 'Test.Recovery.psm1', 'Test.RunnerState.psm1',
             # Watchdog + outer-loop body live in their own modules so
@@ -164,7 +148,13 @@ function Initialize-YurunaEntryPointModuleSet {
             # Invoke-RunnerOuterLoop calls Start-Watchdog / Stop-Watchdog
             # at the cycle boundary. Test.OuterLog carries the outer.log
             # writer the loop re-exports, so it loads first.
-            'Test.OuterLog.psm1', 'Test.RunnerWatchdog.psm1', 'Test.RunnerOuterLoop.psm1',
+            'Test.OuterLog.psm1', 'Test.RunnerWatchdog.psm1',
+            # The recovery contract owns the cycle outcome record and the typed
+            # result; the ledger and the repairs registered on it sit above it. All
+            # three load before the loop that calls them, and after Test.Log so the
+            # events they emit have a writer.
+            'Test.RecoveryContract.psm1', 'Test.RecoveryLedger.psm1', 'Test.RecoveryActions.psm1',
+            'Test.RunnerOuterLoop.psm1',
             # Test.PoolSync: the optional, default-off pool-intent PULL the outer
             # loop calls (Get-Command-gated) at each cycle start. Leaf; loaded so
             # Invoke-RunnerOuterLoop resolves Sync-YurunaPoolIntent /
@@ -172,17 +162,7 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.PoolSync.psm1'
         )
         Inner    = @(
-            # Inner has additional imports threaded through its cycle loop
-            # (mid-cycle refreshes via $script:RunnerModules, OCR/Tesseract/
-            # SSH imports after the cycle gate, etc). The core set below
-            # covers BOTH the early-bootstrap imports AND the per-cycle
-            # workhorses listed in $script:RunnerModules so a single
-            # Initialize-YurunaEntryPointModuleSet -For Inner call at
-            # bootstrap replaces 7+ inline Import-Module sites; the same
-            # call inside the cycle-body re-import loop refreshes them all
-            # in lockstep when a mid-run `git pull` lands. Order matches the
-            # inline call sites so dependency edges (Test.HostContract depends on
-            # Test.VMUtility, etc.) are preserved.
+            # See https://yuruna.link/4213a0b3-00d3
             'Test.SingleInstance.psm1', 'Test.YurunaDir.psm1', 'Test.Backoff.psm1',
             # Test.ConfigPreflight owns the cycle-start gate. The inner runs the
             # cycle's only Test-Config.ps1 preflight, so the module has to be in
@@ -226,6 +206,8 @@ function Initialize-YurunaEntryPointModuleSet {
             # depends on Test.StateFile; Test.LogRotation is leaf.
             'Test.FailureTaxonomy.psm1', 'Test.EventSchema.psm1', 'Test.StateFile.psm1', 'Test.Log.psm1',
             'Test.Recovery.psm1', 'Test.Remediation.psm1', 'Test.RunnerState.psm1',
+            # The checkout, admission and replay steps every entry point shares.
+            'Test.RecoveryContract.psm1',
             # Test.GuestQuarantine (circuit breaker): the runner's guest-loop
             # skip-gate + outcome-register. Leaf; its Send-CycleEventSafely /
             # Write-YurunaStateFileJson calls resolve at runtime and are
@@ -274,16 +256,10 @@ function Initialize-YurunaEntryPointModuleSet {
             # an Invoke-TestProject run refuses to race a live Start-TestRunner
             # instead of silently overlapping it on the same runtime dir.
             'Test.SingleInstance.psm1',
-            # Test.Recovery is loaded so Invoke-TestProject can archive any stale
-            # break-active.json left over from a prior Debug-TestSequence /
-            # Start-TestRunner that crashed mid-break. Without this sweep,
-            # the inner runner inherits the parked breakpoint state and the
-            # status UI shows a "Continue" button for the previous cycle.
-            # Test.Recovery's Send-CycleEventSafely / Write-YurunaStateFileJson
-            # callers are Get-Command-guarded, so we do not need to pre-load
-            # Test.EventSchema / Test.StateFile here; the archive path
-            # remains best-effort either way.
-            'Test.Recovery.psm1'
+            # See https://yuruna.link/4213a0b3-00d4
+            'Test.Recovery.psm1',
+            # The checkout step and the typed result this entry point records.
+            'Test.RecoveryContract.psm1'
         )
         Sequence = @(
             'Test.LogLevel.psm1', 'Test.Config.psm1', 'Test.SequenceAction.psm1',
@@ -296,6 +272,9 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.SingleInstance.psm1',
             'Test.FailureTaxonomy.psm1', 'Test.EventSchema.psm1', 'Test.StateFile.psm1',
             'Test.Log.psm1', 'Test.Remediation.psm1',
+            # The checkout and admission steps and the typed result this entry
+            # point records.
+            'Test.RecoveryContract.psm1',
             'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
             'Test.Backoff.psm1',
             # The lab-health gate, with the manifest reader it derives its probe
@@ -330,37 +309,13 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
         )
         StatusService = @(
-            # Modules the parent (non-detached-server) status-service
-            # code needs: Test.YurunaDir for Initialize-YurunaRuntimeDir /
-            # Initialize-YurunaLogDir, Test.VMUtility for IP / port helpers,
-            # Test.CachingProxyService for state-file + probe helpers, Test.HostContract
-            # for Get-HostType + Initialize-YurunaHost. Test.PortOwner is
-            # consumed later in the file (Resolve-PortOrphan) so it is
-            # included here too -- one bootstrap pass loads every module
-            # the parent needs. The detached status-service child process
-            # imports its own modules from a here-string and is not
-            # affected by this set.
+            # See https://yuruna.link/4213a0b3-00d5
             'Test.YurunaDir.psm1', 'Test.VMUtility.psm1',
             'Test.CachingProxyService.psm1', 'Test.PortOwner.psm1',
             'Test.HostContract.psm1'
         )
         CachingProxyService = @(
-            # Union of the inline imports in the five caching-proxy entry
-            # scripts under test/ -- Start-CachingProxyServiceVM.ps1,
-            # Stop-CachingProxyServiceVM.ps1, Move-CachingProxyService.ps1,
-            # Test-CachingProxyService.ps1 and
-            # Repair-CachingProxyServiceForwarder.ps1. This set must stay a
-            # superset of all five: Test.HostContract (for Initialize-YurunaHost, Get-HostType,
-            # Invoke-LibvirtGroupReExecIfNeeded, Add-PortMap / Remove-PortMap,
-            # Test-CacheVMOnExternalNetwork, Remove-HostProxy / Set-HostProxy,
-            # Initialize-SudoCache), Test.CachingProxyService (Get-CachingProxyServiceState-
-            # Path, Save-/Read-CachingProxyServiceState, Test-CachingProxyServiceAvailable,
-            # Invoke-CachingProxyServiceProbe, Get-CachingProxyServiceVmIp), Test.VMUtility
-            # (Test-IpAddress, Get-CachingProxyServicePort, Format-IpUrlHost) for
-            # the env-var / -CacheIp branches that bypass Test-CachingProxyService-
-            # Available's transitive imports. Per-host Yuruna.Host.psm1 lives
-            # under host/<short>/modules/ and is loaded by Initialize-Yuruna-
-            # Host via the contract layer -- not part of this set.
+            # See https://yuruna.link/4213a0b3-00d6
             'Test.VMUtility.psm1', 'Test.CachingProxyService.psm1', 'Test.CachingProxyServiceLock.psm1',
             'Test.HostContract.psm1'
         )

@@ -142,3 +142,12 @@ global/workloads/placeholder   text eol=lf
 # Detached release signature (raw RSA bytes). EOL normalization would corrupt
 # it and break verification of install/install.sha256 on a fresh host.
 *.sig        binary
+# Git patches whose blob hash a plan pins and that `git apply` replays
+# byte-for-byte. EOL normalization on checkout would change both.
+*.patch      -text
+
+# --- REGION: SBOM
+# See https://yuruna.link/427fb0be-0001
+docs/sbom/** text eol=lf
+tools/Sync-Sbom.py text eol=lf
+tools/sbom_*.py text eol=lf

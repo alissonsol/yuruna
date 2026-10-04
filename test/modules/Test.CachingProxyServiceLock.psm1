@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42c6a229-b03a-4ffe-979e-1360be03ef47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,32 +16,12 @@
 
 #requires -version 7
 
-# Caching-proxy serialization lock + adopt-if-healthy decision.
-#
-# The lock is a drain-style PID+StartTime mutex so the destructive VM lifecycle
-# and the host port-map writes cannot interleave; the two hold profiles
-# ('rebuild' and 'portmap') differ only in their acquire timeout. Lock identity,
-# the stale-holder drain, the self-owned reclaim, the abandoned-age ceiling, the
-# hold-profile table, and the adopt-or-rebuild
-# decision shape: docs/caching.md#rebuild-adopt-if-healthy-and-the-bring-up-lock
+# See https://yuruna.link/4213a0b3-002a
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:CachingProxyServiceLockFile = 'caching-proxy-service.lock'
 
-# Age past which a recorded lock is ABANDONED rather than slow, so it is drained
-# on acquire (and by Clear-CachingProxyServiceLock). Draining takes the lock away
-# from whoever recorded it, so the ceiling is set from the rebuild's real worst
-# case and then multiplied out:
-#   * BOUNDED phases total ~36 min -- host/ubuntu.kvm/guest.caching-proxy-service/
-#     New-VM.ps1 waits up to 20 min for the VM's IP and 15 min for squid on :3128;
-#     the macOS UTM path in Start-CachingProxyServiceVM.ps1 waits 15 min for
-#     MAC/ARP discovery plus ~1 min of register + start retries.
-#   * The Step 2 base-image fetch is the only UNBOUNDED phase (~600 MB, and
-#     nothing in Yuruna.Image sets a download timeout). 6 h leaves >5 h for it --
-#     600 MB at ~250 kbit/s -- which is slower than any link a lab host has.
-# So this cannot fire during a legitimate slow rebuild. It is also the LAST
-# recovery resort: a self-owned leftover is reclaimed immediately on acquire, and
-# Stop-CachingProxyServiceVM.ps1 clears an abandoned lock on demand.
+# See https://yuruna.link/4213a0b3-002b
 $script:CachingProxyServiceLockMaxAgeSeconds = 21600   # 6 hours
 
 function Get-CachingProxyServiceLockUtcNow {
@@ -200,18 +180,7 @@ function Enter-CachingProxyServiceLock {
                 continue
             }
             if ($holder.Pid -eq $PID) {
-                # OUR OWN leftover from an earlier invocation in THIS process -- not a
-                # live peer. A .ps1 runs inside the caller's pwsh, so a bring-up that
-                # exited without releasing recorded the operator's long-lived
-                # interactive shell as the holder; that shell stays alive, so the
-                # liveness drain above never fires and every later run is refused.
-                # Safe because one pwsh process never holds two bring-up locks at
-                # once: the only other caller (Invoke-TestRunnerInnerLoop.ps1's
-                # 'portmap' hold) is try/finally-scoped and never starts a bring-up
-                # inside its window, and Start-CachingProxyServiceVM.ps1 is never
-                # dot-sourced or run as a job. A self-owned lock is therefore stale
-                # by definition. Warned (not Verbose): it means an earlier bring-up
-                # in this shell died, which the operator should know about.
+                # See https://yuruna.link/4213a0b3-002c
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dc0ae585e86ec0a2' -Arguments @{ pID = "$PID"; role = "$($holder.Role)" })
                 foreach ($stalePath in @($pidPath, $startPath)) {
                     if (Test-Path -LiteralPath $stalePath) { Remove-Item -LiteralPath $stalePath -Force -ErrorAction Stop }

@@ -38,6 +38,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
 	"yuruna.com/test/extension/extension-sdk/servicecfg"
 
 	"yuruna.com/test/extension/extension-sdk/controlproof"
@@ -860,6 +861,11 @@ type poolState struct {
 	// be scraped at all. Set once in main before the server starts; not mutated
 	// under mu.
 	hostMetricsPort int
+	// backfillStateDir is where the history backfill keeps its per-host cycle
+	// indexes, which /go/cycle reads to place a click on a cycle weeks old without
+	// asking the host. Empty disables that lookup. Set once in main before the
+	// server starts; not mutated under mu.
+	backfillStateDir string
 }
 
 // poolStatsCacheEntry is one memoized /api/v1/pool-stats answer.
@@ -1589,14 +1595,6 @@ func fetchRunnerStopped(client *http.Client, base string) (bool, error) {
 // surfaces flip from "pausing" to "paused" together.
 const stepPauseCode = "sequence_paused_waiting_resume"
 
-// stepPauseMarker is the sentence that used to carry that condition, before the
-// code existed. Matching it made the English wording a wire format shared across
-// three languages: rewording it here, or translating it for an operator who does
-// not read English, silently stopped this service and the status page from
-// seeing a paused runner. It is kept ONLY to read a sidecar written by a runner
-// older than the code field, and is never consulted once a code is present.
-const stepPauseMarker = "Paused (waiting for resume)"
-
 // fetchCurrentAction reads /runtime/current-action.json and reports ONLY whether
 // the runner is parked at a step boundary. The sidecar also carries the in-progress
 // step's text and the guest VM name; neither is decoded into anything this process
@@ -1617,23 +1615,19 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 		return false, fmt.Errorf("current-action.json HTTP %d", status)
 	}
 	var doc struct {
-		Line string `json:"line"`
 		Code string `json:"code"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return false, fmt.Errorf("current-action.json parse: %w", err)
 	}
-	if doc.Code != "" {
-		return doc.Code == stepPauseCode, nil
-	}
-	return strings.Contains(doc.Line, stepPauseMarker), nil
+	return doc.Code == stepPauseCode, nil
 }
 
 // fetchVersion reads the host's framework version from VERSION at the repo root,
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.09.30"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.10.04"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -1854,9 +1848,9 @@ type lokiVectorResult struct {
 }
 
 // poolStatsRanges is the CLOSED set of windows /api/v1/pool-stats accepts.
-// The value is interpolated into LogQL, so it is never free-form input; and the
-// ceiling is 30d because Loki's retention_period is 720h -- a longer window
-// would silently return a partial answer that reads as a real number.
+// The value is interpolated into LogQL, so it is never free-form input; and every
+// window must stay inside Loki's retention_period (2160h on the proxy) -- a longer
+// one would silently return a partial answer that reads as a real number.
 var poolStatsRanges = map[string]bool{"1h": true, "24h": true, "7d": true, "30d": true}
 
 // countCyclesByHost runs one instant LogQL count for a terminal overallStatus
@@ -2334,93 +2328,110 @@ func (s *poolState) rehydrateIncidentsFromLoki(lokiPushURL, pool string, window 
 // line, decides current state (a trailing resolve means "not in incident").
 // Split out from the HTTP fetch in rehydrateIncidentsFromLoki so it is
 // unit-testable without a live Loki. Takes s.mu.
+//
+// "Most recent" is decided across streams by timestamp, not by the order Loki
+// lists the streams in: one host can own several incident streams -- the history
+// backfill writes each replayed incident to a stream of its own, and a host that
+// changed pools has one per pool -- and an old resolved incident listed first
+// must not hide the open one that is newer.
 func (s *poolState) applyIncidentLines(streams [][][2]string, now time.Time) int {
+	type stampedLine struct {
+		ns   int64
+		line string
+	}
+	var lines []stampedLine
+	for _, values := range streams {
+		for _, v := range values {
+			ns, _ := strconv.ParseInt(v[0], 10, 64)
+			lines = append(lines, stampedLine{ns: ns, line: v[1]})
+		}
+	}
+	sort.SliceStable(lines, func(i, j int) bool { return lines[i].ns > lines[j].ns })
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	decided := map[string]bool{} // hostId -> latest lifecycle line already applied
 	poolDecided := false         // the latest pool-scoped line already applied
 	restored := 0
-	for _, values := range streams {
-		for _, v := range values { // newest-first within a stream
-			var e struct {
-				Event             string         `json:"event"`
-				IncidentId        string         `json:"incidentId"`
-				HostId            string         `json:"hostId"`
-				StartedAt         string         `json:"startedAt"`
-				FailCount         int            `json:"failCount"`
-				AffectedHostCount int            `json:"affectedHostCount"`
-				Class             string         `json:"class"`          // pool-wide triggering class
-				DominantClass     string         `json:"dominantClass"`  // per-host dominant class
-				ClassHistogram    map[string]int `json:"classHistogram"` // per-host class breakdown
-			}
-			if json.Unmarshal([]byte(v[1]), &e) != nil {
-				continue
-			}
-			parseStarted := func() time.Time {
-				if t, perr := time.Parse(time.RFC3339, e.StartedAt); perr == nil {
-					return t
-				}
-				return now
-			}
-			// Pool-wide lifecycle lines (one stream, scope=pool, no hostId).
-			if e.Event == "pool_incident_open" || e.Event == "pool_incident_resolved" {
-				if poolDecided {
-					continue
-				}
-				poolDecided = true
-				if e.Event == "pool_incident_open" {
-					started := parseStarted()
-					id := e.IncidentId
-					if id == "" {
-						id = poolIncidentID(started)
-					}
-					cls := e.Class
-					if cls == "" {
-						cls = "unknown" // legacy open line predating same-class cross-host
-					}
-					s.poolIncident = &poolIncidentState{id: id, startedAt: started, peakHosts: e.AffectedHostCount, class: cls}
-					restored++
-				}
-				continue
-			}
-			// Per-host lifecycle lines.
-			if e.HostId == "" || s.handovers[e.HostId] != "" || decided[e.HostId] {
-				continue // only the most recent line per host decides current state
-			}
-			decided[e.HostId] = true
-			if e.Event != "incident_open" {
-				continue // latest line is a resolve (or unknown) -> host not in incident
-			}
-			started := parseStarted()
-			id := e.IncidentId
-			if id == "" {
-				id = incidentID(e.HostId, started)
-			}
-			peak := e.FailCount
-			hist := e.ClassHistogram
-			dom := e.DominantClass
-			if n := len(s.failWindow[e.HostId]); n > peak {
-				// The live window is larger than the restored snapshot -> recompute
-				// BOTH the histogram AND its dominant from the live window so they
-				// agree (mirrors evaluateIncidents). Recomputing only the histogram
-				// would leave dominantClass stale vs peakClassHist after a post-open
-				// class shift, misclassifying the metric/Loki/dashboard.
-				peak = n
-				hist = classHistogram(s.failWindow[e.HostId])
-				dom = dominantClass(hist)
-			}
-			if len(hist) == 0 {
-				hist = map[string]int{}
-			}
-			if dom == "" {
-				dom = dominantClass(hist) // legacy open line predating the class histogram
-			}
-			if dom == "" {
-				dom = "unknown"
-			}
-			s.incident[e.HostId] = &incidentState{id: id, startedAt: started, peak: peak, peakClassHist: hist, dominantClass: dom}
-			restored++
+	for _, ln := range lines {
+		var e struct {
+			Event             string         `json:"event"`
+			IncidentId        string         `json:"incidentId"`
+			HostId            string         `json:"hostId"`
+			StartedAt         string         `json:"startedAt"`
+			FailCount         int            `json:"failCount"`
+			AffectedHostCount int            `json:"affectedHostCount"`
+			Class             string         `json:"class"`          // pool-wide triggering class
+			DominantClass     string         `json:"dominantClass"`  // per-host dominant class
+			ClassHistogram    map[string]int `json:"classHistogram"` // per-host class breakdown
 		}
+		if json.Unmarshal([]byte(ln.line), &e) != nil {
+			continue
+		}
+		parseStarted := func() time.Time {
+			if t, perr := time.Parse(time.RFC3339, e.StartedAt); perr == nil {
+				return t
+			}
+			return now
+		}
+		// Pool-wide lifecycle lines (one stream, scope=pool, no hostId).
+		if e.Event == "pool_incident_open" || e.Event == "pool_incident_resolved" {
+			if poolDecided {
+				continue
+			}
+			poolDecided = true
+			if e.Event == "pool_incident_open" {
+				started := parseStarted()
+				id := e.IncidentId
+				if id == "" {
+					id = poolIncidentID(started)
+				}
+				cls := e.Class
+				if cls == "" {
+					cls = "unknown" // legacy open line predating same-class cross-host
+				}
+				s.poolIncident = &poolIncidentState{id: id, startedAt: started, peakHosts: e.AffectedHostCount, class: cls}
+				restored++
+			}
+			continue
+		}
+		// Per-host lifecycle lines.
+		if e.HostId == "" || s.handovers[e.HostId] != "" || decided[e.HostId] {
+			continue // only the most recent line per host decides current state
+		}
+		decided[e.HostId] = true
+		if e.Event != "incident_open" {
+			continue // latest line is a resolve (or unknown) -> host not in incident
+		}
+		started := parseStarted()
+		id := e.IncidentId
+		if id == "" {
+			id = incidentID(e.HostId, started)
+		}
+		peak := e.FailCount
+		hist := e.ClassHistogram
+		dom := e.DominantClass
+		if n := len(s.failWindow[e.HostId]); n > peak {
+			// The live window is larger than the restored snapshot -> recompute
+			// BOTH the histogram AND its dominant from the live window so they
+			// agree (mirrors evaluateIncidents). Recomputing only the histogram
+			// would leave dominantClass stale vs peakClassHist after a post-open
+			// class shift, misclassifying the metric/Loki/dashboard.
+			peak = n
+			hist = classHistogram(s.failWindow[e.HostId])
+			dom = dominantClass(hist)
+		}
+		if len(hist) == 0 {
+			hist = map[string]int{}
+		}
+		if dom == "" {
+			dom = dominantClass(hist) // legacy open line predating the class histogram
+		}
+		if dom == "" {
+			dom = "unknown"
+		}
+		s.incident[e.HostId] = &incidentState{id: id, startedAt: started, peak: peak, peakClassHist: hist, dominantClass: dom}
+		restored++
 	}
 	return restored
 }
@@ -3139,6 +3150,18 @@ func (s *poolState) evaluatePoolGate(now time.Time) []incidentEvent {
 // pushIncident ships one incident lifecycle line to Loki under
 // {pool,hostId,src=incident} -- the feed behind the dashboard incident strip.
 func pushIncident(client *http.Client, lokiURL, pool string, ev incidentEvent) {
+	stream, line := incidentStreamLine(pool, ev)
+	payload := map[string]any{"streams": []map[string]any{{
+		"stream": stream,
+		"values": [][]string{{strconv.FormatInt(ev.now.UnixNano(), 10), string(line)}},
+	}}}
+	postToLoki(client, lokiURL, payload, "incident push")
+}
+
+// incidentStreamLine builds an incident lifecycle line and the labels of the
+// stream it belongs to. The history backfill writes replayed incidents through it,
+// so a replayed line reads exactly like a live one.
+func incidentStreamLine(pool string, ev incidentEvent) (map[string]string, []byte) {
 	rec := map[string]any{
 		"incidentId": ev.id,
 		"startedAt":  ev.startedAt.UTC().Format(time.RFC3339),
@@ -3200,11 +3223,7 @@ func pushIncident(client *http.Client, lokiURL, pool string, ev incidentEvent) {
 		}
 	}
 	line, _ := json.Marshal(rec)
-	payload := map[string]any{"streams": []map[string]any{{
-		"stream": stream,
-		"values": [][]string{{strconv.FormatInt(ev.now.UnixNano(), 10), string(line)}},
-	}}}
-	postToLoki(client, lokiURL, payload, "incident push")
+	return stream, line
 }
 
 func (s *poolState) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -4735,19 +4754,27 @@ func (s *poolState) resolveClickedCycle(w http.ResponseWriter, r *http.Request) 
 		// Resolve the cycle active at the clicked time. Sources in order of cost and
 		// of how much they survive:
 		//
-		//  1. the ARCHIVE on the pool share -- local disk on this machine, no network
+		//  1. the history backfill's CYCLE INDEX -- local disk, and it lists every
+		//     cycle folder the host holds, rotated ones included, so it names the
+		//     right cycle where the archive below may hold only an older one. A
+		//     folder it names is still served from the archive when committed there
+		//     (cycleResultsTarget).
+		//  2. the ARCHIVE on the pool share -- local disk on this machine, no network
 		//     hop, and it still answers for a host that is switched off or reimaged,
 		//     which is the whole reason the durable tier exists. On a move-mode host
 		//     it is also the only place the folder still is.
-		//  2. the host's own /log/ listing -- authoritative for a cycle that has not
+		//  3. the host's own /log/ listing -- authoritative for a cycle that has not
 		//     been archived yet (the one still running, or a copy-mode backlog).
-		//  3. Loki's recorded cycleFolderUrl -- the last resort when neither the share
+		//  4. Loki's recorded cycleFolderUrl -- the last resort when neither the share
 		//     nor the host can be read.
 		//
-		// The folder name encodes its start time + hostId, so 1 and 2 both work for
+		// The folder name encodes its start time + hostId, so 1 to 3 all work for
 		// ANY retained cycle and supply the cycle-number prefix that cannot be
 		// reconstructed from a transition line.
-		folder = s.resolveFolderByArchive(hostID, clickT)
+		folder = s.resolveFolderByIndex(hostID, clickT)
+		if folder == "" {
+			folder = s.resolveFolderByArchive(hostID, clickT)
+		}
 		if folder == "" {
 			folder = s.resolveFolderByListing(base, hostID, clickT)
 		}
@@ -4982,20 +5009,43 @@ func (s *poolState) resolveFolderByListing(baseURL, hostID string, t time.Time) 
 		return "log/" + strings.TrimSuffix(best, "/") + "/"
 	}
 	// A cycle older than the retention window is not gone: it moves into a
-	// date-named history.<YYYY-MM-DD>/ bucket that the index LINKS but does not
-	// inline. Without following that link the click falls through to the
+	// history.<YYYY-MM-DD>/ bucket that the index LINKS but does not inline.
+	// Without following those links the click falls through to the
 	// oldest-retained fallback below and silently lands on a cycle nobody asked
 	// for -- the failure being investigated reads as "the evidence was pruned"
-	// when it is still on disk one directory away. The bucket is named for the
-	// date, so this is one extra request, not a walk.
-	if bucket := historyBucketFor(body, t); bucket != "" {
-		if hb := s.fetchListing(strings.TrimRight(baseURL, "/") + "/log/" + bucket); hb != "" {
-			if best, _ := scanListingForHost(hb, hostID, t); best != "" {
-				return "log/" + bucket + strings.TrimSuffix(best, "/") + "/"
-			}
+	// when it is still on disk one directory away. A bucket is named for the
+	// host-local day rotation ran, not for the day its cycles did, so the date of
+	// t cannot pick one. Rotation always moves the oldest cycles, so the buckets
+	// hold consecutive stretches of history in date order, and read newest first
+	// the first one holding a cycle that started at or before t holds the cycle
+	// active at t.
+	for _, bucket := range historyBucketsNewestFirst(body, maxHistoryBucketsScanned) {
+		hb := s.fetchListing(strings.TrimRight(baseURL, "/") + "/log/" + bucket + "/")
+		if hb == "" {
+			continue
+		}
+		if best, _ := scanListingForHost(hb, hostID, t); best != "" {
+			return "log/" + bucket + "/" + strings.TrimSuffix(best, "/") + "/"
 		}
 	}
 	return pickFolderFromListing(body, hostID, t)
+}
+
+// maxHistoryBucketsScanned bounds the bucket reads one click can cost. Rotation
+// moves about ninety cycles at a time, so this reaches weeks back; older clicks
+// are answered from the history backfill's cycle index, which has every bucket
+// already read.
+const maxHistoryBucketsScanned = 16
+
+// historyBucketsNewestFirst returns the history buckets a /log/ index links,
+// newest first, at most limit of them.
+func historyBucketsNewestFirst(body string, limit int) []string {
+	_, buckets := parseListing(body)
+	sort.Sort(sort.Reverse(sort.StringSlice(buckets)))
+	if len(buckets) > limit {
+		buckets = buckets[:limit]
+	}
+	return buckets
 }
 
 // fetchListing GETs one directory index and returns its body, "" on any failure.
@@ -5019,17 +5069,6 @@ func (s *poolState) fetchListing(u string) string {
 		return ""
 	}
 	return string(body)
-}
-
-// historyBucketFor returns the "history.<YYYY-MM-DD>/" bucket covering t when the
-// given index links it, else "". Rotation files a cycle under the date it STARTED,
-// which is the same date the folder leaf encodes.
-func historyBucketFor(body string, t time.Time) string {
-	name := "history." + t.UTC().Format("2006-01-02") + "/"
-	if strings.Contains(body, name) {
-		return name
-	}
-	return ""
 }
 
 // scanListingForHost finds this host's cycle folders in one directory index and
@@ -6341,6 +6380,11 @@ func readAuthTokenFile(path, defaultPath, legacyPath string) string {
 var version = "dev"
 
 func main() {
+	// The history backfill is this same binary in a second mode, so the two can
+	// never disagree about what a cycle line or an incident line looks like.
+	if len(os.Args) > 1 && os.Args[1] == "backfill" {
+		os.Exit(runBackfill(os.Args[2:]))
+	}
 	flag.Lookup("language").Usage = operatorMessage("aggregator.help_display_language", nil)
 	flag.Lookup("allow-pseudo-locale").Usage = operatorMessage("aggregator.help_allow_pseudo", nil)
 	addr := flag.String("listen", defaultListenAddr, operatorMessage("aggregator.help_address_to_listen_on_59add3f5", nil))
@@ -6359,6 +6403,7 @@ func main() {
 	hostTtl := flag.Duration("host-ttl", defaultHostTtl, operatorMessage("aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1", nil))
 	poolArchiveRoot := flag.String("pool-archive-root", "", operatorMessage("aggregator.help_the_pool_share_s_hosts_directory_on_this_machine_e_g_m_bd4bd40e", nil))
 	handoverStateFile := flag.String("handover-state-file", "", "")
+	backfillStateDir := flag.String("backfill-state-dir", defaultBackfillStateDir, "")
 	tlsCert := flag.String("tls-cert", "", operatorMessage("aggregator.help_tls_certificate_file_pem_when_both_tls_cert_and_tls_ke_643d7a8e", nil))
 	tlsKey := flag.String("tls-key", "", operatorMessage("aggregator.help_tls_private_key_file_pem_see_tls_cert_28be9018", nil))
 	authTokenFile := flag.String("auth-token-file", "", operatorMessage("aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952", nil))
@@ -6409,6 +6454,7 @@ func main() {
 	// the CIFS mount arrives asynchronously after boot and may also go away and come
 	// back without this process noticing.
 	state.archiveRoot = strings.TrimSpace(*poolArchiveRoot)
+	state.backfillStateDir = strings.TrimSpace(*backfillStateDir)
 	if state.archiveRoot != "" {
 		log.Print(operatorMessage("aggregator.log_archive_route_enabled_at_archive_from_value1_7b032a09", map[string]any{"value1": fmt.Sprintf("%q", state.archiveRoot)}))
 	}

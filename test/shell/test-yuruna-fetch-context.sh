@@ -56,6 +56,16 @@ rejected CONTEXT_FIELD prepare "$id" "$(context "$id" true "unknown=$(encode val
 rejected CONTEXT_FIELD prepare "$id" "$(context "$id" true 'E_SI=???')"
 rejected CONTEXT_MISSING "$launcher" "$id" bash -c true
 
+# EXEC_ALLOW_UNVERIFIED is typed by an operator for a hand run. A host-built
+# context must never carry it, alone or inside an otherwise valid enforced one.
+rejected CONTEXT_FIELD prepare "$id" "$(context "$id" true "EXEC_ALLOW_UNVERIFIED=$(encode 1)")"
+override_fields="rel=$(encode guest/example.sh)"$'\n'
+override_fields+="EXEC_REQUIRE_SHA256=$(encode 1)"$'\n'
+override_fields+="E_SHA=$(encode "$(printf 'a%.0s' {1..64})")"$'\n'
+override_fields+="E_RETRY_SHA=$(encode "$(printf 'b%.0s' {1..64})")"$'\n'
+override_fields+="EXEC_ALLOW_UNVERIFIED=$(encode 1)"$'\n'
+rejected CONTEXT_FIELD prepare "$id" "$(context "$id" true "$override_fields")"
+
 id=0123456789a
 rejected ARGUMENTS "$launcher" --prepare "$id" 0008 "$(hash true)"
 body=$(context "$id" true)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42f1c309-1ba8-498f-b2f0-a6425d163096
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,16 +74,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.ExtensionService.psm1') -Force -Dis
 # same module owns the mount table, the superseded-mount rule and the mount
 # itself, which is the whole storage half of the conversion.
 Import-Module (Join-Path $PSScriptRoot 'Test.PoolStorage.psm1')      -Force -DisableNameChecking -Verbose:$false
-# Get-LocalLabStorageSharePath: whether this machine still PUBLISHES a share can
-# only be answered by the OS share table -- the configuration of a machine backed
-# by a NAS and one serving its own shares is identical in every key.
-#
-# -Global is load-bearing here, unlike the two imports above. Test.LocalLabStorage
-# is a module ENTRY POINTS import for their own use, and a bare `-Force` import
-# from inside this one unloads the instance their exports resolve through: the
-# caller keeps running with the commands it loaded a moment ago no longer
-# defined, and fails on the first call with "not recognized as a name of a
-# cmdlet". Re-importing globally keeps one instance that both scopes see.
+# See https://yuruna.link/4213a0b3-00cd
 Import-Module (Join-Path $PSScriptRoot 'Test.LocalLabStorage.psm1')  -Global -Force -DisableNameChecking -Verbose:$false
 # Get-SudoPwshArgumentList (the nested-sudo argument vector) lives here.
 Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force -DisableNameChecking -Verbose:$false

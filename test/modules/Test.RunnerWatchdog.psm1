@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42547b68-a60f-4a35-be1d-21d02f08f7bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -163,15 +163,7 @@ function Start-Watchdog {
             Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] $Why; exiting watchdog without action -- CYCLE RUNS UNGUARDED."
             Set-Content -LiteralPath $lapseFile -Value "$((Get-Date).ToString('o')) $Why" -ErrorAction SilentlyContinue
         }
-        # Wait for the inner to publish inner.pid + the first heartbeat.
-        # 180 s upper bound: a loaded host can take well past a minute to
-        # spawn pwsh and import the runner modules, and a premature
-        # give-up here runs the whole cycle unguarded, while a longer
-        # wait costs nothing (the job just idles). If the file still
-        # never appears, log and exit without killing anything --
-        # preferable to picking a PID blindly. The outer wipes both files
-        # before spawning the inner so a stale copy from the previous
-        # cycle can't short-circuit this wait.
+        # See https://yuruna.link/4213a0b3-011c
         $waitUntil = (Get-Date).AddSeconds(180)
         while (-not (Test-Path $pidFile) -and (Get-Date) -lt $waitUntil) {
             Start-Sleep -Seconds 2

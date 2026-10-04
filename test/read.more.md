@@ -17,8 +17,8 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 | `testCycle.stopOnFailure` | `false` | `true` = stop on first failure and preserve VM; `false` = clean up and continue. Failure artifacts always copied to `status/log/` |
 | `testCycle.recentDisplayCount` | `30` | Runs kept in status history |
 | `testCycle.stepTimeoutSeconds` | `2700` | Watchdog bound: kill the inner runner when a single step's heartbeat is older than this |
-| `testCycle.autoRemediation.enabled` | `false` | Run a recovery handler after a failed cycle before the next spawn |
-| `testCycle.autoRemediation.maxAttemptsPerCycle` | `2` | Remediation attempts per consecutive-failure streak |
+| `testCycle.autoRemediation.enabled` | `false` | Let the runner apply bounded repairs after a failed cycle (stale git lock, project re-clone, early end of the failure pause) before the next spawn |
+| `testCycle.autoRemediation.maxAttemptsPerCycle` | `2` | Repair attempts per failure fingerprint and repair, counted in the recovery ledger across runner restarts; a passing cycle or 24 hours re-arms it |
 | `vmStart.startTimeoutSeconds` | `120` | Wait for VM to reach running state |
 | `vmStart.bootDelaySeconds` | `15` | Extra wait after running, before tests |
 | `vmStart.testVmNamePrefix` | `"test-"` | Prefix for test VM names |
@@ -338,6 +338,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

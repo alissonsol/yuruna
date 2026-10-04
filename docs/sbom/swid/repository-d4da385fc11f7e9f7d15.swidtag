@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="Python" tagId="urn:uuid:8340a14d-75d5-5645-ae0b-a59365b89361" version="unspecified" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+  <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
+  <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="repository" sbom:inventory-kind="declared-source" sbom:declaration="{&quot;completeness&quot;: &quot;declared&quot;, &quot;ecosystem&quot;: &quot;python&quot;, &quot;evidence&quot;: [{&quot;detail&quot;: &quot;SBOM collector uses Python 3.11 tomllib and the standard library&quot;, &quot;line&quot;: 11, &quot;path&quot;: &quot;tools/sbom_dependencies.py&quot;}], &quot;notes&quot;: [&quot;No Python package installation is required.&quot;], &quot;scope&quot;: &quot;build&quot;, &quot;versionConstraint&quot;: &quot;&gt;=3.11&quot;}" />
+</SoftwareIdentity>

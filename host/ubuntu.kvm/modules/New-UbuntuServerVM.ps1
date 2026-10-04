@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42ada8e8-3ff4-49bc-88b3-4e1d20a217de
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,22 +24,15 @@
 param(
     [string]$VMName = "ubuntu-server01",
     [string]$CachingProxyServiceUrl,
-    # OS user created by autoinstall and exercised by the test
-    # sequences. Default 'yuuser26' chosen for greppability (vs the
-    # cloud-image default 'ubuntu', which collides with anything Ubuntu)
-    # and version-tagged so 24.04 and 26.04 guests don't collide in
-    # shared logs.
+    # Versioned usernames keep release-specific guest logs distinguishable.
     [string]$Username = 'yuuser26',
-    # cloud-init local-hostname for the guest. Empty means "follow the VM
-    # name", which keeps host-side lookups that assume hostname == VM name
-    # working for every caller that does not ask for a specific hostname.
+    # An empty hostname follows the VM name for host-side lookup.
     [string]$Hostname = '',
-    # Planner-cascaded VM memory (variables.memoryStartupBytes). Raw byte count
-    # or a KB/MB/GB suffix (e.g. 34359738368, 32768MB, 32GB); converted to the
-    # MB virt-install wants. Empty keeps the 8 GB default below.
+    # Accept raw bytes or a KB/MB/GB suffix; an empty value keeps the host default.
+    # See https://yuruna.link/42fa6f45-0016
     [string]$MemoryStartupBytes = '',
-    # Planner-cascaded vCPU count (variables.cores). Overrules the default
-    # calculation below. Empty keeps the default. Clamped to the host cores.
+    # An empty core count keeps the host default; explicit values are clamped.
+    # See https://yuruna.link/42fa6f45-0015
     [string]$Cores = '',
     [Parameter(Mandatory)][ValidateSet('24', '26')][string]$Release,
     [Parameter(Mandatory)][string]$GuestScriptRoot,
@@ -156,6 +149,18 @@ $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
 Import-Module $TestSshModule -Force -DisableNameChecking
 $sshPub = Get-YurunaSshPublicKey
 if (-not $sshPub) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
+
+# --- REGION: Detect the caching-proxy service
+# See https://yuruna.link/42e220c4-0004
+# A bound URL, including empty for direct fetching, overrides discovery.
+if (-not $PSBoundParameters.ContainsKey('CachingProxyServiceUrl')) {
+    $CachingProxyServiceUrl = Test-CachingProxyServiceAvailable
+    if (-not $CachingProxyServiceUrl -and
+        (Get-VMState -VMName 'yuruna-caching-proxy-service') -eq 'running') {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.kvm_running_cache_unreachable')
+        exit 1
+    }
+}
 
 # --- REGION: Build the autoinstall apt block
 # See https://yuruna.link/429f3d06-000a

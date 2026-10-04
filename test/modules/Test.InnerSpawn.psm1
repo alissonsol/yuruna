@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42a27240-9228-4384-9324-f2bcf259469f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,33 +16,7 @@
 
 #requires -version 7
 
-# Two launch shapes for a fresh child pwsh live here.
-#
-# New-InnerRunnerArgList builds the -Command vector the runner uses for its
-# inner and per-cycle children:
-# Why -Command (not -File):
-#   pwsh's -File parameter binder coerces every argv token to [string],
-#   which breaks [bool]/[int] inner parameters. -Command parses the line
-#   as PowerShell so $true/$false/0/1 keep their types.
-# Why -NoProfile:
-#   $PROFILE in the launching shell can re-set YURUNA_* env vars in the
-#   child AFTER the parent's snapshot pinned the right values.
-# Why a helper module:
-#   Start-TestRunner.ps1, Invoke-TestProject.ps1 and Invoke-TestCycleRunner.ps1
-#   all need the same single-quote escaping + -Command construction; duplicated,
-#   a quoting-edge-case fix in one would not reach the others.
-#
-# Start-YurunaDetachedProcess launches a worker that must outlive its
-# launcher -- a host-refresh worker, a restarted runner -- with -File, one
-# argument per element, -NonInteractive, and all three streams detached from
-# the launcher. On POSIX the stream paths travel in the environment and every
-# argument is a positional parameter of a fixed `set -m; nohup "$@"` body, so
-# no caller value is ever interpolated into shell text; `set -m` rather than
-# setsid gives the child its own process group, because macOS has no setsid.
-# On Windows a first hop, started without redirected handles, launches the
-# final worker with the redirections: a launcher that redirects hands every
-# inheritable handle it holds to its child, which is what keeps a caller's
-# wait from ever returning.
+# See https://yuruna.link/4213a0b3-008e
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42e9ac75-3fda-482e-9c3e-944aff26fe2a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,21 +20,7 @@
 .SYNOPSIS
     Copy another pool host's test.config.yml onto THIS host, converted for it.
 .DESCRIPTION
-    Host-neutral entry point. Detects the host type and runs that host's
-    Sync-HostConfiguration.ps1 in a child pwsh rooted in its own folder; this
-    shell stays in test/. Arguments are forwarded verbatim and the child's exit
-    code is returned.
-
-    The conversion is what differs per host -- share paths, local mount-point
-    conventions, and where a host alias gets written -- and it is owned by the
-    per-host script:
-
-        host/windows.hyper-v/Sync-HostConfiguration.ps1  (needs Administrator)
-        host/macos.utm/Sync-HostConfiguration.ps1        (sudo for /etc/hosts)
-        host/ubuntu.kvm/Sync-HostConfiguration.ps1       (sudo for /etc/hosts)
-
-    Idempotent, because they are: a repeat run with nothing to change writes
-    nothing.
+    See https://yuruna.link/42010605-0003.
 .PARAMETER ReferenceHost
     Network name or IP address of the pool host to copy the config from. Any
     host type -- converting between them is the point.
@@ -95,12 +81,7 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
     'PSAvoidUsingPlainTextForPassword', 'InternalAuthKey',
     Justification = 'Forwarded as the plaintext vault stores it, to a per-host script that takes it the same way; only its HMAC proof crosses the wire.')]
-# SupportsShouldProcess is load-bearing, not decoration: this script performs a
-# state change of its own (storing the internal-auth-key in the vault and bouncing
-# the status service) before delegating. Without it, -WhatIf binds to
-# -RemainingArguments as a plain string instead of a common parameter, so the
-# rehearsal reaches only the per-host script -- and the vault write it was meant
-# to rehearse happens for real.
+# See https://yuruna.link/42010605-0003
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory, Position = 0)]
@@ -137,15 +118,7 @@ Use-LogLevelFromEnv
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
 # --- REGION: Elevation gate
-# Elevation before anything happens. Invoke-YurunaHostScript makes the same
-# check, but only at line-of-delegation -- by then this redirector has already
-# rewritten the vault's internal-auth-key and bounced the status service (a wait of
-# up to three minutes), so an unelevated Windows operator pays for work that
-# cannot finish. Test-IsAdministrator lives in Yuruna.Common: Yuruna.HostRedirect
-# imports it into its own scope only, so this entry point imports it too.
-# Windows-only, exactly as the redirector has it -- '#requires -RunAsAdministrator'
-# exists only in the Hyper-V per-host script; the macOS and Ubuntu variants ask
-# for sudo themselves, per operation, with a reason.
+# See https://yuruna.link/42010605-0003
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $hostTarget = Resolve-YurunaHostScript -ScriptName 'Sync-HostConfiguration.ps1'
 if ($hostTarget.RequiresElevation -and $IsWindows -and -not (Test-IsAdministrator)) {
@@ -154,36 +127,13 @@ if ($hostTarget.RequiresElevation -and $IsWindows -and -not (Test-IsAdministrato
 }
 
 # --- REGION: Common-parameter relay
-# The per-host Sync-HostConfiguration.ps1 is an advanced script and narrates
-# each decision (kept local path, added alias, stored credential) under
-# -Verbose, so pass the switch on when it was asked for; it binds to this
-# redirector as a common parameter and would otherwise stop here.
-# -WhatIf rides along for the same reason and needs the same explicit relay:
-# ConvertTo-HostScriptArgument deliberately drops the optional common
-# parameters, so a bound -WhatIf would otherwise stop at this shell while the
-# per-host script -- which supports it -- ran for real.
-# A level of Verbose or Debug asks for the same narration by another name, and
-# the switch is what the child binds -- the env var alone would only reach the
-# per-host script's own preferences, not its -Verbose-gated output.
+# See https://yuruna.link/42010605-0003
 $extra = @()
 if ($PSBoundParameters.ContainsKey('Verbose') -or $VerbosePreference -eq 'Continue') { $extra += '-Verbose' }
 if ($PSBoundParameters.ContainsKey('WhatIf'))  { $extra += '-WhatIf' }
 
 # --- REGION: Internal authentication key
-# -PersistInternalAuthKey is host-neutral: storing the internal authentication key in
-# this host's vault is the identical vault operation on every platform (unlike
-# the config conversion the per-host script owns), so it runs here in the
-# redirector -- before the per-host config-sync, which can then also read the
-# token from the local vault. Handled by the module's Set-InternalAuthKey
-# in-process (test/lab/Set-LabToken.ps1 takes only the dashboard's 6-char code,
-# never the raw token); the persist switches are excluded from the forwarded
-# arguments (the per-host script has no such parameter).
-# Persisting is the DEFAULT once a token is supplied and the host is joining the
-# pool: a host that syncs a pool config but stores no token accepts control only
-# from loopback, so the dashboard's own deep link into it fails with a 403 that
-# looks like a bug rather than an unfinished setup. -NoPersistInternalAuthKey keeps
-# the token transient for a host that should stay locally-driven, and -NoPool
-# already means "not joining", so it does not persist either.
+# See https://yuruna.link/42010605-0003
 $persistToken = -not $NoPersistInternalAuthKey -and -not $NoPool -and
                 ($PersistInternalAuthKey -or -not [string]::IsNullOrEmpty($InternalAuthKey))
 if ($persistToken) {

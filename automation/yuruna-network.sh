@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -13,9 +13,8 @@
 # Treat uncertain flags as carrier evidence, never as proof of a guest-side fault.
 _yuruna_net_admin_down() {
     local f="$1"
-    # Validate before any arithmetic: `$(( ))` on a malformed word is a shell
-    # error, and this runs inside a diagnostic whose whole job is to still
-    # produce output when everything else has gone wrong.
+    # See https://yuruna.link/4220a755-0011
+    # Validate flags before arithmetic so malformed diagnostics cannot abort the report.
     case "$f" in
         '') return 1 ;;
         0x*)
@@ -28,12 +27,7 @@ _yuruna_net_admin_down() {
 }
 
 # --- REGION: https://yuruna.link/4220a755-0011
-# Does any carrier-up interface hold a global IPv4 address right now?
-#
-# Same interface selection network_diag reports on, so the predicate and the
-# report can never disagree about what "this guest has no IPv4" means. Kept
-# separate from network_diag because a caller deciding whether to WAIT must be
-# able to ask without printing a diagnostic on every poll.
+# Use the same interface selection as network_diag without printing on every poll.
 yuruna_has_ipv4() {
     local sysfs=/sys/class/net ifc oper carrier
     for ifc in "$sysfs"/*; do
@@ -53,18 +47,8 @@ yuruna_has_ipv4() {
     return 1
 }
 
-# Wait up to $1 seconds for an IPv4 address to appear. 0 = it is there (or
-# arrived), 1 = the budget ran out without one.
-#
-# The wait exists because a lost DHCP DISCOVER puts the client into exponential
-# backoff, so "no IPv4 at this instant" is routinely a lease that has not landed
-# yet rather than one that never will. IPv6 is no evidence either way: SLAAC
-# rides unsolicited router advertisements that keep repeating, so it comes up on
-# its own schedule while DHCPv4 is still backing off.
-#
-# Polls rather than subscribing to netlink: this has to behave identically under
-# systemd-networkd and NetworkManager, and the one thing both agree on is the
-# address being visible in the kernel once it is assigned.
+# See https://yuruna.link/4220a755-000d
+# Poll kernel IPv4 state across both network managers; return 1 when the budget expires.
 yuruna_wait_ipv4() {
     local budget="${1:-120}" waited=0
     yuruna_has_ipv4 && return 0
@@ -80,28 +64,7 @@ yuruna_wait_ipv4() {
 }
 
 # --- REGION: https://yuruna.link/4220a755-000d
-# The client's own journal is the only place that separates a client still
-# sending DISCOVERs from one that stopped asking -- and only the second is a
-# fault inside this guest. A third shape needs the same lines to tell it apart:
-# a lease the server ACKED and the client never installed, which reads as an
-# `acquired` line with no address on the link. Ordering is what separates the
-# three, so the timestamp is kept -- but only HH:MM:SS.mmm of it. This lands on
-# a narrow console read back by OCR, where a wrapped line costs two rows and
-# reads as two facts, so the sed drops the date, hostname and unit prefix that
-# `-o short-precise` puts in front of every line. A line that does not carry
-# that prefix passes through untouched.
-#
-# The grep reaches past `dhcp|lease|carrier` into the address plane because the
-# third shape leaves its evidence only there: the refusal or the error that
-# stopped the address, neither of which mentions DHCP at all.
-#
-# Unprivileged first, elevated only when that came back empty. Whether the
-# login user may read the system journal is a per-image fact, and `sudo -n`
-# never prompts, so a console nobody is watching cannot be parked at a password
-# prompt that no one can answer.
-#
-# The command name is a seam so a test can feed it fixture lines; unset, it is
-# the real journalctl. The leading "$@" is the optional elevation prefix.
+# Keep bounded, ordered DHCP/address evidence and retry journal access without prompting.
 _yuruna_net_journal_slice() {
     "$@" "${YURUNA_NET_JOURNAL:-journalctl}" -o short-precise --no-pager -n 200 \
         -u systemd-networkd -u NetworkManager 2>/dev/null |
@@ -110,19 +73,8 @@ _yuruna_net_journal_slice() {
         tail -7
 }
 
-# Ask the DHCP client what it is doing. Every verdict below bottoms out at "no
-# address", which cannot tell a lease that is late from a client that gave up,
-# and the two indict different machines. The answer lives in the client's own
-# state on a guest that is destroyed minutes later, so the failing run prints
-# it or nobody ever reads it. "Network File" is here for the same reason: a
-# NIC no profile claimed reports n/a, which is the shape where DHCP is never
-# attempted at all.
-#
-# One interface, capped output, no timestamps. This block lands immediately
-# above the marker the host matches on a failing run and the capture surface
-# freezes a bounded number of trailing lines, so a report that grows with what
-# it finds pushes the marker out of frame and turns a classified failure into
-# an unclassified timeout.
+# See https://yuruna.link/4220a755-000d
+# Print a fixed-size client-state sample so the failure marker remains in the console frame.
 _yuruna_net_client_state() {
     local ifc="$1" out=""
     [ -n "$ifc" ] || return 0
@@ -150,19 +102,15 @@ _yuruna_net_client_state() {
 }
 
 network_diag() {
-    # Interface enumeration root. Overridable so a test can walk a fixture
-    # tree; unset, it is the real sysfs path and behavior is identical. The
-    # `ip` calls below are deliberately NOT redirected -- they report live
-    # state and have no meaningful fixture form.
+    # See https://yuruna.link/4220a755-0011
+    # Override sysfs only for fixtures; ip still reports the live address state.
     local sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}"
     echo ""
     echo "==== NETWORK DIAGNOSTIC ===="
     echo "--- addresses ---"
     ip -br address 2>/dev/null || ip address 2>/dev/null
-    # The flag list is the only place the two down states are visible to a
-    # human: an admin-down link prints without UP, a carrier-loss link prints
-    # <NO-CARRIER,...,UP>. Without this the verdict below cannot be checked by
-    # the person reading the report.
+    # See https://yuruna.link/4220a755-0011
+    # Show flags so administrative-down and carrier-loss verdicts can be checked.
     echo "--- links (flags) ---"
     ip -br link 2>/dev/null
     echo "--- routes (IPv4) ---"
@@ -172,21 +120,12 @@ network_diag() {
     echo "--- DNS ---"
     grep -i '^nameserver' /etc/resolv.conf 2>/dev/null || echo "(no nameserver entries)"
 
-    # Walk the real (non-loopback, non-virtual) interfaces; collect the ones
-    # held down from inside, the ones with no carrier, and the carrier-up ones
-    # holding no global IPv4 address.
-    # Reading carrier on a down interface fails (EINVAL), so $carrier is empty
-    # there rather than "0" -- hence the :-none default when it is named.
-    # Only the first few of each are named: this output is printed
-    # immediately before the marker the host matches on a failing run, and the
-    # capture surface holds a bounded number of trailing lines, so the report
-    # has to stay a fixed size no matter how many interfaces exist.
+    # See https://yuruna.link/4220a755-0011
+    # Classify physical link states; bound named interfaces to the console frame.
     local addrless="" downlinks="" downcount=0 adminlinks="" admincount=0
     local examined=0 ifc oper carrier flags v4 v6
-    # One interface is probed in depth at the end, and these hold the first
-    # candidate of each kind. Address-less wins over administratively-down:
-    # both are worth asking about, and asking twice is what the fixed-size
-    # budget cannot afford.
+    # See https://yuruna.link/4220a755-0011
+    # Probe one candidate; address-less links take precedence within the output budget.
     local probe_ifc="" probe_admin=""
     for ifc in "$sysfs"/*; do
         ifc=$(basename "$ifc")
@@ -228,11 +167,8 @@ network_diag() {
         fi
     done
 
-    # Loudest true cause first: a down link explains everything below it, and a
-    # lease-pool verdict printed over it would point at the wrong subsystem.
-    # Both down verdicts print when both are present -- they are separate
-    # faults on separate interfaces, and suppressing one would hide a real
-    # cause rather than shorten the report.
+    # See https://yuruna.link/4220a755-0011
+    # Report both down states before lease theories; each can be a separate fault.
     if [ -n "$adminlinks" ]; then
         echo ""
         echo "!! DOWN INSIDE THIS GUEST on $admincount interface(s), first:$adminlinks"
@@ -287,32 +223,14 @@ network_diag() {
     echo ""
 }
 
-# Elevate only when there is something to elevate from. The release also runs
-# from a systemd shutdown unit, which is already root at a point where the
-# authentication stack it would consult is being torn down: sudo there can fail
-# on a machine where it works perfectly from a login shell, and the release is
-# the last chance the address has to go back before the guest disappears.
+# See https://yuruna.link/4220a755-0012
+# Avoid sudo when already root, including while the shutdown authentication stack exits.
 _yuruna_net_sudo() {
     if [ "$(id -u)" = "0" ]; then "$@"; else sudo "$@"; fi
 }
 
-# Which interfaces a release may take down. An ALLOW-list, deliberately, where
-# network_diag uses a deny-list -- the two have opposite safe defaults. The diag
-# only reports, so an interface it does not recognize is worth naming. A release
-# ACTS, so an interface it does not recognize must be left alone: the names a
-# CNI invents are open-ended (cali<hex>, vxlan.calico, tunl0, cilium_host, lxc*,
-# nodelocaldns, kube-ipvs0), and a deny-list that misses one tears down a
-# cluster's data plane while trying to return a DHCP lease. Physical NIC names
-# are the closed set, so name those instead.
-#
-# The prefix is necessary but not sufficient -- a virtual device can borrow it --
-# so the kernel has to agree there is real hardware behind the name. Only a
-# physical device gets a `device` link in sysfs; veth, bridge, dummy and CNI
-# devices do not.
-# Reads through the same YURUNA_NET_SYSFS seam network_diag walks, so the
-# predicate a release depends on can be exercised against a fixture tree rather
-# than only against whatever interfaces the machine running the suite happens
-# to have. Unset, the path is the real one and behavior is identical.
+# See https://yuruna.link/4220a755-0012
+# Allow only physical NIC names with a sysfs device link; leave CNI devices alone.
 _yuruna_net_is_physical() {
     local sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}"
     case "$1" in
@@ -322,48 +240,20 @@ _yuruna_net_is_physical() {
     [ -e "$sysfs/$1/device" ]
 }
 
-# Re-kick IPv4 address acquisition without taking any link down. The two
-# shapes that strand a guest IPv4-less both answer to the same nudge: a DHCP
-# client deep in lost-DISCOVER backoff abandons the backoff and starts a fresh
-# transaction, and a NIC that no profile claimed (IFF_UP clear, DHCP never
-# attempted) gets claimed once its manager re-reads configuration that now
-# matches it. Links are never downed here: a down that fails to pair with its
-# up outlives the boot that issued it (see network_release's scoping), and
-# nothing about re-asking for a lease needs one. Interfaces that already hold
-# a global IPv4 are left untouched -- the repair is for the ones with nothing
-# to lose, and re-kicking a healthy sibling would trade its live lease for a
-# fresh transaction.
-#
-# YURUNA_NET_RELOAD_SETTLE_SECONDS bounds the pause between the reload and the
-# reconfigure below. Read inline rather than assigned at file scope:
-# fetch-and-execute SOURCES this file, so a top-level assignment here would
-# land in the caller's shell.
+# See https://yuruna.link/4220a755-000d
+# Repair only address-less physical NICs without taking links down.
 yuruna_net_repair_ipv4() {
     local sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}" ifc waited
     local settle="${YURUNA_NET_RELOAD_SETTLE_SECONDS:-10}"
     if command -v networkctl >/dev/null 2>&1; then
-        # Reload first, so a .network file or drop-in written after the daemon
-        # started is in force before any link is asked to reconfigure
-        # against it.
+        # See https://yuruna.link/4220a755-000d
+        # Apply changed profiles before asking a NIC to reconfigure.
         _yuruna_net_sudo networkctl reload >/dev/null 2>&1 || true
         for ifc in "$sysfs"/*; do
             ifc=$(basename "$ifc")
             _yuruna_net_is_physical "$ifc" || continue
-            # Give the reload's own acquisition time to land before deciding
-            # this link still needs a reconfigure. networkctl reload re-runs
-            # address acquisition on any link whose configuration changed, so
-            # acquisition can already be in flight by the time it returns. A
-            # reconfigure issued on top of that restarts a DHCP client that is
-            # mid-configuration, and networkd settles at "degraded
-            # (configuring)" holding the lease's DNS but no address and no
-            # route on the link -- a state the client believes is finished, so
-            # nothing retries and the guest holds no IPv4 until something else
-            # re-kicks it. Waiting first is what keeps this repair from
-            # producing the exact condition it exists to clear.
-            #
-            # Costs nothing where there was nothing to wait for: a link that
-            # the reload did not touch is as address-less at the end of the
-            # wait as at the start, and reaches the reconfigure below anyway.
+            # See https://yuruna.link/4220a755-000d
+            # Let reload-triggered DHCP settle before reconfigure can restart that transaction.
             waited=0
             while [ "$waited" -lt "$settle" ] && \
                   [ -z "$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)" ]; do
@@ -376,13 +266,8 @@ yuruna_net_repair_ipv4() {
                 fi
                 continue
             fi
-            # What the client believed BEFORE the nudge, on the console, while
-            # it is still true. The reconfigure below restarts the client, so
-            # every field it would have answered with is gone a moment later --
-            # and the failing run reaches its own diagnostic minutes after that,
-            # by which time this sample exists nowhere else. Feature-detected
-            # because the repair is called from a guest that may carry an older
-            # network lib without this probe.
+            # See https://yuruna.link/4220a755-000d
+            # Record client state before the nudge destroys that evidence.
             if command -v _yuruna_net_client_state >/dev/null 2>&1; then
                 _yuruna_net_client_state "$ifc"
             fi
@@ -406,11 +291,7 @@ yuruna_net_repair_ipv4() {
 }
 
 # --- REGION: https://yuruna.link/4220a755-0012
-# Release DHCP leases (and any other transient network resources) so the
-# address returns to the pool immediately instead of lingering until lease
-# expiry. Run at end-of-sequence teardown so a churning test fleet does not
-# exhaust a shared LAN's DHCP pool. Best-effort across the DHCP clients a
-# guest may run; a client that is not installed is simply skipped.
+# Return leases best-effort before guest teardown; skip unavailable clients.
 network_release() {
     echo ""
     echo "==== NETWORK RELEASE ===="
@@ -428,18 +309,8 @@ network_release() {
             fi
         done
     fi
-    # NetworkManager (where NM owns the link). The networkctl pass above
-    # releases nothing on an NM-managed guest -- networkctl is present there
-    # but owns no links -- so without this branch such a guest reaches the end
-    # of this function having released nothing while reporting that there was
-    # nothing to release -- the lease then sits until expiry, which is the
-    # whole condition this function exists to avoid.
-    #
-    # Deactivation alone does not return the address: NM's dhcp-send-release
-    # defaults to off, so ask for the release first, per connection. Scoped to
-    # ACTIVE connections of link-carrying types, and never `nmcli networking
-    # off` -- that flag lives in /var/lib/NetworkManager/NetworkManager.state
-    # and would outlive this teardown and every reboot after it.
+    # See https://yuruna.link/4220a755-0012
+    # Enable per-connection DHCP release; never persist a global networking-off state.
     if command -v nmcli >/dev/null 2>&1 && \
        [ "$(nmcli -t -f RUNNING general 2>/dev/null)" = "running" ]; then
         # Process substitution, not a pipe: a `while` on the right of a pipe
@@ -476,9 +347,7 @@ network_release() {
 }
 
 # --- REGION: https://yuruna.link/4220a755-0013
-# Dual-use: `source` this file to get the functions, or run it directly with
-# a verb so the networkRelease sequence action can invoke it by path on the
-# guest console (`bash /usr/local/lib/yuruna/yuruna-network.sh release`).
+# Support both sourced helpers and direct console verbs.
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     case "${1:-}" in
         diag)    network_diag ;;

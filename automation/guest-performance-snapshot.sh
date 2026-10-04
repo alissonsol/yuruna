@@ -1,10 +1,11 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # A small, read-only sample; the SSH caller supplies the overall 20-second budget.
 
+# --- REGION: Initialize environment
 set -u
 export LC_ALL=C
 snapshot_priv=()
@@ -12,6 +13,7 @@ if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev
     snapshot_priv=(sudo -n)
 fi
 
+# --- REGION: snapshot_read
 snapshot_read() {
     local path=$1 limit=${2:-65536}
     printf '\n--- %s ---\n' "$path"

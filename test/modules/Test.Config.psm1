@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42c1e552-e3c2-4c54-b73a-ac2577a100fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,14 +270,7 @@ function Publish-TestConfigSnapshot {
     # it must never raise into Read-TestConfig and turn a clean parse into a failure.
     $dest = $null
     try {
-        # The snapshot is a verbatim copy of everything parsed, and it lands in the
-        # runtime directory the status service publishes over HTTP. The credential
-        # files under the authentication extension carry passwords and the lab auth
-        # token in the clear, and the server's deny-list keys on FILE NAMES -- so it
-        # protects vault.yml while a copy of vault.yml under a different name is
-        # served happily. Never producing the copy is the only form of that
-        # protection which cannot be outflanked by a new name. Consumers lose
-        # nothing: every snapshot miss already falls through to a full YAML parse.
+        # See https://yuruna.link/4213a0b3-0033
         if ($SourcePath -match '[\\/]extension[\\/]authentication[\\/]') { return $null }
         $dest = Get-TestConfigSnapshotPath -SourcePath $SourcePath
         if (-not $PSCmdlet.ShouldProcess($dest, (Format-YurunaOperatorMessage -Key 'runner.operator_3253a16415bb3bf0'))) { return $dest }

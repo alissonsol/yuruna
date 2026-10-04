@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 424882ac-09a5-499f-af1e-64e5b6e9bf94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,7 +64,7 @@ Describe 'account bootstrap protects existing identities' {
     It 'resolves a warm-path target before the concurrent VM sweep' {
         $ast = Get-RuntimeSafetyAst "$script:TestRoot/Debug-TestSequence.ps1"
         $retarget = $ast.Find({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$VMName' -and $node.Right.Extent.Text -eq '$requiredSnapshotId' }, $true)
-        $sweep = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Stop-ConcurrentVM' -and $node.Extent.Text -match '-ExceptVmName' }, $true)
+        $sweep = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Invoke-CycleAdmissionStep' -and $node.Extent.Text -match '-ExceptVmName' }, $true)
         $retarget.Extent.EndOffset | Should -BeLessThan $sweep.Extent.StartOffset
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,13 +130,20 @@ $env:YURUNA_CONFIG_PATH = $ConfigPath
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
+# The steps this run took, in order, for the typed result recorded at every exit.
+$script:RecoverySteps = [System.Collections.Generic.List[object]]::new()
+# --- REGION: Save-SequenceRecoveryResult
+function Save-SequenceRecoveryResult {
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][int]$ExitCode)
+    # A nested run is a step of its owner's cycle; the owner records the result.
+    if ($isNested -or -not (Get-Command Save-RecoveryResult -ErrorAction SilentlyContinue)) { return }
+    $null = Save-RecoveryResult -EntryPoint sequence -ExitCode $ExitCode -Steps @($script:RecoverySteps)
+}
+
 # --- REGION: Canonical module set for the Sequence entry-point
-# Test.LogLevel + Test.Config + Test.SequenceAction + Test.HostIO +
-# Test.HostContract + Test.Log + Invoke-Sequence + Test.SequencePlanner +
-# Test.YurunaDir + Test.OcrEngine + Test.Tesseract +
-# Test.ConfigPreflight. Order matters: planner AFTER engine so the
-# engine's -Force re-import inside the planner doesn't evict the
-# just-imported engine.
+# See https://yuruna.link/42010605-0002
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
 Initialize-YurunaEntryPointModuleSet -For Sequence -ModulesDir $ModulesDir
@@ -157,16 +164,7 @@ Import-Module (Join-Path $ModulesDir 'Test.Orchestrator.psm1') -Global -Force
 $global:VerbosePreference = $savedVerbose
 
 # --- REGION: Nested-cycle detection
-# When this Debug-TestSequence was started inside another run's process tree -- a
-# host-action step re-entering us in a child pwsh (e.g. Set-Resource.ps1 fanning
-# out per-stage guest builds) -- it inherits the owner's cycle-context handle
-# ($env:YURUNA_CYCLE_CONTEXT). Its presence means THIS run is NESTED: it attaches
-# a node to the owner's ONE status.json cycle instead of owning its own. A nested
-# run must NOT reset status.json, restart the status service, take the single-
-# instance lock, sweep the owner's control flags, allocate a top-level cycle
-# number, or finalize the cycle -- all owner-only. Absence of the handle ==
-# standalone owner, the unchanged classic behavior. See Test.Status.psm1
-# "Nested-cycle support" for the ownership model.
+# See https://yuruna.link/42010605-0002
 $cycleCtx = Get-CycleContext
 $isNested = [bool]$cycleCtx
 if ($isNested) {
@@ -190,12 +188,7 @@ $null = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $script:CmdLineLogLevel -Co
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # --- REGION: Pre-flight: elevation
-# Ahead of the destructive project re-clone below. Assert-HostConditionSet makes
-# the same check much later, and with -NoConfigGate nothing catches it before
-# <RepoRoot>/project has already been wiped. Self-gating: Assert-Elevation
-# short-circuits to true whenever Test-ElevationRequired is false, and only
-# host.windows.hyper-v registers RequiresElevation -- so this is a no-op on
-# macOS and Linux and cannot introduce a UAC or sudo demand.
+# See https://yuruna.link/42010605-0002
 if (-not (Assert-Elevation -HostType (Get-HostType))) { exit $ExitFailure }
 
 # --- REGION: Read config
@@ -203,27 +196,7 @@ $Config = Read-TestConfig -Path $ConfigPath
 if (-not $Config) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_f62563beddeea65d' -Arguments @{ configPath = "$ConfigPath" }); exit $ExitFailure }
 
 # --- REGION: Pre-cycle config gate
-# Mirror Start-TestRunner: refuse to bring up a VM when test.config.yml /
-# vault.yml / users.yml / transports.yml are in a state Test-Config.ps1
-# would reject. Without this gate a sequence can "pass" under Debug-TestSequence
-# (extension quirks-mode covers misconfig) while the runner refuses to even
-# start the cycle on the same config -- exactly the kind of confusing
-# surprise this gate guards against. Bypass with -NoConfigGate for
-# ad-hoc / in-progress edits.
-# Spawn a fresh pwsh so an Out-Of-Order ::Stop early-exit inside Test-Config
-# cannot unwind this script. -SkipSend stops the smoke-test email from
-# flooding subscribers["config.smoke"] on every Debug-TestSequence invocation.
-# Test.ConfigPreflight was imported by Initialize-YurunaEntryPointModuleSet above.
-#
-# A NESTED run inherits its owner's verdict instead of re-gating. The owner
-# cleared this same host and config when it opened the cycle; a nested run is
-# one stage of that cycle, so re-validating per stage buys nothing and costs
-# something real. The gate reaches github.com, and remote state is not a
-# property of the config it is checking: a credential that expires between two
-# stages turns a pre-flight into a mid-flight abort, killing a cycle over
-# something none of its remaining work depends on and discarding every stage
-# already built. A pre-flight belongs at the front of the flight. A standalone
-# run (no inherited cycle context) is unaffected and still gates for itself.
+# See https://yuruna.link/42010605-0002
 $gateSkip   = [bool]($NoConfigGate -or $isNested)
 $gateReason = if ($NoConfigGate) { '-NoConfigGate' } else { "nested run -- the owner cycle already gated $ConfigPath" }
 $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$gateSkip -SkipReason $gateReason -CallerName 'Debug-TestSequence'
@@ -244,7 +217,9 @@ if ($Config -is [System.Collections.IDictionary] -and
 if ($NoProjectClone) {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9d3a2ae3fb5cec6d')
 } else {
-    $cloneRes = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $projUrl -Confirm:$false
+    $checkoutStep = Invoke-CycleCheckoutStep -RepoRoot $RepoRoot -ProjectUrl $projUrl
+    [void]$script:RecoverySteps.Add($checkoutStep)
+    $cloneRes = @{ success = $checkoutStep.Ok; skipped = $checkoutStep.Skipped; errorMessage = $checkoutStep.ErrorMessage }
     if (-not $cloneRes.success) {
         Write-Warning ""
         Write-Warning "========"
@@ -253,6 +228,7 @@ if ($NoProjectClone) {
         Write-Warning "  <RepoRoot>/project/. Fix repositories.projectUrl in"
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a8bdd8fe43f4954f')
         Write-Warning "========"
+        Save-SequenceRecoveryResult -ExitCode $ExitFailure
         exit $ExitFailure
     }
 }
@@ -279,17 +255,7 @@ if (-not $HostType) { exit $ExitFailure }
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_82bcd42076e94095' -Arguments @{ hostType = "$HostType" })
 
 # --- REGION: Resolve sequence file
-# Sequences live flat under test/sequences/ in the framework and
-# project/<...>/test/ in the per-cycle clone; an ssh variant is its own
-# <name>.ssh sequence. Resolve-SequencePath checks the project tree first,
-# then the framework, host-specific variant before the plain file. If
-# nothing matches, list everything available across both trees.
-#
-# Convenience: when $SequenceName is a path to an existing .yml file (shell
-# tab-completion produces this naturally), use it verbatim and reduce the
-# name to its basename for downstream GuestKey derivation. The operator
-# pointed at a specific file -- honor it, don't second-guess into a
-# host-variant from the tier search.
+# See https://yuruna.link/42010605-0002
 $SequencePathOverride = $null
 try {
     $resolved = Resolve-Path -LiteralPath $SequenceName -ErrorAction Stop
@@ -300,13 +266,7 @@ try {
     }
 } catch { $null = $_ }
 
-# Tolerate operator typing the .yml/.yaml extension on the name form
-# (e.g. via shell tab-completion against a sibling project working tree
-# whose path the Resolve-Path branch couldn't resolve from this cwd).
-# Resolve-SequencePath unconditionally appends .yml, so a trailing
-# extension here would search for `Name.yml.yml` and miss. Same strip
-# Test.SequencePlanner already does when reading baseline entries from
-# YAML, kept symmetric so CLI callers and YAML callers behave the same.
+# See https://yuruna.link/42010605-0002
 if (-not $SequencePathOverride -and $SequenceName -match '\.ya?ml$') {
     $SequenceName = $SequenceName -replace '\.ya?ml$', ''
 }
@@ -365,40 +325,16 @@ Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d0c93f4c1ef556a
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d86eb14c32191314' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
 
 # --- REGION: Single-instance guard
-# Refuse to start when a Start-TestRunner already owns the runtime dir.
-# Debug-TestSequence is a dev entry point: it does not coordinate the runner
-# state machine, so a concurrent run would race the runner's pidfile,
-# status.json registrations, and VM operations. Get-RunnerInstanceState
-# (Test.SingleInstance) does the read; Assert-NoOtherRunner wraps it
-# with the "refuse + banner" semantics this entry point needs --
-# Start-TestRunner's takeover path is the opposite (Stop-StaleRunner).
-# Nested runs skip the guard: they don't own the runtime dir (the outer cycle
-# owner does), and the owner already passed this same check. Enforcing it here
-# would make every nested stage refuse to start the moment the owner registered.
+# See https://yuruna.link/42010605-0002
 if (-not $isNested -and -not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName 'Debug-TestSequence')) {
     exit $ExitFailure
 }
 
 # --- REGION: Ctrl+C handler
-# Register a CancelKeyPress handler that flips $script:CancelState['Requested']
-# instead of letting Ctrl+C tear the runspace down mid-step. The finally{}
-# block below polls the flag and stops the VM so a half-baked guest
-# (interrupted during New-VM / Start-VM / a long sequence step) doesn't
-# linger consuming host CPU + memory. The disk is intentionally kept so
-# the operator can inspect post-mortem via virsh / vmconnect / utmctl.
+# See https://yuruna.link/42010605-0002
 $script:CancelState = Register-EntryPointCancelHandler
 
-# Sweep the stale inter-cycle control state a freshly-typed Debug-TestSequence
-# command line must not inherit. -Scope Startup consumes control.cycle-
-# restart (so Invoke-Sequence Gate #1 doesn't throw YurunaCycleRestart on
-# our first step and make it look like the SEQUENCE broke) AND archives a
-# leftover break-active.json + clears leftover pause flags (so the status
-# UI doesn't show a Continue pending, and the run doesn't start paused,
-# from a prior session the operator never resumed). The operator typed
-# THIS command line, so we honor the intent to run over the stale flags.
-# Nested runs must NOT sweep control state: the pause / cycle-restart flags
-# belong to the owner's live cycle, and clearing them from a child would drop a
-# Continue the operator armed on the parent. Owner-only.
+# See https://yuruna.link/42010605-0002
 if (-not $isNested -and (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue)) {
     $ctl = Clear-StaleControlState -Scope Startup -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
     if ($ctl.cycleRestartCleared) { Write-Verbose "Cleared stale control.cycle-restart flag." }
@@ -411,48 +347,32 @@ Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_37b6754fe040268
 if (-not (Assert-TesseractInstalled)) { exit $ExitFailure }
 
 # --- REGION: Orchestration sequence dispatch (InvokeTestSequence steps)
-# An orchestration sequence has no `baseline:` and its steps invoke inner
-# sequences (guest or host-action) in order. Detected here -- after the
-# host driver, runtime dirs, single-instance guard and OCR setup are up,
-# but before the guest-only GuestKey + VM path -- and handed to
-# Test.Orchestrator, which owns its own status cycle + log and returns an
-# exit code.
+# See https://yuruna.link/42010605-0002
 $topLevelDoc = $null
 try { $topLevelDoc = Read-SequenceFile -Path $SequencePath } catch {
     Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_0eb9acf2273e09fd' -Arguments @{ sequencePath = "$SequencePath"; message = "$($_.Exception.Message)" })
     exit $ExitFailure
 }
 if (Test-IsOrchestrationSequence -Sequence $topLevelDoc) {
-    # Same vmnet-bridge hazard the guest path guards against further down: a
-    # foreign running VM can push this run's guests onto a second host-side
-    # bridge that does not route to the host's vmnet gateway, breaking the
-    # cloud-init host-proxy URL baked into seed.iso. This path returns before
-    # ever reaching that guard, and Test.Orchestrator has none of its own, so
-    # the pre-flight has to run here too. Stop first, refuse second, so a
-    # leftover guest is stopped rather than left to strand the host.
-    # No -ExceptVmName: an orchestration run creates a VM per inner sequence
-    # instead of targeting one named guest, so there is nothing to exempt.
-    [void](Stop-ConcurrentVM)
-    if ($HostType -eq 'host.macos.utm') {
-        if (-not (Assert-NoConcurrentUtmVm)) { exit $ExitFailure }
+    # See https://yuruna.link/42010605-0002
+    $admissionStep = Invoke-CycleAdmissionStep -HostType $HostType
+    [void]$script:RecoverySteps.Add($admissionStep)
+    if (-not $admissionStep.Ok) {
+        Save-SequenceRecoveryResult -ExitCode $admissionStep.ExitCode
+        exit $admissionStep.ExitCode
     }
     $orchRc = Invoke-OrchestrationSequence `
         -Sequence $topLevelDoc -SequencePath $SequencePath `
         -RepoRoot $RepoRoot -SequencesDir $SequencesDir -TestRoot $TestRoot `
         -HostType $HostType -Config $Config -ShowSensitive:$ShowSensitive
     Unregister-EntryPointCancelHandler
-    exit ($orchRc -eq 0 ? $ExitOk : $ExitFailure)
+    $orchExit = ($orchRc -eq 0 ? $ExitOk : $ExitFailure)
+    Save-SequenceRecoveryResult -ExitCode $orchExit
+    exit $orchExit
 }
 
 # --- REGION: Derive GuestKey from the sequence's baseline map
-# Source of truth is the sequence's `baseline:` field -- whichever OS
-# key(s) it lists tell us which guest VM the sequence targets. The
-# filename is NOT authoritative: a typo or rename would otherwise
-# silently derail the whole chain (and a project sequence like
-# `ch01.website.example.yml` has no guest token in its name at all).
-# Same lookup the cycle planner uses in Resolve-CyclePlan
-# (Test.SequencePlanner.psm1) for Start-TestRunner / Invoke-TestProject,
-# kept symmetric so Debug-TestSequence behaves the same standalone.
+# See https://yuruna.link/42010605-0002
 if ($GuestKey) {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_79690a75cc829126' -Arguments @{ guestKey = "$GuestKey" })
 } else {
@@ -498,14 +418,7 @@ if (-not $VMName) {
 }
 
 # --- REGION: Build chain plan
-# Chain planning + warm-path requiresSnapshot probe live in
-# Test.SequenceRunner.psm1 so they can be unit-tested with fixture
-# data. Behavior: walk the
-# baseline chain, build (name,path,sequence,stepCount,globalStart) per
-# entry, and -- when the top-level declares requiresSnapshot.id and
-# the snapshot is already on disk -- drop every prereq and run only
-# the top-level against the persisted VM. effectiveUsername must be
-# known BEFORE New-VM below, matching the runner's same forward.
+# See https://yuruna.link/42010605-0002
 $osKey = $GuestKey -replace '^guest\.',''
 $plan = Resolve-TestSequencePlan `
     -RepoRoot $RepoRoot `
@@ -557,30 +470,17 @@ $effectiveStop = $StopStep -ne 0 ? $StopStep : $totalSteps
 
 $stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 
-# --- REGION: UTM concurrent-VM pre-flight
-# On some macOS versions vmnet-shared assigns a separate host-side bridge
-# per vmnet "session" (bridge100, bridge101, ...) that don't route between
-# each other, so a foreign concurrent VM can push the test guests onto a
-# different bridge from the host's vmnet gateway and break the cloud-init
-# host-proxy URL baked into seed.iso. Refuse the cycle if a foreign VM is
-# running. The service VMs and the operator's target ($VMName) are exempt
-# inside Assert-NoConcurrentUtmVm; the target may be left up for another
-# iteration of the same debug sequence.
-# Stop first, refuse second: a leftover guest is stopped rather than left to
-# strand the host, and the guard below refuses only over what would not stop.
-# The operator's own target VM is left running so the dev loop still works.
-[void](Stop-ConcurrentVM -ExceptVmName $VMName)
-if ($HostType -eq 'host.macos.utm') {
-    if (-not (Assert-NoConcurrentUtmVm -ExceptVmName $VMName)) { exit $ExitFailure }
+# --- REGION: Concurrent-VM admission
+# See https://yuruna.link/42010605-0002
+$admissionStep = Invoke-CycleAdmissionStep -HostType $HostType -ExceptVmName $VMName
+[void]$script:RecoverySteps.Add($admissionStep)
+if (-not $admissionStep.Ok) {
+    Save-SequenceRecoveryResult -ExitCode $admissionStep.ExitCode
+    exit $admissionStep.ExitCode
 }
 
 # --- REGION: SSH-user override
-# Same cascade registration as Invoke-TestRunnerInnerLoop: Test.Ssh's
-# Get-GuestSshUser is the lookup point for Save-GuestDiagnostic +
-# host-driver SSH-mode Send-Text / fetchAndExecute SSH. Standalone
-# Debug-TestSequence runs the same chain as a one-off, so register the
-# same override here. Empty $effectiveUser falls through to the
-# hardcoded per-guest default via Get-GuestSshUser unchanged.
+# See https://yuruna.link/42010605-0002
 if (-not (Get-Command Set-GuestSshUserOverride -ErrorAction SilentlyContinue)) {
     Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Force -Global -ErrorAction SilentlyContinue
 }
@@ -592,16 +492,7 @@ if ($effectiveUser -and (Get-Command Set-GuestSshUserOverride -ErrorAction Silen
 }
 
 # --- REGION: Resolve the caching-proxy-service endpoint from config + env
-# Invoke-TestRunnerInnerLoop reads BOTH $Config.vmStart.cachingProxyIp (the
-# persistent UI-edited key, probed first) and $env:YURUNA_CACHING_PROXY_SERVICE_IP
-# (session-scope fallback, probed only when the config candidate is
-# absent or fails), keeps the first whose HTTP proxy port is reachable,
-# and clears the env when none answers. Debug-TestSequence runs the SAME
-# Resolve-CachingProxyServiceEndpoint so a syntactically valid but dead IP
-# configured via the status service's Edit-config page can't survive into
-# guest cidata here either. When neither source is set, the resolver is
-# a no-op and the local-discovery path in Test-CachingProxyServiceAvailable
-# below runs unchanged.
+# See https://yuruna.link/42010605-0002
 $envCacheIp    = if ($env:YURUNA_CACHING_PROXY_SERVICE_IP) { $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() } else { '' }
 $configCacheIp = ''
 if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIp')) {
@@ -622,12 +513,7 @@ if (($envCacheIp -or $configCacheIp) -and (Get-Command Resolve-CachingProxyServi
 }
 
 # --- REGION: Resolve caching-proxy service URL
-# Mirror Invoke-TestRunnerInnerLoop: resolve once via Test-CachingProxyServiceAvailable
-# (honors $Env:YURUNA_CACHING_PROXY_SERVICE_IP for remote caches, falls back to
-# locally-recorded state) and forward to New-VM so the guest's cloud-init
-# user-data templates the proxy URL. Without this forward, the per-guest
-# New-VM.ps1 falls into local Get-VM yuruna-caching-proxy-service discovery and
-# warns "no cache" even when the operator has a healthy remote cache.
+# See https://yuruna.link/42010605-0002
 $cachingProxyUrl = Test-CachingProxyServiceAvailable
 $newVmProxy = if ($cachingProxyUrl) { $cachingProxyUrl } else { "" }
 if ($newVmProxy) {
@@ -639,16 +525,7 @@ if ($newVmProxy) {
 # --- REGION: Ensure VM exists (reuse or create)
 if ((Get-VMState -VMName $VMName) -ne 'absent') {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a1b32a2ad4857b3d' -Arguments @{ vMName = "$VMName" })
-    # Reuse skips the entire New-VM path, so the switch selection that runs
-    # there never runs: the VM keeps whatever vNIC attachment it was created
-    # with, and no host-side network change ever reaches it. A Hyper-V vSwitch
-    # object outlives its uplink binding across a host reboot, so the switch
-    # still existing is not evidence that it still bridges -- revalidate the
-    # attachment before the sequence engine spends its step budget on a guest
-    # that can never reach the network. Report only: this script has no
-    # VM-file sweep, so re-creating the VM belongs to the runner's per-guest
-    # iteration, not here. The Get-Command guards keep the whole block inert
-    # on host.ubuntu.kvm and host.macos.utm.
+    # See https://yuruna.link/42010605-0002
     if ((Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue) -and
         (Get-Command Test-YurunaExternalSwitchUplink -ErrorAction SilentlyContinue)) {
         $reuseSwitchName = ''
@@ -672,12 +549,7 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
     }
 } else {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ad8be36c987288c8' -Arguments @{ vMName = "$VMName" })
-    # Forward -Username / -Hostname when the sequence declares them. Mirrors
-    # Invoke-TestRunnerInnerLoop's cascade forward (the cascade-walk is not
-    # feasible standalone, but the sequence's own variables.username /
-    # variables.hostname are the overrides Debug-TestSequence can honor without
-    # the planner). Empty values fall through to the per-host New-VM
-    # defaults (the account default and the VM name, respectively).
+    # See https://yuruna.link/42010605-0002
     $newVmArgs = @{ GuestKey = $GuestKey; RepoRoot = $RepoRoot; VMName = $VMName; CachingProxyServiceUrl = $newVmProxy }
     if ($effectiveUser) {
         Write-Verbose "Forwarding -Username '$effectiveUser' from $($SequenceName).variables.username."
@@ -711,13 +583,7 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
 }
 
 # --- REGION: Ensure VM is running
-# Skipped when the first EXECUTED step (honoring -StartStep, and reading through a
-# wrapper such as `retry` to the inner step that actually runs) is `loadDiskSnapshot`:
-# that handler tolerates a stopped VM as input (its host driver gates the pre-restore
-# Stop-VM on `if running`), runs the restore against the offline disk,
-# and starts the VM itself on return. Pre-booting here would only force
-# the handler to immediately Stop-VM again -- a wasted Start+Wait cycle
-# (~15-20s of boot-delay + Hyper-V cold-stop poll) on every warm-path run.
+# See https://yuruna.link/42010605-0002
 $VmStartTimeoutSeconds = $Config.vmStart.startTimeoutSeconds ? [int]$Config.vmStart.startTimeoutSeconds : 120
 $VmBootDelaySeconds    = $Config.vmStart.bootDelaySeconds    ? [int]$Config.vmStart.bootDelaySeconds    : 15
 
@@ -747,16 +613,7 @@ if ($firstStepAction -eq 'loadDiskSnapshot') {
 }
 
 # --- REGION: Register this run as a cycle in status.json
-# Without this block a Debug-TestSequence run lands under cycle "000000" with
-# no row in the dashboard's history table, and break-active.json has no live
-# cycle to anchor the Continue button against. Mirrors
-# Invoke-TestRunnerInnerLoop's shape but uses a single 'Sequence' step: the
-# inner runner's fixed phase pills -- New-VM / Start-VM / Start-GuestOS / ...
-# -- would render four "pending" chips that never animate, since
-# Debug-TestSequence skips those phase boundaries.
-# $nestedNodeId is the id of this run's node in the owner's `nested` map; it
-# stays $null for an owner run and is read again in the finally{} to finalize
-# the node, so it must live in the script scope BEFORE the branch.
+# See https://yuruna.link/42010605-0002
 $nestedNodeId = $null
 $StatusFile   = Join-Path $env:YURUNA_RUNTIME_DIR 'status.json'
 if ($isNested) {
@@ -855,25 +712,11 @@ foreach ($entry in $ChainEntries) {
 Write-Output ""
 
 # --- REGION: Run each chain entry that overlaps the requested step range
-# Per-entry step-window run + mid-chain rename detection lives in
-# Test.SequenceRunner.psm1 (Invoke-TestSequenceChain); it runs each entry's real
-# file via Invoke-Sequence -StartStep/-StopStep, so there are no slice temp
-# files to sweep. A mid-chain saveDiskSnapshot rename surfaces via the returned
-# finishedVmName so this script's outer $VMName tracks the rename for the
-# post-run banner.
-# Outcome tracker for the finally{} -- script-scope so a mid-try exit
-# captures the right disposition before Stop-LogFile emits cycle_end.
-# 'unknown' is the safe default if control bails before either of the
-# success/failure branches assigns.
+# See https://yuruna.link/42010605-0002
 $script:TestSequenceOutcome = 'unknown'
 $script:TestSequenceReason  = ''
 try {
-    # Pass the planner's List[object] straight through -- do NOT wrap in @().
-    # Resolve-TestSequencePlan always returns chainEntries as a List (an IList),
-    # which binds directly to the IList parameter. Wrapping a generic List in @()
-    # yields an array that a Mandatory [IList]/[object[]] parameter rejects with
-    # "Argument types do not match" (a PowerShell @()-over-List binding quirk), so
-    # the wrap would break the very single-entry warm path it appears to protect.
+    # See https://yuruna.link/42010605-0002
     $result = Invoke-TestSequenceChain `
         -ChainEntries $ChainEntries `
         -ChainPlan $ChainPlan `
@@ -923,6 +766,7 @@ try {
     # walked away from is closer to a failed cycle than a clean pass for
     # downstream automation (notification, retry, history pruning).
     $finalOutcome = if ($script:TestSequenceOutcome -eq 'pass') { 'pass' } else { 'fail' }
+    Save-SequenceRecoveryResult -ExitCode ($finalOutcome -eq 'pass' ? $ExitOk : $ExitFailure)
     if ($isNested) {
         # NESTED: finalize only OUR node + seal OUR transcript. Do NOT
         # Complete-Run / Stop-LogFile / rename the folder -- those finalize the

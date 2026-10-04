@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,29 +24,7 @@
     finishes.
 
 .DESCRIPTION
-    Each step is gated and reports its own reason on failure:
-
-      Step 1+2 wipe + re-clone <RepoRoot>/project via the same
-                Test.HostContract\Update-ProjectClone helper Invoke-TestRunnerInnerLoop
-                calls every cycle. A failure here stops with a clear
-                "what + why" line; the inner is never spawned.
-
-      Step 3   spawns Invoke-TestRunnerInnerLoop.ps1 in a fresh pwsh -- the
-                same spawn shape Start-TestRunner uses for every cycle --
-                with -NoProjectClone (the clone is already fresh) and
-                -NoGitPull (Invoke-TestProject tests the project as it stands
-                locally; a mid-test framework update would muddle the
-                signal). The inner does the full cycle, records it as a
-                regular cycle in status.json, and exits.
-
-      Step 4   surface the inner's exit code as our own and stop. Not
-                resumed; the operator (or CI) re-invokes Invoke-TestProject
-                explicitly if they want another pass.
-
-    By calling Update-ProjectClone + Invoke-TestRunnerInnerLoop directly,
-    Invoke-TestProject exercises the same code paths Start-TestRunner does --
-    a regression in either surfaces here first.
-
+    See https://yuruna.link/42010605-0002.
 .PARAMETER ConfigPath  test.config.yml path (default: next to this script)
 .PARAMETER logLevel    Error|Warning|Information|Verbose|Debug. Forwarded to
                        the inner. Omit to read test.config.yml.logLevel.
@@ -99,15 +77,14 @@ $InnerScript = Join-Path $ModulesDir 'Invoke-TestRunnerInnerLoop.ps1'
 # Test.YurunaDir, Test.ConfigPreflight, Test.HostContract, Test.InnerSpawn.
 Initialize-YurunaEntryPointModuleSet -For Project -ModulesDir $ModulesDir
 
-# Exit-code contract: 0 = success, 1 = anything else. A binary code
-# is what pass/fail consumers want; a CI consumer that needs to
-# discriminate between "preflight" / "clone failed" / "inner spawn
-# failed" reads the Stop-WithReason banner ("STOP at <Step>") rather
-# than a numeric code. Standardized on 0/1 across all entry points;
-# the $Step + $Reason in the banner carry the "why".
+# See https://yuruna.link/42010605-0002
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
+# The steps this run took, in order, for the typed result recorded at every exit.
+$script:RecoverySteps = [System.Collections.Generic.List[object]]::new()
+
+# --- REGION: Stop-WithReason
 function Stop-WithReason {
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
@@ -123,16 +100,14 @@ function Stop-WithReason {
     foreach ($line in ($Reason -split "`r?`n")) { Write-Output "  $line" }
     Write-Output '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
     Write-Output ''
+    if (Get-Command Save-RecoveryResult -ErrorAction SilentlyContinue) {
+        $null = Save-RecoveryResult -EntryPoint project -ExitCode $Code -Steps @($script:RecoverySteps)
+    }
     exit $Code
 }
 
 # --- REGION: Pre-flight: elevation
-# Ahead of everything destructive. Without this, an operator who forgot the
-# elevated shell has <RepoRoot>/project wiped and re-cloned, and only then hits
-# the check inside the spawned inner cycle. Self-gating: Assert-Elevation returns
-# true whenever Test-ElevationRequired is false, and only host.windows.hyper-v
-# registers RequiresElevation -- so this is a no-op on macOS and Linux and cannot
-# introduce a UAC or sudo demand on a path that never needed one.
+# See https://yuruna.link/42010605-0002
 if (-not (Assert-Elevation -HostType (Get-HostType))) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-flight (elevation)' `
         -Reason 'This host requires an elevated shell. Re-run from an elevated PowerShell -- stopping now, before <RepoRoot>/project is wiped and re-cloned.'
@@ -190,29 +165,13 @@ Set repositories.projectUrl to a clonable URL and retry.
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
 
-# Refuse to start when a Start-TestRunner already owns the runtime dir.
-# Invoke-TestProject spawns its own inner with YURUNA_RUNNER_RELAUNCH=1 below,
-# which tells inner to skip its own pidfile-takeover guard -- safe only
-# when Invoke-TestProject itself is the legitimate parent. If a real
-# Start-TestRunner is already running, that contract would let our inner race
-# the live cycle's runner.pid + status.json updates. Assert-NoOtherRunner
-# (Test.Prelude, backed by Test.SingleInstance) reads runner.pid +
-# runner.start and refuses; Start-TestRunner's takeover path is the
-# opposite (Stop-StaleRunner) and stays in the outer.
+# See https://yuruna.link/42010605-0002
 if (-not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName 'Invoke-TestProject')) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-flight (single-instance)' `
         -Reason 'A live Start-TestRunner already owns runner.pid in this runtime dir. Stop it before invoking Invoke-TestProject, or run from a different YURUNA_RUNTIME_DIR.'
 }
 
-# Sweep the parked interactive control state before handing off to the
-# inner. -Scope PreSpawn archives a leftover break-active.json and clears
-# leftover pause flags (control.step-pause / .cycle-pause) so the spawned
-# inner doesn't inherit the parked break state -- the status UI would
-# otherwise keep the previous run's Continue button live. Invoke-TestProject
-# spawns Invoke-TestRunnerInnerLoop directly (bypassing the outer
-# Start-TestRunner that normally hosts Invoke-YurunaBootRecovery), so
-# this sweep has to happen here. PreSpawn deliberately leaves
-# control.cycle-restart for the child inner to consume as ITS own restart.
+# See https://yuruna.link/42010605-0002
 if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
     $null = Clear-StaleControlState -Scope PreSpawn -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
 }
@@ -239,17 +198,13 @@ if (-not $gate.passed) {
 }
 
 # --- REGION: Step 1+2: wipe + re-clone project
-# Update-ProjectClone is the same helper Invoke-TestRunnerInnerLoop uses every
-# cycle -- by calling it here, a regression in clone removal, git clone
-# itself, or the safety check (refuse to delete outside RepoRoot) surfaces
-# in Invoke-TestProject before it ever bites Start-TestRunner. The function
-# combines the wipe + clone in a single safe sequence; splitting them in
-# Invoke-TestProject would duplicate the safety check without adding value.
-# Test.HostContract was imported by Initialize-YurunaEntryPointModuleSet above.
+# See https://yuruna.link/42010605-0002
 
 Write-Output ''
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4fb40cac594a7bbc' -Arguments @{ projectUrl = "$projectUrl" })
-$cloneRes = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $projectUrl -Confirm:$false
+$checkoutStep = Invoke-CycleCheckoutStep -RepoRoot $RepoRoot -ProjectUrl $projectUrl
+[void]$script:RecoverySteps.Add($checkoutStep)
+$cloneRes = @{ success = $checkoutStep.Ok; skipped = $checkoutStep.Skipped; errorMessage = $checkoutStep.ErrorMessage }
 if (-not $cloneRes.success) {
     Stop-WithReason -Code $ExitFailure -Step 'Step 1+2 (wipe + clone)' `
         -Reason $cloneRes.errorMessage
@@ -257,34 +212,13 @@ if (-not $cloneRes.success) {
 Write-Output '[Invoke-TestProject] Step 1+2: complete.'
 
 # --- REGION: Step 3: spawn one inner cycle
-# Mirror Start-TestRunner's spawn pattern so Invoke-TestProject exercises the
-# same boundary the recurring runner does:
-#   * call operator (not Start-Process) -- the inner inherits our env,
-#     stdio, and signal context; same as Start-TestRunner
-#   * -Command (not -File) -- pwsh -File coerces every argv to [string],
-#     which would break [switch] / [int] parameters
-#   * -NoProfile -- $PROFILE can't clobber YURUNA_* env vars
-#   * YURUNA_RUNNER_RELAUNCH=1 -- inner skips its own pidfile-takeover guard
-#     (it can't safely take over us; we're the legitimate parent)
-#   * -NoProjectClone -- step 1+2 already produced a fresh tree; the
-#     inner trusts it and skips Update-ProjectClone
-#   * -NoGitPull -- Invoke-TestProject is a project test, not a framework test;
-#     a mid-test framework update would conflate signals
+# See https://yuruna.link/42010605-0002
 Write-Output ''
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_554a120b73560a96')
 
 # Test.InnerSpawn was imported by Initialize-YurunaEntryPointModuleSet above.
 $pwshExe = Get-PwshExePath
-# Build the parameter set Invoke-TestProject must pass to the inner. -NoGitPull
-# and -NoProjectClone are *always* forced here -- Invoke-TestProject does a fresh
-# clone itself and tests the local tree as-is; a mid-test framework update
-# would conflate signals. logLevel is forwarded only if the operator passed
-# it on this script's command line (PSBoundParameters), so the inner falls
-# back to its config-file default otherwise.
-# -NoConfigGate is forced too: the gate above already cleared this same config
-# seconds ago, ahead of the destructive re-clone that only this entry point
-# performs. The inner gating again would re-probe every remote for a verdict
-# nothing has had a chance to invalidate.
+# See https://yuruna.link/42010605-0002
 $innerParams = [ordered]@{
     ConfigPath     = $ConfigPath
     NoGitPull      = [switch]::new($true)
@@ -328,4 +262,7 @@ if ($innerExit -eq $ExitOk) {
 }
 Write-Output '========'
 
+if (Get-Command Save-RecoveryResult -ErrorAction SilentlyContinue) {
+    $null = Save-RecoveryResult -EntryPoint project -ExitCode $innerExit -Steps @($script:RecoverySteps)
+}
 exit $innerExit

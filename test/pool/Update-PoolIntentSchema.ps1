@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42ea6545-e599-4ca8-a31d-79584a62e9e0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,28 +20,7 @@
 .SYNOPSIS
     Migrate the pool intent store to pools.yml schemaVersion 3, once.
 .DESCRIPTION
-    Pool admin CLI. Clones/pulls the WRITABLE intent repo and reads pools.yml as
-    stored. Below schemaVersion 3 it upgrades the document with
-    ConvertTo-PoolIntentSchemaV3: each pool's testSet framework and project URLs
-    become its `repositories`, and the testSet name and sequences are dropped. It
-    also deletes a leftover test-sets.yml, which nothing reads. It then validates
-    pools.yml against test/schemas/pools.schema.yml, commits and pushes. The
-    commit subject names what changed: "Migrate pool intent to schemaVersion 3"
-    when the stored version moves, or "pool: remove test-sets.yml" when the store
-    is already at schemaVersion 3 and only that leftover file goes.
-
-    Idempotent: a store already at schemaVersion 3 with no test-sets.yml is
-    reported as already current and left untouched. A store at a NEWER version
-    is refused -- update this checkout first. The migration keeps every value
-    it finds, including repositories on the auto-enrollment target pool; run
-    Test-PoolIntent.ps1 afterwards, which reports that as a violation to clear
-    with Set-PoolRepository.ps1 -Clear.
-
-    Every other admin CLI performs the same upgrade in memory and persists it on
-    its next write; this script makes the migration an explicit, reviewable
-    commit of its own. Run it after every checkout that writes the store (the
-    pool-control-service VM included) runs the schemaVersion 3 code: a checkout
-    that still validates against schemaVersion 2 refuses to write a v3 store.
+    See https://yuruna.link/42010605-0004.
 .PARAMETER IntentGitUrl
     Writable URL/path of the bare intent repo. Defaults to pool.intentGitUrl from
     test.config.yml.

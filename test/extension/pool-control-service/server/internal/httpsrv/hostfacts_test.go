@@ -29,9 +29,9 @@ func hostFactsAggStub(t *testing.T) *httptest.Server {
                 {"hostId":"42aa","baseUrl":"` + base + `/42aa"},
                 {"hostId":"42bb","baseUrl":""}]}`))
 		case r.URL.Path == "/42aa/control/host-facts":
-			_, _ = w.Write([]byte(`{"ok":true,"memoryBytes":34359738368,"cores":8,"storageTotalBytes":2199023255552,"storageFreeBytes":549755813888,"frameworkAccess":"yuruna","projectAccess":"No access","frameworkUrl":"https://github.com/alissonsol/yuruna","projectUrl":"https://github.com/alius-git/private"}`))
+			_, _ = w.Write([]byte(`{"ok":true,"memoryBytes":34359738368,"cores":8,"storageTotalBytes":2199023255552,"storageFreeBytes":549755813888,"frameworkAccess":"yuruna","frameworkAccessState":"readable","projectAccess":"","projectAccessState":"denied","frameworkUrl":"https://github.com/alissonsol/yuruna","projectUrl":"https://github.com/alius-git/private"}`))
 		case strings.HasPrefix(r.URL.Path, "/scanned") && strings.HasSuffix(r.URL.Path, "/control/host-facts"):
-			_, _ = w.Write([]byte(`{"ok":true,"memoryBytes":17179869184,"cores":4,"storageTotalBytes":1099511627776,"storageFreeBytes":274877906944,"frameworkAccess":"yuruna-fork","projectAccess":"amisad.dev","frameworkUrl":"file:///home/operator/git/yuruna-fork","projectUrl":"https://github.com/alius-git/amisad.dev"}`))
+			_, _ = w.Write([]byte(`{"ok":true,"memoryBytes":17179869184,"cores":4,"storageTotalBytes":1099511627776,"storageFreeBytes":274877906944,"frameworkAccess":"yuruna-fork","frameworkAccessState":"readable","projectAccess":"amisad.dev","projectAccessState":"readable","frameworkUrl":"file:///home/operator/git/yuruna-fork","projectUrl":"https://github.com/alius-git/amisad.dev"}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -73,14 +73,14 @@ func TestHostFactsRelayAnswersAndKeepSilentHosts(t *testing.T) {
 		got.StorageTotalBytes != 2199023255552 || got.StorageFreeBytes != 549755813888 {
 		t.Errorf("42aa facts not relayed verbatim: %+v", got)
 	}
-	// The repository columns are the host's words, relayed rather than
-	// interpreted: "No access" is a value the page renders, not an error to
-	// turn the row into a silent host.
-	if got.FrameworkAccess != "yuruna" || got.ProjectAccess != "No access" {
+	// Repository names and typed states travel separately. A denied repository
+	// carries no display prose and does not turn the row into a silent host.
+	if got.FrameworkAccess != "yuruna" || got.ProjectAccess != "" ||
+		got.FrameworkAccessState != "readable" || got.ProjectAccessState != "denied" {
 		t.Errorf("42aa repository access not relayed verbatim: %+v", got)
 	}
 	// Each name's location rides with it, so the page can link the cell. The
-	// "No access" column carries one too: it is the url the host could not
+	// denied column carries one too: it is the url the host could not
 	// read, which is what an operator opens to find out why.
 	if got.FrameworkURL != "https://github.com/alissonsol/yuruna" ||
 		got.ProjectURL != "https://github.com/alius-git/private" {
@@ -139,7 +139,8 @@ func TestHostFactsCoversDiscoveredHosts(t *testing.T) {
 	// A discovered host belongs to no pool, so its Control column is blank --
 	// but the repositories are its OWN answer, and it reports them like any
 	// other machine. A blank here would read as "no repository".
-	if named.FrameworkAccess != "yuruna-fork" || named.ProjectAccess != "amisad.dev" {
+	if named.FrameworkAccess != "yuruna-fork" || named.ProjectAccess != "amisad.dev" ||
+		named.FrameworkAccessState != "readable" || named.ProjectAccessState != "readable" {
 		t.Errorf("a discovered host must still report its repositories: %+v", named)
 	}
 	// A repository that is a local copy is a legitimate lab setup, and the

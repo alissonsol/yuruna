@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 427e5cfa-1fd6-4fde-89f5-c7a1f409aa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -205,10 +205,15 @@ try {
     } else {
         $pwsh = Get-PwshExePath
         if (-not $pwsh) { $pwsh = 'pwsh' }
+        # A hidden Windows child can use the OEM encoding even when its
+        # parent decodes UTF-8. Set the producer and both readers explicitly
+        # so non-ASCII diagnostic output survives before report truncation.
+        $diagnosticCommand = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); try { . $env:YURUNA_HOST_DIAGNOSTIC_SCRIPT; if ($?) { exit 0 }; exit $LASTEXITCODE } catch { Write-Error -ErrorRecord $_; exit 1 }'
         $run = Invoke-BoundedNativeCommand -FilePath $pwsh -TimeoutSeconds $TimeoutSeconds -MaxCapturedChars $MaxReportChars `
-            -Environment @{ YURUNA_NONINTERACTIVE = '1' } `
+            -StreamEncoding ([Text.UTF8Encoding]::new($false)) `
+            -Environment @{ YURUNA_NONINTERACTIVE = '1'; YURUNA_HOST_DIAGNOSTIC_SCRIPT = $DiagnosticScriptPath } `
             -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-                '-WorkingDirectory', $WorkingDirectory, '-File', $DiagnosticScriptPath)
+                '-WorkingDirectory', $WorkingDirectory, '-Command', $diagnosticCommand)
         $childExit = [int]$run.ExitCode
         $timedOut = [bool]$run.TimedOut
         $truncated = [bool]$run.OutputTruncated -or [bool]$run.DrainTimedOut -or [bool]$run.KillFailed

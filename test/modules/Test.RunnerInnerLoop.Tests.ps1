@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1114,12 +1114,19 @@ Describe 'Warm-resume restart point (call-site wiring)' {
     # step onto the residue it left -- so the wiring is pinned against the source.
     It 'restarts the workload at the rewound step, not the recorded checkpoint' {
         $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
-        Assert-True ($src -match 'Get-WarmResumeRewindStep') `
-            'the call site must consult the rewind before restarting'
+        # The rewind is part of the replay plan every entry point shares; the call
+        # site asks the plan and restarts where the plan says.
+        Assert-True ($src -match 'Resolve-CycleReplayStep -Decision \$wrDec -Checkpoint \$wrCp') `
+            'the call site must consult the shared replay plan before restarting'
+        Assert-True ($src -match '\$wrStep\s+= \[int\]\$wrPlan\.ResumeFromStep') `
+            'the restart step must come from the plan'
         Assert-True ($src -match '-ResumeFromSequence \$wrDec\.ResumeSequence -ResumeFromStep \$wrStep') `
-            'Start-GuestWorkload must restart at the rewound step'
+            'Start-GuestWorkload must restart at the planned step'
         Assert-True (-not ($src -match '-ResumeFromSequence \$wrDec\.ResumeSequence -ResumeFromStep \(\[int\]\$wrCp\.ResumeFromStep\)')) `
             'restarting straight from the checkpoint is the behavior the rewind replaces'
+        $plan = Get-Content -LiteralPath (Join-Path $here 'Test.WarmResume.psm1') -Raw
+        Assert-True ($plan -match 'Get-WarmResumeRewindStep') `
+            'the replay plan must consult the rewind'
     }
 
     It 'strips a .yml suffix before resolving, since the resolver appends its own' {
@@ -1128,13 +1135,18 @@ Describe 'Warm-resume restart point (call-site wiring)' {
         # suffixed name looks for <name>.yml.yml and resolves to nothing -- which is
         # indistinguishable from a sequence that has no restore point, so the rewind
         # would be dropped in silence rather than reported.
+        # The plan owns the stripping now, so the call site must hand it the entry
+        # verbatim and the plan must strip it before it resolves.
         $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        $plan = Get-Content -LiteralPath (Join-Path $here 'Test.WarmResume.psm1') -Raw
         # Exact substrings, not a regex: the line being pinned is itself full of
         # regex punctuation, and escaping it twice is how a guard ends up matching
         # nothing and passing for the wrong reason.
-        Assert-True ($src.Contains('$wrSeqName = [string]$wrDec.ResumeSequence -replace')) `
+        Assert-True ($src.Contains('Resolve-CycleReplayStep -Decision $wrDec')) `
+            'the call site must pass the decision, with the list entry as it came, to the replay plan'
+        Assert-True ($plan.Contains('$sequenceName = [string]$Decision.ResumeSequence -replace')) `
             'the resume sequence name must have its extension stripped before resolution'
-        Assert-True ($src.Contains('-Name $wrSeqName')) `
+        Assert-True ($plan.Contains('-Name $sequenceName')) `
             'the resolver must receive the stripped name, not the raw list entry'
     }
 

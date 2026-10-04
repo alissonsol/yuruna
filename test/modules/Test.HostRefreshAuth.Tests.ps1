@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 425947a5-2f05-4cc4-9b4d-22107bbf34be
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,9 +72,14 @@ BeforeAll {
         [CmdletBinding()]
         [OutputType([string])]
         param()
-        $dir = [IO.Path]::Combine($script:TempRoot, 'pr-' + [Guid]::NewGuid().ToString('N'), '.yuruna', 'host-refresh')
-        if ($IsWindows) { [void][IO.Directory]::CreateDirectory($dir) }
-        else { [void][IO.Directory]::CreateDirectory($dir, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute') }
+        $fixtureHome = [IO.Path]::Combine($script:TempRoot, 'pr-' + [Guid]::NewGuid().ToString('N'))
+        $dir = [IO.Path]::Combine($fixtureHome, '.yuruna', 'host-refresh')
+        if ($IsWindows) {
+            $privateRoot = Get-YurunaPrivateStateRoot -HomePath $fixtureHome
+            if (-not $privateRoot.Resolved) { throw "Private test root could not be secured: $($privateRoot.Reason)" }
+            return $privateRoot.Path
+        }
+        [void][IO.Directory]::CreateDirectory($dir, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
         return $dir
     }
 
@@ -386,6 +391,33 @@ Describe 'Read-YurunaHostRefreshVerifierKey' {
         $null = Set-TestKeyFile -Root $root -Content (Get-TestGoldenKeyLine) -Mode '644'
         $r = Read-YurunaHostRefreshVerifierKey -HostId $script:GoldenHost -PrivateRoot $root
         Assert-Equal -Expected 'key_permissions_open' -Actual $r.Reason
+    }
+
+    It 'creates Windows fixtures with only owner access before writing key bytes' -Skip:(-not $IsWindows) {
+        $root = New-TestPrivateRoot
+        $rootAcl = Get-Acl -LiteralPath $root -ErrorAction Stop
+        Assert-True $rootAcl.AreAccessRulesProtected 'the private root must not inherit the temp directory ACL'
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        foreach ($rule in $rootAcl.Access) {
+            Assert-Equal -Expected $identity -Actual $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        }
+        $text = (Get-TestGoldenKeyLine) + "`n"
+        $path = Set-TestKeyFile -Root $root -Content $text
+        Assert-Equal -Expected $text -Actual ([IO.File]::ReadAllText($path))
+        foreach ($rule in (Get-Acl -LiteralPath $path -ErrorAction Stop).Access) {
+            Assert-Equal -Expected $identity -Actual $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        }
+        Assert-Equal -Expected 'provisioned' -Actual (Read-YurunaHostRefreshVerifierKey -HostId $script:GoldenHost -PrivateRoot $root).State
+    }
+
+    It 'refuses a Windows key file with a foreign reader' -Skip:(-not $IsWindows) {
+        $root = New-TestPrivateRoot
+        $path = Set-TestKeyFile -Root $root -Content (Get-TestGoldenKeyLine)
+        $acl = Get-Acl -LiteralPath $path -ErrorAction Stop
+        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'), 'Read', 'Allow'))
+        Set-Acl -LiteralPath $path -AclObject $acl -ErrorAction Stop -WhatIf:$false -Confirm:$false
+        Assert-Equal -Expected 'key_permissions_open' -Actual (Read-YurunaHostRefreshVerifierKey -HostId $script:GoldenHost -PrivateRoot $root).Reason
     }
 
     It 'refuses a key file that is a symbolic link, and a root that is one' -Skip:$IsWindows {

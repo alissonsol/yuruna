@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -265,14 +265,7 @@ function Merge-ConfigSyncReferenceConfig {
 }
 
 # --- REGION: Shared-token credential envelope (client + server sides)
-# Both ends hold the internal authentication key; nothing else is shared.
-# The request carries an HMAC proof-of-knowledge (the token itself never
-# crosses the wire) and the response password is AES-256-GCM encrypted with
-# an HKDF key derived from token + a fresh per-response salt, with the user
-# and the client's nonce bound into the derivation -- a captured response
-# cannot be decrypted without the token nor replayed for a different user.
-# The status service is plain HTTP on a trusted LAN; this keeps the secret
-# confidential in transit without a TLS dependency.
+# See https://yuruna.link/4213a0b3-003b
 
 function Get-ConfigSyncHmac {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
@@ -284,14 +277,7 @@ function Get-ConfigSyncHmac {
         [Parameter(Mandatory)][string]$Data
     )
     $hmac = [System.Security.Cryptography.HMACSHA256]::new([System.Text.Encoding]::UTF8.GetBytes($Token))
-    # The unary comma is load-bearing. A bare `return $bytes` writes the array to
-    # the pipeline ELEMENT BY ELEMENT, and the caller collects the pieces back
-    # into an [object[]] -- not the [byte[]] the OutputType above advertises
-    # (that attribute documents, it does not coerce). Most callers never notice,
-    # because a [byte[]]-typed parameter converts the object[] back. Test-ConfigSyncProof
-    # does notice: it passes this value to a ReadOnlySpan<byte> parameter, and a
-    # ByRef-like type is the one thing PowerShell cannot convert an object[] into,
-    # so the comparison throws instead of returning a verdict.
+    # See https://yuruna.link/4213a0b3-003c
     try { return ,$hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Data)) }
     finally { $hmac.Dispose() }
 }
@@ -875,16 +861,7 @@ function Invoke-ConfigSyncHostAlias {
     }
     try {
         if ($needsSudo) {
-            # -n (never block on a password prompt) and, on macOS, -E: a Homebrew
-            # PowerShell cannot start under sudo's stripped environment and exits
-            # 131 before reading the script. See Get-SudoPwshArgumentList.
-            # The prompt names the account and the reason. Reaching this point
-            # means the run has just finished narrating vault keys and the
-            # storage-account credentials it fetched from the reference host, so
-            # a bare "Password:" arrives looking like a continuation of that and
-            # invites one of those credentials as the answer. What is wanted is
-            # this machine's own login password, and nothing but the prompt can
-            # say so.
+            # See https://yuruna.link/4213a0b3-003d
             $sudoArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
                 -ScriptArgument @('-ComputerName', $Name, '-IPAddress', $IPAddress) `
                 -NonInteractive:$NonInteractive `
@@ -904,15 +881,7 @@ function Invoke-ConfigSyncHostAlias {
     }
 }
 
-# Converges every networkStorage server name in the converted config onto the
-# address the REFERENCE host resolves it to: the reference is the source of
-# truth for the sync, so its answer is consulted for every name, not only for
-# the ones that fail to resolve here. Skipping the lookup whenever a name
-# resolves locally would make the sync a one-shot bootstrap: a NAS that moved to
-# a new address leaves a stale hosts entry that still "resolves", so no re-run
-# could ever repair it and the mounts would keep failing against the old IP. A
-# re-run therefore rewrites a mapping that disagrees with the reference and
-# writes nothing when they already agree. Operator prompt remains the last resort.
+# See https://yuruna.link/4213a0b3-003e
 function Sync-ConfigSyncHostAlias {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -932,15 +901,7 @@ function Sync-ConfigSyncHostAlias {
     if ($names.Count -eq 0) { return }
 
     $referenceAliases = Get-ConfigSyncReferenceAliasMap -ReferenceHost $ReferenceHost -Port $Port
-    # Latched on the first elevation this loop cannot get, so the operator is
-    # asked at most once. sudo caches a successful authentication for a few
-    # minutes, so a run that gets the password right already prompts only for
-    # the first name; without the latch a run that gets it WRONG prompts again
-    # for every remaining name, and each prompt is a fresh three-attempt round
-    # of the same rejection. Two names turn one mistake into six refusals, which
-    # reads like the machine disagreeing with itself rather than one wrong
-    # answer -- and the second prompt invites the operator to conclude a
-    # DIFFERENT password must be wanted.
+    # See https://yuruna.link/4213a0b3-003f
     $sudoRefused = $false
     foreach ($name in $names) {
         $localIp = Get-ConfigSyncLocalAddress -Name $name
@@ -1230,17 +1191,7 @@ function Sync-ConfigSyncVaultCredential {
         $resolvedKey = if ([string]::IsNullOrWhiteSpace($vaultKey)) { $user } else { $vaultKey }
         $hasEntry = [bool](Test-VaultEntry -VaultKey $resolvedKey)
 
-        # No internal authentication key to fetch a possibly-rotated value with, and a working
-        # entry is already here: keep it, with no network round-trip and no prompt.
-        # Fetching (hence refreshing) is impossible without the key by design, so
-        # there is nothing the reference could tell us that would change the outcome.
-        # Pass -InternalAuthKey (or store an internal auth key here) to have re-runs refresh
-        # this against the reference.
-        #
-        # -RequireReferenceValue takes this branch off the table. The caller has
-        # said an unchecked entry is not acceptable, and on a host converting away
-        # from standalone it is actively wrong: the entry it would keep was minted
-        # here, for a share this host used to serve itself.
+        # See https://yuruna.link/4213a0b3-0040
         if (-not $authKey -and $hasEntry -and -not $RequireReferenceValue) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5e743da1cdfcdf13' -Arguments @{ user = "$user"; referenceHost = "$ReferenceHost" }) -InformationAction Continue
             & $record $user $resolvedKey 'kept-local' (Format-YurunaOperatorMessage -Key 'configsync.operator_14636e2b7f9a6280' -Arguments @{ referenceHost = "$ReferenceHost" })
@@ -1508,20 +1459,7 @@ function Sync-HostConfiguration {
     $reference = Get-ConfigSyncReferenceConfig -ReferenceHost $ReferenceHost -Port $StatusPort
 
     # --- REGION: Retired key spellings on the reference
-    # Rewrite them onto the current paths BEFORE anything reads the config.
-    # Every consumer downstream looks up current names only, so a value parked
-    # under a retired one is indistinguishable from a value that is not there --
-    # and "not there" is not inert: Convert-ConfigSyncNetworkStorage reads a
-    # missing poolStorageNetworkPath as "the reference has no pool storage" and
-    # CLEARS the tier, which takes the user names with it and leaves the
-    # credential sync iterating an empty list. A reference one rename behind
-    # would erase exactly the section it was fetched to supply.
-    #
-    # Ahead of the freshness gate, so a reference whose only drift is spelling
-    # syncs cleanly -- including unattended, where that gate is a hard failure.
-    # The operator is still told, because the fix belongs at the source: this
-    # rewrite is per-sync and the reference keeps serving the old names to
-    # everyone else until it is reconciled.
+    # See https://yuruna.link/4213a0b3-0041
     $namingModule = Join-Path $RepoRoot 'test/modules/Test.ConfigNaming.psm1'
     if (Test-Path -LiteralPath $namingModule) {
         Import-Module $namingModule -Global -Force -DisableNameChecking
@@ -1622,14 +1560,7 @@ function Sync-HostConfiguration {
             -ReferenceHost $ReferenceHost -Port $StatusPort -InternalAuthKey $InternalAuthKey `
             -NonInteractive:$NonInteractive -RequireReferenceValue:$RequireReferenceCredential)
 
-        # On Linux the poolStorage mount runs `sudo -n mount/mkdir/umount`, which
-        # fails without an /etc/sudoers.d drop-in granting those NOPASSWD -- the
-        # WARN the operator saw at the end of validation, after which the runner
-        # buffers locally. The unattended runner cannot self-elevate, but THIS is
-        # an interactive operator session, so offer to install the drop-in now
-        # (one sudo prompt) rather than let the mount fail. Idempotent (a no-op
-        # when already configured), Linux-only (macOS mounts via mount_smbfs -N and
-        # Windows via SMB mappings need no sudo), and gated on a configured mount.
+        # See https://yuruna.link/4213a0b3-0042
         $needsMount = $false
         foreach ($k in @('poolStorageNetworkPath', 'stashStorageNetworkPath')) {
             if ($ns.Contains($k) -and -not [string]::IsNullOrWhiteSpace("$($ns[$k])")) { $needsMount = $true; break }
@@ -1709,16 +1640,7 @@ function Get-BounceLogDelta {
     return $result
 }
 
-# Run Start-StatusService.ps1 -Restart in a child pwsh, streaming its output back
-# as it lands, WITHOUT handing that child -- or the status service it detaches --
-# a handle to any pipe this process is reading.
-#
-# On Windows the spawn shape below is load-bearing: adding -Redirect* or
-# -NoNewWindow here turns on handle inheritance, the detached status service
-# inherits and pins the caller's stdout pipe, and the bounce hangs silently and
-# unboundedly. Full trap description and why file redirection does not fix it:
-# docs/workarounds.md#a-detached-grandchild-pins-the-callers-pipe-on-windows
-# (also captured in feedback_windows-detached-grandchild-pins-pipe.md).
+# See https://yuruna.link/4213a0b3-0043
 function Invoke-StatusServiceBounce {
     [CmdletBinding()]
     [OutputType([hashtable])]

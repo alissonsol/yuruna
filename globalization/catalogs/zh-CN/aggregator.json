@@ -502,6 +502,51 @@
       "sourceHash": "50e6aa9003fb79f4a4fdb19d858dbd4cf0e28112bcd7db489a6a27e48136fd18",
       "origin": "machine",
       "message": "诊断：{value1} HTTP {value2}"
+    },
+    "aggregator.backfill_bad_flag": {
+      "sourceHash": "7d8400669bec858e88fd44e9a9f2693a8c05e57015f4074637c3e7d06f187325",
+      "origin": "machine",
+      "message": "历史回填：参数无效：{value1}"
+    },
+    "aggregator.backfill_cycle_unreadable": {
+      "sourceHash": "1a9622002ea5a703878770c54fc868ed0798b4994d99e1b7c81a49070f1c8928",
+      "origin": "machine",
+      "message": "历史回填：宿主机{value1}：周期{value2}在多次失败后被跳过：{value3}"
+    },
+    "aggregator.backfill_host_failed": {
+      "sourceHash": "e301bd5f09f7d602c6c439879044c589c2a5d4d8a8cebbf55cdfe728fd399638",
+      "origin": "machine",
+      "message": "历史回填：宿主机{value1}：{value2}（下次扫描会重试）"
+    },
+    "aggregator.backfill_index_failed": {
+      "sourceHash": "4b04e87e6039d832406b850e37948ef0fba001c3fd33eb41710f96dd1e8ece98",
+      "origin": "machine",
+      "message": "历史回填：宿主机{value1}：无法写入其周期索引：{value2}"
+    },
+    "aggregator.backfill_pool_status_failed": {
+      "sourceHash": "920008193003db3cd3c6fdd8fdc51c8381107090cd89b778ef99cb5463805384",
+      "origin": "machine",
+      "message": "历史回填：无法从收集器读取池状态：{value1}"
+    },
+    "aggregator.backfill_prometheus_failed": {
+      "sourceHash": "d780374989433d6ea923f48d346a0688e618bd6f52453458501b264a4c221eec",
+      "origin": "machine",
+      "message": "历史回填：宿主机{value1}：Prometheus拒绝了时间线样本：{value2}"
+    },
+    "aggregator.backfill_started": {
+      "sourceHash": "2e2827bdf768ef90a3480369ce71a327847c1e4e511df895e545b10999c47466",
+      "origin": "machine",
+      "message": "历史回填：已启动；最多恢复过去{value1}内的周期，每{value2}扫描一次"
+    },
+    "aggregator.backfill_state_failed": {
+      "sourceHash": "d6dedbc53faf4be89503f13e2d2db8ccd631418c867683df23e093449a0cf4a2",
+      "origin": "machine",
+      "message": "历史回填：宿主机{value1}：无法保存其状态：{value2}"
+    },
+    "aggregator.backfill_sweep_done": {
+      "sourceHash": "a58db505d0715741667a03430689374251661c114e517a9744d1ccbb5bbe9ea3",
+      "origin": "machine",
+      "message": "历史回填：已完成{value1}台宿主机的扫描：写入了{value2}个周期、{value3}个周期的事件、{value4}起故障事件和{value5}个时间线样本；{value6}个周期无法读取；{value7}台宿主机仍有历史记录待写入"
     }
   }
 }

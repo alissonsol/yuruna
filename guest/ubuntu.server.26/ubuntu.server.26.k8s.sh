@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.09.30
+# Version: 2026.10.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: Initialize environment
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
@@ -13,9 +14,8 @@ REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 # --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
-# Architecture does not imply host platform: this lab runs aarch64 guests on
-# Hyper-V and UTM. Report virtualization detected inside the guest instead of
-# inferring the host from uname.
+# See https://yuruna.link/42e220c4-0005
+# Detect virtualization independently from CPU architecture.
 echo "Detected virtualization: $(systemd-detect-virt 2>/dev/null || echo unknown)"
 case "$ARCH" in
   x86_64)
@@ -65,10 +65,8 @@ echo "== Installing Kubernetes requirements for Ubuntu =="
 echo ""
 echo -e "\e[1;36m==== Basic tools ====\e[0m"
 apt_retry sudo apt-get update -y
-# Keep Kubernetes prerequisites here so callers do not need the unrelated Code
-# workload (and its JDK, .NET SDK, and VS Code) just to obtain socat. This setup
-# installs packaged binaries and never compiles source, so pulling the compiler
-# and development stack through build-essential only adds guest I/O and time.
+# See https://yuruna.link/42e220c4-000e
+# Install Kubernetes prerequisites directly; packaged binaries need no compiler toolchain.
 apt_retry sudo apt-get install -y \
     ssh net-tools apt-transport-https curl git \
     procps file \
@@ -141,9 +139,8 @@ else
     echo "Caching proxy: none in this lab -- container image pulls go to the upstreams directly."
 fi
 
-# Write the Kubernetes repo HERE so the single `apt-get update` below
-# refreshes both Docker and K8s indices in one shot. K8s packages are
-# installed later but the index is cheap to carry.
+# See https://yuruna.link/42e220c4-000e
+# Write both package sources before the shared index refresh.
 _kk="$(mktemp)"
 curl_retry -fsSL "https://pkgs.k8s.io/core:/stable:/v${YURUNA_K8S_MINOR}/deb/Release.key${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o "$_kk"
 _yuruna_verify_key_fpr "$_kk" DE15B14486CD377B9E876E1A234654DA9A296436 \
@@ -166,10 +163,8 @@ if ! getent group docker > /dev/null 2>&1; then
 fi
 sudo usermod -aG docker "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to docker group"
 
-# Add "newgrp docker" to .bashrc so the docker group is active in every terminal session.
-# The guard (id -nG check) prevents an infinite loop: newgrp starts a new shell that
-# re-sources .bashrc, but this time the group is already active so the guard is skipped.
-# PowerShell (pwsh) launched from that shell inherits the docker group automatically.
+# See https://yuruna.link/42e220c4-0005
+# Activate Docker membership once per shell; the group guard prevents recursive newgrp.
 BASHRC="${REAL_HOME}/.bashrc"
 if ! grep -q 'newgrp docker' "$BASHRC" 2>/dev/null; then
     cat >> "$BASHRC" <<'DOCKER_GROUP'
@@ -196,9 +191,8 @@ echo ""
 echo -e "\e[1;36m==== Docker up ====\e[0m"
 DOCKER_WAIT_SECONDS=60
 DOCKER_READY=false
-# Bound the wait on wall-clock: `systemctl is-active` can itself take a
-# non-trivial slice of a second on a busy guest, so an iteration counter
-# with per-iteration work would run well past the intended timeout.
+# See https://yuruna.link/42e220c4-000e
+# Use a deadline so probe execution time counts toward the wait budget.
 docker_deadline=$(( $(date +%s) + DOCKER_WAIT_SECONDS ))
 while true; do
     if sudo systemctl is-active docker &>/dev/null; then
@@ -247,17 +241,14 @@ sudo apt-mark hold kubelet kubeadm kubectl
 sudo mkdir -p /etc/containerd
 containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
 sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-# containerd omitted SystemdCgroup from the generated default once already
-# (containerd#12101, restored in 2.0.x/2.1.x/2.2.x by #12244). If it goes
-# missing again the substitution above matches nothing and containerd silently
-# runs cgroupfs against a systemd-driver kubelet, so assert instead of trusting.
+# See https://yuruna.link/42e220c4-000e
+# Assert the cgroup driver; containerd#12101 omitted the generated key.
 if ! grep -q 'SystemdCgroup = true' /etc/containerd/config.toml; then
     echo "ERROR: containerd SystemdCgroup was not set to true; the cgroup driver would not match kubelet." >&2
     exit 1
 fi
-# Everything from here to the cache-health read is the mirrored-pull topology:
-# without a cache to point at, containerd's defaults already send pulls to the
-# upstreams, and a certs.d tree naming an absent address would only break them.
+# See https://yuruna.link/42d69dfa-0042
+# Configure cache-only pulls only when a caching proxy is selected.
 if [ -n "$CACHE_HOST" ]; then
     # --- REGION: https://yuruna.link/42e220c4-0005
     sudo sed -i "s|^\(\s*config_path\s*=\s*\).*|\1'/etc/containerd/certs.d'|" /etc/containerd/config.toml
@@ -270,10 +261,8 @@ if [ -n "$CACHE_HOST" ]; then
                   /etc/containerd/certs.d/public.ecr.aws \
                   /etc/containerd/certs.d/ghcr.io \
                   /etc/containerd/certs.d/mcr.microsoft.com
-    # Each hosts.toml below names the cache twice and both spellings are
-    # load-bearing: `server` must not fall back to the upstream, and the [host]
-    # form is what makes containerd send the ns=<namespace> parameter zot routes
-    # on. Full reasoning under the REGION anchor above.
+    # See https://yuruna.link/42d69dfa-0042
+    # Both server and [host] must name the cache to preserve namespace routing.
     sudo tee /etc/containerd/certs.d/docker.io/hosts.toml > /dev/null <<HOSTSEOF
 server = "http://${CACHE_HOST}:5000"
 
@@ -286,10 +275,8 @@ server = "http://${CACHE_HOST}:5000"
 [host."http://${CACHE_HOST}:5000"]
   capabilities = ["pull", "resolve"]
 HOSTSEOF
-    # public.ecr.aws can return transient HTTP errors that bubble up as 4xx
-    # from `registry:2`. Mirroring it via zot means the cached copy is served
-    # whenever the upstream has an image-specific hiccup, instead of fronting
-    # the upstream's failure.
+    # See https://yuruna.link/42d69dfa-0042
+    # Serve cached ECR images through upstream HTTP failures.
     sudo tee /etc/containerd/certs.d/public.ecr.aws/hosts.toml > /dev/null <<HOSTSEOF
 server = "http://${CACHE_HOST}:5000"
 
@@ -330,9 +317,7 @@ HOSTSEOF
         sleep 15
     done
     # --- REGION: https://yuruna.link/42f6b05f-0020
-    # Read the cache's published reading rather than measuring from here: measuring
-    # would spend a pull from the budget the whole lab shares, every run. Advisory,
-    # never fatal -- its value is a before-picture in THIS guest's log.
+    # Read published cache health without spending an upstream pull; advisory only.
     if cache_health=$(curl -fsS --max-time 5 "http://${CACHE_HOST}/cache-health" 2>/dev/null); then
         echo "Cache health, as published by ${CACHE_HOST}:"
         printf '%s\n' "$cache_health" | sed 's/^/  /'
@@ -353,10 +338,8 @@ sudo systemctl restart containerd
 
 # --- REGION: https://yuruna.link/42f6b05f-0020
 YURUNA_IMAGE_WARM_BUDGET="${YURUNA_IMAGE_WARM_BUDGET:-900}"
-# The ladder is spelled out below rather than handed to the shared curl wrapper:
-# that wrapper inherits stdout, so each attempt would append its own
-# %{http_code} to the same capture and a reference that recovered on the second
-# try would read "000200" and be counted as a failure.
+# See https://yuruna.link/42f6b05f-0020
+# Capture one HTTP status per attempt; the shared wrapper would concatenate them.
 YURUNA_IMAGE_WARM_ATTEMPTS="${YURUNA_IMAGE_WARM_ATTEMPTS:-3}"
 YURUNA_IMAGE_WARM_RETRY_PAUSE="${YURUNA_IMAGE_WARM_RETRY_PAUSE:-2}"
 yuruna_warm_refs() {
@@ -373,9 +356,8 @@ yuruna_warm_refs() {
     _wr_deadline=$(( _wr_start + YURUNA_IMAGE_WARM_BUDGET ))
     # Preserve curl transport text for per-reference diagnostics.
     _wr_errlog=$(mktemp)
-    # Spelled out because a manifest request stating no preference gets the
-    # registry's default, which for a multi-arch tag is not the index a pull
-    # resolves -- warming the wrong document leaves the real pull still cold.
+    # See https://yuruna.link/42f6b05f-0020
+    # Request image indexes and manifests explicitly so the warm pass covers real pulls.
     _wr_accept='application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
     echo "== Warming the ${_wr_label} image set through ${CACHE_HOST}:5000 (budget ${YURUNA_IMAGE_WARM_BUDGET}s) =="
     for _wr_ref in "$@"; do
@@ -422,18 +404,15 @@ yuruna_warm_refs() {
             # Local storage answers in milliseconds, so whole seconds already
             # mean the upstream leg ran and this guest paid for the copy.
             if [ "$_wr_el" -lt 5 ]; then _wr_state="already cached"; else _wr_state="cold, now cached"; fi
-            # A reference that needed more than one attempt reached the cache
-            # over a transport that dropped the first answer. It is a pass, and
-            # saying so keeps the reader from hunting a failure that recovered.
+            # See https://yuruna.link/42f6b05f-0020
+            # Report recovered transport failures beside successful cache results.
             if [ "$_wr_attempt" -gt 1 ]; then _wr_state="${_wr_state}, answered on attempt ${_wr_attempt}"; fi
             printf '  %-52s %5ss (%s)\n' "${_wr_repo}:${_wr_tag}" "$_wr_el" "$_wr_state"
         else
             yuruna_warm_missing=$((yuruna_warm_missing + 1))
             yuruna_warm_errored=$((yuruna_warm_errored + 1))
-            # An empty capture and a literal 000 are different failures: curl
-            # never got far enough to report a status, against curl reporting it
-            # had no status to give. Rendering both as 000 hides the first, which
-            # is the one that means the command itself did not run.
+            # See https://yuruna.link/42f6b05f-0020
+            # Keep a missing status distinct from curl reporting HTTP 000.
             if [ -z "$_wr_code" ]; then
                 _wr_status="no status captured"
                 yuruna_warm_silent=$((yuruna_warm_silent + 1))
@@ -457,10 +436,8 @@ yuruna_warm_refs() {
     echo "== ${_wr_label}: $((yuruna_warm_total - yuruna_warm_missing)) of ${yuruna_warm_total} images cached =="
 }
 
-# The set comes from kubeadm itself. It cannot be derived from the Kubernetes
-# version: coredns, pause and etcd carry tags of their own, baked into this
-# binary and moved on their own schedule, so any list built here would miss
-# exactly the images that then arrive cold.
+# See https://yuruna.link/42f6b05f-0020
+# Use kubeadm image references; etcd, pause, and CoreDNS have independent versions.
 mapfile -t _k8s_refs < <(sudo kubeadm config images list 2>/dev/null || true)
 if [ -z "$CACHE_HOST" ]; then
     echo "No caching proxy: skipping the warm pass -- there is nothing to warm, and the kubeadm pull below fetches the set from the upstreams."
@@ -469,10 +446,8 @@ elif [ "${#_k8s_refs[@]}" -eq 0 ]; then
 else
     yuruna_warm_refs "control-plane" "${_k8s_refs[@]}"
     if [ "$yuruna_warm_missing" -gt 0 ]; then
-        # Name only what the pass measured. A reference that came back with an
-        # HTTP status proves the cache answered and did not hold the image; one
-        # that produced no status proves nothing about the cache at all, and a
-        # headline calling that cold sends the reader to the wrong machine.
+        # See https://yuruna.link/42f6b05f-0020
+        # A silent transport failure leaves cache contents unmeasured.
         if [ "$yuruna_warm_errored" -gt 0 ] && [ "$yuruna_warm_errored" -eq "$yuruna_warm_silent" ] && [ "$yuruna_warm_unattempted" -eq 0 ]; then
             echo "ERROR: the cache was not reached -- ${yuruna_warm_missing} of ${yuruna_warm_total} control-plane requests got no HTTP status back, so what the cache holds is unmeasured." >&2
             echo "       Look at this guest's path to it first: name resolution for ${CACHE_HOST}, a route to port 5000, and the curl exit codes in the column above." >&2
@@ -494,10 +469,8 @@ else
     fi
 fi
 
-# Pre-pull the kubeadm control-plane images through the zot mirror so
-# `kubeadm init` lands cache-warm. Must run AFTER the containerd mirror config
-# above, or the pulls bypass the cache and hit upstream directly. Best-effort:
-# `kubeadm init` does its own pull check if this fails.
+# See https://yuruna.link/42d69dfa-0042
+# Warm pulls follow mirror configuration; kubeadm retries a failed pre-pull.
 sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to be run after kubeadm init"
 
 # Reset any existing kubeadm state so the script can be re-run safely
@@ -506,10 +479,8 @@ if [ -f /etc/kubernetes/manifests/kube-apiserver.yaml ] || [ -d /etc/kubernetes/
     echo "Existing Kubernetes cluster detected -- resetting before re-initialization"
     sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock
     sudo rm -rf /etc/cni/net.d
-    # Clean up network filtering rules left by the previous cluster.
-    # Each flush is independent: chaining with && would let one failing
-    # flush short-circuit the rest, leaving stale rules that break the
-    # new cluster. Guard each on its own so all four always run.
+    # See https://yuruna.link/42e220c4-000e
+    # Flush each rule table independently so one failure cannot skip the remaining cleanup.
     sudo iptables -F || true
     sudo iptables -t nat -F || true
     sudo iptables -t mangle -F || true
@@ -522,9 +493,8 @@ fi
 
 # Restart containerd after reset (reset can disrupt it) and wait for the socket
 sudo systemctl restart containerd
-# `crictl ... info` can block for a good fraction of a second while the
-# socket is still coming up, so bound the wait on wall-clock rather than
-# on an iteration count with per-iteration work.
+# See https://yuruna.link/42e220c4-000e
+# Use a deadline so probe execution time counts toward the wait budget.
 containerd_deadline=$(( $(date +%s) + 30 ))
 while true; do
     if sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info &>/dev/null; then
@@ -556,10 +526,8 @@ sudo sysctl --system
 
 sudo systemctl enable --now kubelet 2>/dev/null || echo "Note: kubelet enable attempted"
 
-# kubeadm init is the most failure-prone step (control-plane image pulls, etcd
-# bring-up, kubelet handshake): a single transient blip on a shared-NAT guest
-# can leave a half-initialized control plane and abort the whole sequence.
-# Retry with a full reset between attempts so a transient failure self-heals.
+# See https://yuruna.link/42e220c4-000e
+# Reset incomplete control-plane state between transient init failures.
 kubeadm_init_ok=false
 for kubeadm_attempt in 1 2 3; do
     if sudo kubeadm init --pod-network-cidr=10.244.0.0/16; then
@@ -711,9 +679,8 @@ if [ -n "$MKCERT_ARCH" ]; then
         echo "ERROR: mkcert installed but is not runnable; Set-Resource/Set-Workload's runtime pre-flight will refuse to deploy." >&2
         exit 1
     fi
-    # Run mkcert -install as the actual user (not root) so rootCA.pem
-    # lands in their $HOME/.local/share/mkcert, regardless of whether
-    # this script was invoked directly or via sudo.
+    # See https://yuruna.link/42e220c4-0005
+    # Install the root CA in the real user home, including when invoked through sudo.
     TARGET_USER="${SUDO_USER:-$USER}"
     sudo -u "$TARGET_USER" -H mkcert -install || true
 fi
@@ -722,9 +689,19 @@ fi
 echo ""
 echo -e "\e[1;36m==== HTTPS development certificate ====\e[0m"
 PFX_DIR="${REAL_HOME}/.aspnet/https"
+PFX_FILE="$PFX_DIR/aspnetapp.pfx"
 mkdir -p "$PFX_DIR"
 openssl req -x509 -newkey rsa:4096 -keyout "$PFX_DIR/aspnetapp.key" -out "$PFX_DIR/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>/dev/null
-openssl pkcs12 -export -out "$PFX_DIR/aspnetapp.pfx" -inkey "$PFX_DIR/aspnetapp.key" -in "$PFX_DIR/aspnetapp.crt" -password pass:password
+# See https://yuruna.link/42e220c4-0005
+# Keep the random PFX password out of argv, tracing, and public files.
+case $- in *x*) PFX_XTRACE=1 ;; *) PFX_XTRACE=0 ;; esac
+set +x
+PFX_PASSWORD="$(openssl rand -hex 32)"
+PFX_PASSWORD="$PFX_PASSWORD" openssl pkcs12 -export -out "$PFX_FILE" -inkey "$PFX_DIR/aspnetapp.key" -in "$PFX_DIR/aspnetapp.crt" -passout env:PFX_PASSWORD
+rm -f "$PFX_FILE.password"
+(umask 077; printf '%s\n' "$PFX_PASSWORD" > "$PFX_FILE.password")
+unset PFX_PASSWORD
+if [ "$PFX_XTRACE" = 1 ]; then set -x; fi
 rm -f "$PFX_DIR/aspnetapp.key" "$PFX_DIR/aspnetapp.crt"
 # Ensure the real user owns the certificate files (not root)
 chown -R "$REAL_USER:$REAL_USER" "$PFX_DIR"

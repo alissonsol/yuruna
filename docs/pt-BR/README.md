@@ -101,6 +101,7 @@ trabalho de teste:
 ## Leia mais
 
 - **[Toda a documentação](../README.md)** -- o que cada documento em `docs/` cobre
+- [Lista de materiais de software](../sbom/README.md) -- inventários do repositório, do hospedeiro e do convidado
 - [Requisitos](../operator.md#b2-preflight-dependencies) - [Soluções alternativas e FAQ](../workarounds.md) - [Roadmap](../opportunities.md#roadmap)
 - Guias do [operador](../operator.md) de máquina e do [operador de laboratório](../lab-operator.md)
 - [Alertas por e-mail de ciclos com falha](../alerts.md) -- configure o Grafana para enviar
@@ -117,4 +118,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.30
+Última revisão: 2026.10.04

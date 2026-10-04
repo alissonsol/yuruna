@@ -21402,8 +21402,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestCycleRunner.ps1",
-      "line": 232,
+      "path": "test/modules/Test.RecoveryContract.psm1",
+      "line": 755,
       "sink": "Write-Warning",
       "key": "runner.operator_28a938238a1f9f61",
       "arguments": [
@@ -21411,8 +21411,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestCycleRunner.ps1",
-      "line": 235,
+      "path": "test/modules/Test.RecoveryContract.psm1",
+      "line": 758,
       "sink": "Write-Warning",
       "key": "runner.operator_d1c2444b71ef8fde",
       "arguments": [
@@ -35858,16 +35858,6 @@
       "key": "runner.operator_c571bbfec71823df",
       "arguments": [
         "cycle"
-      ]
-    },
-    {
-      "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "line": 3296,
-      "sink": "Write-OuterLog",
-      "key": "runner.operator_5f6121773a9b2d3c",
-      "arguments": [
-        "cycle",
-        "failClass"
       ]
     },
     {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42d48379-bb62-43d9-b80a-bcbb0440f82e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,14 +29,7 @@ function Clear-Configuration {
         $config_subfolder
     )
 
-    # Teardown reads resources.output.yml (the deployed-state manifest, gated by
-    # Test-Path below) and destroys from the deployed .yuruna work folders -- NOT
-    # the forward resources.yml and its referenced template folders. Blocking
-    # destroy on forward validation would let post-deploy source drift (a
-    # template folder renamed/deleted, a variable now expanding empty) strand the
-    # operator with resources they cannot destroy, defeating idempotent cleanup;
-    # so the forward check is only a warning here, and the resources.output.yml
-    # gate below is the real precondition.
+    # See https://yuruna.link/4213a0b3-0007
     if (!(Confirm-ResourceList $project_root $config_subfolder)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_f30d376c3b6737d6')
     }
@@ -50,17 +43,7 @@ function Clear-Configuration {
     # signs would change credentials or execute text supplied as a value.
     Set-ExpandedVariableHashtable -Variables $yaml.globalVariables -DebugLabel 'globalVariables' -NoExpand
 
-    # The deployed resource names are the top-level keys of resources.output.yml
-    # other than globalVariables: Set-Resource writes that map plus one
-    # `<resourceName>: <tofu outputs>` block before applying each owned resource.
-    # There is no `resources:` list here -- that shape belongs to the forward
-    # resources.yml, and reading it would silently find nothing and report a
-    # successful teardown that destroyed no resource. Two properties of the key
-    # set matter: a resource declared with an empty template is never written
-    # here (it only names an already-existing resource and owns no work folder),
-    # so the keys include partial applies that still need teardown; and the keys are
-    # already variable-expanded, matching the .yuruna work folder names verbatim,
-    # so they must not be expanded a second time.
+    # See https://yuruna.link/4213a0b3-0008
     $resourceNames = @()
     if (($null -ne $yaml) -and ($null -ne $yaml.Keys)) {
         $resourceNames = @($yaml.Keys | Where-Object { (-Not [string]::IsNullOrWhiteSpace($_)) -and ($_ -ne 'globalVariables') })

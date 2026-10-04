@@ -14462,6 +14462,71 @@
       "sourceHash": "ba09e285015095696e7737f41af1223eac0d588f498b9065b12ef0243dffc2e2",
       "origin": "machine",
       "message": "  仓库：（无）"
+    },
+    "runner.cycle_outcome_rejected_kept": {
+      "sourceHash": "570e1b9361622f5dc3edfab04e887d57750a47aaee924fc941ae54abf83212c2",
+      "origin": "machine",
+      "message": "[外层周期{cycle}] 被拒绝的结果记录保留在{rejectedPath}，供诊断使用。"
+    },
+    "runner.cycle_outcome_unrecorded": {
+      "sourceHash": "9eae625ffcfe9abfd6186a64a623d912f293454c3bfaa7066297df7ae6dcc949",
+      "origin": "machine",
+      "message": "[外层周期{cycle}] 周期进程在运行{ranForSeconds}s后以退出码{childExit}退出，但没有可用的结果记录（{reason}：{detail}）。此周期不计为通过：无法确认周期是否完成，因此这是此宿主机上运行器的故障，而非测试判定。按周期失败处理并暂停。"
+    },
+    "runner.cycle_outcome_unrecorded_log": {
+      "sourceHash": "533613e12e25dc64d0eb2392af867d2a0573101b4519950351e2b8632204da05",
+      "origin": "machine",
+      "message": "[外层周期{cycle}] outcome-unrecorded：运行{ranForSeconds}s后以退出码{childExit}退出，记录为{reason}（{detail}）"
+    },
+    "runner.cycle_result_missing": {
+      "sourceHash": "dce48fd8e1c080493b4ee2b658e1f867e015ed37a2702aa542cca4a841f9d868",
+      "origin": "machine",
+      "message": "周期已返回，但未发布结果。将其记录为失败的周期（no-cycle-result），而非已完成的周期。"
+    },
+    "runner.cycle_success_withheld": {
+      "sourceHash": "1f40f364986f4d981a1611c196ebf85c7e12dbac4b66cf2a6116559b50451a16",
+      "origin": "machine",
+      "message": "周期顺利结束，但无法记录结果，因此运行器无法将其计为通过。以退出码{exitCode}退出，而非0。"
+    },
+    "runner.project_previous_cleanup_failed": {
+      "sourceHash": "9a766785678bdfbd175db5dd450a740feee4b2129d10af59270ff2ccbbe7c5d4",
+      "origin": "machine",
+      "message": "无法删除位于{previousDir}的旧项目检出目录。新检出目录已就绪；下次刷新会删除残留目录。"
+    },
+    "runner.project_swap_recovered": {
+      "sourceHash": "0146135f7443d8c755b3dafafba2f51b655e08a617b2e8b3d3e14b56c28fa211",
+      "origin": "machine",
+      "message": "已恢复{repoRoot}下中断的项目刷新：{action}。"
+    },
+    "runner.telemetry_event_dropped": {
+      "sourceHash": "5b0ab726288638d28ecac4395139b35a9719eaad3df2410e457d197929af2768",
+      "origin": "machine",
+      "message": "无法记录一个周期事件（'{eventName}'：{reason}）。周期继续运行，但事件流已不完整；计数和原因记录在cycle.events.delivery.json中。本周期内后续丢失的事件会累计计数，不再重复报告。"
+    },
+    "runner.vm_admission_occupied": {
+      "sourceHash": "6b2cac47be88999e29833839cf354f7122b2d4da84b1767c95827f4ae3ed6162",
+      "origin": "machine",
+      "message": "拒绝启动周期：以下虚拟机在宿主机上运行且无法停止：{occupants}。请停止或删除这些虚拟机，然后重新运行周期。"
+    },
+    "runner.vm_admission_unknown": {
+      "sourceHash": "0f1954030fb6b7ca0fbb4840d03cc10573747d19d8fa234c8ce6444a9a2b8c68",
+      "origin": "machine",
+      "message": "拒绝启动周期：宿主机无法确认没有其他虚拟机正在运行（读取{probes}次后为{reason}：{detail}）。在同一组虚拟机上运行两个周期会互相破坏，因此运行器不会猜测；它将在下次循环时重试。请检查此宿主机上的虚拟机监控程序命令行工具和虚拟机清单。"
+    },
+    "runner.warm_resume_declined_unverified": {
+      "sourceHash": "4859df008e6296519886fc7f3bc5995c8c2b422b5533221f34eb050e665b5606",
+      "origin": "machine",
+      "message": "  WARM-RESUME被拒绝：'{resumeSequence}'在步骤{resumeFromStep}失败（{failureClass}），且无法确认重放是安全的（原因：{reason}）。原始失败判定保持不变。"
+    },
+    "runner.recovery_applied": {
+      "sourceHash": "7eafd66e4a30911f9bac65ddd7c7f85b897a74df92d87a05437fb10b341b0f1a",
+      "origin": "machine",
+      "message": "[外层周期{cycle}] 针对{failClass}故障执行了恢复操作'{action}'（第{attempt}次尝试）；跳过失败后的暂停，立即启动下一个周期。"
+    },
+    "runner.recovery_result_write_failed": {
+      "sourceHash": "cd85e83e74e84ad1db4d6754c26ac92a29f18431b6ebf06decf7e368dbbdb7fb",
+      "origin": "machine",
+      "message": "无法将恢复结果记录到{path}（{reason}）。周期结果不受影响。"
     }
   }
 }

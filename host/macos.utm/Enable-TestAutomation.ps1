@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 42ff1bc2-5f12-4c34-8a53-a45f6186f94f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -108,16 +108,7 @@ try {
     }
 
     # --- REGION: Initialize host setup
-    # Shared bootstrap (Test.HostContract import + sudo prime + powershell-yaml +
-    # PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
-    # -SudoCacheReason keeps the sudo prompt EARLY (before the two PSGallery
-    # installs, which on a freshly imaged Mac are a long silent wait) with a visible
-    # reason banner so the operator knows WHAT will need elevation before they
-    # consent. Set-MacHostConditionSet primes again below and is idempotent; when
-    # invoked via install/macos.utm.sh (YURUNA_SUDO_PRIMED=1) both are silent no-ops.
-    # Without an operator there is nobody to consent and no download to wait
-    # through, so that mode asks for neither: missing modules are reported, not
-    # installed, and no sudo prompt is primed.
+    # See https://yuruna.link/42e5cdfd-000b
     $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
     if ($NoOperatorPrompt) {

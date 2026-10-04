@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 4250adff-0991-409e-81bf-56dfdf1149db
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -375,7 +375,8 @@ Describe 'Windows first-logon bootstrap transport on every host family' {
         $script:SeedRepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
         Import-Module (Join-Path $script:SeedRepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
         $script:SeedBundle = New-WindowsGuestBootstrap -RepoRoot $script:SeedRepoRoot -StatusServiceIp '192.0.2.10' `
-            -StatusServicePort '8080' -HostId '00000000-0000-0000-0000-000000000001' -CachingProxyIp '192.0.2.20' -GhToken 'fixture-token'
+            -StatusServicePort '8080' -HostId '00000000-0000-0000-0000-000000000001' -CachingProxyIp '192.0.2.20' `
+            -FrameworkUrl 'https://github.com/example/framework' -ProjectUrl 'https://github.com/example/project' -GhToken 'fixture-token'
         $script:SeedLauncher = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($script:SeedBundle.EncodedCommand))
     }
 
@@ -383,6 +384,8 @@ Describe 'Windows first-logon bootstrap transport on every host family' {
         $script:SeedBundle.Files.Count | Should -Be 2
         $script:SeedBundle.Files['yuruna-host-locate.ps1'] | Should -Be ([IO.File]::ReadAllText((Join-Path $script:SeedRepoRoot 'automation/yuruna-host-locate.ps1')))
         $script:SeedBundle.Files['yuruna-bootstrap.ps1'] | Should -Match 'YURUNA_HOST_ID=00000000-0000-0000-0000-000000000001'
+        $script:SeedBundle.Files['yuruna-bootstrap.ps1'] | Should -Match 'YURUNA_FRAMEWORK_URL=https://github.com/example/framework'
+        $script:SeedBundle.Files['yuruna-bootstrap.ps1'] | Should -Match 'YURUNA_PROJECT_URL=https://github.com/example/project'
         $script:SeedBundle.Files['yuruna-bootstrap.ps1'] | Should -Match "token = 'fixture-token'"
         foreach ($body in $script:SeedBundle.Files.Values) {
             $errors = $null
@@ -456,8 +459,8 @@ Describe 'Windows first-logon bootstrap transport on every host family' {
                 $VMName = 'fixture-windows'
                 $YurunaHostIp = '192.0.2.10'; $YurunaHostPort = '8080'
                 $YurunaHostId = '00000000-0000-0000-0000-000000000001'; $YurunaCacheIp = '192.0.2.20'
-                $ghSource = @{ Token = 'fixture-token' }
-                function Get-YurunaGitHubSource { param($RepoRoot) $null = $RepoRoot; @{ Token = 'fixture-token' } }
+                $ghSource = @{ Token = 'fixture-token'; FrameworkUrl = 'https://github.com/example/framework'; ProjectUrl = 'https://github.com/example/project' }
+                function Get-YurunaGitHubSource { param($RepoRoot) $null = $RepoRoot; @{ Token = 'fixture-token'; FrameworkUrl = 'https://github.com/example/framework'; ProjectUrl = 'https://github.com/example/project' } }
                 $null = $_utmRepoRoot, $_kvmRepoRoot, $autoTemplate, $VMName, $YurunaHostIp, $YurunaHostPort, $YurunaHostId, $YurunaCacheIp, $ghSource
                 . $Code
                 if ($Family -eq 'ubuntu.kvm') { $autoSrc } else { $SeedDir }
@@ -465,6 +468,9 @@ Describe 'Windows first-logon bootstrap transport on every host family' {
             foreach ($filename in @('autounattend.xml', 'yuruna-bootstrap.ps1', 'yuruna-host-locate.ps1')) {
                 Test-Path -LiteralPath (Join-Path $seedDirectory $filename) -PathType Leaf | Should -BeTrue -Because "$family must include $filename on its seed CD"
             }
+            $bootstrapText = [IO.File]::ReadAllText((Join-Path $seedDirectory 'yuruna-bootstrap.ps1'))
+            $bootstrapText | Should -Match 'YURUNA_FRAMEWORK_URL=https://github.com/example/framework'
+            $bootstrapText | Should -Match 'YURUNA_PROJECT_URL=https://github.com/example/project'
             [xml]$answer = [IO.File]::ReadAllText((Join-Path $seedDirectory 'autounattend.xml'))
             $answer.OuterXml | Should -Not -Match 'GUEST_BOOTSTRAP_B64_PLACEHOLDER'
             if ($family -eq 'ubuntu.kvm') {

@@ -1,5 +1,5 @@
 # LICENSEURI https://yuruna.link/license
-# Copyright (c) 2026 by Alisson Sol et al.
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 """Native seed contracts. Requires PyYAML and ALLOY_BINARY for pipeline execution."""
 import json
 import os
@@ -60,15 +60,19 @@ class CollectorSeed(unittest.TestCase):
             root = Path(directory); commands = root/'bin'; commands.mkdir()
             for name in ['curl', 'chmod', 'mv', 'useradd', 'install', 'systemctl', 'setfacl', 'sleep']:
                 path = commands/name
-                path.write_text('#!/bin/sh\necho "'+name+' $*" >> "$CALLS"\n[ "$FAIL" != "'+name+'" ]\n')
+                path.write_text('#!/bin/sh\necho "'+name+' $*" >> "$CALLS"\n[ "$FAIL" != "'+name+'" ]\n', newline='')
                 path.chmod(0o755)
-            (commands/'id').write_text('#!/bin/sh\nexit 1\n'); (commands/'id').chmod(0o755)
+            (commands/'id').write_text('#!/bin/sh\nexit 1\n', newline=''); (commands/'id').chmod(0o755)
+            shell_root = subprocess.run(['bash', '-c', 'pwd -P'], cwd=root, text=True,
+                                        capture_output=True, check=True).stdout.strip()
             # Rewrite owned absolute install paths; no actual service or account is touched.
-            block = block.replace('/usr/local/bin/', str(root/'local')+'/').replace('/var/log/zot/', str(root/'log')+'/')
+            block = re.sub(r'/(?:usr/local/bin|var/log/zot|var/lib/zot|etc/zot)(?:/[A-Za-z0-9._/-]*)?',
+                           lambda match: '"$FIXTURE_ROOT' + match[0] + '"', block)
             for failure in ['curl', 'chmod', 'mv', 'useradd', 'install', 'systemctl']:
                 calls = root/'calls'; calls.write_text('')
-                result = subprocess.run(['bash'], input=block, text=True, capture_output=True,
-                    env={**os.environ, 'PATH':str(commands)+':'+os.environ['PATH'], 'FAIL':failure, 'CALLS':str(calls)})
+                result = subprocess.run(['bash'], input='export PATH="$FIXTURE_ROOT/bin:$PATH"\n' + block,
+                    text=True, capture_output=True,
+                    env={**os.environ, 'FIXTURE_ROOT':shell_root, 'FAIL':failure, 'CALLS':shell_root+'/calls'})
                 self.assertNotEqual(result.returncode, 0, failure)
                 self.assertIn('FAILED', result.stdout)
                 self.assertEqual(calls.read_text().splitlines()[-1].split()[0], failure)

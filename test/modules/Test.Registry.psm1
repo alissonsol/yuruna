@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.30
+.VERSION 2026.10.04
 .GUID 420753a0-884d-4f10-bd0f-fb04fea52a79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,15 +115,7 @@ function New-YurunaRegistry {
         else                                                                    { $null }
     }
 
-    # When a global anchor already exists (a -Force re-import, or a second caller
-    # sharing an AnchorVar) the store built here is discarded and the live one reused.
-    # If the caller explicitly asked for a comparer that disagrees with the live store,
-    # honoring only the live store would silently keep the looser case-sensitivity a
-    # caller was trying to tighten -- a policy downgrade. Migrate instead: build a fresh
-    # store under the requested comparer and copy the existing entries into it under the
-    # new key-equality rules, then rebind the anchor. Migrating (not throwing) keeps
-    # every current caller working; they all request the store's own comparer, so this
-    # branch never fires for them.
+    # See https://yuruna.link/4213a0b3-00d9
     $liveComparer = & $liveComparerOf $existing
     if ($anchorPreExisted -and $PSBoundParameters.ContainsKey('Comparer') -and
         $null -ne $liveComparer -and $liveComparer -ne $Comparer) {

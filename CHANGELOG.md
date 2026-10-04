@@ -4,6 +4,26 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.04
+
+- **Host dashboard history recovery.** A rebuilt caching-proxy-service VM no longer
+  opens on an empty *Yuruna hosts* board. The `pool-history-backfill` job writes
+  the last 90 days into Loki and Prometheus from the cycles the pool still keeps,
+  newest days first.
+- **Behavior changes in this release.** `testCycle.autoRemediation.maxAttemptsPerCycle`
+  counts repair attempts per failure fingerprint across restarts. Loki and
+  Prometheus keep 90 days, not 30. The Ubuntu 24.04/26.04 and Windows 11 `k8s`
+  scripts no longer export the PFX under the fixed password `password`; each run
+  writes a random one to `aspnetapp.pfx.password`. Replace any PFX with no password
+  file by rerunning `k8s`.
+- **Also in this release.** A cycle passes only with an outcome record naming its
+  generation; a missing or stale one is `outcome_unrecorded`. Warm resume without a
+  restore point replays only observing steps. Project checkouts build and verify
+  beside the current one before swapping. VM admission reports clear, occupied or
+  unknown. `fetch-and-execute.sh` requires `E_SHA`. Repair attempt budgets persist
+  in `runtime/recovery.ledger.ndjson`. Lost cycle events are counted in
+  `cycle.events.delivery.json`. Hosts dashboard panels match `pool=~` again.
+
 ## 2026.09.30
 
 - **Pools carry their repositories.** The pool-control service drops its
@@ -540,6 +560,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](README.md)

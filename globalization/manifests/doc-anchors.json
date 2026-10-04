@@ -942,8 +942,8 @@
         },
         {
           "id": "42fa6f45-0005",
-          "heading": "Defining the fetch-and-execute typed envelope",
-          "slug": "defining-the-fetch-and-execute-typed-envelope"
+          "heading": "Defining the fetch-and-execute lookup key and launcher",
+          "slug": "defining-the-fetch-and-execute-lookup-key-and-launcher"
         },
         {
           "id": "42fa6f45-0006",
@@ -1243,6 +1243,29 @@
       ]
     },
     {
+      "id": "425aae9a",
+      "repo": "yuruna",
+      "source": "docs/design/README.md",
+      "translations": {},
+      "anchors": [
+        {
+          "id": "425aae9a-0001",
+          "heading": "Yuruna design diagrams",
+          "slug": "yuruna-design-diagrams"
+        },
+        {
+          "id": "425aae9a-0002",
+          "heading": "Reading the views",
+          "slug": "reading-the-views"
+        },
+        {
+          "id": "425aae9a-0003",
+          "heading": "Regeneration",
+          "slug": "regeneration"
+        }
+      ]
+    },
+    {
       "id": "4268e4cb",
       "repo": "yuruna",
       "source": "docs/download-agent.md",
@@ -1359,7 +1382,9 @@
       "id": "42fffc2c",
       "repo": "yuruna",
       "source": "docs/extensions-api.md",
-      "translations": {},
+      "translations": {
+        "pt-BR": "docs/pt-BR/extensions-api.md"
+      },
       "anchors": [
         {
           "id": "42fffc2c-0001",
@@ -1517,7 +1542,9 @@
       "id": "42820e91",
       "repo": "yuruna",
       "source": "docs/failure-schema.md",
-      "translations": {},
+      "translations": {
+        "pt-BR": "docs/pt-BR/failure-schema.md"
+      },
       "anchors": [
         {
           "id": "42820e91-0001",
@@ -1578,6 +1605,11 @@
           "id": "42820e91-000c",
           "heading": "`degradation` event (non-failure observability)",
           "slug": "degradation-event-non-failure-observability"
+        },
+        {
+          "id": "42820e91-001e",
+          "heading": "`cycle.events.delivery.json` (is the event stream complete?)",
+          "slug": "cycleeventsdeliveryjson-is-the-event-stream-complete"
         },
         {
           "id": "42820e91-000d",
@@ -1660,9 +1692,2064 @@
           "slug": "adding-a-new-failure-class"
         },
         {
+          "id": "42820e91-001f",
+          "heading": "Recovery result and ledger",
+          "slug": "recovery-result-and-ledger"
+        },
+        {
+          "id": "42820e91-0020",
+          "heading": "`recovery.result.json` (the typed result)",
+          "slug": "recoveryresultjson-the-typed-result"
+        },
+        {
+          "id": "42820e91-0021",
+          "heading": "Runner fault classes",
+          "slug": "runner-fault-classes"
+        },
+        {
+          "id": "42820e91-0022",
+          "heading": "The shared steps",
+          "slug": "the-shared-steps"
+        },
+        {
+          "id": "42820e91-0023",
+          "heading": "`recovery.ledger.ndjson` (what the runner may repair, and how often)",
+          "slug": "recoveryledgerndjson-what-the-runner-may-repair-and-how-often"
+        },
+        {
+          "id": "42820e91-0024",
+          "heading": "The repairs",
+          "slug": "the-repairs"
+        },
+        {
           "id": "42820e91-001d",
           "heading": "Related",
           "slug": "related"
+        }
+      ]
+    },
+    {
+      "id": "4213a0b3",
+      "repo": "yuruna",
+      "source": "docs/framework-implementation-notes.md",
+      "translations": {
+        "pt-BR": "docs/pt-BR/framework-implementation-notes.md"
+      },
+      "anchors": [
+        {
+          "id": "4213a0b3-0001",
+          "heading": "Framework implementation notes",
+          "slug": "framework-implementation-notes"
+        },
+        {
+          "id": "4213a0b3-0002",
+          "heading": "automation/Check-DependencyVersion.ps1: Host-tool floors from Yuruna.Requirement.yml",
+          "slug": "automationcheck-dependencyversionps1-host-tool-floors-from-yurunarequirementyml"
+        },
+        {
+          "id": "4213a0b3-0003",
+          "heading": "automation/Set-HostAlias.ps1: 2. Elevation / root assertion",
+          "slug": "automationset-hostaliasps1-2-elevation--root-assertion"
+        },
+        {
+          "id": "4213a0b3-0004",
+          "heading": "automation/windows-guest-bootstrap.ps1: git does NOT read GH_TOKEN -- that name is a gh(1) convention -- so the token",
+          "slug": "automationwindows-guest-bootstrapps1-git-does-not-read-gh_token----that-name-is-a-gh1-convention----so-the-token"
+        },
+        {
+          "id": "4213a0b3-0005",
+          "heading": "automation/yuruna-host-locate.ps1: How hard to press the directory once the baked coordinate is dead",
+          "slug": "automationyuruna-host-locateps1-how-hard-to-press-the-directory-once-the-baked-coordinate-is-dead"
+        },
+        {
+          "id": "4213a0b3-0006",
+          "heading": "automation/yuruna-host-locate.ps1: Invoke-YurunaHostLocate",
+          "slug": "automationyuruna-host-locateps1-invoke-yurunahostlocate"
+        },
+        {
+          "id": "4213a0b3-0007",
+          "heading": "automation/Yuruna.Clear.psm1: Clear-Configuration",
+          "slug": "automationyurunaclearpsm1-clear-configuration"
+        },
+        {
+          "id": "4213a0b3-0008",
+          "heading": "automation/Yuruna.Clear.psm1: Clear-Configuration",
+          "slug": "automationyurunaclearpsm1-clear-configuration"
+        },
+        {
+          "id": "4213a0b3-0009",
+          "heading": "automation/Yuruna.CloudInitTemplate.psm1: New-CloudInitUserData",
+          "slug": "automationyurunacloudinittemplatepsm1-new-cloudinituserdata"
+        },
+        {
+          "id": "4213a0b3-000a",
+          "heading": "automation/Yuruna.Common.psm1: Get-ServiceVmMemoryVerdict",
+          "slug": "automationyurunacommonpsm1-get-servicevmmemoryverdict"
+        },
+        {
+          "id": "4213a0b3-000b",
+          "heading": "automation/Yuruna.Common.psm1: Invoke-BoundedNativeCommand",
+          "slug": "automationyurunacommonpsm1-invoke-boundednativecommand"
+        },
+        {
+          "id": "4213a0b3-000c",
+          "heading": "automation/Yuruna.HostRedirect.psm1: Runs a host-specific script from a host-neutral entry point: detect the host,",
+          "slug": "automationyurunahostredirectpsm1-runs-a-host-specific-script-from-a-host-neutral-entry-point-detect-the-host"
+        },
+        {
+          "id": "4213a0b3-000d",
+          "heading": "automation/Yuruna.Log.psm1: The one definition of what a step rule looks like.",
+          "slug": "automationyurunalogpsm1-the-one-definition-of-what-a-step-rule-looks-like"
+        },
+        {
+          "id": "4213a0b3-000e",
+          "heading": "automation/Yuruna.Log.psm1: Write-Error",
+          "slug": "automationyurunalogpsm1-write-error"
+        },
+        {
+          "id": "4213a0b3-000f",
+          "heading": "automation/Yuruna.Resource.psm1: Publish-ResourceListHelper",
+          "slug": "automationyurunaresourcepsm1-publish-resourcelisthelper"
+        },
+        {
+          "id": "4213a0b3-0010",
+          "heading": "automation/Yuruna.Retry.psm1: Shared transient-failure classifier: the single source of truth for \"is",
+          "slug": "automationyurunaretrypsm1-shared-transient-failure-classifier-the-single-source-of-truth-for-is"
+        },
+        {
+          "id": "4213a0b3-0011",
+          "heading": "automation/Yuruna.Validation.psm1: Confirm-WorkloadList",
+          "slug": "automationyurunavalidationpsm1-confirm-workloadlist"
+        },
+        {
+          "id": "4213a0b3-0012",
+          "heading": "test/modules/Invoke-PoolStorageDrain.ps1: One-shot poolStorage drain, fired DETACHED by the outer loop at each cycle end",
+          "slug": "testmodulesinvoke-poolstoragedrainps1-one-shot-poolstorage-drain-fired-detached-by-the-outer-loop-at-each-cycle-end"
+        },
+        {
+          "id": "4213a0b3-0013",
+          "heading": "test/modules/Invoke-TestCycleRunner.ps1: Host-refresh transport",
+          "slug": "testmodulesinvoke-testcyclerunnerps1-host-refresh-transport"
+        },
+        {
+          "id": "4213a0b3-0014",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Resolve paths",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-resolve-paths"
+        },
+        {
+          "id": "4213a0b3-0015",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Resolve paths",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-resolve-paths"
+        },
+        {
+          "id": "4213a0b3-0016",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Inner PID + heartbeat",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-inner-pid--heartbeat"
+        },
+        {
+          "id": "4213a0b3-0017",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Inner PID + heartbeat",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-inner-pid--heartbeat"
+        },
+        {
+          "id": "4213a0b3-0018",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Inner PID + heartbeat",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-inner-pid--heartbeat"
+        },
+        {
+          "id": "4213a0b3-0019",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: The Inner kind import set covers Test.HostContract, Test.Status, Test.Notify,",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-the-inner-kind-import-set-covers-testhostcontract-teststatus-testnotify"
+        },
+        {
+          "id": "4213a0b3-001a",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Read config (syncs against template first)",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-read-config-syncs-against-template-first"
+        },
+        {
+          "id": "4213a0b3-001b",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Held-control barrier",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-held-control-barrier"
+        },
+        {
+          "id": "4213a0b3-001c",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Concurrent-VM admission",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-concurrent-vm-admission"
+        },
+        {
+          "id": "4213a0b3-001d",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start host guest-network gate",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-cycle-start-host-guest-network-gate"
+        },
+        {
+          "id": "4213a0b3-001e",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Degraded-host pair -> runtime/host-network.txt + host-network.json",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-degraded-host-pair---runtimehost-networktxt--host-networkjson"
+        },
+        {
+          "id": "4213a0b3-001f",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Stale cycle-restart flag sweep",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-stale-cycle-restart-flag-sweep"
+        },
+        {
+          "id": "4213a0b3-0020",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Stale cycle-restart flag sweep",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-stale-cycle-restart-flag-sweep"
+        },
+        {
+          "id": "4213a0b3-0021",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start service-VM restore",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-cycle-start-service-vm-restore"
+        },
+        {
+          "id": "4213a0b3-0022",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start External vSwitch repair (Hyper-V only)",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-cycle-start-external-vswitch-repair-hyper-v-only"
+        },
+        {
+          "id": "4213a0b3-0023",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start External vSwitch repair (Hyper-V only)",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-cycle-start-external-vswitch-repair-hyper-v-only"
+        },
+        {
+          "id": "4213a0b3-0024",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start caching-proxy-service gate",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-cycle-start-caching-proxy-service-gate"
+        },
+        {
+          "id": "4213a0b3-0025",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start caching-proxy-service gate",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-cycle-start-caching-proxy-service-gate"
+        },
+        {
+          "id": "4213a0b3-0026",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start caching-proxy-service gate",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-cycle-start-caching-proxy-service-gate"
+        },
+        {
+          "id": "4213a0b3-0027",
+          "heading": "test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start caching-proxy-service gate",
+          "slug": "testmodulesinvoke-testrunnerinnerloopps1-cycle-start-caching-proxy-service-gate"
+        },
+        {
+          "id": "4213a0b3-0028",
+          "heading": "test/modules/Test.CachingProxyService.psm1: Invoke-CachingProxyServiceProbe",
+          "slug": "testmodulestestcachingproxyservicepsm1-invoke-cachingproxyserviceprobe"
+        },
+        {
+          "id": "4213a0b3-0029",
+          "heading": "test/modules/Test.CachingProxyService.psm1: Get-PoolAggregatorServiceSeedUrl",
+          "slug": "testmodulestestcachingproxyservicepsm1-get-poolaggregatorserviceseedurl"
+        },
+        {
+          "id": "4213a0b3-002a",
+          "heading": "test/modules/Test.CachingProxyServiceLock.psm1: Caching-proxy serialization lock + adopt-if-healthy decision.",
+          "slug": "testmodulestestcachingproxyservicelockpsm1-caching-proxy-serialization-lock--adopt-if-healthy-decision"
+        },
+        {
+          "id": "4213a0b3-002b",
+          "heading": "test/modules/Test.CachingProxyServiceLock.psm1: Age past which a recorded lock is ABANDONED rather than slow, so it is drained",
+          "slug": "testmodulestestcachingproxyservicelockpsm1-age-past-which-a-recorded-lock-is-abandoned-rather-than-slow-so-it-is-drained"
+        },
+        {
+          "id": "4213a0b3-002c",
+          "heading": "test/modules/Test.CachingProxyServiceLock.psm1: Enter-CachingProxyServiceLock",
+          "slug": "testmodulestestcachingproxyservicelockpsm1-enter-cachingproxyservicelock"
+        },
+        {
+          "id": "4213a0b3-002d",
+          "heading": "test/modules/Test.Capability.psm1: Write-HostRegistrationRecord",
+          "slug": "testmodulestestcapabilitypsm1-write-hostregistrationrecord"
+        },
+        {
+          "id": "4213a0b3-002e",
+          "heading": "test/modules/Test.Capability.psm1: Write-HostRegistrationRecord",
+          "slug": "testmodulestestcapabilitypsm1-write-hostregistrationrecord"
+        },
+        {
+          "id": "4213a0b3-002f",
+          "heading": "test/modules/Test.Capability.psm1: Write-HostRegistrationRecord",
+          "slug": "testmodulestestcapabilitypsm1-write-hostregistrationrecord"
+        },
+        {
+          "id": "4213a0b3-0030",
+          "heading": "test/modules/Test.Capability.psm1: Write-HostRegistrationRecord",
+          "slug": "testmodulestestcapabilitypsm1-write-hostregistrationrecord"
+        },
+        {
+          "id": "4213a0b3-0031",
+          "heading": "test/modules/Test.Catalog.psm1: Render a message from the compiled catalog, in the locale a run resolved.",
+          "slug": "testmodulestestcatalogpsm1-render-a-message-from-the-compiled-catalog-in-the-locale-a-run-resolved"
+        },
+        {
+          "id": "4213a0b3-0032",
+          "heading": "test/modules/Test.Catalog.psm1: Format-CatalogArgument",
+          "slug": "testmodulestestcatalogpsm1-format-catalogargument"
+        },
+        {
+          "id": "4213a0b3-0033",
+          "heading": "test/modules/Test.Config.psm1: Publish-TestConfigSnapshot",
+          "slug": "testmodulestestconfigpsm1-publish-testconfigsnapshot"
+        },
+        {
+          "id": "4213a0b3-0034",
+          "heading": "test/modules/Test.ConfigNaming.psm1: Test-RetiredConfigKeyLine answers \"does this FILE still say it the old way\",",
+          "slug": "testmodulestestconfignamingpsm1-test-retiredconfigkeyline-answers-does-this-file-still-say-it-the-old-way"
+        },
+        {
+          "id": "4213a0b3-0035",
+          "heading": "test/modules/Test.ConfigPreflight.psm1: Pre-cycle config gate: spawn Test-Config.ps1 in a fresh pwsh so an",
+          "slug": "testmodulestestconfigpreflightpsm1-pre-cycle-config-gate-spawn-test-configps1-in-a-fresh-pwsh-so-an"
+        },
+        {
+          "id": "4213a0b3-0036",
+          "heading": "test/modules/Test.ConfigPreflight.psm1: Invoke-ConfigGate",
+          "slug": "testmodulestestconfigpreflightpsm1-invoke-configgate"
+        },
+        {
+          "id": "4213a0b3-0037",
+          "heading": "test/modules/Test.ConfigPreflight.psm1: Invoke-ConfigGate",
+          "slug": "testmodulestestconfigpreflightpsm1-invoke-configgate"
+        },
+        {
+          "id": "4213a0b3-0038",
+          "heading": "test/modules/Test.ConfigServiceCA.psm1: Per-host Config CA backing the config service (mTLS): one SERVER leaf",
+          "slug": "testmodulestestconfigservicecapsm1-per-host-config-ca-backing-the-config-service-mtls-one-server-leaf"
+        },
+        {
+          "id": "4213a0b3-0039",
+          "heading": "test/modules/Test.ConfigServiceCA.psm1: X509 key-storage flags for loading the CA signing material (ca.pfx)",
+          "slug": "testmodulestestconfigservicecapsm1-x509-key-storage-flags-for-loading-the-ca-signing-material-capfx"
+        },
+        {
+          "id": "4213a0b3-003a",
+          "heading": "test/modules/Test.ConfigServiceCA.psm1: Get-YurunaConfigCaPublicCertificate",
+          "slug": "testmodulestestconfigservicecapsm1-get-yurunaconfigcapubliccertificate"
+        },
+        {
+          "id": "4213a0b3-003b",
+          "heading": "test/modules/Test.ConfigServiceSync.psm1: Pure conversion helpers (no I/O; unit-tested directly)",
+          "slug": "testmodulestestconfigservicesyncpsm1-pure-conversion-helpers-no-io-unit-tested-directly"
+        },
+        {
+          "id": "4213a0b3-003c",
+          "heading": "test/modules/Test.ConfigServiceSync.psm1: Get-ConfigSyncHmac",
+          "slug": "testmodulestestconfigservicesyncpsm1-get-configsynchmac"
+        },
+        {
+          "id": "4213a0b3-003d",
+          "heading": "test/modules/Test.ConfigServiceSync.psm1: Invoke-ConfigSyncHostAlias",
+          "slug": "testmodulestestconfigservicesyncpsm1-invoke-configsynchostalias"
+        },
+        {
+          "id": "4213a0b3-003e",
+          "heading": "test/modules/Test.ConfigServiceSync.psm1: Side-channel reconciliation (hosts file + vault)",
+          "slug": "testmodulestestconfigservicesyncpsm1-side-channel-reconciliation-hosts-file--vault"
+        },
+        {
+          "id": "4213a0b3-003f",
+          "heading": "test/modules/Test.ConfigServiceSync.psm1: Sync-ConfigSyncHostAlias",
+          "slug": "testmodulestestconfigservicesyncpsm1-sync-configsynchostalias"
+        },
+        {
+          "id": "4213a0b3-0040",
+          "heading": "test/modules/Test.ConfigServiceSync.psm1: Sync-ConfigSyncVaultCredential",
+          "slug": "testmodulestestconfigservicesyncpsm1-sync-configsyncvaultcredential"
+        },
+        {
+          "id": "4213a0b3-0041",
+          "heading": "test/modules/Test.ConfigServiceSync.psm1: Sync-HostConfiguration",
+          "slug": "testmodulestestconfigservicesyncpsm1-sync-hostconfiguration"
+        },
+        {
+          "id": "4213a0b3-0042",
+          "heading": "test/modules/Test.ConfigServiceSync.psm1: Sync-HostConfiguration",
+          "slug": "testmodulestestconfigservicesyncpsm1-sync-hostconfiguration"
+        },
+        {
+          "id": "4213a0b3-0043",
+          "heading": "test/modules/Test.ConfigServiceSync.psm1: Reference freshness gate",
+          "slug": "testmodulestestconfigservicesyncpsm1-reference-freshness-gate"
+        },
+        {
+          "id": "4213a0b3-0044",
+          "heading": "test/modules/Test.ConfigSync.psm1: Update-TestConfigFromTemplate",
+          "slug": "testmodulestestconfigsyncpsm1-update-testconfigfromtemplate"
+        },
+        {
+          "id": "4213a0b3-0045",
+          "heading": "test/modules/Test.ConfigSync.psm1: Update-TestConfigFromTemplate",
+          "slug": "testmodulestestconfigsyncpsm1-update-testconfigfromtemplate"
+        },
+        {
+          "id": "4213a0b3-0046",
+          "heading": "test/modules/Test.ConfigSync.psm1: Schema migration (shape departed)",
+          "slug": "testmodulestestconfigsyncpsm1-schema-migration-shape-departed"
+        },
+        {
+          "id": "4213a0b3-0047",
+          "heading": "test/modules/Test.ConfigValidator.psm1: Reusable validation primitives -- schema validation, emptiness check,",
+          "slug": "testmodulestestconfigvalidatorpsm1-reusable-validation-primitives----schema-validation-emptiness-check"
+        },
+        {
+          "id": "4213a0b3-0048",
+          "heading": "test/modules/Test.CredentialProvider.psm1: Clear-CredentialProvider",
+          "slug": "testmodulestestcredentialproviderpsm1-clear-credentialprovider"
+        },
+        {
+          "id": "4213a0b3-0049",
+          "heading": "test/modules/Test.CriticalRecord.psm1: Checksummed, generation-numbered private records with a retained previous",
+          "slug": "testmodulestestcriticalrecordpsm1-checksummed-generation-numbered-private-records-with-a-retained-previous"
+        },
+        {
+          "id": "4213a0b3-004a",
+          "heading": "test/modules/Test.Diagnostic.psm1: OCR is used only to verify the echo of the console one-liner before it is",
+          "slug": "testmodulestestdiagnosticpsm1-ocr-is-used-only-to-verify-the-echo-of-the-console-one-liner-before-it-is"
+        },
+        {
+          "id": "4213a0b3-004b",
+          "heading": "test/modules/Test.Diagnostic.psm1: Longest tolerated run of consecutive normalized characters, counted only",
+          "slug": "testmodulestestdiagnosticpsm1-longest-tolerated-run-of-consecutive-normalized-characters-counted-only"
+        },
+        {
+          "id": "4213a0b3-004c",
+          "heading": "test/modules/Test.Diagnostic.psm1: How many consecutive explained positions mark where the command's echo",
+          "slug": "testmodulestestdiagnosticpsm1-how-many-consecutive-explained-positions-mark-where-the-commands-echo"
+        },
+        {
+          "id": "4213a0b3-004d",
+          "heading": "test/modules/Test.Diagnostic.psm1: Invoke-RemoteDiagnosticsConsole",
+          "slug": "testmodulestestdiagnosticpsm1-invoke-remotediagnosticsconsole"
+        },
+        {
+          "id": "4213a0b3-004e",
+          "heading": "test/modules/Test.Diagnostic.psm1: Invoke-RemoteDiagnosticsConsole",
+          "slug": "testmodulestestdiagnosticpsm1-invoke-remotediagnosticsconsole"
+        },
+        {
+          "id": "4213a0b3-004f",
+          "heading": "test/modules/Test.Diagnostic.psm1: Invoke-RemoteDiagnosticsConsole",
+          "slug": "testmodulestestdiagnosticpsm1-invoke-remotediagnosticsconsole"
+        },
+        {
+          "id": "4213a0b3-0050",
+          "heading": "test/modules/Test.Diagnostic.psm1: Select-MoreInformativeDiagResult",
+          "slug": "testmodulestestdiagnosticpsm1-select-moreinformativediagresult"
+        },
+        {
+          "id": "4213a0b3-0051",
+          "heading": "test/modules/Test.Diagnostic.psm1: Invoke-GuestDiagnosticCapture",
+          "slug": "testmodulestestdiagnosticpsm1-invoke-guestdiagnosticcapture"
+        },
+        {
+          "id": "4213a0b3-0052",
+          "heading": "test/modules/Test.Diagnostic.psm1: Invoke-GuestDiagnosticCapture",
+          "slug": "testmodulestestdiagnosticpsm1-invoke-guestdiagnosticcapture"
+        },
+        {
+          "id": "4213a0b3-0053",
+          "heading": "test/modules/Test.DownloadAgentService.psm1: A first boot installs the Go toolchain, builds the daemon, and mounts the pool",
+          "slug": "testmodulestestdownloadagentservicepsm1-a-first-boot-installs-the-go-toolchain-builds-the-daemon-and-mounts-the-pool"
+        },
+        {
+          "id": "4213a0b3-0054",
+          "heading": "test/modules/Test.EventSchema.psm1: Test-CycleEventSchema",
+          "slug": "testmodulestesteventschemapsm1-test-cycleeventschema"
+        },
+        {
+          "id": "4213a0b3-0055",
+          "heading": "test/modules/Test.Extension.psm1: Import-Extension",
+          "slug": "testmodulestestextensionpsm1-import-extension"
+        },
+        {
+          "id": "4213a0b3-0056",
+          "heading": "test/modules/Test.ExtensionService.psm1: The host side of the extension interface: what an area DECLARES about itself,",
+          "slug": "testmodulestestextensionservicepsm1-the-host-side-of-the-extension-interface-what-an-area-declares-about-itself"
+        },
+        {
+          "id": "4213a0b3-0057",
+          "heading": "test/modules/Test.FailureTaxonomy.psm1: Canonical FailureClass + Severity taxonomy: the single source of truth for",
+          "slug": "testmodulestestfailuretaxonomypsm1-canonical-failureclass--severity-taxonomy-the-single-source-of-truth-for"
+        },
+        {
+          "id": "4213a0b3-0058",
+          "heading": "test/modules/Test.FrameworkSource.psm1: Which framework snapshot an extension service VM is built from.",
+          "slug": "testmodulestestframeworksourcepsm1-which-framework-snapshot-an-extension-service-vm-is-built-from"
+        },
+        {
+          "id": "4213a0b3-0059",
+          "heading": "test/modules/Test.GuestQuarantine.psm1: Failure classes whose cause lives on the HOST, not in any one guest",
+          "slug": "testmodulestestguestquarantinepsm1-failure-classes-whose-cause-lives-on-the-host-not-in-any-one-guest"
+        },
+        {
+          "id": "4213a0b3-005a",
+          "heading": "test/modules/Test.HostAddressBeacon.psm1: Two pieces of state, not one, because they answer different questions and a",
+          "slug": "testmodulestesthostaddressbeaconpsm1-two-pieces-of-state-not-one-because-they-answer-different-questions-and-a"
+        },
+        {
+          "id": "4213a0b3-005b",
+          "heading": "test/modules/Test.HostAddressBeacon.psm1: Renumbering-rate warning",
+          "slug": "testmodulestesthostaddressbeaconpsm1-renumbering-rate-warning"
+        },
+        {
+          "id": "4213a0b3-005c",
+          "heading": "test/modules/Test.HostAddressBeacon.psm1: Get-HostAddressChangeCount",
+          "slug": "testmodulestesthostaddressbeaconpsm1-get-hostaddresschangecount"
+        },
+        {
+          "id": "4213a0b3-005d",
+          "heading": "test/modules/Test.HostAddressBeacon.psm1: Get-HostAddressStabilityReport",
+          "slug": "testmodulestesthostaddressbeaconpsm1-get-hostaddressstabilityreport"
+        },
+        {
+          "id": "4213a0b3-005e",
+          "heading": "test/modules/Test.HostAddressBeacon.psm1: Get-HostAddressStabilityReport",
+          "slug": "testmodulestesthostaddressbeaconpsm1-get-hostaddressstabilityreport"
+        },
+        {
+          "id": "4213a0b3-005f",
+          "heading": "test/modules/Test.HostAddressBeacon.psm1: Get-HostAddressStabilityReport",
+          "slug": "testmodulestesthostaddressbeaconpsm1-get-hostaddressstabilityreport"
+        },
+        {
+          "id": "4213a0b3-0060",
+          "heading": "test/modules/Test.HostAutomationState.psm1: The version of the capture FORMAT, and equally of what its readers mean",
+          "slug": "testmodulestesthostautomationstatepsm1-the-version-of-the-capture-format-and-equally-of-what-its-readers-mean"
+        },
+        {
+          "id": "4213a0b3-0061",
+          "heading": "test/modules/Test.HostAutomationState.psm1: Get-MacPreAutomationState",
+          "slug": "testmodulestesthostautomationstatepsm1-get-macpreautomationstate"
+        },
+        {
+          "id": "4213a0b3-0062",
+          "heading": "test/modules/Test.HostAutomationState.psm1: Get-WindowsPreAutomationState",
+          "slug": "testmodulestesthostautomationstatepsm1-get-windowspreautomationstate"
+        },
+        {
+          "id": "4213a0b3-0063",
+          "heading": "test/modules/Test.HostBootstrap.psm1: Import the three sibling modules so a caller that only imports",
+          "slug": "testmodulestesthostbootstrappsm1-import-the-three-sibling-modules-so-a-caller-that-only-imports"
+        },
+        {
+          "id": "4213a0b3-0064",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Get-MacPmsetGuardList",
+          "slug": "testmodulestesthostconditionmacpsm1-get-macpmsetguardlist"
+        },
+        {
+          "id": "4213a0b3-0065",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Get-MacScreenLockIssue",
+          "slug": "testmodulestesthostconditionmacpsm1-get-macscreenlockissue"
+        },
+        {
+          "id": "4213a0b3-0066",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Initialize-SudoCache",
+          "slug": "testmodulestesthostconditionmacpsm1-initialize-sudocache"
+        },
+        {
+          "id": "4213a0b3-0067",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Initialize-SudoCache",
+          "slug": "testmodulestesthostconditionmacpsm1-initialize-sudocache"
+        },
+        {
+          "id": "4213a0b3-0068",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Initialize-SudoCache",
+          "slug": "testmodulestesthostconditionmacpsm1-initialize-sudocache"
+        },
+        {
+          "id": "4213a0b3-0069",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: UTM ships its command-line interface INSIDE the app bundle, and no installer",
+          "slug": "testmodulestesthostconditionmacpsm1-utm-ships-its-command-line-interface-inside-the-app-bundle-and-no-installer"
+        },
+        {
+          "id": "4213a0b3-006a",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet",
+          "slug": "testmodulestesthostconditionmacpsm1-set-machostconditionset"
+        },
+        {
+          "id": "4213a0b3-006b",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet",
+          "slug": "testmodulestesthostconditionmacpsm1-set-machostconditionset"
+        },
+        {
+          "id": "4213a0b3-006c",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet",
+          "slug": "testmodulestesthostconditionmacpsm1-set-machostconditionset"
+        },
+        {
+          "id": "4213a0b3-006d",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet",
+          "slug": "testmodulestesthostconditionmacpsm1-set-machostconditionset"
+        },
+        {
+          "id": "4213a0b3-006e",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet",
+          "slug": "testmodulestesthostconditionmacpsm1-set-machostconditionset"
+        },
+        {
+          "id": "4213a0b3-006f",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet",
+          "slug": "testmodulestesthostconditionmacpsm1-set-machostconditionset"
+        },
+        {
+          "id": "4213a0b3-0070",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet",
+          "slug": "testmodulestesthostconditionmacpsm1-set-machostconditionset"
+        },
+        {
+          "id": "4213a0b3-0071",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet",
+          "slug": "testmodulestesthostconditionmacpsm1-set-machostconditionset"
+        },
+        {
+          "id": "4213a0b3-0072",
+          "heading": "test/modules/Test.HostCondition.Mac.psm1: Host clock",
+          "slug": "testmodulestesthostconditionmacpsm1-host-clock"
+        },
+        {
+          "id": "4213a0b3-0073",
+          "heading": "test/modules/Test.HostCondition.psm1: Register-HostConditionProvider",
+          "slug": "testmodulestesthostconditionpsm1-register-hostconditionprovider"
+        },
+        {
+          "id": "4213a0b3-0074",
+          "heading": "test/modules/Test.HostCondition.Windows.psm1: Windows sibling of Test.HostCondition.psm1: applies AND asserts the",
+          "slug": "testmodulestesthostconditionwindowspsm1-windows-sibling-of-testhostconditionpsm1-applies-and-asserts-the"
+        },
+        {
+          "id": "4213a0b3-0075",
+          "heading": "test/modules/Test.HostCondition.Windows.psm1: Install-YurunaVirtualDisplay",
+          "slug": "testmodulestesthostconditionwindowspsm1-install-yurunavirtualdisplay"
+        },
+        {
+          "id": "4213a0b3-0076",
+          "heading": "test/modules/Test.HostCondition.Windows.psm1: Install-YurunaVirtualDisplay",
+          "slug": "testmodulestesthostconditionwindowspsm1-install-yurunavirtualdisplay"
+        },
+        {
+          "id": "4213a0b3-0077",
+          "heading": "test/modules/Test.HostCondition.Windows.psm1: Set-YurunaDisplayCloneAndResolution",
+          "slug": "testmodulestesthostconditionwindowspsm1-set-yurunadisplaycloneandresolution"
+        },
+        {
+          "id": "4213a0b3-0078",
+          "heading": "test/modules/Test.HostCondition.Windows.psm1: Remove-YurunaVirtualDisplay",
+          "slug": "testmodulestesthostconditionwindowspsm1-remove-yurunavirtualdisplay"
+        },
+        {
+          "id": "4213a0b3-0079",
+          "heading": "test/modules/Test.HostCondition.Windows.psm1: Set-WindowsHostConditionSet",
+          "slug": "testmodulestesthostconditionwindowspsm1-set-windowshostconditionset"
+        },
+        {
+          "id": "4213a0b3-007a",
+          "heading": "test/modules/Test.HostCondition.Windows.psm1: Test-WindowsGuestNetworkHealth",
+          "slug": "testmodulestesthostconditionwindowspsm1-test-windowsguestnetworkhealth"
+        },
+        {
+          "id": "4213a0b3-007b",
+          "heading": "test/modules/Test.HostContract.psm1: Thin facade for the Test.Host* family",
+          "slug": "testmodulestesthostcontractpsm1-thin-facade-for-the-testhost-family"
+        },
+        {
+          "id": "4213a0b3-007c",
+          "heading": "test/modules/Test.HostContract.psm1: Test.HostDetection carries the Test.VMUtility -Global self-heal at its",
+          "slug": "testmodulestesthostcontractpsm1-testhostdetection-carries-the-testvmutility--global-self-heal-at-its"
+        },
+        {
+          "id": "4213a0b3-007d",
+          "heading": "test/modules/Test.HostDetection.psm1: Host detection + per-host preflight: identifies the platform",
+          "slug": "testmodulestesthostdetectionpsm1-host-detection--per-host-preflight-identifies-the-platform"
+        },
+        {
+          "id": "4213a0b3-007e",
+          "heading": "test/modules/Test.HostDetection.psm1: Module-level self-healing: re-import Test.VMUtility.psm1 with -Global",
+          "slug": "testmodulestesthostdetectionpsm1-module-level-self-healing-re-import-testvmutilitypsm1-with--global"
+        },
+        {
+          "id": "4213a0b3-007f",
+          "heading": "test/modules/Test.HostDetection.psm1: Get-TestVMName",
+          "slug": "testmodulestesthostdetectionpsm1-get-testvmname"
+        },
+        {
+          "id": "4213a0b3-0080",
+          "heading": "test/modules/Test.HostDetection.psm1: Test-HostRequirement",
+          "slug": "testmodulestesthostdetectionpsm1-test-hostrequirement"
+        },
+        {
+          "id": "4213a0b3-0081",
+          "heading": "test/modules/Test.HostGit.psm1: Invoke-GitPull",
+          "slug": "testmodulestesthostgitpsm1-invoke-gitpull"
+        },
+        {
+          "id": "4213a0b3-0082",
+          "heading": "test/modules/Test.HostIdentity.psm1: Host identity for the pool: a reimageable host loses its local runtime/ (and",
+          "slug": "testmodulestesthostidentitypsm1-host-identity-for-the-pool-a-reimageable-host-loses-its-local-runtime-and"
+        },
+        {
+          "id": "4213a0b3-0083",
+          "heading": "test/modules/Test.HostIdentity.psm1: Invoke-PoolStorageSetupAndReclaim",
+          "slug": "testmodulestesthostidentitypsm1-invoke-poolstoragesetupandreclaim"
+        },
+        {
+          "id": "4213a0b3-0084",
+          "heading": "test/modules/Test.HostIO.psm1: Host I/O provider registry",
+          "slug": "testmodulestesthostiopsm1-host-io-provider-registry"
+        },
+        {
+          "id": "4213a0b3-0085",
+          "heading": "test/modules/Test.HostIO.psm1: Two-level table: { HostType -> { Action -> scriptblock } }",
+          "slug": "testmodulestesthostiopsm1-two-level-table--hosttype----action---scriptblock--"
+        },
+        {
+          "id": "4213a0b3-0086",
+          "heading": "test/modules/Test.HostMetricsExporter.psm1: The collectors this host must publish, and why each one is on the list:",
+          "slug": "testmodulestesthostmetricsexporterpsm1-the-collectors-this-host-must-publish-and-why-each-one-is-on-the-list"
+        },
+        {
+          "id": "4213a0b3-0087",
+          "heading": "test/modules/Test.HostMetricsExporter.psm1: How long one unattended install attempt may run before it is stopped, and the",
+          "slug": "testmodulestesthostmetricsexporterpsm1-how-long-one-unattended-install-attempt-may-run-before-it-is-stopped-and-the"
+        },
+        {
+          "id": "4213a0b3-0088",
+          "heading": "test/modules/Test.HostMetricsExporter.psm1: Get-YurunaHostMetricsInstallAttempt",
+          "slug": "testmodulestesthostmetricsexporterpsm1-get-yurunahostmetricsinstallattempt"
+        },
+        {
+          "id": "4213a0b3-0089",
+          "heading": "test/modules/Test.HostMetricsExporter.psm1: Invoke-YurunaWingetInstall",
+          "slug": "testmodulestesthostmetricsexporterpsm1-invoke-yurunawingetinstall"
+        },
+        {
+          "id": "4213a0b3-008a",
+          "heading": "test/modules/Test.HostRefresh.psm1: Host refresh: the repair-ladder declaration, the local repair worker and",
+          "slug": "testmodulestesthostrefreshpsm1-host-refresh-the-repair-ladder-declaration-the-local-repair-worker-and"
+        },
+        {
+          "id": "4213a0b3-008b",
+          "heading": "test/modules/Test.HostRefreshAuth.psm1: Write-HostRefreshSecretFile",
+          "slug": "testmodulestesthostrefreshauthpsm1-write-hostrefreshsecretfile"
+        },
+        {
+          "id": "4213a0b3-008c",
+          "heading": "test/modules/Test.HostRefreshIntent.psm1: The private request journal for host refresh: who asked for a repair, with",
+          "slug": "testmodulestesthostrefreshintentpsm1-the-private-request-journal-for-host-refresh-who-asked-for-a-repair-with"
+        },
+        {
+          "id": "4213a0b3-008d",
+          "heading": "test/modules/Test.HostRefreshTrigger.psm1: The automatic host-refresh policy: when the resident runner may start a",
+          "slug": "testmodulestesthostrefreshtriggerpsm1-the-automatic-host-refresh-policy-when-the-resident-runner-may-start-a"
+        },
+        {
+          "id": "4213a0b3-008e",
+          "heading": "test/modules/Test.InnerSpawn.psm1: Two launch shapes for a fresh child pwsh live here.",
+          "slug": "testmodulestestinnerspawnpsm1-two-launch-shapes-for-a-fresh-child-pwsh-live-here"
+        },
+        {
+          "id": "4213a0b3-008f",
+          "heading": "test/modules/Test.KeyCodeRegistry.psm1: Maps owned by this module",
+          "slug": "testmodulestestkeycoderegistrypsm1-maps-owned-by-this-module"
+        },
+        {
+          "id": "4213a0b3-0090",
+          "heading": "test/modules/Test.Lab.psm1: Lab-level knowledge shared by the lab entry points: what a lab vault records,",
+          "slug": "testmodulestestlabpsm1-lab-level-knowledge-shared-by-the-lab-entry-points-what-a-lab-vault-records"
+        },
+        {
+          "id": "4213a0b3-0091",
+          "heading": "test/modules/Test.LabHealth.psm1: The lab-health gate: before a chain entry and before each sequence step, check",
+          "slug": "testmodulestestlabhealthpsm1-the-lab-health-gate-before-a-chain-entry-and-before-each-sequence-step-check"
+        },
+        {
+          "id": "4213a0b3-0092",
+          "heading": "test/modules/Test.Locale.psm1: Which language a reader gets, decided once and then carried.",
+          "slug": "testmodulestestlocalepsm1-which-language-a-reader-gets-decided-once-and-then-carried"
+        },
+        {
+          "id": "4213a0b3-0093",
+          "heading": "test/modules/Test.LocalLabStorage.psm1: Local lab storage: turn ONE machine into its own pool/stash SMB server and",
+          "slug": "testmodulestestlocallabstoragepsm1-local-lab-storage-turn-one-machine-into-its-own-poolstash-smb-server-and"
+        },
+        {
+          "id": "4213a0b3-0094",
+          "heading": "test/modules/Test.LocalLabStorage.psm1: Runs a native command, returning its merged stdout+stderr and throwing on a",
+          "slug": "testmodulestestlocallabstoragepsm1-runs-a-native-command-returning-its-merged-stdoutstderr-and-throwing-on-a"
+        },
+        {
+          "id": "4213a0b3-0095",
+          "heading": "test/modules/Test.LocalLabStorage.psm1: Set-MacSmbCredential",
+          "slug": "testmodulestestlocallabstoragepsm1-set-macsmbcredential"
+        },
+        {
+          "id": "4213a0b3-0096",
+          "heading": "test/modules/Test.LocalLabStorage.psm1: Set-LocalLabStorageAccount",
+          "slug": "testmodulestestlocallabstoragepsm1-set-locallabstorageaccount"
+        },
+        {
+          "id": "4213a0b3-0097",
+          "heading": "test/modules/Test.LocalLabStorage.psm1: Set-YurunaHostAlias",
+          "slug": "testmodulestestlocallabstoragepsm1-set-yurunahostalias"
+        },
+        {
+          "id": "4213a0b3-0098",
+          "heading": "test/modules/Test.LocalLabStorage.psm1: A machine that served its own shares and now consumes a lab's has to stop",
+          "slug": "testmodulestestlocallabstoragepsm1-a-machine-that-served-its-own-shares-and-now-consumes-a-labs-has-to-stop"
+        },
+        {
+          "id": "4213a0b3-0099",
+          "heading": "test/modules/Test.Log.psm1: One of THREE Yuruna logger modules with disjoint responsibilities --",
+          "slug": "testmodulestestlogpsm1-one-of-three-yuruna-logger-modules-with-disjoint-responsibilities---"
+        },
+        {
+          "id": "4213a0b3-009a",
+          "heading": "test/modules/Test.Log.psm1: Start-LogFile",
+          "slug": "testmodulestestlogpsm1-start-logfile"
+        },
+        {
+          "id": "4213a0b3-009b",
+          "heading": "test/modules/Test.Log.psm1: Start-LogFile",
+          "slug": "testmodulestestlogpsm1-start-logfile"
+        },
+        {
+          "id": "4213a0b3-009c",
+          "heading": "test/modules/Test.Log.psm1: Start-LogFile",
+          "slug": "testmodulestestlogpsm1-start-logfile"
+        },
+        {
+          "id": "4213a0b3-009d",
+          "heading": "test/modules/Test.Log.psm1: Start-LogFile",
+          "slug": "testmodulestestlogpsm1-start-logfile"
+        },
+        {
+          "id": "4213a0b3-009e",
+          "heading": "test/modules/Test.Log.psm1: Write-CycleManifest",
+          "slug": "testmodulestestlogpsm1-write-cyclemanifest"
+        },
+        {
+          "id": "4213a0b3-009f",
+          "heading": "test/modules/Test.Log.psm1: Stop-LogFile",
+          "slug": "testmodulestestlogpsm1-stop-logfile"
+        },
+        {
+          "id": "4213a0b3-00a0",
+          "heading": "test/modules/Test.Log.psm1: Stop-LogFile",
+          "slug": "testmodulestestlogpsm1-stop-logfile"
+        },
+        {
+          "id": "4213a0b3-00a1",
+          "heading": "test/modules/Test.Log.psm1: Stop-LogFile",
+          "slug": "testmodulestestlogpsm1-stop-logfile"
+        },
+        {
+          "id": "4213a0b3-00a2",
+          "heading": "test/modules/Test.Log.psm1: Stop-LogFile",
+          "slug": "testmodulestestlogpsm1-stop-logfile"
+        },
+        {
+          "id": "4213a0b3-00a3",
+          "heading": "test/modules/Test.Log.psm1: Telemetry is best-effort by design: a cycle never fails because an event could",
+          "slug": "testmodulestestlogpsm1-telemetry-is-best-effort-by-design-a-cycle-never-fails-because-an-event-could"
+        },
+        {
+          "id": "4213a0b3-00a4",
+          "heading": "test/modules/Test.Log.psm1: Write-CycleNdjsonEvent",
+          "slug": "testmodulestestlogpsm1-write-cyclendjsonevent"
+        },
+        {
+          "id": "4213a0b3-00a5",
+          "heading": "test/modules/Test.LogLevel.psm1: Canonical log-level cascade",
+          "slug": "testmodulestestloglevelpsm1-canonical-log-level-cascade"
+        },
+        {
+          "id": "4213a0b3-00a6",
+          "heading": "test/modules/Test.LogLevel.psm1: The two values below are deliberately NOT in module scope",
+          "slug": "testmodulestestloglevelpsm1-the-two-values-below-are-deliberately-not-in-module-scope"
+        },
+        {
+          "id": "4213a0b3-00a7",
+          "heading": "test/modules/Test.LogLevel.psm1: Path this process is transcribing to, or $null when it is not, paired with",
+          "slug": "testmodulestestloglevelpsm1-path-this-process-is-transcribing-to-or-null-when-it-is-not-paired-with"
+        },
+        {
+          "id": "4213a0b3-00a8",
+          "heading": "test/modules/Test.Notify.psm1: Send-YurunaNotification is a thin dispatcher to the active extensions",
+          "slug": "testmodulestestnotifypsm1-send-yurunanotification-is-a-thin-dispatcher-to-the-active-extensions"
+        },
+        {
+          "id": "4213a0b3-00a9",
+          "heading": "test/modules/Test.Notify.psm1: Send-YurunaNotification",
+          "slug": "testmodulestestnotifypsm1-send-yurunanotification"
+        },
+        {
+          "id": "4213a0b3-00aa",
+          "heading": "test/modules/Test.Notify.psm1: Get-FailureEventData",
+          "slug": "testmodulestestnotifypsm1-get-failureeventdata"
+        },
+        {
+          "id": "4213a0b3-00ab",
+          "heading": "test/modules/Test.Notify.psm1: Get-FailureEventData",
+          "slug": "testmodulestestnotifypsm1-get-failureeventdata"
+        },
+        {
+          "id": "4213a0b3-00ac",
+          "heading": "test/modules/Test.OcrEngine.psm1: Get-EnabledOcrProvider",
+          "slug": "testmodulestestocrenginepsm1-get-enabledocrprovider"
+        },
+        {
+          "id": "4213a0b3-00ad",
+          "heading": "test/modules/Test.OcrEngine.psm1: Provider registry",
+          "slug": "testmodulestestocrenginepsm1-provider-registry"
+        },
+        {
+          "id": "4213a0b3-00ae",
+          "heading": "test/modules/Test.OcrEngine.psm1: Built-in provider: WinRT (Windows only, via powershell.exe 5.1)",
+          "slug": "testmodulestestocrenginepsm1-built-in-provider-winrt-windows-only-via-powershellexe-51"
+        },
+        {
+          "id": "4213a0b3-00af",
+          "heading": "test/modules/Test.OcrEngine.psm1: Invoke-WinRtOcr",
+          "slug": "testmodulestestocrenginepsm1-invoke-winrtocr"
+        },
+        {
+          "id": "4213a0b3-00b0",
+          "heading": "test/modules/Test.OcrEngine.psm1: Built-in provider: WinRT (Windows only, via powershell.exe 5.1)",
+          "slug": "testmodulestestocrenginepsm1-built-in-provider-winrt-windows-only-via-powershellexe-51"
+        },
+        {
+          "id": "4213a0b3-00b1",
+          "heading": "test/modules/Test.OcrMatch.psm1: OCR-tolerant matching",
+          "slug": "testmodulestestocrmatchpsm1-ocr-tolerant-matching"
+        },
+        {
+          "id": "4213a0b3-00b2",
+          "heading": "test/modules/Test.OcrMatch.psm1: Test-OCRMatch",
+          "slug": "testmodulestestocrmatchpsm1-test-ocrmatch"
+        },
+        {
+          "id": "4213a0b3-00b3",
+          "heading": "test/modules/Test.OcrMatch.psm1: Test-OCRMatch",
+          "slug": "testmodulestestocrmatchpsm1-test-ocrmatch"
+        },
+        {
+          "id": "4213a0b3-00b4",
+          "heading": "test/modules/Test.OcrPath.psm1: Windows passes a path of 260 characters or more to a process only when that",
+          "slug": "testmodulestestocrpathpsm1-windows-passes-a-path-of-260-characters-or-more-to-a-process-only-when-that"
+        },
+        {
+          "id": "4213a0b3-00b5",
+          "heading": "test/modules/Test.Orchestrator.psm1: Orchestration-sequence execution for Debug-TestSequence.ps1: runs every",
+          "slug": "testmodulestestorchestratorpsm1-orchestration-sequence-execution-for-debug-testsequenceps1-runs-every"
+        },
+        {
+          "id": "4213a0b3-00b6",
+          "heading": "test/modules/Test.Orchestrator.psm1: Invoke-OrchestratorHostAction",
+          "slug": "testmodulestestorchestratorpsm1-invoke-orchestratorhostaction"
+        },
+        {
+          "id": "4213a0b3-00b7",
+          "heading": "test/modules/Test.Orchestrator.psm1: Invoke-OrchestrationSequence",
+          "slug": "testmodulestestorchestratorpsm1-invoke-orchestrationsequence"
+        },
+        {
+          "id": "4213a0b3-00b8",
+          "heading": "test/modules/Test.Orchestrator.psm1: Invoke-OrchestrationSequence",
+          "slug": "testmodulestestorchestratorpsm1-invoke-orchestrationsequence"
+        },
+        {
+          "id": "4213a0b3-00b9",
+          "heading": "test/modules/Test.Orchestrator.psm1: Invoke-OrchestrationSequence",
+          "slug": "testmodulestestorchestratorpsm1-invoke-orchestrationsequence"
+        },
+        {
+          "id": "4213a0b3-00ba",
+          "heading": "test/modules/Test.Orchestrator.psm1: Invoke-OrchestrationSequence",
+          "slug": "testmodulestestorchestratorpsm1-invoke-orchestrationsequence"
+        },
+        {
+          "id": "4213a0b3-00bb",
+          "heading": "test/modules/Test.Output.psm1: Reusable PASS / FAIL / WARN reporter for check-style scripts",
+          "slug": "testmodulestestoutputpsm1-reusable-pass--fail--warn-reporter-for-check-style-scripts"
+        },
+        {
+          "id": "4213a0b3-00bc",
+          "heading": "test/modules/Test.PoolAdmin.psm1: One admin command at a time may work in a given admin clone",
+          "slug": "testmodulestestpooladminpsm1-one-admin-command-at-a-time-may-work-in-a-given-admin-clone"
+        },
+        {
+          "id": "4213a0b3-00bd",
+          "heading": "test/modules/Test.PoolAdmin.psm1: Open-YurunaPoolIntent",
+          "slug": "testmodulestestpooladminpsm1-open-yurunapoolintent"
+        },
+        {
+          "id": "4213a0b3-00be",
+          "heading": "test/modules/Test.PoolNotifier.psm1: Invoke-PoolNotifierDelivery",
+          "slug": "testmodulestestpoolnotifierpsm1-invoke-poolnotifierdelivery"
+        },
+        {
+          "id": "4213a0b3-00bf",
+          "heading": "test/modules/Test.PoolPlanner.psm1: Pool planner: Read-YurunaPoolManifest reads runtime/pool.manifest.json (the",
+          "slug": "testmodulestestpoolplannerpsm1-pool-planner-read-yurunapoolmanifest-reads-runtimepoolmanifestjson-the"
+        },
+        {
+          "id": "4213a0b3-00c0",
+          "heading": "test/modules/Test.PoolPush.psm1: Invoke-PoolEventPush",
+          "slug": "testmodulestestpoolpushpsm1-invoke-pooleventpush"
+        },
+        {
+          "id": "4213a0b3-00c1",
+          "heading": "test/modules/Test.PoolStorage.psm1: Move-mode policy",
+          "slug": "testmodulestestpoolstoragepsm1-move-mode-policy"
+        },
+        {
+          "id": "4213a0b3-00c2",
+          "heading": "test/modules/Test.PoolStorage.psm1: Invoke-PoolStorageProcessResult runs a native command bounded by a wall-clock cap",
+          "slug": "testmodulestestpoolstoragepsm1-invoke-poolstorageprocessresult-runs-a-native-command-bounded-by-a-wall-clock-cap"
+        },
+        {
+          "id": "4213a0b3-00c3",
+          "heading": "test/modules/Test.PoolStorage.psm1: Invoke-PoolStorageBoundedScript runs a scriptblock under a wall-clock cap via a",
+          "slug": "testmodulestestpoolstoragepsm1-invoke-poolstorageboundedscript-runs-a-scriptblock-under-a-wall-clock-cap-via-a"
+        },
+        {
+          "id": "4213a0b3-00c4",
+          "heading": "test/modules/Test.PoolStorage.psm1: Who is actually serving a mount",
+          "slug": "testmodulestestpoolstoragepsm1-who-is-actually-serving-a-mount"
+        },
+        {
+          "id": "4213a0b3-00c5",
+          "heading": "test/modules/Test.PoolStorage.psm1: Connect-YurunaPoolStorage",
+          "slug": "testmodulestestpoolstoragepsm1-connect-yurunapoolstorage"
+        },
+        {
+          "id": "4213a0b3-00c6",
+          "heading": "test/modules/Test.PoolStorage.psm1: Connect-YurunaPoolStorage",
+          "slug": "testmodulestestpoolstoragepsm1-connect-yurunapoolstorage"
+        },
+        {
+          "id": "4213a0b3-00c7",
+          "heading": "test/modules/Test.PoolStorage.psm1: Connect-YurunaPoolStorage",
+          "slug": "testmodulestestpoolstoragepsm1-connect-yurunapoolstorage"
+        },
+        {
+          "id": "4213a0b3-00c8",
+          "heading": "test/modules/Test.PoolStorage.psm1: Who is actually serving a mount",
+          "slug": "testmodulestestpoolstoragepsm1-who-is-actually-serving-a-mount"
+        },
+        {
+          "id": "4213a0b3-00c9",
+          "heading": "test/modules/Test.PoolStorage.psm1: Merge-PoolStorageLedger",
+          "slug": "testmodulestestpoolstoragepsm1-merge-poolstorageledger"
+        },
+        {
+          "id": "4213a0b3-00ca",
+          "heading": "test/modules/Test.PoolStorage.psm1: Replicator: async, fail-fast, atomic, backlog-draining",
+          "slug": "testmodulestestpoolstoragepsm1-replicator-async-fail-fast-atomic-backlog-draining"
+        },
+        {
+          "id": "4213a0b3-00cb",
+          "heading": "test/modules/Test.PoolStorage.psm1: Get-PoolStorageDrainOrder",
+          "slug": "testmodulestestpoolstoragepsm1-get-poolstoragedrainorder"
+        },
+        {
+          "id": "4213a0b3-00cc",
+          "heading": "test/modules/Test.PoolSync.psm1: Invoke-PoolSyncGitCapture (and its exit-code wrapper Invoke-PoolSyncGit)",
+          "slug": "testmodulestestpoolsyncpsm1-invoke-poolsyncgitcapture-and-its-exit-code-wrapper-invoke-poolsyncgit"
+        },
+        {
+          "id": "4213a0b3-00cd",
+          "heading": "test/modules/Test.PoolWorker.psm1: Get-LocalLabStorageSharePath: whether this machine still PUBLISHES a share can",
+          "slug": "testmodulestestpoolworkerpsm1-get-locallabstoragesharepath-whether-this-machine-still-publishes-a-share-can"
+        },
+        {
+          "id": "4213a0b3-00ce",
+          "heading": "test/modules/Test.PortOwner.psm1: Get-PortListenerPid",
+          "slug": "testmodulestestportownerpsm1-get-portlistenerpid"
+        },
+        {
+          "id": "4213a0b3-00cf",
+          "heading": "test/modules/Test.PortOwner.psm1: Get-PortHolderServiceInfo",
+          "slug": "testmodulestestportownerpsm1-get-portholderserviceinfo"
+        },
+        {
+          "id": "4213a0b3-00d0",
+          "heading": "test/modules/Test.PortOwner.psm1: Internal: a live sudo authorization for the takeover, or $false.",
+          "slug": "testmodulestestportownerpsm1-internal-a-live-sudo-authorization-for-the-takeover-or-false"
+        },
+        {
+          "id": "4213a0b3-00d1",
+          "heading": "test/modules/Test.Prelude.psm1: Canonical exit codes",
+          "slug": "testmodulestestpreludepsm1-canonical-exit-codes"
+        },
+        {
+          "id": "4213a0b3-00d2",
+          "heading": "test/modules/Test.Prelude.psm1: Initialize-YurunaEntryPointModuleSet",
+          "slug": "testmodulestestpreludepsm1-initialize-yurunaentrypointmoduleset"
+        },
+        {
+          "id": "4213a0b3-00d3",
+          "heading": "test/modules/Test.Prelude.psm1: Initialize-YurunaEntryPointModuleSet",
+          "slug": "testmodulestestpreludepsm1-initialize-yurunaentrypointmoduleset"
+        },
+        {
+          "id": "4213a0b3-00d4",
+          "heading": "test/modules/Test.Prelude.psm1: Initialize-YurunaEntryPointModuleSet",
+          "slug": "testmodulestestpreludepsm1-initialize-yurunaentrypointmoduleset"
+        },
+        {
+          "id": "4213a0b3-00d5",
+          "heading": "test/modules/Test.Prelude.psm1: Initialize-YurunaEntryPointModuleSet",
+          "slug": "testmodulestestpreludepsm1-initialize-yurunaentrypointmoduleset"
+        },
+        {
+          "id": "4213a0b3-00d6",
+          "heading": "test/modules/Test.Prelude.psm1: Initialize-YurunaEntryPointModuleSet",
+          "slug": "testmodulestestpreludepsm1-initialize-yurunaentrypointmoduleset"
+        },
+        {
+          "id": "4213a0b3-00d7",
+          "heading": "test/modules/Test.Recovery.psm1: Cycle-folder name patterns",
+          "slug": "testmodulestestrecoverypsm1-cycle-folder-name-patterns"
+        },
+        {
+          "id": "4213a0b3-00d8",
+          "heading": "test/modules/Test.Recovery.psm1: Clear-StalePidFile",
+          "slug": "testmodulestestrecoverypsm1-clear-stalepidfile"
+        },
+        {
+          "id": "4213a0b3-00d9",
+          "heading": "test/modules/Test.Registry.psm1: New-YurunaRegistry",
+          "slug": "testmodulestestregistrypsm1-new-yurunaregistry"
+        },
+        {
+          "id": "4213a0b3-00da",
+          "heading": "test/modules/Test.Remediation.psm1: WHICH failures the runner may retry without an operator, and HOW MANY times.",
+          "slug": "testmodulestestremediationpsm1-which-failures-the-runner-may-retry-without-an-operator-and-how-many-times"
+        },
+        {
+          "id": "4213a0b3-00db",
+          "heading": "test/modules/Test.Remediation.psm1: Invoke-Remediation",
+          "slug": "testmodulestestremediationpsm1-invoke-remediation"
+        },
+        {
+          "id": "4213a0b3-00dc",
+          "heading": "test/modules/Test.Remediation.psm1: Register-BuiltinRecoveryHandler",
+          "slug": "testmodulestestremediationpsm1-register-builtinrecoveryhandler"
+        },
+        {
+          "id": "4213a0b3-00dd",
+          "heading": "test/modules/Test.Remediation.psm1: Register-BuiltinRecoveryHandler",
+          "slug": "testmodulestestremediationpsm1-register-builtinrecoveryhandler"
+        },
+        {
+          "id": "4213a0b3-00de",
+          "heading": "test/modules/Test.RootArtifact.psm1: Get-YurunaRootHomeArtifact",
+          "slug": "testmodulestestrootartifactpsm1-get-yurunaroothomeartifact"
+        },
+        {
+          "id": "4213a0b3-00df",
+          "heading": "test/modules/Test.RunnerElevation.psm1: Per-host-type command manifest for the PER-CYCLE path",
+          "slug": "testmodulestestrunnerelevationpsm1-per-host-type-command-manifest-for-the-per-cycle-path"
+        },
+        {
+          "id": "4213a0b3-00e0",
+          "heading": "test/modules/Test.RunnerHeartbeat.psm1: Clear-RunnerPhase",
+          "slug": "testmodulestestrunnerheartbeatpsm1-clear-runnerphase"
+        },
+        {
+          "id": "4213a0b3-00e1",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: /yuruna-archive.tar.gz and /yuruna-project-archive.tar.gz are built via",
+          "slug": "testmodulestestrunnerinnerlooppsm1-yuruna-archivetargz-and-yuruna-project-archivetargz-are-built-via"
+        },
+        {
+          "id": "4213a0b3-00e2",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Cycle-start guard: warn on working-tree drift vs HEAD",
+          "slug": "testmodulestestrunnerinnerlooppsm1-cycle-start-guard-warn-on-working-tree-drift-vs-head"
+        },
+        {
+          "id": "4213a0b3-00e3",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Per-cycle config reload",
+          "slug": "testmodulestestrunnerinnerlooppsm1-per-cycle-config-reload"
+        },
+        {
+          "id": "4213a0b3-00e4",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Copy-FailureArtifactsToStatusLog",
+          "slug": "testmodulestestrunnerinnerlooppsm1-copy-failureartifactstostatuslog"
+        },
+        {
+          "id": "4213a0b3-00e5",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Copy-FailureArtifactsToStatusLog",
+          "slug": "testmodulestestrunnerinnerlooppsm1-copy-failureartifactstostatuslog"
+        },
+        {
+          "id": "4213a0b3-00e6",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Copy-FailureArtifactsToStatusLog",
+          "slug": "testmodulestestrunnerinnerlooppsm1-copy-failureartifactstostatuslog"
+        },
+        {
+          "id": "4213a0b3-00e7",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Copy-FailureArtifactsToStatusLog",
+          "slug": "testmodulestestrunnerinnerlooppsm1-copy-failureartifactstostatuslog"
+        },
+        {
+          "id": "4213a0b3-00e8",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Copy-FailureArtifactsToStatusLog",
+          "slug": "testmodulestestrunnerinnerlooppsm1-copy-failureartifactstostatuslog"
+        },
+        {
+          "id": "4213a0b3-00e9",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Copy-FailureArtifactsToStatusLog",
+          "slug": "testmodulestestrunnerinnerlooppsm1-copy-failureartifactstostatuslog"
+        },
+        {
+          "id": "4213a0b3-00ea",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Update-CycleModuleImport",
+          "slug": "testmodulestestrunnerinnerlooppsm1-update-cyclemoduleimport"
+        },
+        {
+          "id": "4213a0b3-00eb",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Complete-CycleRun",
+          "slug": "testmodulestestrunnerinnerlooppsm1-complete-cyclerun"
+        },
+        {
+          "id": "4213a0b3-00ec",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Get-CycleGuestAndSequenceList",
+          "slug": "testmodulestestrunnerinnerlooppsm1-get-cycleguestandsequencelist"
+        },
+        {
+          "id": "4213a0b3-00ed",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Start-CycleHostDiagnostic",
+          "slug": "testmodulestestrunnerinnerlooppsm1-start-cyclehostdiagnostic"
+        },
+        {
+          "id": "4213a0b3-00ee",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Wait-CyclePauseFlag",
+          "slug": "testmodulestestrunnerinnerlooppsm1-wait-cyclepauseflag"
+        },
+        {
+          "id": "4213a0b3-00ef",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00f0",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00f1",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00f2",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00f3",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00f4",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00f5",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00f6",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00f7",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00f8",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00f9",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00fa",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00fb",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00fc",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00fd",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00fe",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-00ff",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-0100",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-runnerinnercycle"
+        },
+        {
+          "id": "4213a0b3-0101",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-guestprovisioniteration"
+        },
+        {
+          "id": "4213a0b3-0102",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-guestprovisioniteration"
+        },
+        {
+          "id": "4213a0b3-0103",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-guestprovisioniteration"
+        },
+        {
+          "id": "4213a0b3-0104",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-guestprovisioniteration"
+        },
+        {
+          "id": "4213a0b3-0105",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-guestprovisioniteration"
+        },
+        {
+          "id": "4213a0b3-0106",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-guestprovisioniteration"
+        },
+        {
+          "id": "4213a0b3-0107",
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration",
+          "slug": "testmodulestestrunnerinnerlooppsm1-invoke-guestprovisioniteration"
+        },
+        {
+          "id": "4213a0b3-0108",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Forward-env helper",
+          "slug": "testmodulestestrunnerouterlooppsm1-forward-env-helper"
+        },
+        {
+          "id": "4213a0b3-0109",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-010a",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-010b",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-010c",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-010d",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-010e",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-010f",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-0110",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-0111",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-0112",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-0113",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runneroutercycle"
+        },
+        {
+          "id": "4213a0b3-0114",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-OuterCycleDispatch",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-outercycledispatch"
+        },
+        {
+          "id": "4213a0b3-0115",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-OuterCycleDispatch",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-outercycledispatch"
+        },
+        {
+          "id": "4213a0b3-0116",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-OuterCycleDispatch",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-outercycledispatch"
+        },
+        {
+          "id": "4213a0b3-0117",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterLoop",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runnerouterloop"
+        },
+        {
+          "id": "4213a0b3-0118",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterLoop",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runnerouterloop"
+        },
+        {
+          "id": "4213a0b3-0119",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterLoop",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runnerouterloop"
+        },
+        {
+          "id": "4213a0b3-011a",
+          "heading": "test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterLoop",
+          "slug": "testmodulestestrunnerouterlooppsm1-invoke-runnerouterloop"
+        },
+        {
+          "id": "4213a0b3-011b",
+          "heading": "test/modules/Test.RunnerState.psm1: Adjacency map of valid transitions",
+          "slug": "testmodulestestrunnerstatepsm1-adjacency-map-of-valid-transitions"
+        },
+        {
+          "id": "4213a0b3-011c",
+          "heading": "test/modules/Test.RunnerWatchdog.psm1: Start-Watchdog",
+          "slug": "testmodulestestrunnerwatchdogpsm1-start-watchdog"
+        },
+        {
+          "id": "4213a0b3-011d",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence's body and Wait-ForText / Invoke-TapOn call",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequences-body-and-wait-fortext--invoke-tapon-call"
+        },
+        {
+          "id": "4213a0b3-011e",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Load global defaults from test.config.yml",
+          "slug": "testmodulestestsequenceenginepsm1-load-global-defaults-from-testconfigyml"
+        },
+        {
+          "id": "4213a0b3-011f",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Progress wrapper",
+          "slug": "testmodulestestsequenceenginepsm1-progress-wrapper"
+        },
+        {
+          "id": "4213a0b3-0120",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Action: type / typeAndEnter",
+          "slug": "testmodulestestsequenceenginepsm1-action-type--typeandenter"
+        },
+        {
+          "id": "4213a0b3-0121",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-TapOn",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-tapon"
+        },
+        {
+          "id": "4213a0b3-0122",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Action: tapOn -- OCR-located mouse click",
+          "slug": "testmodulestestsequenceenginepsm1-action-tapon----ocr-located-mouse-click"
+        },
+        {
+          "id": "4213a0b3-0123",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-0124",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-0125",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-0126",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-0127",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-0128",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-0129",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-012a",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-012b",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-012c",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-012d",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-012e",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-012f",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-0130",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-0131",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Wait-ForText",
+          "slug": "testmodulestestsequenceenginepsm1-wait-fortext"
+        },
+        {
+          "id": "4213a0b3-0132",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-SequenceByName",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequencebyname"
+        },
+        {
+          "id": "4213a0b3-0133",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-SequenceByName",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequencebyname"
+        },
+        {
+          "id": "4213a0b3-0134",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0135",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0136",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0137",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0138",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0139",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-013a",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-013b",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-013c",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-013d",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-013e",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-013f",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0140",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0141",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0142",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0143",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0144",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0145",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0146",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0147",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0148",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-0149",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-014a",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-014b",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Invoke-Sequence",
+          "slug": "testmodulestestsequenceenginepsm1-invoke-sequence"
+        },
+        {
+          "id": "4213a0b3-014c",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Recursive step executor",
+          "slug": "testmodulestestsequenceenginepsm1-recursive-step-executor"
+        },
+        {
+          "id": "4213a0b3-014d",
+          "heading": "test/modules/Test.SequenceEngine.psm1: Host I/O provider registrations",
+          "slug": "testmodulestestsequenceenginepsm1-host-io-provider-registrations"
+        },
+        {
+          "id": "4213a0b3-014e",
+          "heading": "test/modules/Test.SequenceFailureState.psm1: Initialize-SequenceFailureStateStore",
+          "slug": "testmodulestestsequencefailurestatepsm1-initialize-sequencefailurestatestore"
+        },
+        {
+          "id": "4213a0b3-014f",
+          "heading": "test/modules/Test.SequenceFailureState.psm1: New-SequenceFailureRecord",
+          "slug": "testmodulestestsequencefailurestatepsm1-new-sequencefailurerecord"
+        },
+        {
+          "id": "4213a0b3-0150",
+          "heading": "test/modules/Test.SequenceFailureState.psm1: New-SequenceFailureRecord",
+          "slug": "testmodulestestsequencefailurestatepsm1-new-sequencefailurerecord"
+        },
+        {
+          "id": "4213a0b3-0151",
+          "heading": "test/modules/Test.SequenceFailureState.psm1: New-SequenceFailureRecord",
+          "slug": "testmodulestestsequencefailurestatepsm1-new-sequencefailurerecord"
+        },
+        {
+          "id": "4213a0b3-0152",
+          "heading": "test/modules/Test.SequenceFailureState.psm1: New-SequenceFailureRecord",
+          "slug": "testmodulestestsequencefailurestatepsm1-new-sequencefailurerecord"
+        },
+        {
+          "id": "4213a0b3-0153",
+          "heading": "test/modules/Test.SequenceFailureState.psm1: New-SequenceFailureRecord",
+          "slug": "testmodulestestsequencefailurestatepsm1-new-sequencefailurerecord"
+        },
+        {
+          "id": "4213a0b3-0154",
+          "heading": "test/modules/Test.SequenceFailureState.psm1: New-SequenceFailureRecord",
+          "slug": "testmodulestestsequencefailurestatepsm1-new-sequencefailurerecord"
+        },
+        {
+          "id": "4213a0b3-0155",
+          "heading": "test/modules/Test.SequenceFailureState.psm1: New-InfraFailureRecord",
+          "slug": "testmodulestestsequencefailurestatepsm1-new-infrafailurerecord"
+        },
+        {
+          "id": "4213a0b3-0156",
+          "heading": "test/modules/Test.SequenceHandler.psm1: The wrapper prints the sentinel for two different events, and only it can tell",
+          "slug": "testmodulestestsequencehandlerpsm1-the-wrapper-prints-the-sentinel-for-two-different-events-and-only-it-can-tell"
+        },
+        {
+          "id": "4213a0b3-0157",
+          "heading": "test/modules/Test.SequenceHandler.psm1: The shell's own refusal of the command line it was just handed",
+          "slug": "testmodulestestsequencehandlerpsm1-the-shells-own-refusal-of-the-command-line-it-was-just-handed"
+        },
+        {
+          "id": "4213a0b3-0158",
+          "heading": "test/modules/Test.SequenceHandler.psm1: Resolve-WaitForTextStepParam",
+          "slug": "testmodulestestsequencehandlerpsm1-resolve-waitfortextstepparam"
+        },
+        {
+          "id": "4213a0b3-0159",
+          "heading": "test/modules/Test.SequenceHandler.psm1: Verb registrations",
+          "slug": "testmodulestestsequencehandlerpsm1-verb-registrations"
+        },
+        {
+          "id": "4213a0b3-015a",
+          "heading": "test/modules/Test.SequenceHandler.psm1: Invoke-BlindAnswer",
+          "slug": "testmodulestestsequencehandlerpsm1-invoke-blindanswer"
+        },
+        {
+          "id": "4213a0b3-015b",
+          "heading": "test/modules/Test.SequenceHandler.psm1: Verb registrations",
+          "slug": "testmodulestestsequencehandlerpsm1-verb-registrations"
+        },
+        {
+          "id": "4213a0b3-015c",
+          "heading": "test/modules/Test.SequenceHandler.psm1: Verb registrations",
+          "slug": "testmodulestestsequencehandlerpsm1-verb-registrations"
+        },
+        {
+          "id": "4213a0b3-015d",
+          "heading": "test/modules/Test.SequenceHandler.psm1: Verb registrations",
+          "slug": "testmodulestestsequencehandlerpsm1-verb-registrations"
+        },
+        {
+          "id": "4213a0b3-015e",
+          "heading": "test/modules/Test.SequenceHandler.psm1: Verb registrations",
+          "slug": "testmodulestestsequencehandlerpsm1-verb-registrations"
+        },
+        {
+          "id": "4213a0b3-015f",
+          "heading": "test/modules/Test.SequenceHandler.psm1: Verb registrations",
+          "slug": "testmodulestestsequencehandlerpsm1-verb-registrations"
+        },
+        {
+          "id": "4213a0b3-0160",
+          "heading": "test/modules/Test.SequenceHandler.psm1: Verb registrations",
+          "slug": "testmodulestestsequencehandlerpsm1-verb-registrations"
+        },
+        {
+          "id": "4213a0b3-0161",
+          "heading": "test/modules/Test.SequenceHandler.psm1: Verb registrations",
+          "slug": "testmodulestestsequencehandlerpsm1-verb-registrations"
+        },
+        {
+          "id": "4213a0b3-0162",
+          "heading": "test/modules/Test.SequenceHandler.psm1: retry / recoverFromSnapshot",
+          "slug": "testmodulestestsequencehandlerpsm1-retry--recoverfromsnapshot"
+        },
+        {
+          "id": "4213a0b3-0163",
+          "heading": "test/modules/Test.SequenceHandler.psm1: retry / recoverFromSnapshot",
+          "slug": "testmodulestestsequencehandlerpsm1-retry--recoverfromsnapshot"
+        },
+        {
+          "id": "4213a0b3-0164",
+          "heading": "test/modules/Test.SequenceHandler.psm1: retry / recoverFromSnapshot",
+          "slug": "testmodulestestsequencehandlerpsm1-retry--recoverfromsnapshot"
+        },
+        {
+          "id": "4213a0b3-0165",
+          "heading": "test/modules/Test.SequencePlanner.psm1: Pull in Resolve-SequencePath and Read-SequenceFile from the engine module",
+          "slug": "testmodulestestsequenceplannerpsm1-pull-in-resolve-sequencepath-and-read-sequencefile-from-the-engine-module"
+        },
+        {
+          "id": "4213a0b3-0166",
+          "heading": "test/modules/Test.SequenceResolve.psm1: A snippet is a named, reusable list of steps spliced into a sequence wherever",
+          "slug": "testmodulestestsequenceresolvepsm1-a-snippet-is-a-named-reusable-list-of-steps-spliced-into-a-sequence-wherever"
+        },
+        {
+          "id": "4213a0b3-0167",
+          "heading": "test/modules/Test.SequenceRunner.psm1: Resolve-TestSequencePlan",
+          "slug": "testmodulestestsequencerunnerpsm1-resolve-testsequenceplan"
+        },
+        {
+          "id": "4213a0b3-0168",
+          "heading": "test/modules/Test.SequenceVariable.psm1: Variable substitution for sequence step text: ${var} placeholders and",
+          "slug": "testmodulestestsequencevariablepsm1-variable-substitution-for-sequence-step-text-var-placeholders-and"
+        },
+        {
+          "id": "4213a0b3-0169",
+          "heading": "test/modules/Test.SequenceVariable.psm1: ${ext:area.Method(arg1, arg2, ...)} -- inline expression form",
+          "slug": "testmodulestestsequencevariablepsm1-extareamethodarg1-arg2-----inline-expression-form"
+        },
+        {
+          "id": "4213a0b3-016a",
+          "heading": "test/modules/Test.ServiceCensus.psm1: The service census: what this host last knew about each managed service,",
+          "slug": "testmodulestestservicecensuspsm1-the-service-census-what-this-host-last-knew-about-each-managed-service"
+        },
+        {
+          "id": "4213a0b3-016b",
+          "heading": "test/modules/Test.SingleFlightLock.psm1: A held-open, never-unlinked, cross-process exclusive lock",
+          "slug": "testmodulestestsingleflightlockpsm1-a-held-open-never-unlinked-cross-process-exclusive-lock"
+        },
+        {
+          "id": "4213a0b3-016c",
+          "heading": "test/modules/Test.SingleInstance.psm1: Stop-StaleRunner",
+          "slug": "testmodulestestsingleinstancepsm1-stop-stalerunner"
+        },
+        {
+          "id": "4213a0b3-016d",
+          "heading": "test/modules/Test.SingleInstance.psm1: Write-RunnerPidFile",
+          "slug": "testmodulestestsingleinstancepsm1-write-runnerpidfile"
+        },
+        {
+          "id": "4213a0b3-016e",
+          "heading": "test/modules/Test.Ssh.psm1: Addresses that ssh has actually authenticated to, per VM",
+          "slug": "testmodulestestsshpsm1-addresses-that-ssh-has-actually-authenticated-to-per-vm"
+        },
+        {
+          "id": "4213a0b3-016f",
+          "heading": "test/modules/Test.Ssh.psm1: Get-GuestAddress",
+          "slug": "testmodulestestsshpsm1-get-guestaddress"
+        },
+        {
+          "id": "4213a0b3-0170",
+          "heading": "test/modules/Test.Ssh.psm1: Get-SshReadinessFailureCause",
+          "slug": "testmodulestestsshpsm1-get-sshreadinessfailurecause"
+        },
+        {
+          "id": "4213a0b3-0171",
+          "heading": "test/modules/Test.Ssh.psm1: Wait-SshReady",
+          "slug": "testmodulestestsshpsm1-wait-sshready"
+        },
+        {
+          "id": "4213a0b3-0172",
+          "heading": "test/modules/Test.Ssh.psm1: Wait-SshReady",
+          "slug": "testmodulestestsshpsm1-wait-sshready"
+        },
+        {
+          "id": "4213a0b3-0173",
+          "heading": "test/modules/Test.Ssh.psm1: Invoke-GuestSsh",
+          "slug": "testmodulestestsshpsm1-invoke-guestssh"
+        },
+        {
+          "id": "4213a0b3-0174",
+          "heading": "test/modules/Test.Ssh.psm1: Invoke-GuestSsh",
+          "slug": "testmodulestestsshpsm1-invoke-guestssh"
+        },
+        {
+          "id": "4213a0b3-0175",
+          "heading": "test/modules/Test.Ssh.psm1: Invoke-GuestSsh",
+          "slug": "testmodulestestsshpsm1-invoke-guestssh"
+        },
+        {
+          "id": "4213a0b3-0176",
+          "heading": "test/modules/Test.Ssh.psm1: Invoke-GuestSsh",
+          "slug": "testmodulestestsshpsm1-invoke-guestssh"
+        },
+        {
+          "id": "4213a0b3-0177",
+          "heading": "test/modules/Test.Ssh.psm1: Invoke-GuestSsh",
+          "slug": "testmodulestestsshpsm1-invoke-guestssh"
+        },
+        {
+          "id": "4213a0b3-0178",
+          "heading": "test/modules/Test.Ssh.psm1: Resolve-GuestDiagnosticAddress",
+          "slug": "testmodulestestsshpsm1-resolve-guestdiagnosticaddress"
+        },
+        {
+          "id": "4213a0b3-0179",
+          "heading": "test/modules/Test.Ssh.psm1: Wait-YurunaServiceVmDaemon",
+          "slug": "testmodulestestsshpsm1-wait-yurunaservicevmdaemon"
+        },
+        {
+          "id": "4213a0b3-017a",
+          "heading": "test/modules/Test.Start-GuestOS.psm1: Generic dispatcher that runs a caller-supplied list of sequence names",
+          "slug": "testmodulesteststart-guestospsm1-generic-dispatcher-that-runs-a-caller-supplied-list-of-sequence-names"
+        },
+        {
+          "id": "4213a0b3-017b",
+          "heading": "test/modules/Test.Start-GuestOS.psm1: Start-GuestOS",
+          "slug": "testmodulesteststart-guestospsm1-start-guestos"
+        },
+        {
+          "id": "4213a0b3-017c",
+          "heading": "test/modules/Test.Status.psm1: Reset-StatusDocumentForCycleStart",
+          "slug": "testmodulesteststatuspsm1-reset-statusdocumentforcyclestart"
+        },
+        {
+          "id": "4213a0b3-017d",
+          "heading": "test/modules/Test.Status.psm1: New-CycleHistoryEntry",
+          "slug": "testmodulesteststatuspsm1-new-cyclehistoryentry"
+        },
+        {
+          "id": "4213a0b3-017e",
+          "heading": "test/modules/Test.Status.psm1: New-CycleHistoryEntry",
+          "slug": "testmodulesteststatuspsm1-new-cyclehistoryentry"
+        },
+        {
+          "id": "4213a0b3-017f",
+          "heading": "test/modules/Test.Status.psm1: Write-StatusJson",
+          "slug": "testmodulesteststatuspsm1-write-statusjson"
+        },
+        {
+          "id": "4213a0b3-0180",
+          "heading": "test/modules/Test.Status.psm1: A Debug-TestSequence run either OWNS status.json (standalone, or the outermost",
+          "slug": "testmodulesteststatuspsm1-a-debug-testsequence-run-either-owns-statusjson-standalone-or-the-outermost"
+        },
+        {
+          "id": "4213a0b3-0181",
+          "heading": "test/modules/Test.Status.psm1: Get-CycleContext",
+          "slug": "testmodulesteststatuspsm1-get-cyclecontext"
+        },
+        {
+          "id": "4213a0b3-0182",
+          "heading": "test/modules/Test.Tesseract.psm1: Invoke-TesseractOcr",
+          "slug": "testmodulestesttesseractpsm1-invoke-tesseractocr"
+        },
+        {
+          "id": "4213a0b3-0183",
+          "heading": "test/modules/Test.Transport.psm1: Send-TextVNC",
+          "slug": "testmodulestesttransportpsm1-send-textvnc"
+        },
+        {
+          "id": "4213a0b3-0184",
+          "heading": "test/modules/Test.Transport.psm1: Send-TextVNC",
+          "slug": "testmodulestesttransportpsm1-send-textvnc"
+        },
+        {
+          "id": "4213a0b3-0185",
+          "heading": "test/modules/Test.Transport.psm1: UTM keystroke transport: AppleScript chords + JXA/CGEvent text",
+          "slug": "testmodulestesttransportpsm1-utm-keystroke-transport-applescript-chords--jxacgevent-text"
+        },
+        {
+          "id": "4213a0b3-0186",
+          "heading": "test/modules/Test.Transport.psm1: Send-KeyKvm",
+          "slug": "testmodulestesttransportpsm1-send-keykvm"
+        },
+        {
+          "id": "4213a0b3-0187",
+          "heading": "test/modules/Test.Transport.psm1: Send-TextHyperV",
+          "slug": "testmodulestesttransportpsm1-send-texthyperv"
+        },
+        {
+          "id": "4213a0b3-0188",
+          "heading": "test/modules/Test.Transport.psm1: Send-TextUTM",
+          "slug": "testmodulestesttransportpsm1-send-textutm"
+        },
+        {
+          "id": "4213a0b3-0189",
+          "heading": "test/modules/Test.VMUtility.psm1: Test.YurunaDir.psm1 owns $env:YURUNA_RUNTIME_DIR + Initialize-YurunaRuntimeDir;",
+          "slug": "testmodulestestvmutilitypsm1-testyurunadirpsm1-owns-envyuruna_runtime_dir--initialize-yurunaruntimedir"
+        },
+        {
+          "id": "4213a0b3-018a",
+          "heading": "test/modules/Test.VMUtility.psm1: Releasing a lease is an optimization and can always miss; the BOUND is what",
+          "slug": "testmodulestestvmutilitypsm1-releasing-a-lease-is-an-optimization-and-can-always-miss-the-bound-is-what"
+        },
+        {
+          "id": "4213a0b3-018b",
+          "heading": "test/modules/Test.VMUtility.psm1: Remove-GuestVMQuietly",
+          "slug": "testmodulestestvmutilitypsm1-remove-guestvmquietly"
+        },
+        {
+          "id": "4213a0b3-018c",
+          "heading": "test/modules/Test.VMUtility.psm1: Update-StashServiceMarkerAddress",
+          "slug": "testmodulestestvmutilitypsm1-update-stashservicemarkeraddress"
+        },
+        {
+          "id": "4213a0b3-018d",
+          "heading": "test/modules/Test.VMUtility.psm1: Update-StashServiceMarkerAddress",
+          "slug": "testmodulestestvmutilitypsm1-update-stashservicemarkeraddress"
+        },
+        {
+          "id": "4213a0b3-018e",
+          "heading": "test/modules/Test.VMUtility.psm1: Update-StashServiceMarkerAddress",
+          "slug": "testmodulestestvmutilitypsm1-update-stashservicemarkeraddress"
+        },
+        {
+          "id": "4213a0b3-018f",
+          "heading": "test/modules/Test.VMUtility.psm1: Update-StashServiceMarkerAddress",
+          "slug": "testmodulestestvmutilitypsm1-update-stashservicemarkeraddress"
+        },
+        {
+          "id": "4213a0b3-0190",
+          "heading": "test/modules/Test.VMUtility.psm1: Wait-YurunaServiceVmEndpoint",
+          "slug": "testmodulestestvmutilitypsm1-wait-yurunaservicevmendpoint"
+        },
+        {
+          "id": "4213a0b3-0191",
+          "heading": "test/modules/Test.WarmResume.psm1: A checkpoint names the step that FAILED, and resuming there replays it against",
+          "slug": "testmodulestestwarmresumepsm1-a-checkpoint-names-the-step-that-failed-and-resuming-there-replays-it-against"
+        },
+        {
+          "id": "4213a0b3-0192",
+          "heading": "test/modules/Test.WarmResume.psm1: Replaying the failed step in place puts a second run on top of whatever the",
+          "slug": "testmodulestestwarmresumepsm1-replaying-the-failed-step-in-place-puts-a-second-run-on-top-of-whatever-the"
+        },
+        {
+          "id": "4213a0b3-0193",
+          "heading": "test/modules/Test.YurunaDir.psm1: Get-YurunaHostId",
+          "slug": "testmodulestestyurunadirpsm1-get-yurunahostid"
         }
       ]
     },
@@ -1875,8 +3962,8 @@
         },
         {
           "id": "42dc5bb9-0006",
-          "heading": "ARM64 Hyper-V host: a Linux guest loses half its CPU to hypervisor intercepts",
-          "slug": "arm64-hyper-v-host-a-linux-guest-loses-half-its-cpu-to-hypervisor-intercepts"
+          "heading": "ARM64 Hyper-V host: historical performance observations and vCPU boot configuration",
+          "slug": "arm64-hyper-v-host-historical-performance-observations-and-vcpu-boot-configuration"
         },
         {
           "id": "42dc5bb9-0012",
@@ -1942,6 +4029,391 @@
           "id": "42dc5bb9-0011",
           "heading": "A Hyper-V virtual switch that looks fine but is not bridging",
           "slug": "a-hyper-v-virtual-switch-that-looks-fine-but-is-not-bridging"
+        }
+      ]
+    },
+    {
+      "id": "42e5cdfd",
+      "repo": "yuruna",
+      "source": "docs/host-implementation-notes.md",
+      "translations": {
+        "pt-BR": "docs/pt-BR/host-implementation-notes.md"
+      },
+      "anchors": [
+        {
+          "id": "42e5cdfd-0001",
+          "heading": "Host implementation notes",
+          "slug": "host-implementation-notes"
+        },
+        {
+          "id": "42e5cdfd-0002",
+          "heading": "Shared host module lifetime",
+          "slug": "shared-host-module-lifetime"
+        },
+        {
+          "id": "42e5cdfd-0003",
+          "heading": "host/macos.utm/modules/Yuruna.Host.psm1: Start-UtmVM",
+          "slug": "hostmacosutmmodulesyurunahostpsm1-start-utmvm"
+        },
+        {
+          "id": "42e5cdfd-0004",
+          "heading": "host/macos.utm/modules/Yuruna.Host.psm1: Assert-NoConcurrentUtmVm",
+          "slug": "hostmacosutmmodulesyurunahostpsm1-assert-noconcurrentutmvm"
+        },
+        {
+          "id": "42e5cdfd-0005",
+          "heading": "host/macos.utm/modules/Yuruna.Host.psm1: Get-VncScreenshot",
+          "slug": "hostmacosutmmodulesyurunahostpsm1-get-vncscreenshot"
+        },
+        {
+          "id": "42e5cdfd-0006",
+          "heading": "host/macos.utm/modules/Yuruna.Host.psm1: Resume-YurunaServiceVM",
+          "slug": "hostmacosutmmodulesyurunahostpsm1-resume-yurunaservicevm"
+        },
+        {
+          "id": "42e5cdfd-0007",
+          "heading": "host/macos.utm/modules/Yuruna.Host.psm1: Rename-VM",
+          "slug": "hostmacosutmmodulesyurunahostpsm1-rename-vm"
+        },
+        {
+          "id": "42e5cdfd-0008",
+          "heading": "host/macos.utm/modules/Yuruna.Host.psm1: Restore-VMDiskSnapshot",
+          "slug": "hostmacosutmmodulesyurunahostpsm1-restore-vmdisksnapshot"
+        },
+        {
+          "id": "42e5cdfd-0009",
+          "heading": "host/macos.utm/modules/Yuruna.Host.psm1: Send-Text",
+          "slug": "hostmacosutmmodulesyurunahostpsm1-send-text"
+        },
+        {
+          "id": "42e5cdfd-000a",
+          "heading": "host/macos.utm/modules/Yuruna.Host.psm1: Send-Key",
+          "slug": "hostmacosutmmodulesyurunahostpsm1-send-key"
+        },
+        {
+          "id": "42e5cdfd-000b",
+          "heading": "host/macos.utm/Enable-TestAutomation.ps1: Initialize host setup",
+          "slug": "hostmacosutmenable-testautomationps1-initialize-host-setup"
+        },
+        {
+          "id": "42e5cdfd-000c",
+          "heading": "host/macos.utm/Remove-OrphanedVMFiles.ps1: Enumerate registered VMs",
+          "slug": "hostmacosutmremove-orphanedvmfilesps1-enumerate-registered-vms"
+        },
+        {
+          "id": "42e5cdfd-000d",
+          "heading": "host/macos.utm/Remove-OrphanedVMFiles.ps1: Why utmctl list needs a UUID-anchored parser?",
+          "slug": "hostmacosutmremove-orphanedvmfilesps1-why-utmctl-list-needs-a-uuid-anchored-parser"
+        },
+        {
+          "id": "42e5cdfd-000e",
+          "heading": "host/modules/Yuruna.DownloadAgent.psm1: Module setup",
+          "slug": "hostmodulesyurunadownloadagentpsm1-module-setup"
+        },
+        {
+          "id": "42e5cdfd-000f",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Invoke-Virsh",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-invoke-virsh"
+        },
+        {
+          "id": "42e5cdfd-0010",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-VM",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-new-vm"
+        },
+        {
+          "id": "42e5cdfd-0011",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Start-VM",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-start-vm"
+        },
+        {
+          "id": "42e5cdfd-0012",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Remove-VM",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-remove-vm"
+        },
+        {
+          "id": "42e5cdfd-0013",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Get-KvmNeighborIp",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-get-kvmneighborip"
+        },
+        {
+          "id": "42e5cdfd-0014",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Update-GuestNeighborCache",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-update-guestneighborcache"
+        },
+        {
+          "id": "42e5cdfd-0015",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Get-VMIp",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-get-vmip"
+        },
+        {
+          "id": "42e5cdfd-0016",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Get-ExternalNetwork",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-get-externalnetwork"
+        },
+        {
+          "id": "42e5cdfd-0017",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: External network helpers",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-external-network-helpers"
+        },
+        {
+          "id": "42e5cdfd-0018",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Clear-YurunaExternalBridgeResidue",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-clear-yurunaexternalbridgeresidue"
+        },
+        {
+          "id": "42e5cdfd-0019",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaExternalNetwork",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-new-yurunaexternalnetwork"
+        },
+        {
+          "id": "42e5cdfd-001a",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaExternalNetwork",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-new-yurunaexternalnetwork"
+        },
+        {
+          "id": "42e5cdfd-001b",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaBridgeViaNmcli",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-new-yurunabridgevianmcli"
+        },
+        {
+          "id": "42e5cdfd-001c",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaBridgeViaNetplan",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-new-yurunabridgevianetplan"
+        },
+        {
+          "id": "42e5cdfd-001d",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Test-CacheVMOnExternalNetwork",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-test-cachevmonexternalnetwork"
+        },
+        {
+          "id": "42e5cdfd-001e",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Assert-Virtualization",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-assert-virtualization"
+        },
+        {
+          "id": "42e5cdfd-001f",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: DHCP evidence capture",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-dhcp-evidence-capture"
+        },
+        {
+          "id": "42e5cdfd-0020",
+          "heading": "host/ubuntu.kvm/Enable-TestAutomation.ps1: libvirt services and default network",
+          "slug": "hostubuntukvmenable-testautomationps1-libvirt-services-and-default-network"
+        },
+        {
+          "id": "42e5cdfd-0021",
+          "heading": "host/ubuntu.kvm/Enable-TestAutomation.ps1: Status-service LAN reachability",
+          "slug": "hostubuntukvmenable-testautomationps1-status-service-lan-reachability"
+        },
+        {
+          "id": "42e5cdfd-0022",
+          "heading": "host/ubuntu.kvm/Enable-TestAutomation.ps1: Host clock",
+          "slug": "hostubuntukvmenable-testautomationps1-host-clock"
+        },
+        {
+          "id": "42e5cdfd-0023",
+          "heading": "host/ubuntu.kvm/Enable-TestAutomation.ps1: Pool-storage mount point",
+          "slug": "hostubuntukvmenable-testautomationps1-pool-storage-mount-point"
+        },
+        {
+          "id": "42e5cdfd-0024",
+          "heading": "host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1: Delete orphaned VM artifacts",
+          "slug": "hostubuntukvmremove-orphanedvmfilesps1-delete-orphaned-vm-artifacts"
+        },
+        {
+          "id": "42e5cdfd-0025",
+          "heading": "host/ubuntu.kvm/Sync-HostConfiguration.ps1: Guest address-discovery readiness",
+          "slug": "hostubuntukvmsync-hostconfigurationps1-guest-address-discovery-readiness"
+        },
+        {
+          "id": "42e5cdfd-0026",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Module setup",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-module-setup"
+        },
+        {
+          "id": "42e5cdfd-0027",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Resolve-OscdimgPath",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-resolve-oscdimgpath"
+        },
+        {
+          "id": "42e5cdfd-0028",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-CacheVmCandidateIp",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-get-cachevmcandidateip"
+        },
+        {
+          "id": "42e5cdfd-0029",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-OrCreateYurunaExternalSwitch",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-get-orcreateyurunaexternalswitch"
+        },
+        {
+          "id": "42e5cdfd-002a",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Start-WindowsCachingProxyServiceForwarder",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-start-windowscachingproxyserviceforwarder"
+        },
+        {
+          "id": "42e5cdfd-002b",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-HyperVScreenshot",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-get-hypervscreenshot"
+        },
+        {
+          "id": "42e5cdfd-002c",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Rename-VM",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-rename-vm"
+        },
+        {
+          "id": "42e5cdfd-002d",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: DHCP evidence capture",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-dhcp-evidence-capture"
+        },
+        {
+          "id": "42e5cdfd-002e",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-BestHostIp",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-get-besthostip"
+        },
+        {
+          "id": "42e5cdfd-002f",
+          "heading": "host/windows.hyper-v/Remove-OrphanedVMFiles.ps1: Elevation gate",
+          "slug": "hostwindowshyper-vremove-orphanedvmfilesps1-elevation-gate"
+        },
+        {
+          "id": "42e5cdfd-0030",
+          "heading": "host/Yuruna.Host.Contract.psm1: Virtualization repair",
+          "slug": "hostyurunahostcontractpsm1-virtualization-repair"
+        },
+        {
+          "id": "42e5cdfd-0031",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Preflight",
+          "slug": "testservicestart-cachingproxyservicevmps1-preflight"
+        },
+        {
+          "id": "42e5cdfd-0032",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Bridge plan -- does the bridge step perturb host networking?",
+          "slug": "testservicestart-cachingproxyservicevmps1-bridge-plan----does-the-bridge-step-perturb-host-networking"
+        },
+        {
+          "id": "42e5cdfd-0033",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Remove existing VM",
+          "slug": "testservicestart-cachingproxyservicevmps1-remove-existing-vm"
+        },
+        {
+          "id": "42e5cdfd-0034",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Host status-service bootstrap",
+          "slug": "testservicestart-cachingproxyservicevmps1-host-status-service-bootstrap"
+        },
+        {
+          "id": "42e5cdfd-0035",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Start the host status service",
+          "slug": "testservicestart-cachingproxyservicevmps1-start-the-host-status-service"
+        },
+        {
+          "id": "42e5cdfd-0036",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Start the host config service",
+          "slug": "testservicestart-cachingproxyservicevmps1-start-the-host-config-service"
+        },
+        {
+          "id": "42e5cdfd-0037",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Register and start the UTM VM",
+          "slug": "testservicestart-cachingproxyservicevmps1-register-and-start-the-utm-vm"
+        },
+        {
+          "id": "42e5cdfd-0038",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Configure Shared NAT forwarding",
+          "slug": "testservicestart-cachingproxyservicevmps1-configure-shared-nat-forwarding"
+        },
+        {
+          "id": "42e5cdfd-0039",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Step 6: macOS bridged -- tear down legacy host-side forwarders",
+          "slug": "testservicestart-cachingproxyservicevmps1-step-6-macos-bridged----tear-down-legacy-host-side-forwarders"
+        },
+        {
+          "id": "42e5cdfd-003a",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Linux -- re-query the cache VM IP for persistence + summary",
+          "slug": "testservicestart-cachingproxyservicevmps1-linux----re-query-the-cache-vm-ip-for-persistence--summary"
+        },
+        {
+          "id": "42e5cdfd-003b",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Windows -- discover the cache VM and expose its ports to the LAN",
+          "slug": "testservicestart-cachingproxyservicevmps1-windows----discover-the-cache-vm-and-expose-its-ports-to-the-lan"
+        },
+        {
+          "id": "42e5cdfd-003c",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Report the service state",
+          "slug": "testservicestart-cachingproxyservicevmps1-report-the-service-state"
+        },
+        {
+          "id": "42e5cdfd-003d",
+          "heading": "test/service/Start-StatusService.ps1: Module setup",
+          "slug": "testservicestart-statusserviceps1-module-setup"
+        },
+        {
+          "id": "42e5cdfd-003e",
+          "heading": "test/service/Start-StatusService.ps1: Startup serialization and the refresh-safe outcome",
+          "slug": "testservicestart-statusserviceps1-startup-serialization-and-the-refresh-safe-outcome"
+        },
+        {
+          "id": "42e5cdfd-003f",
+          "heading": "test/service/Start-StatusService.ps1: Check for an existing server",
+          "slug": "testservicestart-statusserviceps1-check-for-an-existing-server"
+        },
+        {
+          "id": "42e5cdfd-0040",
+          "heading": "test/service/Start-StatusService.ps1: Ensure repoUrl is set in status.json",
+          "slug": "testservicestart-statusserviceps1-ensure-repourl-is-set-in-statusjson"
+        },
+        {
+          "id": "42e5cdfd-0041",
+          "heading": "test/service/Start-StatusService.ps1: Clean up leftovers from older layouts",
+          "slug": "testservicestart-statusserviceps1-clean-up-leftovers-from-older-layouts"
+        },
+        {
+          "id": "42e5cdfd-0042",
+          "heading": "test/service/Start-StatusService.ps1: Detect host type",
+          "slug": "testservicestart-statusserviceps1-detect-host-type"
+        },
+        {
+          "id": "42e5cdfd-0043",
+          "heading": "test/service/Start-StatusService.ps1: Announce the forwarder teardown's sudo",
+          "slug": "testservicestart-statusserviceps1-announce-the-forwarder-teardowns-sudo"
+        },
+        {
+          "id": "42e5cdfd-0044",
+          "heading": "test/service/Start-StatusService.ps1: Probe proxy cache -> $env:YURUNA_RUNTIME_DIR/caching-proxy-service.txt",
+          "slug": "testservicestart-statusserviceps1-probe-proxy-cache---envyuruna_runtime_dircaching-proxy-servicetxt"
+        },
+        {
+          "id": "42e5cdfd-0045",
+          "heading": "test/service/Start-StatusService.ps1: Detached server launch",
+          "slug": "testservicestart-statusserviceps1-detached-server-launch"
+        },
+        {
+          "id": "42e5cdfd-0046",
+          "heading": "test/service/Start-StatusService.ps1: Verify server started",
+          "slug": "testservicestart-statusserviceps1-verify-server-started"
+        },
+        {
+          "id": "42e5cdfd-0047",
+          "heading": "test/service/Start-StatusService.ps1: Host-address beacon",
+          "slug": "testservicestart-statusserviceps1-host-address-beacon"
+        },
+        {
+          "id": "42e5cdfd-0048",
+          "heading": "test/service/Start-StatusService.ps1: Display connection info",
+          "slug": "testservicestart-statusserviceps1-display-connection-info"
+        },
+        {
+          "id": "42e5cdfd-0049",
+          "heading": "test/service/Start-StatusService.ps1: Publish where this service can be reached",
+          "slug": "testservicestart-statusserviceps1-publish-where-this-service-can-be-reached"
+        },
+        {
+          "id": "42e5cdfd-004a",
+          "heading": "test/service/Stop-CachingProxyServiceVM.ps1: Clear an abandoned bring-up lock",
+          "slug": "testservicestop-cachingproxyservicevmps1-clear-an-abandoned-bring-up-lock"
+        },
+        {
+          "id": "42e5cdfd-004b",
+          "heading": "test/service/Stop-CachingProxyServiceVM.ps1: Clear an abandoned caching-proxy-service bring-up lock",
+          "slug": "testservicestop-cachingproxyservicevmps1-clear-an-abandoned-caching-proxy-service-bring-up-lock"
         }
       ]
     },
@@ -3843,7 +6315,9 @@
       "id": "4207d71a",
       "repo": "yuruna",
       "source": "docs/pool-admin.md",
-      "translations": {},
+      "translations": {
+        "pt-BR": "docs/pt-BR/pool-admin.md"
+      },
       "anchors": [
         {
           "id": "4207d71a-0001",
@@ -4084,6 +6558,11 @@
           "slug": "drill-down-host-memory"
         },
         {
+          "id": "422226cb-000c",
+          "heading": "History after a rebuild",
+          "slug": "history-after-a-rebuild"
+        },
+        {
           "id": "422226cb-000a",
           "heading": "See also",
           "slug": "see-also"
@@ -4196,6 +6675,1090 @@
           "heading": "Pool harness -- membership, intent, and assigned-project execution",
           "slug": "pool-harness----membership-intent-and-assigned-project-execution"
         }
+      ]
+    },
+    {
+      "id": "42010605",
+      "repo": "yuruna",
+      "source": "docs/project-implementation-notes.md",
+      "translations": {
+        "pt-BR": "docs/pt-BR/project-implementation-notes.md"
+      },
+      "anchors": [
+        {
+          "id": "42010605-0001",
+          "heading": "Project and test implementation notes",
+          "slug": "project-and-test-implementation-notes"
+        },
+        {
+          "id": "42010605-0002",
+          "heading": "Runner entrypoints",
+          "slug": "runner-entrypoints"
+        },
+        {
+          "id": "42010605-0303",
+          "heading": "Pass the planner's List[object] straight through -- do NOT wrap in @(). Resolve-TestSequencePlan alw",
+          "slug": "pass-the-planners-listobject-straight-through----do-not-wrap-in--resolve-testsequenceplan-alw"
+        },
+        {
+          "id": "42010605-0304",
+          "heading": "Run each chain entry that overlaps the requested step range",
+          "slug": "run-each-chain-entry-that-overlaps-the-requested-step-range"
+        },
+        {
+          "id": "42010605-0305",
+          "heading": "Register this run as a cycle in status.json",
+          "slug": "register-this-run-as-a-cycle-in-statusjson"
+        },
+        {
+          "id": "42010605-0306",
+          "heading": "Ensure VM is running",
+          "slug": "ensure-vm-is-running"
+        },
+        {
+          "id": "42010605-0307",
+          "heading": "Forward -Username / -Hostname when the sequence declares them. Mirrors Invoke-TestRunnerInnerLoop's",
+          "slug": "forward--username---hostname-when-the-sequence-declares-them-mirrors-invoke-testrunnerinnerloops"
+        },
+        {
+          "id": "42010605-0308",
+          "heading": "Reuse skips the entire New-VM path, so the switch selection that runs there never runs: the VM keeps",
+          "slug": "reuse-skips-the-entire-new-vm-path-so-the-switch-selection-that-runs-there-never-runs-the-vm-keeps"
+        },
+        {
+          "id": "42010605-0309",
+          "heading": "Resolve caching-proxy service URL",
+          "slug": "resolve-caching-proxy-service-url"
+        },
+        {
+          "id": "42010605-000a",
+          "heading": "Resolve the caching-proxy-service endpoint from config + env",
+          "slug": "resolve-the-caching-proxy-service-endpoint-from-config--env"
+        },
+        {
+          "id": "42010605-000b",
+          "heading": "SSH-user override",
+          "slug": "ssh-user-override"
+        },
+        {
+          "id": "42010605-000c",
+          "heading": "Concurrent-VM admission",
+          "slug": "concurrent-vm-admission"
+        },
+        {
+          "id": "42010605-000d",
+          "heading": "Build chain plan",
+          "slug": "build-chain-plan"
+        },
+        {
+          "id": "42010605-000e",
+          "heading": "Derive GuestKey from the sequence's baseline map",
+          "slug": "derive-guestkey-from-the-sequences-baseline-map"
+        },
+        {
+          "id": "42010605-000f",
+          "heading": "Same hazard the guest path guards against further down: a foreign running VM can share the host with",
+          "slug": "same-hazard-the-guest-path-guards-against-further-down-a-foreign-running-vm-can-share-the-host-with"
+        },
+        {
+          "id": "42010605-0010",
+          "heading": "Orchestration sequence dispatch (InvokeTestSequence steps)",
+          "slug": "orchestration-sequence-dispatch-invoketestsequence-steps"
+        },
+        {
+          "id": "42010605-0011",
+          "heading": "Sweep the stale inter-cycle control state a freshly-typed Debug-TestSequence command line must not i",
+          "slug": "sweep-the-stale-inter-cycle-control-state-a-freshly-typed-debug-testsequence-command-line-must-not-i"
+        },
+        {
+          "id": "42010605-0012",
+          "heading": "Ctrl+C handler",
+          "slug": "ctrlc-handler"
+        },
+        {
+          "id": "42010605-0013",
+          "heading": "Single-instance guard",
+          "slug": "single-instance-guard"
+        },
+        {
+          "id": "42010605-0014",
+          "heading": "Tolerate operator typing the .yml/.yaml extension on the name form (e.g. via shell tab-completion ag",
+          "slug": "tolerate-operator-typing-the-ymlyaml-extension-on-the-name-form-eg-via-shell-tab-completion-ag"
+        },
+        {
+          "id": "42010605-0015",
+          "heading": "Resolve sequence file",
+          "slug": "resolve-sequence-file"
+        },
+        {
+          "id": "42010605-0016",
+          "heading": "Pre-cycle config gate",
+          "slug": "pre-cycle-config-gate"
+        },
+        {
+          "id": "42010605-0017",
+          "heading": "Pre-flight: elevation",
+          "slug": "pre-flight-elevation"
+        },
+        {
+          "id": "42010605-0018",
+          "heading": "Nested-cycle detection",
+          "slug": "nested-cycle-detection"
+        },
+        {
+          "id": "42010605-0019",
+          "heading": "Canonical module set for the Sequence entry-point",
+          "slug": "canonical-module-set-for-the-sequence-entry-point"
+        },
+        {
+          "id": "42010605-001a",
+          "heading": "Build the parameter set Invoke-TestProject must pass to the inner. -NoGitPull and -NoProjectClone ar",
+          "slug": "build-the-parameter-set-invoke-testproject-must-pass-to-the-inner--nogitpull-and--noprojectclone-ar"
+        },
+        {
+          "id": "42010605-001b",
+          "heading": "Step 3: spawn one inner cycle",
+          "slug": "step-3-spawn-one-inner-cycle"
+        },
+        {
+          "id": "42010605-001c",
+          "heading": "Step 1+2: clone, verify, and swap the project checkout",
+          "slug": "step-12-clone-verify-and-swap-the-project-checkout"
+        },
+        {
+          "id": "42010605-001d",
+          "heading": "Sweep the parked interactive control state before handing off to the inner. -Scope PreSpawn archives",
+          "slug": "sweep-the-parked-interactive-control-state-before-handing-off-to-the-inner--scope-prespawn-archives"
+        },
+        {
+          "id": "42010605-001e",
+          "heading": "Refuse to start when a Start-TestRunner already owns the runtime dir. Invoke-TestProject spawns its",
+          "slug": "refuse-to-start-when-a-start-testrunner-already-owns-the-runtime-dir-invoke-testproject-spawns-its"
+        },
+        {
+          "id": "42010605-001f",
+          "heading": "Pre-flight: elevation",
+          "slug": "pre-flight-elevation"
+        },
+        {
+          "id": "42010605-0020",
+          "heading": "Exit-code contract: setup failure is 1; completed cycles forward the inner exit code",
+          "slug": "exit-code-contract-setup-failure-is-1-completed-cycles-forward-the-inner-exit-code"
+        },
+        {
+          "id": "42010605-0021",
+          "heading": "One-shot project test: prepare the project clone and invoke the inner runner",
+          "slug": "one-shot-project-test-prepare-the-project-clone-and-invoke-the-inner-runner"
+        },
+        {
+          "id": "42010605-0022",
+          "heading": "Register in the runtime users.yml",
+          "slug": "register-in-the-runtime-usersyml"
+        },
+        {
+          "id": "42010605-0023",
+          "heading": "-WindowStyle, not -NoNewWindow: -Credential belongs to a parameter set that has no -NoNewWindow. -Wo",
+          "slug": "-windowstyle-not--nonewwindow--credential-belongs-to-a-parameter-set-that-has-no--nonewwindow--wo"
+        },
+        {
+          "id": "42010605-0024",
+          "heading": "Let the new Windows account run scripts",
+          "slug": "let-the-new-windows-account-run-scripts"
+        },
+        {
+          "id": "42010605-0025",
+          "heading": "Get-LocalGroupMember fails to enumerate a group that still holds a SID no longer resolvable to a pri",
+          "slug": "get-localgroupmember-fails-to-enumerate-a-group-that-still-holds-a-sid-no-longer-resolvable-to-a-pri"
+        },
+        {
+          "id": "42010605-0026",
+          "heading": "Recreating is the whole point of running this against a name that already exists, so the run offers",
+          "slug": "recreating-is-the-whole-point-of-running-this-against-a-name-that-already-exists-so-the-run-offers"
+        },
+        {
+          "id": "42010605-0027",
+          "heading": "A path at or beside the filesystem root is a damaged account record rather than a home directory --",
+          "slug": "a-path-at-or-beside-the-filesystem-root-is-a-damaged-account-record-rather-than-a-home-directory---"
+        },
+        {
+          "id": "42010605-0028",
+          "heading": "An account with a password is the point of the tool, so a run that names no password asks for one ra",
+          "slug": "an-account-with-a-password-is-the-point-of-the-tool-so-a-run-that-names-no-password-asks-for-one-ra"
+        },
+        {
+          "id": "42010605-0029",
+          "heading": "Re-create the default test account without stopping to ask: an existing `yurunatest` OS account and",
+          "slug": "re-create-the-default-test-account-without-stopping-to-ask-an-existing-yurunatest-os-account-and"
+        },
+        {
+          "id": "42010605-002a",
+          "heading": "One entry per host -- the CurrentUser policy is stored per host, so setting one leaves the other at",
+          "slug": "one-entry-per-host----the-currentuser-policy-is-stored-per-host-so-setting-one-leaves-the-other-at"
+        },
+        {
+          "id": "42010605-002b",
+          "heading": "Second pass over the home directory, because every platform's account delete has a way of leaving it",
+          "slug": "second-pass-over-the-home-directory-because-every-platforms-account-delete-has-a-way-of-leaving-it"
+        },
+        {
+          "id": "42010605-002c",
+          "heading": "Create a local OS account on the host, optionally with a password and local-machine-administrator ri",
+          "slug": "create-a-local-os-account-on-the-host-optionally-with-a-password-and-local-machine-administrator-ri"
+        },
+        {
+          "id": "42010605-002d",
+          "heading": "Always run the orphan-file sweep -- even if some VMs survived the registry-removal step. Their on-di",
+          "slug": "always-run-the-orphan-file-sweep----even-if-some-vms-survived-the-registry-removal-step-their-on-di"
+        },
+        {
+          "id": "42010605-002e",
+          "heading": "Release the per-cycle display surface this host attaches for screen-capture (the Hyper-V usbmmidd vi",
+          "slug": "release-the-per-cycle-display-surface-this-host-attaches-for-screen-capture-the-hyper-v-usbmmidd-vi"
+        },
+        {
+          "id": "42010605-002f",
+          "heading": "Track every VM we attempted, with a final disposition. Per-VM ops MUST NOT abort the whole loop: on",
+          "slug": "track-every-vm-we-attempted-with-a-final-disposition-per-vm-ops-must-not-abort-the-whole-loop-on"
+        },
+        {
+          "id": "42010605-0030",
+          "heading": "Resolve $Prefix: explicit -Prefix wins, then test.config.yml's vmStart.cleanupVmNamePrefixes, then v",
+          "slug": "resolve-prefix-explicit--prefix-wins-then-testconfigymls-vmstartcleanupvmnameprefixes-then-v"
+        },
+        {
+          "id": "42010605-0031",
+          "heading": "Eternal loop",
+          "slug": "eternal-loop"
+        },
+        {
+          "id": "42010605-0032",
+          "heading": "Pre-flight: elevation",
+          "slug": "pre-flight-elevation"
+        },
+        {
+          "id": "42010605-0033",
+          "heading": "Helpers",
+          "slug": "helpers"
+        },
+        {
+          "id": "42010605-0034",
+          "heading": "Every switch here forwards, -NoConfigGate included: the inner gates each cycle it runs, so an operat",
+          "slug": "every-switch-here-forwards--noconfiggate-included-the-inner-gates-each-cycle-it-runs-so-an-operat"
+        },
+        {
+          "id": "42010605-0035",
+          "heading": "Ctrl+C handler",
+          "slug": "ctrlc-handler"
+        },
+        {
+          "id": "42010605-0036",
+          "heading": "Sync-ForwardEnv lives in [Test.RunnerOuterLoop](../test/modules/Test.RunnerOuterLoop.psm1) and Write-OuterLo",
+          "slug": "sync-forwardenv-lives-in-testrunnerouterloop-and-write-outerlo"
+        },
+        {
+          "id": "42010605-0037",
+          "heading": "Host-refresh gate at startup",
+          "slug": "host-refresh-gate-at-startup"
+        },
+        {
+          "id": "42010605-0038",
+          "heading": "Auto-relaunch under `sg libvirt -c \"...\"` on host.ubuntu.kvm when this shell's running supplementary",
+          "slug": "auto-relaunch-under-sg-libvirt--c--on-hostubuntukvm-when-this-shells-running-supplementary"
+        },
+        {
+          "id": "42010605-0039",
+          "heading": "Publish the resolved config path so every cross-module reload site (Sync-RuntimeConfig in the inner",
+          "slug": "publish-the-resolved-config-path-so-every-cross-module-reload-site-sync-runtimeconfig-in-the-inner"
+        },
+        {
+          "id": "42010605-003a",
+          "heading": "Resilient outer runner",
+          "slug": "resilient-outer-runner"
+        },
+        {
+          "id": "42010605-003b",
+          "heading": "Optional: promote to machine-wide host proxy",
+          "slug": "optional-promote-to-machine-wide-host-proxy"
+        },
+        {
+          "id": "42010605-003c",
+          "heading": "Effective proxy for outbound calls",
+          "slug": "effective-proxy-for-outbound-calls"
+        },
+        {
+          "id": "42010605-003d",
+          "heading": "Host system-proxy check",
+          "slug": "host-system-proxy-check"
+        },
+        {
+          "id": "42010605-003e",
+          "heading": "Port probes + CA cert fetch",
+          "slug": "port-probes--ca-cert-fetch"
+        },
+        {
+          "id": "42010605-003f",
+          "heading": "-SetHostProxy ends this script with Remove-HostProxy then Set-HostProxy, both of which reach Invoke-",
+          "slug": "-sethostproxy-ends-this-script-with-remove-hostproxy-then-set-hostproxy-both-of-which-reach-invoke-"
+        },
+        {
+          "id": "42010605-0040",
+          "heading": "Resolve the cache IP",
+          "slug": "resolve-the-cache-ip"
+        },
+        {
+          "id": "42010605-0041",
+          "heading": "Canonical path bundle and caching-proxy-service module imports",
+          "slug": "canonical-path-bundle-and-caching-proxy-service-module-imports"
+        },
+        {
+          "id": "42010605-0042",
+          "heading": "Summary",
+          "slug": "summary"
+        },
+        {
+          "id": "42010605-0043",
+          "heading": "-Bootstrap, not the gate's default. The default is deliberately wider -- every file type that is ASC",
+          "slug": "-bootstrap-not-the-gates-default-the-default-is-deliberately-wider----every-file-type-that-is-asc"
+        },
+        {
+          "id": "42010605-0044",
+          "heading": "Section 13: Bootstrap script encoding (ASCII, no BOM)",
+          "slug": "section-13-bootstrap-script-encoding-ascii-no-bom"
+        },
+        {
+          "id": "42010605-0045",
+          "heading": "Section 9d: Pool (intent sync)",
+          "slug": "section-9d-pool-intent-sync"
+        },
+        {
+          "id": "42010605-0046",
+          "heading": "Probe from HERE too: the pool answering for an address only says the aggregator can reach it, and th",
+          "slug": "probe-from-here-too-the-pool-answering-for-an-address-only-says-the-aggregator-can-reach-it-and-th"
+        },
+        {
+          "id": "42010605-0047",
+          "heading": "Section 9c2: Extension services registered with the pool",
+          "slug": "section-9c2-extension-services-registered-with-the-pool"
+        },
+        {
+          "id": "42010605-0048",
+          "heading": "ACTIVE write-path pre-flight: the stash share is configured as a SUBFOLDER ('\\\\server\\share\\yuruna.s",
+          "slug": "active-write-path-pre-flight-the-stash-share-is-configured-as-a-subfolder-servershareyurunas"
+        },
+        {
+          "id": "42010605-0049",
+          "heading": "Free space, checked ONLY behind a succeeded pre-flight. On Linux/macOS `df` against an existing-but-",
+          "slug": "free-space-checked-only-behind-a-succeeded-pre-flight-on-linuxmacos-df-against-an-existing-but-"
+        },
+        {
+          "id": "42010605-004a",
+          "heading": "ACTIVE write-path pre-flight: actually mount localPath and create the per-host folder '<localPath>/<",
+          "slug": "active-write-path-pre-flight-actually-mount-localpath-and-create-the-per-host-folder-localpath"
+        },
+        {
+          "id": "42010605-004b",
+          "heading": "mount(8) execs the external mount.cifs helper from cifs-utils, which nothing else in the harness pul",
+          "slug": "mount8-execs-the-external-mountcifs-helper-from-cifs-utils-which-nothing-else-in-the-harness-pul"
+        },
+        {
+          "id": "42010605-004c",
+          "heading": "An absent or unpopulated pool tier is only \"optional\" to someone who never asked for shared storage",
+          "slug": "an-absent-or-unpopulated-pool-tier-is-only-optional-to-someone-who-never-asked-for-shared-storage"
+        },
+        {
+          "id": "42010605-004d",
+          "heading": "Section 9c: networkStorage pool (ypool-nas) archiving",
+          "slug": "section-9c-networkstorage-pool-ypool-nas-archiving"
+        },
+        {
+          "id": "42010605-004e",
+          "heading": "Show-NetworkStorageFieldSwapWarning",
+          "slug": "show-networkstoragefieldswapwarning"
+        },
+        {
+          "id": "42010605-004f",
+          "heading": "Invoke-PoolStorageVaultCredentialOffer",
+          "slug": "invoke-poolstoragevaultcredentialoffer"
+        },
+        {
+          "id": "42010605-0050",
+          "heading": "Invoke-LinuxSudoInstallOffer",
+          "slug": "invoke-linuxsudoinstalloffer"
+        },
+        {
+          "id": "42010605-0051",
+          "heading": "Linux-only: print the EXACT one-time passwordless-sudo setup the mount path needs (resolved to this",
+          "slug": "linux-only-print-the-exact-one-time-passwordless-sudo-setup-the-mount-path-needs-resolved-to-this"
+        },
+        {
+          "id": "42010605-0052",
+          "heading": "Section 9b3: Stale SMB alias mappings (Windows)",
+          "slug": "section-9b3-stale-smb-alias-mappings-windows"
+        },
+        {
+          "id": "42010605-0053",
+          "heading": "Section 9b2: Sequence files (parse + snippet expansion)",
+          "slug": "section-9b2-sequence-files-parse--snippet-expansion"
+        },
+        {
+          "id": "42010605-0054",
+          "heading": "Strict-mode completeness: every logical username referenced by an active sequence must be declared.",
+          "slug": "strict-mode-completeness-every-logical-username-referenced-by-an-active-sequence-must-be-declared"
+        },
+        {
+          "id": "42010605-0055",
+          "heading": "github.com answered, and it rejected the credential -- so the URL is very likely fine and the generi",
+          "slug": "githubcom-answered-and-it-rejected-the-credential----so-the-url-is-very-likely-fine-and-the-generi"
+        },
+        {
+          "id": "42010605-0056",
+          "heading": "Missing .git: in-tree project layout or empty/damaged project directory",
+          "slug": "missing-git-in-tree-project-layout-or-emptydamaged-project-directory"
+        },
+        {
+          "id": "42010605-0057",
+          "heading": "Section 5d: Storage filter stack (guest throughput)",
+          "slug": "section-5d-storage-filter-stack-guest-throughput"
+        },
+        {
+          "id": "42010605-0058",
+          "heading": "Section 5c: Display scaling (OCR)",
+          "slug": "section-5c-display-scaling-ocr"
+        },
+        {
+          "id": "42010605-0059",
+          "heading": "Apply the pin rather than print it. The remedy is set at bridge-build time and nobody rebuilds a wor",
+          "slug": "apply-the-pin-rather-than-print-it-the-remedy-is-set-at-bridge-build-time-and-nobody-rebuilds-a-wor"
+        },
+        {
+          "id": "42010605-005a",
+          "heading": "Section 5b: Host address stability",
+          "slug": "section-5b-host-address-stability"
+        },
+        {
+          "id": "42010605-005b",
+          "heading": "Section 5a3: UTM app lifetime",
+          "slug": "section-5a3-utm-app-lifetime"
+        },
+        {
+          "id": "42010605-005c",
+          "heading": "Section 5a2: macOS screen lock / display sleep",
+          "slug": "section-5a2-macos-screen-lock--display-sleep"
+        },
+        {
+          "id": "42010605-005d",
+          "heading": "Section 5a: macOS permissions only a person can give",
+          "slug": "section-5a-macos-permissions-only-a-person-can-give"
+        },
+        {
+          "id": "42010605-005e",
+          "heading": "UTM CLI in the app bundle is not automatically on PATH",
+          "slug": "utm-cli-in-the-app-bundle-is-not-automatically-on-path"
+        },
+        {
+          "id": "42010605-005f",
+          "heading": "Section 3c: Host setup freshness",
+          "slug": "section-3c-host-setup-freshness"
+        },
+        {
+          "id": "42010605-0060",
+          "heading": "Invoke-HostClockSyncOffer",
+          "slug": "invoke-hostclocksyncoffer"
+        },
+        {
+          "id": "42010605-0061",
+          "heading": "Section 3b: Host clock",
+          "slug": "section-3b-host-clock"
+        },
+        {
+          "id": "42010605-0062",
+          "heading": "Capture Test-HostRequirement's Write-Warning lines via -WarningVariable and re-emit them through Wri",
+          "slug": "capture-test-hostrequirements-write-warning-lines-via--warningvariable-and-re-emit-them-through-wri"
+        },
+        {
+          "id": "42010605-0063",
+          "heading": "Section 3: Host requirements (quick)",
+          "slug": "section-3-host-requirements-quick"
+        },
+        {
+          "id": "42010605-0064",
+          "heading": "Helpers",
+          "slug": "helpers"
+        },
+        {
+          "id": "42010605-0065",
+          "heading": "Alternative OCR option using Tesseract (open-source), independent of WinRT",
+          "slug": "alternative-ocr-option-using-tesseract-open-source-independent-of-winrt"
+        },
+        {
+          "id": "42010605-0066",
+          "heading": "Demonstrates the \"closed access\" problem with Microsoft AI/OCR on modern PowerShell",
+          "slug": "demonstrates-the-closed-access-problem-with-microsoft-aiocr-on-modern-powershell"
+        },
+        {
+          "id": "42010605-0003",
+          "heading": "Lab storage and enrollment",
+          "slug": "lab-storage-and-enrollment"
+        },
+        {
+          "id": "42010605-0068",
+          "heading": "Loopback exemption and aliases",
+          "slug": "loopback-exemption-and-aliases"
+        },
+        {
+          "id": "42010605-0069",
+          "heading": "The probes ask questions and change nothing, so -WhatIf is suppressed across them. It has to be supp",
+          "slug": "the-probes-ask-questions-and-change-nothing-so--whatif-is-suppressed-across-them-it-has-to-be-supp"
+        },
+        {
+          "id": "42010605-006a",
+          "heading": "What this machine still serves",
+          "slug": "what-this-machine-still-serves"
+        },
+        {
+          "id": "42010605-006b",
+          "heading": "Stop this machine from serving its own pool and stash shares: withdraw the SMB shares, delete the st",
+          "slug": "stop-this-machine-from-serving-its-own-pool-and-stash-shares-withdraw-the-smb-shares-delete-the-st"
+        },
+        {
+          "id": "42010605-006c",
+          "heading": "Put this host's settings back the way Enable-TestAutomation found them",
+          "slug": "put-this-hosts-settings-back-the-way-enable-testautomation-found-them"
+        },
+        {
+          "id": "42010605-006d",
+          "heading": "Common-parameter relay",
+          "slug": "common-parameter-relay"
+        },
+        {
+          "id": "42010605-006e",
+          "heading": "Prepare THIS host to run yuruna automated VM tests, whatever host it is",
+          "slug": "prepare-this-host-to-run-yuruna-automated-vm-tests-whatever-host-it-is"
+        },
+        {
+          "id": "42010605-006f",
+          "heading": "Force this host's bridge to take a fresh DHCP lease on an interval, so a cycle can be shown to survi",
+          "slug": "force-this-hosts-bridge-to-take-a-fresh-dhcp-lease-on-an-interval-so-a-cycle-can-be-shown-to-survi"
+        },
+        {
+          "id": "42010605-0070",
+          "heading": "Repair a wedged local hypervisor and leave the runner, its services and the listener running again -",
+          "slug": "repair-a-wedged-local-hypervisor-and-leave-the-runner-its-services-and-the-listener-running-again--"
+        },
+        {
+          "id": "42010605-0071",
+          "heading": "Show, step by step, where a Lab token exchange stops",
+          "slug": "show-step-by-step-where-a-lab-token-exchange-stops"
+        },
+        {
+          "id": "42010605-0072",
+          "heading": "Pool-intent repository",
+          "slug": "pool-intent-repository"
+        },
+        {
+          "id": "42010605-0073",
+          "heading": "Create a lab: its storage folders, its credential vault, and its pool-intent repository",
+          "slug": "create-a-lab-its-storage-folders-its-credential-vault-and-its-pool-intent-repository"
+        },
+        {
+          "id": "42010605-0074",
+          "heading": "Clear what would otherwise serve this mount from the wrong place. Two kinds, and the second is the o",
+          "slug": "clear-what-would-otherwise-serve-this-mount-from-the-wrong-place-two-kinds-and-the-second-is-the-o"
+        },
+        {
+          "id": "42010605-0075",
+          "heading": "The cifs mount runs `sudo -n`, which never prompts; without the drop-in it fails and the runner buff",
+          "slug": "the-cifs-mount-runs-sudo--n-which-never-prompts-without-the-drop-in-it-fails-and-the-runner-buff"
+        },
+        {
+          "id": "42010605-0076",
+          "heading": "Step 8 -- mount",
+          "slug": "step-8----mount"
+        },
+        {
+          "id": "42010605-0077",
+          "heading": "Step 3 writes the credential, verifies it, and rebuilds the account when it cannot -- so reaching he",
+          "slug": "step-3-writes-the-credential-verifies-it-and-rebuilds-the-account-when-it-cannot----so-reaching-he"
+        },
+        {
+          "id": "42010605-0078",
+          "heading": "Step progress",
+          "slug": "step-progress"
+        },
+        {
+          "id": "42010605-0079",
+          "heading": "Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever entry point started this",
+          "slug": "honor-the-callers-loglevel-published-as-envyuruna_log_level-by-whatever-entry-point-started-this"
+        },
+        {
+          "id": "42010605-007a",
+          "heading": "Turn THIS machine into its own pool and stash storage server: create the folders, the two storage ac",
+          "slug": "turn-this-machine-into-its-own-pool-and-stash-storage-server-create-the-folders-the-two-storage-ac"
+        },
+        {
+          "id": "42010605-007b",
+          "heading": "Delete VM files on THIS host that no longer belong to a registered VM",
+          "slug": "delete-vm-files-on-this-host-that-no-longer-belong-to-a-registered-vm"
+        },
+        {
+          "id": "42010605-007c",
+          "heading": "Provision the secrets remote host refresh needs: the signing authority and operator credential for p",
+          "slug": "provision-the-secrets-remote-host-refresh-needs-the-signing-authority-and-operator-credential-for-p"
+        },
+        {
+          "id": "42010605-007d",
+          "heading": "An existing value is normally the operator's and is never touched. The exception is a value THIS blo",
+          "slug": "an-existing-value-is-normally-the-operators-and-is-never-touched-the-exception-is-a-value-this-blo"
+        },
+        {
+          "id": "42010605-007e",
+          "heading": "Seed the pool intent store binding",
+          "slug": "seed-the-pool-intent-store-binding"
+        },
+        {
+          "id": "42010605-007f",
+          "heading": "Resolve the aggregator base URL",
+          "slug": "resolve-the-aggregator-base-url"
+        },
+        {
+          "id": "42010605-0080",
+          "heading": "Enroll THIS host in the lab: redeem the dashboard's Lab token for the internal authentication key an",
+          "slug": "enroll-this-host-in-the-lab-redeem-the-dashboards-lab-token-for-the-internal-authentication-key-an"
+        },
+        {
+          "id": "42010605-0081",
+          "heading": "Internal authentication key",
+          "slug": "internal-authentication-key"
+        },
+        {
+          "id": "42010605-0082",
+          "heading": "Common-parameter relay",
+          "slug": "common-parameter-relay"
+        },
+        {
+          "id": "42010605-0083",
+          "heading": "Elevation gate",
+          "slug": "elevation-gate"
+        },
+        {
+          "id": "42010605-0084",
+          "heading": "SupportsShouldProcess is load-bearing, not decoration: this script performs a state change of its ow",
+          "slug": "supportsshouldprocess-is-load-bearing-not-decoration-this-script-performs-a-state-change-of-its-ow"
+        },
+        {
+          "id": "42010605-0085",
+          "heading": "Copy another pool host's test",
+          "slug": "copy-another-pool-hosts-test"
+        },
+        {
+          "id": "42010605-0004",
+          "heading": "Pool transitions",
+          "slug": "pool-transitions"
+        },
+        {
+          "id": "42010605-0087",
+          "heading": "Re-asked in-process rather than read off the sync. The sync ran the same convergence, but behind the",
+          "slug": "re-asked-in-process-rather-than-read-off-the-sync-the-sync-ran-the-same-convergence-but-behind-the"
+        },
+        {
+          "id": "42010605-0088",
+          "heading": "Order is load-bearing, and each step is the precondition of the next. RELEASE first: this host's mou",
+          "slug": "order-is-load-bearing-and-each-step-is-the-precondition-of-the-next-release-first-this-hosts-mou"
+        },
+        {
+          "id": "42010605-0089",
+          "heading": "The sync runs in THIS session and re-imports Test.ConfigServiceSync with -Force, which unloads the T",
+          "slug": "the-sync-runs-in-this-session-and-re-imports-testconfigservicesync-with--force-which-unloads-the-t"
+        },
+        {
+          "id": "42010605-008a",
+          "heading": "By-name (hashtable) splatting is REQUIRED here. Array splatting binds every element POSITIONALLY --",
+          "slug": "by-name-hashtable-splatting-is-required-here-array-splatting-binds-every-element-positionally---"
+        },
+        {
+          "id": "42010605-008b",
+          "heading": "2. Sync configuration from the reference host",
+          "slug": "2-sync-configuration-from-the-reference-host"
+        },
+        {
+          "id": "42010605-008c",
+          "heading": "Read from the config this host carries NOW. The synced one names the same share leaf for each tier -",
+          "slug": "read-from-the-config-this-host-carries-now-the-synced-one-names-the-same-share-leaf-for-each-tier--"
+        },
+        {
+          "id": "42010605-008d",
+          "heading": "Same $WhatIfPreference suppression, and for the same reason, as the imports above: the host driver's",
+          "slug": "same-whatifpreference-suppression-and-for-the-same-reason-as-the-imports-above-the-host-drivers"
+        },
+        {
+          "id": "42010605-008e",
+          "heading": "Elevation is asserted before anything happens rather than at the line that needs it: the sync rewrit",
+          "slug": "elevation-is-asserted-before-anything-happens-rather-than-at-the-line-that-needs-it-the-sync-rewrit"
+        },
+        {
+          "id": "42010605-008f",
+          "heading": "LAST, and that ordering is load-bearing. Test.HostContract re-exports Test.HostDetection's Get-HostT",
+          "slug": "last-and-that-ordering-is-load-bearing-testhostcontract-re-exports-testhostdetections-get-hostt"
+        },
+        {
+          "id": "42010605-0090",
+          "heading": "$WhatIfPreference is suppressed across the imports and restored immediately after. The host contract",
+          "slug": "whatifpreference-is-suppressed-across-the-imports-and-restored-immediately-after-the-host-contract"
+        },
+        {
+          "id": "42010605-0091",
+          "heading": "Convert a standalone machine into a pool worker: sync the lab's configuration onto it, retire the lo",
+          "slug": "convert-a-standalone-machine-into-a-pool-worker-sync-the-labs-configuration-onto-it-retire-the-lo"
+        },
+        {
+          "id": "42010605-0092",
+          "heading": "autoEnrollment is projected alongside pools because this CLI is the ONLY read path the pool-control",
+          "slug": "autoenrollment-is-projected-alongside-pools-because-this-cli-is-the-only-read-path-the-pool-control"
+        },
+        {
+          "id": "42010605-0093",
+          "heading": "Evict from the live dashboard view (aggregator forget-host, best-effort)",
+          "slug": "evict-from-the-live-dashboard-view-aggregator-forget-host-best-effort"
+        },
+        {
+          "id": "42010605-0094",
+          "heading": "Purge a stale host from the pool: delete its NAS records (identity + replicated cycles) and strip it",
+          "slug": "purge-a-stale-host-from-the-pool-delete-its-nas-records-identity--replicated-cycles-and-strip-it"
+        },
+        {
+          "id": "42010605-0095",
+          "heading": "The auto-enrollment target pool can NEVER carry repositories. Hosts arrive there automatically, with",
+          "slug": "the-auto-enrollment-target-pool-can-never-carry-repositories-hosts-arrive-there-automatically-with"
+        },
+        {
+          "id": "42010605-0096",
+          "heading": "Set or clear the framework and project repositories a pool's hosts run",
+          "slug": "set-or-clear-the-framework-and-project-repositories-a-pools-hosts-run"
+        },
+        {
+          "id": "42010605-0097",
+          "heading": "Push the repo's canonical Yuruna hosts dashboard onto a RUNNING caching-proxy service VM, so a dashb",
+          "slug": "push-the-repos-canonical-yuruna-hosts-dashboard-onto-a-running-caching-proxy-service-vm-so-a-dashb"
+        },
+        {
+          "id": "42010605-0098",
+          "heading": "The auto-enrollment target pool must carry NO repositories. This is the AUTHORITATIVE check: the CLI",
+          "slug": "the-auto-enrollment-target-pool-must-carry-no-repositories-this-is-the-authoritative-check-the-cli"
+        },
+        {
+          "id": "42010605-0099",
+          "heading": "Validate every file in the pool intent store against its schema",
+          "slug": "validate-every-file-in-the-pool-intent-store-against-its-schema"
+        },
+        {
+          "id": "42010605-009a",
+          "heading": "Migrate the pool intent store to pools",
+          "slug": "migrate-the-pool-intent-store-to-pools"
+        },
+        {
+          "id": "42010605-009b",
+          "heading": "Example pool intent (schema v3). Validates against test/schemas/pools.schema.yml. This is the file",
+          "slug": "example-pool-intent-schema-v3-validates-against-testschemaspoolsschemayml-this-is-the-file"
+        },
+        {
+          "id": "42010605-0005",
+          "heading": "Example workload execution",
+          "slug": "example-workload-execution"
+        },
+        {
+          "id": "42010605-009d",
+          "heading": "Acquire base images",
+          "slug": "acquire-base-images"
+        },
+        {
+          "id": "42010605-009e",
+          "heading": "Every attempt warms before it pulls. The warm-up is what holds the request open past dockerd's fixed",
+          "slug": "every-attempt-warms-before-it-pulls-the-warm-up-is-what-holds-the-request-open-past-dockerds-fixed"
+        },
+        {
+          "id": "42010605-009f",
+          "heading": "No HTTP status at all has several causes that send the operator to different places, and curl's exit",
+          "slug": "no-http-status-at-all-has-several-causes-that-send-the-operator-to-different-places-and-curls-exit"
+        },
+        {
+          "id": "42010605-00a0",
+          "heading": "The container image carries no certificate and no password. Kestrel reads the PFX from a Kubernetes",
+          "slug": "the-container-image-carries-no-certificate-and-no-password-kestrel-reads-the-pfx-from-a-kubernetes"
+        },
+        {
+          "id": "42010605-00a1",
+          "heading": "Create the Kubernetes Secret that carries a pod's HTTPS certificate, protected by a new random passw",
+          "slug": "create-the-kubernetes-secret-that-carries-a-pods-https-certificate-protected-by-a-new-random-passw"
+        },
+        {
+          "id": "42010605-00a2",
+          "heading": "Run by the workloads configuration immediately before the chart is installed, like create-cert-secre",
+          "slug": "run-by-the-workloads-configuration-immediately-before-the-chart-is-installed-like-create-cert-secre"
+        },
+        {
+          "id": "42010605-00a3",
+          "heading": "Notice that the 'registryName' variable is used to find the name of another variable, requiring the",
+          "slug": "notice-that-the-registryname-variable-is-used-to-find-the-name-of-another-variable-requiring-the"
+        },
+        {
+          "id": "42010605-00a4",
+          "heading": "The registry provisioned here is ECR, whose repository URL is <account>.dkr.ecr.<region>.amazonaws.c",
+          "slug": "the-registry-provisioned-here-is-ecr-whose-repository-url-is-accountdkrecrregionamazonawsc"
+        },
+        {
+          "id": "42010605-00a5",
+          "heading": "Notice that the 'registryName' variable is used to find the name of another variable, requiring the",
+          "slug": "notice-that-the-registryname-variable-is-used-to-find-the-name-of-another-variable-requiring-the"
+        },
+        {
+          "id": "42010605-00a6",
+          "heading": "TO-SET: deploy your component(s). A Helm chart under workloads/, e.g.: - chart: \"frontend/yourcompon",
+          "slug": "to-set-deploy-your-components-a-helm-chart-under-workloads-eg---chart-frontendyourcompon"
+        },
+        {
+          "id": "42010605-0006",
+          "heading": "AmisAd host orchestration",
+          "slug": "amisad-host-orchestration"
+        },
+        {
+          "id": "42010605-00a8",
+          "heading": "Locate the Yuruna framework checkout, without hard-coding a path",
+          "slug": "locate-the-yuruna-framework-checkout-without-hard-coding-a-path"
+        },
+        {
+          "id": "42010605-00a9",
+          "heading": "Shared host-portability helpers for the AmisAd host-action scripts (Clear-Lab",
+          "slug": "shared-host-portability-helpers-for-the-amisad-host-action-scripts-clear-lab"
+        },
+        {
+          "id": "42010605-00aa",
+          "heading": "Authorize the PUBLIC half of vm-core's demo key on the edge VMs, over the harness SSH channel, and p",
+          "slug": "authorize-the-public-half-of-vm-cores-demo-key-on-the-edge-vms-over-the-harness-ssh-channel-and-p"
+        },
+        {
+          "id": "42010605-00ab",
+          "heading": "Delete a core->edge demo key that an earlier lab run left in the status service's served tree",
+          "slug": "delete-a-core-edge-demo-key-that-an-earlier-lab-run-left-in-the-status-services-served-tree"
+        },
+        {
+          "id": "42010605-00ac",
+          "heading": "Every leg of this resolution rides the host's link, and that link is not continuously up: a DHCP ren",
+          "slug": "every-leg-of-this-resolution-rides-the-hosts-link-and-that-link-is-not-continuously-up-a-dhcp-ren"
+        },
+        {
+          "id": "42010605-00ad",
+          "heading": "Find the stash service, verify it answers, and publish the address for the rest of the cycle to reso",
+          "slug": "find-the-stash-service-verify-it-answers-and-publish-the-address-for-the-rest-of-the-cycle-to-reso"
+        },
+        {
+          "id": "42010605-00ae",
+          "heading": "Stash-service pre-flight shared by the AmisAd entry points that build the topology (test/Initialize-",
+          "slug": "stash-service-pre-flight-shared-by-the-amisad-entry-points-that-build-the-topology-testinitialize-"
+        },
+        {
+          "id": "42010605-00af",
+          "heading": "Refuse concurrent runner",
+          "slug": "refuse-concurrent-runner"
+        },
+        {
+          "id": "42010605-00b0",
+          "heading": "Tear down the AmisAd POC lab to a known-clean host: remove every amisad-* VM (and its storage), then",
+          "slug": "tear-down-the-amisad-poc-lab-to-a-known-clean-host-remove-every-amisad--vm-and-its-storage-then"
+        },
+        {
+          "id": "42010605-00b1",
+          "heading": "Authorize demo public key",
+          "slug": "authorize-demo-public-key"
+        },
+        {
+          "id": "42010605-00b2",
+          "heading": "Where a stage's stdout/stderr are written. A stage log is the only record of the provisioning half o",
+          "slug": "where-a-stages-stdoutstderr-are-written-a-stage-log-is-the-only-record-of-the-provisioning-half-o"
+        },
+        {
+          "id": "42010605-00b3",
+          "heading": "Build + start the AmisAd POC topology on a clean host (the \"warm-up\" half of the end-to-end pass; Cl",
+          "slug": "build--start-the-amisad-poc-topology-on-a-clean-host-the-warm-up-half-of-the-end-to-end-pass-cl"
+        },
+        {
+          "id": "42010605-00b4",
+          "heading": "Resolved relative to this file's folder (test/), run in order; the pass stops if either script exits",
+          "slug": "resolved-relative-to-this-files-folder-test-run-in-order-the-pass-stops-if-either-script-exits"
+        },
+        {
+          "id": "42010605-00b5",
+          "heading": "Authorize demo public key",
+          "slug": "authorize-demo-public-key"
+        },
+        {
+          "id": "42010605-00b6",
+          "heading": "Clean start",
+          "slug": "clean-start"
+        },
+        {
+          "id": "42010605-00b7",
+          "heading": "AmisAd POC test automation driver: builds the design topology and runs every scenario against a shar",
+          "slug": "amisad-poc-test-automation-driver-builds-the-design-topology-and-runs-every-scenario-against-a-shar"
+        },
+        {
+          "id": "42010605-0007",
+          "heading": "AmisAd guest readiness and scenarios",
+          "slug": "amisad-guest-readiness-and-scenarios"
+        },
+        {
+          "id": "42010605-00b9",
+          "heading": "AmisAd POC - vm-edge-a (region A slice VM): install a boot-time IP reporter (posts <hostname>.ip.tx",
+          "slug": "amisad-poc---vm-edge-a-region-a-slice-vm-install-a-boot-time-ip-reporter-posts-hostnameiptx"
+        },
+        {
+          "id": "42010605-00ba",
+          "heading": "The snapshot carries deployment and pod status frozen at snapshot time, so every readiness signal in",
+          "slug": "the-snapshot-carries-deployment-and-pod-status-frozen-at-snapshot-time-so-every-readiness-signal-in"
+        },
+        {
+          "id": "42010605-00bb",
+          "heading": "AmisAd POC - s001.fulfillment run on amisad-core: start slice-runtime on the real edge (amisad-edge-",
+          "slug": "amisad-poc---s001fulfillment-run-on-amisad-core-start-slice-runtime-on-the-real-edge-amisad-edge-"
+        },
+        {
+          "id": "42010605-00bc",
+          "heading": "AmisAd POC - s002.fitting run against the deployed amisad-core cluster: start slice-runtime, seed El",
+          "slug": "amisad-poc---s002fitting-run-against-the-deployed-amisad-core-cluster-start-slice-runtime-seed-el"
+        },
+        {
+          "id": "42010605-00bd",
+          "heading": "AmisAd POC - s003.silence run on amisad-core: consent revocation and the right to silence. Seed one",
+          "slug": "amisad-poc---s003silence-run-on-amisad-core-consent-revocation-and-the-right-to-silence-seed-one"
+        },
+        {
+          "id": "42010605-00be",
+          "heading": "AmisAd POC - s004.failover run on amisad-core: sovereign slice allocation, isolation fault, attested",
+          "slug": "amisad-poc---s004failover-run-on-amisad-core-sovereign-slice-allocation-isolation-fault-attested"
+        },
+        {
+          "id": "42010605-00bf",
+          "heading": "AmisAd POC - s005.attribution run on amisad-core: campaign-boosted match, edge creative serving, and",
+          "slug": "amisad-poc---s005attribution-run-on-amisad-core-campaign-boosted-match-edge-creative-serving-and"
+        },
+        {
+          "id": "42010605-00c0",
+          "heading": "AmisAd POC - s006.mandate run on amisad-core: delegated procurement under a scoped mandate. Maya gra",
+          "slug": "amisad-poc---s006mandate-run-on-amisad-core-delegated-procurement-under-a-scoped-mandate-maya-gra"
+        },
+        {
+          "id": "42010605-00c1",
+          "heading": "AmisAd POC - s007.inventory run on amisad-core: enterprise integration onboarding and inventory-trut",
+          "slug": "amisad-poc---s007inventory-run-on-amisad-core-enterprise-integration-onboarding-and-inventory-trut"
+        },
+        {
+          "id": "42010605-00c2",
+          "heading": "AmisAd POC - s008.mediation run on amisad-core: zero-knowledge dispute mediation and settlement adju",
+          "slug": "amisad-poc---s008mediation-run-on-amisad-core-zero-knowledge-dispute-mediation-and-settlement-adju"
+        },
+        {
+          "id": "42010605-00c3",
+          "heading": "AmisAd POC - s009.suppression run on amisad-core: aggregate insight publication and the demand-plann",
+          "slug": "amisad-poc---s009suppression-run-on-amisad-core-aggregate-insight-publication-and-the-demand-plann"
+        },
+        {
+          "id": "42010605-00c4",
+          "heading": "AmisAd POC - s010.certification run on amisad-core: independent certification of the full evidence t",
+          "slug": "amisad-poc---s010certification-run-on-amisad-core-independent-certification-of-the-full-evidence-t"
+        },
+        {
+          "id": "42010605-00c5",
+          "heading": "AmisAd POC - vm-core demo users: add the non-administrator persona accounts (maya, elena buyers/sell",
+          "slug": "amisad-poc---vm-core-demo-users-add-the-non-administrator-persona-accounts-maya-elena-buyerssell"
+        },
+        {
+          "id": "42010605-00c6",
+          "heading": "Boot-only reporting publishes the address this VM had when it started, and amisad-core reads that fi",
+          "slug": "boot-only-reporting-publishes-the-address-this-vm-had-when-it-started-and-amisad-core-reads-that-fi"
+        },
+        {
+          "id": "42010605-00c7",
+          "heading": "AmisAd POC - edge VM setup (shared by amisad-edge-a/b): install a boot-time IP reporter that posts <",
+          "slug": "amisad-poc---edge-vm-setup-shared-by-amisad-edge-ab-install-a-boot-time-ip-reporter-that-posts-"
+        },
+        {
+          "id": "42010605-0008",
+          "heading": "Verified downloads and stash delivery",
+          "slug": "verified-downloads-and-stash-delivery"
+        },
+        {
+          "id": "42010605-00c9",
+          "heading": "The stash records the upload (username=amisad-poc, filename=amisad-<arch>-binaries.tgz) for later in",
+          "slug": "the-stash-records-the-upload-usernameamisad-poc-filenameamisad-arch-binariestgz-for-later-in"
+        },
+        {
+          "id": "42010605-00ca",
+          "heading": "What this establishes: the address is populated and the host answers on the bridged LAN from this gu",
+          "slug": "what-this-establishes-the-address-is-populated-and-the-host-answers-on-the-bridged-lan-from-this-gu"
+        },
+        {
+          "id": "42010605-00cb",
+          "heading": "amisad_sha256",
+          "slug": "amisad_sha256"
+        },
+        {
+          "id": "42010605-00cc",
+          "heading": "AmisAd POC - amisad-build compile step: build every release binary and upload the tarball to the sta",
+          "slug": "amisad-poc---amisad-build-compile-step-build-every-release-binary-and-upload-the-tarball-to-the-sta"
+        },
+        {
+          "id": "42010605-00cd",
+          "heading": "Retried for the same reason the rustup install above is: a single \"empty reply from server\" through",
+          "slug": "retried-for-the-same-reason-the-rustup-install-above-is-a-single-empty-reply-from-server-through"
+        },
+        {
+          "id": "42010605-00ce",
+          "heading": "amisad_verify_pinned",
+          "slug": "amisad_verify_pinned"
+        },
+        {
+          "id": "42010605-00cf",
+          "heading": "AmisAd POC - create the amisad database, load the schema, and open the instance to in-cluster pods:",
+          "slug": "amisad-poc---create-the-amisad-database-load-the-schema-and-open-the-instance-to-in-cluster-pods"
+        },
+        {
+          "id": "42010605-00d0",
+          "heading": "`wait` reports only that the condition never arrived, so on its own a failure here says a deployment",
+          "slug": "wait-reports-only-that-the-condition-never-arrived-so-on-its-own-a-failure-here-says-a-deployment"
+        },
+        {
+          "id": "42010605-00d1",
+          "heading": "--noproxy '*': the stash IP is not in the guest no_proxy list, so an HTTP GET would otherwise be sen",
+          "slug": "--noproxy--the-stash-ip-is-not-in-the-guest-no_proxy-list-so-an-http-get-would-otherwise-be-sen"
+        },
+        {
+          "id": "42010605-00d2",
+          "heading": "amisad_fetch_stash_binaries",
+          "slug": "amisad_fetch_stash_binaries"
+        },
+        {
+          "id": "42010605-00d3",
+          "heading": "AmisAd POC - amisad-core deploy step: download the prebuilt binaries from the stash service (produce",
+          "slug": "amisad-poc---amisad-core-deploy-step-download-the-prebuilt-binaries-from-the-stash-service-produce"
+        },
+        {
+          "id": "42010605-0009",
+          "heading": "Demo credentials and request serving",
+          "slug": "demo-credentials-and-request-serving"
+        },
+        {
+          "id": "42010605-00d5",
+          "heading": "The vault passwords are the one thing here that must not travel further than the operator intends, s",
+          "slug": "the-vault-passwords-are-the-one-thing-here-that-must-not-travel-further-than-the-operator-intends-s"
+        }
+      ],
+      "retiredAnchorIds": [
+        "42010605-0067",
+        "42010605-0086",
+        "42010605-009c",
+        "42010605-00a7",
+        "42010605-00b8",
+        "42010605-00c8",
+        "42010605-00d4"
       ]
     },
     {
@@ -4378,6 +7941,11 @@
           "slug": "pre-spawn-cleanup-ordering"
         },
         {
+          "id": "42f909ad-0028",
+          "heading": "VM admission at cycle start",
+          "slug": "vm-admission-at-cycle-start"
+        },
+        {
           "id": "42f909ad-0022",
           "heading": "Host refresh and the runner",
           "slug": "host-refresh-and-the-runner"
@@ -4406,6 +7974,16 @@
           "id": "42f909ad-0010",
           "heading": "Why the cycle call must not capture the inner runner's stdout",
           "slug": "why-the-cycle-call-must-not-capture-the-inner-runners-stdout"
+        },
+        {
+          "id": "42f909ad-0027",
+          "heading": "A cycle is scored from its outcome record",
+          "slug": "a-cycle-is-scored-from-its-outcome-record"
+        },
+        {
+          "id": "42f909ad-0029",
+          "heading": "Recovery after a failed cycle",
+          "slug": "recovery-after-a-failed-cycle"
         },
         {
           "id": "42f909ad-0011",
@@ -4845,7 +8423,9 @@
       "id": "42d38664",
       "repo": "yuruna",
       "source": "docs/test-harness.md",
-      "translations": {},
+      "translations": {
+        "pt-BR": "docs/pt-BR/test-harness.md"
+      },
       "anchors": [
         {
           "id": "42d38664-0001",
@@ -5409,7 +8989,9 @@
       "id": "429f3d06",
       "repo": "yuruna",
       "source": "docs/vmconfig.md",
-      "translations": {},
+      "translations": {
+        "pt-BR": "docs/pt-BR/vmconfig.md"
+      },
       "anchors": [
         {
           "id": "429f3d06-0001",
@@ -6339,6 +9921,19 @@
       ]
     },
     {
+      "id": "42a0328b",
+      "repo": "yuruna-project",
+      "source": "docs/globalization.md",
+      "translations": {},
+      "anchors": [
+        {
+          "id": "42a0328b-0001",
+          "heading": "Project display text",
+          "slug": "project-display-text"
+        }
+      ]
+    },
+    {
       "id": "42b9e3dc",
       "repo": "yuruna-project",
       "source": "example/README.md",
@@ -6425,6 +10020,61 @@
           "id": "4286c679-000a",
           "heading": "Files",
           "slug": "files"
+        }
+      ]
+    },
+    {
+      "id": "42f64340",
+      "repo": "yuruna-project",
+      "source": "example/website/components/frontend/website/README.md",
+      "translations": {
+        "pt-BR": "docs/pt-BR/example/website/components/frontend/website/README.md"
+      },
+      "anchors": [
+        {
+          "id": "42f64340-0001",
+          "heading": "frontend/website",
+          "slug": "frontendwebsite"
+        },
+        {
+          "id": "42f64340-0002",
+          "heading": "Client-side libraries (libman)",
+          "slug": "client-side-libraries-libman"
+        },
+        {
+          "id": "42f64340-0003",
+          "heading": "Development certificate",
+          "slug": "development-certificate"
+        },
+        {
+          "id": "42f64340-0004",
+          "heading": "Where the certificate goes",
+          "slug": "where-the-certificate-goes"
+        },
+        {
+          "id": "42f64340-0005",
+          "heading": "Checking an image and a deployment",
+          "slug": "checking-an-image-and-a-deployment"
+        },
+        {
+          "id": "42f64340-0006",
+          "heading": "Regenerating and modifying the website project",
+          "slug": "regenerating-and-modifying-the-website-project"
+        },
+        {
+          "id": "42f64340-0007",
+          "heading": "Running the docker image locally",
+          "slug": "running-the-docker-image-locally"
+        },
+        {
+          "id": "42f64340-0008",
+          "heading": "Docker",
+          "slug": "docker"
+        },
+        {
+          "id": "42f64340-0009",
+          "heading": "Kubernetes (docker-desktop cluster)",
+          "slug": "kubernetes-docker-desktop-cluster"
         }
       ]
     },

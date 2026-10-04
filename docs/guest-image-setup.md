@@ -309,7 +309,10 @@ or settings-panel glitch needs a clean reboot to clear (the symptom in
 `<GUEST>.update.sh` is one of a family: every optional software
 workload ships as a sibling script in the same `guest/<GUEST>/` folder and
 installs the same way, by fetching and running one script inside the
-booted guest. The fetcher honors `YurunaCacheContent`. See
+booted guest. The fetcher honors `YurunaCacheContent`, and requires the
+script's expected SHA-256 as `E_SHA=<sha256>` in front of each Linux command
+below: [Supplying the digest by hand](../guest/README.md#supplying-the-digest-by-hand)
+says why and how. See
 [Yuruna Architecture](architecture.md) for the workload pattern, and each
 guest folder's `README.md` for which workloads that guest supports.
 Kubernetes has its own page ([kubernetes.md](kubernetes.md)).
@@ -323,9 +326,9 @@ and PowerShell.
 
 | Guest | Command |
 |---|---|
-| **Amazon Linux 2023** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.code.sh` |
-| **Ubuntu Server 24.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh` |
-| **Ubuntu Server 26.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.code.sh` |
+| **Amazon Linux 2023** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.code.sh` |
+| **Ubuntu Server 24.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh` |
+| **Ubuntu Server 26.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.code.sh` |
 | **Windows 11** | `irm ".../guest/windows.11/windows.11.code.ps1$nc" \| iex` (see [Windows 11 ...](../guest/windows.11/README.md)) |
 
 After install:
@@ -346,9 +349,9 @@ Installs [n8n](https://n8n.io/) workflow automation.
 
 | Guest | Command |
 |---|---|
-| **Amazon Linux 2023** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.n8n.sh` |
-| **Ubuntu Server 24.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.n8n.sh` |
-| **Ubuntu Server 26.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.n8n.sh` |
+| **Amazon Linux 2023** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.n8n.sh` |
+| **Ubuntu Server 24.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.n8n.sh` |
+| **Ubuntu Server 26.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.n8n.sh` |
 
 Verify + run:
 
@@ -367,9 +370,9 @@ Installs Git, Node.js, and [OpenClaw](https://docs.openclaw.ai/start/getting-sta
 
 | Guest | Command |
 |---|---|
-| **Amazon Linux 2023** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh` |
-| **Ubuntu Server 24.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.openclaw.sh` |
-| **Ubuntu Server 26.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.openclaw.sh` |
+| **Amazon Linux 2023** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh` |
+| **Ubuntu Server 24.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.openclaw.sh` |
+| **Ubuntu Server 26.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.openclaw.sh` |
 
 After reboot, configure:
 
@@ -391,9 +394,9 @@ Installs [PostgreSQL](https://www.postgresql.org/).
 
 | Guest | Command |
 |---|---|
-| **Amazon Linux 2023** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.postgresql.sh` |
-| **Ubuntu Server 24.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.postgresql.sh` |
-| **Ubuntu Server 26.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.postgresql.sh` |
+| **Amazon Linux 2023** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.postgresql.sh` |
+| **Ubuntu Server 24.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.postgresql.sh` |
+| **Ubuntu Server 26.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.postgresql.sh` |
 
 Verify:
 
@@ -628,6 +631,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.30
+Last review: 2026.10.04
 
 Back to [Yuruna](../README.md)

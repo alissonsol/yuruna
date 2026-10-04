@@ -3,6 +3,11 @@
   "domain": "host",
   "locale": "pt-BR",
   "messages": {
+    "host.kvm_running_cache_unreachable": {
+      "sourceHash": "81042c1a1152d4a8d96f13c8007b4cd1eb09b5b61b1e8f1152b1fe97e110ad65",
+      "origin": "machine",
+      "message": "A VM caching-proxy-service está em execução, mas seu proxy está inacessível. Execute test/service/Start-CachingProxyServiceVM.ps1 para restaurá-lo ou passe -CachingProxyServiceUrl \"\" para baixar diretamente."
+    },
     "host.clock_service_description": {
       "sourceHash": "5a15326d1b76f3fc950232711437544b25ca4014d0c608159929a9c8454af79e",
       "message": "Serviço de tempo do Windows (W32Time)"

@@ -56,7 +56,8 @@
       ],
       "consumedBy": [
         "test/extension/pool-control-service/server/internal/httpsrv/board.go",
-        "test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js"
+        "test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js",
+        "test/modules/Test.RecoveryActions.psm1"
       ],
       "rendersAs": "pool.repo_denied_detail"
     },

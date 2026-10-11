@@ -42,8 +42,12 @@ Collection uses the files in the repository. It performs no network requests,
 package restores, container inspection, vulnerability scanning, or new
 lockfile generation. Go module manifests and available checksum records,
 Rust/npm locks, .NET and browser-library manifests, Flutter declarations,
-Bazel pins, Dockerfiles, installation commands, package arrays, cloud-init
-seeds, and VM/image configuration supply the inventory evidence.
+Bazel pins, OpenTofu/Terraform declarations, external Helm chart actions,
+Dockerfiles, installation commands, package arrays, cloud-init seeds, and
+VM/image configuration supply the inventory
+evidence. Host requirement floors and central guest provisioning pins are also
+recorded; a floor or floating release line is a version constraint, not an
+installed version.
 
 Floating image tags, package ranges, variables that cannot be resolved from
 source, and dependencies of externally downloaded installers remain explicit
@@ -107,8 +111,8 @@ Enable the tracked hook in a clone with:
 git config core.hooksPath tools/githooks
 ```
 
-This task enables it in all four workspace clones. Fresh clones need the same
-configuration unless their installer already enables the tracked hooks.
+Hook activation is local Git configuration. Each clone needs this setting
+unless its installer already enables the tracked hooks.
 Missing Python 3.11+, generation errors, and unresolved index conflicts block
 the commit. The existing framework BOM, source-metadata, translation, catalog,
 and suite checks retain their behavior.
@@ -126,6 +130,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.03
+Last review: 2026.10.11
 
 Back to [Yuruna documentation](../README.md)

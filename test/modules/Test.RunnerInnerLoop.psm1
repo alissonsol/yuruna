@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -DisableName
 # The refresh gate the cycle-start sites consult and the readiness helpers the
 # preflight inner uses; imported here so no inner can run without them.
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.DiagnosticPreservation.psm1') -DisableNameChecking
 function Get-StableCycleBaseName {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = '$global:__YurunaCycleFolder is the cross-module per-cycle folder handle the inner runner threads through its helpers; reading it derives the cycle''s rename-stable identity for the URLs/log lines built mid-cycle.')]
@@ -392,6 +393,53 @@ function Sync-RunnerStepConfig {
 }
 
 # --- REGION: Failure-artifact capture for remote inspection
+function Get-FailureExecutionLogContext {
+    <# .SYNOPSIS
+        Resolve a failed leaf's identity without inferring a script from its log.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([System.Collections.IDictionary]$Record, [string]$VMName, [string]$GuestKey)
+    $context = @{ ScriptPath=''; StepInvocationId=''; SequenceInvocationId='' }
+    if (-not $Record -or $Record.vmName -cne $VMName -or $Record.guestKey -cne $GuestKey -or
+        $Record.reason -notin @('step','crash')) { return $context }
+    $context.StepInvocationId = [string]$Record.stepInvocationId
+    $context.SequenceInvocationId = [string]$Record.sequenceInvocationId
+    # A failed retry's recorder belongs to its leaf invocation.
+    # A distinct outer crash keeps its own identity instead.
+    if ($Record.reason -eq 'step' -and $Record.originatingStepInvocationId -and $Record.originatingSequenceInvocationId) {
+        $context.StepInvocationId = [string]$Record.originatingStepInvocationId
+        $context.SequenceInvocationId = [string]$Record.originatingSequenceInvocationId
+    }
+    # Retry labels retain the leaf's original command. Multiple distinct fetch
+    # paths are ambiguous, and the captured log cannot resolve that ambiguity.
+    $paths = @([regex]::Matches([string]$Record.action,
+        'fetch-and-execute\.sh[ \t]+(?<path>[A-Za-z0-9_./-]+)(?=[ \t"?]|$)') |
+        ForEach-Object { $_.Groups['path'].Value } | Sort-Object -Unique)
+    if ($paths.Count -eq 1) { $context.ScriptPath=$paths[0] }
+    return $context
+}
+
+function Get-FailureDiagnosticInvocation {
+    <# .SYNOPSIS
+        Use only the current guest's cycle record to identify failure evidence.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$GuestFolder, [string]$VMName, [string]$GuestKey, [switch]$ForExecutionLog)
+    $context = @{ StepInvocationId=''; SequenceInvocationId='' }
+    if ($ForExecutionLog) { $context.ScriptPath='' }
+    try {
+        $path = Join-Path $GuestFolder 'last_failure.json'
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $record = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            $resolved = Get-FailureExecutionLogContext -Record $record -VMName $VMName -GuestKey $GuestKey
+            foreach ($key in @($context.Keys)) { $context[$key]=$resolved[$key] }
+        }
+    } catch { Write-Verbose "Failure capture invocation context unavailable: $($_.Exception.Message)" }
+    return $context
+}
+
 function Copy-FailureArtifactsToStatusLog {
 <#
 .SYNOPSIS
@@ -452,6 +500,19 @@ function Copy-FailureArtifactsToStatusLog {
             }
             Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1415f98ef24fe2ae' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName"; copied = "$copied" })
         }
+        # The guest's first evicted frames (see Add-OcrHistoryFrame): where a
+        # stall began, which the frames leading up to the failure cannot show.
+        $srcEarliestDir = Join-Path $srcSequenceDir 'earliest'
+        if (Test-Path -LiteralPath $srcEarliestDir) {
+            $earliestFrames = @(Get-ChildItem -LiteralPath $srcEarliestDir -Filter 'raw_*' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+            if ($earliestFrames.Count) {
+                $destEarliestDir = Join-Path $destSeqDir 'earliest'
+                New-Item -ItemType Directory -Path $destEarliestDir -Force | Out-Null
+                foreach ($f in $earliestFrames) { Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $destEarliestDir $f.Name) -Force }
+                $earliestCount = @($earliestFrames | Where-Object Extension -EQ '.png').Count
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d8507ccd68520716' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName"; count = "$earliestCount" })
+            }
+        }
         if ($hasScreen) {
             # Stable filename inside the folder so the operator can spot the
             # frozen-moment shot at a glance (vs. the timestamped raw_* set).
@@ -477,18 +538,32 @@ function Copy-FailureArtifactsToStatusLog {
         # degrade to a Write-Warning -- the cycle's failure flow continues
         # either way. Imported lazily so a host that never hits a failure
         # path doesn't pay the import cost.
+        $failureCaptureContext = Get-FailureDiagnosticInvocation -GuestFolder $destSeqDir -VMName $VMName -GuestKey $GuestKey
+        $failureDiagnostic = $null
         try {
             if (-not (Get-Command Save-GuestDiagnostic -ErrorAction SilentlyContinue)) {
                 Import-Module (Join-Path $ModulesDir 'Test.Diagnostic.psm1') -Force -Global
             }
-            $null = Save-GuestDiagnostic -VMName $VMName -GuestKey $GuestKey -OutputFolder $destSeqDir -Id 'yuruna.failure' `
-                -HostSnapshot $failureHostSnapshot
+            $failureDiagnostic = Save-GuestDiagnostic -VMName $VMName -GuestKey $GuestKey -OutputFolder $destSeqDir -Id 'yuruna.failure' `
+                -HostSnapshot $failureHostSnapshot @failureCaptureContext
         } catch {
+            $failureDiagnostic = @{ diagnosticOutcome='unavailable'; reasonCode='capture-exception'; reason=$_.Exception.GetType().Name }
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f7277de3faa3266' -Arguments @{ message = "$($_.Exception.Message)" })
+        }
+        Send-CycleEventSafely -EventRecord @{
+            timestamp=[datetime]::UtcNow.ToString('o'); event='failure_diagnostic'; vmName=$VMName; guestKey=$GuestKey
+            stepInvocationId=$failureCaptureContext.StepInvocationId; sequenceInvocationId=$failureCaptureContext.SequenceInvocationId
+            diagnosticOutcome=$failureDiagnostic.diagnosticOutcome; reasonCode=$failureDiagnostic.reasonCode
+            hostSnapshot=$failureHostSnapshot; guestSnapshot=$failureDiagnostic.guestSnapshot
         }
 
         # See https://yuruna.link/4213a0b3-00e6
+        $faeText = $null
+        $faeVerdict = @{ state='unavailable'; reasonCode='execution-capture-unavailable' }
         try {
+            if (-not (Get-Command Get-GuestExecutionLogVerdict -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $ModulesDir 'Test.Diagnostic.psm1') -Global -ErrorAction Stop
+            }
             if (-not (Get-Command 'Test.Ssh\Invoke-GuestSsh' -ErrorAction SilentlyContinue)) {
                 Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Force -Global -ErrorAction SilentlyContinue
             }
@@ -497,17 +572,26 @@ function Copy-FailureArtifactsToStatusLog {
             $faeResult = Test.Ssh\Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey `
                 -Command $faeProbe -TimeoutSeconds 60
             if ($faeResult.success -and $faeResult.output -and ($faeResult.output -notmatch '^\(file not present\)\s*$')) {
-                $faeOut = Join-Path $destSeqDir 'last-fetch-and-execute.log'
-                Set-Content -LiteralPath $faeOut -Value $faeResult.output -Encoding utf8NoBOM -NoNewline
-                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e8c42e2c1af2dc6b' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
-                Write-CycleFailureExecutionTail -ExecutionLog $faeResult.output `
-                    -LogPath "./status/log/$cycleBase/$destSeqName/last-fetch-and-execute.log"
+                $faeText = Protect-GuestEvidenceText -Text ([string]$faeResult.output)
+                $expectedExecution = Get-FailureDiagnosticInvocation -GuestFolder $destSeqDir -VMName $VMName -GuestKey $GuestKey -ForExecutionLog
+                $faeVerdict = Get-GuestExecutionLogVerdict -ExecutionLog $faeText @expectedExecution
+                if ($faeVerdict.state -eq 'current') {
+                    $faeOut = Join-Path $destSeqDir 'last-fetch-and-execute.log'
+                    Set-Content -LiteralPath $faeOut -Value $faeText -Encoding utf8NoBOM -NoNewline
+                    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e8c42e2c1af2dc6b' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
+                }
             } else {
+                $faeVerdict.reasonCode = if ($faeResult.success) { 'execution-log-absent' } else { 'execution-ssh-unavailable' }
                 Write-Verbose "  fetch-and-execute log: success=$($faeResult.success) exit=$($faeResult.exitCode) output=$($faeResult.output)"
             }
         } catch {
+            $faeText = $null
+            $faeVerdict = @{ state='unavailable'; reasonCode='execution-capture-error' }
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d828298e696dacc4' -Arguments @{ message = "$($_.Exception.Message)" })
         }
+        Write-CycleFailureExecutionTail -ExecutionLog $faeText -VMName $VMName -GuestKey $GuestKey `
+            -UnavailableReasonCode $faeVerdict.reasonCode `
+            -LogPath "./status/log/$cycleBase/$destSeqName/last-fetch-and-execute.log"
 
         # The profiling trace that goes with the log above. Its path is recorded
         # in the log's own header, but the file itself lives on the guest and is
@@ -518,9 +602,9 @@ function Copy-FailureArtifactsToStatusLog {
         # it belongs to. Soft-failing like every other rung here.
         try {
             $profilePath = $null
-            if ($faeResult -and $faeResult.output) {
-                foreach ($faeLine in ($faeResult.output -split "`r?`n")) {
-                    if ($faeLine -match '^#\s*profile:\s*(\S+)') { $profilePath = $Matches[1]; break }
+            if ($faeVerdict.state -eq 'current' -and $faeText) {
+                foreach ($faeLine in ($faeText -split "`r?`n")) {
+                    if ($faeLine -match '^#\s*profile:\s*(/tmp/yuruna-fae-profile\.[A-Za-z0-9]+)\s*$') { $profilePath = $Matches[1]; break }
                 }
             }
             if ($profilePath) {
@@ -536,6 +620,7 @@ function Copy-FailureArtifactsToStatusLog {
                 $profResult = Test.Ssh\Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey `
                     -Command $profProbe -TimeoutSeconds 60
                 if ($profResult.success -and $profResult.output -and ($profResult.output -notmatch '^\(file not present\)\s*$')) {
+                    $profResult.output = Protect-GuestEvidenceText -Text ([string]$profResult.output)
                     $profOut = Join-Path $destSeqDir 'fetch-and-execute-profile.log'
                     Set-Content -LiteralPath $profOut -Value $profResult.output -Encoding utf8NoBOM -NoNewline
                     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_fabaae771467a2e2' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
@@ -588,6 +673,17 @@ function Copy-FailureArtifactsToStatusLog {
             if (Get-Command Save-VMDhcpCapture -ErrorAction SilentlyContinue) {
                 if (Save-VMDhcpCapture -VMName $VMName -OutputDirectory $destSeqDir) {
                     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_421fff6ff7e395a2' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
+                    # The capture's answer in one line: whether the guest ever
+                    # asked for a lease is what separates a guest that never
+                    # reached its network from a network that never answered.
+                    $dhcpSummaryPath = Join-Path $destSeqDir 'dhcp.capture.summary.json'
+                    if (Test-Path -LiteralPath $dhcpSummaryPath) {
+                        $dhcpSummary = Get-Content -LiteralPath $dhcpSummaryPath -Raw | ConvertFrom-Json
+                        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e653bdc981ca5464' -Arguments @{
+                            guestMac = "$($dhcpSummary.guestMac)"; sent = "$($dhcpSummary.sentByGuest)"
+                            replies = "$($dhcpSummary.unicastToGuest)"; others = "$($dhcpSummary.fromOtherClients)"
+                            clients = "$($dhcpSummary.otherClients)" })
+                    }
                 }
             }
         } catch {
@@ -1731,7 +1827,7 @@ function Write-CycleHostNetworkReclassification {
         $reclassified = Resolve-HostNetworkFailureClass -FailureClass $current -GuestKey $GuestKey
         if ($reclassified -eq $current) { return }
         $rec['failureClass'] = $reclassified
-        $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 6) -Confirm:$false
+        $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 12) -Confirm:$false
         # Re-mirror so the cycle folder's copy carries the re-filed class the
         # retry consumers route on rather than the symptom it replaced.
         if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
@@ -1746,8 +1842,7 @@ function Write-CycleHostNetworkReclassification {
 function Write-CycleFailureExecutionTail {
     <#
     .SYNOPSIS
-        Attach the verbatim tail of the guest's fetch-and-execute log to the
-        failure record, beside the OCR-derived cause the engine wrote.
+        Attach a matching execution-log tail or an explicit attribution verdict.
     .DESCRIPTION
         The engine classifies from what the screen showed, so the cause it stores
         is OCR output -- text that has been through a camera. A URL comes back as
@@ -1757,15 +1852,18 @@ function Write-CycleFailureExecutionTail {
         the guest as bytes, written by the wrapper that ran the script, and it is
         already being collected next to this record.
 
-        Additive on purpose: ocrTail is left exactly as written, because it is
-        what the classifier actually matched against, and a reader comparing the
-        two is entitled to see both. Best-effort by contract -- a record that
-        cannot be read or written is left as the engine wrote it.
+        The guest reuses one log path, and a download failure on an older wrapper
+        leaves the preceding invocation there. Only a complete header identifying
+        the failed script and both invocation IDs can supply this failure's tail.
+        Missing or mismatched identity stays explicit without replacing ocrTail.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowNull()]$ExecutionLog,
-        [Parameter(Mandatory)][string]$LogPath
+        [Parameter(Mandatory)][string]$LogPath,
+        [string]$VMName,
+        [string]$GuestKey,
+        [ValidatePattern('^[a-z0-9-]+$')][string]$UnavailableReasonCode = 'execution-log-absent'
     )
     if (-not $env:YURUNA_LOG_DIR) { return }
     # Normalized rather than typed to [string]: the SSH rung hands this a single
@@ -1776,31 +1874,45 @@ function Write-CycleFailureExecutionTail {
     } else {
         [string]$ExecutionLog
     }
-    if ([string]::IsNullOrWhiteSpace($executionText)) { return }
     $failFile = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
     if (-not (Test-Path -LiteralPath $failFile)) { return }
     if (-not (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) { return }
     try {
         $rec = Get-Content -Raw -LiteralPath $failFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
         if ($rec -isnot [System.Collections.IDictionary]) { return }
+        if (($VMName -and $rec.vmName -cne $VMName) -or ($GuestKey -and $rec.guestKey -cne $GuestKey)) { return }
         if (-not $rec.Contains('context') -or $rec['context'] -isnot [System.Collections.IDictionary]) { return }
         $ctx = $rec['context']
         # Only a record that already carries a cause block gets one: a crash
         # record deliberately has none, and inventing one here would hand every
         # consumer a shape the schema does not promise.
         if (-not $ctx.Contains('causeDetail') -or $ctx['causeDetail'] -isnot [System.Collections.IDictionary]) { return }
+        $expected = Get-FailureExecutionLogContext -Record $rec -VMName ([string]$rec.vmName) -GuestKey ([string]$rec.guestKey)
+        if (-not (Get-Command Get-GuestExecutionLogVerdict -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot 'Test.Diagnostic.psm1') -Global -ErrorAction Stop
+        }
+        $verdict = Get-GuestExecutionLogVerdict -ExecutionLog $executionText @expected
+        if ([string]::IsNullOrWhiteSpace($executionText)) { $verdict.reasonCode=$UnavailableReasonCode }
+        $cause = $ctx['causeDetail']
+        $null = $cause.Remove('executionTail')
+        $null = $cause.Remove('executionLogPath')
+        $cause['executionLog'] = $verdict
         # Bounded like the OCR tail beside it. This record gets read in a
         # terminal and pasted into reports; an unbounded script log would bury
         # every other field in it.
-        $tailLines = @($executionText -split "`r?`n") | Select-Object -Last 40
-        $ctx['causeDetail']['executionTail']    = ($tailLines -join "`n")
-        $ctx['causeDetail']['executionLogPath'] = $LogPath
-        $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 6) -Confirm:$false
+        if ($verdict.state -eq 'current') {
+            $tailLines = @($executionText -split "`r?`n") | Select-Object -Last 40
+            $cause['executionTail']    = ($tailLines -join "`n")
+            $cause['executionLogPath'] = $LogPath
+        }
+        $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 12) -Confirm:$false
         # Re-mirror so the cycle folder's copy carries the verbatim tail too.
         if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
             $null = Copy-CycleFailureRecord
         }
-        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_41ccadccc24c8f1c' -Arguments @{ count = "$(@($tailLines).Count)" })
+        if ($verdict.state -eq 'current') {
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_41ccadccc24c8f1c' -Arguments @{ count = "$(@($tailLines).Count)" })
+        }
     } catch {
         Write-Verbose "Execution-tail enrichment of $failFile skipped: $($_.Exception.Message)"
     }
@@ -1864,7 +1976,7 @@ function Write-CycleInfraFailure {
             -HostMemory $HostMemory
         $failFile = Join-Path $dir 'last_failure.json'
         if (-not (Test-Path -LiteralPath $failFile) -and (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) {
-            $null = Write-YurunaStateFile -Path $failFile -Content ($rec.File | ConvertTo-Json -Depth 6) -Confirm:$false
+            $null = Write-YurunaStateFile -Path $failFile -Content ($rec.File | ConvertTo-Json -Depth 12) -Confirm:$false
             # Mirror into the cycle folder at classification time: the record
             # above sits at the shared log root, which the next guest's first
             # sequence start clears, so an infra failure on a non-final guest
@@ -2172,6 +2284,7 @@ do {
     $FailedStep     = $null
     $FailureMessage = $null
     $script:CycleFinalized = $false
+    $script:DiagnosticPreservedVMName = ''
     $Warnings = [System.Collections.Generic.List[string]]::new()
 
     # Infra-stage failures (git sync, project clone, plan, image, VM provisioning)
@@ -2422,11 +2535,12 @@ do {
     $Config = Update-CycleConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath -PreviousConfig $Config
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
 
-    # --- REGION: Restart status service to pick up any file/config changes
-    # -Restart forces a relaunch so a mid-cycle git pull / config edit is
-    # reflected; the shared gate honors enabled / -NoStatusService / port identically
-    # to the startup path and Debug-TestSequence.
-    $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoStatusService:$NoStatusService -Restart
+    # --- REGION: Ensure the status service runs current framework code
+    # The launcher relaunches the server when the framework commit it was
+    # started from differs from HEAD, or when it does not answer; config,
+    # pages, logs and archives are read per request, so an unchanged commit
+    # needs no relaunch.
+    $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoStatusService:$NoStatusService
 
     # The config service is intentionally NOT ensured here: it is a
     # caching-proxy-service companion (owned by Start-CachingProxyServiceVM.ps1 on the caching-proxy-service
@@ -2977,7 +3091,8 @@ do {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8853dbfde9396bca' -Arguments @{ cycleCount = "$CycleCount" })
         Write-Output "  $($_.Exception.Message)"
         Write-Output "========"
-        if ($script:ActiveVMName) {
+        if ($script:ActiveVMName -and $script:ActiveVMName -ne $script:DiagnosticPreservedVMName -and
+            -not (Get-DiagnosticVmPreservation)) {
             try {
                 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ce85196d8015fec4' -Arguments @{ activeVMName = "$($script:ActiveVMName)" })
                 Remove-GuestVMQuietly -VMName $script:ActiveVMName -BestEffort
@@ -3027,7 +3142,8 @@ do {
     }
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 
-    if ($script:ActiveVMName) {
+    if ($script:ActiveVMName -and $script:ActiveVMName -ne $script:DiagnosticPreservedVMName -and
+        -not (Get-DiagnosticVmPreservation)) {
         try {
             Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_afaf6ea527ec2849' -Arguments @{ activeVMName = "$($script:ActiveVMName)" })
             Remove-GuestVMQuietly -VMName $script:ActiveVMName -BestEffort
@@ -3076,7 +3192,9 @@ do {
         break
     }
 
-    if ($_sweepPrefixes) { Remove-CycleTeardownOrphanVM -CycleCount $CycleCount -TestRoot $TestRoot -Prefix $_sweepPrefixes }
+    if ($_sweepPrefixes -and -not $script:DiagnosticPreservedVMName -and -not (Get-DiagnosticVmPreservation)) {
+        Remove-CycleTeardownOrphanVM -CycleCount $CycleCount -TestRoot $TestRoot -Prefix $_sweepPrefixes
+    }
 
     # Cycle-pause back-channel: status service's /control/cycle-pause
     # endpoint creates $env:YURUNA_RUNTIME_DIR/control.cycle-pause. Gate
@@ -3175,6 +3293,10 @@ function Complete-GuestStepFailure {
     $IterState.FailedGuest = $GuestKey
     $IterState.FailedStep = $StepName
     $IterState.FailureMessage = $ErrorMessage
+    if ($StopOnFailure) {
+        $script:DiagnosticPreservedVMName = $VMName
+        $null = Set-DiagnosticVmPreservation -VMName $VMName -GuestKey $GuestKey -StepName $StepName -Confirm:$false
+    }
     if ($FailureClass) {
         Write-CycleInfraFailure -Stage $StepName -FailureClass $FailureClass -GuestKey $GuestKey -VMName $VMName -ErrorMessage $ErrorMessage -HostType $HostType -HostMemory $HostMemory
     }
@@ -3234,7 +3356,7 @@ function Invoke-GuestProvisionIteration {
         $ShutdownState
     )
     $IterState.Control = 'proceed'
-    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
+    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds
     if ($ShutdownState['Requested']) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_731765af83006a6d')
         $IterState.OverallPassed = $false; $IterState.FailedStep = "shutdown"
@@ -3370,7 +3492,7 @@ function Invoke-GuestProvisionIteration {
     }
     $r = New-VM @newVmArgs -Confirm:$false
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
+    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds
     if ($r.success) {
         Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "pass"
         $prov = Get-GuestProvenance -GuestKey $GuestKey
@@ -3388,14 +3510,17 @@ function Invoke-GuestProvisionIteration {
     Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "running"
     $r = Start-VM -VMName $VMName -Confirm:$false
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
+    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds
     if ($r.success) {
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "pass"
         # See https://yuruna.link/4213a0b3-0106
         try { $null = Update-GuestNeighborCache -VMName $VMName } catch {
             Write-Verbose "Update-GuestNeighborCache (pre-Wait-VMIp) threw: $($_.Exception.Message)"
         }
-        $guestIp = Wait-VMIp -VMName $VMName -TimeoutSeconds 30
+        # The address only labels the operator line below; the guest is at
+        # firmware or an installer prompt here, so one look is all that can
+        # answer, and later output reports the address once the guest is up.
+        $guestIp = Wait-VMIp -VMName $VMName -TimeoutSeconds 1 -PollSeconds 1 -StableForSeconds 0
         $ipSuffix = if ($guestIp) { " ==> IP: $guestIp" } else { " ==> IP: (pending)" }
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3c07e3c114f23fdf' -Arguments @{ guestKey = "$GuestKey"; ipSuffix = "$ipSuffix" })
     } else {
@@ -3430,7 +3555,7 @@ function Invoke-GuestProvisionIteration {
     }
     $r = Start-GuestOS -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -SequenceNames $startSeqs -EffectiveVariables $cascadeVarsMap
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
+    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds
     if ($r.skipped) {
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestOS" -Status "skipped" -Skipped $true
     } elseif ($r.success) {
@@ -3444,13 +3569,14 @@ function Invoke-GuestProvisionIteration {
         return
     }
 
-    # --- REGION: New-VM.Resource (poll until running, wait boot delay)
+    # --- REGION: New-VM.Resource (poll until running)
     Assert-CachingProxyServiceStillReachable -ProxyUrl $cachingProxyUrl -StepName "New-VM.Resource" -GuestKey $GuestKey
     Set-StepStatus -GuestKey $GuestKey -StepName "New-VM.Resource" -Status "running"
-    $ok = Wait-VMRunning -VMName $VMName `
-        -TimeoutSeconds $VmStartTimeoutSeconds -BootDelaySeconds $VmBootDelaySeconds
+    # No boot delay here: the start sequences have already driven this VM,
+    # and every workload sequence opens with a step that waits for the guest.
+    $ok = Wait-VMRunning -VMName $VMName -TimeoutSeconds $VmStartTimeoutSeconds
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
+    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds
     if (-not $ok) {
         $err = "VM '$VMName' did not reach running state after start."
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c72668179e602cdf' -Arguments @{ guestKey = "$GuestKey"; err = "$err" })
@@ -3468,7 +3594,7 @@ function Invoke-GuestProvisionIteration {
         $r = Invoke-ScreenshotTest -GuestKey $GuestKey `
             -VMName $VMName -ScreenshotsDir $ScreenshotsDir
         Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-        $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
+        $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds
         if ($r.skipped) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "skipped" -Skipped $true
         } elseif ($r.success) {
@@ -3567,7 +3693,7 @@ function Invoke-GuestProvisionIteration {
             }
         }
         Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-        $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
+        $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds
         if ($r.skipped) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestWorkload" -Status "skipped" -Skipped $true
         } elseif ($r.success) {

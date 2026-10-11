@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42d54579-288d-4a9f-a983-d5f9e1894a16
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -220,6 +220,69 @@ Describe 'affected-slice map generation' {
         $fail = Invoke-FixtureMap -Fixture $fixture
         Assert-Equal -Expected 1 -Actual $fail.Code -Because 'a changed exclusion match count was accepted'
         Assert-Match -Pattern 'expected 1, found 2' -Actual $fail.Output
+    }
+
+    It 'rejects an explicit wire code hidden by an exact-count exclusion in <Suffix> (<MatchCount> literals)' -ForEach @(
+        @{ Suffix = 'ps1'; Body = "`$state = 'sample.ready';"; MatchCount = 1 }
+        @{ Suffix = 'js'; Body = "var state = 'sample.ready';"; MatchCount = 1 }
+        @{ Suffix = 'ps1'; Body = "`$vmState = 'ready'; `$requestState = 'sample.ready';"; MatchCount = 2 }
+        @{ Suffix = 'js'; Body = "var vmState = 'ready'; var requestState = 'sample.ready';"; MatchCount = 2 }
+    ) {
+        $fixture = New-SliceMapFixture
+        $path = "src/unrelated.$Suffix"
+        [IO.File]::WriteAllText((Join-Path $fixture.Root $path), $Body + "`n")
+        $authority = Read-FixtureJson $fixture.Manifest
+        $authority.literalExclusions = @([pscustomobject]@{
+                wireCode = 'sample.ready'; path = $path; matchCount = $MatchCount
+                reason = 'Virtual machine readiness is separate from the sample request state.'
+            })
+        Write-FixtureJson -Path $fixture.Manifest -Value $authority
+
+        $run = Invoke-FixtureMap -Fixture $fixture -Update
+        Assert-Equal 1 $run.Code 'a correctly counted exclusion hid an explicit protocol boundary'
+        Assert-Match 'cannot classify an explicit wire code' $run.Output
+        Assert-False (Test-Path -LiteralPath $fixture.Output) 'a rejected classification wrote generated evidence'
+    }
+
+    It 'allows a generic VM-state collision beside a documented wire code in <Suffix>' -ForEach @(
+        @{ Suffix = 'ps1'; Body = "`$vmState = 'ready'; # 'sample.ready' belongs to another protocol." }
+        @{ Suffix = 'js'; Body = "var vmState = 'ready'; // 'sample.ready' belongs to another protocol." }
+    ) {
+        $fixture = New-SliceMapFixture
+        $path = "src/unrelated.$Suffix"
+        [IO.File]::WriteAllText((Join-Path $fixture.Root $path), $Body + "`n")
+        $authority = Read-FixtureJson $fixture.Manifest
+        $authority.literalExclusions = @([pscustomobject]@{
+                wireCode = 'sample.ready'; path = $path; matchCount = 1
+                reason = 'Virtual machine readiness is separate from the sample request state.'
+            })
+        Write-FixtureJson -Path $fixture.Manifest -Value $authority
+
+        $run = Invoke-FixtureMap -Fixture $fixture -Update
+        Assert-Equal 0 $run.Code $run.Output
+        $map = Read-FixtureJson $fixture.Output
+        Assert-Equal 0 @($map.consumers | Where-Object path -EQ $path).Count `
+            'an unrelated VM state became a protocol producer or consumer'
+        Assert-Equal 2 @($map.slices | Where-Object seedOpen).Count
+        Assert-Equal 1 $map.literalExclusions[0].matchCount
+    }
+
+    It 'rejects an unrelated-literal classification after its source use is removed' {
+        $fixture = New-SliceMapFixture
+        [IO.File]::WriteAllText((Join-Path $fixture.Root 'src/unrelated.js'), "var vmState = 'ready';`n")
+        $authority = Read-FixtureJson $fixture.Manifest
+        $authority.literalExclusions = @([pscustomobject]@{
+                wireCode = 'sample.ready'; path = 'src/unrelated.js'; matchCount = 1
+                reason = 'Virtual machine readiness is separate from the sample request state.'
+            })
+        Write-FixtureJson -Path $fixture.Manifest -Value $authority
+        $record = Invoke-FixtureMap -Fixture $fixture -Update
+        Assert-Equal 0 $record.Code $record.Output
+
+        [IO.File]::WriteAllText((Join-Path $fixture.Root 'src/unrelated.js'), "var vmState = 'stopped';`n")
+        $run = Invoke-FixtureMap -Fixture $fixture -Check
+        Assert-Equal 1 $run.Code 'a deleted reviewed literal left a usable exclusion'
+        Assert-Match 'stale source literal exclusion' $run.Output
     }
 
     It 'rejects an explicit signature that no row maps' {

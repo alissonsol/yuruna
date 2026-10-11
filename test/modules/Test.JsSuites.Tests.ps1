@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 421d8999-cae4-4164-90cd-fd5cc6a6e28f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,11 +34,11 @@
     is worse than no gate at all: it is a false negative that hides whatever
     the JavaScript checks would have caught.
 
-    A host that HAS node cannot be made to take that path without hiding node
-    from the child process, and node commonly shares a directory with git,
-    which the runner needs for discovery. So that case reports itself skipped
-    rather than pretending to have checked -- the same distinction the runner
-    itself is being held to.
+    A host that HAS node takes that path too: node commonly shares a
+    directory with git, which the runner needs for discovery, so removing it
+    from PATH would hide git as well. Instead a child process shadows
+    Get-Command for the one name node, which is the only way the runner looks
+    for it, and the path is exercised the same way on every host.
     Run: pwsh -NoProfile -File test/modules/Test.JsSuites.Tests.ps1
 #>
 
@@ -66,8 +66,6 @@ $script:Expected = @(
     'test/status/status-badges.test.js',
     'test/status/yuruna.common.test.js'
 )
-
-$script:NodeAbsent = -not (Get-Command node -ErrorAction SilentlyContinue)
 
 # A child pwsh, because the exit code is half of what is under test and only
 # survives a process boundary.
@@ -111,41 +109,43 @@ Describe 'Invoke-JsTest discovery' {
 }
 
 Describe 'Invoke-JsTest with node absent' {
-    It 'reports SKIPPED with the reason, and never a pass' {
-        if (-not $script:NodeAbsent) {
-            Set-ItResult -Skipped -Because 'node is installed on this host, so the missing-toolchain path cannot be reached'
-            return
-        }
+    BeforeAll {
+        # Get-Command is shadowed for the name node only, so PATH is untouched
+        # and git stays reachable for the runner's discovery.
+        $wrapper = Join-Path $TestDrive 'run-without-node.ps1'
+        [IO.File]::WriteAllText($wrapper, @'
+param([Parameter(Mandatory)][string]$Runner)
+function Get-Command {
+    if ($args.Count -gt 0 -and $args[0] -eq 'node') { return }
+    Microsoft.PowerShell.Core\Get-Command @args
+}
+& $Runner
+exit $LASTEXITCODE
+'@)
+        $script:AbsentOutput = (& pwsh -NoProfile -File $wrapper -Runner $script:Runner 2>&1 | Out-String)
+        $script:AbsentExit = $LASTEXITCODE
+    }
 
-        Assert-Match -Pattern 'SKIPPED: node is not installed or not on PATH' -Actual $script:Output `
+    It 'reports SKIPPED with the reason, and never a pass' {
+        Assert-Match -Pattern 'SKIPPED: node is not installed or not on PATH' -Actual $script:AbsentOutput `
             -Because 'the reason a gate did not run has to be in its own output'
-        Assert-Match -Pattern '0 run' -Actual $script:Output `
+        Assert-Match -Pattern '0 run' -Actual $script:AbsentOutput `
             -Because 'a skipped run must not claim to have executed anything'
-        Assert-True (-not ($script:Output -match '(?m)^ok ')) `
+        Assert-True (-not ($script:AbsentOutput -match '(?m)^ok ')) `
             'no file may be reported as passing when none of them ran'
-        Assert-True (-not ($script:Output -match '0 failed')) `
+        Assert-True (-not ($script:AbsentOutput -match '0 failed')) `
             'a zero-failure summary from a run that never happened is the false negative this guards'
     }
 
     It 'marks every discovered file SKIPPED' {
-        if (-not $script:NodeAbsent) {
-            Set-ItResult -Skipped -Because 'node is installed on this host, so the missing-toolchain path cannot be reached'
-            return
-        }
-
         foreach ($file in $script:Expected) {
-            Assert-Match -Pattern "(?m)^SKIPPED $([regex]::Escape($file))\r?$" -Actual $script:Output `
+            Assert-Match -Pattern "(?m)^SKIPPED $([regex]::Escape($file))\r?$" -Actual $script:AbsentOutput `
                 -Because "$file was discovered but not run, and has to say so per file"
         }
     }
 
     It 'exits with the missing-toolchain code, distinct from success and from a test failure' {
-        if (-not $script:NodeAbsent) {
-            Set-ItResult -Skipped -Because 'node is installed on this host, so the missing-toolchain path cannot be reached'
-            return
-        }
-
-        Assert-Equal -Expected 2 -Actual $script:ExitCode `
+        Assert-Equal -Expected 2 -Actual $script:AbsentExit `
             -Because 'exit 0 would report green from a host that checked nothing, and exit 1 would claim a JavaScript assertion failed'
     }
 }

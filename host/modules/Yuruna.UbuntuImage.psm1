@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42418995-a462-47f5-816a-8709623807f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -277,13 +277,8 @@ function Test-UbuntuServerImageChecksum {
             Write-Warning ('=' * 72)
             return $false
         }
-        # Best-effort: authenticate the SHA256SUMS via its detached GPG signature
-        # before trusting any hash parsed from it. The verifier lives in
-        # Yuruna.Image, which the ISO path does not load, so import on demand and
-        # capture a CommandInfo that resolves against its defining module. It is
-        # handed the copy already on disk so the signature and the hash bind to
-        # ONE artifact. No gpg/keyserver/.gpg -> 'unverified' (proceed on hash);
-        # a definitively bad or foreign signature -> fail like a hash mismatch.
+        # Authenticate the same saved checksum list used for hash parsing.
+        # See https://yuruna.link/42e220c4-0003
         $sigVerifier = Get-Command Test-PublishedChecksumSignature -ErrorAction SilentlyContinue
         if (-not $sigVerifier) {
             $imgMod = Join-Path $PSScriptRoot 'Yuruna.Image.psm1'

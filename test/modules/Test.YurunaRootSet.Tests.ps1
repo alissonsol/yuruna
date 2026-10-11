@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a0c011-c5f6-4739-968e-b876a31dcd75
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,15 +22,7 @@
     once in Yuruna.LogLevel.psm1 (Resolve-YurunaRootSet) and the five main
     entrypoints delegate to it.
 .DESCRIPTION
-    yuruna.ps1 and the four Set-*/Invoke-Clear entrypoints each open-coded the same
-    root-resolution prelude -- resolve yuruna_root, default + Resolve-Path the
-    project root (guarding missing/ambiguous), resolve config/<subfolder> (same
-    guard), and export the three Env: items. That block is now Resolve-YurunaRootSet
-    in Yuruna.LogLevel.psm1, called BEFORE the Yuruna.* module eviction (the resolver
-    lives in the leaf that the eviction later sweeps up). These guards assert the
-    resolver exists + is exported, each entrypoint delegates to it, and none still
-    inlines the raw project-root Resolve-Path guard. Source-text only. Runs under
-    Pester 4.10.1.
+    See https://yuruna.link/42e220c4-0019 for bootstrap order and process outcomes.
 #>
 
 BeforeAll {

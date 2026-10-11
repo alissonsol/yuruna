@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 420eae9d-b5a9-4ca6-af97-df678c83b820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,7 +159,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 
 # --- REGION: Remove existing VM
-if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
+if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
@@ -224,7 +224,8 @@ if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl')) {
     }
 } else {
 $CachingProxyServiceUrl = ""
-$squidStatus = [string](Get-VMStateRecord -VMName 'yuruna-caching-proxy-service').State
+$cacheState = Get-VMStateRecord -VMName 'yuruna-caching-proxy-service'
+$squidStatus = [string]$cacheState.State
 
 # Delegate to the host driver: state-file and UTM guest-address discovery
 # (self-healing if state went stale). Yuruna.Host is already imported
@@ -238,7 +239,7 @@ try { $probedUrl = Test-CachingProxyServiceAvailable } catch {
 if ($probedUrl) {
     $CachingProxyServiceUrl = $probedUrl
     Write-Verbose "  caching-proxy-service reachable on LAN -- guest will use $CachingProxyServiceUrl."
-} elseif ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
+} elseif ($squidStatus -eq 'running') {
     # VM is up but no :3128 answer was found on the LAN. Could be: the
     # bridged DHCP lease failed (Wi-Fi AP MAC filter), cloud-init still
     # bringing up squid (5-15 min on first boot), or the recorded guest address
@@ -270,6 +271,9 @@ To intentionally skip the cache:
 ========
 "@
     $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
+    exit 1
+} elseif ($squidStatus -notin @('stopped', 'absent')) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.utm_cache_state_unconfirmed' -Arguments @{ state = "$squidStatus"; reason = "$($cacheState.Reason)" })
     exit 1
 } elseif ($squidStatus) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b8e47643acd55dfa' -Arguments @{ squidStatus = "$squidStatus" })

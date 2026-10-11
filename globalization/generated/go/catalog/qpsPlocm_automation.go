@@ -7,6 +7,8 @@ package catalog
 // DataqpsPlocmautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataqpsPlocmautomation = `{
+  "automation.diagnostic_checkout_unavailable": "[!‮(ñóţ áƥƥļíçáƀļé: çħéçķóúţ éṽíďéñçé íš úñáṽáíļáƀļé; ƥášš -ÇħéçķóúţŘóóţ ţó úšé áñ éẋíšţíñğ Ýúřúñá çħéçķóúţ)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "automation.diagnostic_phase_log_limits": "[!‮Ƥħášé ļóğ šçáñ íš ļíɱíţéď ţó 100 ƒíļéš, 12 ďířéçţóřý ļéṽéļš, áñď 10 šéçóñďš; éáçħ ļóğ šħóŵš áţ ɱóšţ íţš ļášţ 64 ĶíɃ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "automation.host_setup_module_install_skipped": [
     "[!‮",
     {

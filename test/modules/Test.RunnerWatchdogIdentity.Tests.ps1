@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4226ec4a-0d3b-407b-80ff-4b853f0a15cc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,11 +34,12 @@
     inside an identity-gated branch -- so a reused PID is neither mistaken for a live
     inner nor killed. Keyed on AST nodes; all fail if the identity gating is removed.
 
-    The throw-free Should assertions run under Pester 4.10.1.
+    The throw-free Should assertions run under Pester 5.x.
 #>
 
 BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $modPath = Join-Path $here 'Test.RunnerWatchdog.psm1'
 Import-Module $modPath -Force
 
@@ -49,18 +50,12 @@ $script:IdentitySb = [scriptblock]::Create((Get-WatchdogInnerIdentityScript))
 
 # --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-ModuleAst {
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($modPath): $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $modPath
 }
 
 function Get-CommandInvokeCount {
     param($Ast, [string]$Name)
-    $wanted = $Name
-    @($Ast.FindAll({ param($n)
-        $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wanted
-    }, $true)).Count
+    return (Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $Name)
 }
 
 # Count of if-statement conditions whose text matches $Pattern (AST nodes only).

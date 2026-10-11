@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42bf30ec-9436-488d-ba38-a0e6ffd6d33f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     the process, so it is guarded structurally: the pre-flight's IfStatement body must
     contain an exit statement (the bounded, non-interactive refuse-to-start) and a
     Write-OuterLog call (so the reason lands in outer.log, not only the console Warning
-    stream). Pester 4.10.1.
+    stream). Pester 5.x.
 #>
 
 BeforeAll {

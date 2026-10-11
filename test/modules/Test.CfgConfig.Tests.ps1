@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42306286-6637-4762-aa48-42757ab30e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,13 +26,14 @@
     Behavioral tests exercise the exported cache/snapshot surface (Ordinal collision,
     FIFO eviction past the cap, per-source + per-user snapshot slots, fail-soft
     validation); AST guards pin the bound comparison node and the validator routing.
-    The throw-free Should assertions run under Pester 4.10.1.
+    The throw-free Should assertions run under Pester 5.x.
 #>
 
 BeforeAll {
 $here         = Split-Path -Parent $PSCommandPath
 $configMod    = Join-Path $here 'Test.Config.psm1'
 $script:validatorMod = Join-Path $here 'Test.ConfigValidator.psm1'
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 Import-Module $configMod -Force
 if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
     Import-Module powershell-yaml -ErrorAction SilentlyContinue
@@ -41,17 +42,11 @@ if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
 # --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-FileAst {
     param([string]$Path)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($Path): $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 function Get-CommandInvokeCount {
     param($Ast, [string]$Name)
-    $wanted = $Name
-    @($Ast.FindAll({ param($n)
-        $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wanted
-    }, $true)).Count
+    return (Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $Name)
 }
 function Get-BoundComparisonCount {
     # A real "-gt" comparison node whose left is the order-list Count and right is the cap,

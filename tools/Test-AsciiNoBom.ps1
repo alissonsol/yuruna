@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42e9bd8a-5257-4459-82a4-765455c96fe3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,44 +120,21 @@ if ($Staged) {
 }
 
 if (-not $Path -or $Path.Count -eq 0) {
-    # The default set is every tracked file whose type is ASCII BY POLICY.
-    #
-    # It began as four bootstrap paths -- the three installers fetched with
-    # `irm | iex` or `curl | bash`, and the guest/windows.11 scripts a fresh
-    # Windows guest runs the same way -- where a BOM or a non-ASCII byte
-    # aborts at line 1 before any tolerant shell exists. Those are still the
-    # sharpest cases, but four files turned out to be too narrow an aperture:
-    # a tree-wide normalization can rewrite a character in three copies of a
-    # shared block and miss the fourth, and nothing here would notice. That
-    # is not hypothetical -- it forked the page-chrome block that
-    # Test.ExtensionUiChrome.Tests.ps1 requires to be byte-identical, and
-    # only that unrelated guard caught it.
-    #
-    # WHAT IS DELIBERATELY NOT COVERED, and why widening further would be
-    # wrong rather than merely stricter: markdown, HTML and JavaScript carry
-    # USER-VISIBLE typography -- em dashes in a <title>, an ellipsis in a
-    # loading label, the box-drawing separators in yuruna.common.js -- and
-    # store_test.go holds a deliberate "file.cafe" charset fixture whose
-    # whole purpose is to be non-ASCII. Forcing those to ASCII would damage
-    # what they render or what they prove. The types below carry no such
-    # content: all 476 PowerShell files, 35 shell scripts, 5 stylesheets, and
-    # every tracked JSON and YAML document are ASCII today, so this gate is
-    # green on adoption and stays a real signal rather than a backlog.
-    $trackedTypes = @('*.ps1', '*.psm1', '*.psd1', '*.sh', '*.bash', '*.css', '*.json', '*.yml', '*.yaml')
-    # The message catalogs and everything generated from them are the one tree
-    # that has to carry non-ASCII text: a translated sentence is the content,
-    # and escaping it would make the source unreadable to the translator who
-    # has to review it. They are held to UTF-8 rules instead, by
-    # tools/Test-Utf8Catalog.ps1 -- including the BOM ban this gate enforces
-    # everywhere else, so nothing is merely dropped here.
-    $utf8Tree = @('globalization/')
+    # Source types follow the ASCII policy; translated catalogs require UTF-8.
+    # See https://yuruna.link/42e220c4-000a
+    $trackedTypes = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($extension in '.ps1', '.psm1', '.psd1', '.sh', '.bash', '.css', '.json', '.yml', '.yaml') {
+        [void]$trackedTypes.Add($extension)
+    }
     $tracked = @(& git -C $RepoRoot ls-files --cached --others --exclude-standard 2>$null)
     if ($LASTEXITCODE -eq 0 -and $tracked.Count -gt 0) {
-        $Path = @($tracked |
-            Where-Object { $rel = $_ -replace '\\', '/'; -not (@($utf8Tree | Where-Object { $rel.StartsWith($_) })) } |
-            Where-Object { $n = [IO.Path]::GetFileName($_); $trackedTypes | Where-Object { $n -like $_ } } |
-            ForEach-Object { Join-Path $RepoRoot $_ } |
-            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+        $Path = @(foreach ($relative in $tracked) {
+            $rel = $relative.Replace('\', '/')
+            if ($rel.StartsWith('globalization/', [StringComparison]::Ordinal)) { continue }
+            if (-not $trackedTypes.Contains([IO.Path]::GetExtension($relative))) { continue }
+            $full = [IO.Path]::Combine($RepoRoot, $relative)
+            if ([IO.File]::Exists($full)) { $full }
+        })
     }
     # Outside a work tree there is nothing to enumerate, so fall back to the
     # bootstrap set the gate started with rather than checking nothing.
@@ -174,6 +151,12 @@ if (-not $Path -or $Path.Count -eq 0) {
 # Resolve every input (supporting wildcards) into concrete file paths.
 $resolved = New-Object System.Collections.Generic.List[string]
 foreach ($p in $Path) {
+    # Git supplies literal names; a bracket in a tracked name is not a glob.
+    # File.Exists also avoids provider resolution for every enumerated file.
+    if ([IO.Path]::IsPathRooted($p) -and [IO.File]::Exists($p)) {
+        $resolved.Add([IO.Path]::GetFullPath($p))
+        continue
+    }
     $hits = @(Resolve-Path -Path $p -ErrorAction SilentlyContinue)
     if (-not $hits) {
         Write-Warning "Test-AsciiNoBom: no matches for path '$p' (skipping)"
@@ -198,7 +181,23 @@ $failures = New-Object System.Collections.Generic.List[hashtable]
 foreach ($file in $resolved) {
     $bytes = $null
     try {
-        $bytes = [System.IO.File]::ReadAllBytes($file)
+        if ($BomOnly) {
+            # Only the prefix can carry a BOM. Large binaries and archived
+            # inventories need no allocation proportional to their size.
+            $stream = [IO.File]::OpenRead($file)
+            try {
+                $bytes = [byte[]]::new(3)
+                $count = 0
+                while ($count -lt 3) {
+                    $read = $stream.Read($bytes, $count, 3 - $count)
+                    if ($read -eq 0) { break }
+                    $count += $read
+                }
+                if ($count -lt 3) { [Array]::Resize([ref]$bytes, $count) }
+            } finally { $stream.Dispose() }
+        } else {
+            $bytes = [System.IO.File]::ReadAllBytes($file)
+        }
     } catch {
         $failures.Add(@{ path = $file; reason = "read failed: $($_.Exception.Message)"; offset = $null; byte = $null })
         continue
@@ -222,7 +221,7 @@ foreach ($file in $resolved) {
     # Check 3: every byte must be 7-bit ASCII (0x00..0x7F). Locate the
     # first offender so a human can jump straight to the byte.
     if ($BomOnly) {
-        if (-not $Quiet) { Write-Output "PASS  $file  ($($bytes.Length) bytes, no BOM)" }
+        if (-not $Quiet) { Write-Output "PASS  $file  (no BOM)" }
         continue
     }
     $nonAscii = [regex]::Match([Text.Encoding]::Latin1.GetString($bytes), '[\x80-\xFF]')

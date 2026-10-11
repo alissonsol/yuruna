@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a7b68b-0145-4180-9461-1dd7c9bbb69a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,31 +54,25 @@ param (
     [string]$logLevel='Error'
 )
 
-# logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+# --- REGION: Log level
+# See https://yuruna.link/42e220c4-0019
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
-# Test-Runtime streams its docker images / containers tables to stdout on the
-# healthy path, so the capture is a collection whose LAST element is the script's
-# [bool] verdict. Testing the collection itself would let any stdout line read as a
-# pass -- which holds only because the failing path happens to print nothing there,
-# an accident one added diagnostic line would silently take away.
+# --- REGION: Check runtime
+# See https://yuruna.link/42e220c4-0019
 $testRuntimeScript = Join-Path -Path $PSScriptRoot -ChildPath "Test-Runtime.ps1"
 $runtimeOutput = @(& $testRuntimeScript -logLevel $logLevel)
 $runtimeOk = ($runtimeOutput.Count -gt 0) -and ($runtimeOutput[-1] -is [bool]) -and $runtimeOutput[-1]
 if (-not $runtimeOk) {
-    # `exit 1`, never `return $false`: a bare `return` at script scope leaves the
-    # PROCESS exit code at 0, and the guest wrappers run this entrypoint under
-    # `set -euo pipefail`, so a zero exit reads as "deployed" -- the sequence
-    # marches on and the real fault surfaces minutes later, in a different step,
-    # as an unreachable endpoint. Same contract as Complete-YurunaRun's failure tail.
+    # A missing prerequisite must return a nonzero process exit.
     Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_acfdc6c69e5739b9')
     exit 1
 }
 
-# Resolve yuruna/project/config roots (+ Env:) before evicting Yuruna.* -- the resolver
-# lives in the Yuruna.LogLevel leaf imported above, which the eviction then sweeps up.
+# --- REGION: Resolve roots
+# See https://yuruna.link/42e220c4-0019
 $roots = Resolve-YurunaRootSet -ScriptRoot $PSScriptRoot -ProjectRoot $project_root -ConfigSubfolder $config_subfolder
 if (-not $roots) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_19fa10611ea08e8b')
@@ -86,17 +80,22 @@ if (-not $roots) {
 }
 $yuruna_root = $roots.YurunaRoot
 $project_root = $roots.ProjectRoot
-# The transcript path is decided here, beside the root set and before the
-# Yuruna.* eviction sweeps up the leaf that resolves it. A caller can name
-# the file it will read afterwards; see Resolve-YurunaTranscriptPath.
+# --- REGION: Transcript path
+# See https://yuruna.link/42e220c4-0019
 $transcriptFileName = Resolve-YurunaTranscriptPath
+# --- REGION: Import operation modules
 Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $workloadsModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Workload.psm1"
 Import-Module -Name $workloadsModulePath -Force
 
+# --- REGION: Start transcript
 $null = Start-Transcript $transcriptFileName
 
+# --- REGION: Run operation
 $result = Publish-WorkloadList $project_root $config_subfolder
 
+# --- REGION: Stop transcript
 $null = Stop-Transcript
+
+# --- REGION: Completion
 Complete-YurunaRun -Result $result -TranscriptFile $transcriptFileName

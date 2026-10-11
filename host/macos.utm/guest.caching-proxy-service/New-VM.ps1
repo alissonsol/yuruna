@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4220d762-3e46-4f5b-808c-166adb4d8b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,8 +12,6 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
-.PARAMETER AllowPseudoLocale
-    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -45,6 +43,9 @@
     without it every rebuilt bundle gets a fresh random MAC and the
     lease moves. MAC-based discovery (Resolve-UtmGuestIpByMac) reads the
     MAC from config.plist either way, so both modes keep working.
+
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for this VM. Disabled by default.
 
 .EXAMPLE
     ./Get-Image.ps1
@@ -129,7 +130,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
-if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
+if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }

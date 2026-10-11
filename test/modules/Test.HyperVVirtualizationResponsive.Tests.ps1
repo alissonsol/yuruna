@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42d7e0b4-3a91-4c6f-8b25-1e9d6f4a7c80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,7 +84,30 @@ BeforeAll {
                 [CmdletBinding(SupportsShouldProcess)] param([string]$VMName, [string]$DestinationStoragePath)
                 if ($PSCmdlet.ShouldProcess($VMName)) { throw "Unexpected live storage move: $DestinationStoragePath" }
             }
-            Export-ModuleMember -Function Get-VM, Stop-VM, Remove-VM, Rename-VM, Get-VMHost, Get-VMNetworkAdapter, Set-VMNetworkAdapter, Move-VMStorage
+            function Get-VMCheckpoint {
+                <# .SYNOPSIS
+                    Stub checkpoint query; tests mock it. #>
+                [CmdletBinding()] param([string]$VMName, [string]$Name) throw "Unexpected live checkpoint query: $VMName $Name"
+            }
+            function Remove-VMCheckpoint {
+                <# .SYNOPSIS
+                    Stub checkpoint removal that refuses to run. #>
+                [CmdletBinding(SupportsShouldProcess)] param([string]$VMName, [string]$Name)
+                if ($PSCmdlet.ShouldProcess($VMName)) { throw "Unexpected live checkpoint removal: $Name" }
+            }
+            function Checkpoint-VM {
+                <# .SYNOPSIS
+                    Stub checkpoint creation that refuses to run. #>
+                [CmdletBinding(SupportsShouldProcess)] param([string]$Name, [string]$SnapshotName)
+                if ($PSCmdlet.ShouldProcess($Name)) { throw "Unexpected live checkpoint creation: $SnapshotName" }
+            }
+            function Restore-VMCheckpoint {
+                <# .SYNOPSIS
+                    Stub checkpoint restore that refuses to run. #>
+                [CmdletBinding(SupportsShouldProcess)] param([string]$VMName, [string]$Name)
+                if ($PSCmdlet.ShouldProcess($VMName)) { throw "Unexpected live checkpoint restore: $Name" }
+            }
+            Export-ModuleMember -Function Get-VM, Stop-VM, Remove-VM, Rename-VM, Get-VMHost, Get-VMNetworkAdapter, Set-VMNetworkAdapter, Move-VMStorage, Get-VMCheckpoint, Remove-VMCheckpoint, Checkpoint-VM, Restore-VMCheckpoint
         }
         Import-Module $script:HyperVStub -Global
     }
@@ -775,5 +798,122 @@ Describe 'Hyper-V driver contract surface' {
         foreach ($name in 'Test-VirtualizationResponsive', 'Start-VirtualizationServiceIfStopped', 'Get-HyperVFeatureState', 'Get-HyperVServiceEvidence', 'Resolve-HyperVVM', 'Assert-HyperVEnabled') {
             $exported | Should -Contain $name
         }
+    }
+}
+
+Describe 'Hyper-V disk snapshots require confirmed power-off' {
+    BeforeEach {
+        $script:SnapshotCalls = [System.Collections.Generic.List[string]]::new()
+        $script:SnapshotReads = 0
+        $script:SnapshotStates = @(
+            [pscustomobject]@{ Presence = 'present'; VM = [pscustomobject]@{ State = 'Running' } }
+            [pscustomobject]@{ Presence = 'present'; VM = [pscustomobject]@{ State = 'Off' } }
+        )
+        $script:SnapshotGraceful = $true
+        $script:SnapshotForce = $true
+        Mock -ModuleName Yuruna.Host Resolve-HyperVVM {
+            $index = [Math]::Min($script:SnapshotReads++, $script:SnapshotStates.Count - 1)
+            $row = $script:SnapshotStates[$index]
+            $script:SnapshotCalls.Add("state:$($row.Presence):$($row.VM.State)")
+            $row
+        }
+        Mock -ModuleName Yuruna.Host Stop-VM { $script:SnapshotCalls.Add('graceful'); $script:SnapshotGraceful }
+        Mock -ModuleName Yuruna.Host Stop-VMForce { $script:SnapshotCalls.Add('force'); $script:SnapshotForce }
+        Mock -ModuleName Yuruna.Host 'Hyper-V\Get-VMCheckpoint' { $script:SnapshotCalls.Add('lookup'); [pscustomobject]@{ Name = 'vm-a' } }
+        Mock -ModuleName Yuruna.Host 'Hyper-V\Remove-VMCheckpoint' { $script:SnapshotCalls.Add('delete') }
+        Mock -ModuleName Yuruna.Host 'Hyper-V\Checkpoint-VM' { $script:SnapshotCalls.Add('create') }
+        Mock -ModuleName Yuruna.Host 'Hyper-V\Restore-VMCheckpoint' { $script:SnapshotCalls.Add('restore') }
+        Mock -ModuleName Yuruna.Host Rename-VM { throw 'Snapshot fixture must not rename its retained VM.' }
+        Mock -ModuleName Yuruna.Host Format-YurunaOperatorMessage { $Key }
+    }
+
+    It 'confirms graceful shutdown before replacing a saved checkpoint' {
+        Save-VMDiskSnapshot -VMName 'vm-a' -Id 'vm-a' -Confirm:$false | Should -BeTrue
+        ($script:SnapshotCalls -join '|') | Should -Be 'state:present:Running|graceful|state:present:Off|lookup|delete|create'
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 0 -Exactly
+    }
+
+    It 'confirms the force-stop fallback before saving when graceful shutdown fails' {
+        $script:SnapshotGraceful = $false
+        Save-VMDiskSnapshot -VMName 'vm-a' -Id 'vm-a' -Confirm:$false -WarningAction SilentlyContinue | Should -BeTrue
+        ($script:SnapshotCalls -join '|') | Should -Be 'state:present:Running|graceful|force|state:present:Off|lookup|delete|create'
+    }
+
+    It 'validates the checkpoint and force-stops before restoring without requesting a flush' {
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'vm-a' -Confirm:$false | Should -BeTrue
+        ($script:SnapshotCalls -join '|') | Should -Be 'lookup|state:present:Running|force|state:present:Off|restore'
+        Should -Invoke -ModuleName Yuruna.Host Stop-VM -Times 0 -Exactly
+    }
+
+    It '<Operation> skips shutdown for a positively powered-off <Raw> VM' -ForEach @(
+        @{ Operation = 'Save'; Raw = 'Off' }
+        @{ Operation = 'Save'; Raw = 'OffCritical' }
+        @{ Operation = 'Restore'; Raw = 'Off' }
+        @{ Operation = 'Restore'; Raw = 'OffCritical' }
+    ) {
+        $script:SnapshotStates = @([pscustomobject]@{ Presence = 'present'; VM = [pscustomobject]@{ State = $Raw } })
+        & "$Operation-VMDiskSnapshot" -VMName 'vm-a' -Id 'vm-a' -Confirm:$false | Should -BeTrue
+        Should -Invoke -ModuleName Yuruna.Host Stop-VM -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 0 -Exactly
+    }
+
+    It '<Operation> preserves checkpoint metadata when initial presence is <Presence>' -ForEach @(
+        @{ Operation = 'Save'; Presence = 'unknown' }
+        @{ Operation = 'Save'; Presence = 'absent' }
+        @{ Operation = 'Restore'; Presence = 'unknown' }
+        @{ Operation = 'Restore'; Presence = 'absent' }
+    ) {
+        $script:SnapshotStates = @([pscustomobject]@{ Presence = $Presence; VM = $null })
+        & "$Operation-VMDiskSnapshot" -VMName 'vm-a' -Id 'vm-a' -Confirm:$false | Should -BeFalse
+        @($script:SnapshotCalls | Where-Object { $_ -in @('graceful', 'force', 'delete', 'create', 'restore') }).Count | Should -Be 0
+    }
+
+    It '<Operation> preserves checkpoint metadata when the force-stop fails' -ForEach @(
+        @{ Operation = 'Save' }
+        @{ Operation = 'Restore' }
+    ) {
+        $script:SnapshotGraceful = $false
+        $script:SnapshotForce = $false
+        & "$Operation-VMDiskSnapshot" -VMName 'vm-a' -Id 'vm-a' -Confirm:$false -WarningAction SilentlyContinue | Should -BeFalse
+        $script:SnapshotReads | Should -Be 1
+        @($script:SnapshotCalls | Where-Object { $_ -in @('delete', 'create', 'restore') }).Count | Should -Be 0
+    }
+
+    It '<Operation> requires a fresh powered-off answer after an apparent successful stop: <Presence>/<Raw>' -ForEach @(
+        @{ Operation = 'Save'; Presence = 'present'; Raw = 'Running' }
+        @{ Operation = 'Save'; Presence = 'present'; Raw = 'Paused' }
+        @{ Operation = 'Save'; Presence = 'present'; Raw = 'Saved' }
+        @{ Operation = 'Save'; Presence = 'unknown'; Raw = '' }
+        @{ Operation = 'Save'; Presence = 'absent'; Raw = '' }
+        @{ Operation = 'Restore'; Presence = 'present'; Raw = 'Running' }
+        @{ Operation = 'Restore'; Presence = 'present'; Raw = 'Paused' }
+        @{ Operation = 'Restore'; Presence = 'present'; Raw = 'Saved' }
+        @{ Operation = 'Restore'; Presence = 'unknown'; Raw = '' }
+        @{ Operation = 'Restore'; Presence = 'absent'; Raw = '' }
+    ) {
+        $script:SnapshotStates[1] = [pscustomobject]@{ Presence = $Presence; VM = [pscustomobject]@{ State = $Raw } }
+        & "$Operation-VMDiskSnapshot" -VMName 'vm-a' -Id 'vm-a' -Confirm:$false | Should -BeFalse
+        $script:SnapshotReads | Should -Be 2
+        @($script:SnapshotCalls | Where-Object { $_ -in @('delete', 'create', 'restore') }).Count | Should -Be 0
+    }
+
+    It '<Operation> leaves metadata intact when the provider throws after stopping' -ForEach @(
+        @{ Operation = 'Save' }
+        @{ Operation = 'Restore' }
+    ) {
+        Mock -ModuleName Yuruna.Host Resolve-HyperVVM {
+            if ($script:SnapshotReads++ -gt 0) { throw 'Provider disconnected.' }
+            $script:SnapshotStates[0]
+        }
+        { & "$Operation-VMDiskSnapshot" -VMName 'vm-a' -Id 'vm-a' -Confirm:$false } | Should -Throw 'Provider disconnected.'
+        @($script:SnapshotCalls | Where-Object { $_ -in @('delete', 'create', 'restore') }).Count | Should -Be 0
+    }
+
+    It '<Operation> makes no provider or mutation calls under WhatIf' -ForEach @(
+        @{ Operation = 'Save' }
+        @{ Operation = 'Restore' }
+    ) {
+        & "$Operation-VMDiskSnapshot" -VMName 'vm-a' -Id 'vm-a' -WhatIf | Should -BeFalse
+        $script:SnapshotCalls.Count | Should -Be 0
     }
 }

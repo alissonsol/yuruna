@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c500e1-53a2-2a0c-075b-981a925571bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,8 @@
 # locale: en-US  domain: automation
 
 @{
+    'automation.diagnostic_checkout_unavailable' = '(not applicable: checkout evidence is unavailable; pass -CheckoutRoot to use an existing Yuruna checkout)'
+    'automation.diagnostic_phase_log_limits' = 'Phase log scan is limited to 100 files, 12 directory levels, and 10 seconds; each log shows at most its last 64 KiB.'
     'automation.host_setup_module_install_skipped' = @(
         @{
             'arg' = 'module'

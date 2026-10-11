@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42da5cce-810b-4f7b-9c05-6d1901f4e6b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,9 +33,7 @@
         before, and clears a dead PID.
 #>
 
-# Run under Pester 4.10.1 (the repo test convention): the top-level helper and
-# Describe-body setup below are invisible inside It blocks under Pester 5's
-# discovery/run scope split. See feedback_repo_tests_need_pester4.
+# See https://yuruna.link/42d38664-000b for Pester 5.x suite execution.
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.YurunaDir.psm1') -Force

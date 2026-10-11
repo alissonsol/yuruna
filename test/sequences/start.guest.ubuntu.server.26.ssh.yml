@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 420098a1-5755-4ff7-b551-73d01615ce5c
-sequenceRevision: 2
+sequenceRevision: 3
 
 description: "Ubuntu Server 26.04 (SSH): blind-keystroke-dismiss GRUB (OCR-free), then drive everything else over SSH once cloud-init has finished bringing up sshd."
 keystrokeMechanism: ssh
@@ -60,6 +60,12 @@ workload:
     timeoutSeconds: 1800
     description: "ubuntu.server.26.update.sh"
 
+  # Observe the boot and CPU counters while the provisioned guest is still up.
+  # This is advisory and runs only on native ARM64 Hyper-V.
+  - action: saveGuestClockSnapshot
+    phase: before-cpu-restart
+    description: "Capture clocks and CPU accounting before the processor restart"
+
   - action: sshExec
     command: "sudo poweroff"
     allowFailure: true
@@ -77,3 +83,9 @@ workload:
   - action: sshWaitReady
     timeoutSeconds: 600
     description: "Wait for SSH after the provisioning power cycle"
+
+  # Use only the address already proven during provisioning; do not wait for
+  # networking or extend the boot recovery policy to collect diagnostics.
+  - action: saveGuestClockSnapshot
+    phase: after-cpu-restart
+    description: "Capture clocks and CPU accounting after the processor restart"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 424870fb-615c-4ade-a4de-1429ce37a8ca
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     trim + '~'-expansion block; a drift in the '~' rule would silently
     break one storage tier's mount path. These guards assert the block lives in
     one private helper, both readers delegate, the '~'-match regex appears exactly
-    once, and the helper stays private. Source-text only. Runs under Pester 4.10.1.
+    once, and the helper stays private. Source-text only. Runs under Pester 5.x.
 #>
 
 BeforeAll {

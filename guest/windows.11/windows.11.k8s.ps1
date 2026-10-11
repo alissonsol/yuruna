@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42363f75-1d59-4ac0-a62f-c6d723656b28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,12 +34,41 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
+# See https://yuruna.link/42e220c4-0005
+# --- REGION: Invoke-GuestWingetInstall
+function Invoke-GuestWingetInstall {
+    <#
+    .SYNOPSIS
+        Install a prerequisite or accept its documented already-present outcome.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$PackageId)
+    $ErrorActionPreference = 'Stop'
+    $PSNativeCommandUseErrorActionPreference = $false
+    $global:LASTEXITCODE = $null
+    try {
+        & winget install --id $PackageId --accept-source-agreements --accept-package-agreements --silent
+        $wingetSucceeded = $?
+        $wingetNativeExitCode = $global:LASTEXITCODE
+    } catch {
+        throw
+    }
+    $wingetExitCode = 0L
+    if ($null -eq $wingetNativeExitCode -or -not [long]::TryParse([string]$wingetNativeExitCode, [ref]$wingetExitCode) -or $wingetExitCode -lt -2147483648 -or $wingetExitCode -gt 4294967295) {
+        throw "Package installation failed for $PackageId without a valid native exit code."
+    }
+    if ($wingetExitCode -ge 2147483648) { $wingetExitCode -= 4294967296 }
+    if ($wingetExitCode -notin @(0, -1978335189, -1978335135) -or ($wingetExitCode -eq 0 -and -not $wingetSucceeded)) {
+        throw "Package installation failed for $PackageId (winget exit code $wingetExitCode)."
+    }
+}
+
 Write-Output "== Installing Kubernetes requirements for Windows 11 =="
 
 # --- REGION: Install basic tools
 Write-Output ""
 Write-Output ">>> Installing Basic Tools (Git, OpenSSH)..."
-winget install --id Git.Git --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Git.Git'
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue
 Start-Service sshd -ErrorAction SilentlyContinue
 Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
@@ -85,23 +114,23 @@ Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 # See https://yuruna.link/42a76c30-0008
 Write-Output ""
 Write-Output ">>> Installing Azure CLI..."
-winget install --id Microsoft.AzureCLI --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Microsoft.AzureCLI'
 Write-Output "<<< Azure CLI installation complete."
 
 Write-Output ""
 Write-Output ">>> Installing AWS CLI..."
-winget install --id Amazon.AWSCLI --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Amazon.AWSCLI'
 Write-Output "<<< AWS CLI installation complete."
 
 Write-Output ""
 Write-Output ">>> Installing Google Cloud SDK..."
-winget install --id Google.CloudSDK --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Google.CloudSDK'
 Write-Output "<<< Google Cloud SDK installation complete."
 
 # --- REGION: Install Docker
 Write-Output ""
 Write-Output ">>> Installing Docker Desktop..."
-winget install --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Docker.DockerDesktop'
 Write-Output "<<< Docker Desktop installation complete."
 
 Write-Output ""
@@ -111,39 +140,39 @@ Write-Output "After restart, enable Kubernetes in Docker Desktop Settings > Kube
 # --- REGION: Install kubectl
 Write-Output ""
 Write-Output ">>> Installing kubectl..."
-winget install --id Kubernetes.kubectl --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Kubernetes.kubectl'
 Write-Output "<<< kubectl installation complete."
 
 # --- REGION: Install Helm
 Write-Output ""
 Write-Output ">>> Installing Helm..."
-winget install --id Helm.Helm --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Helm.Helm'
 Write-Output "<<< Helm installation complete."
 
 # --- REGION: Install OpenTofu
 Write-Output ""
 Write-Output ">>> Installing OpenTofu..."
-winget install --id OpenTofu.Tofu --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'OpenTofu.Tofu'
 Write-Output "<<< OpenTofu installation complete."
 
 # --- REGION: Install Graphviz
 # See https://yuruna.link/42a76c30-0008
 Write-Output ""
 Write-Output ">>> Installing Graphviz..."
-winget install --id Graphviz.Graphviz --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Graphviz.Graphviz'
 Write-Output "<<< Graphviz installation complete."
 
 # --- REGION: Install GitHub CLI
 Write-Output ""
 Write-Output ">>> Installing GitHub CLI..."
-winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'GitHub.cli'
 Write-Output "<<< GitHub CLI installation complete."
 
 # --- REGION: Install mkcert
 # mkcert is installed last because its root CA installation may require user interaction.
 Write-Output ""
 Write-Output ">>> Installing mkcert..."
-winget install --id FiloSottile.mkcert --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'FiloSottile.mkcert'
 # --- REGION: Refresh PATH
 # mkcert was just installed and must be discoverable for the certificate work below.
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
@@ -154,39 +183,67 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";
 Write-Output ""
 Write-Output ">>> Creating HTTPS development certificate..."
 $pfxDir = Join-Path $env:USERPROFILE ".aspnet\https"
-New-Item -ItemType Directory -Path $pfxDir -Force | Out-Null
+New-Item -ItemType Directory -Path $pfxDir -Force -ErrorAction Stop | Out-Null
 $certKey = Join-Path $pfxDir "aspnetapp.key"
 $certFile = Join-Path $pfxDir "aspnetapp.crt"
 $pfxFile = Join-Path $pfxDir "aspnetapp.pfx"
 $pfxPasswordFile = "$pfxFile.password"
-mkcert -key-file $certKey -cert-file $certFile localhost 127.0.0.1 ::1 2>$null
-if (Test-Path $certKey) {
+foreach ($pemFile in @($certKey, $certFile)) {
+    if (Test-Path -LiteralPath $pemFile) {
+        if (-not (Test-Path -LiteralPath $pemFile -PathType Leaf)) { throw "Expected a certificate file at $pemFile." }
+        Remove-Item -LiteralPath $pemFile -Force -ErrorAction Stop
+    }
+}
+try {
+    mkcert -key-file $certKey -cert-file $certFile localhost 127.0.0.1 ::1
+} catch {
+    throw "HTTPS development certificate generation failed: $($_.Exception.Message)"
+}
+if ($LASTEXITCODE -ne 0) { throw "HTTPS development certificate generation failed (mkcert exit code $LASTEXITCODE)." }
+foreach ($pemFile in @($certKey, $certFile)) {
+    if (-not (Test-Path -LiteralPath $pemFile -PathType Leaf) -or (Get-Item -LiteralPath $pemFile -ErrorAction Stop).Length -eq 0) {
+        throw "HTTPS development certificate generation did not produce a nonempty PEM file at $pemFile."
+    }
+}
+try {
+    # See https://yuruna.link/42e220c4-0005
+    # An earlier PFX pair must not satisfy this export's success gate.
+    foreach ($exportFile in @($pfxFile, $pfxPasswordFile)) {
+        if (Test-Path -LiteralPath $exportFile) {
+            if (-not (Test-Path -LiteralPath $exportFile -PathType Leaf)) { throw "Expected a certificate file at $exportFile." }
+            Remove-Item -LiteralPath $exportFile -Force -ErrorAction Stop
+        }
+    }
     # See https://yuruna.link/42e220c4-0005
     # PowerShell 7 creates the PFX and restricts its password file before writing.
     pwsh -NoProfile -Command "
         `$ErrorActionPreference = 'Stop'
-        `$cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile('$certFile', '$certKey')
+        `$cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile('$($certFile.Replace("'", "''"))', '$($certKey.Replace("'", "''"))')
         `$password = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
         `$pfxBytes = `$cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, `$password)
-        Remove-Item -LiteralPath '$pfxPasswordFile' -Force -ErrorAction SilentlyContinue
-        New-Item -ItemType File -Path '$pfxPasswordFile' | Out-Null
-        `$acl = Get-Acl -LiteralPath '$pfxPasswordFile'
+        New-Item -ItemType File -Path '$($pfxPasswordFile.Replace("'", "''"))' | Out-Null
+        `$acl = Get-Acl -LiteralPath '$($pfxPasswordFile.Replace("'", "''"))'
         `$acl.SetAccessRuleProtection(`$true, `$false)
         `$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new([System.Security.Principal.WindowsIdentity]::GetCurrent().User, 'FullControl', 'Allow'))
-        Set-Acl -LiteralPath '$pfxPasswordFile' -AclObject `$acl
-        [System.IO.File]::WriteAllText('$pfxPasswordFile', `$password + [char]10)
-        [System.IO.File]::WriteAllBytes('$pfxFile', `$pfxBytes)
+        Set-Acl -LiteralPath '$($pfxPasswordFile.Replace("'", "''"))' -AclObject `$acl
+        [System.IO.File]::WriteAllText('$($pfxPasswordFile.Replace("'", "''"))', `$password + [char]10)
+        [System.IO.File]::WriteAllBytes('$($pfxFile.Replace("'", "''"))', `$pfxBytes)
     "
-    if ($LASTEXITCODE -eq 0 -and (Test-Path $pfxFile) -and (Test-Path $pfxPasswordFile)) {
-        Remove-Item -Path $certKey, $certFile -Force -ErrorAction SilentlyContinue
-        Write-Output "HTTPS development certificate created at $pfxFile"
-        Write-Output "Its password is kept beside it in $pfxPasswordFile, readable only by the current user."
-    } else {
-        Write-Output "Note: PFX conversion failed. Certificate PEM files remain at $pfxDir"
+    if ($LASTEXITCODE -ne 0) { throw "HTTPS development certificate PFX conversion failed (pwsh exit code $LASTEXITCODE)." }
+    foreach ($exportFile in @($pfxFile, $pfxPasswordFile)) {
+        if (-not (Test-Path -LiteralPath $exportFile -PathType Leaf) -or (Get-Item -LiteralPath $exportFile -ErrorAction Stop).Length -eq 0) {
+            throw "HTTPS development certificate export did not produce a nonempty file at $exportFile."
+        }
     }
-} else {
-    Write-Output "Note: mkcert certificate generation failed. Run 'mkcert -install' manually and retry."
+} catch {
+    foreach ($exportFile in @($pfxFile, $pfxPasswordFile)) {
+        if (Test-Path -LiteralPath $exportFile -PathType Leaf) { Remove-Item -LiteralPath $exportFile -Force -ErrorAction SilentlyContinue }
+    }
+    throw
 }
+Remove-Item -LiteralPath $certKey, $certFile -Force -ErrorAction Stop
+Write-Output "HTTPS development certificate created at $pfxFile"
+Write-Output "Its password is kept beside it in $pfxPasswordFile, readable only by the current user."
 Write-Output "<<< HTTPS development certificate complete."
 
 # --- REGION: Install the mkcert root CA

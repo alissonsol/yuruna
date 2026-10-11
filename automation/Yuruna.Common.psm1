@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2523,6 +2523,13 @@ function Invoke-BoundedNativeCommand {
     second cap whose milliseconds fit a bounded Task.Wait call.
 .PARAMETER Environment
     Extra environment variables for the child only.
+.PARAMETER WorkingDirectory
+    Optional working directory for the child process.
+.PARAMETER OutputHandler
+    Optional fast callback receiving a retained output chunk and its stream name
+    (stdout or stderr) while the child is running. Output past MaxCapturedChars
+    is drained without calling the handler. Handler failures are recorded in
+    OutputHandlerError while the process remains supervised.
 .PARAMETER MaxCapturedChars
     Per-stream cap on retained output. Defaults to 256K characters, generous
     for any diagnostic tool this wraps while keeping a runaway or malicious
@@ -2563,6 +2570,8 @@ function Invoke-BoundedNativeCommand {
         [string[]]$ArgumentList = @(),
         [ValidateRange(1, 2147483)][int]$TimeoutSeconds = 15,
         [hashtable]$Environment,
+        [string]$WorkingDirectory,
+        [scriptblock]$OutputHandler,
         [ValidateRange(4096, 67108864)][int]$MaxCapturedChars = 262144,
         [System.Text.Encoding]$StreamEncoding,
         [ValidateNotNull()][psobject]$Deadline
@@ -2570,7 +2579,7 @@ function Invoke-BoundedNativeCommand {
     $result = @{
         ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $false; Started = $false
         DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; ElapsedMs = 0
-        DeadlineExhausted = $false; ProcessId = 0; StartError = ''; CleanupPending = $false
+        DeadlineExhausted = $false; ProcessId = 0; StartError = ''; CleanupPending = $false; OutputHandlerError = ''
     }
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $capMs = [long]$TimeoutSeconds * 1000
@@ -2601,6 +2610,7 @@ function Invoke-BoundedNativeCommand {
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $resolved
     foreach ($argument in $ArgumentList) { [void]$psi.ArgumentList.Add([string]$argument) }
+    if ($WorkingDirectory) { $psi.WorkingDirectory = $WorkingDirectory }
     $psi.UseShellExecute        = $false
     $psi.CreateNoWindow         = $true
     $psi.RedirectStandardInput  = $true
@@ -2709,6 +2719,13 @@ function Invoke-BoundedNativeCommand {
             try { $n = $outTask.GetAwaiter().GetResult() } catch { $outEof = $true }
             if ($n -le 0) { $outEof = $true }
             else {
+                if ($OutputHandler -and -not $result.OutputHandlerError) {
+                    $take = [Math]::Min($n, [Math]::Max(0, $MaxCapturedChars - $outSb.Length))
+                    if ($take -gt 0) {
+                        try { & $OutputHandler ([string]::new($outBuf, 0, $take)) 'stdout' | Out-Null }
+                        catch { $result.OutputHandlerError = $_.Exception.Message }
+                    }
+                }
                 Add-BoundedNativeChunk -Builder $outSb -Buffer $outBuf -Count $n -MaxChars $MaxCapturedChars -Truncated ([ref]$outTrunc)
                 $outTask = $proc.StandardOutput.ReadAsync([Memory[char]]::new($outBuf), $cts.Token).AsTask()
             }
@@ -2718,6 +2735,13 @@ function Invoke-BoundedNativeCommand {
             try { $n = $errTask.GetAwaiter().GetResult() } catch { $errEof = $true }
             if ($n -le 0) { $errEof = $true }
             else {
+                if ($OutputHandler -and -not $result.OutputHandlerError) {
+                    $take = [Math]::Min($n, [Math]::Max(0, $MaxCapturedChars - $errSb.Length))
+                    if ($take -gt 0) {
+                        try { & $OutputHandler ([string]::new($errBuf, 0, $take)) 'stderr' | Out-Null }
+                        catch { $result.OutputHandlerError = $_.Exception.Message }
+                    }
+                }
                 Add-BoundedNativeChunk -Builder $errSb -Buffer $errBuf -Count $n -MaxChars $MaxCapturedChars -Truncated ([ref]$errTrunc)
                 $errTask = $proc.StandardError.ReadAsync([Memory[char]]::new($errBuf), $cts.Token).AsTask()
             }
@@ -3547,7 +3571,7 @@ function Test-YurunaPrivateOwnerMatch {
 function Test-YurunaUserPrivateGroup {
 <#
 .SYNOPSIS
-    Whether a group is this user's private group: the user's primary group,
+    Whether a group is this user's private group: the account's primary group,
     carrying the user's own name, with no other listed member.
 .DESCRIPTION
     A group-writable .yuruna is safe only when nobody else is in the group;
@@ -3556,6 +3580,12 @@ function Test-YurunaUserPrivateGroup {
     prove that, so the group is read with a bounded `getent group <gid>`: its
     name must equal the user name and its member list must be empty or name
     only this user. A lookup that does not answer completely is a refusal.
+
+    sg and newgrp change the process's effective primary group without
+    changing the account's private group. When those ids differ, the passwd
+    entry must still identify this user and name the directory's group as
+    the account's primary group; a different process group alone is not a
+    reason to reject an otherwise private directory.
 
     Accounts whose primary group is this gid are not enumerated: listing
     every account is unbounded on a host backed by a directory service, and
@@ -3584,10 +3614,25 @@ function Test-YurunaUserPrivateGroup {
     if (-not $Platform) { $Platform = Get-YurunaPlatformName }
     if ($Platform -ne 'linux') { return $false }
     $userName = [string]$CurrentOwner.UserName
-    if (-not $CurrentOwner.Resolved -or [string]::IsNullOrEmpty($userName) -or $GroupId -notmatch '^\d+$' -or
-        -not [string]::Equals([string]$CurrentOwner.PrimaryGroupId, $GroupId, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$CurrentOwner.PrimaryGroupName, $userName, [StringComparison]::Ordinal)) {
+    if (-not $CurrentOwner.Resolved -or [string]::IsNullOrEmpty($userName) -or $GroupId -notmatch '^\d+$') {
         return $false
+    }
+    if ([string]::Equals([string]$CurrentOwner.PrimaryGroupId, $GroupId, [StringComparison]::Ordinal)) {
+        if (-not [string]::Equals([string]$CurrentOwner.PrimaryGroupName, $userName, [StringComparison]::Ordinal)) { return $false }
+    } else {
+        $userId = [string]$CurrentOwner.OwnerId
+        if ($userId -notmatch '^\d+$') { return $false }
+        $account = Invoke-BoundedNativeCommand -FilePath 'getent' -ArgumentList @('passwd', $userId) -TimeoutSeconds $TimeoutSeconds
+        if (-not (Test-BoundedNativeResultComplete -Result $account) -or $account.ExitCode -ne 0) { return $false }
+        $accountLines = @(([string]$account.StdOut) -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        if ($accountLines.Count -ne 1) { return $false }
+        $accountFields = $accountLines[0] -split ':'
+        if ($accountFields.Count -ne 7 -or
+            -not [string]::Equals($accountFields[0], $userName, [StringComparison]::Ordinal) -or
+            -not [string]::Equals($accountFields[2], $userId, [StringComparison]::Ordinal) -or
+            -not [string]::Equals($accountFields[3], $GroupId, [StringComparison]::Ordinal)) {
+            return $false
+        }
     }
     $native = Invoke-BoundedNativeCommand -FilePath 'getent' -ArgumentList @('group', $GroupId) -TimeoutSeconds $TimeoutSeconds
     if (-not (Test-BoundedNativeResultComplete -Result $native) -or $native.ExitCode -ne 0) { return $false }
@@ -3751,7 +3796,7 @@ function Get-YurunaPrivateStateRoot {
       * .yuruna is writable by other users (parent-untrusted), who could
         swap host-refresh for their own directory between check and use.
         Group write is accepted only on Linux and only for a user-private
-        group: this user's primary group, carrying the user's own name, with
+        group: this account's primary group, carrying the user's own name, with
         no other member in the account database (a lookup that does not
         answer refuses). The directory is shared with other tools, so it is
         never re-moded;

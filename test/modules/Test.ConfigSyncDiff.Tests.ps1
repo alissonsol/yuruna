@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42fca3ae-ff54-4779-a27e-25c44c02ade3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     test.config.yml. These AST guards assert it is now in one
     Test-ConfigDiffersOutsideSecretNode helper, both entry points delegate to it,
     the helper strips + serializes, and it stays private. AST/source-only.
-    Runs under Pester 4.10.1 (script-scoped throw helper).
+    Runs under Pester 5.x (script-scoped throw helper).
 #>
 
 BeforeAll {
@@ -41,19 +41,14 @@ function Get-ModuleAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.ScriptBlockAst])]
     param([Parameter(Mandatory)][string]$Path)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 
 function Get-FunctionAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.FunctionDefinitionAst])]
     param([Parameter(Mandatory)]$RootAst, [Parameter(Mandatory)][string]$FunctionName)
-    $f = $RootAst.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $FunctionName
-    }, $true) | Select-Object -First 1
+    $f = Get-YurunaTestFunctionAst -Ast $RootAst -Name $FunctionName
     if (-not $f) { throw "Function '$FunctionName' not found." }
     return $f
 }
@@ -62,11 +57,7 @@ function Test-AstCallsCommand {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
-    Write-Verbose "Searching for a call to '$CommandName'"
-    $hits = $Ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $CommandName
-    }, $true)
-    return (@($hits).Count -gt 0)
+    return ((Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $CommandName) -gt 0)
 }
 
 $rootAst = Get-ModuleAst -Path $modulePath
@@ -99,5 +90,15 @@ Describe 'configsync-diff -- the outside-secrets write-gate predicate is shared'
         Assert-True (@($exportCalls).Count -ge 1) 'Export-ModuleMember must be present'
         $exportText = ($exportCalls | ForEach-Object { $_.Extent.Text }) -join "`n"
         Assert-True ($exportText -notmatch [regex]::Escape($script:helper)) 'the write-gate predicate must not be exported (private helper)'
+    }
+}
+
+Describe 'the function lookup behind these guards' {
+    It 'throws for a function the module does not define' {
+        # A guard reads what the lookup hands it. Were an absent function to come
+        # back as nothing, a guard asserting that something is NOT in it would
+        # pass against nothing.
+        Assert-Throw { Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-FunctionThatIsNotDefined' } 'not found' `
+            'an absent function must stop the test that asked for it'
     }
 }

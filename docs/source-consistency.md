@@ -24,8 +24,8 @@ host phases use `Log level from environment`, `Import host modules`, `Seek the
 base image`, `Remove existing VM`, `Create copies and files for VM`, `Clean up
 temporary files`, `Installation summary`, and `Completion`. Service guests keep
 `Initialize environment`, `Detect architecture`, `Load retry helpers`, `Service
-user`, `Service tunables`, `Storage paths`, `Package dependencies`, `Locate the
-daemon source`, `Build`, `Install the binary`, `Storage directories`,
+user`, `Load service helpers`, `Service tunables`, `Storage paths`, `Package
+dependencies`, `Locate the daemon source`, `Build`, `Install the binary`, `Storage directories`,
 `Environment file`, `systemd unit`, and `Start the service and wait for
 readiness` in that order; service-specific regions may sit between those shared
 phases. Reuse labels exactly, including case, whenever a block has the same
@@ -54,6 +54,11 @@ explanations and documentation links in ordinary comments, such as
 `# See https://yuruna.link/42e220c4-0007`, without making them region labels.
 The same rule applies to documentation links beside other structural markers.
 
+The anchor gate resolves published Markdown targets in every inventoried
+workspace checkout, including yuruna.link's own maintenance guide. A broken or
+missing local target fails the check; a target outside the available checkouts
+is reported as unresolvable because no local document can establish its anchors.
+
 Keep function help, license headers, shebangs, diagnostic output, and parser
 directives intact. The `# === YURUNA_OVERLAY_<KEY> ===` lines are merge tokens,
 not decorative dividers: their names must pair between a base and every overlay.
@@ -63,6 +68,10 @@ When a region precedes a PowerShell function, place that function's comment-base
 help inside its body, before attributes and `param`. A region line directly
 against an external help block can prevent PowerShell from discovering the
 help. Internal placement preserves both the region spacing and `Get-Help`.
+Keep parameter help in that help block, outside `PSScriptInfo` metadata. Put
+only the parameter name on its `.PARAMETER` line and the description on the
+following lines; PowerShell otherwise includes the description in the name
+and cannot associate it with the parameter.
 
 Long explanations belong in Markdown. Prefer an existing specific topic over
 duplicating it here, and retain a brief local warning when moving it would hide
@@ -78,6 +87,18 @@ Service image wrappers select a guest identity and host format, import the
 shared image and logging modules, validate the host, then call the shared image
 acquisition helper. Their common contract belongs in the shared helper; platform
 wrappers retain only platform and guest parameters.
+
+Resolve `Save-CachedHttpUri` to the active host driver's two-parameter wrapper.
+The shared download module's additional `ResolveCacheHostIp` parameter signals
+incorrect import precedence: calling that helper directly bypasses the driver's
+local cache discovery.
+
+Ubuntu checksum authentication pins the primary CD Image and UEC signing-key
+fingerprints. Verify the detached signature against the same saved
+`SHA256SUMS` file used to select the artifact hash. Unavailable verification may
+leave an image explicitly unverified; a bad or foreign signature must fail.
+Before rotating a pinned key, independently verify a fresh `SHA256SUMS.gpg`
+and then refresh the fingerprint pins.
 
 All service families on one host share the same downloaded Ubuntu cloud image.
 Hyper-V converts it to VHDX once. Keep the base image's native capacity and grow
@@ -95,6 +116,13 @@ Release and daily image selection use the same fallback policy. The Ubuntu 26
 daily-image option retains a workaround for early 7.0.0-14 installer kernels
 whose overlayfs failures could interrupt curtin extraction.
 
+Ubuntu 24 and 26 entrypoints delegate image acquisition and VM creation to
+one shared implementation per provider. Keep release identity and release-specific
+operator message keys in the thin wrappers. Hyper-V's shared builder retains Ubuntu
+26's MAC spoofing and ARM64 provisioning cap of one processor; Ubuntu 24's
+ARM64 default cap remains two. These release-specific workarounds stay explicit
+instead of requiring two copies of the full provisioning workflow.
+
 **Artifact selection and provenance.** Windows uses `OSArchitecture`, because an
 x64 PowerShell process under ARM64 emulation reports its process architecture
 through `PROCESSOR_ARCHITECTURE`. Hyper-V cannot emulate the other architecture.
@@ -109,7 +137,7 @@ while allowing an operator to stage the VHDX. See [the boot limitation](https://
 Apple's `VZMacOSRestoreImage.fetchLatestSupported` chooses an IPSW for the current
 hardware. The installer refuses a returned version below macOS 26, even if an
 older host's catalog still offers macOS 15. The Swift helper emits
-`URL<TAB>BUILD<TAB>VERSION`; stderr identifies `xcode-missing`,
+`URL<TAB>BUILD<TAB>VERSION`; stderr identifies
 `version-below-floor`, `vz-catalog-fetch`, or `vz-other` so the operator receives
 the relevant remedy rather than an unconditional Xcode instruction.
 
@@ -149,18 +177,39 @@ A replacement build validates the base image before removing an existing VM.
 It then stops and unregisters that VM before replacing its disk or seed files.
 Writing a disk still attached to a running VM can damage both the current guest
 and the replacement. Stop or removal failure must prevent those writes.
+UTM builders use the same removal operation as teardown: stop, establish final
+power-off and released disk locks, remove registration, then remove the bundle.
+A failed final safety check preserves both registration and files. A stop
+command's exit status alone is advisory when the final checks prove safety.
 
 Ubuntu builders on all three hosts discover the caching proxy when its URL
 parameter is unbound. A missing or stopped cache permits direct fetching; a
 running cache with an unreachable proxy stops provisioning. An explicitly
 bound URL, including an empty value for direct fetching, bypasses discovery.
+UTM discovery consumes normalized states: a verified endpoint remains usable
+when state discovery fails; only recognized stopped or absent state permits
+implicit direct fetching. Running-but-unreachable or unknown state requires
+repair or an explicit URL override.
 
 Amazon Linux 2023 boots a prebuilt cloud image. Its builders do not seed a dnf
 proxy address: the address could go stale before the guest can verify it, which
 would strand package transactions. The guest update script discovers and probes
-the caching proxy at run time. `Invoke-PerGuestNewVm` forwards
+the caching proxy at runtime. `Invoke-PerGuestNewVm` forwards
 `-CachingProxyServiceUrl` only to builders that declare it, so its omission from
 all three Amazon builders is intentional.
+
+Child builders receive only overrides they declare. Preserve the distinction
+between an unbound caching-proxy URL and an explicitly empty URL: the empty
+value selects direct fetching and must not trigger discovery. Local cache
+probes consult saved addresses and report remediation for the discovered
+state; a stopped cache needs starting rather than rebuilding.
+
+Decide whether a cache VM is directly reachable on the LAN from its recorded
+attachment. UTM reads the bundle's actual network mode; KVM resolves the first
+NIC's libvirt network and its forward mode. A custom network name does not
+establish bridging, and today's host uplink does not describe an existing VM's
+attachment. Only verified bridging permits skipping or removing host port
+forwarders; NAT, routed, isolated, missing, and unreadable configurations do not.
 
 Hyper-V creates and starts a registered VM through host cmdlets. KVM imports and
 starts a libvirt domain. UTM first creates a bundle; the caller registers and
@@ -173,6 +222,30 @@ Force-stop requests retain the same contract across providers. UTM implements
 Failed domain lookups do not prove absence. If KVM unregistering fails, require
 a successful domain inventory that excludes the VM before deleting its files.
 An unavailable libvirt connection must leave those files intact.
+Require this inventory after successful undefine too: libvirt can undefine an
+active VM after an earlier stop failed, leaving a transient domain using the
+same disk. Only a successful complete inventory excluding its exact name
+permits storage deletion.
+
+Orphan sweeps on every provider return 0 only when their owned cleanup completed,
+and 1 when deletion or registration checks fail. UTM requires a recognized
+status or explicit `not found` answer; AppleEvents denial, timeout, and unknown
+output do not prove absence and must preserve the bundle. Continue best-effort
+cleanup for other artifacts while retaining the failure outcome. The parent
+test-VM cleanup propagates that outcome and fails when its final inventory is
+unreadable or still contains matching VMs.
+
+Disk snapshot saves and restores must establish power-off before replacing or
+applying checkpoint metadata. A successful stop alone is insufficient: query
+again. KVM requires a present domain with raw `shut off`, rather than normalized
+stopped states such as paused or in shutdown. Hyper-V requires a present VM in
+`Off` or `OffCritical` and rejects saved RAM state. UTM can also snapshot an
+unregistered bundle: it requires recognized stopped or absent state plus proof
+that QEMU and disk locks have cleared. Unconfirmed power-off preserves existing
+snapshot metadata. Hyper-V and KVM also reject failed stops and absent VMs; UTM
+may proceed when its final state and disk-lock checks establish safety.
+Saves attempt graceful shutdown first; rollback may force-stop because the
+current writes will be discarded.
 
 Teardown also removes managed-save, snapshot, checkpoint, and NVRAM metadata
 where libvirt supports them. A failed domain inventory is an error, not evidence
@@ -181,6 +254,13 @@ admin credentials come from the persistent authentication vault. A new test
 cycle must not reset either. Versioned guest usernames help distinguish logs,
 and deterministic guest MACs follow the durable hostname rather than a temporary
 VM name. Bake the host address reachable through the selected guest network.
+
+Pin DHCP identity before networking starts. Never disable networking globally
+to apply that pin: NetworkManager persists its networking-enabled flag in
+`/var/lib/NetworkManager/NetworkManager.state`, so an interrupted disable/enable
+pair can leave the guest offline across reboots. A durable hostname also keeps
+the MAC stable when a test slot is promoted to its final VM name. Changing that
+address can invalidate Kubernetes certificates, etcd URLs, and kubeconfig files.
 
 Resolve optional aggregator URLs only after the bounded readiness wait; a seed
 does not resolve its URLs again after creation. An absent proxy or expired wait
@@ -203,7 +283,7 @@ state. The platform-specific settings remain in the host guides.
 Every `Enable-TestAutomation.ps1` uses the same process-boundary outcome:
 0 means the conditions are in place (or the run was only a preview), 1 means
 execution failed, and 2 means changes were applied but an operator-only
-condition remains. The caller maps 2 to a warning because rerunning cannot
+condition remains. The caller maps 2 to a warning because re-running cannot
 clear it. KVM's missing-package warning is instead the first pass of its
 documented two-pass installation and is not an operator-only outcome.
 
@@ -230,7 +310,7 @@ Stored Docker Hub credentials use the account's allowance. Leave both fields
 empty without a real vault entry: `Get-Password` can mint a missing secret, which
 would turn anonymous access into failed authentication. A vault read failure is
 not evidence that the entry is absent. In-process cache builders also reuse the
-existing log module; force-reimporting it discards caller state and creates
+existing log module; force re-importing it discards caller state and creates
 verbose import noise. This intentionally defers module-code updates until a
 fresh load.
 
@@ -349,11 +429,49 @@ its hypervisor. An x64 guest does not identify its host provider. JDK and .NET
 suppliers follow the packages supported by each OS; keep their versions and
 availability checks aligned rather than forcing identical download formats.
 
+Windows JDK setup removes a stale MSI before downloading and requires a fresh,
+nonempty installer file. Check the installer process outcome before completion:
+MSI codes 0, 1641, and 3010 indicate success; reboot outcomes produce a warning.
+Other codes, unavailable outcomes, launch failures, and failed transfers stop
+installation. Clean the temporary installer after the attempt. See
+[Microsoft's MSI return codes](https://learn.microsoft.com/en-us/windows/win32/msi/error-codes).
+
+Windows .NET setup follows the same fresh-file and cleanup contract. Reset the
+native exit status before invoking Microsoft's script, then check both command
+success and the resulting status before registering machine-wide environment
+variables or reporting completion. A downloaded script can exit unsuccessfully
+without throwing in its caller; command dispatch and terminating script errors
+must also stop this phase.
+
+Windows package prerequisites check winget outcomes before completion. Accept
+success and its documented already-installed or no-applicable-update results;
+those outcomes preserve repeat installation without claiming the newest version
+is available for this OS. Other failures, including installer version conflicts,
+stop the phase. Every Windows guest prerequisite uses the same standalone native
+outcome gate, including the update workload's initial PowerShell installation.
+See [Microsoft's winget return codes](https://github.com/microsoft/winget-cli/blob/master/doc/windows/package-manager/winget/returnCodes.md).
+
+macOS Command Line Tools updates remain best-effort because the updater can
+fail even when usable tools are installed. Before repository fallback, require
+a selected developer-tool path and a successful `git --version`. Do not invoke
+Apple's Git stub while selection is absent: it may open a GUI installation
+prompt rather than report a noninteractive failure.
+
+Guest checkout ownership follows the operator's account metadata. macOS
+Directory Services home paths can contain spaces, and the account's primary
+group is commonly `staff`, not the username. Preserve the full absolute home
+path and resolve the group with `id -gn` before extracting or restoring
+ownership. Missing account metadata must fail before modifying a checkout.
+
 Kubernetes certificate exports use a random PFX password with an owner-only
 sidecar consumed by workload deployment. Linux disables xtrace while producing
 the secret. Windows uses PowerShell 7 for secure-string conversion because the
 initial Windows PowerShell 5.1 environment has different certificate tooling.
-These differences preserve the same certificate and password contract.
+These differences preserve the same certificate and password contract. Windows also
+requires successful mkcert and PFX-export process outcomes plus fresh nonempty
+PEM, PFX, and password files before completion. A failed export removes
+incomplete PFX outputs and retains PEM inputs for diagnosis; a previous PFX pair
+cannot satisfy the new export's success gate.
 
 <a id="42e220c4-000d"></a>
 
@@ -387,6 +505,19 @@ Proxy discovery prefers `http_proxy`, then the address in `host.env`, then a pro
 
 Helm and mkcert must be present on PATH, nonempty, and produce version output. Bash treats an executable zero-byte file as a successful empty script; checking only its presence or exit status can preserve a broken tool in a saved VM image. Ubuntu's VS Code install skips recommended desktop packages while retaining the Electron dependencies `libgl1` and `libgl1-mesa-dri`. Kubernetes installs its own prerequisites, including `socat`.
 
+Ubuntu n8n and OpenClaw use the manifest's Node major when exposing executables
+and printing installation summaries. Load NVM with `--no-use` and resolve that
+major explicitly: a user's saved default can still name an older Node after a
+successful installation. Verify Node, npm, and the workload executable before
+creating any global links, and stop on missing NVM, failed version lookup, or
+incomplete installation. After Node installs successfully, set NVM's default
+alias to that major so future interactive shells select it too. Amazon Linux
+retains its NodeSource RPM workflow.
+
+Kubernetes explicitly installs `cri-tools` and verifies `crictl` before checking containerd. Both initial setup and kubeadm recovery require its CRI API to answer within 30 seconds. Each probe uses a timeout of at most five seconds, capped by the remaining deadline, with a one-second termination grace for child cleanup. A blocked probe and its children are terminated. A missing tool fails immediately, and an unavailable API reports the last probe's exit code and bounded diagnostic output before aborting. Flannel begins its bounded rollout check immediately after manifest application. The following 180-second node readiness check remains mandatory and retains node, pod, and CNI diagnostics on failure.
+
+Resetting an existing Kubernetes cluster flushes shared firewall tables, including Docker's bridge forwarding and NAT rules. After containerd recovery and its CRI readiness check, that reset path restarts Docker within 60 seconds to restore its rules and requires `docker info` to answer within ten seconds. Both commands allow a one-second termination grace. A failed restart or engine probe aborts before cluster initialization. Fresh installations do not need this additional Docker restart.
+
 The Kubernetes installers replace and verify containerd's registry configuration regardless of quoting or previous value. Containerd 2.2 can emit a single-quoted, colon-separated `config_path`; matching only an empty double-quoted value silently leaves the mirror inactive. The generated configuration selects the supported single directory. MCR needs its own mirror entry, and manifest probes name their upstream with `ns=mcr.microsoft.com` or the appropriate registry, so zot does not spend Docker Hub requests resolving another registry's images.
 
 A selected cache must become reachable before cache-only pulls begin. Liveness retries tolerate a cache VM rebuilding without consuming upstream image requests. Manifest diagnostics preserve curl's failure details even when a retry succeeds, distinguish transport failure, upstream refusal, and actual elapsed-time exhaustion, and stay concise enough to fit the console capture. See [container caching](https://yuruna.link/42d69dfa-0042).
@@ -399,11 +530,22 @@ a directory left by a failed extraction is not a usable checkout. Fallback Git
 clones use the same low-throughput limits as Linux and macOS: 1024 bytes per
 second for 60 seconds.
 
+Every guest accepts a framework archive or fallback clone only when transfer
+and extraction succeeded and the result has a regular, nonempty `VERSION` file.
+An empty but syntactically valid tar archive is not a usable framework. Keep
+early diagnostic prefetch and later repository materialization on the same
+acceptance contract, including Linux's shared retry helper and inline fallback.
+
 <a id="42e220c4-000f"></a>
 
 ### Service guests
 
 Service installers export `HOME` before building Go code because cloud-init may omit it and Go requires it to locate its module cache. All three select a service user, resolve storage and tunables, build, install a systemd unit, and start the daemon; their storage and runtime dependencies justify different intervening steps.
+
+Keep strict shell initialization in `Initialize environment` and library lookup
+in `Load service helpers`, after `Service user` identifies the account whose
+framework checkout may contain that library. Account selection and helper
+discovery are separate phases even when their statements are adjacent.
 
 All three service installers allow 30 readiness probes and require both an
 active systemd unit and a successful `/healthz` HTTP response. Stash retains
@@ -414,14 +556,14 @@ prevent the daemon from starting.
 | Guest | Dependencies and storage |
 | --- | --- |
 | Stash | Go daemon on SSH 22 with optional HTTP 80. Cloud-init mounts the stash share; an unconfigured guest can use a local folder that does not survive reimaging. |
-| Pool control | Go daemon plus PowerShell and `powershell-yaml` for pool-admin commands. Its repository path and intent store must be usable; audit and status files live under the pool share's service directory. |
+| Pool-control | Go daemon plus PowerShell and `powershell-yaml` for pool-admin commands. Its repository path and intent store must be usable; audit and status files live under the pool share's service directory. |
 | Download agent | Go daemon with optional PowerShell/Fido support for Windows image discovery. Missing support marks that image family unavailable so hosts can fetch it themselves. The pool share holds both images and service state. |
 
-Pool control resolves an explicitly seeded intent-store location before the pool NAS default and initializes the resolved directory when it is not yet a Git repository. Testing only whether the seed was empty would skip initialization of a newly seeded NAS path. Git initialization runs as the service user, matching CIFS ownership; `core.fileMode=false` avoids changes caused solely by mount-provided modes.
+Pool-control resolves an explicitly seeded intent-store location before the pool NAS default and initializes the resolved directory when it is not yet a Git repository. Testing only whether the seed was empty would skip initialization of a newly seeded NAS path. Git initialization runs as the service user, matching CIFS ownership; `core.fileMode=false` avoids changes caused solely by mount-provided modes.
 
 Stash permits `STASH_HTTP_ADDR=''` to disable HTTP, so its shell expansion uses `${name-default}` rather than substituting the default for an explicitly empty value. Its aggregator URL prefers an operator override over `/etc/yuruna/pool.env`. Presence beacons use the owning host's identity and must recur faster than the aggregator's extension-health grace so a changed address is announced promptly.
 
-The stash build stages `extension-sdk` beside `server`, preserving the Go module's `replace ... => ../extension-sdk` relationship. A workspace file outside the staged build does not satisfy that dependency. The systemd unit grants access to local state and share paths; its optional share path has a `-` prefix so an absent NAS mount does not fail namespace setup in local-storage mode. See [stash](https://yuruna.link/42f5e921), [pool control](https://yuruna.link/4207d71a-000c), and [download agent](https://yuruna.link/4268e4cb).
+The stash build stages `extension-sdk` beside `server`, preserving the Go module's `replace ... => ../extension-sdk` relationship. A workspace file outside the staged build does not satisfy that dependency. The systemd unit grants access to local state and share paths; its optional share path has a `-` prefix so an absent NAS mount does not fail namespace setup in local-storage mode. See [stash](https://yuruna.link/42f5e921), [pool-control](https://yuruna.link/4207d71a-000c), and [download agent](https://yuruna.link/4268e4cb).
 
 <a id="42e220c4-0006"></a>
 
@@ -457,6 +599,12 @@ that last key to its own loopback address; the other guests receive the seeded
 cache address. Keep the order aligned so a diff isolates the intentional value
 exception.
 
+All four service seeds write locale settings to `/etc/yuruna/globalization.env`
+with the same key order, root ownership, and permissions. Pool-control reads
+that canonical file first; only an older VM without it falls back to the locale
+keys formerly stored in `/etc/yuruna/pool.env`. An existing canonical file stays
+authoritative even when its values are `auto` or `false`.
+
 Windows seed generation keeps its first-logon body in a separate, parsable
 PowerShell 5.1 template because nested here-string terminators cannot safely
 live inside an outer here-string. Trusted seed media carries both the bootstrap
@@ -469,10 +617,19 @@ Each archive attempt bounds stalled network I/O at 30 seconds and makes one
 wget attempt; the six outer host attempts remain authoritative. Mirror clones
 stop when throughput stays below 1024 bytes per second for 60 seconds. The
 public mirror is the fallback for an off-LAN build. The VERSION file
-must exist after extraction, and `/etc/yuruna/framework-source` records the source,
-URL, version, and UTC fetch time. Keep it readable by the seed account so host
+must be a regular, nonempty file after extraction, and
+`/etc/yuruna/framework-source` records the source, URL, version, and UTC fetch time. Keep it readable by the seed account so host
 readiness checks can distinguish a published mirror from the local enlistment.
 See [service source provenance](https://yuruna.link/42fffc2c-0013).
+
+The three daemon seeds stage the downloaded archive and extracted tree in a
+private temporary directory beside the destination. Check wget's status before
+extracting: tar can succeed even when the producer exits with a transfer error.
+Validate `VERSION` before promoting either a host archive or mirror clone. A
+failed attempt preserves an existing checkout and its source record. If
+promotion fails after moving the old checkout aside, restore it; retain that
+backup when restoration cannot complete. Write provenance only after successful
+promotion, and remove disposable staging on completed or failed attempts.
 
 Netplan guests receive the shared `network-config` with MAC-based DHCP identity.
 Amazon Linux receives no such file: its networkd fallback and identity drop-ins
@@ -655,11 +812,11 @@ scripts use explicit failure paths instead of setting a blanket
 `ErrorActionPreference = 'Stop'`.
 
 The inner runner reloads its complete module set at each cycle boundary using
-the same list as bootstrap. macOS loops in one PowerShell process, so a pull
-between cycles would otherwise leave cached code building obsolete UTM bundle
-paths. Windows normally starts a fresh process per cycle, but the same reload
-also protects an in-process retry; keeping one module list avoids a second
-source of truth. The reload costs roughly a second per cycle.
+the same list as bootstrap. The recurring runner starts fresh cycle and inner
+processes on every host. A pull within the cycle can still change code after
+bootstrap, so this reload loads the current modules and host driver before
+provisioning; it also protects an in-process retry. Keeping one module list
+avoids a second source of truth. The reload costs roughly a second per cycle.
 
 After a watchdog stop, the outer runner re-ensures the status service before
 the failure pause. Windows `taskkill /T` can kill the inner runner's status
@@ -718,7 +875,7 @@ All three daemon waits resolve their 2700 s default and positive-integer
 helper remains as a delegating API. A cold build may install Go and
 PowerShell and compile for about half an hour on a slow UTM guest. The
 wait polls actual service readiness and extends to at most twice the
-initial budget only while the guest reports cloud-init still running.
+initial budget while the guest reports cloud-init running or not started.
 Progress describes the observed guest state, not an assumed build.
 
 Wait for an address after starting; one empty lookup is not proof that
@@ -785,6 +942,10 @@ leaving almost no startup headroom under 128 MiB. At that lower limit the
 process can stall with its port unbound rather than exit cleanly, and readiness
 times out. Text-to-sql retains its separate 128 MiB limit.
 
+The mobile navigation check follows `aria-controls` and verifies both the ARIA
+state and the controlled panel's visible expansion/collapse. A completed ARIA
+change alone does not prove the panel finished its collapse transition.
+
 <a id="42e220c4-0010"></a>
 
 ### Image acquisition and build boundaries
@@ -797,17 +958,43 @@ Base images are acquired from the local Docker store, then the configured cache,
 
 Shell command bounds use `timeout --foreground` to avoid stopping terminal-dependent children with SIGTTIN/SIGTTOU, returning 124 for retryable expiry. If `timeout` is unavailable the command runs without that bound. PowerShell's Docker wrapper bounds the process tree and keeps command output off the success stream, which contains only the exit code.
 
-The Dockerfile's `REGISTRY` prefix must end in `/`; its default permits ordinary MCR builds outside the harness. Component preparation only verifies that the development certificate opens with the password in `ASPNETCORE_Kestrel__Certificates__Default__Password`, and fails immediately when it cannot, without changing the caller's working directory. The image carries no certificate: the workloads phase creates a Kubernetes Secret holding it under a generated password (a throwaway self-signed certificate when `YURUNA_EXAMPLE_SELF_SIGNED_CERT=1`), and the pod mounts that Secret. Visual Studio's Dockerfile integration is described in [Microsoft's container development guidance](https://aka.ms/containerfastmode).
+The Dockerfile's `REGISTRY` prefix must end in `/`; its default permits ordinary MCR builds outside the harness. Component preparation only verifies that the development certificate opens with the nonempty password in `ASPNETCORE_Kestrel__Certificates__Default__Password`, falling back to `<certificate>.password` when the variable is unset or empty. It fails immediately when the certificate cannot open, without changing the caller's working directory. The image carries no certificate: the workloads phase creates a Kubernetes Secret holding it under a generated password (a throwaway self-signed certificate when `YURUNA_EXAMPLE_SELF_SIGNED_CERT=1`), and the pod mounts that Secret. Visual Studio's Dockerfile integration is described in [Microsoft's container development guidance](https://aka.ms/containerfastmode).
 
-The development launcher stops when Docker build fails so an old tagged image
-cannot masquerade as the new build. It also reports a failed Docker run and
-restores the caller's working directory through `finally` on every exit.
+The website and text-to-sql SDK stages restore their project packages once, then compile through `dotnet publish --no-restore`. Publishing must compile fresh and fail on compiler errors; an intermediate `dotnet build` would compile the same application twice. Website client-library restoration still precedes publication.
+
+The development launchers stop when Docker build fails so an old tagged image
+cannot masquerade as the new build. Both report a failed Docker run, build from
+their own component directory, and restore the caller's directory on completion.
+PowerShell uses `finally`; CMD uses `popd` on each exit path.
+
+Certificate and database Secret helpers redact secret values from native
+failure output and exceptions, including errors that echo the submitted JSON.
+Keep the failure cause while removing plaintext passwords and encoded Secret
+data. Tests restore each original environment value, including absence, after
+running native-command fixtures.
+
+Docker arguments retain their individual boundaries on every host. Standard
+output and error drain concurrently. Execution, process-tree termination, and
+output drain stay bounded; incomplete capture fails instead of returning
+success. A diagnostic relay after process cleanup may still take time to print
+captured output.
 
 <a id="42e220c4-0011"></a>
 
 ### Sequence parity and readiness
 
+The identical website deployment script receives 1800 seconds in GUI, cold SSH,
+warm SSH, and chapter-two flows. Prompt, boot, and input budgets remain separate.
+
 GUI and SSH website sequences both wait for every Kubernetes node to become Ready. GUI sequences clear the screen after a successful wait and match `control-plane` in the resulting node table. Matching `Ready` alone could accept either the echoed command or `NotReady` under fuzzy OCR. The outer 360-second limit exceeds the inner 300-second wait.
+
+SSH HTTP checks use `sshFetchAndExecute` so the helper's exit status reaches
+the runner. Searching a piped output file for `200` can accept an earlier
+successful response after the helper fails. Their 240-second step allowance
+exceeds the helper's 180-second readiness budget. GUI HTTP checks allow at
+least 420 seconds for console delivery, readiness, and OCR; longer application
+budgets remain valid. Book and website console flows share shell prompt guards
+and input priming before typing commands.
 
 Website and book chapter-two GUI sequences use the same 60-line completion window after clearing the console and activating the Docker group. The wider window retains the build/deployment completion marker without admitting a marker from an earlier step. Deployment readiness waits stay inside workload scripts; typing their full command into the UTM console risks dropped or repeated characters. Book interactive/unattended pairs differ only in identity, descriptive metadata, and the intended breakpoint. See [console-safe readiness](https://yuruna.link/42a76c30-000b).
 
@@ -825,6 +1012,39 @@ The generic template creates a namespace and registry pull secret, leaving `TO-S
 
 Text-to-sql initializes PostgreSQL before deploying its application. The pod's `status.hostIP` identifies the node running PostgreSQL, `$(HOST_IP)` and `$(TEXT2SQL_PG_PASSWORD)` expand from the environment variables defined before them in the pod, the password arriving from the `text-to-sql-db` Secret that the setup script's owner-only password file feeds. The application has no built-in connection string: `TEXT2SQL_PG_CONN`, `ConnectionStrings:Postgres` or `TEXT2SQL_PG_PASSWORD` must be set, or startup fails. PostgreSQL listens on the node network and permits the pod CIDR. Npgsql connects lazily, so pod readiness or HTTP 200 alone does not establish database connectivity. See [text-to-sql integration](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/README.md).
 
+<a id="42e220c4-0019"></a>
+
+## Automation entrypoints
+
+`yuruna.ps1`, `Set-Resource.ps1`, `Set-Component.ps1`, `Set-Workload.ps1`,
+and `Invoke-Clear.ps1` share the same bootstrap phases: log level, root
+resolution, transcript path, operation module imports, transcript start,
+operation, transcript stop, and completion. `Set-Workload.ps1` additionally
+checks the container runtime before resolving the project roots; the other
+entrypoints omit that runtime preflight before root resolution.
+
+Resolve project/configuration roots and the transcript path before removing
+`Yuruna.*` modules. Both resolvers live in `Yuruna.LogLevel.psm1`, which that
+removal also unloads. Resolve the roots once, export the matching environment
+values, and then load the operation modules. The log-level helper imports the
+globalization renderer and has no operation-module state to preserve.
+
+`Test-Runtime.ps1` can print diagnostic tables before returning its Boolean
+verdict. Inspect the last output item, require its Boolean type, and fail when
+there is no verdict; testing the entire collection would treat printed
+diagnostics as success. A missing prerequisite or failed operation must exit
+with status 1 so shell callers using `set -e` stop at the failing action.
+Resource, component, and workload operations return result manifests;
+clear/requirements/validation retain their Boolean outcomes. The dispatcher
+checks the result type before choosing the corresponding completion path.
+
+A caller can name its transcript through `YURUNA_TRANSCRIPT_PATH`. The resolver
+consumes that environment value before starting nested operations so an inner
+run cannot truncate an outer transcript. It verifies the named path is writable
+while a fallback is still available; an unusable path selects a temporary file.
+Printed transcript instructions remain operator text and are not a wire format
+for callers to parse.
+
 <a id="42e220c4-000a"></a>
 
 ## Automated checks
@@ -833,15 +1053,46 @@ Run the focused consistency suite with
 `Invoke-Pester -Path test/modules/Test.SourceConsistency.Tests.ps1`.
 It compares common regions and verifies seed/provider contracts without starting
 a VM. Its source scan covers `yuruna`, `yuruna-project`, `yuruna.link`, and
-`alius-git/amisad.dev`: region markers have no following blank line, structural links remain
+`amisad.dev` (or the `alius-git/amisad.dev` fallback): region markers have no
+following blank line, structural links remain
 ordinary comments, test sequences use only their three canonical regions,
 YAML, XML/plist, HTML, and systemd/INI regions match the key, element, or
 bracketed section they introduce,
 decorative headers do not return, and PowerShell help stays inside a function
 when a region precedes it. The suite also compares Ubuntu release sequences and
-the common service-lifecycle preamble. Run the affected guest, image, and
+the common service-lifecycle preamble. Sequence fixtures prove that missing,
+misnamed, nested, and action-level regions fail the guard, while ordinary
+documentation comments and CRLF remain valid. Structural marker fixtures also
+cover quoted YAML keys, ordinary adjacent comments, exact case, and separation
+by another region or a blank line. Both direct and organization-
+nested AmisAd sibling checkout layouts are recognized when present. The source
+and link-validation inventories prefer the direct sibling and use the nested
+layout when it is absent. Explicit roots retain Git ignore and path filtering;
+adding a default root explicitly does not scan it twice.
+The inventory includes CommonJS/ES modules, PowerShell data files, Dockerfiles,
+Git hooks and attributes, Terraform, and TOML alongside the host/guest scripts.
+Git-tracked hidden files must be read explicitly; filesystem visibility does
+not exempt them. Runtime, build, vendor, and dependency directories remain
+excluded even when a file there has a supported source extension.
+Run the affected guest, image, and
 sequence suites after behavior changes. PowerShell edits must pass
 `tools/Invoke-Lint.ps1`; shell edits must parse with `bash -n`.
+
+`tools/Test-AsciiNoBom.ps1` applies the ASCII policy to maintained PowerShell,
+shell, CSS, JSON, and YAML source. The bootstrap installers and first-run guest
+scripts also have a narrow gate because a BOM can break `irm | iex` or
+`curl | bash` before a tolerant file reader exists. Translated catalogs and
+their generated artifacts require UTF-8 rather than ASCII and are checked by
+`tools/Test-Utf8Catalog.ps1`. Markdown, HTML, JavaScript, and explicit non-ASCII
+test fixtures retain their intended typography or charset coverage. The
+separate BOM-only gate checks staged files regardless of their ASCII policy.
+
+`host/modules/Yuruna.HostConsistency.Tests.ps1` checks the same 40 contract
+function regions in every provider, verifies internal help placement, and calls
+`Get-Help` on isolated lifecycle definitions. The guest installer outcome suite
+compares the standalone winget helpers and exercises every prerequisite call
+site. Service seed checks compare the complete shared locale file; pool-control
+fixtures also exercise canonical, legacy, and absent locale settings.
 
 The host-provisioning and guest/project consistency suites exercise failure
 paths with temporary files and native-command substitutes. They cover disk
@@ -878,9 +1129,11 @@ templates:
   not provide the early UEFI graphics output needed for boot-console OCR.
 - Test displays stay at 1920 by 1080 with dynamic resolution disabled; QEMU
   `xres` and `yres` also pin the Linux device's preferred mode. Service displays
-  remain minimal because their workload is headless. Windows currently retains
-  `virtio-ramfb-gl` and GUI input, with no VNC listener; changing that path needs
-  a Windows display and driver test, not just copying Linux display arguments.
+  remain minimal because their workload is headless. Windows uses
+  `virtio-ramfb`, the non-GL variant, because its localhost VNC listener sends
+  the DVD boot key; `virtio-ramfb-gl` makes QEMU exit with "The console requires
+  a GL context". Changing the Windows display device needs a Windows display and
+  driver test, not just copying Linux display arguments.
 - Ubuntu's disk has boot index 0 and installer ISO index 1. The unindexed cidata
   seed stays attached. This order allows the installed disk to boot after the
   installer finishes, before or after its `efibootmgr` entry is available.
@@ -922,12 +1175,287 @@ configures noninteractive Git credentials for private framework and project
 clones. Builders pass it as an encoded PowerShell command so quotes, dollar
 signs, and redirection cannot be corrupted by XML or command-line escaping.
 
+<a id="42e220c4-0016"></a>
+
+## Dependency probe contract
+
+`automation/Yuruna.Requirement.yml` supplies the same version expressions to
+`Confirm-RequirementList` in `automation/Yuruna.Requirement.psm1` and the
+standalone diagnostic's HOST software section. On a healthy installation,
+each expression prints only its version string. The consumers add their own
+missing-tool fallback. Use YAML block literals (`|-`) for expressions with
+regex backslashes or embedded apostrophes: double-quoted YAML interprets
+backslashes, while single-quoted YAML requires doubled apostrophes.
+
+A version floor follows the lowest version available through every supported
+host's package source. Ubuntu LTS archives freeze versions and backport fixes;
+Homebrew and winget can move sooner. A floor above a supported source reports
+a defect that its installer cannot repair. Docker Engine and buildx floors
+follow Docker Desktop's bundled versions; npm follows the bundled Node LTS
+version. A floor establishes provisioning, without promising the latest release.
+
+`docker --version` is a local probe. `docker version -f json` contacts the
+daemon and can stall for about 30 seconds precisely when diagnostics need to
+report an unreachable daemon.
+
+The Windows QEMU installer can leave `qemu-img` off PATH. Its fallback paths
+must match `Resolve-QemuImgCommand` in `host/modules/Yuruna.Image.psm1`.
+Strip the constant copyright suffix from its first version line. Keep this
+fallback Windows-only: a missing package-manager link on macOS or Linux is
+a defect that installation repair must detect.
+
+`oscdimg` prints `OSCDIMG X.YZ CD-ROM and DVD-ROM Premastering Utility`
+before its usage text when called without arguments. It has no version flag;
+`-h` means include hidden files. Find the banner rather than assuming line 1.
+Disable `PSNativeCommandUseErrorActionPreference` locally because this probe's
+expected non-zero exit must not become a terminating error under PowerShell 7.4+.
+The ADK keeps architecture-specific copies off PATH; any installed copy can
+establish the version floor. Executable architecture selection remains the
+responsibility of `Resolve-OscdimgPath` in the Hyper-V provider.
+
+<a id="42e220c4-0017"></a>
+
+## Standalone diagnostic dependencies
+
+`automation/Get-SystemDiagnostic.ps1` runs alone in a guest's `/tmp` when the
+console diagnostic path downloads it. Keep it self-contained: no module
+imports, `using module`, `#requires -Modules`, dot-sourcing, or shared helper
+files. It intentionally embeds copies of the log-level cascade, message
+renderer, and English messages. Modules remain the source of truth; update
+embedded copies when their source changes. `Test.SystemDiagnosticSelfContained`
+checks that parity.
+
+Inside a checkout, the diagnostic reads the compiled catalogs and locale
+manifest as data; outside it, embedded English messages remain available.
+Optional commands supplied by an existing caller require a `Get-Command`
+guard and a local fallback.
+
+<a id="42e220c4-0013"></a>
+
+## Extension module boundaries
+
+The [digest extension](../test/extension/digest/README.md) computes SHA-256
+values on the host and carries them through the typed launch command.
+`fetch-and-execute` verifies its script against that value. Nested downloads
+need their own digests before extraction, installation, or database execution:
+a script's digest does not establish the bytes of a later HTTP response.
+The expression readers `Get-FileSha256`, `Get-ArchiveSha256`, and
+`Get-PublishedSha256` warn and return an empty string on failure. A verifying
+guest rejects the empty value. `Publish-GuestFileSha256` runs through
+`callExtension` and throws to fail its step.
+
+The [stash daemon](../test/extension/stash-service/server/README.md) owns the
+SCP/SFTP handlers, SQLite index, and storage layout. The host extension's
+`Get-StashServiceInfo` remains an unsupported-status stub until host-side
+status probing is implemented. `Resolve-Host` resolves the current VM address,
+then the published `<runtime>/stash-host.txt` address, then the extension's
+configured host address, which can belong to another pool machine.
+
+`Test-StashServiceHost` and `Publish-StashServiceHost` check `/healthz` during
+cycle warm-up and publish the result. This stops an unreachable stash before
+long provisioning stages. Later `Resolve-Host` calls recheck the published
+address because a cycle can outlast its guest's address, and republish a
+working fallback when necessary. See the [stash guide](https://yuruna.link/42f5e921).
+
+<a id="42e220c4-0018"></a>
+
+## Guest update shutdown boundaries
+
+Stopping periodic apt timers and disabling the independent
+`unattended-upgrades` shutdown service solve separate problems. After
+`dist-upgrade`, stop and disable the shutdown service inside the update step
+so any repeated package or network check remains observable instead of
+turning into a silent VM shutdown timeout.
+
+The fetch wrapper executes a literal `bash -c` payload. Construct the target
+for `pkill -f` from two fragments: spelling it contiguously in the payload
+can make the shell match and terminate itself. Keep the split construction
+even when shortening the surrounding comments.
+
+<a id="42e220c4-0014"></a>
+
+## Test fixture placement
+
+The [Pester scope rules](https://yuruna.link/42d38664-000a) apply across
+host, guest, and service tests. These fixture-specific constraints explain
+why superficially similar test files can need different placements.
+
+**Runner and service fixtures**
+
+Runner collaborators imported with `-Global` must be stubbed in the global
+command table. Assertions inside `InModuleScope` see the module's script scope,
+so their shared counters also need a saved and restored global channel.
+`Write-CycleInfraFailure` deliberately does nothing when its builders cannot
+resolve; verify the resulting record, rather than only a successful invocation.
+Guest-iteration tests must verify config carry-back even when an iteration
+throws, and failure artifacts must be copied before a `stopOnFailure` return.
+The outer cycle needs the current config and failure fields when completing
+history and handling errors.
+
+Service scripts inherit `ErrorActionPreference` because their advanced helper
+functions inherit it too. Forcing `Stop` converts intended nonterminating
+outcomes, such as an absent VM or best-effort cleanup, into exceptions. Keep
+hard-stop decisions explicit at the operation that requires them.
+
+**Portable native-command fixtures**
+
+A checkout rename fixture uses an exclusive file handle on Windows and removes
+write permission from the parent directory on POSIX. POSIX permits renaming
+directories with open files, so an open handle alone cannot exercise access
+denial there. Both fixture tokens expose `Dispose()` to restore access.
+
+Retry fixtures inject `DEBIAN_FRONTEND=noninteractive` and
+`DEBIAN_PRIORITY=critical` after `sudo`, whose environment filtering can remove
+exported settings. Use the executable `env` before those assignments so
+`timeout(1)` can execute the bounded command. Otherwise a debconf prompt can
+block an unattended guest, or the timeout wrapper can fail before apt starts.
+
+**`test/modules/Test.CachingProxyServiceEndpoint.Tests.ps1`**
+
+Fresh -Force import ONCE per suite run (guards against a stale module a
+prior suite loaded into this process) -- NOT per-It in BeforeEach. A
+-Force re-import between Its replaces the module instance, but Pester 4
+caches the Mock -ModuleName injection target per Context: the second It
+in a Context then mocks the EVICTED instance while the resolver runs in
+the new one, silently disabling the mock. The suite's dead-address
+candidates then really get probed (3 attempts x 3 s per candidate on a
+stealth-firewall host) and any It whose expected outcome depends on the
+mock's reachability rule fails.
+
+**`test/modules/Test.CachingProxyServiceStart.Tests.ps1`**
+
+The per-platform case list is built at FILE SCOPE, and reaches the It bodies as
+-TestCases, because file scope is the only part of this file that Pester's
+discovery pass executes -- and discovery is where the Its below are collected.
+A path derived inside BeforeAll is still $null here, so Split-Path would fail
+the whole container and no Describe declared past this point would be collected
+at all. Feeding the list to a `foreach` inside an It is just as wrong in the
+other direction: file-scope values are gone by the time the It runs, and
+`foreach` over $null iterates zero times, so the test asserts nothing and
+reports green. One It per case cannot degrade that way -- a lost case is a
+missing test, which the count guard below turns into a hard failure.
+
+**`test/modules/Test.HostClockSkew.Tests.ps1`**
+
+The three host types this file holds to the same clock contract. The list is
+built at FILE scope because every Describe body is executed while the file is
+being discovered, which happens before any BeforeAll runs: a list assigned in
+BeforeAll is still $null when the foreach that emits the per-host Its reads it,
+so the loop emits no tests at all and its Describe passes without asserting
+anything. Each case then reaches its It through -TestCases for the same
+reason -- discovery's loop variable is gone by the time the body executes, so a
+$case read inside the body would arrive as $null and assert against an empty
+path. Nothing here may have a side effect: discovery builds and discards this
+scope before the first It runs.
+
+**`test/modules/Test.Log.Tests.ps1`**
+
+The archive fixture lives at FILE scope, not inside its Describe: a Describe
+body is executed during discovery and everything it declares is discarded
+before any It runs, so a helper defined there is a CommandNotFoundException by
+the time the It blocks call it.
+
+All $global:__Yuruna* access (the Yuruna.Log cross-module channels Stop-LogFile
+consumes) is confined to these two suppressed helpers so the It blocks stay
+clean; the production Copy-FailureArtifactsToStatusLog suppresses
+PSAvoidGlobalVars for the same channels.
+
+**`test/modules/Test.WarmResume.Tests.ps1`**
+
+Fixtures must sit ABOVE THE FIRST Describe, not merely at file scope. Only
+top-level statements executed before the first Describe land in the session
+state the run phase reuses; a top-level assignment placed after one is
+evaluated during discovery and then discarded, so every later It reads $null.
+Declaring this inside the Describe body has the same effect for the same
+reason. It is a silent failure: an empty workload list refuses a resume just
+as surely as the condition each test means to check, so four of the five
+tests below -- including the two asserting a specific .Reason -- kept passing
+for the wrong reason while the list was empty.
+
+**`test/modules/Test.CachingProxyServiceEndpoint.Tests.ps1`: smoke checks**
+
+Parse the standalone smoke script instead of invoking its VM probe. Its target
+must use the runner's resolver and source order. Derive its AST path purely at
+file scope from `$PSCommandPath`, before discovery collects the tests. A path
+taken from `BeforeAll` is unavailable during discovery and can erase the cases;
+discovery must not create temporary state that no teardown would own.
+
+**`test/modules/Test.ModuleImportScope.Tests.ps1`**
+
+The [nested import trap](https://yuruna.link/42aaf735-0006) requires a module's
+private session state. Scan `.psm1` files from Git's tracked and new, non-ignored
+inventory; script-level imports have different scope semantics. A directory
+allowlist can silently omit new module trees, while a filesystem walk admits
+generated working copies.
+
+Each recorded exception names a file and enclosing function, with an empty
+function name for module top level. Its count is a cap: adding another private
+force-import still fails. A prior `Get-Command` guard can prove that a caller
+does not hold the command; other sites require a deliberate scope decision.
+
+Caller-held pairs test that decision in an isolated runspace. `Publishes`
+records whether the dependency must enter global session state, `Reloads`
+records whether a held dependency must refresh, and `Call` proves its code ran.
+A wrapper exporting `*` can re-export private dependency commands and remove
+the caller's access when unloaded. Mirror a consuming script's import flags,
+then probe exact command names: several modules share a base name, making
+`Get-Module` insufficient evidence of command availability.
+
+**`test/modules/Test.PortOwner.Tests.ps1`**
+
+Build reservation capability at file scope before the first `Describe` because
+`-Skip` is evaluated during discovery. Keep the chosen high port at script scope
+so execution sees the same reservation. Computing capability in `BeforeAll`
+silently skips every case on otherwise capable hosts.
+
+The production probe binds `http://*:<port>/` to detect reservations owned by
+another user. Windows HTTP.sys can deny that wildcard without elevation or a
+URL ACL. A successful localhost bind followed by denied wildcard access proves
+an unavailable capability; skip only that combination. Do not report a busy
+port as a permissions skip or treat missing test coverage as a pass.
+
+**`test/modules/Test.Transport.Tests.ps1`: stale keyboard handles**
+
+Hyper-V can replace `Msvm_Keyboard` after reboot without changing the VM name.
+Failed delivery must invalidate the cached association before another key is
+sent. Portable fixtures shadow `Invoke-CimMethod` inside the module's session
+state, exercising the same failure branch where Windows CIM is unavailable.
+Remove that shadow after every case so later tests keep their own command view.
+
+<a id="42e220c4-0015"></a>
+
+## Installer preflight
+
+Check the running session's elevation capability before requirements questions
+or password prompts. A group grant made after login is absent from that
+session's authorization token. Bare `id -Gn` reports the session groups;
+adding a username queries the account database instead. macOS requires
+`admin`, while Ubuntu accepts `sudo` or `wheel`. Read sudo's exit status
+rather than matching refusal wording that differs between implementations.
+
+Keep the installers' `group_names` functions identical. Preserve the names
+`id` returns even if another group no longer resolves. Consumers drain the
+output with `grep -x ... >/dev/null`: `grep -q` can close the pipe early and
+make `pipefail` interpret the writer's SIGPIPE as a failed authorization check.
+
+The Windows bootstrap can run under Windows PowerShell 5.1 or an emulated x64
+process on ARM64. Read the machine environment in HKLM first, then
+`RuntimeInformation.OSArchitecture` when its property exists, then environment
+fallbacks. A missing managed static property can return null without an error;
+check its existence before reading it. `PROCESSOR_ARCHITEW6432` precedes
+`PROCESSOR_ARCHITECTURE` because the latter can describe the emulated process.
+Report unsupported architecture names explicitly. The guest JDK installer
+uses `Win32_Processor.Architecture` through CIM, so native ARM64 detection
+also works in Windows PowerShell 5.1 and older emulated PowerShell processes.
+Both the JDK and update phases accept native identities 9 (AMD64) and 12 (ARM64)
+and reject unsupported or unavailable identities before package installation.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

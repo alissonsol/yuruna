@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42539169-cf17-4eb5-b0d6-c972156d3841
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -340,5 +340,36 @@ Describe 'Test-DetachedRunInterrupted' {
 
     It 'is never interrupted on success' {
         Test-DetachedRunInterrupted -ExitCode 0 -StdErr 'YURUNA_RUN_START token=t' | Should -BeFalse
+    }
+}
+
+Describe 'Get-YurunaSshHostKeyOption' {
+
+    # Call sites splice this sequence into an ssh argument list as it is, so the
+    # contract is the flat -o/value order and the exact spelling of every value.
+    # ssh takes /dev/null as written on Windows too, so the sequence must be the
+    # same on every host.
+
+    It 'returns the three host-key options as a flat -o/value sequence, in order' {
+        $options = @(Get-YurunaSshHostKeyOption)
+        $expected = @(
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', 'GlobalKnownHostsFile=/dev/null')
+        $options.Count | Should -Be $expected.Count
+        for ($i = 0; $i -lt $expected.Count; $i++) {
+            $options[$i] | Should -BeOfType ([string])
+            $options[$i] | Should -BeExactly $expected[$i] -Because "element $i goes into an ssh argument list unchanged"
+        }
+    }
+
+    It 'reads nothing from the host, so the sequence cannot differ between platforms' {
+        $definition = (Get-Command Get-YurunaSshHostKeyOption).ScriptBlock.Ast
+        $lookups = @($definition.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.VariableExpressionAst] -or
+                    $node -is [System.Management.Automation.Language.CommandAst]
+                }, $true))
+        $lookups.Count | Should -Be 0 -Because 'a platform, environment or path lookup would let the options vary by host'
     }
 }

@@ -117,6 +117,7 @@ const DatazhCNremediation = `{
   ],
   "remediation.operator_443019dfa8dbce7c": "打开周期文件夹中的last-fetch-and-execute.log",
   "remediation.operator_4fccd2ceaaf44c3a": "检查project/test/test.runner.yml中是否有重复或格式错误的条目",
+  "remediation.operator_52e8af97f6901f58": "暂存的命令从未在客户机中运行，因此下一次尝试不会在客户机上重复任何工作",
   "remediation.operator_54b0e080b8e528c6": [
     {
       "arg": "vmName",
@@ -157,6 +158,7 @@ const DatazhCNremediation = `{
       "trust": "external"
     }
   ],
+  "remediation.operator_6072d4a9739b1fee": "重试该步骤：在同一客户机上从头重新键入命令",
   "remediation.operator_6097b95aeee20519": [
     "在宿主机控制台上检查",
     {
@@ -346,6 +348,14 @@ const DatazhCNremediation = `{
   ],
   "remediation.operator_ae1a107543e2b1da": "通过Register-RecoveryHandler注册处理程序",
   "remediation.operator_b0efdbb198fceec5": "检查该领域的default.psm1 + .contract.yml",
+  "remediation.operator_b40349f16bf6efc1": [
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "发生input_lost：键入的命令未能在客户机 shell 中闭合，因此载荷未执行，它本应完成的任何操作都不存在疑问。客户机仍可访问，失败的是键入的输入，因此重复该步骤是安全的。"
+  ],
   "remediation.operator_b4f9634c3488c4e9": "对故障模式进行分类，并考虑为该动词添加FailureClass",
   "remediation.operator_b51fc0ab27411fec": [
     {

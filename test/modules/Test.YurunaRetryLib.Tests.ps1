@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -217,15 +217,8 @@ echo "$r"
         Assert-StringEqual -Actual $out -Expected 'M B U' -Because "marker/wrap/no-wrap result was: '$out'"
     }
     It 'forces apt attempts non-interactive through sudo without breaking the stall hoist' {
-        # An exported DEBIAN_FRONTEND never reaches apt: sudo resets the
-        # environment to what env_keep lists, and that list has neither of
-        # these variables on it. Losing them is silent and costs a whole step
-        # -- dpkg-preconfigure blocks on a debconf question that an OCR-driven
-        # console cannot answer, and with stdout on a pipe the question does
-        # not even flush -- so the injection is asserted rather than assumed.
-        # `env` rather than a bare VAR=value word is what keeps the argument a
-        # real command: timeout(1) execs its argument and cannot exec an
-        # assignment, so the bare form would break the bounded shape below.
+        # See https://yuruna.link/42e220c4-0014
+        # Inject debconf settings after sudo and keep env executable by timeout(1).
         if (-not $script:bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         # The library only bounds a command when timeout(1) exists; it is GNU
         # coreutils on a Linux guest and absent from a stock macOS host.

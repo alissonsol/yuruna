@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4290efe6-0b47-4573-a67c-44f74ba35a69
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,19 +70,9 @@ Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameCh
 
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 
-# Only .psm1 is scanned. A .ps1 imports at its own top level, which is the
-# global session state, so -Force there reloads in place and evicts nothing.
-# The eviction needs a module's private session state to move the target into.
-#
-# The set of modules is selected the way tools/Invoke-TestSuite.ps1 and
-# tools/Invoke-Lint.ps1 select theirs -- tracked plus new, minus everything
-# .gitignore covers -- rather than from a list of directories. A named-root
-# list is the wrong shape for a rule that has to hold everywhere: it is
-# complete only for the trees somebody remembered, and a module tree nobody
-# added reads as compliance rather than as an unexamined area. The same
-# selector also keeps the generated working copies under project/ out, which a
-# plain filesystem walk would sweep in and make the findings depend on whether
-# the harness had run.
+# --- REGION: Module source inventory
+# See https://yuruna.link/42e220c4-0014
+# Scan tracked and new modules; script imports have a different scope contract.
 function Get-WalkedModulePath {
     <#
     .SYNOPSIS
@@ -150,18 +140,8 @@ function Get-ScannedModulePath {
 }
 
 # --- REGION: Recorded sites
-# Each entry names one body -- File plus the enclosing function, '' for module
-# top level -- and caps how many un-Global -Force sibling imports it may hold.
-# The cap is what makes an entry an exception rather than an exemption: a body
-# on this list still fails the moment it grows another one.
-#
-# Reason states what the import is for and what stands between the site and a
-# lost command. Two shapes recur. Some sites import only after Get-Command has
-# already shown the command is NOT resolvable, which settles the question --
-# eviction cannot take a command the caller was demonstrably not holding. The
-# rest are recorded, not cleared: adding -Global publishes the sibling into
-# every caller's session, which is a wider surface than the site asked for, so
-# the correction is a deliberate edit and not a mechanical one.
+# See https://yuruna.link/42e220c4-0014
+# Cap each recorded body; an existing exception cannot admit a new import.
 $script:RecordedSite = @(
     @{
         File = 'automation/Yuruna.CloudInitTemplate.psm1'; Function = ''; Max = 1
@@ -171,25 +151,10 @@ New-CloudInitUserData bakes into every guest seed. Recorded, not cleared.
 '@
     }
     @{
-        File = 'automation/Yuruna.HostRedirect.psm1'; Function = ''; Max = 1
-        Reason = @'
-Deliberate: the site states at the import that Test-IsAdministrator is wanted in
-this module's scope only and the caller's session is to be left alone. The
-target is a dependency-free leaf, so nothing else can be reached through it.
-'@
-    }
-    @{
         File = 'automation/Yuruna.HostSetup.psm1'; Function = 'Initialize-HostSetupModule'; Max = 1
         Reason = @'
 The generic loader every host-setup module is pulled in through, taking its
 target as a parameter. Recorded, not cleared.
-'@
-    }
-    @{
-        File = 'automation/Yuruna.Resource.psm1'; Function = ''; Max = 1
-        Reason = @'
-The shared retry policy that mirrors automation/yuruna-retry.sh. The two imports
-beside it already pass -Global; this one is the odd member. Recorded, not cleared.
 '@
     }
     @{
@@ -650,6 +615,145 @@ foreach ($entry in $script:RecordedSite) {
 
 $script:CatalogModule = Join-Path $script:RepoRoot 'test/modules/Test.Catalog.psm1'
 $script:LocaleModule = Join-Path $script:RepoRoot 'test/modules/Test.Locale.psm1'
+
+# --- REGION: Fresh runspace
+function Invoke-FreshRunspace {
+    <#
+    .SYNOPSIS
+        Run a script at the top level of a child pwsh and return everything it
+        wrote, as one string.
+    .DESCRIPTION
+        A child pwsh, not this runspace, for three reasons that all point the
+        same way. The order under test must be the only variable, and this
+        runspace has already imported modules of its own. -Global means
+        "the global session state", and a Pester block does not run in it, so
+        an import here would answer a question about Pester's scope rather
+        than about the scope a script's top-level import actually reaches.
+        And a -Force import performed here would move modules underneath the
+        other tests in this file, making them depend on execution order.
+
+        There is no skip for a pwsh that cannot be found. This suite is running
+        inside one, so failing to resolve it again is a broken host to report,
+        not a case to pass over in silence.
+    .PARAMETER Source
+        The script text the child runs.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory, Position = 0)][string]$Source)
+
+    $exe = (Get-Process -Id $PID).Path
+    if (-not $exe) { $exe = 'pwsh' }
+    if (-not (Get-Command -Name $exe -ErrorAction SilentlyContinue)) {
+        throw "no pwsh executable resolves here to open a fresh runspace with (tried '$exe')"
+    }
+    return (& $exe -NoProfile -Command $Source 2>&1 | Out-String)
+}
+
+# --- REGION: Caller-held pairs
+# See https://yuruna.link/42e220c4-0014
+# Assert publication, reload, and dependency execution in an isolated runspace.
+$script:CallerHeldPair = @(
+    @{
+        Wrapper    = 'automation/Yuruna.HostRedirect.psm1'
+        Dependency = 'automation/Yuruna.Common.psm1'
+        Probe      = 'Test-IsAdministrator'
+        Call       = '(Test-IsAdministrator) -is [bool]'
+        Publishes  = $false
+        Reloads    = $false
+    }
+    @{
+        Wrapper    = 'automation/Yuruna.Resource.psm1'
+        Dependency = 'automation/Yuruna.Retry.psm1'
+        Probe      = 'Invoke-WithYurunaRetry'
+        Call       = '(Get-YurunaRetryBackoff -BaseDelay 3 -MaxDelay 3 -JitterFraction 0) -eq 3'
+        Publishes  = $true
+        Reloads    = $true
+    }
+)
+
+function Invoke-CallerHeldProbe {
+    <#
+    .SYNOPSIS
+        Import a wrapper and its dependency into a fresh runspace in a stated
+        order, and report what the session and the wrapper each hold afterward.
+    .DESCRIPTION
+        Every import the child makes matches what a consuming script writes at
+        its top level: -Force, and no -Global, because a script's top level
+        already is the global session state.
+
+        Resolution is probed with Get-Command per function name. The module a
+        command belongs to is read off the command and compared by file name,
+        because several modules in this tree share a base name and a
+        name-keyed module lookup answers about whichever copy is resident.
+    .PARAMETER Pair
+        One $script:CallerHeldPair row.
+    .PARAMETER Order
+        DependencyFirst is the order an evicting import takes commands in: the
+        session holds the dependency, then imports the wrapper. WrapperFirst is
+        the order the entry points use, where the session reloads the
+        dependency after the wrapper has loaded. WrapperOnly never imports the
+        dependency from the session before measuring, which shows what the
+        wrapper alone publishes.
+    .OUTPUTS
+        A hashtable of the child's key=value lines, plus Raw with its full output.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Pair,
+        [Parameter(Mandatory)][ValidateSet('DependencyFirst', 'WrapperFirst', 'WrapperOnly')][string]$Order
+    )
+
+    $wrapperPath = (Join-Path $script:RepoRoot $Pair.Wrapper).Replace("'", "''")
+    $dependencyPath = (Join-Path $script:RepoRoot $Pair.Dependency).Replace("'", "''")
+    $importWrapper = "`$wrapper = Import-Module '$wrapperPath' -Force -DisableNameChecking -PassThru"
+    $importDependency = "`$dependency = Import-Module '$dependencyPath' -Force -DisableNameChecking -PassThru"
+    $insideWrapper = @"
+Write-Output "inside=`$(& `$wrapper { param(`$name) [bool](Get-Command -Name `$name -CommandType Function -ErrorAction SilentlyContinue) } '$($Pair.Probe)')"
+Write-Output "called=`$(& `$wrapper { $($Pair.Call) })"
+"@
+    $body = switch ($Order) {
+        'DependencyFirst' { "$importDependency`n$importWrapper`n$insideWrapper" }
+        'WrapperFirst'    { "$importWrapper`n$importDependency`n$insideWrapper" }
+        'WrapperOnly' {
+            # The session's own import of the dependency comes last, after the
+            # snapshot, and only to learn which names the dependency exports.
+            @"
+$importWrapper
+`$session = @(Get-Command -CommandType Function | ForEach-Object { `$_.Name })
+$insideWrapper
+$importDependency
+Write-Output "published=`$(@(`$dependency.ExportedFunctions.Keys | Where-Object { `$session -contains `$_ }).Count)"
+"@
+        }
+    }
+
+    $child = @"
+`$ErrorActionPreference = 'Stop'
+# Escape sequences in colored output would land inside the lines read back
+# from the child. `$PSStyle is 7.2 and newer, and touching an absent variable
+# under the preference above would end the child before it imported anything.
+if (Get-Variable -Name PSStyle -ErrorAction Ignore) { `$PSStyle.OutputRendering = 'PlainText' }
+$body
+`$exported = @(`$dependency.ExportedFunctions.Keys)
+`$resolves = { param(`$name) [bool](Get-Command -Name `$name -CommandType Function -ErrorAction SilentlyContinue) }
+Write-Output "exported=`$(`$exported.Count)"
+Write-Output "lost=`$(@(`$exported | Where-Object { -not (& `$resolves `$_) }).Count)"
+`$owner = Get-Command -Name '$($Pair.Probe)' -CommandType Function -ErrorAction SilentlyContinue
+Write-Output "owner=`$(if (`$owner -and `$owner.Module) { Split-Path -Leaf `$owner.Module.Path })"
+Write-Output "kept=`$([bool](`$owner -and [object]::ReferenceEquals(`$dependency, `$owner.Module)))"
+Remove-Module -ModuleInfo `$wrapper
+Write-Output "orphaned=`$(@(`$exported | Where-Object { -not (& `$resolves `$_) }).Count)"
+"@
+
+    $output = Invoke-FreshRunspace -Source $child
+    $result = @{ Raw = $output }
+    foreach ($line in ($output -split "`r?`n")) {
+        if ($line -match '^(?<key>[a-z]+)=(?<value>.*)$') { $result[$Matches['key']] = $Matches['value'].Trim() }
+    }
+    return $result
+}
 }
 
 Describe 'a module import leaves the importer holding what it already imported' {
@@ -782,34 +886,12 @@ New-LocaleContext the moment it imports Test.Catalog.
     }
 
     It 'still resolves the locale commands after a runspace imports the resolver and then the renderer' {
-        # A child pwsh, not this runspace, for three reasons that all point the
-        # same way. The order under test must be the only variable, and this
-        # runspace has already imported modules of its own. -Global means
-        # "the global session state", and a Pester block does not run in it, so
-        # an import here would answer a question about Pester's scope rather
-        # than about the scope a script's top-level import actually reaches.
-        # And a -Force import performed here would move modules underneath the
-        # other tests in this file, making them depend on execution order.
-        $exe = (Get-Process -Id $PID).Path
-        if (-not $exe) { $exe = 'pwsh' }
-        if (-not (Get-Command -Name $exe -ErrorAction SilentlyContinue)) {
-            Set-ItResult -Skipped -Because 'no pwsh executable resolves here to open a fresh runspace with'
-            return
-        }
-
+        # Run in a child pwsh; Invoke-FreshRunspace states why.
         $localePath = $script:LocaleModule.Replace("'", "''")
         $catalogPath = $script:CatalogModule.Replace("'", "''")
 
-        # Switches match what a consuming script passes: -Global is deliberately
-        # absent, because a script's top level already IS the global session
-        # state. The import that has to carry -Global is the nested one inside
-        # Test.Catalog, and this is the arrangement that reveals whether it does.
-        #
-        # Resolution is probed with Get-Command per function name rather than
-        # with Get-Module. Several modules in this tree share a base name, so a
-        # name-keyed module lookup answers about whichever copy is resident;
-        # a command name is unambiguous, and CommandNotFoundException on these
-        # exact names is the shape the loss takes anyway.
+        # See https://yuruna.link/42e220c4-0014
+        # Match script-level import flags and probe exact command names.
         $child = @"
 `$ErrorActionPreference = 'Stop'
 # Escape sequences in colored output would land inside the lines read back
@@ -826,7 +908,7 @@ foreach (`$name in @('Get-LocaleManifest', 'New-LocaleContext', 'Format-CatalogM
 `$manifest = Get-LocaleManifest
 Write-Output "invoked=`$(`$manifest -is [hashtable])"
 "@
-        $output = (& $exe -NoProfile -Command $child 2>&1 | Out-String)
+        $output = Invoke-FreshRunspace -Source $child
 
         $findings = @()
         foreach ($name in @('Get-LocaleManifest', 'New-LocaleContext', 'Format-CatalogMessage')) {
@@ -843,5 +925,93 @@ commands, which is what a long-lived server does at startup and what every
 localized page then fails on. Child output was:
 $output
 "@
+    }
+}
+
+Describe 'an automation wrapper leaves a session holding the dependency it imported for itself' {
+
+    It 'keeps the dependency with the session through the wrapper import and past the wrapper removal' {
+        # The order that loses commands: the session holds the dependency, and
+        # only then imports the wrapper. Three things have to survive. The
+        # commands must still resolve; they must still belong to the
+        # dependency, because a wrapper that re-exports its private copy keeps
+        # the names resolving while quietly becoming their owner; and they
+        # must outlive the wrapper, which is where a borrowed copy shows.
+        $findings = @()
+        foreach ($pair in $script:CallerHeldPair) {
+            $probe = Invoke-CallerHeldProbe -Pair $pair -Order DependencyFirst
+            $label = "$($pair.Dependency) then $($pair.Wrapper)"
+            $expectedOwner = Split-Path -Leaf $pair.Dependency
+            if ([int]$probe['exported'] -lt 1) {
+                $findings += "${label}: the dependency exported nothing, so nothing was held to lose. Child output was:`n$($probe.Raw)"
+                continue
+            }
+            if ($probe['lost'] -ne '0') {
+                $findings += "${label}: $($probe['lost']) of $($probe['exported']) dependency commands stopped resolving in the session"
+            }
+            if ($probe['owner'] -ne $expectedOwner) {
+                $findings += "${label}: $($pair.Probe) now belongs to '$($probe['owner'])', want $expectedOwner"
+            }
+            # Counted as an instance, not timed: a second load of the same file
+            # is what the import costs, and a clock would also measure the host.
+            if (($probe['kept'] -eq 'True') -eq [bool]$pair.Reloads) {
+                $findings += if ($pair.Reloads) {
+                    "${label}: the wrapper took the instance the session held, want a fresh copy in the global session state"
+                } else {
+                    "${label}: the wrapper loaded a second copy of the dependency, want the instance the session held"
+                }
+            }
+            if ($probe['inside'] -ne 'True' -or $probe['called'] -ne 'True') {
+                $findings += "${label}: the wrapper no longer reaches $($pair.Probe) (resolves=$($probe['inside']), runs=$($probe['called']))"
+            }
+            if ($probe['orphaned'] -ne '0') {
+                $findings += "${label}: $($probe['orphaned']) dependency commands left the session with the wrapper"
+            }
+        }
+        Assert-NoFinding $findings @'
+a session imported a dependency for itself and then imported a wrapper that
+uses the same dependency, and did not come out holding what it went in with:
+'@
+    }
+
+    It 'still reaches the dependency from inside the wrapper when the session reloads the dependency afterward' {
+        # The order the entry points use: the wrapper loads first and takes
+        # its dependency, then the session imports the dependency with -Force
+        # for its own calls. The wrapper has to keep working across that
+        # reload, and the session has to end up with every command.
+        $findings = @()
+        foreach ($pair in $script:CallerHeldPair) {
+            $probe = Invoke-CallerHeldProbe -Pair $pair -Order WrapperFirst
+            $label = "$($pair.Wrapper) then $($pair.Dependency)"
+            if ($probe['inside'] -ne 'True' -or $probe['called'] -ne 'True') {
+                $findings += "${label}: the wrapper lost $($pair.Probe) (resolves=$($probe['inside']), runs=$($probe['called'])). Child output was:`n$($probe.Raw)"
+            }
+            if ([int]$probe['exported'] -lt 1 -or $probe['lost'] -ne '0') {
+                $findings += "${label}: the session resolves $([int]$probe['exported'] - [int]$probe['lost']) of $($probe['exported']) dependency commands after importing them itself"
+            }
+        }
+        Assert-NoFinding $findings 'a wrapper and a session that reloads its dependency afterward did not both keep it:'
+    }
+
+    It 'publishes the dependency to a session that imports only the wrapper exactly where the pair says it does' {
+        # What a wrapper hands a session that never asked for the dependency
+        # is part of its surface. A private dependency that starts appearing
+        # in every caller is a wider surface than the wrapper stated, and a
+        # published one that stops appearing takes commands from callers that
+        # were using them.
+        $findings = @()
+        foreach ($pair in $script:CallerHeldPair) {
+            $probe = Invoke-CallerHeldProbe -Pair $pair -Order WrapperOnly
+            $label = "$($pair.Wrapper) alone"
+            if ($probe['inside'] -ne 'True' -or $probe['called'] -ne 'True') {
+                $findings += "${label}: the wrapper does not reach $($pair.Probe) (resolves=$($probe['inside']), runs=$($probe['called'])). Child output was:`n$($probe.Raw)"
+                continue
+            }
+            $want = if ($pair.Publishes) { [int]$probe['exported'] } else { 0 }
+            if ([int]$probe['exported'] -lt 1 -or [int]$probe['published'] -ne $want) {
+                $findings += "${label}: the session resolves $($probe['published']) of $($probe['exported']) dependency commands, want $want"
+            }
+        }
+        Assert-NoFinding $findings 'a wrapper publishes its dependency somewhere other than where its pair records:'
     }
 }

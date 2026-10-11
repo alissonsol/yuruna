@@ -59,7 +59,20 @@ eviction-safe global-anchor pattern but is hand-rolled in
 |----------------------|-------------------|-------------------|------------------|
 | `host.windows.hyper-v` | `Send-KeyHyperV` (PS/2 scancodes via WMI Msvm_Keyboard) | `Send-TextHyperV` (per-char scancodes with modifier-reset prefix) | `Send-ClickHyperV` (SendInput) |
 | `host.macos.utm`     | VNC first, then AppleScript fallback | VNC first, then JXA/CGEvent | `Send-ClickUtm` (CGEvent in window coords) |
-| `host.ubuntu.kvm`    | `Send-KeyKvm` (`virsh send-key`) | `Send-TextKvm` (`virsh send-key` per char) | _(not implemented -- KVM guests use SSH after GUI bring-up)_ |
+| `host.ubuntu.kvm`    | `Send-KeyKvm` (`virsh send-key`) | `Send-TextKvm` (one libvirt connection per burst) | _(not implemented -- KVM guests use SSH after GUI bring-up)_ |
+
+KVM text uses `/usr/bin/python3` with its optional system `libvirt` binding
+to avoid starting a process for every character. Each character still sends
+one simultaneous key chord with an explicit 1 ms pulse, followed by
+`max(charDelayMs, 10)` milliseconds. QEMU otherwise applies its default delay
+after each key press and release; a rapid burst can overflow its input queue
+and drop modifier releases. Requested delays below 10 ms, including zero and
+negative values, use this safety floor.
+The child is bounded by the intended typing time plus 15 seconds for setup
+and key RPCs, including cleanup. Numeric chords and the literal VM name pass
+through a temporary file created with owner-only permissions. A missing
+interpreter or binding falls back to `virsh` before any key RPC; a runtime
+failure or timeout fails the send without replaying potentially delivered text.
 
 The macOS Send-Key VNC-first / AppleScript-fallback decision lives in
 the registered scriptblock, in one place -- not a branch repeated across
@@ -315,6 +328,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42fa11cf-0b8e-4cd0-886d-508a27923c57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,9 +50,7 @@ function Get-OrdinalKeyList {
 function New-TempDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Test temp dir.')]
     [CmdletBinding()] [OutputType([string])] param()
-    $d = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-poolplan-" + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $d
-    return $d
+    return New-YurunaTestTempDir -Prefix 'yrn-poolplan'
 }
 
 # Everything an It block reads must be declared unqualified and above the first

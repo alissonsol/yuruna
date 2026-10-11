@@ -74,6 +74,14 @@ in the private fetch context alongside `E_SHA` (see below), or
 baked into `host.env` at New-VM time. The per-step pair wins: it names the
 commit the host is serving *now*, not whenever this VM was provisioned.
 
+Project payloads have a separate owner: `project/...` is served unchanged by
+the host, but its GitHub fallback uses `E_PROJECT_REPO` / `E_PROJECT_REF`
+from the GitHub remote and HEAD of the separate `project` checkout. Only
+that leading `project/` is removed from the GitHub path. Framework helpers,
+including `automation/yuruna-retry.sh`, continue to use the framework pair.
+A plain project directory, missing HEAD, or non-GitHub project remote
+provides no project fallback; it never inherits the framework repository.
+
 Two properties make this the only sound fallback, both from the
 integrity gate -- the host digests *its* copy of the file, and the guest
 refuses bytes that don't match:
@@ -109,6 +117,9 @@ Cache-busting via environment variables (priority order):
    `export YurunaCacheContent="$(date +%Y%m%d%H%M%S)"`.
 
 Both unset/empty -> empty suffix, URL stays cacheable.
+An explicit query in the requested path is combined with these parameters
+for host/manual sources. Queries do not change the payload's identity or
+digest path. GitHub fallback uses only its commit pin and API `ref` query.
 
 **`--no-proxy` on `/etc/yuruna/host.env` probes.** Keeps the probe off
 any inherited `http_proxy`, which cannot route to the host's NAT IP --
@@ -132,7 +143,7 @@ Switch / VZ Shared NAT IP. If anything (subiquity leakage,
 pointing at the caching-proxy-service, the probe rewrites to that proxy -- which
 is meant for external mirrors and cannot route to the host's internal
 IP -- and times out. We then silently fall through to GitHub even
-though the host server is right there. `NO_PROXY` won't save us: this
+though the host status service is right there. `NO_PROXY` won't save us: this
 is a private 172.x address that any custom `NO_PROXY` list might
 omit.
 
@@ -140,7 +151,7 @@ omit.
 `HttpListener`-backed status service RSTs HEAD on endpoints that
 declare `Content-Length` and write a body (HTTP.sys closes the
 connection rather than truncating the body). The `/livecheck` body is
-87 bytes -- discarding to `/dev/null` is cheap. The server handles
+88 bytes -- discarding to `/dev/null` is cheap. The server handles
 HEAD safely today, but the probe stays GET-based so a future
 HEAD-RST regression in any handler can't silently push every guest
 back to GitHub.
@@ -168,7 +179,8 @@ deadline covers preparation and completion. Context metadata is limited to
 4 KiB; a fully wrapped SSH command also has a Windows process-length guard.
 
 The private guest context carries the full SHA-256 hashes of the fetched
-payload and retry library, the resolved fallback repository and full commit,
+payload and retry library, the framework and optional project fallback
+repositories and full commits,
 the full observation IDs, profiling flags, and a SHA-256 binding to the exact
 UTF-8 `bash -c` argument. The seeded launcher validates and consumes it
 once, exports the existing `E_SHA`, `E_RETRY_SHA`,
@@ -180,6 +192,15 @@ payload runs.
 
 Guests are rebuilt from current seeds; this contract has no warm-image or
 mixed-version fallback. A missing `yfe` is a provisioning failure.
+Existing guests and snapshots with an older launcher must be rebuilt from
+the current seed before using project contexts with the new fields.
+
+The wrapper replaces its invocation log before resolving a source or
+downloading a payload. Its header identifies the root script and both
+observation IDs; a nested fetch also records the current payload script.
+Failure-log and profile capture require the expected script, step ID, and
+sequence ID to match that complete header. Stale or incomplete logs produce
+an explicit attribution verdict instead of a tail from another execution.
 
 Sources: [`automation/yuruna-fetch-context.sh`](../automation/yuruna-fetch-context.sh),
 [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
@@ -225,14 +246,14 @@ Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
 ### Defining fetch-and-execute host-unreachable warning
 
 When `/etc/yuruna/host.env` exists and names a host but `/livecheck`
-doesn't answer in 2 s, that's an UNEXPECTED failure: this guest was
+answers none of 4 probes (2 s timeout each, 3 s apart), that's an UNEXPECTED failure: this guest was
 provisioned to talk to that host, so silently falling through to
 GitHub would hide the real problem. Common causes:
 
 - The host's IP changed since this VM was provisioned -- a DHCP lease
   renewed across a host reboot, or Wi-Fi roamed to another subnet. The
-  address in `host.env` is baked at New-VM time and never re-resolved,
-  so a reused VM outlives it.
+  address in `host.env` was baked at New-VM time; if host-address
+  mobility cannot find the new address, a reused VM outlives it.
 - Host status service crashed.
 - Host firewall change.
 - Default Switch / VZ Shared NAT gateway changed.
@@ -250,13 +271,15 @@ is host-side and presumes the guest's own network works -- an assumption
 the banner cannot make, since it prints during source resolution while
 the network diagnostic is sourced much later, at failure time. So before
 the livecheck probe, `resolve_fetch_source` checks the cheapest local
-fact: whether any interface holds a global IPv4 address
-(`ip -4 -o address show scope global`). If none does, nothing is
+fact: whether any interface that is up holds a global IPv4 address
+(`ip -4 -o address show scope global`; loopback and container, bridge
+and tunnel interfaces do not count). If none does, nothing is
 reachable from this guest -- neither the host nor GitHub -- so no
 host-side theory above can be true. A distinct `GUEST HAS NO IPv4`
 banner then prints instead of `HOST UNREACHABLE`, states that the cause
-sits on the host side of the virtual NIC (no live uplink on the virtual
-switch, a disconnected vNIC, or no DHCP lease), and resolution falls
+could sit on either side of the virtual NIC (a link held down inside the
+guest, or no live uplink on the virtual switch, a disconnected vNIC, or no
+DHCP lease), and resolution falls
 through to `github` -- which will fail too, but for a reason the artifact
 names correctly at the top instead of contradicting itself several
 screens later.
@@ -287,7 +310,7 @@ first and runs `/bin/bash -c "$script_content"` second, so network
 problems surface distinctly from inner-script errors. When
 `source=host` the URL is a local-only IP (Hyper-V Default Switch / VZ
 Shared NAT) -- `--no-proxy` is added to wget for the same reason
-`resolve_base_url` does (see "host environment variables" above). For
+`resolve_fetch_source` does (see "host environment variables" above). For
 `source=github`, the proxy is left on so the caching-proxy-service can serve
 cached external fetches.
 
@@ -416,10 +439,12 @@ host-stamps the arrival time and writes one sidecar JSON under
 `status/perf/checkpoints/`.
 
 **How they are attached.** `control/perf-aggregates` joins each sidecar
-to the `fetchAndExecute` step whose `[startedAtUtc, endedAtUtc]` window
-contains the sidecar's host-stamped arrival time. Both sides of that
-comparison are host-clock, so guest/host clock skew cannot break the
-match. `performance.html` then subdivides that step's bar segment into one
+to its `fetchAndExecute` or `sshFetchAndExecute` step by matching both
+step and sequence invocation IDs. Only untagged legacy sidecars use the
+`[startedAtUtc, endedAtUtc]` window containing their host-stamped arrival
+time; an identified sidecar with mismatched IDs never falls back to time.
+Both sides of the legacy comparison are host-clock, so guest/host clock
+skew cannot break that match. `performance.html` subdivides the bar into one
 sub-segment per phase -- the slice before the first checkpoint is the
 fetch/preamble `(setup)`, and the slice after the last checkpoint runs to
 the step's end. Steps without checkpoints render unchanged.
@@ -511,7 +536,7 @@ job needs. See
 for the exact settings; one fine-grained token can only cover repositories
 under a single owner.
 
-**`--no-proxy` on host probes.** The host server lives on a private
+**`--no-proxy` on host probes.** The host status service lives on a private
 NAT IP that any inherited `http_proxy` (e.g. the caching-proxy-service) cannot
 route to.
 
@@ -641,7 +666,7 @@ prints which of the two it is on before installing Docker.
 `config_path = '/etc/containerd/certs.d'` is the modern containerd
 v1.7+ mechanism: drop a `hosts.toml` per upstream registry to rewrite
 the pull host. We register `docker.io`, `registry.k8s.io` (the
-`kubeadm` pre-pull set), `public.ecr.aws`, and `ghcr.io` (flannel).
+`kubeadm` pre-pull set), `public.ecr.aws`, `ghcr.io` (flannel), and `mcr.microsoft.com`.
 zot's sync extension is configured (caching-proxy-service `user-data`)
 to mirror those upstreams plus `quay.io` / `gcr.io`, so a workload
 pulling from those also flows through cache on the first hit.
@@ -702,7 +727,7 @@ Source:
 ### Defining Get-SystemDiagnostic
 
 `automation/Get-SystemDiagnostic.ps1` produces a read-only diagnostics
-dump grouped into 15 sections. The script's SYNOPSIS lists each
+dump grouped into 17 sections (11b and 11c print on Linux only). The script's SYNOPSIS lists each
 section and what it reports; this entry covers HOW each section is
 implemented and the contracts of its helpers. Incident-driven design
 rationale for specific checks is in the
@@ -714,9 +739,9 @@ rationale for specific checks is in the
   end so the operator gets a punch list without re-reading the full
   dump. Anything that adds an entry has been flagged by a script
   reader as out-of-band.
-- **`Write-Section` / `Write-Sub` / `Write-Block`** -- output helpers.
-  `Write-Section` emits a banner; `Write-Sub` a sub-header;
-  `Write-Block` streams a raw command's stdout so multi-line output
+- **`Write-Section` / `Write-Sub`** -- output helpers.
+  `Write-Section` emits a banner; `Write-Sub` a sub-header.
+  `Invoke-Tool` (below) streams a raw command's stdout so multi-line output
   (kubectl, docker ps) keeps its alignment. Output stays on the
   success stream so a `>` redirect by the operator captures the whole
   report.
@@ -782,8 +807,7 @@ canonical property order is:
 `BiosSystemBiosMajorVersion`, `BiosSystemBiosMinorVersion`,
 `BiosTargetOperatingSystem`, `BiosVersion`.
 
-Every canonical row is emitted even when PowerShell reports null; future
-`Bios*` properties are appended in ordinal order. Dates use UTC ISO 8601,
+Dates use UTC ISO 8601,
 arrays are complete rather than truncated by `$FormatEnumerationLimit`,
 and all values are escaped onto one invariant line. Non-Windows hosts and
 failed Windows queries retain the section with stable unavailable/error
@@ -858,7 +882,7 @@ Failure-mode rationale for helm + empty-namespace flagging in
 **11. LINUX HOST DETAIL** -- Linux-only deep dive. Networking
 blueprint (netplan, `/etc/resolv.conf`, `/etc/hosts`, resolvectl /
 systemd-resolve); runtime networking state (`ip route`,
-`ss -tulpn`, `ping`); firewall (`iptables -S` + `nft list ruleset`,
+`ss -tulpn`, `ping`); firewall (`iptables -t filter -S` + `iptables -t nat -S`,
 capped at 200 lines each); kernel signals (`dmesg -T` last 100
 lines + full-ring OOM and hardware-error scan); virtualization
 kernel modules (`lsmod` filtered to KVM / virtio / Hyper-V / VMware
@@ -873,9 +897,11 @@ degrades gracefully when its tool/file is absent. Tool quirks:
   without it `ss` still lists sockets, just with empty users.
 - `ping -W 2` caps each probe at 2 s so a black-hole route can't
   hang the whole dump (max ~6 s total).
-- `nft list ruleset` needs `CAP_NET_ADMIN` -- as an unprivileged
-  user it returns empty/error; `ss -tuln` is used instead (no `-p`
-  so no root needed to read other users' `/proc` entries).
+- `iptables` needs `CAP_NET_ADMIN` -- as an unprivileged user it
+  answers only "Permission denied", so it runs through the same
+  privilege prefix as the process and journal probes; `ss -tuln`
+  runs unprivileged (no `-p` so no root needed to read other users'
+  `/proc` entries).
 - `dmesg -T` pretty-prints kernel timestamps. On Ubuntu 24.04
   `/proc/sys/kernel/dmesg_restrict=1` by default so unprivileged
   callers get EPERM; the failure is treated as informational.
@@ -1003,7 +1029,11 @@ must either run on a larger host or edit the specific guest's
 pool-control-service) stay on the baseline policy: they normally run on
 dedicated hosts where taking half the threads is the point, and their
 sizing is coupled to service budgets (Squid `cache_mem`, SCP receive)
-rather than to test-cycle co-tenancy.
+rather than to test-cycle co-tenancy. ARM64 Hyper-V caps the shared Linux
+service builder at two vCPUs. Its Ubuntu Server test builder also caps
+Ubuntu 24 at two and provisions Ubuntu 26 with one; the Ubuntu 26 sequence
+raises that to two offline before kubeadm. These caps also constrain
+explicit core requests.
 
 **Related runner guard.** On hosts with <= 4 threads the test runner
 also stops the cycle's other test guests before provisioning the next
@@ -1011,12 +1041,14 @@ one (constrained-host guest serialization in
 `test/modules/Test.RunnerInnerLoop.psm1`), so an OS install never
 shares a small host with a busy sibling guest.
 
-**Override on macOS 26 guest only.** The macOS 26 guest's `-CpuCount`
-parameter exists because the IPSW restorer's minimum varies by macOS
-version. Passing `-CpuCount <n>` overrides the policy, but `<n>` must
-still be >= 4 or `New-VM.ps1` exits with the same error.
+**Explicit overrides.** The macOS 26 guest's `-CpuCount` parameter
+exists because the IPSW restorer's minimum varies by macOS version.
+Passing `-CpuCount <n>` overrides the policy, but `<n>` must still be
+>= 4 or `New-VM.ps1` exits with the same error. Ubuntu Server 24 and 26
+also accept `-Cores`, clamped to host capacity and the ARM64 Hyper-V
+provisioning caps above.
 
-Source files (each implements the policy in line):
+Source files (the guest wrappers apply the policy directly or through shared builders):
 
 - `host/macos.utm/guest.<amazon.linux.2023|ubuntu.server.24|ubuntu.server.26|windows.11|caching-proxy-service|stash-service|download-agent-service|pool-control-service|macos.26>/New-VM.ps1`
 - `host/windows.hyper-v/guest.<amazon.linux.2023|ubuntu.server.24|ubuntu.server.26|windows.11|caching-proxy-service|stash-service|download-agent-service|pool-control-service>/New-VM.ps1`
@@ -1231,14 +1263,18 @@ Operators often browse the status page through a shared caching-proxy-service
 cache window the dashboard re-fetches on every navigation/poll, and
 a `no-store` header leaks stale content through some intermediary
 clients. `max-age=60 + must-revalidate` bounds staleness at 60 s -- on
-the next access after that, the client must revalidate (the server
-returns 200 with the current body; ETag / If-Modified-Since matching
-is not issued). The meta tag is the belt to that brace, covering
+the next access after that, the client must revalidate. The server issues
+an ETag for the final localized HTML and returns 304 for a matching
+If-None-Match, or 200 with the current body otherwise; If-Modified-Since
+matching is not implemented. Content-Language and Vary: Accept-Language
+keep validators specific to the selected locale. The meta tag is the
+belt to that brace, covering
 intermediaries that forward HTTP headers but not every client path.
 
 Other extensions (`.json`, `.txt`, `.css`, `.js`, `.sh`, `.ps1`,
 `.psm1`, `.yml`, `.yaml`, `.md`) are served `no-store` so polled
-data lands fresh.
+data lands fresh, except content-addressed locale catalogs: their captured
+bytes carry an ETag and a one-year immutable cache policy.
 
 <a id="42fa6f45-001c"></a>
 
@@ -1327,7 +1363,9 @@ Round trip:
    and answers `202` with `{action: "pending", runId, retryAfterSeconds: 3}`.
    The worker runs the script in a child `pwsh` (`pwsh -NoLogo -NoProfile
    -NonInteractive -ExecutionPolicy Bypass -WorkingDirectory <repoRoot>
-   -File <script>`) under a time limit, captures stdout and stderr, and
+   -Command <wrapper>`, where the wrapper sets UTF-8 console output and
+   dot-sources the script named by `YURUNA_HOST_DIAGNOSTIC_SCRIPT`) under a
+   time limit, captures stdout and stderr, and
    writes the report and a state record to the host's private
    `host-diagnostic/` directory under `$HOME/.yuruna/host-refresh/`. The
    stored report is at most 4 MiB of UTF-8, the most the route serves;
@@ -1408,17 +1446,19 @@ runner state.
 | `running` | `#2563eb`  | `data.overallStatus === 'running'`. The dot pulses (`@keyframes pulse`) so a hung tab is visually distinct from a fresh load. |
 | `idle`    | `#6b7280`  | No data and runner not stopped (e.g. fresh host). |
 
-**Pause-state text decision.** Three pause signals interact:
+**Pause-state text decision.** Four pause signals interact:
 
 - `data.stepPaused` (server flag) -- operator clicked "Pause after step".
 - `data.cyclePaused` -- operator clicked "Pause after cycle".
+- `data.labHold` / `data.labHoldAreas` -- the runner is holding for a lab service that is down.
 - `current-action.json.code` -- written by `Invoke-Sequence`; `sequence_paused_waiting_resume` means the runner has reached the step boundary. The `line` field supplies display text.
 
 ```
-stepPaused && code === 'sequence_paused_waiting_resume' -> "Test paused"
+stepPaused && code === 'sequence_paused_waiting_resume' -> "Test paused" (plus the hold's age from 2 min, and the live guest when known)
 stepPaused                                             -> "Test pausing (after step)"
-cyclePaused && status !== 'running'                    -> "Test paused"
+cyclePaused && status !== 'running'                    -> "Test paused" (plus the hold's age from 2 min)
 cyclePaused                                            -> "Test pausing (after cycle)"
+labHold                                                -> "Lab hold -- waiting for <areas>" (or "a lab service" when no area is named)
 otherwise                                              -> null (use the status-based text)
 ```
 
@@ -1506,7 +1546,7 @@ Page-specific behavior:
   drives. The card header shows the sequence name plus ONE aggregate
   status badge (`fail > running > pass > skipped > pending` over its
   guests). The nested guest blocks deliberately omit their own badge --
-  for the common one-guest sequence it would just repeat the card's --
+  for the common one-guest sequence it would repeat the card's --
   but keep the guest-name link to the results folder. The flat
   fallback list (no `sequences[]`: legacy `guestSequence` path, or the
   brief pre-`Initialize-StatusDocument` window) renders each guest as a
@@ -1598,17 +1638,19 @@ to YAML and atomically replaces the file. Subsystems covered:
 Page-specific behavior:
 
 - **Type-aware leaf inputs.** Booleans render as toggle switches with
-  a True/False side label; numbers use `<input type=number>` (empty
-  value coerced to `0` so an in-progress edit doesn't poison the
+  a True/False side label; numbers use
+  `<input type=text inputmode=decimal>` (change, blur and Enter commit
+  only a complete number; an invalid edit keeps the stored number and
+  sets `aria-invalid`, so an in-progress edit doesn't poison the
   saved JSON with `NaN`); strings get a free-form `<input type=text>`
-  EXCEPT for enum keys (`keystrokeMechanism`, `logLevel`) which use
+  EXCEPT for the enum key `logLevel`, which uses
   the custom dropdown, and for `guestSequence` array entries which
   use a host-aware dropdown filtered by `/control/guest-folders`.
 - **Custom `.ydd` dropdown.** Replaces the native `<select>` element
   because Firefox-on-Wayland fails to paint the native popup on some
-  Linux sessions. A capture-phase document mousedown listener closes
+  Linux sessions. A capture-phase document pointerdown listener closes
   the open menu when the user clicks outside; the per-item handler
-  uses `mousedown` (not `click`) so the pick fires BEFORE the wrap
+  uses `pointerdown` (not `click`) so the pick fires BEFORE the wrap
   blurs and our blur handler closes the menu underneath the click.
   Keyboard navigation (arrow keys, Enter, Escape, Space) runs through
   a `keyOf(e)` normalizer, so every handler compares one string and an
@@ -1621,12 +1663,12 @@ Page-specific behavior:
   replaced rather than the value silently dropping.
 - **`vmStart.cachingProxyIp` probe driver.** Live verdict mark next
   to the input: green [OK] (probe succeeded), red [X] (probe failed),
-  amber [..] (probe in flight), gray [X] (empty / invalid format / not
+  amber [..] (probe in flight), gray [-] (empty / invalid format / not
   yet probed). The driver triggers a fetch ONLY on field blur, not
   per-keystroke -- a valid-looking prefix like `192.168.7.4` en route
-  to `192.168.7.46` would lock the field on the partial value. While
-  the probe is in flight the input is disabled and re-focused
-  afterward. Out-of-order responses are dropped via a `latestId`
+  to `192.168.7.46` would be probed as if it were the final value.
+  While the probe is in flight the input stays editable. Out-of-order
+  responses are dropped via a `latestId`
   counter so a stale response from probe-N-1 can't overwrite the
   fresh mark from probe-N.
 - **Env-var mirror.** Beneath the editable `vmStart.cachingProxyIp`
@@ -1677,8 +1719,9 @@ Page-specific behavior:
   `stepCount`, `failCount`). `startedMs` / `endedMs` are
   epoch-millisecond INTEGERS, not ISO strings, so the browser never
   has to parse a .NET `'o'`-format (7-digit fractional) timestamp.
-  fetchAndExecute steps additionally keep the ISO `startedAtUtc` /
-  `endedAtUtc` window the checkpoint-sidecar join matches against.
+  fetchAndExecute and sshFetchAndExecute steps additionally keep the ISO
+  `startedAtUtc` / `endedAtUtc` window used only for untagged legacy
+  checkpoint-sidecar joins; current sidecars match invocation IDs.
   Cache lives in the detached server's memory; endpoint edits in
   `Start-StatusService.ps1` require a server restart to take effect.
 - **Hierarchy by time containment.** The page builds each cycle's step
@@ -1813,16 +1856,16 @@ runtime-only files live under `<runtimeDir>/` (typically
 
 | Sidecar | Path | Producer | Removed | Purpose |
 | --- | --- | --- | --- | --- |
-| `.incomplete` | cycle folder | `Start-LogFile` in [Test.Log.psm1](../test/modules/Test.Log.psm1) | `Stop-LogFile` after manifest write | Marker file (JSON: cycleStartUtc, pid, startedAtUtc, hostname) that lets a boot-time recovery sweep detect crashed cycles in O(1). Paired with the folder-name `.incomplete` suffix: marker FILE carries forensic detail; folder NAME signals state at a glance. Presence means "this cycle did not reach a clean end." |
+| `.incomplete` | cycle folder | `Start-LogFile` in [Test.Log.psm1](../test/modules/Test.Log.psm1) | `Stop-LogFile` after manifest write | Marker file (JSON: cycleStartUtc, cycleNumber, cycleFolder, pid, startedAtUtc, hostname) that lets a boot-time recovery sweep detect crashed cycles in O(1). Paired with the folder-name `.incomplete` suffix: marker FILE carries forensic detail; folder NAME signals state at a glance. Presence means "this cycle did not reach a clean end." |
 | `manifest.json` | cycle folder | `Write-CycleManifest` in [Test.Log.psm1](../test/modules/Test.Log.psm1) at cycle close | overwritten on next cycle close (same folder is single-use) | Enumerates every artifact in the cycle folder with kind + sha256 + size + mtime so downstream consumers (CI, remediator, dashboard) don't have to walk the directory. |
 | `cycle.events.ndjson` | cycle folder | `Write-CycleNdjsonEvent` in [Test.Log.psm1](../test/modules/Test.Log.psm1) -- every emit site routes through the `Send-CycleEventSafely` wrapper | append-only for the life of the cycle | JSON-Lines event stream stamped with `cycleStartUtc` + `cycleFolder` so multi-host pool consumers can join events without parsing folder names. |
 | `cycle.events.gaps` | cycle folder | `Write-CycleNdjsonEvent` failure sentinel | append-only | One line per failed NDJSON append (open-handle race, disk full). Surfaces stream gaps to a remediator that would otherwise consume truncated truth. |
-| `last_failure.json` | `<runtimeDir>` (NOT the cycle folder) | the failure-emit blocks in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1) | overwritten on the next cycle's first sequence start, and pre-wiped by [Start-TestRunner.ps1](../test/Start-TestRunner.ps1) before each spawn | Schema-v2 record (failureClass, severity, suggestedRecoveries, action, vmName, guestKey, hostType) that an out-of-process remediator consumes to choose a recovery handler. |
+| `last_failure.json` | `$YURUNA_LOG_DIR`, mirrored in cycle and per-guest folders | the failure-emit blocks in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1) | root copy cleared at each sequence start and before ordinary cycle spawns by [Start-TestRunner.ps1](../test/Start-TestRunner.ps1); mirrors are removed on pass and retained on non-pass | Schema-v2 record (failureClass, severity, suggestedRecoveries, action, vmName, guestKey, hostType) that an out-of-process remediator consumes to choose a recovery handler. |
 | `current-action.json` | `<runtimeDir>` | retry-with-backoff write loop in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1) | every action transition rewrites it; cleared at cycle end | In-flight action breadcrumb the dashboard reads to display "running step N of M: `<verb>` `<description>`". |
 | `break-active.json` | `<runtimeDir>` | retry-with-backoff write loop in [Test.SequenceHandler.psm1](../test/modules/Test.SequenceHandler.psm1) `break` handler | break handler removes on resume; pre-wiped by [Start-TestRunner.ps1](../test/Start-TestRunner.ps1) before each spawn | Marks a cooperative breakpoint as parked so the status UI can render a Resume button. |
 | `runner.pid` + `runner.start` | `<runtimeDir>` | `Write-RunnerPidFile` in [Test.SingleInstance.psm1](../test/modules/Test.SingleInstance.psm1) | rewritten by every outer launch; an atomic temp->rename keeps the pair consistent | Outer's pidfile + StartTime sidecar so a re-launched outer can classify the prior occupant as Self / Stale / OtherRunner without misreading via cmdline regex. |
 | `inner.pid` | `<runtimeDir>` | atomic write at top of [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | pre-wiped by outer before each spawn | Inner's PID -- read by the outer's watchdog. Temp-file + Move-Item makes the write atomic so a crash mid-write can't leave a truncated digit. |
-| `runner.heartbeat` | `<runtimeDir>` | C# `Yuruna.HeartbeatWriter` timer in [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | overwritten every 30 s | Process-level proof of life. Stays fresh even when the runspace is wedged inside a long SSH/OCR call. |
+| `runner.heartbeat` | `<runtimeDir>` | C# `Yuruna.HeartbeatWriter` timer in [Test.RunnerHeartbeat.psm1](../test/modules/Test.RunnerHeartbeat.psm1), started by [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | overwritten every 30 s | Process-level proof of life. Stays fresh even when the runspace is wedged inside a long SSH/OCR call. |
 | `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at the top of every step in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1); outer pre-wipes + force-touches before each spawn | overwritten per step | Runspace-level proof of life. Mtime older than `testCycle.stepTimeoutSeconds` means the inner is wedged inside a step -> outer watchdog kills it. |
 | `.test.config.snapshot.json` | `<runtimeDir>` | `Publish-TestConfigSnapshot` in [Test.Config.psm1](../test/modules/Test.Config.psm1), auto-fired by every `Read-TestConfig` parse | overwritten on next parse | Cross-process parsed-config snapshot (envelope: sourcePath, sourceMtime, sourceHash, publishedAt, publisherPid, config). `Read-TestConfigOrSnapshot` validates the envelope's mtime+hash against the live YAML and uses the snapshot when both still match, avoiding a redundant YAML parse in the inner. |
 | `.caching-proxy-service.env.json` | `<runtimeDir>` | atomic temp->rename in [test/service/Start-CachingProxyServiceVM.ps1](../test/service/Start-CachingProxyServiceVM.ps1) | wiped by `Remove-TestVMFiles.ps1` | Cleared `*_proxy` env-var snapshot so a re-invocation of Start-CachingProxyServiceVM can restore them without operator re-typing. |
@@ -1837,9 +1880,11 @@ Conventions:
   it rather than re-implementing the pattern. The canonical example
   is `Save-CachingProxyServiceState` (which predates the helper and adds
   `.backup` rotation on top of the same shape).
-- Sidecars in `<runtimeDir>` are PROCESS-SCOPED and pre-wiped by the
-  outer runner at each new cycle spawn. Sidecars in the cycle folder
-  are CYCLE-SCOPED and persist with the cycle artifacts.
+- Ephemeral inner-process sidecars in `<runtimeDir>` are pre-wiped by
+  the outer runner at each new cycle spawn. Ownership, cache, configuration
+  and recovery records follow the persistent lifecycles listed above.
+  Sidecars in the cycle folder are CYCLE-SCOPED and persist with the cycle
+  artifacts.
 - A boot-recovery sweep runs ONCE per outer startup via
   `Invoke-YurunaBootRecovery` in [Test.Recovery.psm1](../test/modules/Test.Recovery.psm1).
   It archives orphan `.incomplete` markers (renamed to
@@ -1957,7 +2002,7 @@ schema in lockstep.
 
 | Field         | Type   | Set when                                         |
 | ---           | ---    | ---                                              |
-| `cycleFolder` | string | Leaf name of `$global:__YurunaCycleFolder` -- always present mid-cycle. |
+| `cycleFolder` | string | `$global:__YurunaCycleIdentity`, the leaf name of `$global:__YurunaCycleFolder` without its `.incomplete` suffix -- always present mid-cycle. |
 | `cycleStartUtc` | string | `$global:__YurunaCycleStartUtc`, the ISO timestamp the outer assigned at cycle start. |
 | `runId`         | string | `$global:__YurunaRunId`, a per-runner-process GUID generated once at module load. |
 
@@ -1979,13 +2024,14 @@ this timestamp `cycleId`, which is how a reader dates an archived cycle.
 array. `failureClass` and `severity` are matched against the canonical
 enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
 
-* **failureClass**: ocr_timeout, network_timeout, credential_expired,
-  host_io_blocked, pattern_matched_failure, retry_exhausted,
+* **failureClass**: ocr_timeout, console_flooded, network_timeout,
+  credential_expired, host_io_blocked, pattern_matched_failure, retry_exhausted,
   snapshot_restore_failed, script_error, wait_timeout,
   extension_error, instrumentation_failure, provisioning_failure,
-  bootstrap_sync, plan_invalid, elevation_required,
-  project_access_denied, host_network_degraded, pool_storage_full,
-  lab_dependency_down, unknown.
+  bootstrap_sync, plan_invalid, elevation_required, project_access_denied,
+  host_network_degraded, ip_not_discovered, payload_unavailable,
+  pool_storage_full, dhcp_identity_unbounded, lab_dependency_down, input_lost,
+  unknown.
 * **severity**: hard, soft, unknown.
 
 `actionVerb`, `action`, `description`, `sequencePath`, `vmName`,
@@ -2027,8 +2073,8 @@ typed fields.
 | `schema_violation` | [Send-CycleEventSafely](../test/modules/Test.Log.psm1) | An emit-site record failed the schema check; carries `badEvent` + `violations[]`. The bad event is preserved on the line that follows. |
 | `ndjson_write_gap` | [Write-CycleNdjsonEvent](../test/modules/Test.Log.psm1) | The NDJSON append itself failed; gap-sentinel written to `cycle.events.gaps` carrying `droppedEvent`, `droppedAction`, `writeError`. |
 
-New events MUST be added here in the same commit that introduces them
-(CONTRIBUTING gate), so a streaming consumer never discovers a new
+New events MUST be added here in the same commit that introduces them,
+so a streaming consumer never discovers a new
 event name in production.
 
 <a id="42fa6f45-0031"></a>
@@ -2366,6 +2412,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

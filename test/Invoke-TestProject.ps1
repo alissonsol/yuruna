@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,9 +25,11 @@
 
 .DESCRIPTION
     See https://yuruna.link/42010605-0002.
-.PARAMETER ConfigPath  test.config.yml path (default: next to this script)
-.PARAMETER logLevel    Error|Warning|Information|Verbose|Debug. Forwarded to
-                       the inner. Omit to read test.config.yml.logLevel.
+.PARAMETER ConfigPath
+    test.config.yml path (default: next to this script)
+.PARAMETER logLevel
+    Error|Warning|Information|Verbose|Debug. Forwarded to
+    the inner. Omit to read test.config.yml.logLevel.
 
 .NOTES
     Concurrency: Invoke-TestProject does not manage runner.pid itself. The

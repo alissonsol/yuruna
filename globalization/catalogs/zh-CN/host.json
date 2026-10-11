@@ -8,6 +8,11 @@
       "origin": "machine",
       "message": "caching-proxy-service 虚拟机正在运行，但无法访问其代理。运行 test/service/Start-CachingProxyServiceVM.ps1 恢复代理，或传入 -CachingProxyServiceUrl \"\" 以直接下载。"
     },
+    "host.utm_cache_state_unconfirmed": {
+      "sourceHash": "7a6eef76a798f82d67d54f517af7235733d3a48fe238b592158281846a2333d1",
+      "origin": "machine",
+      "message": "无法确认 caching-proxy-service 虚拟机的状态（{state}；{reason}）。请恢复 UTM 访问权限，或传入 -CachingProxyServiceUrl \"\" 以直接下载。"
+    },
     "host.operator_2eafe07b6f1ae191": {
       "sourceHash": "22bbd01b11a3142e2779774380f84fee921a829775ff3464d113323c559eef14",
       "origin": "machine",
@@ -2934,9 +2939,9 @@
       "message": "已将源文件名和URL记录到：{baseImageOrigin}"
     },
     "host.operator_69569daab01168ea": {
-      "sourceHash": "c25d746c3e08447109f245727dec9a34d42dcc2a05401ca32ee0692440f3e43c",
+      "sourceHash": "10d50550b0675a10ed469287d631553bc18c27c4a0767b0deb8541d2d4f6495e",
       "origin": "machine",
-      "message": "Remove-UtmTestVM：未在超时时限内确认'{vMName}'已关机；继续删除，但包可能仍被锁定。"
+      "message": "Remove-UtmTestVM: '{vMName}' 未能在超时前确认已关机；保留其注册信息和虚拟机包。"
     },
     "host.operator_6959d402ef57f18d": {
       "sourceHash": "d15f3fec52232fcd86ce5c883a163b3deaa74be37e6ba994eb75273056cf3895",
@@ -5069,9 +5074,9 @@
       "message": "  校验和文件获取失败"
     },
     "host.orphan_sweep_registration_unknown": {
-      "sourceHash": "8e5f2e3578cee9e8f4ac952cc3e444888ddfde3c17b6b852f00111e729abd61f",
+      "sourceHash": "3afb9a95efc18cc2c808b624fd2773e21ff2defd2074039db7a9625e8d1aedbe",
       "origin": "machine",
-      "message": "已保留{path}：UTM未回应{target}是否已注册（utmctl status未完成）。"
+      "message": "已保留{path}：UTM未回应{target}是否已注册（utmctl status未返回可识别的答复）。"
     },
     "host.orphan_sweep_utmctl_unanswered": {
       "sourceHash": "80373783ece58084b41df85021f62a3214f36ce9714682e5f637f3a6dea861c3",
@@ -5877,6 +5882,11 @@
       "sourceHash": "2b7fb7416729ace1ae6c91119ec55761b8dc36c6ef35560ec8d9a875ab7c2b2f",
       "origin": "machine",
       "message": "   通过本地代理拉取linux-firmware来预热缓存——"
+    },
+    "host.windows_installer_boot_key_timeout": {
+      "sourceHash": "77b62b3bb39cd82c527244867ce76f4ed23605154ab9ee838554d982c69b8926",
+      "origin": "machine",
+      "message": "虚拟机“{vmName}”在 {seconds} 秒内未接受 Windows 安装程序启动按键。"
     }
   }
 }

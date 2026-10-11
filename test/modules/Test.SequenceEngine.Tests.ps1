@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -780,5 +780,103 @@ Describe 'Wait-ForText -SinceStepStart ignores what was already on screen' {
         Assert-False (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($frame) -Pattern @('yuuser26 login:') -Since $false -Fresh $true -TimeoutSeconds 2)
         $failure = Get-SequenceFailureState
         Assert-Equal -Expected 'start: subiquity/Mirror/cmd-apt-config' -Actual $failure.WaitForTextInstallerStage
+        $failure.WaitForTextOutputStaticSeconds | Should -BeGreaterOrEqual 1
+        $failure.WaitForTextConsoleSignalsMeasured | Should -BeFalse
+    }
+}
+
+Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
+    BeforeAll {
+        . (Get-Module Test.SequenceEngine) {
+            function Get-EnabledOcrProvider { return @('scripted') }
+            function Get-CycleScreenDir {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                [CmdletBinding(SupportsShouldProcess)]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($script:TextProbe.ScreenDir, 'Ensure cycle screen dir exists')
+                return $script:TextProbe.ScreenDir
+            }
+            function Get-VMScreenshot {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($VMName, $OutFile, $HostType)
+                Set-Content -LiteralPath $OutFile -Value ('png{0}' -f $script:TextProbe.Poll) -NoNewline
+                return $true
+            }
+            function Test-CombinedOcrMatch {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($ImagePath, $Pattern, $FreshMatchTailLines, [switch]$NoSegmentMatch)
+                $i = [Math]::Min($script:TextProbe.Poll, $script:TextProbe.Frames.Count - 1)
+                $text = [string]$script:TextProbe.Frames[$i]
+                $script:TextProbe.Poll++
+                return @{ Match = $false; AnyText = $text; EngineResults = [ordered]@{ scripted = @{ Text = $text; Matched = $false } } }
+            }
+            # The host recording is the outer runner's; the verdict it would
+            # give is scripted per example.
+            function Get-GuestLivelockVerdict {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($VMName)
+                $script:TextProbe.VerdictReads++
+                return $script:TextProbe.Livelock
+            }
+            function Reset-LivelockProbeState {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test stub helper: reseeds an in-memory recording bag; no external state.')]
+                param([string]$ScreenDir, [string[]]$Frames, $Livelock)
+                $script:TextProbe = @{ ScreenDir = $ScreenDir; Poll = 0; Frames = $Frames; Livelock = $Livelock; VerdictReads = 0 }
+            }
+        }
+        $script:livelocked = [pscustomobject]@{ Verdict = 'livelocked'; LivelockedSeconds = 420; Detail = '1 virtual processor(s) pinned' }
+        function Invoke-ScriptedWait {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: drives the function under test against scripted frames.')]
+            param([string[]]$Frames, $Livelock, [int]$TimeoutSeconds, [switch]$EndOnGuestLivelock)
+            & (Get-Module Test.SequenceEngine) { param($d, $f, $l) Reset-LivelockProbeState -ScreenDir $d -Frames $f -Livelock $l } $script:probeDir $Frames $Livelock
+            Clear-CarriedConsoleBaseline
+            return [bool](Wait-ForText -VMName 'vm-01' -Pattern @('Continue with autoinstall?') -TimeoutSeconds $TimeoutSeconds -PollSeconds 1 `
+                -EndOnGuestLivelock:$EndOnGuestLivelock -WarningAction SilentlyContinue -InformationAction SilentlyContinue)
+        }
+        function Get-ProbeFailSlot { param([string]$Name) & (Get-Module Test.SequenceEngine) { param($n) $script:Fail[$n] } $Name }
+    }
+    BeforeEach {
+        $script:probeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-wfl-{0}-{1}" -f $PID, [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $script:probeDir -Force | Out-Null
+    }
+    AfterEach { Remove-Item -LiteralPath $script:probeDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'ends the wait at once on a livelocked guest when the caller asked' {
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        Invoke-ScriptedWait -Frames @('') -Livelock $script:livelocked -TimeoutSeconds 60 -EndOnGuestLivelock | Should -BeFalse
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 15 -Because 'the verdict is read before the first capture, not at the deadline'
+        (Get-ProbeFailSlot 'WaitForTextGuestLivelocked') | Should -BeTrue
+        (Get-ProbeFailSlot 'WaitForTextGuestLivelock').LivelockedSeconds | Should -Be 420
+        & (Get-Module Test.SequenceEngine) { $script:TextProbe.Poll } | Should -Be 0
+    }
+    It 'waits out its budget without the switch and still records the verdict' {
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        Invoke-ScriptedWait -Frames @('booting') -Livelock $script:livelocked -TimeoutSeconds 3 | Should -BeFalse
+        $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 2.5
+        (Get-ProbeFailSlot 'WaitForTextGuestLivelocked') | Should -BeTrue
+        & (Get-Module Test.SequenceEngine) { $script:TextProbe.VerdictReads } | Should -Be 1 -Because 'a caller that did not ask is never polled, only told at the end'
+    }
+    It 'does not end early on a guest the hypervisor sees running' {
+        $running = [pscustomobject]@{ Verdict = 'not-livelocked'; LivelockedSeconds = 0; Detail = 'running' }
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        Invoke-ScriptedWait -Frames @('booting') -Livelock $running -TimeoutSeconds 3 -EndOnGuestLivelock | Should -BeFalse
+        $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 2.5
+        (Get-ProbeFailSlot 'WaitForTextGuestLivelocked') | Should -BeFalse
+    }
+    It 'records how long the console read blank and what it was seeking' {
+        Invoke-ScriptedWait -Frames @('') -Livelock $null -TimeoutSeconds 3 | Should -BeFalse
+        (Get-ProbeFailSlot 'WaitForTextBlankScreenSeconds') | Should -BeGreaterOrEqual 1
+        @(Get-ProbeFailSlot 'WaitForTextPatternsSought') | Should -Be @('Continue with autoinstall?')
+        (Get-ProbeFailSlot 'WaitForTextGuestLivelock') | Should -BeNullOrEmpty -Because 'no host recording is not a verdict'
+    }
+    It 'resets the blank run when a frame carries text' {
+        Invoke-ScriptedWait -Frames @('', '', 'yuhost26 login: _') -Livelock $null -TimeoutSeconds 4 | Should -BeFalse
+        (Get-ProbeFailSlot 'WaitForTextBlankScreenSeconds') | Should -Be 0
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,15 +33,8 @@
     Run with:  Invoke-Pester -Path test/modules/Test.RunnerInnerLoop.Tests.ps1
 #>
 
-# The $global: scope is the load-bearing channel this suite tests through, not a
-# shorthand for $script:. The runner resolves its collaborators (New-VM, Set-StepStatus,
-# Send-CycleFailureNotification, the infra-record builders) from the GLOBAL command table,
-# because the real cycle imports them -Global; the stubs below must therefore be defined
-# there or the module function under test would not see them at all. The counters and
-# state bags those stubs write are read back across an InModuleScope boundary, where
-# $script: resolves to the MODULE's script scope rather than this file's -- so a global is
-# the only scope both sides of that boundary can name. $global:__YurunaCycleFolder is the
-# runner's own published global, saved and restored here.
+# See https://yuruna.link/42e220c4-0014
+# Global stubs and state span the runner module and InModuleScope assertions.
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'The global scope IS the cross-module contract under test: the runner resolves -Global-imported collaborators and its own __YurunaCycleFolder there, and the stub/assertion pair straddles an InModuleScope boundary that $script: cannot span.')]
 param()
@@ -73,12 +66,13 @@ function New-TempConfigFile {
     return $p
 }
 
-# --- REGION: AST helpers for the control-flow golden below (walk the real .psm1, not a mirror)
+# --- REGION: Get-AstNearestLoop
 # See https://yuruna.link/42d69dfa-0015
 function Get-AstNearestLoop {
-    # The innermost loop that a break/continue targets: the first loop-statement
-    # ancestor. A break/continue inside the guest foreach targets the foreach, NOT
-    # the enclosing do/while -- that distinction is the whole point of the golden.
+    <#
+    .SYNOPSIS
+        Find the innermost loop targeted by a break or continue.
+    #>
     param($Node)
     $loopNames = @('ForEachStatementAst', 'ForStatementAst', 'WhileStatementAst', 'DoWhileStatementAst', 'DoUntilStatementAst')
     $p = $Node.Parent
@@ -88,19 +82,24 @@ function Get-AstNearestLoop {
     }
     return $null
 }
+# --- REGION: Get-AstEnclosingBlock
 function Get-AstEnclosingBlock {
+    <#
+    .SYNOPSIS
+        Find the statement block containing a control-flow node.
+    #>
     param($Node)
     $p = $Node.Parent
     while ($null -ne $p -and $p -isnot [System.Management.Automation.Language.StatementBlockAst]) { $p = $p.Parent }
     return $p
 }
+# --- REGION: Get-InnerCycleControlFlow
+# See https://yuruna.link/42e220c4-0014
 function Get-InnerCycleControlFlow {
-    # Control-flow shape of the guest-provision path, from parsed source, as a facts
-    # bag the It blocks assert against. The per-guest work is a named helper
-    # (Invoke-GuestProvisionIteration) dispatched from a thin foreach in
-    # Invoke-RunnerInnerCycle. A structural change -- helper renamed or re-inlined, an
-    # escape that no longer routes through $IterState.Control, a dropped carry-back --
-    # lands here as a loud, deliberate golden failure rather than a silent drift.
+    <#
+    .SYNOPSIS
+        Collect runner and guest-iteration control-flow facts from production source.
+    #>
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$Psm1Path)
 
@@ -252,6 +251,55 @@ function Invoke-NewVmFailureIteration {
     }
 }
 
+}
+
+Describe 'failure diagnostic invocation provenance' {
+    It 'uses leaf IDs for failed wrappers and outer IDs for a distinct crash' {
+        foreach ($reason in 'step','crash') {
+            @{ vmName='vm'; guestKey='guest'; reason=$reason; stepInvocationId='wrapper-step'; sequenceInvocationId='wrapper-sequence';
+                originatingStepInvocationId='leaf-step'; originatingSequenceInvocationId='leaf-sequence' } |
+                ConvertTo-Json | Set-Content (Join-Path $TestDrive 'last_failure.json')
+            $r = & (Get-Module Test.RunnerInnerLoop) {
+                param($folder) Get-FailureDiagnosticInvocation -GuestFolder $folder -VMName vm -GuestKey guest
+            } $TestDrive
+            $r.StepInvocationId | Should -Be ($reason -eq 'step' ? 'leaf-step' : 'wrapper-step')
+            $r.SequenceInvocationId | Should -Be ($reason -eq 'step' ? 'leaf-sequence' : 'wrapper-sequence')
+        }
+    }
+    It 'keeps the wrapper pair when the originating invocation pair is incomplete' {
+        @{ vmName='vm'; guestKey='guest'; reason='step'; stepInvocationId='wrapper-step'; sequenceInvocationId='wrapper-sequence';
+            originatingStepInvocationId='leaf-step' } | ConvertTo-Json | Set-Content (Join-Path $TestDrive 'last_failure.json')
+        $r = & (Get-Module Test.RunnerInnerLoop) {
+            param($folder) Get-FailureDiagnosticInvocation -GuestFolder $folder -VMName vm -GuestKey guest
+        } $TestDrive
+        $r.StepInvocationId | Should -Be 'wrapper-step'
+        $r.SequenceInvocationId | Should -Be 'wrapper-sequence'
+    }
+    It 'uses the original failed step IDs from the matching guest cycle record' {
+        foreach ($reason in 'step','crash') {
+            @{ vmName='vm'; guestKey='guest'; reason=$reason; stepInvocationId='failed-step'; sequenceInvocationId='failed-sequence' } |
+                ConvertTo-Json | Set-Content (Join-Path $TestDrive 'last_failure.json')
+            $r = & (Get-Module Test.RunnerInnerLoop) {
+                param($folder) Get-FailureDiagnosticInvocation -GuestFolder $folder -VMName vm -GuestKey guest
+            } $TestDrive
+            $r.StepInvocationId | Should -Be 'failed-step'
+            $r.SequenceInvocationId | Should -Be 'failed-sequence'
+        }
+    }
+    It 'does not attach stale guest IDs to infrastructure failures or unreadable records' {
+        foreach ($record in @(
+            '{"vmName":"another-vm","guestKey":"guest","reason":"step","stepInvocationId":"stale"}',
+            '{"vmName":"vm","guestKey":"another-guest","reason":"step","stepInvocationId":"stale"}',
+            '{"vmName":"vm","guestKey":"guest","reason":"infra","stepInvocationId":"stale"}',
+            'invalid json')) {
+            Set-Content (Join-Path $TestDrive 'last_failure.json') $record
+            $r = & (Get-Module Test.RunnerInnerLoop) {
+                param($folder) Get-FailureDiagnosticInvocation -GuestFolder $folder -VMName vm -GuestKey guest
+            } $TestDrive
+            $r.StepInvocationId | Should -Be ''
+            $r.SequenceInvocationId | Should -Be ''
+        }
+    }
 }
 
 Describe 'Get-RunnerReloadableConfig' {
@@ -573,15 +621,8 @@ Describe 'Get-GitHubConnectivityDiagnostic' {
 }
 
 Describe 'Write-CycleInfraFailure' {
-    # Write-CycleInfraFailure is a module function; its builders
-    # (New-InfraFailureRecord/Write-YurunaStateFile/Send-CycleEventSafely/
-    # Set-LastFailureSummary) are imported -Global by the runner and must resolve
-    # from the module function's scope (module -> global). The closure no-ops when
-    # a builder is unresolvable, so a resolution break would SILENTLY stop every
-    # infra record. This test provides the builders in the GLOBAL scope (mirroring
-    # the -Global imports) and asserts the record IS written, turning that silent
-    # failure into a loud one. The .psm1 does not import the real builders, so the
-    # stubs are the only resolvable implementations.
+    # See https://yuruna.link/42e220c4-0014
+    # Global builder stubs must resolve from the module before an infra record is written.
     It 'resolves the -Global builders from module scope and writes last_failure.json' {
         $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-infra-" + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $tmp -Force | Out-Null
@@ -1043,16 +1084,8 @@ Describe 'Inner-cycle status-document lifetime (the orchestration-cycle window)'
 }
 
 Describe 'Inner-cycle guest-iteration failure-path invariants (carry-back + artifact copy)' {
-    # Properties the extraction must preserve -- each invisible to a byte-diff and to a
-    # green pool cycle (which never fails a step):
-    #  (1) config carry-back: the iteration re-reads $Config/$StopOnFailure after every
-    #      per-step Sync, and the caller re-reads the mirrors from the shared $cfg bag
-    #      after the call (in a finally, covering a mid-iteration throw) plus the four
-    #      failure fields from the iteration bag -- because Complete-CycleRun and the
-    #      outer catch read the caller-local $Config; dropping either re-read silently
-    #      trims run history with a stale display count.
-    #  (2) failure artifacts are copied BEFORE the stopOnFailure return, so the
-    #      debug folder exists on both the stop and the continue paths.
+    # See https://yuruna.link/42e220c4-0014
+    # Verify config carry-back on throws and artifact capture before stopOnFailure.
     It 'the iteration re-reads $StopOnFailure after every per-step Sync (fresh stop-guard)' {
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
         Assert-True ($f.HelperSyncCount -ge 6) "expected >=6 per-step Sync-RunnerStepConfig in the iteration, found $($f.HelperSyncCount)"
@@ -1073,8 +1106,10 @@ Describe 'Inner-cycle guest-iteration failure-path invariants (carry-back + arti
             Assert-Equal 1 @($calls | Where-Object { $_.Extent.Text -match ("-StepName '" + [regex]::Escape($stage) + "'") }).Count "one failure delegation for $stage"
         }
         $failure = $ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Complete-GuestStepFailure'}, $true).Extent.Text
-        Assert-True ($failure.IndexOf('Copy-FailureArtifactsToStatusLog') -lt $failure.IndexOf('if ($StopOnFailure)')) 'copy evidence before either exit'
-        Assert-True ($failure.IndexOf('if ($StopOnFailure)') -lt $failure.IndexOf('Remove-GuestVMQuietly')) 'leave the failed guest for stopOnFailure investigation'
+        $stopExit = $failure.LastIndexOf('if ($StopOnFailure)')
+        Assert-True ($failure.IndexOf('Set-DiagnosticVmPreservation') -lt $failure.IndexOf('Copy-FailureArtifactsToStatusLog')) 'arm durable preservation before diagnostic capture can fail'
+        Assert-True ($failure.IndexOf('Copy-FailureArtifactsToStatusLog') -lt $stopExit) 'copy evidence before either exit'
+        Assert-True ($stopExit -lt $failure.IndexOf('Remove-GuestVMQuietly')) 'leave the failed guest for stopOnFailure investigation'
         Assert-True ($failure.Contains("`$IterState.Control = 'break'") -and $failure.Contains("`$IterState.Control = 'continue'")) 'both paths carry their control result back'
     }
 }

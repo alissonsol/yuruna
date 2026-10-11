@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a16e14-fbaa-40df-9892-f5dbdcb49b50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,19 +58,14 @@ function Get-ModuleAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.ScriptBlockAst])]
     param([Parameter(Mandatory)][string]$Path)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 
 function Get-FunctionAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.FunctionDefinitionAst])]
     param([Parameter(Mandatory)]$RootAst, [Parameter(Mandatory)][string]$FunctionName)
-    $func = $RootAst.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $FunctionName
-    }, $true) | Select-Object -First 1
+    $func = Get-YurunaTestFunctionAst -Ast $RootAst -Name $FunctionName
     if (-not $func) { throw "Function '$FunctionName' not found." }
     return $func
 }
@@ -121,11 +116,7 @@ function Test-AstCallsCommand {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
-    Write-Verbose "Searching for a call to '$CommandName'"
-    $hits = $Ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $CommandName
-    }, $true)
-    return (@($hits).Count -gt 0)
+    return ((Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $CommandName) -gt 0)
 }
 
 # True iff the AST subtree has an if-statement whose condition references $VarName.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4265798a-3d2b-45d8-a5ad-6776ff4a2ad9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,8 @@ $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Log.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.EventSchema.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
+Import-Module (Join-Path $here 'Test.HostSampling.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $here 'Test.SequenceFailureState.psm1') -Force -DisableNameChecking
 
 function Reset-DeliveryLedger {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -78,6 +80,35 @@ Describe 'Cycle event delivery ledger' {
         $d.dropped | Should -Be 0
         (Get-Content -LiteralPath (Join-Path $script:Dir 'cycle.events.ndjson') -Raw) | Should -Match '"event":"step_end"'
         Test-Path -LiteralPath (Join-Path $script:Dir 'cycle.events.delivery.json') | Should -BeFalse -Because 'a ledger file is written for losses, not for every event'
+    }
+
+    It 'keeps per-processor measurements and unavailable counters as structured event JSON' {
+        $now = [datetime]::UtcNow
+        $sample = [pscustomobject]@{
+            Utc = $now
+            VMs = @{ fixture = @{ '0' = @{ '% Guest Run Time'=66.01; '% Hypervisor Run Time'=33.11; 'Total Intercepts/sec'=1282000.0 } } }
+            CounterCapabilities = @([pscustomobject]@{ Counter='SysReg Accesses/sec'; Status='absent'; Reason='not published' })
+        }
+        $failureState = Get-SequenceFailureState
+        $previousVerdict = $failureState.WaitForTextGuestLivelock
+        try {
+            $failureState.WaitForTextGuestLivelock = Get-YurunaVmLivelockVerdict -VMName fixture -Sample @($sample) -NowUtc $now
+            $record = New-SequenceFailureRecord -Reason step -VMName fixture -GuestKey guest.ubuntu.server.26 -HostType host.windows.hyper-v -SequencePath fixture.yml -LogDir $script:Dir
+            Send-CycleEventSafely -EventRecord $record.Event
+        } finally { $failureState.WaitForTextGuestLivelock = $previousVerdict }
+
+        $events = @(Get-Content -LiteralPath (Join-Path $script:Dir 'cycle.events.ndjson') |
+            ForEach-Object { $_ | ConvertFrom-Json -AsHashtable })
+        $captureEvent = $events | Where-Object event -EQ step_failure
+        $captureEvent.guestProcessorWindow.Processors[0].Counters['% Guest Run Time'].Average | Should -Be 66.01
+        $unavailable = $captureEvent.guestProcessorWindow.Processors[0].Counters['SysReg Accesses/sec']
+        $unavailable.Status | Should -Be unavailable
+        $unavailable.ContainsKey('Average') | Should -BeTrue
+        $unavailable.Average | Should -BeNullOrEmpty
+        $captureEvent.guestProcessorWindow.CounterCapabilities[0].Status | Should -Be absent
+        $captureEvent.causeGuestLivelocked | Should -BeFalse
+        $captureEvent.guestProcessorWindow.Processors[0].UnaccountedEstimatePerSecond | Should -BeNullOrEmpty
+        (Get-CycleEventDelivery).delivered | Should -BeGreaterOrEqual 1
     }
 
     It 'counts an event emitted with no cycle open as dropped, without a warning or a file' {

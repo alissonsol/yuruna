@@ -37,7 +37,7 @@
     (192.0.2.x); the mock intercepts before any packet would be sent.
 
     The throw-based Assert-* helpers live at script scope and are
-    referenced from It blocks, so this runs under Pester 4.10.1.
+    referenced from It blocks, so this runs under Pester 5.x.
 
     Run: pwsh -NoProfile -File test/modules/Test.CachingProxyServiceEndpoint.Tests.ps1
 #>
@@ -71,15 +71,8 @@ function Get-SourceProbeIndex {
 $script:configTag = 'vmStart.cachingProxyIp'
 $script:envTag    = '$env:YURUNA_CACHING_PROXY_SERVICE_IP'
 
-# Fresh -Force import ONCE per suite run (guards against a stale module a
-# prior suite loaded into this process) -- NOT per-It in BeforeEach. A
-# -Force re-import between Its replaces the module instance, but Pester 4
-# caches the Mock -ModuleName injection target per Context: the second It
-# in a Context then mocks the EVICTED instance while the resolver runs in
-# the new one, silently disabling the mock. The suite's dead-address
-# candidates then really get probed (3 attempts x 3 s per candidate on a
-# stealth-firewall host) and any It whose expected outcome depends on the
-# mock's reachability rule fails.
+# --- REGION: Module fixture import
+# See https://yuruna.link/42e220c4-0014
 Import-Module $vmUtilityModule -Global -Force -DisableNameChecking
 Import-Module $cachingProxyModule -Force -DisableNameChecking
 
@@ -162,19 +155,9 @@ Describe 'Resolve-CachingProxyServiceEndpoint source precedence' {
     }
 }
 
-# Structural (AST) guards: the standalone smoke-test script must resolve its
-# target through the SAME resolver -- and therefore the same source order --
-# as the runner, not through a private env-var-first reimplementation. The
-# script builds a VM probe and exits, so it is parsed rather than invoked.
-#
-# The parsed script's path is derived here at file scope, which is evaluated
-# while the file is DISCOVERED -- before any BeforeAll body runs, and the
-# assignment survives into the run phase for the It bodies below. A path taken
-# from a BeforeAll variable arrives as $null during discovery, so a Describe
-# body that builds one aborts and emits none of its Its, leaving the Describe
-# to pass while asserting nothing. Deriving it from $PSCommandPath keeps this
-# a pure path derivation: no temp state and no side effect are created at a
-# point where nothing would tear them down.
+# --- REGION: Endpoint resolver fixtures
+# See https://yuruna.link/42e220c4-0014
+# Keep AST-only smoke checks and their pure path derivation at file scope.
 $script:discoveryTestCpPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'Test-CachingProxyService.ps1'
 
 Describe 'Test-CachingProxyService.ps1 resolves through the shared runner-order resolver' {

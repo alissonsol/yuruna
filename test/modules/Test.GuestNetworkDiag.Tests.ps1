@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4204dc0d-3f1d-4015-b639-9480d7186c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -918,7 +918,7 @@ wget() {
         *) return 1 ;;
     esac
 }
-tar()   { cat >/dev/null; mkdir -p "$3" && : > "$3/fetched"; }
+tar()   { cat >/dev/null; mkdir -p "$3" && : > "$3/fetched"; printf 'fixture-version\n' > "$3/VERSION"; }
 git()   { clones=$((clones + 1)); return 1; }
 sleep() { naps=$((naps + 1)); }
 sudo()  { :; }

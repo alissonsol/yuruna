@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 427a25a9-d3c8-4ce6-b877-b396666875b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
     not `[a-z0-9_ -]` (which removes backticks, periods and parentheses), then
     replace spaces with hyphens.
 
-    Markdown targets in the framework and project candidates can be checked. A
+    Markdown targets in every inventoried workspace checkout can be checked. A
     slug pointing at an external site is reported as unresolvable rather than
     failed -- this gate cannot see it.
 
@@ -59,9 +59,9 @@
     scanned beside the framework. Defaults to the sibling yuruna-project.
 .PARAMETER AdditionalSourceRoot
     Other Git checkouts whose tracked and untracked, non-ignored sources are
-    scanned. The default inventory already includes the sibling yuruna.link
-    and alius-git/amisad.dev checkouts when present. Documentation targets
-    still resolve only in yuruna and yuruna-project.
+    scanned. The default inventory includes sibling yuruna.link and amisad.dev
+    checkouts, with alius-git/amisad.dev as a fallback. Their local Markdown
+    targets are checked through the same published catalog as the framework.
 .PARAMETER AnchorManifest
     Path to the generated anchor index that says which ids exist. Default:
     globalization/manifests/doc-anchors.json. Pointing it at a different
@@ -102,6 +102,7 @@ $projectRootWasExplicit = $PSBoundParameters.ContainsKey('ProjectRoot')
 if (-not $ProjectRoot) { $ProjectRoot = Join-Path (Split-Path -Parent $RepoRoot) 'yuruna-project' }
 
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Prelude.psm1') -Global -Force
+Import-Module (Join-Path $ToolRoot 'Markdown.LocalAnchors.psm1') -Global -Force
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 $ExitCannotRun = Get-EntryPointExitCode -Outcome CannotRun
@@ -119,10 +120,14 @@ if (Test-Path -LiteralPath $ProjectRoot -PathType Container) {
     $repositories.Add([pscustomobject]@{ Name = 'yuruna-project'; Root = $ProjectRoot })
 }
 $workspaceRoot = Split-Path -Parent $RepoRoot
+$amisadRoot = Join-Path $workspaceRoot 'amisad.dev'
+if (-not (Test-Path -LiteralPath $amisadRoot -PathType Container)) {
+    $amisadRoot = Join-Path $workspaceRoot 'alius-git/amisad.dev'
+}
 foreach ($source in @(
-        @{ Name = 'yuruna.link'; Relative = 'yuruna.link' },
-        @{ Name = 'amisad.dev'; Relative = 'alius-git/amisad.dev' })) {
-    $sourceRoot = Join-Path $workspaceRoot $source.Relative
+        @{ Name = 'yuruna.link'; Root = (Join-Path $workspaceRoot 'yuruna.link') },
+        @{ Name = 'amisad.dev'; Root = $amisadRoot })) {
+    $sourceRoot = $source.Root
     if (Test-Path -LiteralPath $sourceRoot -PathType Container) {
         $repositories.Add([pscustomobject]@{
                 Name = $source.Name
@@ -141,6 +146,12 @@ foreach ($sourceRoot in $AdditionalSourceRoot) {
         $repositories.Add([pscustomobject]@{ Name = Split-Path -Leaf $resolved; Root = $resolved })
     }
 }
+$repositoryRoots = @{}
+foreach ($repository in $repositories) {
+    if (-not $repositoryRoots.ContainsKey($repository.Name)) {
+        $repositoryRoots[$repository.Name] = $repository.Root
+    }
+}
 if (-not $Path -or $Path.Count -eq 0) {
     $Path = @($repositories | ForEach-Object { $_.Root })
 }
@@ -155,7 +166,7 @@ if (-not (Test-Path -LiteralPath $LinkMap -PathType Leaf)) {
 }
 
 # Slug -> repository + relative Markdown path for every entry whose target is
-# visible in the framework/project candidate pair. Entries carry either a bare
+# visible in the workspace inventory. Entries carry either a bare
 # slug or an array of aliases, and either a single URL or an array; every alias
 # resolves to the same target.
 $slugToDoc = @{}
@@ -183,42 +194,11 @@ foreach ($entry in $mapEntries) {
     }
     foreach ($url in $urls) {
         $m = [regex]::Match([string]$url,
-            'github\.com/[^/]+/(yuruna|yuruna-project)/blob/main/([^#\s]+\.md)')
-        if (-not $m.Success) { continue }
+            '^https://github\.com/[^/]+/([^/]+)/blob/main/([^?#\s]+\.md)(?:\?[^#\s]*)?(?:#[^\s]*)?$')
+        if (-not $m.Success -or -not $repositoryRoots.ContainsKey($m.Groups[1].Value)) { continue }
         $target = [pscustomobject]@{ Repo = $m.Groups[1].Value; Path = $m.Groups[2].Value }
         foreach ($s in $slugs) { if (-not $slugToDoc.ContainsKey($s)) { $slugToDoc[$s] = $target } }
     }
-}
-
-function Get-LocalSbomAnchorId {
-    <#
-    .SYNOPSIS
-        Read stable anchors from a nonlocalized document, excluding fenced examples.
-    #>
-    [CmdletBinding()]
-    [OutputType([string[]])]
-    param([Parameter(Mandatory)][string]$LiteralPath)
-
-    $ids = [Collections.Generic.List[string]]::new()
-    $fenceCharacter = ''
-    $fenceLength = 0
-    foreach ($line in [IO.File]::ReadAllLines($LiteralPath)) {
-        if ($fenceCharacter) {
-            $closing = '^ {0,3}' + [regex]::Escape($fenceCharacter) + '{' + $fenceLength + ',}[ \t]*$'
-            if ($line -match $closing) { $fenceCharacter = '' }
-            continue
-        }
-        $fence = [regex]::Match($line, '^ {0,3}(`{3,}|~{3,})(.*)$')
-        if ($fence.Success -and -not ($fence.Groups[1].Value[0] -eq '`' -and
-                $fence.Groups[2].Value.Contains('`'))) {
-            $fenceCharacter = [string]$fence.Groups[1].Value[0]
-            $fenceLength = $fence.Groups[1].Length
-            continue
-        }
-        $anchor = [regex]::Match($line, '^[ \t]*<a id="(42[0-9a-f]{6}-[0-9a-f]{4})"></a>[ \t]*$')
-        if ($anchor.Success) { $ids.Add($anchor.Groups[1].Value) }
-    }
-    return [string[]]$ids.ToArray()
 }
 
 function Get-HeadingSlug {
@@ -239,14 +219,14 @@ function Get-DocAnchorSet {
     [CmdletBinding()]
     [OutputType([System.Collections.Generic.HashSet[string]])]
     param(
-        [Parameter(Mandatory)][ValidateSet('yuruna', 'yuruna-project')][string]$Repo,
+        [Parameter(Mandatory)][string]$Repo,
         [Parameter(Mandatory)][string]$DocRelativePath
     )
 
     $cacheKey = "$Repo`:$DocRelativePath"
     if ($anchorCache.ContainsKey($cacheKey)) { return ,$anchorCache[$cacheKey] }
     $set = New-Object 'System.Collections.Generic.HashSet[string]'
-    $documentRoot = if ($Repo -eq 'yuruna') { $RepoRoot } else { $ProjectRoot }
+    $documentRoot = $repositoryRoots[$Repo]
     $full = Join-Path $documentRoot $DocRelativePath
     if (Test-Path -LiteralPath $full -PathType Leaf) {
         $text = Get-Content -LiteralPath $full -Raw
@@ -328,12 +308,12 @@ foreach ($prefix in $publishedFileIdUrls.Keys) {
     $matchesTarget = $true
     foreach ($url in $publishedFileIdUrls[$prefix]) {
         $published = [regex]::Match($url,
-            '^https://github\.com/[^/]+/(yuruna|yuruna-project)/blob/main/([^?#\s]+\.md)(?:#[^\s]*)?$')
+            '^https://github\.com/[^/]+/([^/]+)/blob/main/([^?#\s]+\.md)(?:#[^\s]*)?$')
         if (-not $published.Success -or $published.Groups[1].Value -cne $target.Repo -or
             $published.Groups[2].Value -cne $target.Path) { $matchesTarget = $false; break }
     }
     if (-not $matchesTarget) { continue }
-    $documentRoot = if ($target.Repo -eq 'yuruna') { $RepoRoot } else { $ProjectRoot }
+    $documentRoot = $repositoryRoots[$target.Repo]
     $sbomRoot = [IO.Path]::GetFullPath((Join-Path $documentRoot 'docs/sbom')) + [IO.Path]::DirectorySeparatorChar
     $full = [IO.Path]::GetFullPath((Join-Path $documentRoot $target.Path))
     if (-not $full.StartsWith($sbomRoot, [StringComparison]::Ordinal) -or
@@ -355,7 +335,8 @@ function Test-AnchorInDocument {
     if ($anchorPresence.ContainsKey($Id)) { return $anchorPresence[$Id] }
     $known = $anchorDoc[$Id]
     if (-not $known) { $anchorPresence[$Id] = $false; return $false }
-    $root = if ($known.Repo -eq 'yuruna') { $RepoRoot } else { $ProjectRoot }
+    $root = $repositoryRoots[$known.Repo]
+    if (-not $root) { $anchorPresence[$Id] = $false; return $false }
     $full = Join-Path $root ($known.Source -replace '/', [IO.Path]::DirectorySeparatorChar)
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { $anchorPresence[$Id] = $false; return $false }
     $present = ([System.IO.File]::ReadAllText($full)).Contains('<a id="' + $Id + '"></a>')
@@ -497,7 +478,7 @@ foreach ($o in ($overlayBad | Sort-Object { $_.file }, { $_.key })) {
 
 foreach ($u in $unknown) {
     Write-Warning ("  UNRESOLVABLE  {0}:{1}" -f $u.file, $u.line)
-    Write-Warning ("                slug '{0}' is not a framework/project Markdown target in the link map" -f $u.slug)
+    Write-Warning ("                slug '{0}' is not a local workspace Markdown target in the link map" -f $u.slug)
 }
 
 foreach ($u in ($unknownId | Sort-Object { $_.file }, { $_.line })) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4215c5b2-75d8-47ea-9edd-261bf78adcaa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,14 +16,11 @@
 
 #requires -version 7
 
-# Leaf utility: the bootstrap prelude shared by every automation entrypoint -- the
-# logLevel cascade and the project/config root resolution. It has no dependencies and
-# holds no module state, so it can be imported -Global -Force at the very top of an
-# entrypoint (before that script applies its preferences, resolves its roots, and
-# evicts + re-imports the Yuruna.* operation modules) without side effects.
-# (The module name is historical -- it began as the logLevel helper.)
+# Bootstrap helpers must run before entrypoints replace the operation modules.
+# See https://yuruna.link/42e220c4-0019
 
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+# --- REGION: Set-YurunaLogLevel
 function Set-YurunaLogLevel {
     <#
     .SYNOPSIS
@@ -56,6 +53,7 @@ function Set-YurunaLogLevel {
     $global:DebugPreference       = if ($rank.Debug       -le $eff) { 'Continue' } else { 'SilentlyContinue' }
 }
 
+# --- REGION: Resolve-YurunaRootSet
 function Resolve-YurunaRootSet {
     <#
     .SYNOPSIS
@@ -108,6 +106,7 @@ function Resolve-YurunaRootSet {
     return @{ YurunaRoot = $yurunaRoot; ProjectRoot = $ProjectRoot; ConfigRoot = $configRoot }
 }
 
+# --- REGION: Resolve-YurunaTranscriptPath
 function Resolve-YurunaTranscriptPath {
     <#
     .SYNOPSIS

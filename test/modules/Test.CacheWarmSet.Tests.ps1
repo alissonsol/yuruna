@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 429e84c5-0bc5-487b-b851-b34fccf102c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
     guess which upstream a repository belongs to, and the fallback is the one
     metered upstream in the lab. Nothing fails visibly; the budget just drains.
 
-    Should assertions only, so the suite runs under Pester 4.10.1 as well as 5.
+    Should assertions only, so the suite runs under Pester 5.x.
 #>
 
 BeforeAll {
@@ -80,16 +80,29 @@ $script:ResidencyReader = (Get-DiagFunctionText -Name 'Get-PrometheusReading') +
     (Get-DiagFunctionText -Name 'Get-PrometheusValue') + "`n" +
     (Get-DiagFunctionText -Name 'Get-RegistryResidencyShortfall')
 
+# Keep the collection boundary identical to the report's foreach. An extra
+# scriptblock output boundary can flatten an empty nested array and hide a
+# false row before the assertion sees it.
+$registryLoop = (Get-DiagAst).Find({ param($node)
+    $node -is [System.Management.Automation.Language.ForEachStatementAst] -and
+    $node.Variable.VariablePath.UserPath -eq 'short'
+}, $true)
+$statements = @($registryLoop.Parent.Statements)
+$loopIndex = [array]::IndexOf($statements, $registryLoop)
+$setup = if ($loopIndex -gt 0 -and $statements[$loopIndex - 1] -is [System.Management.Automation.Language.AssignmentStatementAst]) {
+    $statements[$loopIndex - 1].Extent.Text
+} else { '' }
+$script:ResidencyCollection = $setup + "`nforeach (`$short in $($registryLoop.Condition.Extent.Text)) { `$captured.Add(`$short) }"
+
 # Drives the shipped reader over a published document.
 function Get-ResidencyShortfall {
     param([string]$MetricText)
     $run = [scriptblock]::Create($script:ResidencyReader + @'
 
-@(Get-RegistryResidencyShortfall -Reading (Get-PrometheusReading -Text $args[0]))
-'@)
-    # The shipped reader already returns an array; @() flattens the scriptblock's
-    # output back to it without adding a second wrapper.
-    return @(& $run $MetricText)
+$reading = Get-PrometheusReading -Text $args[0]
+$captured = [Collections.Generic.List[object]]::new()
+'@ + "`n" + $script:ResidencyCollection + "`nreturn , @(`$captured.ToArray())")
+    return , (& $run $MetricText)
 }
 
 # The metric names the diagnostic depends on, taken from the reader itself.
@@ -187,6 +200,7 @@ Describe 'A shortfall reaches the problems summary and a warm cache does not' {
     It 'reports the short set only, naming the count a guest would pay for' {
         $found = Get-ResidencyShortfall -MetricText $script:coldMetrics
         $found.Count | Should -Be 1
+        $found[0] | Should -BeOfType [hashtable]
         $found[0].Set   | Should -Be 'k8s'
         $found[0].Held  | Should -Be 3
         $found[0].Total | Should -Be 7
@@ -194,7 +208,10 @@ Describe 'A shortfall reaches the problems summary and a warm cache does not' {
     It 'keeps reading later sets after a short one' {
         $both = $script:coldMetrics -replace 'yuruna_prewarm_images_resident\{set="cni"\} 2',
             'yuruna_prewarm_images_resident{set="cni"} 0'
-        (Get-ResidencyShortfall -MetricText $both).Count | Should -Be 2
+        $found = Get-ResidencyShortfall -MetricText $both
+        $found.Count | Should -Be 2
+        @($found | Where-Object { $_ -isnot [hashtable] }).Count | Should -Be 0
+        @($found | ForEach-Object { $_['Set'] } | Sort-Object) | Should -Be @('cni', 'k8s')
     }
 }
 

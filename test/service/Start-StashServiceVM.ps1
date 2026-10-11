@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,8 +12,6 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
-.PARAMETER AllowPseudoLocale
-    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -24,7 +22,8 @@
     host.ubuntu.kvm, host.macos.utm). See
     https://yuruna.link/42f5e921 for the stash user guide.
 
-.PARAMETER VMName   Name for the stash-service VM. Default: yuruna-stash-service.
+.PARAMETER VMName
+    Name for the stash-service VM. Default: yuruna-stash-service.
 
 .PARAMETER AllowMirrorSource
     Build the daemon from the public github mirror instead of this enlistment.
@@ -32,6 +31,8 @@
     or one whose daemon turns out to have been built from another snapshot --
     is refused rather than deploying code older than the operator is working in.
     Legitimate off-LAN, where the mirror is the only source there is.
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]

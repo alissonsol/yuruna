@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,36 +32,45 @@
     file directly (useful when the project repo is a sibling working
     tree, not cloned under <RepoRoot>/project/).
 
-.PARAMETER SequenceName   Base name (no .yml, e.g. "workload.guest.ubuntu.server.24")
-                          OR a path to an existing .yml sequence file. The path
-                          form is shell-tab-completion friendly; it supplies the
-                          top-level file directly while the baseline chain is
-                          still walked via the standard search paths. GuestKey
-                          is derived from the basename. Required.
-.PARAMETER StartStep      1-based start step in the CONCATENATED chain. Default 1.
-.PARAMETER StopStep       1-based stop (inclusive) in the CONCATENATED chain.
-                          VM left running after.
-.PARAMETER ConfigPath     Default: test/test.config.yml.
-.PARAMETER VMName         Override the VM name (default: derived from guest key).
-.PARAMETER GuestKey       Override guest-folder lookup. Default: walk dotted
-                          prefixes of the name after the first dot, longest
-                          first, and pick the first one with a
-                          host/<short>/<guestKey>/ folder. Needed when a
-                          cascade-child sequence (e.g.
-                          workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline)
-                          must reuse a shorter guest's scripts but the walk
-                          would pick the wrong base.
-.PARAMETER ShowSensitive Print expanded passwords / vault secrets in the
-                          transcript. OFF by default to match production
-                          (Start-TestRunner). Turn on only for one-off
-                          local debugging; never share a transcript captured
-                          with this switch on.
-.PARAMETER NoConfigGate   Skip the pre-cycle Test-Config.ps1 preflight.
-                          Default: gate runs (matches Start-TestRunner). Use
-                          for in-progress edits where you want to iterate on
-                          a sequence while test.config.yml / vault.yml /
-                          users.yml are still being adjusted.
-.PARAMETER logLevel       Error|Warning|Information|Verbose|Debug. Each level shows itself + all higher-priority streams (Error highest). Omit to read test.config.yml.logLevel (default "Information").
+.PARAMETER SequenceName
+    Base name (no .yml, e.g. "workload.guest.ubuntu.server.24")
+    OR a path to an existing .yml sequence file. The path
+    form is shell-tab-completion friendly; it supplies the
+    top-level file directly while the baseline chain is
+    still walked via the standard search paths. GuestKey
+    is derived from the basename. Required.
+.PARAMETER StartStep
+    1-based start step in the CONCATENATED chain. Default 1.
+.PARAMETER StopStep
+    1-based stop (inclusive) in the CONCATENATED chain.
+    VM left running after.
+.PARAMETER ConfigPath
+    Default: test/test.config.yml.
+.PARAMETER VMName
+    Override the VM name (default: derived from guest key).
+.PARAMETER GuestKey
+    Override guest-folder lookup. Default: walk dotted
+    prefixes of the name after the first dot, longest
+    first, and pick the first one with a
+    host/<short>/<guestKey>/ folder. Needed when a
+    cascade-child sequence (e.g.
+    workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline)
+    must reuse a shorter guest's scripts but the walk
+    would pick the wrong base.
+.PARAMETER ShowSensitive
+    Print expanded passwords / vault secrets in the
+    transcript. OFF by default to match production
+    (Start-TestRunner). Turn on only for one-off
+    local debugging; never share a transcript captured
+    with this switch on.
+.PARAMETER NoConfigGate
+    Skip the pre-cycle Test-Config.ps1 preflight.
+    Default: gate runs (matches Start-TestRunner). Use
+    for in-progress edits where you want to iterate on
+    a sequence while test.config.yml / vault.yml /
+    users.yml are still being adjusted.
+.PARAMETER logLevel
+    Error|Warning|Information|Verbose|Debug. Each level shows itself + all higher-priority streams (Error highest). Omit to read test.config.yml.logLevel (default "Information").
 #>
 
 param(

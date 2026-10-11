@@ -78,12 +78,11 @@ the handler to immediately Stop-VM again -- a wasted Start+Wait cycle
 
 `yuruna/test/Debug-TestSequence.ps1`
 
-Forward -Username / -Hostname when the sequence declares them. Mirrors
-Invoke-TestRunnerInnerLoop's cascade forward (the cascade-walk is not
-feasible standalone, but the sequence's own variables.username /
-variables.hostname are the overrides Debug-TestSequence can honor without
-the planner). Empty values fall through to the per-host New-VM
-defaults (the account default and the VM name, respectively).
+Forward the planned -Username / -Hostname to New-VM. Resolve-TestSequencePlan
+walks the baseline chain and returns the effective username and hostname,
+using the same variable cascade as the recurring runner. Empty values fall
+through to the per-host New-VM defaults (the account default and the VM name,
+respectively).
 
 <a id="42010605-0308"></a>
 
@@ -298,7 +297,8 @@ nothing matches, list everything available across both trees.
 
 Convenience: when $SequenceName is a path to an existing .yml file (shell
 tab-completion produces this naturally), use it verbatim and reduce the
-name to its basename for downstream GuestKey derivation. The operator
+name to its basename for downstream planning. GuestKey comes from the
+sequence's baseline map unless explicitly supplied. The operator
 pointed at a specific file -- honor it, don't second-guess into a
 host-variant from the tier search.
 
@@ -325,9 +325,9 @@ cleared this same host and config when it opened the cycle; a nested run is
 one stage of that cycle, so re-validating per stage buys nothing and costs
 something real. The gate reaches github.com, and remote state is not a
 property of the config it is checking: a credential that expires between two
-stages turns a pre-flight into a mid-flight abort, killing a cycle over
+stages turns a preflight into a mid-flight abort, killing a cycle over
 something none of its remaining work depends on and discarding every stage
-already built. A pre-flight belongs at the front of the flight. A standalone
+already built. A preflight belongs at the front of the flight. A standalone
 run (no inherited cycle context) is unaffected and still gates for itself.
 
 <a id="42010605-0017"></a>
@@ -366,8 +366,8 @@ standalone owner, the unchanged classic behavior. See Test.Status.psm1
 
 `yuruna/test/Debug-TestSequence.ps1`
 
-Test.LogLevel + Test.Config + Test.SequenceAction + Test.HostIO +
-Test.HostContract + Test.Log + Invoke-Sequence + Test.SequencePlanner +
+Includes Test.LogLevel + Test.Config + Test.SequenceAction + Test.HostIO +
+Test.HostContract + Test.Log + Test.SequenceEngine + Test.SequencePlanner +
 Test.YurunaDir + Test.OcrEngine + Test.Tesseract +
 Test.ConfigPreflight. Order matters: planner AFTER engine so the
 engine's -Force re-import inside the planner doesn't evict the
@@ -396,10 +396,10 @@ nothing has had a chance to invalidate.
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Mirror Start-TestRunner's spawn pattern so Invoke-TestProject exercises the
-same boundary the recurring runner does:
-  * call operator (not Start-Process) -- the inner inherits our env,
-    stdio, and signal context; same as Start-TestRunner
+Invoke-TestProject uses the shared typed-argument builder to invoke a fresh
+inner process directly; the recurring runner launches it from a cycle worker:
+  * call operator (not Start-Process) -- this one-shot entry point's inner
+    inherits its environment, stdio, and signal context
   * -Command (not -File) -- pwsh -File coerces every argv to [string],
     which would break [switch] / [int] parameters
   * -NoProfile -- $PROFILE can't clobber YURUNA_* env vars
@@ -501,8 +501,8 @@ Each step is gated and reports its own reason on failure:
             calls every cycle. A failure here stops with a clear
             "what + why" line; the inner is never spawned.
 
-  Step 3   spawns Invoke-TestRunnerInnerLoop.ps1 in a fresh pwsh -- the
-            same spawn shape Start-TestRunner uses for every cycle --
+  Step 3   spawns Invoke-TestRunnerInnerLoop.ps1 in a fresh pwsh using
+            Test.InnerSpawn's shared typed-argument builder,
             with -NoProjectClone (the clone is already fresh) and
             -NoGitPull (Invoke-TestProject tests the project as it stands
             locally; a mid-test framework update would muddle the
@@ -560,9 +560,9 @@ operator running the script. So it is set from a session that really runs
 as the new account -- a one-shot logon here when the account has a usable
 password, and a first-sign-in scheduled task when it does not.
 
-Framework entry points do not depend on this: they all launch with
--ExecutionPolicy Bypass. It is the account's own interactive sessions
-that are otherwise refused.
+This policy applies to the account's own interactive script sessions.
+A child launched with -ExecutionPolicy Bypass uses that explicit override;
+framework entry points do not all supply it.
 
 <a id="42010605-0025"></a>
 
@@ -619,7 +619,7 @@ log into. -NoPassword is the explicit opt-out.
 The prompt itself is deliberately NOT here. On Windows an unelevated run
 relaunches itself through UAC and the password is never forwarded on the
 command line, so asking now would ask again in the elevated window. It is
-asked once, after the elevation gate and after the pre-flight checks -- no
+asked once, after the elevation gate and after the preflight checks -- no
 point collecting a secret for an account that already exists.
 
 <a id="42010605-0029"></a>
@@ -869,9 +869,10 @@ inner, whose strict binding would refuse them.
 Shared registration lives in Test.Prelude (Register-EntryPointCancelHandler): a
 Register-ObjectEvent CancelKeyPress subscription that flips the returned hashtable's
 'Requested' flag on the pipeline thread (a raw .NET delegate would fire on a
-Runspace-less thread-pool thread). The outer runner surrenders after the current
-CYCLE -- the eternal loop and the failure-pause loop both poll
-$script:ShutdownState['Requested'] at their next iteration -- so pass -ExitAfterLabel 'cycle'.
+Runspace-less thread-pool thread). During a spawned cycle, the outer runner polls
+$script:ShutdownState['Requested'] between one-second child-process waits and
+stops the whole cycle process tree when cancellation is requested. The eternal
+loop and the failure-pause loop also poll the flag before continuing.
 
 <a id="42010605-0036"></a>
 
@@ -933,15 +934,16 @@ to vmCommunication.* never take effect.
 
 `yuruna/test/Start-TestRunner.ps1`
 
-Two-process design: a thin outer (this file) and a single-cycle
-inner (modules/Invoke-TestRunnerInnerLoop.ps1 -- intentionally placed
-under modules/ so it's not mistaken for an entry-point script in the
-test/ folder; the operator never invokes it directly).
+The normal path uses a resident outer (this file), a fresh per-cycle worker
+(modules/Invoke-TestCycleRunner.ps1), and the inner runner
+(modules/Invoke-TestRunnerInnerLoop.ps1). The worker runs the cycle orchestration
+and invokes the inner; the outer retains cross-cycle state. If the cycle-worker
+script is absent, the outer falls back to running the cycle orchestration in-process.
 Why the split:
-  * fresh pwsh per cycle on every host -- one code path, no platform-
-    specific in-process / spawn fork
-  * O(1) resident memory; outer is the only resident process and
-    spends most of its time in Start-Process -Wait
+  * fresh pwsh per cycle on every host -- cycle logic and its modules reload
+    without restarting the resident outer
+  * O(1) resident memory; outer is the only process retained across cycles and
+    waits for the cycle worker in one-second slices
   * backoff with commit polling stops infinite-failure burn
 
 See test/README.md for cycle flow, config, notifications, and the
@@ -1168,7 +1170,7 @@ reads this before a cycle spends its budget discovering the same thing.
 
 `yuruna/test/Test-Config.ps1`
 
-ACTIVE write-path pre-flight: the stash share is configured as a SUBFOLDER
+ACTIVE write-path preflight: the stash share is configured as a SUBFOLDER
 ('\\server\share\yuruna.stash'); New-SmbMapping to a missing subfolder fails
 with a vague "network name cannot be found", so ensure the target folder
 exists (create it via the parent share when missing), then verify an actual
@@ -1184,7 +1186,7 @@ stored AND the server answered, so a merely-offline NAS stays the WARN above.
 
 `yuruna/test/Test-Config.ps1`
 
-Free space, checked ONLY behind a succeeded pre-flight. On
+Free space, checked ONLY behind a succeeded preflight. On
 Linux/macOS `df` against an existing-but-unmounted localPath
 succeeds and reports the PARENT filesystem, so running this
 on any path where the mount was skipped or failed would
@@ -1197,16 +1199,16 @@ wrong number entirely.
 
 `yuruna/test/Test-Config.ps1`
 
-ACTIVE write-path pre-flight: actually mount localPath and create the
-per-host folder '<localPath>/<hostId>'. This is the check that catches
-the "reachable NAS, replicate=true, but replication silently never
+ACTIVE write-path preflight: actually mount localPath and create the
+per-host folder '<localPath>/hosts/<hostId>'. This is the check that catches
+the "reachable NAS, paths configured, but replication silently never
 happens" class -- a wrong SMB password, a share-name typo, missing
 Linux passwordless sudo, or a read-only share -- which the passive
 reachability probe above cannot see (the host-side drain runs detached
 and only records the failure in the ledger, where no operator sees it).
 Only attempted when a credential is configured AND the server is
 reachable, so a merely-offline NAS stays the transient WARN above.
-FAIL (block the cycle) when replicate is on; advisory WARN when off.
+FAIL (block the cycle) when moveLogsToPoolStorage is on; advisory WARN when off.
 
 <a id="42010605-004b"></a>
 
@@ -1216,7 +1218,7 @@ FAIL (block the cycle) when replicate is on; advisory WARN when off.
 
 mount(8) execs the external mount.cifs helper from cifs-utils, which
 nothing else in the harness pulls in. Establish it BEFORE the active
-pre-flight: without the helper every mount fails with the same exit
+preflight: without the helper every mount fails with the same exit
 code a credential rejection produces, so reporting the missing
 package is both the accurate finding and the only actionable one.
 The doomed mount attempt is then skipped rather than raising a second
@@ -1309,7 +1311,7 @@ never reaches the offer and must not self-elevate.
 
 Linux-only: print the EXACT one-time passwordless-sudo setup the mount path
 needs (resolved to this account + binary paths) the first time a mount-stage
-pre-flight fails. Once per run -- the pool and stash shares share one drop-in.
+preflight fails. Once per run -- the pool and stash shares share one drop-in.
 The unattended RUNNER cannot self-apply it (`sudo -n` never prompts and
 /etc/sudoers.d needs root), so this hint is its fallback; an INTERACTIVE
 operator is offered the install directly by Invoke-LinuxSudoInstallOffer.
@@ -1385,7 +1387,7 @@ No .git -- could be the in-tree project layout (files committed to
 the framework repo) OR an empty or damaged project directory.
 Update-ProjectClone now clones beside the previous checkout and verifies
 the replacement, so a failed clone leaves the previous checkout in place.
-When no archive can be served, the status server 404s
+When no archive can be served, the status service 404s
 /yuruna-project-archive.tar.gz and guests fall through to their
 own clone, which can fail for the same repository-access problem.
 
@@ -1608,7 +1610,7 @@ warnings above" pointer at content that has scrolled off.
 
 `yuruna/test/Test-Config.ps1`
 
-Imports Test.HostContract.psm1 and runs the same fast pre-flight that
+Imports Test.HostContract.psm1 and runs the same fast preflight that
 operator-facing helpers (Remove-TestVMFiles.ps1, ...) call: detects
 the host type and verifies the absolute minimum (Administrator +
 vmms on Hyper-V, virsh + /dev/kvm on Ubuntu, UTM.app + utmctl on
@@ -1946,7 +1948,7 @@ What it creates under -Root:
   <Root>/yuruna.stash         the stash service's own durable store
   <Root>/yuruna.pool/pool-intent.git
                               bare pool-intent repository, seeded schema-valid.
-                              pool-control service serves this over git:// and that URL
+                              caching-proxy-service VM serves this over HTTP and that URL
                               becomes the lab's intentGitUrl.
 
 The vault it writes is plain YAML protected by filesystem permissions. That is
@@ -2215,9 +2217,10 @@ Runs for EVERY resolved address, not only an operator-supplied one -- a host
 whose cachingProxyIp was already in config still needs the pool binding, and
 that is the common case on a re-enrollment.
 
-Idempotent and non-destructive: an existing non-empty intentGitUrl is left
-exactly as it is, so an operator pointing a host at a different intent store is
-never overwritten. Best-effort throughout -- the token is already stored, and
+An existing non-empty intentGitUrl is retained unless it matches the auto-seeded
+http://<host>/pool-intent.git shape and differs from the resolved proxy URL. That
+shape is refreshed to the current proxy address; other operator-selected URLs
+remain unchanged. Best-effort throughout -- the token is already stored, and
 failing to seed an optional binding must not fail the enrollment.
 
 <a id="42010605-007f"></a>
@@ -2445,7 +2448,7 @@ freshness gate exactly as an operator running the sync by hand would.
 
 -InternalAuthKey is passed explicitly even when it came from this host's own vault:
 the sync would find it again, but passing it makes the value this script
-pre-flighted the value the sync uses, so the two cannot disagree about which
+preflighted the value the sync uses, so the two cannot disagree about which
 token the run is built on. Supplying it also makes the sync store it in this
 host's vault and bounce the status service, which is what a converting host
 needs: a worker that syncs a pool config but holds no token accepts control
@@ -2460,7 +2463,7 @@ only from loopback, and the dashboard's deep link into it answers 403.
 Read from the config this host carries NOW. The synced one names the same
 share leaf for each tier -- '//ypool-nas/work/yuruna.pool' and the
 '//ypool-nas/yuruna.pool' a local bring-up publishes both end in
-'yuruna.pool' -- so the pre-flight answer holds for the post-sync config too.
+'yuruna.pool' -- so the preflight answer holds for the post-sync config too.
 
 The YAML import is $WhatIfPreference-suppressed: powershell-yaml registers two
 aliases at load, New-Alias supports ShouldProcess, and a rehearsal would
@@ -2869,7 +2872,7 @@ generated password, by Invoke-ExampleCertificateSecret.
 The developer's own PFX password arrives in the variable Kestrel itself reads.
 Reusing that name lets `docker run -e <name>` pass the value through by name,
 so it never appears on a command line or in an echoed batch file. When the
-variable is unset, the sidecar file beside the PFX (<pfx>.password, one line)
+variable is unset or empty, the sidecar file beside the PFX (<pfx>.password, one line)
 supplies it: the guest provisioning scripts export their PFX under a random
 password and keep it there, so a guest run needs no variable.
 
@@ -2885,7 +2888,7 @@ as a file and reads the second through secretKeyRef.
 The certificate is the developer's PFX re-exported under the generated password, or,
 when -SelfSigned is given or YURUNA_EXAMPLE_SELF_SIGNED_CERT=1, a throwaway self-signed
 certificate that is never written to disk. The developer's PFX is opened with the password
-in ASPNETCORE_Kestrel__Certificates__Default__Password or, when that is unset, in the
+in ASPNETCORE_Kestrel__Certificates__Default__Password or, when that is unset or empty, in the
 sidecar file '<CertificatePath>.password'. The generated password exists only in memory and in
 the Secret: it is not placed in a command line, a file, a variable the deployment
 engine would log, or any output. The manifest reaches kubectl on standard input.
@@ -2931,7 +2934,7 @@ The registry provisioned here is ECR, whose repository URL is
 authenticates against the registry host, so the repository path is dropped,
 and the region -- the fourth dotted segment of that host -- has to be
 spelled out for the token request. ECR has no static password: the token is
-short-lived and always pairs with the fixed 'AWS' user name.
+short-lived and always pairs with the fixed 'AWS' username.
 
 <a id="42010605-00a5"></a>
 
@@ -3122,7 +3125,7 @@ cycle proved and this one did not.
 Progress is returned as Lines rather than written here: a module
 function does not see the caller's script-scoped $InformationPreference,
 so printing inside would silently drop the very report an operator needs
-when the pre-flight is what stopped the pass.
+when the preflight is what stopped the pass.
 
 <a id="42010605-00ae"></a>
 
@@ -3360,7 +3363,7 @@ the invoking user's utmctl session instead.
 `amisad.dev/poc/test/workload.guest.ubuntu.server.24.amisad-edge-a.baseline.yml`
 
 AmisAd POC - vm-edge-a (region A slice VM): install a boot-time IP reporter
-(posts <hostname>.ip.txt to the host status server) so amisad-core can locate
+(posts <hostname>.ip.txt to the host status service) so amisad-core can locate
 this edge. Snapshotted as "amisad-edge-a"; slice-runtime itself is delivered
 per scenario run. The core->edge demo key is not installed here: vm-core
 generates it after the edges exist, and the lab driver authorizes its public
@@ -3390,7 +3393,7 @@ issued before either is awaited so the two roll in parallel.
 `amisad.dev/poc/test/ubuntu.server.24/ubuntu.server.24.amisad-core.s001.fulfillment.sh`
 
 AmisAd POC - s001.fulfillment run on amisad-core: start slice-runtime on
-the real edge (amisad-edge-a, resolved via its status-server IP report),
+the real edge (amisad-edge-a, resolved via its status-service IP report),
 seed Elena's offers, drive Maya's auto-close happy path, and assert the FULL
 Target Verification Point. The ten services are already deployed (amisad-core
 snapshot); the prebuilt binaries are on disk from the deploy step.
@@ -3596,7 +3599,7 @@ it must not retry an old coordinate while hiding the failure to discover a new o
 The stash records the upload (username=amisad-poc, filename=amisad-<arch>-binaries.tgz)
 for later investigation; amisad-core locates it by that label. scp only (the
 stash SSH server accepts the drop); no key needed - it is a write-only sink.
-STASH_HOST was reachable at the pre-flight above, which is weaker than it
+STASH_HOST was reachable at the preflight above, which is weaker than it
 sounds: that was an HTTP GET, not this transfer.
 
 Bounded retry, in the shape amisad_host_fetch above already uses. Every way

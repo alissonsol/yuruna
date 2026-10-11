@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42aee21f-6c39-49b6-e04d-daf28d2639f1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5653,6 +5653,38 @@
         }
         ' (continuing)'
     )
+    'runner.operator_33a0b7c1e1b2be21' = @(
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' virtual processor(s) at '
+        @{
+            'arg' = 'guestPercent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '% guest and '
+        @{
+            'arg' = 'hypervisorPercent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '% hypervisor run time with '
+        @{
+            'arg' = 'interceptsPerSecond'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' intercepts/s, sustained for '
+        @{
+            'arg' = 'seconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's'
+    )
     'runner.operator_33bdd943ad4ebb3e' = 'Local branch is ahead of remote. Proceeding with local changes.'
     'runner.operator_33be063a6dbeb4de' = 'It does NOT delete any data. The cycle archives, stash artifacts, lab vault,'
     'runner.operator_33ed3e2cc8c24f86' = @(
@@ -10431,6 +10463,33 @@
         }
         ' MAC(s)).'
     )
+    'runner.operator_6d4042dbe6943c27' = @(
+        'Text '''
+        @{
+            'arg' = 'patternLabel'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' wait ended after ~'
+        @{
+            'arg' = 'waited'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's of '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's: the hypervisor reports the guest livelocked ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
     'runner.operator_6d53b6631053aee8' = @(
         'Cascade: chain member '''
         @{
@@ -11747,6 +11806,14 @@
             'trust' = 'external'
         }
         '). Disable-TestAutomation will only be able to reverse what it can prove it added.'
+    )
+    'runner.operator_7e0c2dd4aa0c5981' = @(
+        '      Hypervisor reports the guest livelocked: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.operator_7e50599bce26a067' = @(
         'Could not read previous status: '
@@ -13758,7 +13825,7 @@
         ' so utmctl is on PATH'
     )
     'runner.operator_966231fe730b28ff' = @(
-        'Send-TextKvm: virsh send-key failed at char '''
+        'Send-TextKvm: send-key failed at char '''
         @{
             'arg' = 'ch'
             'type' = 'detail'
@@ -18751,6 +18818,27 @@
         }
         ' s); letting the step run.'
     )
+    'runner.operator_d8507ccd68520716' = @(
+        '  Earliest console frames saved: ./status/log/'
+        @{
+            'arg' = 'cycleBase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/'
+        @{
+            'arg' = 'destSeqName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/earliest/ ('
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' frames from the start of this guest)'
+    )
     'runner.operator_d8523930547c291e' = @(
         'Save-ScreenshotWithClickMarker failed: '
         @{
@@ -19983,6 +20071,39 @@
     'runner.operator_e5f6d0ead5f8eede' = '  Clock sync skipped: no sudo credential.'
     'runner.operator_e61bca5dfa1a4c8b' = ' Run this ONE-TIME command yourself before starting tests:'
     'runner.operator_e63b1a967d2939be' = '  Fix with: pwsh test/lab/Enable-TestAutomation.ps1  (elevated / with sudo)'
+    'runner.operator_e653bdc981ca5464' = @(
+        '  DHCP capture summary for '
+        @{
+            'arg' = 'guestMac'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': the guest sent '
+        @{
+            'arg' = 'sent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' packet(s), '
+        @{
+            'arg' = 'replies'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' unicast reply(ies) reached it, '
+        @{
+            'arg' = 'others'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' packet(s) came from '
+        @{
+            'arg' = 'clients'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' other client(s)'
+    )
     'runner.operator_e65ab9d1c0be44ef' = @(
         '      NTLM loopback exemption: '
         @{

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42fda77b-2565-4419-bec1-4390061f6c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     reference bitmap. Behavioral tests (Windows, where System.Drawing.Bitmap is supported)
     assert the similarity verdict is unchanged and -- using the fact that a Bitmap built
     from a file path holds that file open until disposed -- prove the source files are
-    released on both the success and the load-throw paths. Pester 4.10.1.
+    released on both the success and the load-throw paths. Pester 5.x.
 #>
 
 BeforeAll {

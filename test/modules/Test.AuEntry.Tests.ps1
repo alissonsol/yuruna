@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42bad34d-afe5-4516-b9c8-4c8fb18b5c09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,7 +29,7 @@
     on that helper's command/comparison nodes, plus that each top-level deploy CLI -- which
     cannot be unit-invoked -- delegates to the helper and keeps a Yuruna.*-scoped eviction.
     One semantic test demonstrates the wildcard-glob hazard the -LiteralPath switch closes.
-    Pester 4.10.1.
+    Pester 5.x.
 #>
 
 BeforeDiscovery {
@@ -38,15 +38,13 @@ $script:entrypoints = 'yuruna.ps1', 'Set-Component.ps1', 'Set-Resource.ps1', 'Se
 
 BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $script:autoDir  = Join-Path $repoRoot 'automation'
 
 function Get-FileAst {
     param([string]$Path)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($Path): $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 function Get-ResolvePathTargeting {
     # The Resolve-Path CommandAst whose argument references $<TargetVar>.

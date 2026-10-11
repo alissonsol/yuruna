@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42e0baf3-f2f9-48ca-aa27-fcf4d1a9763e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -182,6 +182,84 @@ Describe 'Remove-TestVMFiles prefix sweep' {
         # proxy and anything unrelated the operator is running.
         $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
         Assert-True (((Get-CatalogSourceMessage -Source $text) -join "`n") -match 'would match every VM') 'the guard against an empty prefix must be present'
+    }
+}
+
+Describe 'Remove-TestVMFiles propagates orphan-sweep status' {
+    It 'returns <Expected> when <Case>' -ForEach @(
+        @{ Case = 'the orphan sweep succeeds after a stale native failure'; Mode = 'success'; Survivors = 0; Expected = 0 }
+        @{ Case = 'the orphan sweep fails with a native-style exit'; Mode = 'exit'; Survivors = 0; Expected = 1 }
+        @{ Case = 'the orphan sweep throws'; Mode = 'throw'; Survivors = 0; Expected = 1 }
+        @{ Case = 'VM survivors remain after successful orphan cleanup'; Mode = 'success'; Survivors = 1; Expected = 1 }
+    ) {
+        $source = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
+        $region = $source.Substring($source.IndexOf('$orphanArgs =', [StringComparison]::Ordinal))
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $root
+        $cleanupPath = Join-Path $root 'orphan.ps1'
+        $cleanupBody = "[CmdletBinding()]param([switch]`$Force, [switch]`$Quiet)`n" + $(switch ($Mode) {
+            'exit' { 'exit 9' }
+            'throw' { "throw 'fixture sweep failure'" }
+            default { "'orphan cleanup attempted'" }
+        })
+        [IO.File]::WriteAllText($cleanupPath, $cleanupBody)
+        $fixture = @'
+param([string]$CleanupPath, [int]$SurvivorCount)
+$ErrorActionPreference = 'Continue'
+$cleanupScript = $CleanupPath
+$survivors = [System.Collections.Generic.List[string]]::new()
+if ($SurvivorCount -gt 0) { $survivors.Add('owned-vm') }
+$remaining = @()
+$rescanFailed = $false
+$Quiet = $true
+$global:LASTEXITCODE = 23
+'@
+        $path = Join-Path $root 'sweep.ps1'
+        [IO.File]::WriteAllText($path, $fixture + "`n" + $region)
+        $pwsh = (Get-Process -Id $PID).Path
+        $output = & $pwsh -NoLogo -NoProfile -NonInteractive -File $path -CleanupPath $cleanupPath -SurvivorCount $Survivors 2>&1
+        $code = $LASTEXITCODE
+        $code | Should -Be $Expected -Because (($output | Out-String).Trim())
+        if ($Mode -eq 'success') { ($output | Out-String) | Should -Match 'orphan cleanup attempted' }
+    }
+
+    It 'returns <Expected> after a <Case> final inventory and still attempts orphan cleanup' -ForEach @(
+        @{ Case = 'clean'; Mode = 'clean'; Expected = 0 }
+        @{ Case = 'newly discovered survivor'; Mode = 'survivor'; Expected = 1 }
+        @{ Case = 'failed'; Mode = 'failed'; Expected = 1 }
+    ) {
+        $source = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
+        $region = $source.Substring($source.IndexOf('# Re-scan to catch survivors', [StringComparison]::Ordinal))
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $hostRoot = Join-Path $root 'fixturehost'
+        $null = New-Item -ItemType Directory -Path $hostRoot -Force
+        $cleanupBody = '[CmdletBinding()]param([switch]$Force, [switch]$Quiet)' + "`n" +
+            'Set-Content -LiteralPath (Join-Path $PSScriptRoot attempted) -Value done; exit 0'
+        [IO.File]::WriteAllText((Join-Path $hostRoot 'Remove-OrphanedVMFiles.ps1'), $cleanupBody)
+        $fixture = @'
+param([string]$Root, [string]$Mode)
+$ErrorActionPreference = 'Stop'
+$RepoRoot = $Root
+$HostType = 'fixture'
+$Prefix = @('owned-')
+$prefixLabel = 'owned-'
+$survivors = [System.Collections.Generic.List[string]]::new()
+$removedCount = 0
+$Quiet = $true
+function Write-Status { param($Message) }
+function Format-YurunaOperatorMessage { param($Key, $Arguments); return $Key }
+function Get-VMName { if ($Mode -eq 'failed') { throw 'fixture inventory unavailable' }; if ($Mode -eq 'survivor') { return 'owned-late' } }
+function Get-VMState { return 'running' }
+function Get-HostFolder { return 'fixturehost' }
+function Remove-HostDisplay { }
+'@
+        $path = Join-Path $root 'sweep.ps1'
+        [IO.File]::WriteAllText($path, $fixture + "`n" + $region)
+        $pwsh = (Get-Process -Id $PID).Path
+        $output = & $pwsh -NoLogo -NoProfile -NonInteractive -File $path -Root $root -Mode $Mode 2>&1
+        $code = $LASTEXITCODE
+        $code | Should -Be $Expected -Because (($output | Out-String).Trim())
+        Test-Path -LiteralPath (Join-Path $hostRoot 'attempted') | Should -BeTrue
     }
 }
 

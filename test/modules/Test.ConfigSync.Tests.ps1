@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42dc6e9c-5264-4b7f-9cb1-cbc552391717
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,9 +61,7 @@ function New-TempDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test helper: creates a throwaway temp directory the calling It block deletes in its finally.')]
     [CmdletBinding()] [OutputType([string])] param()
-    $d = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-cfgsync-" + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $d
-    return $d
+    return New-YurunaTestTempDir -Prefix 'yrn-cfgsync'
 }
 
 }

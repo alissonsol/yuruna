@@ -3,6 +3,16 @@
   "domain": "automation",
   "locale": "en-US",
   "messages": {
+    "automation.diagnostic_checkout_unavailable": {
+      "message": "(not applicable: checkout evidence is unavailable; pass -CheckoutRoot to use an existing Yuruna checkout)",
+      "description": "Standalone system diagnostic marker when no validated framework checkout exists; preserve the -CheckoutRoot parameter name.",
+      "lifecycle": "active"
+    },
+    "automation.diagnostic_phase_log_limits": {
+      "message": "Phase log scan is limited to 100 files, 12 directory levels, and 10 seconds; each log shows at most its last 64 KiB.",
+      "description": "System diagnostic phase-log scan limits; these fixed limits match the implementation.",
+      "lifecycle": "active"
+    },
     "automation.host_setup_module_install_skipped": {
       "message": "{module} is not installed, and this run may not install modules. Install it with: Install-Module {module} -Scope CurrentUser",
       "description": "Write-Warning in automation/Yuruna.HostSetup.psm1 (Initialize-HostSetupModule -SkipModuleInstall) for each PSGallery module that is missing; preserve the Install-Module command line and the module name.",

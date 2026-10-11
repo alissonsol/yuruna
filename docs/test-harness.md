@@ -41,7 +41,9 @@ internals, not invoked directly). The repo-wide encoding gate lives at
 can never drift apart on it, and a future entry point does not have to
 copy-paste the `$PSScriptRoot`/`Split-Path`/`Join-Path` boilerplate to
 compute it. **Exit-code contract:** `0` means success; preflight failures
-use `1`, and `Invoke-TestProject` forwards the inner cycle's exact exit code.
+use `1`; `2` means a gate could not produce a verdict (VM admission that
+cannot tell whether other guests are running), and `Invoke-TestProject`
+forwards the inner cycle's exact exit code.
 Distinct preflight failures surface through the `Stop-WithReason` banner
 text -- an operator or a CI parser reads "STOP (exit 1) at &lt;Step&gt;"
 and the reason to distinguish them.
@@ -109,7 +111,7 @@ cycle runs:
 
 | Module | Purpose |
 |--------|---------|
-| `Test.SequenceEngine`  | Engine driver: the step loop, `Wait-ForText`, and the two stateful verbs (`retry`, `recoverFromSnapshot`) -- see [Sequence engine layering](#sequence-engine-layering) |
+| `Test.SequenceEngine`  | Engine driver: the step loop, `Wait-ForText`, and context callbacks for registered handlers -- see [Sequence engine layering](#sequence-engine-layering) |
 | `Test.SequenceHandler` | Catalog of built-in verb Handler scriptblocks |
 | `Test.SequenceAction`  | Per-verb metadata registry (FailureLabel, capability requirements, engine-behavior flags) consumed by the engine and the capability gate |
 | `Test.SequenceVariable`| `${var}` and `${ext:area.Method(...)}` substitution in step text |
@@ -261,7 +263,7 @@ source searches and status-UI click-throughs land on their exported entry point.
 
 ### Test.Config* role pyramid
 
-The three `Test.Config*` modules in the table split by role:
+Three of the `Test.Config*` modules in the table split by role:
 `Test.Config` is the mtime-cached YAML reader (the data layer);
 `Test.ConfigValidator` holds the schema + freshness primitives (the
 rules layer), reusable across callers; `Test.ConfigPreflight` is the
@@ -282,16 +284,20 @@ based on host type:
 | `host.ubuntu.kvm`      | [`host/ubuntu.kvm/modules/Yuruna.Host.psm1`](../host/ubuntu.kvm/modules/Yuruna.Host.psm1) (real) |
 
 The driver exports a fixed set of contract functions covering VM
-lifecycle (`New-VM`, `Start-VM`, `Stop-VM`, `Remove-VM`, `Rename-VM`,
-`Get-VMState`), snapshot management (`Save-VMDiskSnapshot`,
-`Restore-VMDiskSnapshot`), image fetch (`Get-Image`, `Get-ImagePath`),
-VM I/O (`Send-Text`, `Send-Key`, `Send-Click`, `Get-VMScreenshot`),
-discovery (`Wait-VMIp`, `Get-VMIp`, `Get-VMMac`), networking
-(`Get-ExternalNetwork`, `New-ExternalNetwork`,
-`Test-CacheVMOnExternalNetwork`), caching-proxy-service port maps
-(`Add-PortMap`, `Remove-PortMap`, `Test-CachingProxyServiceAvailable`,
-`Get-CachingProxyServiceVmIp`), host-side proxy (`Set-HostProxy`,
-`Clear-HostProxy`, `Remove-HostProxy`), virtualization checks
+lifecycle (`New-VM`, `Start-VM`, `Stop-VM`, `Stop-VMForce`, `Remove-VM`,
+`Rename-VM`, `Get-VMState`), VM inventory (`Get-VMName`), snapshot
+management (`Save-VMDiskSnapshot`, `Restore-VMDiskSnapshot`,
+`Test-VMDiskSnapshot`), VM console (`Test-VMConsoleOpen`,
+`Restart-VMConsole`), image fetch (`Get-Image`, `Get-ImagePath`),
+VM I/O (`Send-Text`, `Send-Key`, `Send-Click`, `Get-VMScreenshot`,
+`Get-VMConsoleHandle`), discovery (`Wait-VMIp`, `Get-VMIp`, `Get-VMMac`,
+`Update-GuestNeighborCache`), networking (`Get-ExternalNetwork`,
+`New-ExternalNetwork`, `Test-CacheVMOnExternalNetwork`), port maps and
+host addresses (`Add-PortMap`, `Remove-PortMap`, `Get-BestHostIp`,
+`Get-GuestReachableHostIp`), caching-proxy-service
+(`Test-CachingProxyServiceAvailable`, `Get-CachingProxyServiceVmIp`),
+host-side proxy (`Set-HostProxy`, `Clear-HostProxy`, `Remove-HostProxy`,
+`Get-HostProxyBackupPath`), virtualization checks
 (`Assert-Virtualization`), and virtualization repair
 (`Test-VirtualizationResponsive`, a bounded read-only probe of the
 hypervisor's control channel, and `Start-VirtualizationServiceIfStopped`, which
@@ -330,7 +336,7 @@ test/
 +-- extension/                  Pluggable extension areas (Test.Extension loader; committed code only)
 |   +-- authentication/         default.psm1, authentication.config.yml
 |   +-- notification/           default.psm1, notification.config.yml, transports.yml.template
-|   +-- ...                       8 areas total -- see [extensions-api.md](extensions-api.md)
+|   +-- ...                       9 areas total -- see [extensions-api.md](extensions-api.md)
 +-- screenshots/<guestKey>/     [Optional -- operator-populated; absent by default]
 |   +-- schedule.json           Capture checkpoints + thresholds (create if using screenshot validation)
 |   +-- reference/*.png         Trained reference screenshots (commit manually per checkpoint)
@@ -426,6 +432,10 @@ rule, including the three placements that look like the trap and are correct.
 <a id="42d38664-000b"></a>
 
 ## Running the suites
+
+The suite runner requires Pester 5.x (version 5.9.1 is the documented install
+version). Suites use `BeforeAll`/`AfterAll` for execution setup and cleanup
+across the discovery/run boundary. Pester 4 is not a supported runner.
 
 The suites are **not** part of a test cycle. They run beside the harness:
 
@@ -586,14 +596,14 @@ Three modules share the sequence-engine surface:
 - `Test.SequenceHandler.psm1` -- the catalog of built-in verb Handler
   scriptblocks. Adding a verb is a local edit here, not a merge-conflict
   magnet on the engine. Every handler in this module talks to the
-  engine purely through the `$Context` hashtable and the standard
-  `Yuruna.Host` / `Test.Ssh` / `Test.Extension` / `Test.Log` exports.
-- `Test.SequenceEngine.psm1` -- the engine driver. Two stateful verbs
-  (`retry` and `recoverFromSnapshot`) deliberately stay here because
-  they coordinate the engine's `$script:LastFailure*` state with the
-  recursive `$invokeStepBlock` dispatch. Lifting that state into a
-  shared module would cost more complexity than the merge-conflict
-  surface it buys back.
+  engine through the `$Context` hashtable, the shared
+  `Test.SequenceFailureState` store, and the standard `Yuruna.Host` /
+  `Test.Ssh` / `Test.Extension` / `Test.Log` exports. This catalog includes
+  the stateful `retry` and `recoverFromSnapshot` handlers.
+- `Test.SequenceEngine.psm1` -- the engine driver. It runs the step loop
+  and supplies the recursive `InvokeStepBlock` callback through `$Context`.
+  Both modules read and write one shared failure-slot store, so handlers
+  can coordinate retry and recovery without engine-owned verb branches.
 
 <a id="42d38664-000f"></a>
 
@@ -711,7 +721,7 @@ Today (see the `Register-SequenceAction` calls in
 | `fetchAndExecute`        | `Send-Text`, `Send-Key`   | yes          |
 | `networkRelease`         | `Send-Text`, `Send-Key`   | no           |
 | `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(none)_ | no |
-| `saveDiskSnapshot` / `loadDiskSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(none)_ | no |
+| `startVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(none)_ | no |
 
 Adding a new verb means one `Register-SequenceAction` call that
 declares its capabilities -- the gate picks it up on the next cycle.
@@ -787,7 +797,7 @@ one `Register-HostConditionProvider` call. Callers keep
 
 | Function | Used by |
 |---|---|
-| `Register-HostConditionProvider -HostType -Set -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown] [-ClockSync]` | Facade loader; external host plugins |
+| `Register-HostConditionProvider -HostType -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown] [-ClockSync] [-NetworkHealth] [-MetricsExporter]` | Facade loader; external host plugins |
 | `Get-HostConditionProvider -HostType` | Dispatchers; introspection |
 | `Get-HostConditionProviderMatrix` | Startup capability matrix |
 | `Clear-HostConditionProvider` | Tests only |
@@ -803,23 +813,24 @@ one `Register-HostConditionProvider` call. Callers keep
 
 ### Provider record shape
 
-Each registration carries an eight-field ordered dict:
+Each registration carries a nine-field ordered dict:
 
 ```
 @{
     HostType          = 'host.windows.hyper-v'
-    Set               = { param([string]$HostType) ... }
     Assert            = { param([string]$HostType) ... [bool] }
     AssertMinimum     = { param() ... [bool] }
     RequiresElevation = $true   # consumed by Test-ElevationRequired
     Display           = { param() ... }   # optional: per-cycle display-surface ensure (e.g. attach a virtual monitor on headless Hyper-V); $null when unneeded. Invoked by Initialize-HostDisplay.
     DisplayTeardown   = { param() ... }   # optional inverse: tear the surface down; $null when unneeded. Invoked by Remove-HostDisplay.
     ClockSync         = { param() ... @{ Succeeded; Message } }   # optional: put this host's clock back under NTP discipline. Invoked by Sync-HostClock from the operator-facing paths only -- it needs privileges an unattended cycle cannot obtain.
+    NetworkHealth     = { param([string]$HostType) ... }   # optional: can this host still put a guest on a working network? $null for a host with no way to answer. Invoked by Test-HostGuestNetworkHealth.
+    MetricsExporter   = { param() ... @{ Status; Reason } }   # optional: per-cycle convergence of this host's metrics exporter; $null for a host where that repair would have to ask for its privilege. Invoked by Initialize-HostMetricsExporter.
 }
 ```
 
-`Set` and `Assert` are paired; both take `-HostType` and may be
-called multiple times per cycle. `AssertMinimum` is lighter than
+`Assert` takes `-HostType` and may be called multiple times per
+cycle. `AssertMinimum` is lighter than
 `Assert` (no display-timeout / screen-lock / TCC-grant checks), for
 cleanup helpers that legitimately run during interactive maintenance.
 
@@ -934,7 +945,7 @@ through the atomic writer in
 1. Write payload to `<Path>.<PID>-<GUID>.tmp` as UTF-8 (no BOM by
    default; `-WithBom` for PowerShell scripts that must satisfy
    `PSUseBOMForUnicodeEncodedFile`).
-2. `Move-Item -Force` into `<Path>` -- atomic on same-volume NTFS / ext4
+2. `[System.IO.File]::Move(<tmp>, <Path>, $true)` -- atomic on same-volume NTFS / ext4
    / APFS, a single rename syscall.
 3. Return `$true` on success, `$false` on failure. The helper itself is
    silent -- high-frequency callers do not flood `Verbose`. Callers log
@@ -1014,7 +1025,7 @@ Per-guest value shape (backward-compatible):
 | Shape | Meaning |
 |-------|---------|
 | `"pass"` / `"fail"` (bare string) | Older history rows pre-dating `stepDurationsSeconds` / `failureArtifacts`. Older dashboards still render these. |
-| `{ status, stepDurationsSeconds, [failureArtifacts] }` | Current form. |
+| `{ status, stepDurationsSeconds, [failureArtifacts], [errorMessage], [failureClass] }` | Current form. |
 
 - `stepDurationsSeconds` is a per-step wall-clock seconds map, one entry
   per step in the guest's step list (`New-VM`, `Start-VM`,
@@ -1066,11 +1077,23 @@ Failed to listen on prefix 'http://*:<port>/' because it conflicts
 with an existing registration on the machine.
 ```
 
-The detached child logs that to `$RuntimeDir/server.err` and exits, so
+The detached child logs that to `$RuntimeDir/server.stderr` and exits, so
 the outer script *appears* to start cleanly while nothing is serving,
 and any orphan bound to a stale control-file directory (`$StatusDir`
 or `$StatusDir/track` instead of `$RuntimeDir`) keeps writing there,
 silently breaking the dashboard's Pause / Cycle buttons.
+
+Explicit listener errors go to `server.err`, separate from native process
+stderr. Before an admitted launch, startup preserves three generations of
+each error file (`.previous.1` through `.previous.3`), retaining at most the
+latest 1 MiB per generation. A rejected or concurrent launch leaves the
+current logs untouched.
+
+Diagnostic and installer-log uploads read asynchronously alongside health
+requests. They share a four-request limit, have a 30-second body deadline,
+and retain the 5 MiB diagnostic / 4 MiB installer-log size limits. Completed
+uploads replace artifacts atomically; failed or stalled uploads preserve
+the existing artifact.
 
 `Resolve-PortOrphan` (in `test/modules/Test.PortOwner.psm1`) probes
 with a throwaway `HttpListener`. If that succeeds the detached
@@ -1164,6 +1187,45 @@ worker yields `reasonCode: diagnostic-deadline-exceeded`; display language
 does not determine the outcome. Diagnostic failure remains nonfatal to
 the sequence, and the cycle watchdog remains independent.
 
+The Linux fetch wrapper also arms a guest flight recorder before launching a
+nonsensitive invocation. It runs independently of the console pipeline and SSH.
+Every 30 seconds it records UTC, boot ID and uptime, invocation IDs, per-thread
+CPU/state and bounded runnable, CPU-heavy and blocked thread stacks, pressure,
+interrupts, disk statistics, VMBus channel attributes and recent kernel messages.
+Process inventories use command names without arguments or environment. Missing
+or denied stacks remain explicit in the sample. Known environment credentials,
+secret assignments, authorization headers and private key blocks are filtered
+before local retention or upload; sensitive steps disable the recorder and trace.
+
+Each collection has an 8-second limit plus a 1-second kill grace. The recorder
+keeps eight samples of at most 128 KiB each, stops after 240 samples or two hours,
+and checks its invoking shell once per second while waiting. In-flight collection
+and upload keep their own limits when that shell exits. Sample
+`sampleDurationSeconds` and byte caps make its overhead visible. The optional
+manual `EXEC_RECORDER_INTERVAL_SECONDS` (1-300) and
+`EXEC_RECORDER_MAX_SAMPLES` (1-240) values change cadence and sample count;
+`EXEC_RECORDER=0` disables recording. These controls do not change the workload's
+execution deadline. On a local Linux validation host, one collection took
+24 ms and produced approximately 19 KiB; measure the ARM64 guest separately.
+
+The runner supplies an integrity-bound relative `E_RECORDER_PATH` targeting its
+existing cycle guest folder. The wrapper reuses its resolved host origin or
+trusted seed coordinates; preparing capture makes no additional host-driver
+call. Each sample replaces
+`execution.system.diagnostic.<stepInvocationId>.txt` through the existing
+`/diagnostics/<cycle>/<guest>/<file>` upload handler, whose atomic write and
+5 MiB cap also apply here. Each POST has a 6-second limit plus kill grace;
+failed uploads remain visible in the next sample and local `status` file. The
+final upload marks the recorder stopped. Local samples remain in the private
+`/tmp/yuruna-fae-recorder.*` directory named in the execution log until guest
+cleanup. Without a status endpoint, local recording still works.
+
+After a slow or failed invocation, `fetch-and-execute.<id>.evidence.json` and the
+`step_end` execution evidence record distinguish SSH timeout, missing trace,
+invocation mismatch, partial output and complete capture. A prior recorder
+upload remains linked when SSH cannot answer, with its heartbeat UTC and age.
+A capture attempt's duration therefore does not conceal an absent artifact.
+
 **Wait-SshReady preflight.** Sequences often end with "Reboot the
 VM", so the guest may be mid-reboot when `Save-GuestDiagnostic` runs.
 Without a real-handshake gate, the call would either bail at
@@ -1199,6 +1261,7 @@ log-stream visibility is controlled by [Log levels](loglevels.md).
 |------|---------|
 | `0` | All guests passed (runner was interrupted or completed) |
 | `1` | One or more guests failed, or preflight error |
+| `2` | A gate could not produce a verdict (VM admission could not prove the host free of other guests) |
 
 ---
 
@@ -1206,6 +1269,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

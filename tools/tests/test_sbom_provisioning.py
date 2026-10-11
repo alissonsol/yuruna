@@ -28,6 +28,69 @@ class ProvisioningTests(unittest.TestCase):
     def names(result, bucket):
         return {record["name"] for record in result[bucket]}
 
+    def test_host_requirements_preserve_decorated_floors_without_install_claims(self):
+        result = self.collect(**{"automation/Yuruna.Requirement.yml": '''requirements:
+  - tool: "PowerShell"
+    version: "7.6.4 (Core)"
+  - tool: "Kubernetes"
+    version: "v1.36.3"
+  - tool: "curl"
+    version: "curl 8.18.0" # Ubuntu package floor
+''', "install/ubuntu.kvm.sh": "apt-get install curl\n"})
+        floors = {row["name"]: row for row in result["hosts"] if row["ecosystem"] == "generic"}
+        self.assertEqual({name: row["versionConstraint"] for name, row in floors.items()},
+                         {"PowerShell": ">=7.6.4", "Kubernetes": ">=1.36.3", "curl": ">=8.18.0"})
+        self.assertTrue(all("version" not in row for row in result["hosts"]))
+        self.assertEqual(floors["curl"]["evidence"][0]["line"], 7)
+        self.assertFalse(result["guests"])
+
+    def test_guest_manifest_separates_exact_pins_and_release_channels(self):
+        result = self.collect(**{"automation/yuruna-versions.sh": '''export YURUNA_K8S_MINOR=1.37
+export YURUNA_OPENTOFU_VERSION=1.13.1
+export YURUNA_HELM_VERSION=4.3.0
+export YURUNA_NVM_VERSION=0.40.8
+export YURUNA_NODE_MAJOR=24
+''', "guest/shared/install.sh": 'nvm install "$YURUNA_NODE_MAJOR"\n'})
+        rows = {row["name"]: row for row in result["guests"]}
+        self.assertEqual(set(rows), {"Kubernetes", "OpenTofu", "Helm", "nvm-sh/nvm", "node"})
+        for name, version in (("OpenTofu", "1.13.1"), ("Helm", "4.3.0"), ("nvm-sh/nvm", "0.40.8")):
+            self.assertEqual(rows[name]["version"], version)
+        for name, channel in (("Kubernetes", "1.37"), ("node", "24")):
+            self.assertNotIn("version", rows[name])
+            self.assertEqual(rows[name]["versionConstraint"], channel)
+        self.assertFalse(result["hosts"])
+
+    def test_host_requirements_accept_bare_yaml_scalars(self):
+        result = self.collect(**{"automation/Yuruna.Requirement.yml": '''requirements:
+  - tool: curl
+    version: curl 8.18.0 # distribution floor
+  - tool: Helm
+    version: 'v4.3.0'
+'''})
+        rows = {row["name"]: row for row in result["hosts"]}
+        self.assertEqual(rows["curl"]["versionConstraint"], ">=8.18.0")
+        self.assertEqual(rows["Helm"]["versionConstraint"], ">=4.3.0")
+        self.assertTrue(all("version" not in row for row in rows.values()))
+
+    def test_manifests_report_unresolved_versions_and_ignore_comment_examples(self):
+        result = self.collect(**{"automation/yuruna-versions.sh": '''# export YURUNA_HELM_VERSION=99.0.0
+export YURUNA_OPENTOFU_VERSION=$SELECTED_VERSION
+export YURUNA_NODE_MAJOR=24
+''', "automation/Yuruna.Requirement.yml": '''requirements:
+  - tool: "Example"
+    version: "dynamic"
+'''})
+        self.assertEqual(self.names(result, "guests"), {"node"})
+        self.assertFalse(result["hosts"])
+        self.assertEqual(len(result["coverage"]), 2)
+        self.assertTrue(all(row["status"] == "unresolved" for row in result["coverage"]))
+
+    def test_only_canonical_manifests_declare_requirement_floors(self):
+        result = self.collect(**{"example/Yuruna.Requirement.yml": 'tool: "Example"\nversion: "9.0.0"\n',
+                                 "docs/yuruna-versions.sh": "export YURUNA_HELM_VERSION=99.0.0\n"})
+        self.assertFalse(result["hosts"])
+        self.assertFalse(result["guests"])
+
     def test_hosts_guests_package_arrays_and_conditional_architectures(self):
         result = self.collect(**{
             "install/ubuntu.kvm.sh": """# apt-get install fake-comment
@@ -86,6 +149,20 @@ SCRIPT
 """})
         self.assertEqual(self.names(result, "hosts"), {"real-installer"})
 
+    def test_quoted_text_here_strings_and_arithmetic_shifts_do_not_open_heredocs(self):
+        for extension, text, install, name in (
+            ("ps1", 'Write-Output "<<< Installation complete."', "Invoke-GuestWingetInstall -PackageId 'Git.Git'", "Git.Git"),
+            ("ps1", 'Write-Output "<< NotAHereDoc"', "Invoke-GuestWingetInstall -PackageId 'Git.Git'", "Git.Git"),
+            ("sh", "echo '<< NotAHereDoc'", "apt-get install curl", "curl"),
+            ("sh", "cat <<< 'not-a-heredoc'", "apt-get install curl", "curl"),
+            ("sh", "shifted=$((1 << SHIFT))", "apt-get install curl", "curl"),
+            ("sh", "(( shifted = 1 << SHIFT ))", "apt-get install curl", "curl"),
+        ):
+            with self.subTest(text=text):
+                result = self.collect(**{f"guest/shared/update.{extension}": f"{text}\n{install}\n"})
+                self.assertEqual(self.names(result, "guests"), {name})
+                self.assertFalse(result["coverage"])
+
     def test_executable_shell_heredoc_and_nested_guest_installers(self):
         result = self.collect(**{"poc/test/ubuntu.server.24/guest-tools.sh": """bash <<'SCRIPT'
 apt-get install curl;
@@ -102,6 +179,57 @@ SCRIPT
         })
         self.assertEqual(self.names(result, "hosts"), {"qemu", "utm", "Git.Git", "Pester"})
         self.assertEqual(next(row for row in result["hosts"] if row["name"] == "Pester")["version"], "5.7.1")
+
+    def test_guest_winget_helper_tracks_literal_package_ids_and_evidence(self):
+        result = self.collect(**{
+            "guest/windows.11/windows.11.code.ps1": "Invoke-GuestWingetInstall -PackageId 'Git.Git'\n",
+            "guest/windows.11/windows.11.k8s.ps1": "Invoke-GuestWingetInstall -PackageId 'Git.Git'\nInvoke-GuestWingetInstall -PackageId 'Docker.DockerDesktop'\n",
+            "guest/windows.11/windows.11.update.ps1": 'invoke-guestwingetinstall -packageid "Microsoft.PowerShell"\n',
+        })
+        self.assertEqual(self.names(result, "guests"), {"Git.Git", "Docker.DockerDesktop", "Microsoft.PowerShell"})
+        self.assertTrue(all(row["ecosystem"] == "winget" for row in result["guests"]))
+        git = next(row for row in result["guests"] if row["name"] == "Git.Git")
+        self.assertEqual({item["path"] for item in git["evidence"]}, {
+            "guest/windows.11/windows.11.code.ps1", "guest/windows.11/windows.11.k8s.ps1",
+        })
+        self.assertFalse(result["coverage"])
+
+    def test_guest_winget_helper_diagnostic_and_quoted_advice_are_not_installations(self):
+        result = self.collect(**{"guest/windows.11/update.ps1": '''# Invoke-GuestWingetInstall -PackageId 'Comment.Package'
+Write-Warning "Try Invoke-GuestWingetInstall -PackageId 'Warning.Package'"
+if ($failed) { Write-Error "Invoke-GuestWingetInstall -PackageId 'Error.Package' failed" }
+$advice = "Invoke-GuestWingetInstall -PackageId 'String.Package'"
+'Invoke-GuestWingetInstall -PackageId Quoted.Package'
+Invoke-GuestWingetInstall -PackageId 'Actual.Package'
+'''})
+        self.assertEqual(self.names(result, "guests"), {"Actual.Package"})
+        self.assertFalse(result["coverage"])
+
+    def test_guest_winget_helper_declarations_are_not_installations(self):
+        result = self.collect(**{"guest/windows.11/update.ps1": '''function Invoke-GuestWingetInstall {
+}
+function global:Invoke-GuestWingetInstall {
+}
+'''})
+        self.assertFalse(result["guests"])
+        self.assertFalse(result["coverage"])
+
+    def test_guest_winget_helper_keeps_dynamic_package_coverage(self):
+        result = self.collect(**{"guest/windows.11/update.ps1": "Invoke-GuestWingetInstall -PackageId $RequestedPackage\n"})
+        self.assertFalse(result["guests"])
+        self.assertTrue(any("unresolved package expression $RequestedPackage" in note["detail"] for note in result["coverage"]))
+        self.assertTrue(all(note["status"] == "unresolved" and note["line"] == 1 for note in result["coverage"]))
+
+    def test_guest_winget_helper_body_retains_unresolved_native_install_coverage(self):
+        result = self.collect(**{"guest/windows.11/update.ps1": '''function Invoke-GuestWingetInstall {
+    param([string]$PackageId)
+    & winget install --id $PackageId --silent
+}
+Invoke-GuestWingetInstall -PackageId 'Microsoft.PowerShell'
+'''})
+        self.assertEqual(self.names(result, "guests"), {"Microsoft.PowerShell"})
+        self.assertTrue(any("unresolved package expression $PackageId" in note["detail"] for note in result["coverage"]))
+        self.assertTrue(all(note["line"] == 3 for note in result["coverage"]))
 
     def test_npm_pip_and_cargo_pins_are_not_floaters(self):
         result = self.collect(**{"guest/ubuntu.server.24/code.sh": """npm install -g @scope/tool@1.2.3 openclaw@latest

@@ -29,7 +29,7 @@ $here = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-$script:newVmPath = Join-Path $repoRoot 'host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1'
+$script:newVmPath = Join-Path $repoRoot 'host/windows.hyper-v/modules/New-UbuntuServerVM.ps1'
 $script:hostPath = Join-Path $repoRoot 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
 $script:handlerPath = Join-Path $repoRoot 'test/modules/Test.SequenceHandler.psm1'
 $script:sequencePaths = @(

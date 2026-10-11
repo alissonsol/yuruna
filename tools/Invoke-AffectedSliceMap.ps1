@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a8e238-9fc4-4ca2-bdd0-9b55ac2ff25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -400,6 +400,11 @@ foreach ($entry in @($registry.codes | Sort-Object { [string]$_.wireCode })) {
         if ($literalExclusionByKey.ContainsKey($exclusionKey)) {
             $exclusion = $literalExclusionByKey[$exclusionKey]
             $usedLiteralExclusions[$exclusionKey] = $true
+            # An unrelated same-word use can match the runtime code, but its
+            # explicit namespace identifies the protocol boundary itself.
+            if ($runtimeCode -cne $wireCode -and (Get-ExactLiteralCount -Text $scanText -Value @($wireCode)) -gt 0) {
+                Add-Finding "source literal exclusion for '$wireCode' in '$path' cannot classify an explicit wire code as an unrelated same-word use"
+            }
             if ([int]$exclusion.matchCount -ne $count) {
                 Add-Finding "source literal exclusion for '$wireCode' in '$path' expected $($exclusion.matchCount), found $count"
             }

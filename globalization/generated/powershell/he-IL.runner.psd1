@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a07001-0b1b-e8af-74b4-0c25e481f7c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5655,6 +5655,38 @@
         }
         ' (ממשיכים)'
     )
+    'runner.operator_33a0b7c1e1b2be21' = @(
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' מעבדים וירטואליים עם '
+        @{
+            'arg' = 'guestPercent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '% זמן ריצה של האורח ו-'
+        @{
+            'arg' = 'hypervisorPercent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '% של ההיפרוויזור, '
+        @{
+            'arg' = 'interceptsPerSecond'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' יירוטים/s, לאורך '
+        @{
+            'arg' = 'seconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's'
+    )
     'runner.operator_33bdd943ad4ebb3e' = 'הענף המקומי מקדים את הענף המרוחק. ממשיכים עם השינויים המקומיים.'
     'runner.operator_33be063a6dbeb4de' = 'הפעולה אינה מוחקת נתונים כלשהם. ארכיוני המחזורים, תוצרי מאגר האחסון, כספת המעבדה,'
     'runner.operator_33ed3e2cc8c24f86' = @(
@@ -10431,6 +10463,33 @@
         }
         ' כתובות MAC).'
     )
+    'runner.operator_6d4042dbe6943c27' = @(
+        'ההמתנה לטקסט '''
+        @{
+            'arg' = 'patternLabel'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' הסתיימה אחרי ~'
+        @{
+            'arg' = 'waited'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's מתוך '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's: ההיפרוויזור מדווח שהאורח תקוע ב-livelock ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
     'runner.operator_6d53b6631053aee8' = @(
         'שרשור: כבר לא ניתן לפתור את חבר השרשרת '''
         @{
@@ -11746,6 +11805,14 @@
             'trust' = 'external'
         }
         '). ⁦Disable-TestAutomation⁩ יוכל לבטל רק תוספות שיוכל להוכיח שהוסיף.'
+    )
+    'runner.operator_7e0c2dd4aa0c5981' = @(
+        '      ההיפרוויזור מדווח שהאורח תקוע ב-livelock: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.operator_7e50599bce26a067' = @(
         'לא ניתן לקרוא את המצב הקודם: '
@@ -13759,7 +13826,7 @@
         ' כדי שהפקודה utmctl תהיה זמינה דרך PATH'
     )
     'runner.operator_966231fe730b28ff' = @(
-        '⁦Send-TextKvm⁩: הפקודה virsh send-key נכשלה בתו '''
+        '⁦Send-TextKvm⁩: הפקודה send-key נכשלה בתו '''
         @{
             'arg' = 'ch'
             'type' = 'detail'
@@ -18755,6 +18822,27 @@
         }
         ' s); מאפשרים לשלב לרוץ.'
     )
+    'runner.operator_d8507ccd68520716' = @(
+        '  הפריימים המוקדמים ביותר של המסוף נשמרו: .⁦/status/log/⁩'
+        @{
+            'arg' = 'cycleBase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/'
+        @{
+            'arg' = 'destSeqName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '⁦/earliest/⁩ ('
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' פריימים מתחילת האורח הזה)'
+    )
     'runner.operator_d8523930547c291e' = @(
         '⁦Save-ScreenshotWithClickMarker⁩ נכשל: '
         @{
@@ -19986,6 +20074,39 @@
     'runner.operator_e5f6d0ead5f8eede' = '  סנכרון השעון דולג: אין פרטי הזדהות עבור sudo.'
     'runner.operator_e61bca5dfa1a4c8b' = ' הריצו בעצמכם את הפקודה החד־פעמית הזאת לפני תחילת הבדיקות:'
     'runner.operator_e63b1a967d2939be' = '  תקנו באמצעות: pwsh test⁦/lab/Enable-TestAutomation.ps1⁩  (בהרשאות מוגברות / עם sudo)'
+    'runner.operator_e653bdc981ca5464' = @(
+        '  סיכום לכידת DHCP עבור '
+        @{
+            'arg' = 'guestMac'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': האורח שלח '
+        @{
+            'arg' = 'sent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' מנות, '
+        @{
+            'arg' = 'replies'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' תשובות unicast הגיעו אליו, '
+        @{
+            'arg' = 'others'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' מנות הגיעו מ-'
+        @{
+            'arg' = 'clients'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' לקוחות אחרים'
+    )
     'runner.operator_e65ab9d1c0be44ef' = @(
         '      החרגה לבדיקת לולאה חוזרת של NTLM: '
         @{

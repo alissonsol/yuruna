@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -202,24 +202,8 @@ fi
 [[ $EUID -ne 0 ]] || die "Do not run as root. The script will call sudo when needed."
 
 # --- REGION: Preflight: this account can elevate
-# Everything below eventually needs root, and the sudo prompt is 70 lines on,
-# past the requirements gate and its question. An account that cannot elevate
-# otherwise answers all of that, types a password, and is then refused with no
-# message at all -- the EXIT trap that reports a failure is not installed yet at
-# that point. macOS grants root through the 'admin' group, so ask the group list
-# and read an EXIT CODE: sudo's refusal wording differs between the C sudo and
-# the Rust rewrite, and a message matcher silently stops matching.
-# The group list is read WITHOUT a username argument on purpose. With one, id
-# queries the name service and reports the on-disk grant; sudo authorizes
-# against the group token this session was started with, so the bare form is the
-# one that agrees with what sudo will actually do here.
-#
-# group_names is shared word for word with the Ubuntu installer. id exits 1 when
-# one of the groups has no name (deleted mid-session, or a directory group that
-# does not resolve) even though it printed every name it could; under pipefail
-# that status, not the names, would decide a pipeline. Callers use
-# `grep -x ... >/dev/null` rather than -q, which stops reading at the first
-# match and can leave the writer to die of SIGPIPE, which pipefail also reports.
+# See https://yuruna.link/42e220c4-0015
+# Check the running session before any interactive elevation prompt.
 group_names() {
   { id -Gn ${1:+"$1"} 2>/dev/null || true; } | tr ' ' '\n'
 }
@@ -846,18 +830,8 @@ command -v pwsh >/dev/null 2>&1 || die "pwsh not found after install."
 command -v git  >/dev/null 2>&1 || die "git not found after install."
 
 # --- REGION: UTM verification + utmctl on PATH
-# UTM ships its command line INSIDE the app bundle, and neither the cask nor the
-# .dmg puts that directory on anyone's PATH. Every VM operation in the harness
-# shells out to `utmctl`, so without the link a perfectly correct UTM install
-# finishes clean here and the FIRST test cycle refuses to start on a config
-# gate -- with the failure pointing at the harness rather than at the install
-# that left the binary unreachable.
-#
-# PATH_LINK_DIR is the target because the stock /etc/paths lists it, so a login
-# shell, a LaunchAgent and an `ssh host command` all see it. Homebrew's bin only
-# reaches shells that ran `brew shellenv`, which the status service and the
-# runner's own children do not. UTM_APP and UTMCTL_BUNDLE are defined beside
-# PATH_LINK_DIR at the top, where the service-VM gate already needed them.
+# See https://yuruna.link/42885ada-0005
+# Noninteractive children need the system-visible utmctl link, not a shell-only PATH edit.
 UTMCTL_LINK="$PATH_LINK_DIR/utmctl"
 UTMCTL_LINK_DIR="$PATH_LINK_DIR"
 
@@ -1196,38 +1170,8 @@ install_test_modules() {
 install_test_modules
 
 # --- REGION: Version floors: bring the managed tools up to them
-# The floors live in automation/Yuruna.Requirement.yml -- the same file the
-# requirement report and the diagnostic read, so a floor is written down once.
-# Only the tools this script is responsible for are checked; reporting on a
-# cloud CLI the bootstrapper never touches would bury a real problem in a dozen
-# expected absences.
-#
-# Repaired here, not merely reported. An operator who is asked to fix a version
-# by hand at the end of an installer that had root for the whole run is being
-# asked to do the installer's job, and the two things that put a Mac below a
-# floor are both mechanical:
-#
-#   * Homebrew keeps some formulae keg-only (curl among them) -- installed under
-#     $(brew --prefix <formula>) and deliberately NOT linked, so the name keeps
-#     resolving to Apple's copy, which never advances past what shipped with the
-#     OS. `brew install curl` alone changes nothing that `curl --version` says.
-#   * A tool installed twice (Microsoft's PowerShell .pkg or cask alongside the
-#     Homebrew formula) resolves to whichever directory comes first on PATH, and
-#     that can be the older of the two. `brew upgrade` then reports success, run
-#     after run, on a keg nothing actually runs.
-#
-# Every floor is judged on what the tool prints when it is invoked BY NAME, so
-# both shapes are repaired the same way: find the newest copy this Mac carries
-# and make the name resolve to it, through PATH_LINK_DIR for the reason utmctl
-# uses it -- the stock /etc/paths lists that directory, so the runner, the
-# status service and an `ssh host command` all see the same tool, where
-# $(brew --prefix)/bin reaches only shells that ran `brew shellenv`.
-#
-# Never fatal: a machine that is merely behind still installs, and the closing
-# summary carries whatever the repair passes could not reach. What must not
-# happen is finishing SILENTLY below a floor -- that is how a host ran for weeks
-# on a PowerShell too old to do the crypto every lab enrollment needs, and
-# surfaced it as a rejected Lab token.
+# See https://yuruna.link/429fb30b-0029
+# Repair managed tools in two passes; report any remaining floor shortfalls.
 FLOOR_TOOL_LIST="PowerShell,git,qemu-img,wget,tesseract,curl"
 
 # The version a binary reports when asked directly. Every managed tool answers
@@ -1483,20 +1427,9 @@ if command -v pwsh >/dev/null 2>&1 && [[ -f "$YURUNA_DIR/automation/Test-Require
 fi
 
 # --- REGION: Host configuration
-# Applied here, not printed for the operator to run later. This installer
-# upgrades the UTM cask a few regions up, and a rebuilt UTM starts from its own
-# defaults -- so the run that replaces UTM is also the run that drops the two
-# knobs keeping it awake and alive past its last window. Printing the command
-# leaves the host in that state until somebody reads the whole transcript, and
-# the settings it restores are exactly the ones the pre-cycle gate refuses on.
-#
-# -SkipPoolStorage: the networkStorage questionnaire is a separate interactive
-# decision the operator reaches from the next-steps list, and answering it is
-# not a prerequisite for the settings this region exists to apply.
-#
-# Exit 2 is the script's way of saying it applied what it could and something
-# still needs a person (a TCC grant, an account password) -- an issue to carry
-# into the summary, not a failed install.
+# See https://yuruna.link/429fb30b-0015
+# Reapply settings after UTM updates; skip the separate storage questionnaire.
+# Exit 2 records remaining operator action rather than a failed installation.
 HOST_SETUP="$YURUNA_DIR/host/macos.utm/Enable-TestAutomation.ps1"
 log ""
 log "Configuring host settings for unattended runs (display sleep, screen lock, UTM lifetime)"

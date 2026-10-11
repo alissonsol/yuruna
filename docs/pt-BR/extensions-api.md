@@ -4,14 +4,14 @@
 
 # API de extensões
 
-O executor delega oito classes de comportamento intercambiável a **áreas de
+O executor delega nove classes de comportamento intercambiável a **áreas de
 extensão** em [`test/extension/`](../../test/extension/) -- autenticação,
 transportes de notificação, análise de logs de caching-proxy-service,
 gerenciamento do caching-proxy, armazenamento de artefatos do hospedeiro
-no stash, agregação de grupos com vários hospedeiros, configuração de grupos
-e download de imagens de convidados para todo o grupo. Uma área é um
-diretório com um ou mais arquivos `.psm1` e uma configuração YAML que nomeia
-o conjunto ativo.
+no stash, agregação de grupos com vários hospedeiros, configuração de grupos,
+download de imagens de convidados para todo o grupo e integridade do conteúdo
+dos convidados. Uma área é um diretório com um ou mais arquivos `.psm1` e uma
+configuração YAML que nomeia o conjunto ativo.
 
 Carregador: [`test/modules/Test.Extension.psm1`](../../test/modules/Test.Extension.psm1).
 
@@ -59,7 +59,7 @@ test/extension/
 |   +-- authentication.config.yml       # active: ['default']
 |   +-- authentication.contract.yml     # methods + parameter shape this area exports
 |   +-- users.yml.template              # vault seed: harness copies on first cycle
-|   +-- default.psm1                    # 11 exports: the vault read/write pair, the credential
+|   +-- default.psm1                    # 13 exports: the vault read/write pair, the credential
 |                                       # resolvers, and the users.yml reader + its cache reset
 +-- notification/
 |   +-- notification.config.yml         # active: ['default']
@@ -101,8 +101,9 @@ test/extension/
 |   |                                   # (hostedIn, no vmName -- it runs in the proxy VM)
 |   +-- pool-aggregator-service.contract.yml    # requiredFunction: Get-PoolAggregatorServiceManifest
 |   +-- pool-aggregator-service.service         # systemd unit for the proxy-host Go daemon
-|   +-- go.mod, main.go                 # stdlib-only Go daemon source, one file
-|   +-- *_test.go                       # 17 test files beside it
+|   +-- go.mod, main.go                 # stdlib-only Go daemon source: main.go plus handover.go,
+|   |                                   # mcp.go, localization.go, backfill*.go and internal/catalog/
+|   +-- *_test.go                       # 32 test files beside it
 |   +-- grafana-pool-dashboard.json     # companion Grafana dashboard
 |   +-- README.md
 |   +-- default.psm1                    # host-side wrapper
@@ -116,6 +117,12 @@ test/extension/
 |   +-- download-agent-service.contract.yml     # requiredFunction: Get-DownloadAgentServiceInfo
 |   +-- server/                         # Go daemon (main.go + internal/{...}, incl. imagestore)
 |   +-- default.psm1                    # host-side status stub + /healthz preflight
++-- digest/
+|   +-- digest.config.yml               # active: ['default']
+|   +-- digest.contract.yml             # requiredFunction: the three Get-*Sha256 readers + Publish-GuestFileSha256
+|   +-- README.md
+|   +-- default.psm1                    # 4 exports: Get-FileSha256, Get-ArchiveSha256,
+|                                       # Get-PublishedSha256, Publish-GuestFileSha256
 +-- extension-sdk/                      # the shared Go SDK, staged beside each server/
     +-- go.mod, README.md               # at build time -- never copied into one
     +-- beacon/                         # POST /announce presence
@@ -194,8 +201,8 @@ mantém inequívocas as exportações de cada área.
 
 ## Interface das extensões
 
-Existem quatro extensões de serviço, e cada nova extensão costumava exigir
-cópias dos mesmos cinco itens: um beacon de presença, um cliente de leitura
+Cinco áreas de extensão declaram manifestos de serviço, e cada nova extensão
+costumava exigir cópias dos mesmos cinco itens: um beacon de presença, um cliente de leitura
 do agregador, um controle de escrita, um marcador de execução e uma entrada
 em três listas fixas no framework. Cada cópia se desviou das outras; assim,
 um serviço acabou com uma política de tentativas mais fraca, outro com um
@@ -488,7 +495,7 @@ e as etapas de publicação após o boot são relatadas, mas nunca fatais. Sob
 `Stop`, cada um desses resultados previstos encerra a inicialização, e seu
 motivo fica em um console que já desapareceu quando alguém lê o log da execução.
 
-Quando uma condição realmente precisa interromper o script, ela o faz com
+Quando uma condição precisa interromper o script, ela o faz com
 um `Write-Error` explícito seguido de `exit`, como nas verificações prévias
 que bloqueiam a execução. Isso mantém cada decisão de interrupção no ponto
 que a toma, em vez de espalhá-la por todos os auxiliares que o script chama.
@@ -500,9 +507,12 @@ que a toma, em vez de espalhá-la por todos os auxiliares que o script chama.
 ### Um serviço que nunca atendeu apresenta uma falha explícita
 
 Uma inicialização que termina sem nenhum daemon atendendo retorna um código
-diferente de zero. Aviso seguido de zero não é uma opção: o chamador
-registra o código de saída do script como resultado da etapa; assim, zero
-insere `<service>: PASS` no resumo de uma execução cuja VM não possui daemon.
+diferente de zero, a menos que o SSH confirme que o cloud-init ainda está
+executando ou não foi iniciado: essa construção inacabada corresponde ao
+resultado não fatal `StillBuilding` descrito acima, com um marcador inativo.
+Nos demais casos, um aviso seguido de zero inseriria `<service>: PASS` no resumo
+de uma execução para um serviço com falha, pois o chamador registra o código
+de saída do script como resultado da etapa.
 
 **Um IP não comprova prontidão.** `New-VM` confirma que a VM tem um
 endereço, mas o daemon ainda precisa ser compilado DENTRO do convidado --
@@ -571,8 +581,8 @@ Os três têm padrão de **2700** segundos e aceitam um inteiro positivo;
 qualquer outro valor é ignorado com uma nota verbose, em vez de causar falha
 na inicialização. O valor é um mínimo, não um máximo: a espera se estende
 além dele -- até, no máximo, o dobro -- enquanto o próprio convidado
-responder por SSH que o cloud-init ainda está executando, para que um
-hospedeiro lento não seja reprovado por uma compilação em progresso. O
+responder por SSH que o cloud-init está executando ou não foi iniciado, para que
+um hospedeiro lento não seja reprovado por uma compilação em progresso. O
 motivo usual para definir uma dessas variáveis é o caso contrário: um valor
 curto para uma verificação rápida de uma VM já em execução.
 
@@ -707,11 +717,12 @@ A anotação de cada ferramenta faz a mesma declaração que sua rota:
   `caching-proxy-remote-readonly`, a mesma string de seu corpo `501`; assim,
   um operador que conhece uma resposta reconhece a outra.
 
-Apenas quatro daemons disponibilizam alguma ferramenta de alteração, e três
-não disponibilizam nenhuma. É uma decisão por serviço, não um esquecimento:
-as alterações do agregador abrangem um fluxo intenso de telemetria e uma
-rota que exclui evidências que um operador pode estar lendo; cada alteração
-de pool-control faz commit e push do armazenamento de intenções do grupo;
+Quatro dos cinco daemons que disponibilizam MCP oferecem ferramentas de
+alteração; o agregador não oferece nenhuma. Cada serviço também deixa de expor
+determinadas alterações: as do agregador abrangem um fluxo intenso de telemetria
+e uma rota que exclui evidências que um operador pode estar lendo; pool-control
+não expõe a criação de grupos, a exclusão de grupos (que faz commit e push do
+armazenamento de intenções do grupo) nem varreduras de rede;
 o `DELETE` de stash alcança o stash de todos os hospedeiros na montagem
 compartilhada, não apenas o próprio; e a rota `ensure` do download agent é
 **deliberadamente sem controle de acesso** no HTTP. Por isso, uma ferramenta
@@ -1113,8 +1124,8 @@ interna impediria o beacon justamente onde ele é necessário. A contenção usa
    recém-anunciado em `/healthz` (veja
    [acima](#only-an-address-the-pool-has-reached-is-answered)), e a consulta
    periódica o confirma novamente; uma entrada que permaneça sem resposta por
-   5 minutos é removida como se tivesse enviado uma despedida. Um anúncio é
-   uma afirmação a verificar, não um fato a republicar.
+   5 minutos é suprimida até que um novo anúncio a restaure ou o TTL do anúncio
+   a remova. Um anúncio é uma afirmação a verificar, não um fato a republicar.
 
 **`2xx` significa registrado, não apenas recebido.** A entrada reside na memória
 do coletor; a linha que o manipulador grava no Loki é a única cópia que sobrevive
@@ -1184,9 +1195,10 @@ do endereço do proxy reconstruído, não da reconstrução em si:
   anterior. A linha proveniente do *registro* leva mais tempo: um proxy
   reconstruído começa com o log do Squid e o Loki vazios, portanto o hospedeiro
   proprietário só é redescoberto quando voltar a obter conteúdo pelo proxy.
-- **Novo endereço** — não. Cada reconstrução escolhe um novo MAC e, portanto,
-  uma nova concessão DHCP, e o beacon continua enviando POST ao endereço que
-  deixou de existir. Fixe o MAC do proxy em uma reserva DHCP
+- **Novo endereço** — não. As reconstruções mantêm um MAC determinístico, a menos
+  que ele seja sobrescrito, mas o DHCP ainda pode atribuir um novo endereço;
+  o beacon continua enviando POST ao endereço que deixou de existir.
+  Fixe o MAC do proxy em uma reserva DHCP
   ([caching.md](../caching.md#pinning-the-cache-vms-ip-stable-mac--dhcp-reservation))
   para que a reconstrução preserve o endereço, ou execute novamente o
   `Start-*ServiceVM.ps1` do serviço, que reconstrói a VM por meio de `New-VM.ps1`
@@ -1241,7 +1253,7 @@ e um endereço que forneça um hostId *diferente*. `503` quando `-announce-ttl`
 
 ## POST /api/v1/lab-token (pool-aggregator-service)
 
-A troca de inscrição: um hospedeiro resgata o token de conexão com o laboratório de
+A troca de inscrição: um hospedeiro resgata o token do laboratório de
 6 caracteres exibido no bloco "Lab token" do painel (corpo
 `{"labToken":"<6 chars>"}`) e recebe a chave de autenticação interna —
 `200 {"ok":true,"v":1,"salt":...,"nonce":...,"ciphertext":...,"tag":...}`;
@@ -1291,6 +1303,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Voltar a [Yuruna](../../README.md)

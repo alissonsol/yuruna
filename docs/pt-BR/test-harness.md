@@ -46,7 +46,9 @@ verificação de codificação de todo o repositório fica em `tools/Test-AsciiN
 tenham sempre os mesmos caminhos, e um futuro ponto de entrada não precise
 copiar o código repetitivo de `$PSScriptRoot`/`Split-Path`/`Join-Path` para
 calculá-los. **Contrato dos códigos de saída:** `0` significa sucesso; falhas na
-verificação prévia usam `1`, e `Invoke-TestProject` repassa o código de saída exato do ciclo interno.
+verificação prévia usam `1`; `2` significa que uma barreira não conseguiu produzir
+um veredito (a admissão de VMs não consegue determinar se há outros convidados em execução),
+e `Invoke-TestProject` repassa o código de saída exato do ciclo interno.
 Falhas distintas na verificação prévia aparecem no texto da faixa `Stop-WithReason`
 -- o operador ou um analisador de CI lê "STOP (exit 1) at &lt;Step&gt;"
 e o motivo para distingui-las.
@@ -120,7 +122,7 @@ ciclo executa:
 
 | Módulo | Finalidade |
 |--------|---------|
-| `Test.SequenceEngine`  | Controlador do mecanismo: o laço de etapas, `Wait-ForText` e os dois verbos com estado (`retry`, `recoverFromSnapshot`) -- consulte [Camadas do mecanismo de sequências](#sequence-engine-layering) |
+| `Test.SequenceEngine`  | Controlador do mecanismo: o laço de etapas, `Wait-ForText` e callbacks de contexto para os manipuladores registrados -- consulte [Camadas do mecanismo de sequências](#sequence-engine-layering) |
 | `Test.SequenceHandler` | Catálogo de scriptblocks Handler dos verbos integrados |
 | `Test.SequenceAction`  | Registro de metadados por verbo (FailureLabel, requisitos de capacidade, sinalizadores de comportamento do mecanismo), consumido pelo mecanismo e pela barreira de capacidades |
 | `Test.SequenceVariable`| Substituição de `${var}` e `${ext:area.Method(...)}` no texto das etapas |
@@ -274,7 +276,7 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 
 ### Pirâmide de funções de Test.Config*
 
-Os três módulos `Test.Config*` da tabela se dividem por função:
+Três dos módulos `Test.Config*` da tabela se dividem por função:
 `Test.Config` é o leitor YAML com cache baseado em mtime (a camada de dados);
 `Test.ConfigValidator` contém as primitivas de esquema + atualidade (a
 camada de regras), reutilizáveis entre chamadores; `Test.ConfigPreflight` é a
@@ -297,16 +299,18 @@ com base no tipo de hospedeiro:
 | `host.ubuntu.kvm`      | [`host/ubuntu.kvm/modules/Yuruna.Host.psm1`](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1) (real) |
 
 O driver exporta um conjunto fixo de funções de contrato que cobre o ciclo de
-vida de VMs (`New-VM`, `Start-VM`, `Stop-VM`, `Remove-VM`, `Rename-VM`,
-`Get-VMState`), gerenciamento de snapshots (`Save-VMDiskSnapshot`,
-`Restore-VMDiskSnapshot`), busca de imagens (`Get-Image`, `Get-ImagePath`),
-E/S de VM (`Send-Text`, `Send-Key`, `Send-Click`, `Get-VMScreenshot`),
-descoberta (`Wait-VMIp`, `Get-VMIp`, `Get-VMMac`), rede
-(`Get-ExternalNetwork`, `New-ExternalNetwork`,
-`Test-CacheVMOnExternalNetwork`), mapas de portas do caching-proxy-service
-(`Add-PortMap`, `Remove-PortMap`, `Test-CachingProxyServiceAvailable`,
+vida de VMs (`New-VM`, `Start-VM`, `Stop-VM`, `Stop-VMForce`, `Remove-VM`,
+`Rename-VM`, `Get-VMState`), inventário de VMs (`Get-VMName`), gerenciamento de
+snapshots (`Save-VMDiskSnapshot`, `Restore-VMDiskSnapshot`, `Test-VMDiskSnapshot`),
+console de VM (`Test-VMConsoleOpen`, `Restart-VMConsole`), busca de imagens
+(`Get-Image`, `Get-ImagePath`), E/S de VM (`Send-Text`, `Send-Key`, `Send-Click`,
+`Get-VMScreenshot`, `Get-VMConsoleHandle`), descoberta (`Wait-VMIp`, `Get-VMIp`,
+`Get-VMMac`, `Update-GuestNeighborCache`), rede (`Get-ExternalNetwork`,
+`New-ExternalNetwork`, `Test-CacheVMOnExternalNetwork`), mapas de portas e
+endereços do hospedeiro (`Add-PortMap`, `Remove-PortMap`, `Get-BestHostIp`,
+`Get-GuestReachableHostIp`), caching-proxy-service (`Test-CachingProxyServiceAvailable`,
 `Get-CachingProxyServiceVmIp`), proxy no hospedeiro (`Set-HostProxy`,
-`Clear-HostProxy`, `Remove-HostProxy`), verificações de virtualização
+`Clear-HostProxy`, `Remove-HostProxy`, `Get-HostProxyBackupPath`), verificações de virtualização
 (`Assert-Virtualization`) e reparo de virtualização
 (`Test-VirtualizationResponsive`, uma sondagem limitada e somente de leitura do
 canal de controle do hipervisor, e `Start-VirtualizationServiceIfStopped`, que
@@ -347,7 +351,7 @@ test/
 +-- extension/                  Pluggable extension areas (Test.Extension loader; committed code only)
 |   +-- authentication/         default.psm1, authentication.config.yml
 |   +-- notification/           default.psm1, notification.config.yml, transports.yml.template
-|   +-- ...                       8 areas total -- see [extensions-api.md](extensions-api.md)
+|   +-- ...                       9 areas total -- see [extensions-api.md](extensions-api.md)
 +-- screenshots/<guestKey>/     [Optional -- operator-populated; absent by default]
 |   +-- schedule.json           Capture checkpoints + thresholds (create if using screenshot validation)
 |   +-- reference/*.png         Trained reference screenshots (commit manually per checkpoint)
@@ -449,6 +453,11 @@ completa, incluindo os três posicionamentos que parecem a armadilha e estão co
 <a id="running-the-suites"></a>
 
 ## Executar as suítes
+
+O executor das suítes requer Pester 5.x (a versão 5.9.1 é a versão de instalação
+indicada na documentação). As suítes usam `BeforeAll`/`AfterAll` para preparar e
+limpar o ambiente de execução entre as fases de descoberta e execução. Pester 4
+não é compatível com o executor.
 
 As suítes **não** fazem parte de um ciclo de testes. Elas executam ao lado da infraestrutura de testes:
 
@@ -615,14 +624,15 @@ Três módulos compartilham a interface do motor de sequências:
 - `Test.SequenceHandler.psm1` -- o catálogo de scriptblocks Handler dos verbos
   integrados. Adicionar um verbo exige uma edição local aqui, sem concentrar
   conflitos de mesclagem no motor. Cada handler deste módulo se comunica com o
-  motor exclusivamente pela hashtable `$Context` e pelas exportações padrão
-  de `Yuruna.Host` / `Test.Ssh` / `Test.Extension` / `Test.Log`.
-- `Test.SequenceEngine.psm1` -- o controlador do motor. Dois verbos com estado
-  (`retry` e `recoverFromSnapshot`) permanecem aqui deliberadamente porque
-  coordenam o estado `$script:LastFailure*` do motor com o despacho recursivo
-  de `$invokeStepBlock`. Mover esse estado para um módulo compartilhado
-  acrescentaria mais complexidade do que a redução de conflitos de mesclagem
-  compensaria.
+  motor pela hashtable `$Context`, pelo armazenamento compartilhado
+  `Test.SequenceFailureState` e pelas exportações padrão de `Yuruna.Host` /
+  `Test.Ssh` / `Test.Extension` / `Test.Log`. Esse catálogo inclui os manipuladores
+  com estado `retry` e `recoverFromSnapshot`.
+- `Test.SequenceEngine.psm1` -- o controlador do motor. Ele executa o laço de
+  etapas e fornece o callback recursivo `InvokeStepBlock` por `$Context`.
+  Ambos os módulos leem e gravam um único armazenamento compartilhado de slots
+  de falha, permitindo que os manipuladores coordenem novas tentativas e
+  recuperação sem ramificações por verbo no motor.
 
 <a id="42d38664-000f"></a>
 
@@ -748,7 +758,7 @@ Atualmente (consulte as chamadas a `Register-SequenceAction` em
 | `fetchAndExecute`        | `Send-Text`, `Send-Key`   | sim          |
 | `networkRelease`         | `Send-Text`, `Send-Key`   | não          |
 | `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(nenhum)_ | não |
-| `saveDiskSnapshot` / `loadDiskSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(nenhum)_ | não |
+| `startVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(nenhum)_ | não |
 
 Adicionar um novo verbo exige uma chamada a `Register-SequenceAction` que
 declare suas capacidades -- a barreira o reconhece no próximo ciclo.
@@ -832,7 +842,7 @@ exige uma chamada a `Register-HostConditionProvider`. Os chamadores mantêm
 
 | Função | Usada por |
 |---|---|
-| `Register-HostConditionProvider -HostType -Set -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown] [-ClockSync]` | Carregador da fachada; plugins externos de hospedeiro |
+| `Register-HostConditionProvider -HostType -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown] [-ClockSync] [-NetworkHealth] [-MetricsExporter]` | Carregador da fachada; plugins externos de hospedeiro |
 | `Get-HostConditionProvider -HostType` | Despachadores; introspecção |
 | `Get-HostConditionProviderMatrix` | Matriz de capacidades na inicialização |
 | `Clear-HostConditionProvider` | Somente testes |
@@ -850,23 +860,23 @@ exige uma chamada a `Register-HostConditionProvider`. Os chamadores mantêm
 
 ### Estrutura do registro de provedor
 
-Cada registro contém um dicionário ordenado de oito campos:
+Cada registro contém um dicionário ordenado de nove campos:
 
 ```
 @{
     HostType          = 'host.windows.hyper-v'
-    Set               = { param([string]$HostType) ... }
     Assert            = { param([string]$HostType) ... [bool] }
     AssertMinimum     = { param() ... [bool] }
     RequiresElevation = $true   # consumed by Test-ElevationRequired
     Display           = { param() ... }   # optional: per-cycle display-surface ensure (e.g. attach a virtual monitor on headless Hyper-V); $null when unneeded. Invoked by Initialize-HostDisplay.
     DisplayTeardown   = { param() ... }   # optional inverse: tear the surface down; $null when unneeded. Invoked by Remove-HostDisplay.
     ClockSync         = { param() ... @{ Succeeded; Message } }   # optional: put this host's clock back under NTP discipline. Invoked by Sync-HostClock from the operator-facing paths only -- it needs privileges an unattended cycle cannot obtain.
+    NetworkHealth     = { param([string]$HostType) ... }   # optional: can this host still put a guest on a working network? $null for a host with no way to answer. Invoked by Test-HostGuestNetworkHealth.
+    MetricsExporter   = { param() ... @{ Status; Reason } }   # optional: per-cycle convergence of this host's metrics exporter; $null for a host where that repair would have to ask for its privilege. Invoked by Initialize-HostMetricsExporter.
 }
 ```
 
-`Set` e `Assert` formam um par; ambos recebem `-HostType` e podem ser
-chamados várias vezes por ciclo. `AssertMinimum` é mais leve que
+`Assert` recebe `-HostType` e pode ser chamado várias vezes por ciclo. `AssertMinimum` é mais leve que
 `Assert` (sem verificações de tempo limite da tela / bloqueio de tela /
 concessões TCC), para auxiliares de limpeza que legitimamente são executados
 durante a manutenção interativa.
@@ -991,7 +1001,7 @@ auxiliar, marcador de runtime) passa pelo gravador atômico em
 1. Grave o conteúdo em `<Path>.<PID>-<GUID>.tmp` como UTF-8 (sem BOM por
    padrão; `-WithBom` para scripts PowerShell que precisam atender a
    `PSUseBOMForUnicodeEncodedFile`).
-2. Use `Move-Item -Force` para movê-lo para `<Path>` -- operação atômica em
+2. Use `[System.IO.File]::Move(<tmp>, <Path>, $true)` -- operação atômica em
    NTFS / ext4 / APFS no mesmo volume, uma única chamada de sistema de renomeação.
 3. Retorne `$true` em caso de sucesso, `$false` em caso de falha. O próprio
    auxiliar é silencioso -- chamadores de alta frequência não inundam `Verbose`.
@@ -1076,7 +1086,7 @@ Estrutura do valor por convidado (compatível com versões anteriores):
 | Estrutura | Significado |
 |-------|---------|
 | `"pass"` / `"fail"` (string simples) | Linhas antigas do histórico, anteriores a `stepDurationsSeconds` / `failureArtifacts`. Painéis mais antigos ainda as renderizam. |
-| `{ status, stepDurationsSeconds, [failureArtifacts] }` | Forma atual. |
+| `{ status, stepDurationsSeconds, [failureArtifacts], [errorMessage], [failureClass] }` | Forma atual. |
 
 - `stepDurationsSeconds` é um mapa de segundos de tempo real por etapa, com
   uma entrada para cada etapa na lista de etapas do convidado (`New-VM`, `Start-VM`,
@@ -1132,11 +1142,24 @@ Failed to listen on prefix 'http://*:<port>/' because it conflicts
 with an existing registration on the machine.
 ```
 
-O processo filho desacoplado registra isso em `$RuntimeDir/server.err` e sai,
+O processo filho desacoplado registra isso em `$RuntimeDir/server.stderr` e sai,
 então o script externo *parece* iniciar sem problemas enquanto nada atende;
 e qualquer órfão associado a um diretório obsoleto de arquivos de controle
 (`$StatusDir` ou `$StatusDir/track`, em vez de `$RuntimeDir`) continua gravando
 ali, interrompendo silenciosamente os botões Pause / Cycle do painel.
+
+Os erros explícitos do listener são gravados em `server.err`, separados da
+saída stderr nativa do processo. Antes de uma inicialização autorizada, a
+rotina de inicialização preserva três gerações de cada arquivo de erros
+(`.previous.1` a `.previous.3`), mantendo no máximo o último 1 MiB por geração.
+Uma inicialização rejeitada ou simultânea mantém os logs atuais intactos.
+
+Os uploads de diagnósticos e logs do instalador são lidos de forma assíncrona,
+em paralelo com as solicitações de verificação de saúde. Eles compartilham
+um limite de quatro solicitações, têm um prazo de 30 segundos para a leitura
+do corpo e mantêm os limites de tamanho de 5 MiB para diagnósticos e 4 MiB
+para logs do instalador. Os uploads concluídos substituem os artefatos de
+forma atômica; uploads com falha ou paralisados preservam o artefato existente.
 
 `Resolve-PortOrphan` (em `test/modules/Test.PortOwner.psm1`) faz uma sondagem
 com um `HttpListener` descartável. Se ela funcionar, a inicialização desacoplada
@@ -1237,6 +1260,51 @@ cujo prazo expirou produz `reasonCode: diagnostic-deadline-exceeded`; o idioma
 de exibição não determina o resultado. A falha de diagnóstico continua sendo
 não fatal para a sequência, e o watchdog do ciclo continua independente.
 
+O wrapper Linux de fetch também ativa um gravador de diagnóstico no convidado
+antes de iniciar uma invocação não sensível. Ele funciona independentemente do
+pipeline do console e do SSH. A cada 30 segundos, registra UTC, ID de boot e
+uptime, IDs da invocação, CPU/estado por thread e uma quantidade limitada de
+pilhas de threads executáveis, que consomem muita CPU ou estão bloqueadas,
+pressão, interrupções, estatísticas de disco, atributos dos canais VMBus e
+mensagens recentes do kernel. Os inventários de processos usam nomes de
+comandos sem argumentos nem ambiente. Pilhas ausentes ou sem permissão ficam
+explícitas na amostra. Credenciais conhecidas do ambiente, atribuições de
+segredos, cabeçalhos de autorização e blocos de chaves privadas são filtrados
+antes da retenção local ou do envio; etapas sensíveis desativam o gravador e o
+trace.
+
+Cada coleta tem limite de 8 segundos e mais 1 segundo para encerramento. O
+gravador mantém oito amostras de até 128 KiB cada, para após 240 amostras ou duas
+horas e verifica o shell que o invocou a cada segundo durante a espera. Coletas e
+envios em andamento mantêm seus próprios limites quando esse shell termina. O
+campo `sampleDurationSeconds` e os limites de bytes tornam visível o custo da
+coleta. Os valores manuais opcionais `EXEC_RECORDER_INTERVAL_SECONDS` (1-300) e
+`EXEC_RECORDER_MAX_SAMPLES` (1-240) alteram o intervalo e a quantidade de
+amostras; `EXEC_RECORDER=0` desativa a gravação. Esses controles não alteram o
+prazo de execução da carga de trabalho. Em um host Linux de validação local,
+uma coleta levou 24 ms e produziu aproximadamente 19 KiB; meça separadamente o
+convidado ARM64.
+
+O runner fornece um caminho relativo `E_RECORDER_PATH` vinculado à integridade
+e direcionado à pasta existente do convidado no ciclo. O wrapper reutiliza a
+origem resolvida do host ou as coordenadas confiáveis do seed; preparar a
+captura não faz outra chamada ao driver do host. Cada amostra substitui
+`execution.system.diagnostic.<stepInvocationId>.txt` pelo handler de upload
+existente `/diagnostics/<cycle>/<guest>/<file>`, cuja gravação atômica e limite
+de 5 MiB também se aplicam aqui. Cada POST tem limite de 6 segundos, além do
+prazo de encerramento; falhas no envio aparecem na próxima amostra e no arquivo
+local `status`. O envio final marca o gravador como parado. As amostras locais
+permanecem no diretório privado `/tmp/yuruna-fae-recorder.*` indicado no log de
+execução até a limpeza do convidado. Sem um endpoint de status, a gravação local
+continua funcionando.
+
+Após uma invocação lenta ou com falha, `fetch-and-execute.<id>.evidence.json` e o
+registro de evidências de execução de `step_end` distinguem timeout do SSH,
+trace ausente, divergência de invocação, saída parcial e captura completa. Um
+envio anterior do gravador continua vinculado quando o SSH não responde, com o
+UTC e a idade do heartbeat. Assim, a duração de uma tentativa de captura não
+oculta a ausência de um artefato.
+
 **Verificação prévia de Wait-SshReady.** Sequências frequentemente terminam com
 "Reboot the
 VM", portanto o convidado pode estar reiniciando quando `Save-GuestDiagnostic`
@@ -1278,6 +1346,7 @@ do fluxo de logs por etapa é controlada por [Níveis de log](../loglevels.md).
 |------|---------|
 | `0` | Todos os convidados passaram (o executor foi interrompido ou concluiu) |
 | `1` | Um ou mais convidados falharam, ou houve erro na verificação prévia |
+| `2` | Uma verificação não pôde emitir um veredito (a admissão de VM não conseguiu comprovar que o hospedeiro está livre de outros convidados) |
 
 ---
 
@@ -1285,6 +1354,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Voltar para [Yuruna](../../README.md)

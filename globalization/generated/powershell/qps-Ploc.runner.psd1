@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42976c27-d626-a135-b784-9fafd7012fc9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5795,6 +5795,39 @@
         }
         ' (çóñţíñúíñğ) ~~~~~~~~~~~~~~~~~~]'
     )
+    'runner.operator_33a0b7c1e1b2be21' = @(
+        '['
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ṽířţúáļ ƥřóçéššóř(š) áţ '
+        @{
+            'arg' = 'guestPercent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '% ğúéšţ áñď '
+        @{
+            'arg' = 'hypervisorPercent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '% ħýƥéřṽíšóř řúñ ţíɱé ŵíţħ '
+        @{
+            'arg' = 'interceptsPerSecond'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' íñţéřçéƥţš/s, šúšţáíñéď ƒóř '
+        @{
+            'arg' = 'seconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        'š ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.operator_33bdd943ad4ebb3e' = '[Ļóçáļ ƀřáñçħ íš áħéáď óƒ řéɱóţé. Ƥřóçééďíñğ ŵíţħ ļóçáļ çħáñğéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_33be063a6dbeb4de' = '[Íţ ďóéš ÑÓŢ ďéļéţé áñý ďáţá. Ţħé çýçļé ářçħíṽéš, šţášħ ářţíƒáçţš, ļáƀ ṽáúļţ, ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_33ed3e2cc8c24f86' = @(
@@ -10699,6 +10732,33 @@
         }
         ' ⱮÁÇ(š)). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'runner.operator_6d4042dbe6943c27' = @(
+        '[Ţéẋţ '''
+        @{
+            'arg' = 'patternLabel'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ŵáíţ éñďéď áƒţéř ~'
+        @{
+            'arg' = 'waited'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        'š óƒ '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        'š: ţħé ħýƥéřṽíšóř řéƥóřţš ţħé ğúéšţ ļíṽéļóçķéď ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.operator_6d53b6631053aee8' = @(
         '[Çášçáďé: çħáíñ ɱéɱƀéř '''
         @{
@@ -12047,6 +12107,15 @@
             'trust' = 'external'
         }
         '). Ďíšáƀļé-ŢéšţÁúţóɱáţíóñ ŵíļļ óñļý ƀé áƀļé ţó řéṽéřšé ŵħáţ íţ çáñ ƥřóṽé íţ áďďéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.operator_7e0c2dd4aa0c5981' = @(
+        '[      Ħýƥéřṽíšóř řéƥóřţš ţħé ğúéšţ ļíṽéļóçķéď: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_7e50599bce26a067' = @(
         '[Çóúļď ñóţ řéáď ƥřéṽíóúš šţáţúš: '
@@ -14122,7 +14191,7 @@
         ' šó úţɱçţļ íš óñ ƤÁŢĦ ~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_966231fe730b28ff' = @(
-        '[Šéñď-ŢéẋţĶṽɱ: ṽířšħ šéñď-ķéý ƒáíļéď áţ çħář '''
+        '[Šéñď-ŢéẋţĶṽɱ: šéñď-ķéý ƒáíļéď áţ çħář '''
         @{
             'arg' = 'ch'
             'type' = 'detail'
@@ -14140,7 +14209,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_96766746c16f798c' = '[ħóšţ áďďřéšš ƀéáçóñ ~~~~~~~~]'
     'runner.operator_96a9c1c4155d58e1' = @(
@@ -19245,6 +19314,27 @@
         }
         ' š); ļéţţíñğ ţħé šţéƥ řúñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'runner.operator_d8507ccd68520716' = @(
+        '[  Éářļíéšţ çóñšóļé ƒřáɱéš šáṽéď: ./status/log/'
+        @{
+            'arg' = 'cycleBase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/'
+        @{
+            'arg' = 'destSeqName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/earliest/ ('
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ƒřáɱéš ƒřóɱ ţħé šţářţ óƒ ţħíš ğúéšţ) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.operator_d8523930547c291e' = @(
         '[Šáṽé-ŠçřééñšħóţŴíţħÇļíçķⱮářķéř ƒáíļéď: '
         @{
@@ -20511,6 +20601,39 @@
     'runner.operator_e5f6d0ead5f8eede' = '[  Çļóçķ šýñç šķíƥƥéď: ñó šúďó çřéďéñţíáļ. ~~~~~~~~~~~~~~~~~]'
     'runner.operator_e61bca5dfa1a4c8b' = '[ Řúñ ţħíš ÓÑÉ-ŢÍⱮÉ çóɱɱáñď ýóúřšéļƒ ƀéƒóřé šţářţíñğ ţéšţš: ~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_e63b1a967d2939be' = '[  Ƒíẋ ŵíţħ: ƥŵšħ ţéšţ/lab/Enable-TestAutomation.ps1  (éļéṽáţéď / ŵíţħ šúďó) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.operator_e653bdc981ca5464' = @(
+        '[  ĎĦÇƤ çáƥţúřé šúɱɱářý ƒóř '
+        @{
+            'arg' = 'guestMac'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': ţħé ğúéšţ šéñţ '
+        @{
+            'arg' = 'sent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ƥáçķéţ(š), '
+        @{
+            'arg' = 'replies'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' úñíçášţ řéƥļý(íéš) řéáçħéď íţ, '
+        @{
+            'arg' = 'others'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ƥáçķéţ(š) çáɱé ƒřóɱ '
+        @{
+            'arg' = 'clients'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' óţħéř çļíéñţ(š) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.operator_e65ab9d1c0be44ef' = @(
         '[      ÑŢĻⱮ ļóóƥƀáçķ éẋéɱƥţíóñ: '
         @{

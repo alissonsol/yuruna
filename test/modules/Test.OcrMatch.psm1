@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42623d37-5542-4fd6-8bd7-fcd92f20175d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,9 +28,20 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Global -Force
 # Memoize Get-OCRNormalized for repeated patterns. The same pattern string
 # is re-normalized on every poll in Test-OCRMatch (pattern + per-segment
 # normalize in Strategy 3). Patterns are bounded (one per sequence step),
-# so the cache stays small. Line / full-text inputs are NOT cached -- they
-# vary per call and would balloon memory.
+# so the cache stays small. This table holds pattern normalization only;
+# repeated whole comparisons use the separately bounded cache below.
 $script:OcrPatternCache = @{}
+
+# OCR recognition can reuse an unchanged frame while the readiness and failure
+# scans still repeat the same tolerant comparisons. Keep a few exact text
+# inputs and their boolean answers; the matcher is pure, so neither a positive
+# nor a negative answer changes until text, pattern, or matching policy changes.
+# The size limits also cover callers outside the screenshot poll loop.
+$script:OcrMatchCache = [Collections.Generic.List[object]]::new()
+$script:OcrMatchCacheFrameLimit = 4
+$script:OcrMatchCachePatternLimit = 32
+$script:OcrMatchCacheTextLimit = 65536
+$script:OcrMatchCachePatternLengthLimit = 1024
 
 # --- REGION: OCR-tolerant matching
 # Common OCR confusion groups: characters within each group are frequently
@@ -127,6 +138,47 @@ function Get-OCRNormalized {
     end a healthy run. Callers that need reordered text can retain Strategy 3.
 #>
 function Test-OCRMatch {
+    param([string]$Text, [string]$Pattern, [switch]$NoSegmentMatch)
+    $cacheable = $Text.Length -le $script:OcrMatchCacheTextLimit -and
+        $Pattern.Length -le $script:OcrMatchCachePatternLengthLimit
+    $entry = $null
+    $answers = $null
+    if ($cacheable) {
+        foreach ($candidate in $script:OcrMatchCache) {
+            # Case and line boundaries are part of the original input. Ordinal
+            # comparison avoids hash allocations and culture-dependent keys.
+            if ([string]::Equals($candidate.Text, $Text, [StringComparison]::Ordinal)) {
+                $entry = $candidate
+                $answers = if ($NoSegmentMatch) { $entry.Strict } else { $entry.Loose }
+                $cached = $false
+                if ($answers.TryGetValue($Pattern, [ref]$cached)) { return $cached }
+                break
+            }
+        }
+    }
+
+    $matched = Test-OCRMatchCore -Text $Text -Pattern $Pattern -NoSegmentMatch:$NoSegmentMatch
+    if ($cacheable) {
+        if ($null -eq $entry) {
+            $entry = [pscustomobject]@{
+                Text = $Text
+                Strict = [Collections.Generic.Dictionary[string, bool]]::new([StringComparer]::Ordinal)
+                Loose = [Collections.Generic.Dictionary[string, bool]]::new([StringComparer]::Ordinal)
+            }
+            $script:OcrMatchCache.Add($entry)
+            while ($script:OcrMatchCache.Count -gt $script:OcrMatchCacheFrameLimit) {
+                $script:OcrMatchCache.RemoveAt(0)
+            }
+            $answers = if ($NoSegmentMatch) { $entry.Strict } else { $entry.Loose }
+        }
+        if (($entry.Strict.Count + $entry.Loose.Count) -lt $script:OcrMatchCachePatternLimit) {
+            $answers[$Pattern] = [bool]$matched
+        }
+    }
+    return $matched
+}
+
+function Test-OCRMatchCore {
     param([string]$Text, [string]$Pattern, [switch]$NoSegmentMatch)
     $normPattern = $script:OcrPatternCache[$Pattern]
     if ($null -eq $normPattern) {

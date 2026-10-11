@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OuterLog.psm1') -DisableNameCheckin
 # before every spawn live in Test.SingleInstance. Imported here as well as by the
 # Outer module set so the gate is never absent from a process that can spawn.
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.DiagnosticPreservation.psm1') -DisableNameChecking
 # The cycle outcome record, the typed result and the bounded repairs the loop reports
 # and recovers through. Imported here as well as by the Outer module set so the loop
 # never runs without them.
@@ -2970,6 +2971,7 @@ function Invoke-RunnerOuterLoop {
         }
     }
     while (-not $State.ShutdownState['Requested']) {
+        if ((Wait-DiagnosticVmPreservation -ShutdownState $State.ShutdownState -ConfigPath $State.ConfigPath) -eq 'shutdown') { break }
         $cycle++
         $State['CycleGeneration'] = "$($State['RunnerInstanceId']):$cycle"
 
@@ -2985,6 +2987,11 @@ function Invoke-RunnerOuterLoop {
         # before anything reacts to it, so the file describes the cycle even when
         # the reaction fails. $null for an outcome that is not a verdict.
         $recoveryResult = Publish-OuterRecoveryResult -Dispatch $cycleResult -CycleGeneration ([string]$State['CycleGeneration']) -SpawnedAtUtc $cycleSpawnedAtUtc
+
+        # A preserved guest must survive automatic refresh, recovery, and the
+        # next cycle's stale-VM sweep even when repository revisions change.
+        if ((Wait-DiagnosticVmPreservation -ShutdownState $State.ShutdownState -ConfigPath $State.ConfigPath `
+            -HoldOnFailure:($outcome -eq 'completed' -and $exitCode -ne 0)) -eq 'shutdown') { break }
 
         # Evidence accounting for the automatic refresh decision: every outcome
         # consumes this cycle's evidence sidecar; only a completed one counts.

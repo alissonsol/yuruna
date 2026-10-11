@@ -1,22 +1,22 @@
 # Configuration data model
 
-These views identify the project records, generated outputs, and credentials that the deployment engine and test harness actually read.
+These views describe the project configuration, generated phase data, and identity mappings read by the current deployment engine and test harness.
 
-The entities describe filesystem scopes and YAML mappings, rather than database
-tables. The [architecture](../architecture.md) supplies the phase model; these
-diagrams document its data contracts.
+The entities represent directories, YAML documents, and their records. They are
+not database tables. [Architecture](../architecture.md) defines the deployment
+phases; this page describes the data those phases exchange.
 
-## Project and configuration scopes
+## Project configuration
 
 ```mermaid
 erDiagram
-    project-root ||--o{ config-subfolder : selects
+    project-root ||--o{ config-subfolder : contains
     config-subfolder ||--|| resources-yml : contains
     config-subfolder ||--|| components-yml : contains
     config-subfolder ||--|| workloads-yml : contains
     config-subfolder ||--o| resources-output-yml : generates
-    %% optional: secret folders need not exist.
-    project-root ||--o{ config-secrets : holds
+    %% optional: neither secret directory is required to exist.
+    project-root ||--o{ config-secrets : contains
     resources-output-yml |o..o| components-yml : supplies
     resources-output-yml |o..o| workloads-yml : supplies
     project-root {
@@ -46,39 +46,28 @@ erDiagram
     }
 ```
 
-This seven-entity view groups both optional secret locations as `config-secrets`:
-`config/<config_subfolder>/secrets/*.txt` and `config/secrets/*.txt`. The validator
-checks their contents; it does not inject those files into the deployment
-variable map. Workload validation rejects present files containing only
-whitespace. The current companion examples and template do not contain these
-secret folders.
+The seven entities separate the selected configuration from its three input
+documents and generated output. `config-secrets` groups the optional
+`config/<config_subfolder>/secrets/*.txt` and `config/secrets/*.txt` locations.
+Validation checks present files; workload validation rejects whitespace-only
+content. The publishers do not automatically load these files into their
+variable maps.
 
-`project_root` can be `example/website/`, `example/text-to-sql/`, or `template/`.
-The template is itself a project root. Website configurations exist for
-`localhost`, `aws`, and `azure`; the template and text-to-SQL example have
-`localhost`. Neither repository has a GCP resource configuration or template.
+In the companion repository, `example/website/`, `example/text-to-sql/`, and
+`template/` are project roots. The template has its configuration directly under
+`template/config/`. Website supplies `localhost`, `aws`, and `azure`
+configurations; text-to-SQL and the template supply `localhost`. The current
+source has no GCP configuration or GCP resource-template directory.
 
-`resources.output.yml` contains expanded globals and dynamically named resource
-mappings. Each OpenTofu output normally retains its `value`, `type`, and
-`sensitive` metadata. The reader exposes the value as
-`<resource-name>.<output-name>` in the environment. The writer records ownership
-before applying a resource, so an entry can exist before its outputs are ready.
-The cleanup engine uses this manifest and the resource work folders.
-Components read the selected configuration's output file when present.
-Workloads also try its parent folder if the selected file is absent.
-
-Sources: [root resolution](../../automation/Yuruna.LogLevel.psm1),
-[validation](../../automation/Yuruna.Validation.psm1),
-[resource writer](../../automation/Yuruna.Resource.psm1),
-[component reader](../../automation/Yuruna.Component.psm1),
-[workload reader](../../automation/Yuruna.Workload.psm1),
-[output expansion](../../automation/Yuruna.VariableExpansion.psm1), and
-[cleanup](../../automation/Yuruna.Clear.psm1). Concrete companion data:
+Sources: [configuration validation](../../automation/Yuruna.Validation.psm1),
+[resource publisher](../../automation/Yuruna.Resource.psm1),
+[component publisher](../../automation/Yuruna.Component.psm1), and
+[workload publisher](../../automation/Yuruna.Workload.psm1). Companion data:
 [website configurations](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config),
 [text-to-SQL configuration](https://github.com/alissonsol/yuruna-project/tree/main/example/text-to-sql/config/localhost),
 and [template configuration](https://github.com/alissonsol/yuruna-project/tree/main/template/config/localhost).
 
-## Phase records
+## Phase records and references
 
 ```mermaid
 erDiagram
@@ -103,6 +92,7 @@ erDiagram
         string buildCommand
         string tagCommand
         string pushCommand
+        int commandTimeoutSeconds
         map variables
     }
     workloads-yml {
@@ -121,51 +111,81 @@ erDiagram
     }
 ```
 
-These seven entities separate document globals from list-item fields.
-The `*-entry` IDs denote entries of the real `resources`, `components`,
-`workloads`, and `deployments` keys. The four deployment-kind fields are
-alternatives resolved by the deployment-kind catalog.
+This seven-entity view expands the three list types and the ordered deployments
+inside a workload. The `*-entry` IDs name records under the corresponding YAML
+keys. Fields shown are the fields consumed by the publishers, rather than a
+claim that every field is required on every record.
 
-| Key | Contract used by the engine |
+| Record or field | Reference and constraint |
 | --- | --- |
-| `resources[].name` | Expanded name keys the output manifest and `.yuruna/<config>/resources/<name>/`. Validation rejects raw and expanded duplicate names. |
-| `resources[].template` | Looks first under project `resources/<template>/`, then framework `global/resources/<template>/`. An empty template names an existing resource. |
-| `resources[].variables` | Overrides resource-document globals when writing `terraform.tfvars.json`. |
-| `components[].project` | Identifies the component; required and unique after expansion. |
-| `components[].buildPath` | Selects `components/<buildPath>/`; defaults to the expanded `project` when omitted. |
-| Component commands | `buildCommand`, `tagCommand`, and `pushCommand` use entry values with document-global fallbacks. `preProcessor` and `postProcessor` use merged variables. |
-| `workloads[].context` | Selects a Kubernetes context. Validation rejects duplicate raw and expanded contexts; execution restores the original context afterward when it was read successfully. |
-| `deployments[].chart` | Selects `workloads/<chart>/`; `variables.installName` is required and must be unique within the expanded context. |
-| Other deployment kinds | `kubectl`, `helm`, and `shell` hold the configured command text. |
+| `resources[].name` | Expanded name keys the resource output and `.yuruna/<config>/resources/<name>/`. Validation rejects duplicate raw names and expanded-name collisions. |
+| `resources[].template` | Resolves project `resources/<template>/` before framework `global/resources/<template>/`. An empty template declares an existing resource. |
+| `components[].project` | Required component identity, unique after expansion. |
+| `components[].buildPath` | Resolves under project `components/`; defaults to the expanded `project` value when omitted. |
+| Component commands | `buildCommand`, `tagCommand`, and `pushCommand` prefer entry values and fall back to document globals. `preProcessor` and `postProcessor` come from the merged variables. |
+| `components[].commandTimeoutSeconds` | Overrides `globalVariables.commandTimeoutSeconds`; the default is 600 seconds. Values must be integers from 1 through 3600. Each supervised command phase receives this bound. |
+| `workloads[].context` | Selects a Kubernetes context. Raw and expanded duplicate contexts are rejected. |
+| `deployments[].chart` | Resolves under project `workloads/`. `variables.installName` is required and must be unique within the expanded context. |
+| `deployments[].kubectl`, `.helm`, `.shell` | Hold command text for the corresponding deployment kind. The shared kind catalog resolves these alternatives. |
 
-Component variables overlay resource-output globals and qualified outputs,
-component-document globals, then component variables. Workload deployment
-variables overlay resource outputs, workload-document globals, workload
-variables, then deployment variables. Later layers replace matching keys.
-Resource outputs enter these readers without expression expansion; configured
-expressions expand at the phase-specific points in each reader.
+Variable precedence follows the enclosing record scopes. Later layers replace
+matching keys:
 
-Project directories provide OpenTofu templates in `resources/`, build inputs
-and Dockerfiles in `components/`, and local charts or scripts in `workloads/`.
-Framework [global resource templates](../../global/resources/) supply the
-fallback implementations used by the examples.
+| Phase | Layers, lowest to highest |
+| --- | --- |
+| Resource inputs | Resource-document `globalVariables`, then resource `variables`. |
+| Component inputs | Resource-output globals and qualified outputs, component-document `globalVariables`, then component `variables`. |
+| Workload inputs | Resource-output globals and qualified outputs, workload-document `globalVariables`, workload `variables`, then deployment `variables`. |
 
-Sources: [resource processing](../../automation/Yuruna.Resource.psm1),
-[component processing](../../automation/Yuruna.Component.psm1),
-[workload processing](../../automation/Yuruna.Workload.psm1),
+Configured expressions expand at the publisher's phase-specific expansion
+points. Resource outputs are already produced data and enter component and
+workload readers without expression expansion. Component command phases pass
+their environment changes to subsequent phases.
+
+Sources: [resource records](../../automation/Yuruna.Resource.psm1),
+[component records](../../automation/Yuruna.Component.psm1),
+[workload records](../../automation/Yuruna.Workload.psm1),
 [validation](../../automation/Yuruna.Validation.psm1),
-[variable expansion](../../automation/Yuruna.VariableExpansion.psm1), and
-[deployment kinds](../../automation/Yuruna.DeploymentKind.psm1). Example records:
+[variable layering](../../automation/Yuruna.VariableExpansion.psm1), and
+[deployment kinds](../../automation/Yuruna.DeploymentKind.psm1). Concrete records:
 [resources.yml](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/resources.yml),
 [components.yml](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/components.yml),
 and [workloads.yml](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/workloads.yml).
+
+## Generated phase data
+
+| Artifact | Stored data and consumer |
+| --- | --- |
+| `.yuruna/<config>/resources/<name>/terraform.tfvars.json` | Expanded resource inputs serialized as JSON strings for OpenTofu. Project templates take precedence over the [framework templates](../../global/resources/). |
+| `.yuruna/<config>/resources/<name>/tofu.planfile` | The initialization pass's saved plan, consumed by the apply pass when present. Resource work folders also preserve Terraform state. |
+| `config/<config>/resources.output.yml` | Expanded `globalVariables` plus mappings keyed by resource name. Normal OpenTofu leaves retain `value`, `type`, and `sensitive`. |
+| `.yuruna/<config>/workloads/<context>/<installName>/values.yaml` | Merged deployment variables plus `contextName`, passed to Helm with the copied project chart. |
+| `.yuruna/<config>/` phase folders | Input backups, tool logs, and exit-code sidecars used by diagnostics and cleanup. |
+
+The resource writer preserves previous output mappings and records an empty
+resource mapping before apply. That mapping records ownership even when apply
+fails before outputs become available; it is not proof that the resource is
+ready. Successful output retrieval replaces it with the OpenTofu output object.
+The expansion helper exports each output value as
+`<resource-name>.<output-name>`, and exports output globals without a prefix.
+
+Components read `resources.output.yml` from the selected configuration when it
+exists. Workloads first try the same location, then
+`config/<config_subfolder>/../resources.output.yml` when the selected file is
+absent. [Cleanup](../../automation/Yuruna.Clear.psm1) uses resource ownership and
+work folders; it does not infer ownership from a successful component build.
+
+Sources: [output serialization and planning](../../automation/Yuruna.Resource.psm1),
+[output flattening](../../automation/Yuruna.VariableExpansion.psm1),
+[component inputs](../../automation/Yuruna.Component.psm1), and
+[chart values](../../automation/Yuruna.Workload.psm1).
 
 ## Test identities and vault
 
 ```mermaid
 erDiagram
     yuruna-project ||--o{ project-root : contains
-    yuruna-project ||--|| test-runner-yml : supplies
+    yuruna-project ||--|| test-runner-yml : contains
     project-root ||--o{ sequence-yml : supplies
     test-runner-yml }o..o{ sequence-yml : selects
     sequence-yml }o..o{ users-yml : names
@@ -208,64 +228,60 @@ erDiagram
     }
 ```
 
-This six-entity view separates the companion repository, individual projects,
-and harness runtime credentials. Dotted relationships are name lookups.
-The `users-yml` fields after `users` belong to each logical user's mapping;
-the `vault-yml` fields after `users` belong to each secret-key entry.
-`strict` belongs to the users document. Logical usernames and vault keys are
-mapping keys.
+The six entities separate the companion repository's runner selection and
+project sequences from the framework's runtime credentials. Dotted relations
+are name lookups. The `users-yml` fields after `users` belong to a logical-user
+entry; the `vault-yml` fields after `users` belong to a secret-key entry.
 
-The companion `test/test.runner.yml` selects top-level sequence names each cycle.
-The sequence resolver checks project files before framework `test/sequences/`.
-`sequenceGuid` persists across renames; `sequenceRevision` distinguishes sequence
-shapes. The guest-sequence schema requires `description`, `keystrokeMechanism`,
-and `resource`; the sequence normalizer defaults an omitted mechanism to `gui`.
-Orchestration and host sequences have different shapes. The `resource` mapping
-lists prerequisite sequences per guest;
-`component` actions run before `workload` actions. These harness records are
-distinct from the deployment YAML. `keystrokeMechanism` selects `gui` or `ssh`.
-Optional `requiresSnapshot.id` identifies a reusable VM and snapshot;
-`snapshotPolicy` adds provenance and age checks.
+The companion [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml)
+lists top-level sequence names. The harness reads this file from its `project/`
+checkout and resolves project sequences before framework `test/sequences/`.
+Guest sequences require `description`, `keystrokeMechanism`, and `resource`
+under the schema. The normalizer supplies `gui` for an omitted mechanism;
+explicit mechanisms are `gui` or `ssh`. The `resource` mapping names ordered
+prerequisites by guest, followed by `component` and then `workload` actions.
+Orchestration and host sequences have separate shapes.
 
-Runtime identity files live at
-`test/status/extension/authentication/users.yml` and `vault.yml` in the framework
-checkout. The committed `users.yml.template` bootstraps the identity mapping.
-`vaultKey` selects the login secret; a configured, nonempty key must already
-have a password. An empty key defaults to the logical username and permits
-password generation. `localOsPasswordRef` selects the local guest-account
-secret and permits generation when missing. The current pre-cycle checker
-scans framework and project sequence YAML for usernames, rather than limiting
-the check to selected top-level sequences. In strict mode it rejects undeclared
-referenced identities and missing explicit `vaultKey` passwords.
+`sequenceGuid` supplies a persistent identity across renames;
+`sequenceRevision` distinguishes changes to the action sequence.
+`requiresSnapshot.id` identifies the reusable snapshot and VM, and an optional
+`snapshotPolicy` adds source provenance and age constraints. These test records
+are separate from the deployment YAML despite their shared phase names.
 
-The runtime initializes the vault only when it is absent and preserves it
-across both successful and failed cycles. The older per-cycle cleanup wording
-in the vault schema's description does not match this current implementation.
+Identity mappings live at `test/status/extension/authentication/users.yml`,
+bootstrapped from the committed `users.yml.template`. Secrets live beside them
+in `vault.yml`. A sequence's logical username can resolve to `localOsUser` and
+to corporate `domain`/`sam` or `upn` login text.
 
-Sources: companion [runner selections](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml)
-and [website sequences](https://github.com/alissonsol/yuruna-project/tree/main/example/website/test);
-framework [sequence resolver](../../test/modules/Test.SequenceResolve.psm1),
-[sequence schema](../../test/schemas/sequence.schema.yml),
+| Mapping | Secret lookup |
+| --- | --- |
+| Empty `vaultKey` | Login uses the logical username as the vault key and can generate its password on first access. |
+| Nonempty `vaultKey` | Login uses that explicit key. The authentication implementation requires an existing entry and does not generate a replacement. |
+| `localOsPasswordRef` | Selects the guest's local account secret, defaulting to the logical username. This path permits generation even for an explicitly named key. |
+
+Strict pre-cycle checks reject undeclared sequence identities and missing
+explicit login secrets. The current checker scans usernames in framework and
+project sequence YAML, not only the selected top-level sequences. Initialization
+creates a vault only if it is absent. Credentials persist across successful and
+failed cycles until explicitly changed or removed; password updates retain the
+previous password and update `updatedUtc`.
+
+Sources: [runner selection](../../test/modules/Test.SequencePlanner.psm1),
+[sequence resolution](../../test/modules/Test.SequenceResolve.psm1),
+[guest schema](../../test/schemas/sequence.schema.yml),
 [users schema](../../test/schemas/users.schema.yml),
 [vault schema](../../test/schemas/vault.schema.yml),
 [identity template](../../test/extension/authentication/users.yml.template),
 [authentication implementation](../../test/extension/authentication/default.psm1),
-[pre-cycle checks](../../test/Test-Config.ps1), and
-[cycle initialization and completion](../../test/modules/Test.RunnerInnerLoop.psm1).
+[pre-cycle validation](../../test/Test-Config.ps1), and
+[cycle initialization](../../test/modules/Test.RunnerInnerLoop.psm1).
 
-Registry credentials follow a separate route:
-[registry dispatch](../../automation/Yuruna.Component.Registry.psm1) and the
-[credential providers](../../automation/Yuruna.CredentialProvider.psm1) support
-Azure ACR, AWS ECR, Google Artifact Registry, Docker Hub, and generic registries
-through CLI or environment credentials. They do not implicitly read the test
-vault. Configured workload commands can create Kubernetes Secrets, as the
-website workloads demonstrate.
-
-The [config service](../../test/service/Start-ConfigService.ps1) uses the harness
-vault for pool and stash storage credentials, combines them with
-`test.config.yml` network-storage settings, and serves them over its authenticated
-guest channel. See [data flows](03-data-flows.md) and
-[deployment](06-deployment.md) for those consumers.
+Registry login uses [credential-provider dispatch](../../automation/Yuruna.Component.Registry.psm1)
+and [CLI or environment credentials](../../automation/Yuruna.CredentialProvider.psm1),
+rather than implicitly reading the test vault. Kubernetes Secrets are created by
+configured workload commands. The [config service](../../test/service/Start-ConfigService.ps1)
+separately reads harness-vault credentials for pool and stash storage; their
+runtime exchange is shown in [Data flows](03-data-flows.md).
 
 ---
 

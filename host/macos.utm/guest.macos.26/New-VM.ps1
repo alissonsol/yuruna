@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42f70b5c-df30-487c-a638-ea7b52866f97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -184,7 +184,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 Import-Module (Join-Path $RepoRoot "automation/Yuruna.Common.psm1") -Force -DisableNameChecking
 
-if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
+if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }

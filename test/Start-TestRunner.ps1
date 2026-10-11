@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,20 +35,28 @@
 
 .DESCRIPTION
     See https://yuruna.link/42010605-0002.
-.PARAMETER ConfigPath           test.config.yml path (forwarded to inner)
-.PARAMETER NoGitPull            Skip git pull (forwarded; outer also skips its own pull)
-.PARAMETER NoStatusService      Skip the built-in HTTP status service (forwarded)
-.PARAMETER NoConfigGate         Skip the startup and per-cycle Test-Config.ps1 gate (forwarded)
-.PARAMETER CycleDelaySeconds    Pause between cycles inside the inner (forwarded; default 30)
-.PARAMETER logLevel             Error|Warning|Information|Verbose|Debug (forwarded)
-.PARAMETER RefreshResume        Internal: set only by a host-refresh worker restarting this
-                                runner. Startup keeps the operator's pauses, holds and restart
-                                request, never takes over or deletes a live or unknown runner
-                                record, never prompts, and runs one preflight cycle before the
-                                first ordinary one. Requires -RefreshHandoffToken.
-.PARAMETER RefreshHandoffToken  Internal: the handoff token (32 lowercase hex) that admits this
-                                runner's preflight chain. Requires -RefreshResume. Neither
-                                internal parameter reaches the inner or the launch record.
+.PARAMETER ConfigPath
+    test.config.yml path (forwarded to inner)
+.PARAMETER NoGitPull
+    Skip git pull (forwarded; outer also skips its own pull)
+.PARAMETER NoStatusService
+    Skip the built-in HTTP status service (forwarded)
+.PARAMETER NoConfigGate
+    Skip the startup and per-cycle Test-Config.ps1 gate (forwarded)
+.PARAMETER CycleDelaySeconds
+    Pause between cycles inside the inner (forwarded; default 30)
+.PARAMETER logLevel
+    Error|Warning|Information|Verbose|Debug (forwarded)
+.PARAMETER RefreshResume
+    Internal: set only by a host-refresh worker restarting this
+    runner. Startup keeps the operator's pauses, holds and restart
+    request, never takes over or deletes a live or unknown runner
+    record, never prompts, and runs one preflight cycle before the
+    first ordinary one. Requires -RefreshHandoffToken.
+.PARAMETER RefreshHandoffToken
+    Internal: the handoff token (32 lowercase hex) that admits this
+    runner's preflight chain. Requires -RefreshResume. Neither
+    internal parameter reaches the inner or the launch record.
 
 Strict binding: an unknown or misspelled parameter is a binding error, never a
 value silently absorbed into $args while the runner starts on defaults.
@@ -140,6 +148,19 @@ if (-not (Test-Path -LiteralPath $InnerScript)) {
 # ConfigGate, Capability, and SingleInstance. See
 # Initialize-YurunaEntryPointModuleSet for the per-kind module lists.
 Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
+
+# --- REGION: Private startup state
+# sg relaunches pwsh noninteractively. Repair private files while the original
+# terminal can still answer sudo, including locks left owned by a root launch.
+if (-not $RefreshResume) {
+    Import-Module (Join-Path $ModulesDir 'Test.PrivateStateRepair.psm1') -DisableNameChecking
+    $privateState = Repair-YurunaStartupPrivateState -AllowPrompt -RepairFileAccess:(!$IsWindows) `
+        -ServedRoot @($RepoRoot, $paths.StatusDir, $env:YURUNA_RUNTIME_DIR, $env:YURUNA_LOG_DIR) -Confirm:$false
+    if (-not $privateState.Resolved) {
+        Write-Error "Runner private state could not be prepared ($($privateState.Reason)). Start the runner from an interactive terminal to allow any required sudo authentication."
+        exit (Get-EntryPointExitCode -Outcome Failure)
+    }
+}
 
 # See https://yuruna.link/42010605-0002
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters

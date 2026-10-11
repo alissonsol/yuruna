@@ -4688,8 +4688,8 @@
         },
         {
           "id": "429fb30b-0015",
-          "heading": "Enable-TestAutomation.ps1 is NOT auto-run",
-          "slug": "enable-testautomationps1-is-not-auto-run"
+          "heading": "Host automation settings after installation",
+          "slug": "host-automation-settings-after-installation"
         },
         {
           "id": "429fb30b-0016",
@@ -8154,6 +8154,11 @@
           "slug": "workload-configuration-boundaries"
         },
         {
+          "id": "42e220c4-0019",
+          "heading": "Automation entrypoints",
+          "slug": "automation-entrypoints"
+        },
+        {
           "id": "42e220c4-000a",
           "heading": "Automated checks",
           "slug": "automated-checks"
@@ -8167,6 +8172,36 @@
           "id": "42e220c4-000c",
           "heading": "Windows unattended setup",
           "slug": "windows-unattended-setup"
+        },
+        {
+          "id": "42e220c4-0016",
+          "heading": "Dependency probe contract",
+          "slug": "dependency-probe-contract"
+        },
+        {
+          "id": "42e220c4-0017",
+          "heading": "Standalone diagnostic dependencies",
+          "slug": "standalone-diagnostic-dependencies"
+        },
+        {
+          "id": "42e220c4-0013",
+          "heading": "Extension module boundaries",
+          "slug": "extension-module-boundaries"
+        },
+        {
+          "id": "42e220c4-0018",
+          "heading": "Guest update shutdown boundaries",
+          "slug": "guest-update-shutdown-boundaries"
+        },
+        {
+          "id": "42e220c4-0014",
+          "heading": "Test fixture placement",
+          "slug": "test-fixture-placement"
+        },
+        {
+          "id": "42e220c4-0015",
+          "heading": "Installer preflight",
+          "slug": "installer-preflight"
         }
       ]
     },
@@ -8318,6 +8353,11 @@
           "id": "423ef7f5-0012",
           "heading": "Heuristic 4: local registry image not referenced by any pod",
           "slug": "heuristic-4-local-registry-image-not-referenced-by-any-pod"
+        },
+        {
+          "id": "423ef7f5-0014",
+          "heading": "Guest evidence across CPU restarts and stalls",
+          "slug": "guest-evidence-across-cpu-restarts-and-stalls"
         }
       ]
     },
@@ -8982,6 +9022,11 @@
           "id": "428e4df6-0038",
           "heading": "Naming collisions to watch",
           "slug": "naming-collisions-to-watch"
+        },
+        {
+          "id": "428e4df6-003a",
+          "heading": "saveGuestClockSnapshot",
+          "slug": "saveguestclocksnapshot"
         }
       ]
     },
@@ -9082,6 +9127,11 @@
           "id": "429f3d06-0012",
           "heading": "Disable VT blanking on the LIVE installer kernel",
           "slug": "disable-vt-blanking-on-the-live-installer-kernel"
+        },
+        {
+          "id": "429f3d06-009c",
+          "heading": "Keep the tmpfiles-clean timer from firing in the LIVE installer",
+          "slug": "keep-the-tmpfiles-clean-timer-from-firing-in-the-live-installer"
         },
         {
           "id": "429f3d06-0013",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42093d47-05e6-02af-9320-e715f26a3f72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,8 @@
 # locale: qps-Ploc  domain: automation
 
 @{
+    'automation.diagnostic_checkout_unavailable' = '[(ñóţ áƥƥļíçáƀļé: çħéçķóúţ éṽíďéñçé íš úñáṽáíļáƀļé; ƥášš -ÇħéçķóúţŘóóţ ţó úšé áñ éẋíšţíñğ Ýúřúñá çħéçķóúţ) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'automation.diagnostic_phase_log_limits' = '[Ƥħášé ļóğ šçáñ íš ļíɱíţéď ţó 100 ƒíļéš, 12 ďířéçţóřý ļéṽéļš, áñď 10 šéçóñďš; éáçħ ļóğ šħóŵš áţ ɱóšţ íţš ļášţ 64 ĶíɃ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'automation.host_setup_module_install_skipped' = @(
         '['
         @{

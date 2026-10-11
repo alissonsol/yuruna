@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42236bc2-fc6c-4607-abaa-81fea9bc8e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -243,6 +243,152 @@ Describe 'the scaffolds' {
             (Get-YurunaTestFunctionAst -Path $f -Name 'Missing')   | Should -BeNullOrEmpty
         } finally { Remove-YurunaTestTempDir $dir }
     }
+
+    It 'names a temp directory after the caller prefix, directly under the temp root' {
+        # A suite that wraps this helper passes its own prefix, so a directory left
+        # behind by a failed run still names the suite it came from.
+        $dir = New-YurunaTestTempDir -Prefix 'yrn-sample'
+        try {
+            $dir | Should -BeOfType ([string])
+            $leaf = [IO.Path]::GetFileName($dir)
+            $leaf | Should -Match '^yrn-sample-[0-9a-f]{32}$'
+            $dir | Should -Be (Join-Path ([IO.Path]::GetTempPath()) $leaf)
+        } finally { Remove-YurunaTestTempDir $dir }
+    }
+
+    It 'returns the same AST for an unchanged file and parses again once it changes' {
+        # A suite asks for the same file in test after test. The cache has to be
+        # invisible to it: one parse per file, never a stale tree.
+        $dir = New-YurunaTestTempDir
+        try {
+            $f = Join-Path $dir 'mod.ps1'
+            Set-Content -LiteralPath $f -Value 'function Alpha { 1 }' -Encoding utf8NoBOM
+            $first = Get-YurunaTestFileAst -Path $f
+            [object]::ReferenceEquals($first, (Get-YurunaTestFileAst -Path $f)) | Should -BeTrue
+
+            # The new text is longer, so the change is seen whatever the file
+            # system's timestamp resolution is.
+            Set-Content -LiteralPath $f -Value "function Alpha { 1 }`nfunction Beta { 2 }" -Encoding utf8NoBOM
+            $second = Get-YurunaTestFileAst -Path $f
+            [object]::ReferenceEquals($first, $second) | Should -BeFalse
+            (Get-YurunaTestFunctionAst -Ast $second -Name 'Beta').Name | Should -Be 'Beta'
+        } finally { Remove-YurunaTestTempDir $dir }
+    }
+
+    It 'throws naming the file when it is missing' {
+        # A loader that tolerates a missing file hands back an empty tree, and a
+        # guard asserting that something is absent then passes against nothing.
+        $name = 'yuruna-absent-' + [guid]::NewGuid().ToString('N') + '.ps1'
+        $missing = Join-Path ([IO.Path]::GetTempPath()) $name
+        try { $null = Get-YurunaTestFileAst -Path $missing; throw 'unreachable' }
+        catch { $_.Exception.Message | Should -Match ([regex]::Escape($name)) }
+        try { $null = Get-YurunaTestFunctionAst -Path $missing -Name 'Alpha'; throw 'unreachable' }
+        catch { $_.Exception.Message | Should -Match ([regex]::Escape($name)) }
+    }
+
+    It 'looks a function up in an AST it is handed, first match in document order' {
+        $text = "function Outer {`n    function Inner { 'nested' }`n}`nfunction Inner { 'top' }`nfunction Beta { 2 }"
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
+        (Get-YurunaTestFunctionAst -Ast $ast -Name 'Beta').Name | Should -Be 'Beta'
+        (Get-YurunaTestFunctionAst -Ast $ast -Name 'Inner').Extent.Text | Should -Match 'nested'
+        (Get-YurunaTestFunctionAst -Ast $ast -Name 'Missing') | Should -BeNullOrEmpty
+        # -FunctionName is the spelling most suites use, and names match without regard to case.
+        (Get-YurunaTestFunctionAst -Ast $ast -FunctionName 'beta').Name | Should -Be 'Beta'
+        $outer = Get-YurunaTestFunctionAst -Ast $ast -Name 'Outer'
+        (Get-YurunaTestFunctionAst -Ast $outer -Name 'Inner').Extent.Text | Should -Match 'nested'
+    }
+}
+
+Describe 'Get-YurunaTestCommandCallCount' {
+    BeforeAll {
+        # Every line is one way a name can appear in source. The structural guards
+        # across the suites assert exact counts, so which of these is an
+        # invocation is the contract.
+        $script:CallText = @'
+Foo
+foo -x 1
+& Foo
+& 'Foo'
+. Foo
+Yuruna.Common\Foo
+& $command
+function Foo { Foo }
+$block = { Foo }
+"text $(Foo)"
+Foo.exe
+@(1) | ForEach-Object { Foo }
+Export-ModuleMember -Function Foo
+$sorted = Foo | Sort-Object
+& (Get-Module M) { Foo }
+# Foo in a comment
+'Foo in a string'
+'@
+        $script:CallAst = [System.Management.Automation.Language.Parser]::ParseInput($script:CallText, [ref]$null, [ref]$null)
+    }
+
+    It 'counts every invocation by its static name, at any depth, ignoring case' {
+        # Lines 1-5 and 14, plus the calls nested in the function body, the
+        # scriptblocks and the subexpression.
+        Get-YurunaTestCommandCallCount -Ast $script:CallAst -CommandName 'Foo' | Should -Be 11
+        Get-YurunaTestCommandCallCount -Ast $script:CallAst -CommandName 'FOO' | Should -Be 11
+    }
+
+    It 'does not count a definition, an export, another command, a comment or a string' {
+        # Were any of these counted, the total above would be higher: the
+        # definition on line 8, the Export-ModuleMember bareword, Foo.exe, the
+        # call through a variable, the comment and the string.
+        Get-YurunaTestCommandCallCount -Ast $script:CallAst -CommandName 'Foo.exe' | Should -Be 1
+        Get-YurunaTestCommandCallCount -Ast $script:CallAst -CommandName 'Export-ModuleMember' | Should -Be 1
+        Get-YurunaTestCommandCallCount -Ast $script:CallAst -CommandName '$command' | Should -Be 0
+        Get-YurunaTestCommandCallCount -Ast $script:CallAst -CommandName 'Foo in a string' | Should -Be 0
+    }
+
+    It 'counts a module-qualified call only under its qualified name' {
+        # The qualifier is part of the static name. Folding it away would change
+        # every exact count a suite asserts on a file that uses both spellings.
+        Get-YurunaTestCommandCallCount -Ast $script:CallAst -CommandName 'Yuruna.Common\Foo' | Should -Be 1
+    }
+
+    It 'returns zero, as an int, when the command is never called' {
+        $count = Get-YurunaTestCommandCallCount -Ast $script:CallAst -CommandName 'Never-Called'
+        $count | Should -Be 0
+        $count | Should -BeOfType ([int])
+    }
+
+    It 'counts inside the node it is handed, not the whole file' {
+        $function = Get-YurunaTestFunctionAst -Ast $script:CallAst -Name 'Foo'
+        Get-YurunaTestCommandCallCount -Ast $function -CommandName 'Foo' | Should -Be 1
+    }
+
+    It 'accepts the historical -Name spelling and positional arguments' {
+        Get-YurunaTestCommandCallCount -Ast $script:CallAst -Name 'Foo' | Should -Be 11
+        Get-YurunaTestCommandCallCount $script:CallAst 'Foo' | Should -Be 11
+    }
+
+    It 'rejects a missing AST instead of reporting zero' {
+        # A lookup that found no function hands on nothing. Zero calls in nothing
+        # would let a "never calls X" guard pass against a function that is gone.
+        $failure = $null
+        try { $null = Get-YurunaTestCommandCallCount -Ast $null -CommandName 'Foo' } catch { $failure = $_ }
+        $failure | Should -Not -BeNullOrEmpty
+        $failure.Exception | Should -BeOfType ([System.Management.Automation.ParameterBindingException])
+    }
+
+    It 'agrees with a direct search of the command nodes, for every command in a real module' {
+        # The expression below is the search spelled out. The suites assert exact
+        # counts that it defines, so the helper is held to it over a whole module.
+        $ast = Get-YurunaTestFileAst -Path (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
+        $names = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) |
+                ForEach-Object { $_.GetCommandName() } | Where-Object { $_ } | Sort-Object -Unique)
+        $names.Count | Should -BeGreaterThan 20
+        foreach ($name in $names) {
+            $expected = @($ast.FindAll({
+                        param($n)
+                        $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $name
+                    }, $true)).Count
+            Get-YurunaTestCommandCallCount -Ast $ast -CommandName $name | Should -Be $expected
+        }
+    }
 }
 
 Describe 'Invoke-YurunaTestShell failure diagnostics' {
@@ -315,7 +461,11 @@ public sealed class BrowserPortFileLockFixture : IDisposable {
             $watch.ElapsedMilliseconds | Should -BeLessThan 1500
         } finally { $lock.Dispose() }
     }
+}
 
+Describe 'a browser port-file error that is not a sharing lock' {
+    # Only the retry is Windows behavior. An error of any other kind leaves the
+    # wait at once on every platform, so this case runs on all of them.
     It 'propagates an unrelated port-file access error immediately' {
         $path = Join-Path $TestDrive 'port-is-directory'
         $null = New-Item -ItemType Directory -Path $path
@@ -327,7 +477,13 @@ public sealed class BrowserPortFileLockFixture : IDisposable {
             } $path ([DateTime]::UtcNow.AddSeconds(3))
         } catch { $failure = $_ }
         $failure | Should -Not -BeNullOrEmpty
-        $failure.Exception.GetBaseException() | Should -BeOfType ([UnauthorizedAccessException])
+        # Reading a directory is refused with the same exception everywhere,
+        # but it is the base exception only on Windows: elsewhere .NET hangs
+        # the errno beneath it as an inner IOException. Walking down to the
+        # refusal reaches the same object on Windows and finds it on the rest.
+        $denial = $failure.Exception
+        while ($denial -and $denial -isnot [UnauthorizedAccessException]) { $denial = $denial.InnerException }
+        $denial | Should -BeOfType ([UnauthorizedAccessException])
     }
 }
 

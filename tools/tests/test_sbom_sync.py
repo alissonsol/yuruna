@@ -59,6 +59,7 @@ class SbomSyncTests(unittest.TestCase):
 
     def enable_hook(self):
         self.write("tools/githooks/pre-commit", (TOOLS / "githooks/pre-commit").read_bytes().replace(b"\r\n", b"\n"))
+        (self.root / "tools/githooks/pre-commit").chmod(0o755)
         self.git("add", "--chmod=+x", "tools/githooks/pre-commit")
         self.git("config", "core.hooksPath", "tools/githooks")
 
@@ -182,6 +183,82 @@ class SbomSyncTests(unittest.TestCase):
         self.assertEqual(original, selected.with_name(selected.name + ".previous").read_bytes())
         status = self.git("diff", "--cached", "--no-renames", "--name-status").decode()
         self.assertIn("D\t" + selected.relative_to(self.root).as_posix(), status)
+
+# --- REGION: Index identity revalidation
+    def test_staging_reads_repository_blobs_only_once(self):
+        with patch.object(sync, "git", wraps=sync.git) as calls:
+            self.assertEqual(0, self.run_sync("--staged", "--stage"))
+        batches = [call for call in calls.call_args_list if call.args[1:3] == ("cat-file", "--batch")]
+        listings = [call for call in calls.call_args_list if call.args[1:4] == ("ls-files", "--stage", "-z")]
+        self.assertEqual(1, len(batches))
+        self.assertEqual(2, len(listings))
+
+    def assert_concurrent_change_rejected(self, change):
+        self.establish()
+        original = self.current()
+        self.write("VERSION", "2.0.0\n")
+        self.git("add", "VERSION")
+        generate = sync.generate
+        def change_after_generation(files):
+            result = generate(files)
+            change()
+            return result
+        with patch.object(sync, "generate", side_effect=change_after_generation):
+            self.assertEqual(2, self.run_sync("--staged", "--stage"))
+        self.assertEqual(original, self.current())
+        self.assertFalse((self.root / "docs/sbom/repository.spdx.json.previous").exists())
+        self.assertEqual(original, self.git("show", ":docs/sbom/repository.spdx.json"))
+
+    def test_concurrent_source_content_change_rolls_back_outputs(self):
+        def change():
+            self.write("VERSION", "3.0.0\n")
+            self.git("add", "VERSION")
+        self.assert_concurrent_change_rejected(change)
+
+    def test_concurrent_source_addition_rolls_back_outputs(self):
+        def change():
+            self.write("new [source].txt", "new source\n")
+            self.git("add", "new [source].txt")
+        self.assert_concurrent_change_rejected(change)
+
+    def test_concurrent_source_deletion_rolls_back_outputs(self):
+        self.assert_concurrent_change_rejected(lambda: self.git("rm", "LICENSE"))
+
+    def test_concurrent_source_rename_rolls_back_outputs(self):
+        self.assert_concurrent_change_rejected(lambda: self.git("mv", "LICENSE", "renamed-license"))
+
+    def test_concurrent_mode_change_rolls_back_outputs(self):
+        self.assert_concurrent_change_rejected(lambda: self.git("update-index", "--chmod=+x", "VERSION"))
+
+    def test_concurrent_index_conflict_rolls_back_outputs(self):
+        def change():
+            oid = self.git("rev-parse", ":VERSION").strip()
+            subprocess.run(["git", "-C", str(self.root), "update-index", "--index-info"],
+                           input=b"0 " + b"0" * 40 + b"\tVERSION\n100644 " + oid + b" 1\tVERSION\n",
+                           check=True, capture_output=True)
+        self.assert_concurrent_change_rejected(change)
+
+    def test_alternate_index_revalidation_does_not_read_the_main_index(self):
+        import os
+        alternate = self.root / ".git/alternate-index"
+        alternate.write_bytes((self.root / ".git/index").read_bytes())
+        self.write("only-in-main.txt", "unrelated\n")
+        self.git("add", "only-in-main.txt")
+        with patch.dict(os.environ, {"GIT_INDEX_FILE": str(alternate)}):
+            self.assertEqual(0, self.run_sync("--staged", "--stage"))
+            inventory = json.loads(self.git("show", ":docs/sbom/inventory.json"))
+            self.assertNotIn("only-in-main.txt", inventory["sourceFiles"])
+        self.assertNotIn(b"docs/sbom/inventory.json", self.git("ls-files"))
+
+    def test_source_identity_excludes_output_backups_but_includes_document_paths(self):
+        self.write("docs/sbom/repository.spdx.json.previous", "large backup\n")
+        self.write("docs/source [reference].md", "source document\n")
+        self.git("add", "-A")
+        files = sync.read_snapshot(self.root, staged=True)
+        paths = {path for path, _, _ in files.source_index}
+        self.assertNotIn("docs/sbom/repository.spdx.json.previous", paths)
+        self.assertIn("docs/source [reference].md", paths)
+        self.assertEqual(b"large backup\n", files["docs/sbom/repository.spdx.json.previous"])
 
 # --- REGION: Portable reproducibility
     def test_text_crlf_matches_lf_without_altering_binary_bytes(self):

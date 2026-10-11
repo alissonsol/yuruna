@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4270c5ae-4f32-42b7-a8e4-08bd28d7d218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,113 @@ Describe 'Cache host discovery honors explicit remote topology' {
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = 'invalid'
             Resolve-CacheHostIp | Should -BeNullOrEmpty
         } finally { $env:YURUNA_CACHING_PROXY_SERVICE_IP = $prior }
+    }
+}
+Describe 'Cache exposure follows the configured guest network' {
+    It 'classifies UTM <Case> without changing host networking' -ForEach @(
+        @{ Case = 'bridged attachment'; Present = $true; Readable = $true; Mode = 'Bridged'; Expected = $true },
+        @{ Case = 'shared NAT attachment'; Present = $true; Readable = $true; Mode = 'Shared'; Expected = $false },
+        @{ Case = 'unknown attachment'; Present = $true; Readable = $true; Mode = 'Unknown'; Expected = $false },
+        @{ Case = 'missing network mode'; Present = $true; Readable = $true; Mode = ''; Expected = $false },
+        @{ Case = 'unreadable bridged bundle'; Present = $true; Readable = $false; Mode = 'Bridged'; Expected = $false },
+        @{ Case = 'missing bundle'; Present = $false; Readable = $false; Mode = ''; Expected = $false }
+    ) {
+        . ([scriptblock]::Create((Get-SourceFunction 'host/macos.utm/modules/Yuruna.Host.psm1' 'Test-CacheVMOnExternalNetwork')))
+        function Get-UtmBundleNetwork {
+            param($VMName)
+            $VMName | Should -Be 'custom-cache'
+            if ($Present) { return [pscustomobject]@{ Readable = $Readable; Mode = $Mode } }
+            return $null
+        }
+        function Get-MacDefaultRouteInterface { throw 'The current uplink cannot describe an existing VM.' }
+        Test-CacheVMOnExternalNetwork -VMName 'custom-cache' | Should -Be $Expected
+    }
+
+    It 'classifies KVM <Case> using the actual first NIC and network definition' -ForEach @(
+        @{ Case = 'custom NAT'; Domain = '<interface type="network"><source network="custom-nat"/></interface>'; Network = '<network><forward mode="nat"/></network>'; Expected = $false },
+        @{ Case = 'custom routed network'; Domain = '<interface type="network"><source network="custom-route"/></interface>'; Network = '<network><forward mode="route"/></network>'; Expected = $false },
+        @{ Case = 'custom isolated network'; Domain = '<interface type="network"><source network="custom-isolated"/></interface>'; Network = '<network><bridge name="virbr7"/></network>'; Expected = $false },
+        @{ Case = 'custom host bridge'; Domain = '<interface type="network"><source network="custom-bridge"/></interface>'; Network = '<network><forward mode="bridge"/></network>'; Expected = $true },
+        @{ Case = 'a bridge named default'; Domain = '<interface type="network"><source network="default"/></interface>'; Network = '<network><forward mode="bridge"/></network>'; Expected = $true },
+        @{ Case = 'reordered network attributes'; Domain = '<interface type="network"><source portgroup="cache" network="custom-bridge"/></interface>'; Network = "<network><forward managed='yes' mode='bridge'/></network>"; Expected = $true },
+        @{ Case = 'a direct host bridge NIC'; Domain = '<interface type="bridge"><source bridge="br0"/></interface>'; Network = ''; Expected = $true },
+        @{ Case = 'a host bridge NIC without its source'; Domain = '<interface type="bridge"/>'; Network = ''; Expected = $false },
+        @{ Case = 'a NAT primary NIC before a bridge'; Domain = '<interface type="network"><source network="custom-nat"/></interface><interface type="bridge"><source bridge="br0"/></interface>'; Network = '<network><forward mode="nat"/></network>'; Expected = $false },
+        @{ Case = 'an unsupported direct NIC'; Domain = '<interface type="direct"><source dev="eth0"/></interface>'; Network = ''; Expected = $false },
+        @{ Case = 'a missing NIC'; Domain = ''; Network = ''; Expected = $false }
+    ) {
+        foreach ($name in 'Test-CacheVMOnExternalNetwork', 'Test-YurunaLibvirtNetworkIsBridgeMode') {
+            . ([scriptblock]::Create((Get-SourceFunction 'host/ubuntu.kvm/modules/Yuruna.Host.psm1' $name)))
+        }
+        $script:NetworkQueries = @()
+        function Get-VirshDomState { param($VMName); $VMName | Should -Be 'custom-cache'; return 'running' }
+        function Invoke-Virsh {
+            param($VirshArgs)
+            $global:LASTEXITCODE = 0
+            if ($VirshArgs[0] -eq 'dumpxml') {
+                $VirshArgs[1] | Should -Be 'custom-cache'
+                return "<domain><devices>$Domain</devices></domain>"
+            }
+            if ($VirshArgs[0] -ne 'net-dumpxml') { throw 'Unexpected native query.' }
+            $script:NetworkQueries += $VirshArgs[1]
+            return $Network
+        }
+        Test-CacheVMOnExternalNetwork -VMName 'custom-cache' | Should -Be $Expected
+        if ($Domain -match 'network="([^"]+)"') {
+            $script:NetworkQueries | Should -Be @($Matches[1])
+        } else {
+            $script:NetworkQueries | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'refuses KVM LAN-direct exposure after <Case>' -ForEach @(
+        @{ Case = 'missing domain'; Stage = 'state'; ExitCode = 0; Xml = '' },
+        @{ Case = 'failed domain query'; Stage = 'domain'; ExitCode = 1; Xml = '<domain><devices><interface type="bridge"><source bridge="br0"/></interface></devices></domain>' },
+        @{ Case = 'malformed domain XML'; Stage = 'domain'; ExitCode = 0; Xml = '<domain><devices>' },
+        @{ Case = 'failed network query with bridge-shaped output'; Stage = 'network'; ExitCode = 1; Xml = '<network><forward mode="bridge"/></network>' },
+        @{ Case = 'malformed network XML'; Stage = 'network'; ExitCode = 0; Xml = '<network><forward mode="bridge"/>' },
+        @{ Case = 'missing network XML'; Stage = 'network'; ExitCode = 0; Xml = '' }
+    ) {
+        foreach ($name in 'Test-CacheVMOnExternalNetwork', 'Test-YurunaLibvirtNetworkIsBridgeMode') {
+            . ([scriptblock]::Create((Get-SourceFunction 'host/ubuntu.kvm/modules/Yuruna.Host.psm1' $name)))
+        }
+        function Get-VirshDomState { param($VMName); if ($Stage -ne 'state') { return 'running' }; return $null }
+        function Invoke-Virsh {
+            param($VirshArgs)
+            if ($Stage -eq 'state') { throw 'No native query is allowed for an absent domain.' }
+            if ($VirshArgs[0] -eq 'dumpxml' -and $Stage -ne 'domain') {
+                $global:LASTEXITCODE = 0
+                return '<domain><devices><interface type="network"><source network="cache"/></interface></devices></domain>'
+            }
+            $global:LASTEXITCODE = $ExitCode
+            return $Xml
+        }
+        Test-CacheVMOnExternalNetwork -VMName 'custom-cache' | Should -BeFalse
+    }
+}
+Describe 'Cache VM address reads agree across providers' {
+    It 'returns the recorded guest address on <Platform>' -ForEach @(
+        @{ Platform = 'windows.hyper-v' }, @{ Platform = 'macos.utm' }, @{ Platform = 'ubuntu.kvm' }
+    ) {
+        . ([scriptblock]::Create((Get-SourceFunction "host/$Platform/modules/Yuruna.Host.psm1" 'Get-CachingProxyServiceVmIp')))
+        function Read-CachingProxyServiceState { return @{ ipAddress = '192.0.2.25' } }
+        function Test-Ipv4Address { param($Address); return $Address -eq '192.0.2.25' }
+        function Test-IpAddress { param($Address); return $Address -eq '192.0.2.25' }
+        function Get-VMIp { throw 'The recorded address must not trigger a live query.' }
+        Get-CachingProxyServiceVmIp | Should -Be '192.0.2.25'
+    }
+
+    It 'does not use invalid recorded address <Address> on <Platform>' -ForEach @(
+        @{ Platform = 'windows.hyper-v'; Address = '' }, @{ Platform = 'windows.hyper-v'; Address = 'not-an-address' },
+        @{ Platform = 'macos.utm'; Address = '' }, @{ Platform = 'macos.utm'; Address = 'not-an-address' },
+        @{ Platform = 'ubuntu.kvm'; Address = '' }, @{ Platform = 'ubuntu.kvm'; Address = 'not-an-address' }
+    ) {
+        . ([scriptblock]::Create((Get-SourceFunction "host/$Platform/modules/Yuruna.Host.psm1" 'Get-CachingProxyServiceVmIp')))
+        function Read-CachingProxyServiceState { return @{ ipAddress = $Address } }
+        function Test-Ipv4Address { return $false }
+        function Test-IpAddress { return $false }
+        function Get-VMIp { param($VMName); $VMName | Should -Be 'yuruna-caching-proxy-service'; return $null }
+        Get-CachingProxyServiceVmIp | Should -BeNullOrEmpty
     }
 }
 Describe 'Windows guest bootstrap inputs agree across hosts' {
@@ -196,6 +303,102 @@ Describe 'Orphan classification preserves the distinction between VM disks and s
         $allFiles = @('C:\VMDisks\registered\registered.vhdx')
         $ErrorActionPreference = 'Continue'
         { & ([scriptblock]::Create($inventory)) } | Should -Throw '*inventory unavailable*'
+    }
+}
+Describe 'Orphan cleanup reports owned-operation failures across providers' {
+    It 'returns <Expected> after <Case> while attempting every orphan on <Platform>' -ForEach @(
+        @{ Platform = 'macos.utm'; Case = 'successful deletion'; FailFirst = 0; Expected = 0 }
+        @{ Platform = 'macos.utm'; Case = 'one failed deletion'; FailFirst = 1; Expected = 1 }
+        @{ Platform = 'ubuntu.kvm'; Case = 'successful deletion'; FailFirst = 0; Expected = 0 }
+        @{ Platform = 'ubuntu.kvm'; Case = 'one failed deletion'; FailFirst = 1; Expected = 1 }
+        @{ Platform = 'windows.hyper-v'; Case = 'successful deletion'; FailFirst = 0; Expected = 0 }
+        @{ Platform = 'windows.hyper-v'; Case = 'one failed deletion'; FailFirst = 1; Expected = 1 }
+    ) {
+        $source = Get-Content (Join-Path $script:RepoRoot "host/$Platform/Remove-OrphanedVMFiles.ps1") -Raw
+        $region = $source.Substring($source.IndexOf('# --- REGION: Delete orphaned VM artifacts', [StringComparison]::Ordinal))
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $root
+        foreach ($name in 'first', 'second') { Set-Content -LiteralPath (Join-Path $root $name) -Value 'owned fixture' }
+        $fixture = @'
+param([string]$Root, [int]$FailFirst)
+$ErrorActionPreference = 'Stop'
+$Force = $true
+$errors = 0
+$orphanedFiles = @((Join-Path $Root 'first'), (Join-Path $Root 'second'))
+$orphanedItems = @($orphanedFiles | ForEach-Object { @{ Name = [IO.Path]::GetFileName($_); Path = $_; Size = 1 } })
+$scanPaths = @()
+$virshUri = 'fixture'
+$utmctlPath = 'fixture'
+$global:LASTEXITCODE = 17
+function Format-YurunaOperatorMessage { param($Key, $Arguments, $FormatValues, $FormatBindings); return $Key }
+function Write-CleanupMessage { param($Message) }
+function Get-UTMBundleUUID { return 'fixture-uuid' }
+function Invoke-OrphanSweepUtmctl { return @{ Complete = $true; ExitCode = 0 } }
+function Get-OrphanSweepRegistration { $global:LASTEXITCODE = 17; return 'absent' }
+function virsh { $global:LASTEXITCODE = 1; return 'Domain not found' }
+function Remove-Item {
+    param($LiteralPath, [switch]$Force, [switch]$Recurse, $ErrorAction)
+    Add-Content -LiteralPath (Join-Path $Root 'attempts') -Value ([IO.Path]::GetFileName($LiteralPath))
+    if ($FailFirst -eq 1 -and [IO.Path]::GetFileName($LiteralPath) -eq 'first') { throw 'fixture refusal' }
+    Microsoft.PowerShell.Management\Remove-Item -LiteralPath $LiteralPath -Force:$Force -Recurse:$Recurse -ErrorAction $ErrorAction
+}
+'@
+        $path = Join-Path $root 'sweep.ps1'
+        [IO.File]::WriteAllText($path, $fixture + "`n" + $region)
+        $pwsh = (Get-Process -Id $PID).Path
+        $output = & $pwsh -NoLogo -NoProfile -NonInteractive -File $path -Root $root -FailFirst $FailFirst 2>&1
+        $code = $LASTEXITCODE
+        $code | Should -Be $Expected -Because (($output | Out-String).Trim())
+        @(Get-Content -LiteralPath (Join-Path $root 'attempts')) | Should -Be @('first', 'second')
+        Test-Path -LiteralPath (Join-Path $root 'first') | Should -Be ([bool]$FailFirst)
+        Test-Path -LiteralPath (Join-Path $root 'second') | Should -BeFalse
+    }
+
+    It 'preserves an ACL maintenance failure when no orphan needs deletion' {
+        $source = Get-Content (Join-Path $script:RepoRoot 'host/windows.hyper-v/Remove-OrphanedVMFiles.ps1') -Raw
+        $region = $source.Substring($source.IndexOf('# --- REGION: Strip stale per-VM ACEs from kept base images', [StringComparison]::Ordinal))
+        $fixture = @'
+$protectedFiles = @('protected-base-image')
+$orphanedFiles = @()
+function Remove-OrphanedVMFileAccess { throw 'fixture ACL refusal' }
+function Format-YurunaOperatorMessage { param($Key, $Arguments); return $Key }
+function Write-CleanupMessage { param($Message) }
+'@
+        $path = Join-Path $TestDrive 'acl-maintenance.ps1'
+        [IO.File]::WriteAllText($path, $fixture + "`n" + $region)
+        $pwsh = (Get-Process -Id $PID).Path
+        $output = & $pwsh -NoLogo -NoProfile -NonInteractive -File $path 2>&1
+        $code = $LASTEXITCODE
+        $code | Should -Be 1
+        ($output | Out-String) | Should -Match 'host.operator_a2a687435a04d1fc'
+    }
+}
+Describe 'Orphan folder sizing preserves literal paths and Int64 results' {
+    BeforeAll {
+        . ([scriptblock]::Create((Get-SourceFunction 'host/modules/Yuruna.VMCleanup.psm1' 'Get-VMFolderSize')))
+    }
+    It 'returns Int64 zero for an <Case> folder' -ForEach @(
+        @{ Case = 'empty'; Create = $true }
+        @{ Case = 'absent'; Create = $false }
+    ) {
+        $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        if ($Create) { $null = New-Item -ItemType Directory -Path $path }
+        $size = Get-VMFolderSize -Path $path
+        $size | Should -BeOfType ([int64])
+        $size | Should -Be 0
+    }
+    It 'sums nested files without interpreting bracketed names as wildcards' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $path = Join-Path $root 'guest[1]'
+        $nested = Join-Path $path 'nested'
+        $lookalike = Join-Path $root 'guest1'
+        $null = New-Item -ItemType Directory -Path $nested, $lookalike -Force
+        [IO.File]::WriteAllBytes((Join-Path $path 'first'), [byte[]]@(1, 2, 3))
+        [IO.File]::WriteAllBytes((Join-Path $nested 'second'), [byte[]]@(4, 5, 6, 7, 8))
+        [IO.File]::WriteAllBytes((Join-Path $lookalike 'other'), [byte[]]::new(97))
+        $size = Get-VMFolderSize -Path $path
+        $size | Should -BeOfType ([int64])
+        $size | Should -Be 8
     }
 }
 Describe 'VM provisioning fails immediately on non-terminating cmdlet errors' {

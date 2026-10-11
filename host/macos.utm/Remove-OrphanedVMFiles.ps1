@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42944d84-a340-428d-8b14-0273934cf4fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,7 +110,7 @@ function Get-OrphanSweepRegistration {
     <#
     .SYNOPSIS
         Whether UTM has a VM registered under a name or UUID: registered,
-        absent, or unknown when the probe did not finish.
+        absent, or unknown when no recognized answer was received.
     .DESCRIPTION
         `utmctl status <uuid>` exits 0 for any registered VM, stopped ones
         included, which is what catches a stopped VM `utmctl list` may omit.
@@ -126,8 +126,15 @@ function Get-OrphanSweepRegistration {
     )
     $probe = Invoke-OrphanSweepUtmctl -Verb status -Target $Target -UtmctlPath $UtmctlPath -TimeoutSeconds $TimeoutSeconds
     if (-not $probe.Complete) { return 'unknown' }
-    if ($probe.ExitCode -eq 0) { return 'registered' }
-    return 'absent'
+    # See https://yuruna.link/42e5cdfd-000c for UTM's failure-text contract.
+    $text = $probe.Line -join "`n"
+    if ($text -match '-1743\b|-1712\b|Not authorized to send Apple events|does not work from SSH|OSStatus error|couldn.t be completed|Error from event|Apple ?Event') { return 'unknown' }
+    if ($probe.ExitCode -eq 0) {
+        if ($text.Trim() -match '^(started|paused|suspended|stopped|starting|stopping|pausing|resuming)$') { return 'registered' }
+        return 'unknown'
+    }
+    if ($text -match 'not found') { return 'absent' }
+    return 'unknown'
 }
 
 # --- REGION: Warning
@@ -186,6 +193,10 @@ if ($listing.ExitCode -ne 0) {
 $utmText = ($utmOutput | ForEach-Object { "$_" }) -join "`n"
 if ($utmText -match 'OSStatus error|couldn.t be completed|utmctl does not work from SSH') {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_2bb96dc39812d94e' -Arguments @{ utmText = "$utmText" })
+    exit 1
+}
+if ($utmText -notmatch '(?m)^\s*UUID\s+Status\s+Name\s*$|^\s*[0-9A-Fa-f-]{36}\s+\S+\s+\S.*$') {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6d45ba53c1de42dd' -Arguments @{ utmOutput = "$utmOutput" })
     exit 1
 }
 
@@ -250,6 +261,7 @@ foreach ($vmName in ($registeredVMs.Keys | Sort-Object)) {
 }
 
 # --- REGION: Identify orphaned VM artifacts
+$errors = 0
 $orphanedItems = [System.Collections.Generic.List[hashtable]]::new()
 $protectedItems = [System.Collections.Generic.List[hashtable]]::new()
 
@@ -258,22 +270,19 @@ foreach ($vmName in $bundleMap.Keys) {
 
     $bundlePath = $bundleMap[$vmName]
 
-    # UUID check catches stopped VMs utmctl list may omit by name;
-    # `utmctl status <uuid>` exits 0 for any registered VM.
+    # Probe every unlisted bundle; a missing plist UUID does not prove absence.
     $bundleUUID = Get-UTMBundleUUID -BundlePath $bundlePath
-    if ($bundleUUID) {
-        if ($registeredUUIDs.ContainsKey($bundleUUID)) { continue }
-        $registration = Get-OrphanSweepRegistration -Target $bundleUUID -UtmctlPath $utmctlPath
-        if ($registration -eq 'registered') { continue }
-        if ($registration -eq 'unknown') {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.orphan_sweep_registration_unknown' -Arguments @{ path = "$bundlePath"; target = "$bundleUUID" })
-            continue
-        }
+    if ($bundleUUID -and $registeredUUIDs.ContainsKey($bundleUUID)) { continue }
+    $probeTarget = if ($bundleUUID) { $bundleUUID } else { $vmName }
+    $registration = Get-OrphanSweepRegistration -Target $probeTarget -UtmctlPath $utmctlPath
+    if ($registration -eq 'registered') { continue }
+    if ($registration -eq 'unknown') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.orphan_sweep_registration_unknown' -Arguments @{ path = "$bundlePath"; target = "$probeTarget" })
+        $errors++
+        continue
     }
 
-    $bundleSize = (Get-ChildItem -LiteralPath $bundlePath -Recurse -File -ErrorAction SilentlyContinue |
-        Measure-Object -Property Length -Sum).Sum
-    $itemSize = $bundleSize ?? 0
+    $itemSize = Get-VMFolderSize -Path $bundlePath
 
     $isBaseImage = $false
     foreach ($baseImageName in $baseImageNames) {
@@ -306,7 +315,7 @@ if ($protectedItems.Count -gt 0) {
 # --- REGION: Delete orphaned VM artifacts
 if ($orphanedItems.Count -eq 0) {
     Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_b912b4ce68796c85')
-    exit 0
+    exit ([int]($errors -gt 0))
 }
 
 Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_17be5c98af6eef11')
@@ -332,11 +341,10 @@ if ($Force) {
     $confirmation = Read-Host (Format-YurunaOperatorMessage -Key 'host.operator_67b2df91dc3bcc59')
     if ($confirmation -ne "YES") {
         Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_ac15f0cb601d9a5f')
-        exit 0
+        exit ([int]($errors -gt 0))
     }
 }
 
-$errors = 0
 foreach ($item in $orphanedItems) {
     try {
         # Deregister from UTM first (by UUID if available, else by name).
@@ -378,3 +386,4 @@ if ($errors -eq 0) {
 } else {
     Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_42dbc0a404948dc9' -Arguments @{ errors = "$errors" })
 }
+exit ([int]($errors -gt 0))

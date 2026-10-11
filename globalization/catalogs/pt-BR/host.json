@@ -8,6 +8,11 @@
       "origin": "machine",
       "message": "A VM caching-proxy-service está em execução, mas seu proxy está inacessível. Execute test/service/Start-CachingProxyServiceVM.ps1 para restaurá-lo ou passe -CachingProxyServiceUrl \"\" para baixar diretamente."
     },
+    "host.utm_cache_state_unconfirmed": {
+      "sourceHash": "7a6eef76a798f82d67d54f517af7235733d3a48fe238b592158281846a2333d1",
+      "origin": "machine",
+      "message": "Não foi possível confirmar o estado da VM caching-proxy-service ({state}; {reason}). Restaure o acesso ao UTM ou passe -CachingProxyServiceUrl \"\" para baixar diretamente."
+    },
     "host.clock_service_description": {
       "sourceHash": "5a15326d1b76f3fc950232711437544b25ca4014d0c608159929a9c8454af79e",
       "message": "Serviço de tempo do Windows (W32Time)"
@@ -2001,8 +2006,9 @@
       "message": "Nome de arquivo e URL de origem gravados para: {baseImageOrigin}"
     },
     "host.operator_69569daab01168ea": {
-      "sourceHash": "c25d746c3e08447109f245727dec9a34d42dcc2a05401ca32ee0692440f3e43c",
-      "message": "Remove-UtmTestVM: '{vMName}' não confirmou desligada dentro do tempo limite; continuando com excluir, mas o pacote ainda pode estar bloqueado."
+      "sourceHash": "10d50550b0675a10ed469287d631553bc18c27c4a0767b0deb8541d2d4f6495e",
+      "origin": "machine",
+      "message": "Remove-UtmTestVM: '{vMName}' não confirmou que está desligada dentro do tempo limite; preservando o registro e o pacote."
     },
     "host.operator_6959d402ef57f18d": {
       "sourceHash": "d15f3fec52232fcd86ce5c883a163b3deaa74be37e6ba994eb75273056cf3895",
@@ -4745,14 +4751,19 @@
       "message": "Start-UtmDialogWatchdog: não foi possível confirmar que o watchdog registrado em {pidFile} foi parado; por isso, um segundo não foi iniciado, e o registro dele é mantido para a próxima parada."
     },
     "host.orphan_sweep_registration_unknown": {
-      "sourceHash": "8e5f2e3578cee9e8f4ac952cc3e444888ddfde3c17b6b852f00111e729abd61f",
+      "sourceHash": "3afb9a95efc18cc2c808b624fd2773e21ff2defd2074039db7a9625e8d1aedbe",
       "origin": "machine",
-      "message": "{path} mantido: o UTM não informou se {target} está registrado (utmctl status não terminou)."
+      "message": "{path} mantido: o UTM não informou se {target} está registrado (utmctl status não retornou uma resposta reconhecida)."
     },
     "host.orphan_sweep_utmctl_unanswered": {
       "sourceHash": "80373783ece58084b41df85021f62a3214f36ce9714682e5f637f3a6dea861c3",
       "origin": "machine",
       "message": "utmctl {verb} não terminou em {seconds} segundos, então os registros do UTM são desconhecidos; nada foi excluído. Execute novamente quando o UTM responder."
+    },
+    "host.windows_installer_boot_key_timeout": {
+      "sourceHash": "77b62b3bb39cd82c527244867ce76f4ed23605154ab9ee838554d982c69b8926",
+      "origin": "machine",
+      "message": "A VM '{vmName}' não aceitou uma tecla de inicialização do instalador do Windows em {seconds} segundos."
     }
   }
 }

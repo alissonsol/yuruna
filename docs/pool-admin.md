@@ -46,7 +46,7 @@ or a pool manifest the runner cannot read, leaves the host on its own
 configured repositories rather than throwing or halting the loop.
 
 **The pull itself** is a small git spine, optional and default-off: a host
-with `pool.enabled: false`, or one whose intent store is unreachable, just
+with `pool.enabled: false`, or one whose intent store is unreachable,
 keeps cycling as a single host. Each runner clones/fetches the intent repo
 over the LAN, finds its own pool by locating its stable `hostId` in
 `members[]` -- the single source of truth for membership -- and reconciles
@@ -302,6 +302,7 @@ Every command below lives in `test/pool/`.
 | Command | Does | Key parameters |
 |---|---|---|
 | `New-Pool.ps1` | create a pool | `-PoolId` (req), `-DisplayName`, `-DesiredState` |
+| `Remove-Pool.ps1` | delete a pool (refuses one that still has members unless `-Force`) | `-PoolId` (req), `-Force` |
 | `Add-HostToPool.ps1` | add a host | `-PoolId` (req), `-HostId` (req) |
 | `Remove-HostFromPool.ps1` | remove a host from ONE pool's members | `-PoolId` (req), `-HostId` (req) |
 | `Move-PoolHostIdentity.ps1` | replace a re-keyed host ID in one intent-store commit | `-OldHostId` (req), `-NewHostId` (req) |
@@ -326,7 +327,7 @@ re-clone from the remote. Every command has full help: e.g. `Get-Help test/pool/
 
 ## Pool-control service
 
-The Pool-control service is the operator UI + API for the LAN pool intent. It
+The pool-control service is the operator UI + API for the LAN pool intent. It
 drives the pool-intent git store; runners only
 PULL that store read-only. Every button routes through the admin CLIs above,
 so the UI and the command line cannot diverge.
@@ -395,24 +396,24 @@ which machines are on `yuruna` and which on a fork of it, and which project each
 is testing.
 
 Each cell also **links** to that repository, so a name that is not the one you
-expected is one click from the repository itself rather than a url to retype.
-The link is the host's own `remote.origin.url`, wherever it points: an ssh
+expected is one click from the repository itself rather than a URL to retype.
+The link is the host's own `remote.origin.url`, wherever it points: an SSH
 remote (`git@github.com:owner/repo.git`) opens as its `https://` equivalent, and
-a host running from a **local copy** links to that path as a `file:` url -- most
+a host running from a **local copy** links to that path as a `file:` URL -- most
 browsers will not follow one from a served page, but it still names the location
 and copies. A credential written into a remote is stripped at the host, before
-the url is served. A cell whose host reported no url at all stays plain text.
+the URL is served. A cell whose host reported no URL at all stays plain text.
 
 | Value | What it means | What to do |
 | --- | --- | --- |
 | a repository name | the clone this host holds, named by its own `remote.origin.url`, and linked to it | nothing |
-| **`No access`** | the host was configured with a repository it cannot read -- a credential without access, or a url that did not answer. It links to the url that failed | grant that host's `GH_TOKEN` access to the repo, or fix the url in its `test.config.yml` |
+| **`No access`** | the host was configured with a repository it cannot read -- a credential without access, or a URL that did not answer. It links to the URL that failed | grant that host's `GH_TOKEN` access to the repo, or fix the URL in its `test.config.yml` |
 | `--` | the host has no such clone *and* none configured (the in-tree project layout), or it has not answered yet | nothing |
 
 The clone answers before the network does: it is what the machine actually
-tracks -- which is not always the configured url, since a pool's repositories
+tracks -- which is not always the configured URL, since a pool's repositories
 override it for a cycle -- and it costs no round trip. Only a host with no
-readable clone probes the url it was configured with, which is what separates
+readable clone probes the URL it was configured with, which is what separates
 "cannot read it" from "has not cloned it yet"; that probe runs *after* the
 answer is sent, so it can never make a host's other columns time out with it,
 and such a host reads `--` for one refresh before its answer arrives. Like the
@@ -426,9 +427,9 @@ footer countdown.
 A pool can hand a host a `projectUrl` that host's git credential cannot read:
 the assignment is made centrally, the credential is host-local, and `GH_TOKEN`
 deliberately never travels in pool intent. So each host also runs a
-`git ls-remote` against a **pool-assigned** url at the top of a cycle *before*
+`git ls-remote` against a **pool-assigned** URL at the top of a cycle *before*
 the clone -- the problem is named at the host that has it, rather than surfacing
-minutes later as a generic bootstrap error. Only a pool-assigned url is probed
+minutes later as a generic bootstrap error. Only a pool-assigned URL is probed
 this way; a host's own `projectUrl` is already preflighted by the clone, and
 probing it twice would cost every unpooled host a round trip for nothing.
 
@@ -710,7 +711,7 @@ all of these hold:
 
 #### The three secrets
 
-Remote refresh uses secrets of its own. The lab token, a lab session cookie and
+Remote refresh uses secrets of its own. The Lab token, a lab session cookie and
 the internal authentication key never authorize it: the lab key is reachable
 from the dashboard's enrollment code, and a lab session from a public control
 proof.
@@ -831,15 +832,18 @@ dedicated VM. `host/vmconfig/pool-control-service.base.user-data` seeds an Ubunt
 that builds the daemon, installs pwsh + `powershell-yaml`, CIFS-mounts the pool NAS
 for the state dir, and runs it under systemd (`guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh`).
 The per-hypervisor `guest.pool-control-service/New-VM.ps1` (mirroring the stash-service VM chain)
-generates the seed with `/etc/yuruna/{pool.env,host.env,pool-nas.cifs.cred}` and a
+generates the seed with `/etc/yuruna/{globalization.env,pool.env,host.env,pool-nas.cifs.cred}` and a
 distinct guest username. **No `go` toolchain is needed on the host.** The
-Extension-hosts row then points at the VM (beacon self-IP); deleting the VM
+Extension hosts row then points at the VM (beacon self-IP); deleting the VM
 clears it after the announce TTL.
 
 After the VM boots, the launcher waits for the daemon to serve on `:80`
-(up to 15 min; override with `YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS=<seconds>`) before
-reporting success &mdash; an IP alone is not "up": the guest still has to build
-the daemon. If `:80` never comes up, it pulls the in-guest build log,
+(45 min by default, extending to at most twice that while SSH confirms
+cloud-init is running or has not started; override with
+`YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS=<seconds>`) before
+reporting the daemon ready &mdash; an IP alone is not "up": the guest still
+has to build it. A confirmed ongoing build ends the wait as nonfatal
+`StillBuilding`, with an inactive marker. A failed bring-up pulls the build log,
 `cloud-init status`, and the `pool-control-service.service` journal over the harness SSH
 key and prints them, so a failed build shows you the reason instead of a dead URL.
 (That log is root-only; the harness `yuruna` account has NOPASSWD `sudo`, so
@@ -855,7 +859,7 @@ pwsh test/service/Start-PoolControlServiceVM.ps1 -HostSideProof [-Port 8090] [-A
 
 `-HostSideProof` builds + runs the daemon directly on this host instead of a VM.
 Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
-`<repo>/test/*.ps1`).
+`<repo>/test/pool/*.ps1`).
 
 <a id="4207d71a-0014"></a>
 
@@ -863,7 +867,7 @@ Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
 
 A host that has enrolled its Lab token, and is in **no pool at all**, can join a
 pool without you adding it. It **ships off**: the sweep runs only when an
-`autoEnrollment` block in the intent store's `pools.yml` names a target pool
+`autoEnrollment` block in the intent store's `pools.yml` sets `enabled: true` and names a target pool
 *and* the daemon runs with `--auto-enroll` (`--auto-enroll-interval`, default 60s,
 sets the cadence).
 
@@ -932,7 +936,7 @@ A larger prefix length covers fewer addresses (`/32` is one machine); a smaller
 one covers more. Typing an address inside the network is fine &mdash;
 `192.168.7.34/24` means the same subnet. The field says how many addresses your
 entry covers before you press Scan, and refuses anything over **4096 addresses**
-(narrower than `/20`): a mistyped `/8` is one keystroke from `/24` and would put
+(wider than `/20`): a mistyped `/8` is one keystroke from `/24` and would put
 sixteen million connection attempts onto the lab network.
 
 **The sweep.** The same scan runs on its own every **15 minutes**
@@ -944,8 +948,8 @@ skipped rather than queued.
 
 **What the page shows.** The addresses being probed as they go by, how far the
 run has got, and then only the hosts it **added** &mdash; a Yuruna host that was
-already monitored is counted, not listed again. Below that is everything
-discovery has ever found, with first- and last-seen times and a **Forget**
+already monitored is counted, not listed again. Below that is every host that
+discovery has seen in the last 14 days (`--scan-ttl`), with first- and last-seen times and a **Forget**
 button for a machine that has been retired. Starting a scan and forgetting a
 host both need the Lab token; reading the page does not.
 
@@ -958,7 +962,7 @@ the next sweep.
 
 ## Download-agent service
 
-The Download-agent service is the pool's shared guest-image downloader. It keeps
+The download-agent service is the pool's shared guest-image downloader. It keeps
 a **Download pool** on the pool NAS (`<pool root>/images/...`), re-verifies each
 image against its origin on a schedule, and serves the artifacts to hosts over
 HTTP -- so a lab pulls an ISO or cloud image from the internet once instead of
@@ -1057,11 +1061,15 @@ Like the pool-control service, the daemon is built **inside** the guest (no host
 `go` toolchain) from `host/vmconfig/download-agent-service.base.user-data` +
 `guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh`, which
 CIFS-mounts the pool share at `/mnt/yuruna-pool`. The launcher waits for the
-daemon to serve on `:80` (up to 15 min; override with
+daemon to serve on `:80` (45 min by default, extending to at most twice that
+while SSH confirms cloud-init is running or has not started; override with
 `YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS=<seconds>`) and pulls the
-in-guest build log and journal when it does not. `install/setup.ps1` runs the
-stop/start pair for you in both modes whenever storage is configured, and never
-fails setup on it. Config keys:
+in-guest build log and journal when the bring-up fails. A confirmed ongoing
+build ends the wait as nonfatal `StillBuilding`, with an inactive marker.
+`install/setup.ps1` runs the
+stop/start pair for you in a lab, or in a standalone host that states
+`downloadAgentService.enabled: true`, whenever storage is configured
+(`enabled: false` skips it in either mode), and never fails setup on it. Config keys:
 [test-config.md](test-config.md#downloadagentservice--the-pool-wide-image-downloader).
 
 <a id="4207d71a-001b"></a>
@@ -1116,6 +1124,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -184,9 +184,45 @@ sudo install -d -m 0755 -o "$USER" -g "$USER" /var/log/yuruna
 echo ""
 echo -e "\e[1;36m==== Install powershell-yaml module ====\e[0m"
 
-# The log directory is owned by the caller; sudo applies only to pwsh.
-# shellcheck disable=SC2024
-sudo pwsh -NoProfile -Command - <<'PSEOF' >> "$PWSH_YAML_LOG" 2>&1
+pwsh_retry "$PWSH_YAML_LOG" <<'PSEOF'
+$ErrorActionPreference = 'Stop'
+function Import-YurunaYamlModule {
+    $module = Import-Module powershell-yaml -Force -PassThru -ErrorAction Stop
+    $parsed = ConvertFrom-Yaml @'
+service:
+  enabled: true
+  attempts: 3
+  tags:
+    - first
+    - second
+'@
+    # A command name alone does not prove the parser preserves workload types.
+    if ($parsed -isnot [System.Collections.IDictionary] -or
+        $parsed.service -isnot [System.Collections.IDictionary] -or
+        $parsed.service.enabled -isnot [bool] -or -not $parsed.service.enabled -or
+        ($parsed.service.attempts -isnot [int] -and $parsed.service.attempts -isnot [long]) -or
+        $parsed.service.attempts -ne 3 -or
+        @($parsed.service.tags).Count -ne 2 -or
+        $parsed.service.tags[0] -cne 'first' -or $parsed.service.tags[1] -cne 'second') {
+        throw 'powershell-yaml did not preserve nested mappings, booleans, integers and sequences'
+    }
+    if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
+        throw 'powershell-yaml not available after import'
+    }
+    return $module
+}
+
+try {
+    $module = Import-YurunaYamlModule
+    "powershell-yaml already functional ($($module.Version))"
+    "OK"
+    exit 0
+} catch {
+    "INITIAL SMOKE ERROR: $($_.Exception.Message)"
+    Remove-Module powershell-yaml -Force -ErrorAction SilentlyContinue
+}
+
+# Repository diagnostics are needed only when the installed parser needs repair.
 "===== {0} pre-flight (static) =====" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
 "PowerShell : $($PSVersionTable.PSVersion)"
 ""
@@ -196,10 +232,6 @@ try { Get-PSRepository -ErrorAction Stop | Format-List Name,SourceLocation,Insta
 try { Get-PackageProvider -ListAvailable -ErrorAction Stop | Select-Object Name,Version | Format-Table -AutoSize | Out-String } catch { "ERROR: $($_.Exception.Message)" }
 "--- PowerShellGet + PSResourceGet (available) ---"
 try { Get-Module PowerShellGet, Microsoft.PowerShell.PSResourceGet -ListAvailable | Select-Object Name,Version | Format-Table -AutoSize | Out-String } catch { "ERROR: $($_.Exception.Message)" }
-PSEOF
-
-pwsh_retry "$PWSH_YAML_LOG" <<'PSEOF'
-$ErrorActionPreference = 'Stop'
 "--- per-attempt probe @ {0} ---" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
 # [System.Net.Dns] rather than Resolve-DnsName: that cmdlet lives in the
 # Windows-only DnsClient module, so on Linux it can only ever error.
@@ -221,14 +253,10 @@ try {
 "--- Import + ConvertFrom-Yaml smoke ---"
 # --- REGION: https://yuruna.link/42e220c4-0005
 try {
-    Import-Module powershell-yaml -ErrorAction Stop
-    $null = ConvertFrom-Yaml 'k: v'
+    Remove-Module powershell-yaml -Force -ErrorAction SilentlyContinue
+    $module = Import-YurunaYamlModule
 } catch {
     "SMOKE ERROR: $($_.Exception.Message)"
-    exit 1
-}
-if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
-    "VERIFY ERROR: powershell-yaml not available after install"
     exit 1
 }
 "OK"
@@ -250,7 +278,7 @@ if yuruna_host_env && [ ! -d "$REAL_HOME/yuruna" ]; then
   if yuruna_host_livecheck; then
     mkdir -p "$REAL_HOME/yuruna"
     # --- REGION: https://yuruna.link/42e220c4-000e
-    if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
+    if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
       sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
       echo -e "\e[1;32m---- Yuruna framework available at $REAL_HOME/yuruna (early extract). ----\e[0m"
     else
@@ -339,7 +367,7 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
     if yuruna_host_livecheck; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
-      if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
+      if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
         HOST_OK=true
         break
       else
@@ -354,12 +382,12 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       exit 1
     fi
     for attempt in 1 2 3; do
-      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ] && break
       echo "git clone attempt $attempt failed"
       rm -rf "$REAL_HOME/yuruna"
       [ $attempt -lt 3 ] && sleep 60
     done
-    if [ ! -d "$REAL_HOME/yuruna" ]; then
+    if [ ! -f "$REAL_HOME/yuruna/VERSION" ] || [ ! -s "$REAL_HOME/yuruna/VERSION" ]; then
       echo "git clone failed after 3 attempts" >&2
       exit 1
     fi

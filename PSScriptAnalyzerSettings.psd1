@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42119fc0-fb66-4f97-be1e-9ecb9b66d1f5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,13 +15,8 @@
 #>
 
 @{
-    # PSScriptAnalyzer settings for the yuruna repo.
-    #
-    # Auto-discovered by `Invoke-ScriptAnalyzer -Path . -Recurse`
-    # (see CONTRIBUTING.md). Findings of every severity are reported:
-    # Information-severity results (missing comment help, undeclared
-    # output types, positional-parameter calls) are NOT filtered out, so
-    # they surface alongside Errors and Warnings.
+    # See https://yuruna.link/42e220c4-000a
+    # Report every severity and keep PowerShell source ASCII without a BOM.
 
     IncludeDefaultRules = $true
 

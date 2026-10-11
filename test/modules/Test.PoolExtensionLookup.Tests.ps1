@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42078042-0ea1-4de8-bb69-d88309b26736
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,14 +53,8 @@ Import-Module $aggregatorPsm -Force -Global -DisableNameChecking
 Import-Module (Join-Path $here 'Test.Extension.psm1') -Force -Global -DisableNameChecking
 
 function Get-FunctionAst {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-        Justification = 'Both parameters ARE used -- Path as the parse target, Name inside the FindAll predicate the analyzer does not follow.')]
     param([string]$Path, [string]$Name)
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$null)
-    return $ast.FindAll({
-        param($n)
-        $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
-    }, $true) | Select-Object -First 1
+    return Get-YurunaTestFunctionAst -Path $Path -Name $Name
 }
 
 # One-shot HTTP responder on loopback. A raw TcpListener rather than

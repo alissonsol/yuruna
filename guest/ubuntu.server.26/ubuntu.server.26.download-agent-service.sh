@@ -1,12 +1,12 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- REGION: https://yuruna.link/42e220c4-0005
+# See https://yuruna.link/42e220c4-0005
 # See https://yuruna.link/4268e4cb
+# --- REGION: Initialize environment
 set -euo pipefail
 
-# --- REGION: Initialize environment
 # Export HOME for Go module-cache discovery under cloud-init.
 export HOME="${HOME:-/root}"
 
@@ -43,6 +43,7 @@ else
   SERVICE_USER="${SERVICE_USER:-$(id -un)}"
 fi
 echo "Service user: $SERVICE_USER"
+# --- REGION: Load service helpers
 # Load from the framework checkout even when this entry script was fetched to /tmp.
 SERVICE_LIB=''
 for candidate in "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" /home/*/yuruna; do
@@ -53,7 +54,6 @@ done
 [ -n "$SERVICE_LIB" ] || { echo "Missing framework automation/yuruna-service-bringup.sh" >&2; exit 1; }
 # shellcheck source=../../automation/yuruna-service-bringup.sh
 . "$SERVICE_LIB"
-
 
 # --- REGION: Service tunables
 # See https://yuruna.link/42fffc2c-000d
@@ -238,7 +238,7 @@ sudo systemctl enable --now download-agent-service.service
 
 if yuruna_service_wait_active download-agent-service.service 30 "http://127.0.0.1:${HTTP_ADDR##*:}/healthz"; then
   ss -ltnp '( sport = :80 )' 2>/dev/null | sed -n '1,4p' || true
-  echo "FETCHED AND EXECUTED: download-agent-service.service active on $HTTP_ADDR (pool=$POOL_DIR state=${STATE_DIR:-off})"
+  echo "download-agent-service.service ready on $HTTP_ADDR (pool=$POOL_DIR state=${STATE_DIR:-off})"
 else
   echo "download-agent-service.service failed to start:" >&2
   sudo journalctl -u download-agent-service.service --no-pager -n 40 >&2 || true

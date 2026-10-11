@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42bcb817-e682-432d-ac46-31486e3944be
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     Yuruna.* operation modules). These guards assert the helper exists + is
     exported, every entrypoint imports the leaf and calls Set-YurunaLogLevel, and
     none still inlines the raw $_logRank cascade. Source-text only. Runs under
-    Pester 4.10.1.
+    Pester 5.x.
 #>
 
 BeforeAll {

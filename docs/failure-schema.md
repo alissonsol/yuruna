@@ -76,6 +76,8 @@ Top-level fields, in order:
 | `reason` | enum | `step` (a step failed), `crash` (engine crashed mid-step), `infra` (a host stage failed outside the sequence engine), or `watchdog_kill` (the outer watchdog SIGKILLed a wedged inner; see [Synthetic records](#synthetic--infra-records)). |
 | `classificationSource` | enum | How `failureClass` was derived: `verb-registry`, `pattern-match` (a hard-block OCR pattern reclassified the step), `unresolved-verb` (`unknown` only because the verb carries no registration -- register it, don't escalate), `crash`, `infra-stage` (a runner infra stage), or `synthetic` (a watchdog-synthesized record). Lets a consumer distinguish a genuinely-novel cause from missing metadata. |
 | `sequenceName` | string | Failing sequence's base name (no `.yml`) -- first-class identity for routing and repro (the path is still under `context.sequencePath`). |
+| `stepInvocationId` / `sequenceInvocationId` | string | Failed outer invocation identities, shared with that step's events. A failed retry retains its wrapper's IDs. Empty when a crash or infrastructure failure occurred before an invocation existed. |
+| `originatingStepInvocationId` / `originatingSequenceInvocationId` | string | Failed leaf identities when a retry propagates an inner failure, joining its fetch evidence and progress advisory. Otherwise the failed invocation's own IDs, including when an outer handler throws a distinct error. |
 | `repro` | object | Ready-to-run reproduction; see [repro](#repro). |
 
 <a id="42820e91-0003"></a>
@@ -114,7 +116,7 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `cycleFolder` | The cycle's stable identity (step failures only) -- the same value the NDJSON stream stamps, so this file joins to the event stream and resolves to the folder on disk. |
 | `failureScreenshotPath` / `failureOcrPath` | Cycle-dir-relative names of this failure's screen evidence (step failures only). **Absent** unless the artifact exists and was last written after the failing step began: both are sticky per-VM files that only the screen-reading verbs rewrite, so a failure in a verb that reads no text would otherwise point at an earlier step's screen. A reader follows these; nothing audits them, so a present name is a claim the record has to be able to keep. |
 | `staleEvidence` | Each artifact dropped from the two pointers above, named with how many seconds before the failing step it was last written; `[]` when none was. The file is still in the cycle folder under that name, so evidence belonging to an earlier step stays findable while the pointers stay trustworthy -- and an absent pointer is never read as "no screen evidence exists at all", which is a different fact with a different next step. |
-| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds` and `pauseReleasedAtUtc` (below). |
+| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. `patternsSought` is recorded on every timed-out wait, including one whose console never showed readable text. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds` and `pauseReleasedAtUtc` (below). |
 | `crash` | Crash records only: `{ error, origin, stack }`. |
 | `hostMemory` | Infra records only, and only when the host driver could measure the machine: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A VM's startup memory is charged against the system commit limit -- physical memory plus the current page-file size -- and not against free physical memory, so a provisioning refusal is explained by the commit figures while free physical memory can be at its highest in the same instant. **Absent** when nothing measured, never zeroed: a zeroed block reads as a machine that was measured and found empty, which is a different fact with a different next step. Mirrored flat on the event as `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
 
@@ -128,12 +130,35 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `closestOnScreen` | For each OCR engine and each pattern the wait sought, the line on the final frame that came closest and how close, as the percentage of normalized pattern characters that lined up (a match needs 85%, measured on the same canonical form the matcher uses, so OCR character confusion costs nothing). A high percentage means the text printed and the read of it fell short -- look at the capture or the matching tolerance; a low one means the screen was showing something else, so the guest never printed it. Three states, on the same discipline as `consoleFlood`: the lines, when the scan ran and found some; `[]` when it ran and nothing on the frame resembled the pattern; `null` when it never ran -- a wait that ends on a failure pattern returns the moment the pattern matches, and a failure outside a wait has no frame of its own. An empty list is a reading of the screen; `null` is the absence of one, and only the first supports a conclusion. |
 | `consoleFlood` | Set when the console filled with one repeating line while the wait was seeking its pattern; carries the dominant line and its share of the screen. `''` when the screen was not repetitive. `null` when the wait confined its match to the console tail (`freshMatch`): that path reads the same frames but runs no flood check, so the field says "not looked at" rather than "not repetitive". |
 | `consoleStaticSeconds` | The longest run, in seconds, that the console CONTENT did not change during the wait. Repetition is counted within a single frame, so a wall of text that scrolled by earlier and then stopped reads as a flood -- this is what tells the two apart. A high value means a guest that is waiting, not one that is working, and a guest that is waiting can often be unblocked by answering it. `0` when the screen kept moving, and `null` when the wait confined its match to the console tail (`freshMatch`) and never measured it -- `0` is a reading, `null` is the absence of one, and only the first supports a conclusion about the guest. For a `freshMatch` timeout the screen evidence is `freshWindowNearMiss` and `ocrTail` instead. |
+| `blankScreenSeconds` | Seconds the console had read blank -- no OCR engine found any text -- when the wait ended; `0` when its last frame carried text. A blank console leaves `ocrTail` empty and `consoleStaticSeconds` unmeasured, since both read text, so this is the field that says the screen went black rather than that nothing was compared. Mirrored on the event as `causeBlankScreenSeconds`. |
+| `guestLivelock` | The hypervisor's view of the guest when the wait ended, from the host sampler's recording: `{ verdict, livelockedSeconds, minimumSeconds, virtualProcessors, guestRunPercent, hypervisorRunPercent, interceptsPerSecond, dominantIntercept, interceptBreakdown, sampleCount, newestSampleUtc, reason }`. `verdict` is `livelocked` when every virtual processor sat at least 80% busy with the hypervisor holding at least 88% of that time for `minimumSeconds` (300), `not-livelocked` otherwise, and `unavailable` when the recording had no recent readings for the VM. `interceptBreakdown` averages the per-cause intercept rates over the run, highest first, and `dominantIntercept` names the top one. `null` when the host keeps no recording (every host but Windows, or sampling turned off): not measured, which is not the same reading as measured and found running. Mirrored on the event as `causeGuestLivelocked` / `causeGuestLivelockedSeconds`. |
 | `installerStage` / `installerStageUnchangedSeconds` | The last `start:` or `finish:` marker for a substantive Subiquity Install or Mirror stage visible during this wait, and seconds since that marker changed. Network update chatter is excluded. This records the last observed marker, not proof that its command is still running. `''` / `0` when no stage was seen. Mirrored on the event as `causeInstallerStage` / `causeInstallerStageUnchangedSeconds`. |
+| `progressAdvisory` | Independent observations: `outputStaticSeconds`, `heartbeatAgeSeconds`, SSH responsiveness and an advisory verdict. At least two sustained signals yield `progress-suspect`; absent measurements stay null/unavailable. Output is observed during tail-confined waits too, without enabling their disabled recovery signals. `automaticRecoveryAllowed` is always false. |
 | `pauseBeforeStepSeconds` | Seconds an operator hold ran, when one was released before the failing step. The pause gate holds the runner and not the guest, so a prompt the guest printed once during the hold is off the screen the resumed step then has to read -- which looks identical to a prompt that never printed. `0` when there was no hold. |
 | `pauseReleasedAtUtc` | When that hold ended, so it can be placed against the step's own start. `''` when there was no hold. |
 
 The write is atomic (temp-file + rename via `Write-YurunaStateFile`) so a
 remediator or the status service never observes a truncated record.
+
+`guestLivelock.processorWindow` retains individual processor counters and
+availability even when the all-processor livelock predicate does not hold.
+The event carries it as `guestProcessorWindow`. Per-counter averages use their
+own valid sample counts; missing or invalid readings do not become zeros.
+Residuals require paired measurements of every supported named counter and
+remain estimates because categories may overlap.
+
+Heartbeat age describes recorder and guest sampling liveness; a fresh heartbeat
+does not prove the application made progress.
+
+Fetch step-end events include `executionEvidence` with capture outcome, reason,
+artifact path and retained recorder status. Failure cleanup emits a
+`failure_diagnostic` event carrying independent host/guest snapshot outcomes,
+including capture exceptions. For an exhausted retry, its diagnostic manifest
+and event use the originating leaf IDs so they join the fetch recorder; the
+failure event retains the outer wrapper IDs and publishes both pairs. A
+distinct outer crash uses its own IDs. Failed retry wrappers retain the leaf's
+progress advisory rather than replacing its SSH and heartbeat observations
+with unavailable measurements.
 
 <a id="42820e91-0007"></a>
 
@@ -181,7 +206,7 @@ authoritative one durable:
   dispatcher to recover it.
 
 Schema-versioned (`schemaVersion` = `1`), written through the atomic,
-no-BOM state-file primitive. Fields: `timestamp`, `failureClass`,
+no-BOM state-file primitive. Fields: `timestamp`, `runId` (the run that produced it), `failureClass`,
 `severity`, `recommendation` (from the canonical recovery vocabulary),
 `rationale`, `actions` (string[]), `handledBy`, `autoApply`, `source`, plus
 `outerFailureClass` when the dispatcher routed past a `retry_exhausted`
@@ -401,12 +426,12 @@ Warm-resume checkpointing (`Test.WarmResume.psm1`) turns a late-step transient
 into an in-place retry instead of redoing the whole install. When a workload
 sequence fails with a **transient** class (`network_timeout`, `wait_timeout`,
 `instrumentation_failure`, `host_io_blocked`, `ip_not_discovered`,
-`payload_unavailable` -- `Get-WarmResumeEligibleClass`), the runner re-runs the
+`payload_unavailable`, `input_lost` -- `Get-WarmResumeEligibleClass`), the runner re-runs the
 *failed* sequence from `repro.resumeFromStep`
 on the **same still-alive VM** (the teardown fires only on the final result),
 up to `testCycle.warmResume.maxAttempts` (default 2), then continues any
 remaining workload sequences. On exhaustion or an ineligible class it falls
-through to the normal teardown + cold re-provision, so warm-resume is
+through to the normal teardown + cold re-provision, so warm resume is
 safe-on-failure. Enabled by default; set `testCycle.warmResume.enabled: false`
 to disable. Each attempt emits a `warm_resume` event: `event` = `warm_resume`,
 `timestamp`, `guestKey`, `sequenceName`, `resumeFromStep`, `attempt`, plus
@@ -445,7 +470,7 @@ event: `timestamp`, `event`, `guestKey`, `sequenceName`, `resumeFromStep` and a
 `reason` token -- `no-restore-point`, `restore-point-missing` or
 `safety-check-unavailable` -- plus `replayClass` (what made the step unsafe),
 `failureClass`, `vmName` and `hostType` when known. Without it a declined
-recovery is invisible: the cycle simply fails with its original class.
+recovery is invisible: the cycle fails with its original class.
 
 When a rewind happens the event carries `checkpointStep` (the step that failed)
 and `rewoundSteps` (how many were replayed) alongside `resumeFromStep` (where the
@@ -483,6 +508,9 @@ queryable in `cycle.events.ndjson`, not just buried in the human log:
   planned native ARM64 restart, with `reason`, `attempt`, `maxAttempts`,
   `permittedMaxAttempts`, and `configuredMaxAttempts`. Its terminal record carries
   `retrySuppressionReason` so the cause remains visible without joining events.
+  Each sequence `retry_attempt` also carries `guestLivelocked` and
+  `guestLivelockedSeconds`, the host livelock verdict when the attempt failed,
+  so restarts that verdict justified can be counted.
 - **The guest bash lib** (`automation/yuruna-retry.sh`) can't reach the host
   stream, so it prints a `YURUNA_RETRY {stack,label,attempt,maxAttempts,rc,
   permanent}` marker to stderr; on the SSH verbs (`sshExec` /
@@ -619,12 +647,23 @@ broke" from a distance -- so each one's reason is recorded here.
   script to debug and no guest state to distrust, which is what makes replaying
   the step sound. The usual cause is a host that renumbered under DHCP while the
   guest still held its old address; the guest re-asks the pool directory and
-  normally recovers, so this belongs in the transient fast-retry allow-lists. It
+  normally recovers, so this belongs in the warm-resume allow-list, though not in auto-remediation's. It
   stays ONE class rather than splitting on which leg failed: whether the payload
   arrives next time depends on the host becoming reachable again, not on the
   GitHub fallback, so a terminal 404 from that fallback does not make the
   failure permanent. Where the fallback IS the dead end -- a private repository
   with no token -- the recovery text names it.
+- **`input_lost`** -- a GUI fetch typed its command into the guest shell, the
+  wait ran to its timeout with the staged subshell still open on screen, and the
+  guest confirmed that the guard never ran: no prepared context exists for the
+  command and no fetch process is running. Distinct from `wait_timeout`, where a
+  script was running and stalled, and from `script_error`, where a script exited
+  non-zero: nothing ran here, so there is no script to debug. A screen that
+  shows an open subshell is not enough on its own, because a payload that ran
+  and went quiet can look the same, so the guest decides. Because nothing
+  executed, replaying the step repeats no work, which is why it belongs in the
+  warm-resume and auto-remediation allow-lists, and its recovery leads with
+  `retry_with_backoff`.
 - **`pool_storage_full`** -- the pool share has no room for this cycle's results.
   Like `elevation_required`, retrying is provably useless: the runner has
   nothing of its own to delete, and nothing about the next cycle makes the share
@@ -683,7 +722,7 @@ broke" from a distance -- so each one's reason is recorded here.
 | `Register-RecoveryHandler` | `-FailureClass -Handler` | External modules add or override a handler |
 | `Register-BuiltinRecoveryHandler` | (no args) | Installs the default handler set at module load |
 | `Get-RecoveryHandler` | `-FailureClass` | Dispatcher; introspection |
-| `Get-RegisteredFailureClass` | (no args) | Capability matrix on startup; introspection |
+| `Get-RegisteredFailureClass` | (no args) | Suites that check handler coverage; introspection |
 | `Get-RecoveryRecommendationName` | (no args) | Canonical recommendation vocabulary (shared with each verb's SuggestedRecoveries) |
 | `Invoke-Remediation` | `-FailureRecord [-LastFailurePath]` | Operator / autonomous loop; returns the recommendation hashtable |
 | `Clear-RecoveryHandler` | (no args) | Tests only |
@@ -698,7 +737,7 @@ a small finite set instead of free-text matching:
 
 | Recommendation | Meaning |
 |---|---|
-| `retry_immediately` | Transient; rerun the failing step now. |
+| `retry_immediately` | Transient; re-run the failing step now. |
 | `retry_with_backoff` | Likely transient (network blip, rate limit); the caller picks the backoff. |
 | `restart_from_snapshot` | Guest state went sideways; restore to the last good snapshot and replay from there. |
 | `reconnect` | Transport-level (VNC dropped, SSH session died); rebuild the connection and continue. |
@@ -779,14 +818,16 @@ validator that gates the cycle event stream.
    actionability fields `sequenceName`, `sequencePath`,
    `matchedFailurePattern`, `innerFailureClass`, `outerFailureClass`,
    and `reproCommand` -- each an empty string when absent, so a handler
-   string-tests without a null guard), returning `@{ Recommendation =
+   string-tests without a null guard -- and the `causeDetail` readings
+   `consoleStaticSeconds`, `consoleStaticMeasured` and
+   `pauseBeforeStepSeconds`, which read `0`, `true` and `0` when absent),
+   returning `@{ Recommendation =
    '<enum>'; Rationale = '<short>' }` (optional `Actions`, `HandledBy`,
    `AutoApply`). The dispatcher attaches severity from the failure
    record, not the handler.
-4. The startup capability matrix picks up the registration
-   automatically; the dispatcher cannot reach an unrouted class
-   because the validator at module load throws if any enum value is
-   missing a handler.
+4. `Test.Remediation.Tests.ps1` fails if any enum value is missing a
+   handler; at run time the dispatcher routes a class with no handler
+   to the `unknown` handler.
 
 <a id="42820e91-001f"></a>
 
@@ -930,7 +971,7 @@ repositories and stand-in functions.
 |---|---|---|---|---|---|
 | `clear_stale_git_lock` | a `bootstrap_sync` failure at stage `FrameworkPull` or `ProjectClone` whose reason names a `.lock` file | a `*.lock` file directly under a repository's `.git` (or under `.git/refs`, three levels deep) is older than 10 minutes, and no `git` process is running on the machine (a process list that cannot be read counts as running, and so does a resident file-system-monitor daemon) | moves each lock into `runtime/recovery.quarantine/<attemptId>/<framework or project>/<path inside the repository>` (never deletes; nothing prunes the folder afterwards) | `git --no-optional-locks status --porcelain` (read-only, so it cannot recreate the lock) exits 0 within 30 seconds in every repository touched | moves the locks back, and never over a lock that has reappeared |
 | `reclone_project` | a `bootstrap_sync` failure at stage `ProjectClone` | a project URL resolves (a pool assignment in `project.access.json` that is not `denied`, else `repositories.projectUrl`), and the current `project/` is not already healthy | `Update-ProjectClone`: clone beside, verify, swap; the previous checkout is kept when it fails | the checkout passes the health check | restores an interrupted swap |
-| `end_failure_pause_early` | a failure class the dispatcher maps to a clearly safe retry (`wait_timeout`, `network_timeout`, `ip_not_discovered`, `instrumentation_failure`, `host_io_blocked`) | the class is on that list | none: the effect is that the pause ends | always | none |
+| `end_failure_pause_early` | a failure class the dispatcher maps to a clearly safe retry (`wait_timeout`, `network_timeout`, `ip_not_discovered`, `input_lost`, `instrumentation_failure`, `host_io_blocked`) | the class is on that list | none: the effect is that the pause ends | always | none |
 
 `clear_stale_git_lock` and `reclone_project` run before the failure pause (and
 `clear_stale_git_lock` also before the hold that follows a failed framework pull);
@@ -963,6 +1004,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

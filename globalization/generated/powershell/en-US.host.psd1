@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4235cf39-20c0-270a-724d-9125095a5d8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3881,7 +3881,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' did not confirm powered-off within the timeout; proceeding with delete, but the bundle may still be locked.'
+        ''' did not confirm powered-off within the timeout; preserving its registration and bundle.'
     )
     'host.operator_6959d402ef57f18d' = @(
         '  Language: '
@@ -8596,7 +8596,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' is registered (utmctl status did not finish).'
+        ' is registered (utmctl status did not return a recognized answer).'
     )
     'host.orphan_sweep_utmctl_unanswered' = @(
         'utmctl '
@@ -8857,6 +8857,21 @@
     )
     'host.utm_app_restart_action' = 'Quit and relaunch UTM'
     'host.utm_app_signal_action' = 'Send TERM, then KILL if it remains, after revalidating the process identity'
+    'host.utm_cache_state_unconfirmed' = @(
+        'The caching-proxy-service VM state could not be confirmed ('
+        @{
+            'arg' = 'state'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '; '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Restore UTM access or pass -CachingProxyServiceUrl "" to fetch directly.'
+    )
     'host.utm_detached_launch_action' = @(
         'Launch '
         @{
@@ -9079,5 +9094,20 @@
             'trust' = 'internal'
         }
         's and was stopped; its effect is unknown until the VM state is read again.'
+    )
+    'host.windows_installer_boot_key_timeout' = @(
+        'VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' did not accept a Windows installer boot key within '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds.'
     )
 }

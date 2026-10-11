@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4218f53d-2ce9-4dd2-9793-e239cc92136d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     inner loop was byte-identical in both (only the outer path-resolution and its
     warnings differ, which stay per-site). These guards assert the merge rules
     now exist once, in the helper, and both planners delegate to it. Source-text
-    only. Runs under Pester 4.10.1 (script-scoped throw helper).
+    only. Runs under Pester 5.x (script-scoped throw helper).
 #>
 
 BeforeAll {

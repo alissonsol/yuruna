@@ -146,7 +146,7 @@
     {
       "wireCode": "host_refresh.completed",
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "matchCount": 6,
+      "matchCount": 7,
       "reason": "Outer-cycle outcome; not a host-refresh state."
     },
     {
@@ -328,6 +328,12 @@
       "path": "test/modules/Test.SingleInstance.psm1",
       "matchCount": 3,
       "reason": "Readiness acknowledgment state (ready, failed) of a refresh handoff; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.Transport.psm1",
+      "matchCount": 1,
+      "reason": "KVM text helper outcome before or after keyboard RPCs; not a host-refresh state."
     },
     {
       "wireCode": "host_refresh.failed",
@@ -578,7 +584,7 @@
     {
       "wireCode": "host_refresh.partial",
       "path": "test/modules/Test.Diagnostic.psm1",
-      "matchCount": 3,
+      "matchCount": 5,
       "reason": "Guest diagnostic capture, structured completion classification and OCR verdict; not a host-refresh value."
     },
     {
@@ -590,7 +596,7 @@
     {
       "wireCode": "host_refresh.partial",
       "path": "test/modules/Test.HostSampling.psm1",
-      "matchCount": 3,
+      "matchCount": 4,
       "reason": "Host sampling status and power source; not a host-refresh value."
     },
     {
@@ -646,6 +652,12 @@
       "path": "test/status/yuruna.common.js",
       "matchCount": 9,
       "reason": "Guest and step status classes and the first-usable state; not the host-diagnostic reply action."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
+      "matchCount": 2,
+      "reason": "Get-VMConnectWindowState's own observation state (no dialog seen yet, window not settled); not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.probing",
@@ -757,9 +769,15 @@
     },
     {
       "wireCode": "host_refresh.running",
+      "path": "host/macos.utm/modules/New-UbuntuServerVM.ps1",
+      "matchCount": 1,
+      "reason": "Normalized UTM state of the caching-proxy service VM during guest cache discovery; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "matchCount": 26,
-      "reason": "UTM virtual machine state; not a host-refresh request state."
+      "matchCount": 27,
+      "reason": "UTM virtual machine and application state, including the already-running VM guard before launch; not a host-refresh request state."
     },
     {
       "wireCode": "host_refresh.running",
@@ -776,7 +794,7 @@
     {
       "wireCode": "host_refresh.running",
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "matchCount": 7,
+      "matchCount": 5,
       "reason": "libvirt domain state; not a host-refresh request state."
     },
     {
@@ -1004,8 +1022,8 @@
     {
       "wireCode": "host_refresh.unavailable",
       "path": "test/modules/Test.Diagnostic.psm1",
-      "matchCount": 7,
-      "reason": "Guest diagnostic capture and supervisor outcomes and OCR verdict; not a host-refresh value."
+      "matchCount": 14,
+      "reason": "Guest diagnostic capture, execution-log attribution, supervisor outcomes and OCR verdict; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.unavailable",
@@ -1034,8 +1052,8 @@
     {
       "wireCode": "host_refresh.unavailable",
       "path": "test/modules/Test.HostSampling.psm1",
-      "matchCount": 4,
-      "reason": "Host sampling status and power source; not a host-refresh value."
+      "matchCount": 6,
+      "reason": "Host sampling status, power source and guest livelock verdict; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.unavailable",
@@ -1046,19 +1064,19 @@
     {
       "wireCode": "host_refresh.unavailable",
       "path": "test/modules/Test.RunnerInnerLoop.psm1",
-      "matchCount": 1,
-      "reason": "Status of the failure host snapshot; not the host-refresh availability."
+      "matchCount": 4,
+      "reason": "Failure-artifact capture and execution-log attribution states; not host-refresh availability."
     },
     {
       "wireCode": "host_refresh.unavailable",
       "path": "test/modules/Test.SequenceEngine.psm1",
-      "matchCount": 1,
+      "matchCount": 2,
       "reason": "OCR second-opinion verdict; not the host-refresh availability."
     },
     {
       "wireCode": "host_refresh.unavailable",
       "path": "test/modules/Test.SequenceHandler.psm1",
-      "matchCount": 1,
+      "matchCount": 4,
       "reason": "Sequence check status, diagnostic outcome and failure-class fallbacks; not a host-refresh value."
     },
     {
@@ -1094,8 +1112,8 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "matchCount": 2,
-      "reason": "UTM registration probe that could not complete; not the host-refresh state."
+      "matchCount": 5,
+      "reason": "UTM registration probes without a recognized answer; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -1112,7 +1130,7 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "matchCount": 37,
+      "matchCount": 39,
       "reason": "libvirt domain, process and unit states that could not be read; not the host-refresh state."
     },
     {
@@ -1588,6 +1606,60 @@
       "path": "test/modules/Test.RecoveryLedger.psm1",
       "matchCount": 2,
       "reason": "Attempt phase of a repair that worked; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.completed",
+      "path": "automation/Yuruna.Component.psm1",
+      "matchCount": 2,
+      "reason": "Component command supervision outcome; it does not read or write host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.partial",
+      "path": "test/modules/Test.SequenceHandler.psm1",
+      "matchCount": 1,
+      "reason": "Execution evidence capture outcome after retaining an incomplete trace; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.SequenceFailureState.psm1",
+      "matchCount": 4,
+      "reason": "Progress advisory when no observations were measured; not host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.Transport.psm1",
+      "matchCount": 1,
+      "reason": "KVM text helper outcome before or after keyboard RPCs; not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.idle",
+      "path": "test/modules/Test.DiagnosticPreservation.psm1",
+      "matchCount": 3,
+      "reason": "Runner state transitions while preserving and releasing failed VM evidence."
+    },
+    {
+      "wireCode": "host_refresh.invalid",
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "matchCount": 1,
+      "reason": "Source provenance marker validation state."
+    },
+    {
+      "wireCode": "host_refresh.invalid",
+      "path": "test/modules/Test.DiagnosticPreservation.psm1",
+      "matchCount": 1,
+      "reason": "Unreadable or invalid preservation marker state."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "matchCount": 3,
+      "reason": "Source revision and digest availability state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.DiagnosticPreservation.psm1",
+      "matchCount": 1,
+      "reason": "Runner fault classification for a diagnostic preservation hold."
     }
   ],
   "signatureConsumers": [

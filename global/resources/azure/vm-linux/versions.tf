@@ -3,8 +3,8 @@
 # https://registry.terraform.io/providers/hashicorp/azurerm/latest
 
 terraform {
-  # Floor mirrors YURUNA_OPENTOFU_VERSION (automation/yuruna-versions.sh); bump both together.
-  required_version = ">= 1.12.6"
+  # Match the portable OpenTofu host floor; standalone guests can use a newer patch.
+  required_version = ">= 1.13.0"
 
   required_providers {
     azurerm = {

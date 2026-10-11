@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a11720-948f-47cf-8739-5beedf5f7176
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,8 @@ $script:FailureClassEnum = @(
     # lives in the doc.
     'bootstrap_sync', 'plan_invalid', 'elevation_required', 'project_access_denied',
     'host_network_degraded', 'ip_not_discovered', 'payload_unavailable',
-    'pool_storage_full', 'dhcp_identity_unbounded', 'lab_dependency_down', 'unknown'
+    'pool_storage_full', 'dhcp_identity_unbounded', 'lab_dependency_down', 'input_lost',
+    'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')
 

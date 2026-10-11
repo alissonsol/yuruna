@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42ebb62d-e1a8-4c57-811c-f982498db617
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,31 +20,9 @@
 .SYNOPSIS
     The committed-content tarball carries proof of which commit it is.
 .DESCRIPTION
-    `git archive` strips .git/, so a guest brought up from the tarball has no
-    repository to interrogate: every `git rev-parse` there fails and the running
-    service can name a version but not a revision. A deployment that cannot name
-    its commit cannot be tied to reviewed source, and "the fix is deployed" then
-    rests on the operator's memory of which tarball was fetched.
-
-    Two sidecars at archive root close that. .yuruna-origin says where the tree
-    came from; .yuruna-revision says which commit it is. Both are written by the
-    one archive streamer both endpoints share, so the framework tarball and the
-    project tarball behave identically.
-
-    The commit is resolved BEFORE the archive is cut and the archive is taken of
-    that object name rather than of `HEAD`, so a commit landing between the two
-    git invocations cannot leave the sidecar describing a tree the tarball does
-    not contain. Only a full 40-character object name is written: an abbreviated
-    value cannot be compared against a candidate commit without ambiguity.
-
-    The server is emitted from a here-string, so what runs on a host is not this
-    file -- it is the text the launcher produces. The streamer is expanded the
-    way the launcher expands it, lifted out of the result, and called, so what is
-    asserted is the behavior of the code that will be on the host.
-
-    The tarball is read with a minimal tar walk rather than an external
-    extractor: the entries under test are at archive root, and a byte-level read
-    depends on nothing the suite would have to detect per platform.
+    See https://yuruna.link/42fffc2c-0013 for the archive provenance contract.
+    Expand the emitted server before extracting its streamer. Read root-level
+    tar entries directly so the assertions need no platform-specific extractor.
 
     Run: Invoke-Pester -Path test/modules/Test.StatusArchiveProvenance.Tests.ps1
 #>
@@ -207,7 +185,7 @@ Describe 'the committed-content tarball names the commit it was cut from' {
     It 'wires both public archive routes to the shared streamer and the intended repository' {
         $frameworkRoute = 'if ($path -eq ''yuruna-archive.tar.gz'')'
         $projectRoute = 'if ($path -eq ''yuruna-project-archive.tar.gz'')'
-        $frameworkCall = 'Send-GitArchive -Response $res -Request $req -Context $ctx -RepoDir $repoRoot -ErrorLabel ''yuruna-archive'''
+        $frameworkCall = 'Send-GitArchive -Response $res -Request $req -Context $ctx -RepoDir $repoRoot -ErrorLabel ''yuruna-archive'' -ExcludePath @(''dev-only'', ''docs'')'
         $projectCall = 'Send-GitArchive -Response $res -Request $req -Context $ctx -RepoDir $projectRoot -ErrorLabel ''yuruna-project-archive'''
 
         $frameworkRouteAt = $script:ServerText.IndexOf($frameworkRoute, [StringComparison]::Ordinal)

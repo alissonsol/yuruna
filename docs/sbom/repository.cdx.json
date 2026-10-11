@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:a9aeee3c-0a3e-5bf8-b0fc-3cbf9ebb2431",
+  "serialNumber": "urn:uuid:b8b26941-edbd-56a4-b0e9-b6b8042748f8",
   "version": 1,
   "metadata": {
     "component": {
@@ -11,14 +11,14 @@
       "properties": [
         {
           "name": "yuruna:source-inputs-sha256",
-          "value": "d159609586bf87e293e77b341d8e9385b73a76442e1ef3ac01705b0eacac01d0"
+          "value": "3d3a3c4bd2ab5c0ba44f5432a725576a10099876132691ea6097bc96a5ae2f77"
         },
         {
           "name": "yuruna:inventory-kind",
           "value": "declared-source"
         }
       ],
-      "version": "2026.10.04"
+      "version": "2026.10.11"
     }
   },
   "components": [
@@ -218,7 +218,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-8b082720a3d34c2b5dbc",
+      "bom-ref": "component-ec815c737a818436c6b5",
       "name": "github.com/ncruces/go-strftime",
       "properties": [
         {
@@ -226,12 +226,12 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 22, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 19, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v1.0.0",
-      "purl": "pkg:golang/github.com/ncruces/go-strftime@v1.0.0",
+      "version": "v1.1.0",
+      "purl": "pkg:golang/github.com/ncruces/go-strftime@v1.1.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "1cc169f262c24cfa77e3533f667038a9a7fb665b1b4dcfa68998c22ce140c3bc"
+          "content": "bed3e63d63246f9dfd44657d5a9593f44c091aface08abcc348e286d62f8ec79"
         }
       ]
     },
@@ -313,7 +313,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-60dfee9fb03302a41503",
+      "bom-ref": "component-02ff4d3b302990f322d7",
       "name": "golang.org/x/crypto",
       "properties": [
         {
@@ -321,12 +321,12 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 12, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 29, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.57.0",
-      "purl": "pkg:golang/golang.org/x/crypto@v0.57.0",
+      "version": "v0.58.0",
+      "purl": "pkg:golang/golang.org/x/crypto@v0.58.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "dd95428dff06833ef39de47f107455c7af02b5ffb6a6620c3f6505861f5c0ba3"
+          "content": "08e9182ebe24ee70c8e2be90b4c30bd807f3788b30587009b612d2e8afccff9e"
         }
       ]
     },
@@ -351,7 +351,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-c14ef80f642fad4431bd",
+      "bom-ref": "component-9ad44d7925eeabd7ab5f",
       "name": "golang.org/x/sync",
       "properties": [
         {
@@ -359,18 +359,18 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 33, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.23.0",
-      "purl": "pkg:golang/golang.org/x/sync@v0.23.0",
+      "version": "v0.24.0",
+      "purl": "pkg:golang/golang.org/x/sync@v0.24.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "29a99e1087dcd48925b99c9758b9f7f56778b5445ce866c28884868999b66d09"
+          "content": "8aa883ac6a03832baf00aae12d0b61504cd4fd1dfbf0defc8176c18f179dee80"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-df855484d764f8891fa3",
+      "bom-ref": "component-8bd068a161452022ed8c",
       "name": "golang.org/x/sys",
       "properties": [
         {
@@ -378,18 +378,18 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 24, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 35, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.48.0",
-      "purl": "pkg:golang/golang.org/x/sys@v0.48.0",
+      "version": "v0.49.0",
+      "purl": "pkg:golang/golang.org/x/sys@v0.49.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "6db5ff8bfe8c813f4154b33d453d6d866c4bd38c9e4c085b133e12c9a75b5e8a"
+          "content": "5dbce481824776a87ff26d94bb45bf750bfc9e4b71c780451e9d4cd2044e4d70"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-29774b2de7fb21c49708",
+      "bom-ref": "component-58f0d150aafb90b4ff7b",
       "name": "golang.org/x/term",
       "properties": [
         {
@@ -397,18 +397,18 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 37, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.46.0",
-      "purl": "pkg:golang/golang.org/x/term@v0.46.0",
+      "version": "v0.47.0",
+      "purl": "pkg:golang/golang.org/x/term@v0.47.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "dfe397b936da28383093c8d38b76922c7465996a871140d4b719db16280ee181"
+          "content": "729c8ec1092bd8dcf17b6a7a2a7ad31bb122db0b738ecb928e1a575dea59fc13"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-218541d2506170a1d473",
+      "bom-ref": "component-80c86ce33a8a398b5681",
       "name": "golang.org/x/text",
       "properties": [
         {
@@ -416,18 +416,18 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 13, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 39, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.42.0",
-      "purl": "pkg:golang/golang.org/x/text@v0.42.0",
+      "version": "v0.43.0",
+      "purl": "pkg:golang/golang.org/x/text@v0.43.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "25b3995e07de08f53d81a715b5896226a3a10fece1ac4a8ae0b7dda6695466a2"
+          "content": "d508afae587002c9cc39caa039d97d9b2eecf4ec9997c3b9fd41944c9557a167"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-9d45139bdebf1c8ece6a",
+      "bom-ref": "component-c740ff745f2883ebf5be",
       "name": "golang.org/x/tools",
       "properties": [
         {
@@ -435,12 +435,12 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 41, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.49.0",
-      "purl": "pkg:golang/golang.org/x/tools@v0.49.0",
+      "version": "v0.51.0",
+      "purl": "pkg:golang/golang.org/x/tools@v0.51.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "dcd23b557ccbf7ed56643e760f1dadb683f00f90d6ac51a997d9856439668ac2"
+          "content": "9385dcff53a6f63c24049068e0d54b3120110685ad2b5d26c7e5b90675c27802"
         }
       ]
     },
@@ -465,7 +465,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-284e1d1493d9725cc86d",
+      "bom-ref": "component-ecb0e3f352e3a0cc6452",
       "name": "modernc.org/cc/v4",
       "properties": [
         {
@@ -473,18 +473,18 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 45, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v4.29.2",
-      "purl": "pkg:golang/modernc.org/cc/v4@v4.29.2",
+      "version": "v4.29.7",
+      "purl": "pkg:golang/modernc.org/cc/v4@v4.29.7",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "87afbd7220a73cabad7f8234dc2be1780bc32d7efe20796a47a232e89f9c81df"
+          "content": "abe357189d1b2b76f84d715841056bf696044c69e6c055a4ad4cc99ccc9afd38"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-b8012295a79e4da43b8f",
+      "bom-ref": "component-15b2521b5bd7ca8b0e67",
       "name": "modernc.org/ccgo/v4",
       "properties": [
         {
@@ -492,12 +492,12 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 47, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v4.35.0",
-      "purl": "pkg:golang/modernc.org/ccgo/v4@v4.35.0",
+      "version": "v4.36.1",
+      "purl": "pkg:golang/modernc.org/ccgo/v4@v4.36.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "17e4d4b26c34f50c4bce68b769e6181b18c05daae665a2a08f798a40735a03cc"
+          "content": "64d214640af23745209c9c2dcb1add133705737c83e02bb80338df3d7b0bb081"
         }
       ]
     },
@@ -579,7 +579,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-caf4b0eb0f8d98a401b2",
+      "bom-ref": "component-47c58c7aab9f26416fb2",
       "name": "modernc.org/libc",
       "properties": [
         {
@@ -587,12 +587,12 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 25, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 57, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v1.75.7",
-      "purl": "pkg:golang/modernc.org/libc@v1.75.7",
+      "version": "v1.77.1",
+      "purl": "pkg:golang/modernc.org/libc@v1.77.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "a370d33fdff4a7da4a998d9608a41ac925bac0889984d33bc1cda5528ca17dec"
+          "content": "0adf23e3b42d899d449e3d83b455d0b54aab3c202374298f8ed0aebeb610d07b"
         }
       ]
     },
@@ -674,7 +674,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-ea956d7c64319f74b96c",
+      "bom-ref": "component-0b3df35735774198d7c1",
       "name": "modernc.org/sqlite",
       "properties": [
         {
@@ -682,12 +682,12 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 14, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 67, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v1.59.0",
-      "purl": "pkg:golang/modernc.org/sqlite@v1.59.0",
+      "version": "v1.60.1",
+      "purl": "pkg:golang/modernc.org/sqlite@v1.60.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "5f57acd46a6a0654bfe53faf6cce072d475a6bc3ad431e3af03176bebc7edfc0"
+          "content": "fdb973e773bde7529614eb28e1042f12cfc5aba70304a2ed315ad835278954ac"
         }
       ]
     },
@@ -802,19 +802,239 @@
       "purl": "pkg:golang/yuruna.com/test/extension/pool-aggregator-service"
     },
     {
+      "type": "application",
+      "bom-ref": "component-d554a81a5a8e7741aa3b",
+      "name": "global/resources/aws/eks-cluster",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 12, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}, {\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 5, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-a61f0e12e70e2e59d861",
+      "name": "global/resources/aws/registry",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/aws/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-ae191d8df8d3085693f6",
+      "name": "global/resources/azure/aks-cluster",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-40a7db3a530a7e4c4531",
+      "name": "global/resources/azure/postgresql",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/postgresql/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-48d9ec1f813835e178d9",
+      "name": "global/resources/azure/registry",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-22cdaecada1415d26fa9",
+      "name": "global/resources/azure/resource-group",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/resource-group/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-a6726f896a788aa23d0c",
+      "name": "global/resources/azure/storage-share",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/storage-share/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-70532f4e1158659fd728",
+      "name": "global/resources/azure/vm-linux",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-93ef0133b7121038f806",
+      "name": "global/resources/localhost/context-copy",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 9, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-5f3c88a73f01f726a9af",
+      "name": "global/resources/localhost/registry",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 9, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
       "type": "platform",
       "bom-ref": "component-d4da385fc11f7e9f7d15",
       "name": "Python",
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"python\", \"evidence\": [{\"detail\": \"SBOM collector uses Python 3.11 tomllib and the standard library\", \"line\": 11, \"path\": \"tools/sbom_dependencies.py\"}], \"notes\": [\"No Python package installation is required.\"], \"scope\": \"build\", \"versionConstraint\": \">=3.11\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"python\", \"evidence\": [{\"detail\": \"SBOM collector uses Python 3.11 tomllib and the standard library\", \"line\": 12, \"path\": \"tools/sbom_dependencies.py\"}], \"notes\": [\"No Python package installation is required.\"], \"scope\": \"build\", \"versionConstraint\": \">=3.11\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-c04377f548d4f48dc896",
+      "name": "terraform-aws-modules/eks/aws",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-module\", \"evidence\": [{\"detail\": \"Module eks; declared source=terraform-aws-modules/eks/aws\", \"line\": 12, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 21.24\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-bee70e6aa0b7eb181c62",
+      "name": "terraform-aws-modules/vpc/aws",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-module\", \"evidence\": [{\"detail\": \"Module vpc; declared source=terraform-aws-modules/vpc/aws\", \"line\": 65, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 6.6\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-8907942691304a312548",
+      "name": "hashicorp/aws",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider aws; declared source=hashicorp/aws\", \"line\": 10, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider aws; declared source=hashicorp/aws\", \"line\": 8, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 6.54\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-4d77f6ff156b2106610f",
+      "name": "hashicorp/azurerm",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 4.80\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-acf55bb12a36b9aad4cf",
+      "name": "hashicorp/external",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider external; declared source=hashicorp/external\", \"line\": 14, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 2.4\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-e179ad6c61206e1ec441",
+      "name": "hashicorp/kubernetes",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 18, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 33, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.2\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-f704f01136396457f74f",
+      "name": "hashicorp/local",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 22, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 2.9\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-33c624824b422a1e743b",
+      "name": "hashicorp/null",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 23, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 26, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.3\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-54a84111d206a61715b9",
+      "name": "hashicorp/random",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 13, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 30, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.9\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-8a08acbe6e5b8e2c3e2c",
+      "name": "hashicorp/tls",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider tls; declared source=hashicorp/tls\", \"line\": 28, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 4.3\"}"
         }
       ]
     },
     {
       "type": "platform",
-      "bom-ref": "component-9033cea6b6a5624a74dd",
+      "bom-ref": "component-f178c1a1ebf07b0b8ac8",
       "name": "Go",
       "properties": [
         {
@@ -822,7 +1042,18 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/caching-proxy-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/download-agent-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/extension-sdk/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/pool-control-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ],
-      "version": "1.27.1"
+      "version": "1.27.2"
+    },
+    {
+      "type": "platform",
+      "bom-ref": "component-9eb226995ec7055df6c9",
+      "name": "OpenTofu/Terraform",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 5, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.0\"}"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -831,46 +1062,67 @@
       "dependsOn": [
         "component-000139009e3b0ea2cb06",
         "component-005aa61133bce55cb8bf",
+        "component-02ff4d3b302990f322d7",
         "component-0600ffc08ebfcd4ae0d8",
         "component-070ba5f14e1b7ce30bbc",
         "component-08a7725ec86fb430317b",
+        "component-0b3df35735774198d7c1",
         "component-15946024bda4ba341768",
-        "component-218541d2506170a1d473",
+        "component-15b2521b5bd7ca8b0e67",
+        "component-22cdaecada1415d26fa9",
         "component-280432a44173be6af224",
-        "component-284e1d1493d9725cc86d",
-        "component-29774b2de7fb21c49708",
         "component-332c942aae4f99c9df8b",
+        "component-33c624824b422a1e743b",
         "component-34ce8531c1ad8f3a8b0f",
+        "component-40a7db3a530a7e4c4531",
         "component-467244424de7eae1e3f9",
+        "component-47c58c7aab9f26416fb2",
         "component-487136d8901acfa9844f",
+        "component-48d9ec1f813835e178d9",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
         "component-582446bc32876fcbf5fe",
+        "component-58f0d150aafb90b4ff7b",
         "component-5b86315870921f109bf2",
-        "component-60dfee9fb03302a41503",
+        "component-5f3c88a73f01f726a9af",
+        "component-70532f4e1158659fd728",
         "component-7909813fb9c6b99a751b",
+        "component-80c86ce33a8a398b5681",
         "component-8699244ea528baa8914d",
         "component-877085193e9afb3a3c38",
         "component-882d4bb41cb57da0b374",
-        "component-8b082720a3d34c2b5dbc",
-        "component-9033cea6b6a5624a74dd",
+        "component-8907942691304a312548",
+        "component-8a08acbe6e5b8e2c3e2c",
+        "component-8bd068a161452022ed8c",
+        "component-93ef0133b7121038f806",
         "component-9756508f804a7e5f5603",
         "component-99fce750b9e0c923e887",
-        "component-9d45139bdebf1c8ece6a",
+        "component-9ad44d7925eeabd7ab5f",
+        "component-9eb226995ec7055df6c9",
+        "component-a61f0e12e70e2e59d861",
+        "component-a6726f896a788aa23d0c",
         "component-a918c6f303ac3cfdd0e8",
+        "component-acf55bb12a36b9aad4cf",
+        "component-ae191d8df8d3085693f6",
         "component-b53018f6fcafa440a222",
-        "component-b8012295a79e4da43b8f",
-        "component-c14ef80f642fad4431bd",
-        "component-caf4b0eb0f8d98a401b2",
+        "component-bee70e6aa0b7eb181c62",
+        "component-c04377f548d4f48dc896",
+        "component-c740ff745f2883ebf5be",
         "component-d177cf988c867818ae63",
         "component-d36496760373c18829bb",
         "component-d4da385fc11f7e9f7d15",
+        "component-d554a81a5a8e7741aa3b",
         "component-d6cf248cd102be5ff0e7",
         "component-da5d0b169766af760a32",
         "component-dbd34b0681ab6c5792e1",
         "component-de651c013a28496d53d7",
-        "component-df855484d764f8891fa3",
+        "component-e179ad6c61206e1ec441",
         "component-e1fcb9ec435a341b7c8a",
         "component-e5a7521992c856e1013d",
-        "component-ea956d7c64319f74b96c",
+        "component-ec815c737a818436c6b5",
+        "component-ecb0e3f352e3a0cc6452",
+        "component-f178c1a1ebf07b0b8ac8",
+        "component-f704f01136396457f74f",
         "component-f9b42cdcad718e5a0d9f",
         "component-fabca1cfebfad94a1fbe",
         "component-fc9c99298f7eb5eee5f8",
@@ -881,35 +1133,35 @@
       "ref": "component-d177cf988c867818ae63",
       "dependsOn": [
         "component-7909813fb9c6b99a751b",
-        "component-9033cea6b6a5624a74dd"
+        "component-f178c1a1ebf07b0b8ac8"
       ]
     },
     {
       "ref": "component-070ba5f14e1b7ce30bbc",
       "dependsOn": [
         "component-7909813fb9c6b99a751b",
-        "component-9033cea6b6a5624a74dd"
+        "component-f178c1a1ebf07b0b8ac8"
       ]
     },
     {
       "ref": "component-f9b42cdcad718e5a0d9f",
       "dependsOn": [
         "component-000139009e3b0ea2cb06",
-        "component-218541d2506170a1d473",
+        "component-02ff4d3b302990f322d7",
+        "component-0b3df35735774198d7c1",
         "component-280432a44173be6af224",
         "component-34ce8531c1ad8f3a8b0f",
+        "component-47c58c7aab9f26416fb2",
         "component-582446bc32876fcbf5fe",
-        "component-60dfee9fb03302a41503",
         "component-7909813fb9c6b99a751b",
+        "component-80c86ce33a8a398b5681",
         "component-8699244ea528baa8914d",
-        "component-8b082720a3d34c2b5dbc",
-        "component-9033cea6b6a5624a74dd",
-        "component-caf4b0eb0f8d98a401b2",
+        "component-8bd068a161452022ed8c",
         "component-d36496760373c18829bb",
         "component-d6cf248cd102be5ff0e7",
-        "component-df855484d764f8891fa3",
         "component-e1fcb9ec435a341b7c8a",
-        "component-ea956d7c64319f74b96c",
+        "component-ec815c737a818436c6b5",
+        "component-f178c1a1ebf07b0b8ac8",
         "component-fcc09a389055123ca453"
       ]
     },
@@ -917,27 +1169,131 @@
       "ref": "component-9756508f804a7e5f5603",
       "dependsOn": [
         "component-7909813fb9c6b99a751b",
-        "component-9033cea6b6a5624a74dd"
+        "component-f178c1a1ebf07b0b8ac8"
       ]
     },
     {
       "ref": "component-882d4bb41cb57da0b374",
       "dependsOn": [
         "component-7909813fb9c6b99a751b",
-        "component-9033cea6b6a5624a74dd"
+        "component-f178c1a1ebf07b0b8ac8"
       ]
     },
     {
       "ref": "component-7909813fb9c6b99a751b",
       "dependsOn": [
-        "component-9033cea6b6a5624a74dd"
+        "component-f178c1a1ebf07b0b8ac8"
       ]
     },
     {
       "ref": "component-99fce750b9e0c923e887",
       "dependsOn": [
         "component-7909813fb9c6b99a751b",
-        "component-9033cea6b6a5624a74dd"
+        "component-f178c1a1ebf07b0b8ac8"
+      ]
+    },
+    {
+      "ref": "component-d554a81a5a8e7741aa3b",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-54a84111d206a61715b9",
+        "component-8907942691304a312548",
+        "component-8a08acbe6e5b8e2c3e2c",
+        "component-9eb226995ec7055df6c9",
+        "component-bee70e6aa0b7eb181c62",
+        "component-c04377f548d4f48dc896",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-a61f0e12e70e2e59d861",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-54a84111d206a61715b9",
+        "component-8907942691304a312548",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-ae191d8df8d3085693f6",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-acf55bb12a36b9aad4cf",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-40a7db3a530a7e4c4531",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-48d9ec1f813835e178d9",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-22cdaecada1415d26fa9",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-a6726f896a788aa23d0c",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-70532f4e1158659fd728",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-93ef0133b7121038f806",
+      "dependsOn": [
+        "component-9eb226995ec7055df6c9"
+      ]
+    },
+    {
+      "ref": "component-5f3c88a73f01f726a9af",
+      "dependsOn": [
+        "component-9eb226995ec7055df6c9"
       ]
     }
   ],

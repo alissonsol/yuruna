@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -116,6 +116,12 @@
     that does not need deploy-gap analysis can bypass them. Omit it to get the
     full collection.
 
+.PARAMETER CheckoutRoot
+    Optional framework checkout containing VERSION and automation/. This is the
+    evidence location, independent of where this standalone script was copied.
+    When omitted, probe only the script's checkout and $HOME/yuruna. An invalid
+    explicit path disables checkout-dependent collection.
+
 .PARAMETER logLevel
     One of Error|Warning|Information|Verbose|Debug. Each level shows
     itself + all higher-priority streams (Error highest). Default
@@ -136,32 +142,167 @@ param(
     [switch]$SkipDocker,
     [switch]$SkipKube,
     [switch]$SkipProjectGaps,
+    [string]$CheckoutRoot,
     [ValidateSet('Error','Warning','Information','Verbose','Debug', IgnoreCase = $true)]
     [string]$logLevel = 'Information'
 )
 
-# This script runs where no Yuruna module can be loaded: the console diagnostic
-# rung downloads this one file into a guest's /tmp and runs it there, beside
-# nothing. So it imports no module and carries its own copies of the log-level
-# cascade, the operator-message renderer, and the en-US text of every message it
-# prints. Inside a checkout it renders through the compiled catalogs and the
-# locale manifest, read as data; anywhere else it renders the embedded en-US
-# text. Test.SystemDiagnosticSelfContained.Tests.ps1 holds each copy equal to
-# its source.
-#
-# DO NOT REFACTOR THIS SCRIPT INTO MODULES. The functions below duplicate code
-# in Yuruna.*.psm1 and Test.*.psm1 on purpose. Moving them into a module or a
-# shared .ps1, or adding Import-Module, `using module`, `#requires -Modules`, or
-# dot-sourcing, breaks the script the moment it runs alone on a guest, which is
-# exactly when its diagnostics are needed. The modules stay the source of truth
-# and this file keeps a copy: when a source changes, update the copy here. The
-# only module commands allowed are ones guarded by `Get-Command -Name <cmd>`
-# with a local fallback, used when a caller already loaded them.
+# --- REGION: Standalone diagnostic dependencies
+# See https://yuruna.link/42e220c4-0017
+# DO NOT REFACTOR THIS SCRIPT INTO MODULES: it must run alone on a guest.
+# Keep embedded helpers synchronized with their source modules.
 $script:DiagnosticTextRoot = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { '' }
 $script:DiagnosticLocaleManifest = $null
 $script:DiagnosticOperatorLocale = $null
 $script:DiagnosticMessageTables = @{}
 $script:DiagnosticEmbeddedMessages = $null
+
+function Resolve-DiagnosticEvidenceRoot {
+    <#
+    .SYNOPSIS
+        Find a checkout at known locations without walking an unrelated tree.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [AllowEmptyString()][string]$CheckoutRoot,
+        [AllowEmptyString()][string]$ScriptDirectory,
+        [AllowEmptyString()][string]$HomeDirectory
+    )
+    $candidates = if ($CheckoutRoot) { @($CheckoutRoot) } else {
+        @(
+            if ($ScriptDirectory) { Split-Path -Parent $ScriptDirectory }
+            if ($HomeDirectory) { Join-Path -Path $HomeDirectory -ChildPath 'yuruna' }
+        )
+    }
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        try {
+            $directory = Get-Item -LiteralPath $candidate -Force -ErrorAction Stop
+            if ($directory -isnot [IO.DirectoryInfo] -or
+                ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+            $root = $directory.FullName
+            if ($root.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) -eq
+                [IO.Path]::GetPathRoot($root).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)) { continue }
+            if ((Test-Path -LiteralPath (Join-Path -Path $root -ChildPath 'VERSION') -PathType Leaf) -and
+                (Test-Path -LiteralPath (Join-Path -Path $root -ChildPath 'automation') -PathType Container)) {
+                return $root
+            }
+        } catch {
+            Write-Verbose "Checkout evidence unavailable at '$candidate': $($_.Exception.Message)"
+        }
+    }
+    return $null
+}
+
+$script:DiagnosticEvidenceRoot = Resolve-DiagnosticEvidenceRoot -CheckoutRoot $CheckoutRoot -ScriptDirectory $PSScriptRoot -HomeDirectory $HOME
+$script:DiagnosticKubeRows = @{}
+$script:DiagnosticHelmReleases = $null
+
+# --- REGION: Get-DiagnosticSourceFile
+function Get-DiagnosticSourceFile {
+    <#
+    .SYNOPSIS
+        Select one bounded regular file without following checkout links.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.IO.FileInfo])]
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$RelativePath,
+        [long]$MaximumBytes = 8388608
+    )
+    try {
+        $item = Get-Item -LiteralPath $Root -Force -ErrorAction Stop
+        if ($item -isnot [IO.DirectoryInfo] -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $null }
+        $parts = @($RelativePath -split '[/\\]')
+        foreach ($part in $parts) {
+            if (-not $part -or $part -in @('.', '..')) { return $null }
+            $item = Get-Item -LiteralPath (Join-Path $item.FullName $part) -Force -ErrorAction Stop
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $null }
+        }
+        if ($item -is [IO.FileInfo] -and $item.Length -le $MaximumBytes) {
+            # Unix named pipes also appear as FileInfo with a zero length.
+            if (-not $IsWindows -and [string]$item.UnixStat.ItemType -ne 'File') { return $null }
+            return $item
+        }
+    } catch {
+        Write-Verbose "Source evidence unavailable: $RelativePath"
+    }
+    return $null
+}
+
+# --- REGION: Get-DiagnosticSourceProvenance
+function Get-DiagnosticSourceProvenance {
+    <#
+    .SYNOPSIS
+        Report actual archive or Git revisions and bounded effective source hashes.
+    .DESCRIPTION
+        These are guest checkout facts, independent of the runner's recorded SHA.
+        Only fixed source paths are hashed; repository URLs and file contents
+        are omitted. Git probes have a deadline and cannot inherit a parent
+        repository when a materialized project has no Git metadata of its own.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowEmptyString()][string]$CheckoutRoot)
+    $result = @{ schemaVersion = 1 }
+    foreach ($name in @('framework', 'project')) {
+        $entry = @{ state = 'unavailable'; revision = $null; source = 'none'; hashes = @{} }
+        $result[$name] = $entry
+        if (-not $CheckoutRoot) { continue }
+        $root = if ($name -eq 'framework') { $CheckoutRoot } else { Join-Path $CheckoutRoot 'project' }
+        $directory = Get-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue
+        if ($directory -isnot [IO.DirectoryInfo] -or ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+        $gitMetadata = Get-Item -LiteralPath (Join-Path $root '.git') -Force -ErrorAction SilentlyContinue
+        if ($gitMetadata) {
+            $entry.source = 'git'
+            $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($git -and -not ($gitMetadata.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                try {
+                    $probe = Invoke-DiagnosticBoundedCommand -FilePath $git.Source -TimeoutSeconds 2 -MaxCapturedChars 4096 `
+                        -ArgumentList @('-C', $root, 'rev-parse', '--show-toplevel', '--verify', 'HEAD')
+                    $lines = @(([string]$probe.StdOut).Trim() -split '\r?\n')
+                    if ($probe.Started -and $probe.ExitCode -eq 0 -and -not $probe.TimedOut -and
+                        -not $probe.DrainTimedOut -and -not $probe.OutputTruncated -and $lines.Count -eq 2 -and
+                        [IO.Path]::GetFullPath($lines[0]) -eq [IO.Path]::GetFullPath($root) -and
+                        $lines[1] -match '^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$') {
+                        $entry.revision = $lines[1].ToLowerInvariant()
+                        $entry.state = 'present'
+                    }
+                } catch { Write-Verbose 'Git revision evidence unavailable.' }
+            }
+        } else {
+            $marker = Get-DiagnosticSourceFile -Root $root -RelativePath '.yuruna-revision' -MaximumBytes 256
+            if ($marker) {
+                $entry.source = 'archive'
+                try {
+                    $revision = [IO.File]::ReadAllText($marker.FullName).Trim()
+                    if ($revision -match '^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$') {
+                        $entry.revision = $revision.ToLowerInvariant()
+                        $entry.state = 'present'
+                    } else { $entry.state = 'invalid' }
+                } catch { Write-Verbose 'Archive revision evidence unavailable.' }
+            }
+        }
+        $paths = if ($name -eq 'framework') {
+            @('automation/fetch-and-execute.sh', 'automation/yuruna-retry.sh', 'guest/shared/ubuntu.update.sh')
+        } else {
+            @('tools/example-workload.sh', 'tools/Example.Build.psm1',
+                'example/website/components/frontend/website/Dockerfile',
+                'example/text-to-sql/components/frontend/text-to-sql-ui/Dockerfile')
+        }
+        foreach ($relativePath in $paths) {
+            $file = Get-DiagnosticSourceFile -Root $root -RelativePath $relativePath
+            if (-not $file) { $entry.hashes[$relativePath] = @{ state = 'unavailable'; sha256 = $null }; continue }
+            try {
+                $hash = Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256 -ErrorAction Stop
+                $entry.hashes[$relativePath] = @{ state = 'present'; sha256 = $hash.Hash.ToLowerInvariant(); bytes = $file.Length }
+            } catch { $entry.hashes[$relativePath] = @{ state = 'unavailable'; sha256 = $null } }
+        }
+    }
+    return $result
+}
 
 function Set-YurunaLogLevel {
     <#
@@ -384,225 +525,227 @@ function Get-DiagnosticEmbeddedMessage {
     if ($null -ne $script:DiagnosticEmbeddedMessages) { return $script:DiagnosticEmbeddedMessages }
     $encoded = @(
         # >>> embedded en-US messages -- generated by tools/Update-SystemDiagnosticText.ps1
-        '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'
-        'AAA='
+        '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'
+        '2gAA'
         # <<< embedded en-US messages
     ) -join ''
     $table = @{}
@@ -1096,6 +1239,38 @@ function Get-FileTreeWithDeadline {
     return @{ TimedOut = $false; TimeoutSeconds = $TimeoutSeconds; Label = $Label; Items = @($result.Output) }
 }
 
+function Get-DiagnosticFileTail {
+    <#
+    .SYNOPSIS
+        Read a fixed byte range even when a live phase log keeps growing.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [ValidateRange(1, 65536)][int]$MaximumBytes = 65536
+    )
+    $stream = [IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite,Delete')
+    try {
+        $length = $stream.Length
+        $count = [int][Math]::Min([long]$MaximumBytes, $length)
+        $null = $stream.Seek($length - $count, [IO.SeekOrigin]::Begin)
+        $bytes = [byte[]]::new($count)
+        $read = 0
+        while ($read -lt $count) {
+            $received = $stream.Read($bytes, $read, $count - $read)
+            if ($received -eq 0) { break }
+            $read += $received
+        }
+        # Decode only the bounded snapshot. The reader keeps BOM detection for
+        # small logs written by older PowerShell versions.
+        $snapshot = [IO.MemoryStream]::new($bytes, 0, $read)
+        $reader = [IO.StreamReader]::new($snapshot, [Text.Encoding]::UTF8, $true)
+        try { return $reader.ReadToEnd() }
+        finally { $reader.Dispose() }
+    } finally { $stream.Dispose() }
+}
+
 # Emit the degradation marker (if any) at statement level so it lands in
 # stdout/transcript next to the section that triggered it. Pure side effect:
 # call this WITHOUT assigning its result, then read the walk's .Items
@@ -1113,8 +1288,10 @@ function Invoke-Tool {
         [string[]]$ToolArgs = @(),
         [string]$ProblemTag = $null,
         [int]$TimeoutSeconds = 0,
-        [switch]$Privileged
+        [switch]$Privileged,
+        [hashtable]$Snapshot
     )
+    if ($null -ne $Snapshot) { $Snapshot.Success = $false; $Snapshot.Lines = @() }
     if ($Privileged -and $script:LinuxPriv -and $script:LinuxPriv.Count -gt 0) {
         $ToolArgs = @($script:LinuxPriv | Select-Object -Skip 1) + @($Tool) + $ToolArgs
         $Tool = $script:LinuxPriv[0]
@@ -1132,6 +1309,42 @@ function Invoke-Tool {
     }
     try {
         if ($TimeoutSeconds -gt 0) {
+            # Windows batch shims need PowerShell's interpreter dispatch;
+            # ProcessStartInfo with UseShellExecute=false accepts executables.
+            $batchShim = $IsWindows -and [IO.Path]::GetExtension($resolved.Source) -in @('.cmd', '.bat')
+            if ($resolved.CommandType -eq 'Application' -and -not $batchShim) {
+                # Native probes need neither a PowerShell worker nor its full
+                # module startup. Keep the same timeout and problem classes,
+                # with both streams captured by this file's local runner.
+                $native = Invoke-DiagnosticBoundedCommand -FilePath $resolved.Source -ArgumentList $ToolArgs `
+                    -TimeoutSeconds $TimeoutSeconds -MaxCapturedChars 16777216
+                foreach ($stream in @($native.StdOut, $native.StdErr)) {
+                    if (-not [string]::IsNullOrEmpty($stream)) {
+                        $text = [string]$stream -replace "`r`n|`r", "`n"
+                        if ($text.EndsWith("`n")) { $text = $text.Substring(0, $text.Length - 1) }
+                        $text -split "`n" | ForEach-Object { Write-Output $_ }
+                    }
+                }
+                if ($native.TimedOut) {
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_966e9d1dffe3cee1' -FormatValues ($Tool, $TimeoutSeconds) -FormatBindings @{ tool = '0'; timeoutSeconds = '1' })
+                    if ($ProblemTag) { Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_cd63c049294a2c32' -Arguments @{ problemTag = "$($ProblemTag)"; timeoutSeconds = "${TimeoutSeconds}"; tool = "$Tool"; join = "$($ToolArgs -join ' ')" }) -Class $ProblemTag }
+                    return
+                }
+                if (-not $native.Started) { throw $native.StartError }
+                if ($native.DrainTimedOut -or $native.OutputTruncated -or $native.KillFailed) {
+                    throw "[DrainTimedOut=$($native.DrainTimedOut); OutputTruncated=$($native.OutputTruncated); KillFailed=$($native.KillFailed)]"
+                }
+                if ($null -ne $Snapshot -and $native.ExitCode -eq 0) {
+                    $Snapshot.Success = $true
+                    $text = [string]$native.StdOut -replace "`r`n|`r", "`n"
+                    if ($text.EndsWith("`n")) { $text = $text.Substring(0, $text.Length - 1) }
+                    $Snapshot.Lines = @(if ($text.Length -gt 0) { $text -split "`n" })
+                }
+                if ($native.ExitCode -ne 0 -and $ProblemTag) {
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_ba76b3f8b1fdb5b8' -Arguments @{ problemTag = "$($ProblemTag)"; exit = "$($native.ExitCode)"; tool = "$Tool"; join = "$($ToolArgs -join ' ')" }) -Class $ProblemTag
+                }
+                return
+            }
             $result = Invoke-WithDeadline -TimeoutSeconds $TimeoutSeconds -ArgumentList @($Tool, $ToolArgs) -ScriptBlock {
                 param($t, $a)
                 & $t @a 2>&1 | ForEach-Object { $_.ToString() }
@@ -1152,12 +1365,24 @@ function Invoke-Tool {
                 }
             }
             $lines | ForEach-Object { Write-Output ([string]$_) }
+            # This compatibility worker merges both streams. Its text remains
+            # evidence, but cannot safely become data for health classification.
             if ($exit -ne 0 -and $ProblemTag) {
                 Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_ba76b3f8b1fdb5b8' -Arguments @{ problemTag = "$($ProblemTag)"; exit = "$exit"; tool = "$Tool"; join = "$($ToolArgs -join ' ')" }) -Class $ProblemTag
             }
             return
         }
-        & $Tool @ToolArgs 2>&1 | ForEach-Object { Write-Output ($_.ToString()) }
+        if ($null -ne $Snapshot) {
+            $lines = @(& $Tool @ToolArgs 2>&1)
+            $exit = $LASTEXITCODE
+            $lines | ForEach-Object { Write-Output ($_.ToString()) }
+            if ($exit -eq 0 -and @($lines | Where-Object { $_ -is [Management.Automation.ErrorRecord] }).Count -eq 0) {
+                $Snapshot.Success = $true
+                $Snapshot.Lines = @($lines | ForEach-Object { $_.ToString() })
+            }
+        } else {
+            & $Tool @ToolArgs 2>&1 | ForEach-Object { Write-Output ($_.ToString()) }
+        }
         if ($LASTEXITCODE -ne 0 -and $ProblemTag) {
             Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_4788a5c9b68d9b0a' -Arguments @{ problemTag = "$($ProblemTag)"; lASTEXITCODE = "$LASTEXITCODE"; tool = "$Tool"; join = "$($ToolArgs -join ' ')" }) -Class $ProblemTag
         }
@@ -1165,6 +1390,176 @@ function Invoke-Tool {
         if ($ProblemTag) { Add-Problem "$($ProblemTag): $($_.Exception.Message)" -Class $ProblemTag }
         Write-Output "  (error: $($_.Exception.Message))"
     }
+}
+
+function Get-DiagnosticDockerInfoProbe {
+    <#
+    .SYNOPSIS
+        Probe the daemon and retain a complete, successful info snapshot.
+    .DESCRIPTION
+        A native docker executable can supply the liveness verdict and the
+        later info fields in one response. Interpreter shims retain their
+        original deadline worker; merged streams are never treated as JSON.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][hashtable]$Snapshot)
+    $Snapshot.Success = $false
+    $Snapshot.Info = $null
+    $resolved = @(Get-Command docker -ErrorAction SilentlyContinue) | Select-Object -First 1
+    $batchShim = $IsWindows -and $null -ne $resolved -and [IO.Path]::GetExtension($resolved.Source) -in @('.cmd', '.bat')
+    if ($null -eq $resolved -or $resolved.CommandType -ne 'Application' -or $batchShim -or
+        -not (Test-ExecutableFile -Path $resolved.Source)) {
+        $probe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
+            $null = & docker info --format '{{.ServerVersion}}' 2>&1
+            $LASTEXITCODE
+        }
+        $probe.Evidence = @()
+        return $probe
+    }
+    try {
+        $native = Invoke-DiagnosticBoundedCommand -FilePath $resolved.Source `
+            -ArgumentList @('info', '--format', '{{json .}}') -TimeoutSeconds 5 -MaxCapturedChars 16777216
+    } catch {
+        return @{ TimedOut = $false; Output = @(-1); Evidence = @($_.Exception.Message) }
+    }
+    $complete = $native.Started -and -not ($native.TimedOut -or $native.DrainTimedOut -or
+        $native.OutputTruncated -or $native.KillFailed)
+    $exit = if ($complete) { $native.ExitCode } else { -1 }
+    if ($complete -and $exit -eq 0) {
+        try {
+            $info = $native.StdOut | ConvertFrom-Json -NoEnumerate -ErrorAction Stop
+            $required = @('ServerVersion', 'Containers', 'ContainersRunning', 'ContainersPaused',
+                'ContainersStopped', 'Images', 'Driver', 'CgroupDriver', 'KernelVersion', 'OperatingSystem', 'Warnings')
+            if ($info -is [pscustomobject] -and $info.ServerVersion -is [string] -and
+                -not [string]::IsNullOrWhiteSpace($info.ServerVersion) -and
+                @($required | Where-Object { $_ -notin $info.PSObject.Properties.Name }).Count -eq 0) {
+                $Snapshot.Success = $true
+                $Snapshot.Info = $info
+            }
+        } catch { Write-Verbose $_.Exception.Message }
+    }
+    $evidence = @()
+    if (-not $complete -or $exit -ne 0) {
+        foreach ($text in @($native.StdOut, $native.StdErr)) {
+            if (-not [string]::IsNullOrEmpty($text)) { $evidence += [string]$text }
+        }
+        if (-not $native.Started) { $evidence += [string]$native.StartError }
+        if ($native.DrainTimedOut -or $native.OutputTruncated -or $native.KillFailed) {
+            $evidence += ('[DrainTimedOut={0}; OutputTruncated={1}; KillFailed={2}]' -f $native.DrainTimedOut, $native.OutputTruncated, $native.KillFailed)
+        }
+    }
+    return @{ TimedOut = $native.TimedOut; Output = @($exit); Evidence = $evidence }
+}
+
+function Get-DiagnosticDockerContainerSnapshot {
+    <#
+    .SYNOPSIS
+        Read health data from the same Docker table printed in this report.
+    .DESCRIPTION
+        Docker's tabwriter aligns the status and ports columns across every
+        row. Use those header offsets to retain a status containing spaces,
+        excluding ports. Unknown or incomplete tables use a fresh quiet query.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][hashtable]$Snapshot)
+    $result = @{ Success = $false; Rows = @() }
+    if (-not $Snapshot.Success) { return $result }
+    $lines = @($Snapshot.Lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($lines.Count -eq 0) { $result.Success = $true; return $result }
+    $header = [string]$lines[0]
+    if ($header -cnotmatch '^NAMES\s+IMAGE\s+STATUS\s+PORTS\s*$') { return $result }
+    $imageStart = $header.IndexOf('IMAGE', [StringComparison]::Ordinal)
+    $statusStart = $header.IndexOf('STATUS', [StringComparison]::Ordinal)
+    $portsStart = $header.IndexOf('PORTS', [StringComparison]::Ordinal)
+    $rows = [Collections.Generic.List[string]]::new()
+    foreach ($line in @($lines | Select-Object -Skip 1)) {
+        $line = [string]$line
+        if ($line.Length -le $statusStart -or
+            -not [char]::IsWhiteSpace($line[$imageStart - 1]) -or
+            -not [char]::IsWhiteSpace($line[$statusStart - 1]) -or
+            ($line.Length -gt $portsStart -and -not [char]::IsWhiteSpace($line[$portsStart - 1]))) { return $result }
+        $name = $line.Substring(0, $imageStart).Trim()
+        $image = $line.Substring($imageStart, $statusStart - $imageStart).Trim()
+        $status = $line.Substring($statusStart, [Math]::Min($line.Length, $portsStart) - $statusStart).TrimEnd()
+        if ($name -notmatch '^\S+$' -or $image -notmatch '^\S+$' -or [string]::IsNullOrWhiteSpace($status)) { return $result }
+        $rows.Add("$name|$status")
+    }
+    $result.Success = $true
+    $result.Rows = $rows.ToArray()
+    return $result
+}
+
+function Get-DiagnosticKubeSnapshot {
+    <#
+    .SYNOPSIS
+        Reuse one successful Kubernetes table snapshot within this report.
+    .DESCRIPTION
+        Wide tables retain the leading columns the health checks consume.
+        Validate their headers before sharing rows. Failed captures and unknown
+        formats take the original quiet query path, so a transient failure is
+        retried rather than remembered as an empty cluster.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter(Mandatory)][ValidateSet('nodes','pods','ns','deploy')][string]$Resource,
+        [hashtable]$Snapshot,
+        [switch]$PrimeOnly
+    )
+    $minimumColumns = switch ($Resource) { 'nodes' { 5 } 'pods' { 6 } 'ns' { 3 } 'deploy' { 6 } }
+    $rowPattern = '^\S+(?:\s+\S+){' + ($minimumColumns - 1) + '}(?:\s|$)'
+    if ($null -ne $Snapshot -and $Snapshot.Success) {
+        $lines = @($Snapshot.Lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $header = switch ($Resource) {
+            'nodes' { '^NAME\s+STATUS\s+ROLES\s+AGE\s+VERSION(?:\s|$)' }
+            'pods' { '^NAMESPACE\s+NAME\s+READY\s+STATUS\s+RESTARTS\s+AGE(?:\s|$)' }
+            'ns' { '^NAME\s+STATUS\s+AGE(?:\s|$)' }
+            'deploy' { '^NAMESPACE\s+NAME\s+READY\s+UP-TO-DATE\s+AVAILABLE\s+AGE(?:\s|$)' }
+        }
+        $rows = @($lines | Select-Object -Skip 1)
+        if (($lines.Count -eq 0 -or $lines[0] -match $header) -and
+            @($rows | Where-Object { $_ -notmatch $rowPattern }).Count -eq 0) {
+            $script:DiagnosticKubeRows[$Resource] = $rows
+        }
+    }
+    if ($PrimeOnly) { return }
+    if ($script:DiagnosticKubeRows.ContainsKey($Resource)) { return $script:DiagnosticKubeRows[$Resource] }
+    $arguments = @('get', $Resource)
+    if ($Resource -in @('pods', 'deploy')) { $arguments += '-A' }
+    $arguments += @('--no-headers', '--request-timeout=5s')
+    $rows = @(& kubectl @arguments 2>$null)
+    if ($LASTEXITCODE -eq 0 -and @($rows | Where-Object { $_ -notmatch $rowPattern }).Count -eq 0) {
+        $script:DiagnosticKubeRows[$Resource] = $rows
+    }
+    return $rows
+}
+
+function Get-DiagnosticHelmSnapshot {
+    <#
+    .SYNOPSIS
+        One valid Helm release list shared by the report's health checks.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    if ($null -ne $script:DiagnosticHelmReleases) { return $script:DiagnosticHelmReleases }
+    $json = @(& helm list -A -o json 2>$null)
+    $exit = $LASTEXITCODE
+    try {
+        $releases = ConvertFrom-Json -InputObject ($json -join "`n") -NoEnumerate -ErrorAction Stop
+        $invalid = @($releases | Where-Object {
+            $null -eq $_ -or $_.name -isnot [string] -or [string]::IsNullOrWhiteSpace($_.name) -or
+            $_.namespace -isnot [string] -or [string]::IsNullOrWhiteSpace($_.namespace) -or
+            $_.status -isnot [string] -or [string]::IsNullOrWhiteSpace($_.status)
+        })
+        if ($exit -eq 0 -and $releases -is [array] -and $invalid.Count -eq 0) {
+            $script:DiagnosticHelmReleases = @{ Available = $true; Releases = @($releases) }
+            return $script:DiagnosticHelmReleases
+        }
+    } catch { Write-Verbose $_.Exception.Message }
+    return @{ Available = $false; Releases = @() }
 }
 
 # Probe the localhost:5000 registry's /v2/_catalog once. Returns $null when the
@@ -1279,6 +1674,8 @@ function Invoke-DiagnosticBoundedCommand {
     $startInfo.RedirectStandardInput = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = [Console]::OutputEncoding
+    $startInfo.StandardErrorEncoding = [Console]::OutputEncoding
     try {
         $process = [Diagnostics.Process]::Start($startInfo)
     } catch {
@@ -1288,23 +1685,50 @@ function Invoke-DiagnosticBoundedCommand {
     $result.Started = $true
     try {
         $process.StandardInput.Close()
-        $readers = [Threading.Tasks.Task[]]@($process.StandardOutput.ReadToEndAsync(), $process.StandardError.ReadToEndAsync())
-        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-            $result.TimedOut = $true
-            try { $process.Kill($true) } catch { Write-Verbose "Invoke-DiagnosticBoundedCommand: kill failed: $($_.Exception.Message)" }
-            if (-not $process.WaitForExit(5000)) { $result.KillFailed = $true }
-        }
-        if (-not $result.TimedOut) { $result.ExitCode = $process.ExitCode }
-        if (-not [Threading.Tasks.Task]::WaitAll($readers, 2000)) { $result.DrainTimedOut = $true }
-        foreach ($stream in @(@{ Name = 'StdOut'; Reader = $readers[0] }, @{ Name = 'StdErr'; Reader = $readers[1] })) {
-            if (-not $stream.Reader.IsCompletedSuccessfully) { continue }
-            $text = [string]$stream.Reader.Result
-            if ($text.Length -gt $MaxCapturedChars) {
-                $text = $text.Substring(0, $MaxCapturedChars)
-                $result.OutputTruncated = $true
+        # Retain only the prefix budget while continuing to drain both pipes.
+        # ReadToEndAsync would allocate the entire output before truncating it.
+        $streams = @(
+            @{ Name = 'StdOut'; Reader = $process.StandardOutput; Buffer = [char[]]::new(8192); Text = [Text.StringBuilder]::new(); Eof = $false; Task = $null },
+            @{ Name = 'StdErr'; Reader = $process.StandardError; Buffer = [char[]]::new(8192); Text = [Text.StringBuilder]::new(); Eof = $false; Task = $null }
+        )
+        foreach ($stream in $streams) { $stream.Task = $stream.Reader.ReadAsync($stream.Buffer, 0, $stream.Buffer.Length) }
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $limitMs = [long]$TimeoutSeconds * 1000
+        $draining = $false
+        while ($true) {
+            foreach ($stream in $streams) {
+                if ($stream.Eof -or -not $stream.Task.IsCompleted) { continue }
+                if (-not $stream.Task.IsCompletedSuccessfully) { $stream.Eof = $true; $result.DrainTimedOut = $true; continue }
+                $count = $stream.Task.Result
+                if ($count -eq 0) { $stream.Eof = $true; continue }
+                $take = [Math]::Min($count, $MaxCapturedChars - $stream.Text.Length)
+                if ($take -gt 0) { [void]$stream.Text.Append($stream.Buffer, 0, $take) }
+                if ($take -lt $count) { $result.OutputTruncated = $true }
+                $stream.Task = $stream.Reader.ReadAsync($stream.Buffer, 0, $stream.Buffer.Length)
             }
-            $result[$stream.Name] = $text
+            $exited = $process.HasExited
+            if ($exited -and -not $result.TimedOut) { $result.ExitCode = $process.ExitCode }
+            if ($exited -and $streams[0].Eof -and $streams[1].Eof) { break }
+            if (-not $draining -and $exited) {
+                $draining = $true
+                $limitMs = $clock.ElapsedMilliseconds + 2000
+            }
+            if ($clock.ElapsedMilliseconds -ge $limitMs) {
+                if ($draining) { break }
+                $result.TimedOut = $true
+                try { $process.Kill($true) } catch { Write-Verbose "Invoke-DiagnosticBoundedCommand: kill failed: $($_.Exception.Message)" }
+                if (-not $process.WaitForExit(5000)) { $result.KillFailed = $true }
+                $draining = $true
+                $limitMs = $clock.ElapsedMilliseconds + 2000
+                continue
+            }
+            $pending = [Threading.Tasks.Task[]]@($streams | Where-Object { -not $_.Eof } | ForEach-Object { $_.Task })
+            $slice = [int][Math]::Min(20, [Math]::Max(1, $limitMs - $clock.ElapsedMilliseconds))
+            if ($pending.Count) { [void][Threading.Tasks.Task]::WaitAny($pending, $slice) }
+            else { [Threading.Thread]::Sleep($slice) }
         }
+        $result.DrainTimedOut = $result.DrainTimedOut -or -not ($streams[0].Eof -and $streams[1].Eof)
+        foreach ($stream in $streams) { $result[$stream.Name] = $stream.Text.ToString() }
     } finally {
         $process.Dispose()
     }
@@ -1890,6 +2314,8 @@ try {
     Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3d926ec2c9a14019' -FormatValues ([Environment]::UserName) -FormatBindings @{ userName = '0' })
     Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_56fa491fa25bce42' -FormatValues ((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)) -FormatBindings @{ z = '0' })
     Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_13047337e502a109' -FormatValues ((Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK', [Globalization.CultureInfo]::InvariantCulture)) -FormatBindings @{ ssK = '0' })
+    $sourceProvenance = Get-DiagnosticSourceProvenance -CheckoutRoot $script:DiagnosticEvidenceRoot
+    Write-Output ('guestProvenance=' + ($sourceProvenance | ConvertTo-Json -Depth 6 -Compress))
 
     # --- REGION: https://yuruna.link/423ef7f5-0008
     Write-Sub "Software"
@@ -2973,7 +3399,8 @@ try {
                     # is about to pull is still being copied from upstream --
                     # the state in which a provisioning run spends its whole
                     # step budget and then reports a bare timeout.
-                    foreach ($short in @(Get-RegistryResidencyShortfall -Reading $reading)) {
+                    $residencyShortfalls = Get-RegistryResidencyShortfall -Reading $reading
+                    foreach ($short in $residencyShortfalls) {
                         Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_5376c9efd7b38f35' -FormatValues ($short.Held, $short.Total, $short.Set) -FormatBindings @{ held = '0'; total = '1'; set = '2' }) -Class 'REGISTRY.image-set-incomplete'
                     }
 
@@ -3152,15 +3579,18 @@ try {
     Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_9a7a2b89b445e955')
     # Per-phase stderr.log + *.rc catalog and the -Force-required dot-dir
     # scan trap: https://yuruna.link/42e568c8
-    $yurunaRootCandidate = Join-Path -Path $PSScriptRoot -ChildPath '..'
-    $diagScanRoot = $null
-    if (Test-Path -LiteralPath $yurunaRootCandidate) {
-        $diagScanRoot = (Resolve-Path -LiteralPath $yurunaRootCandidate).Path
-    }
+    $diagScanRoot = $script:DiagnosticEvidenceRoot
     if (-not $diagScanRoot) {
-        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_495dcc6db4d4fc56' -Arguments @{ yurunaRootCandidate = "$yurunaRootCandidate" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.diagnostic_checkout_unavailable')
     } else {
-        $phaseLogs = @(Get-ChildItem -LiteralPath $diagScanRoot -Recurse -File -Force -Filter '*.stderr.log' -ErrorAction SilentlyContinue)
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.diagnostic_phase_log_limits')
+        $phaseWalk = Get-FileTreeWithDeadline -Label 'phase log scan' -TimeoutSeconds 10 -ArgumentList @($diagScanRoot) -ScriptBlock {
+            param($root)
+            Get-ChildItem -LiteralPath $root -Recurse -Depth 12 -File -Force -Filter '*.stderr.log' -ErrorAction SilentlyContinue |
+                Select-Object -First 100
+        }
+        Show-FileTreeWalkTimeout -Walk $phaseWalk
+        $phaseLogs = @($phaseWalk.Items)
         if ($phaseLogs.Count -eq 0) {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9cf3996f93916a8c' -Arguments @{ diagScanRoot = "$diagScanRoot" })
         } else {
@@ -3170,16 +3600,8 @@ try {
                 try {
                     if ($tl.Length -gt 64KB) {
                         $sizeNote = " (last 64 KB shown of $($tl.Length) bytes)"
-                        $stream = [System.IO.File]::Open($tl.FullName, 'Open', 'Read', 'ReadWrite')
-                        try {
-                            $null = $stream.Seek([Math]::Max(0L, [int64]$tl.Length - 65536L), 'Begin')
-                            $reader = New-Object System.IO.StreamReader($stream)
-                            $content = $reader.ReadToEnd()
-                            $reader.Close()
-                        } finally { $stream.Dispose() }
-                    } else {
-                        $content = Get-Content -LiteralPath $tl.FullName -Raw -ErrorAction Stop
                     }
+                    $content = Get-DiagnosticFileTail -Path $tl.FullName
                 } catch {
                     Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a594feac6339b77c' -FormatValues ($tl.FullName, $_.Exception.Message) -FormatBindings @{ fullName = '0'; message = '1' })
                     continue
@@ -3188,7 +3610,7 @@ try {
                 $rcSidecar = [System.IO.Path]::ChangeExtension($tl.FullName, $null).TrimEnd('.') -replace '\.stderr$', '.rc'
                 $rcNote = ''
                 if (Test-Path -LiteralPath $rcSidecar) {
-                    $rcText = (Get-Content -LiteralPath $rcSidecar -Raw -ErrorAction SilentlyContinue)
+                    $rcText = try { Get-DiagnosticFileTail -Path $rcSidecar -MaximumBytes 256 } catch { $null }
                     if ($null -ne $rcText) {
                         $rcNote = " (last rc={0})" -f $rcText.Trim()
                     }
@@ -3221,10 +3643,9 @@ try {
         Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_92b000bbc8fbfa86')
     } else {
         # --- REGION: https://yuruna.link/423ef7f5-0002
-        $probe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
-            $null = & docker info --format '{{.ServerVersion}}' 2>&1
-            $LASTEXITCODE
-        }
+        $dockerInfoSnapshot = @{}
+        $probe = Get-DiagnosticDockerInfoProbe -Snapshot $dockerInfoSnapshot
+        foreach ($line in $probe.Evidence) { Write-Output $line }
         if ($probe.TimedOut) {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_883c24367a7311b4')
             Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_a2f93f5cc132a461') -Class 'DOCKER.probe-timeout'
@@ -3235,15 +3656,17 @@ try {
             Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_c31b9b429279d53c')
             Invoke-Tool -Tool 'docker' -ToolArgs @('version','--format',"Client: {{.Client.Version}} ({{.Client.Os}}/{{.Client.Arch}})`nServer: {{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})") -TimeoutSeconds 5
             Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_bd1e95a93c4cad8e')
-            $infoProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
-                & docker info --format '{{json .}}' 2>$null
-            }
-            $info = $null
-            if ($infoProbe.TimedOut) {
-                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_883c24367a7311b4')
-                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_8e214cf40db4bf91') -Class 'DOCKER.probe-timeout'
-            } else {
-                $info = ($infoProbe.Output -join "`n") | ConvertFrom-Json -ErrorAction SilentlyContinue
+            $info = $dockerInfoSnapshot.Info
+            if (-not $dockerInfoSnapshot.Success) {
+                $infoProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
+                    & docker info --format '{{json .}}' 2>$null
+                }
+                if ($infoProbe.TimedOut) {
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_883c24367a7311b4')
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_8e214cf40db4bf91') -Class 'DOCKER.probe-timeout'
+                } else {
+                    $info = ($infoProbe.Output -join "`n") | ConvertFrom-Json -ErrorAction SilentlyContinue
+                }
             }
             if ($info) {
                 Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_4d1c48e1fe3d437b' -FormatValues ($info.Containers, $info.ContainersRunning, $info.ContainersPaused, $info.ContainersStopped) -FormatBindings @{ containers = '0'; containersRunning = '1'; containersPaused = '2'; containersStopped = '3' })
@@ -3259,16 +3682,20 @@ try {
                 }
             }
             Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d2c774924094e180')
-            Invoke-Tool -Tool 'docker' -ToolArgs @('ps','-a','--format','table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}') -TimeoutSeconds 5
-            $psProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
-                & docker ps -a --format '{{.Names}}|{{.Status}}' 2>$null
-            }
-            $rows = @()
-            if ($psProbe.TimedOut) {
-                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5ba0dbd55dfbc5f1')
-                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_078426d92d53cf65') -Class 'DOCKER.probe-timeout'
-            } else {
-                $rows = @($psProbe.Output)
+            $dockerContainerTable = @{}
+            Invoke-Tool -Tool 'docker' -ToolArgs @('ps','-a','--format','table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}') -TimeoutSeconds 5 -Snapshot $dockerContainerTable
+            $dockerContainers = Get-DiagnosticDockerContainerSnapshot -Snapshot $dockerContainerTable
+            $rows = @($dockerContainers.Rows)
+            if (-not $dockerContainers.Success) {
+                $psProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
+                    & docker ps -a --format '{{.Names}}|{{.Status}}' 2>$null
+                }
+                if ($psProbe.TimedOut) {
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5ba0dbd55dfbc5f1')
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_078426d92d53cf65') -Class 'DOCKER.probe-timeout'
+                } else {
+                    $rows = @($psProbe.Output)
+                }
             }
             foreach ($r in $rows) {
                 $parts = $r -split '\|', 2
@@ -3377,8 +3804,9 @@ try {
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('config','current-context')
 
         Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d6e66216138554de')
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','nodes','-o','wide','--request-timeout=5s') -TimeoutSeconds 5
-        $nodes = & kubectl get nodes --no-headers --request-timeout=5s 2>$null
+        $nodeSnapshot = @{}
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','nodes','-o','wide','--request-timeout=5s') -TimeoutSeconds 5 -Snapshot $nodeSnapshot
+        $nodes = @(Get-DiagnosticKubeSnapshot -Resource nodes -Snapshot $nodeSnapshot)
         foreach ($n in $nodes) {
             $cols = $n -split '\s+'
             if ($cols.Count -ge 2 -and $cols[1] -notmatch '^Ready') {
@@ -3387,11 +3815,14 @@ try {
         }
 
         Write-Sub "Namespaces"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ns','--request-timeout=5s') -TimeoutSeconds 5
+        $namespaceSnapshot = @{}
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ns','--request-timeout=5s') -TimeoutSeconds 5 -Snapshot $namespaceSnapshot
+        Get-DiagnosticKubeSnapshot -Resource ns -Snapshot $namespaceSnapshot -PrimeOnly
 
         Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_1309c3acc622dab5')
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','pods','-A','-o','wide','--request-timeout=5s') -TimeoutSeconds 5
-        $pods = & kubectl get pods -A --no-headers --request-timeout=5s 2>$null
+        $podSnapshot = @{}
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','pods','-A','-o','wide','--request-timeout=5s') -TimeoutSeconds 5 -Snapshot $podSnapshot
+        $pods = @(Get-DiagnosticKubeSnapshot -Resource pods -Snapshot $podSnapshot)
         foreach ($p in $pods) {
             $cols = $p -split '\s+'
             if ($cols.Count -lt 6) { continue }
@@ -3413,7 +3844,9 @@ try {
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','svc','-A','--request-timeout=5s')
 
         Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_800be59d158c392f')
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','deploy','-A','--request-timeout=5s')
+        $deploymentSnapshot = @{}
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','deploy','-A','--request-timeout=5s') -Snapshot $deploymentSnapshot
+        Get-DiagnosticKubeSnapshot -Resource deploy -Snapshot $deploymentSnapshot -PrimeOnly
 
         Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d1479ec6f1e779bb')
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ds','-A','--request-timeout=5s')
@@ -3454,7 +3887,7 @@ try {
         Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_cd9e1527d1f146c7')
         if (Test-CommandAvailable 'helm') {
             Invoke-Tool -Tool 'helm' -ToolArgs @('list','-A')
-            $rels = & helm list -A -o json 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
+            $rels = (Get-DiagnosticHelmSnapshot).Releases
             if ($rels) {
                 foreach ($r in $rels) {
                     if ($r.status -notin @('deployed','superseded')) {
@@ -3469,9 +3902,9 @@ try {
 
         Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_0a78863ef3d20c87')
         $nsBuiltin = @('default','kube-system','kube-public','kube-node-lease','kube-flannel')
-        $nsAll = @(& kubectl get ns --no-headers --request-timeout=5s 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ })
-        $nsWithPods = @(& kubectl get pods -A --no-headers --request-timeout=5s 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Sort-Object -Unique)
-        $nsWithDeploys = @(& kubectl get deploy -A --no-headers --request-timeout=5s 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Sort-Object -Unique)
+        $nsAll = @(Get-DiagnosticKubeSnapshot -Resource ns | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ })
+        $nsWithPods = @(Get-DiagnosticKubeSnapshot -Resource pods | ForEach-Object { ($_ -split '\s+')[0] } | Sort-Object -Unique)
+        $nsWithDeploys = @(Get-DiagnosticKubeSnapshot -Resource deploy | ForEach-Object { ($_ -split '\s+')[0] } | Sort-Object -Unique)
         $emptyNs = @($nsAll | Where-Object { $_ -and ($nsBuiltin -notcontains $_) -and ($nsWithPods -notcontains $_) -and ($nsWithDeploys -notcontains $_) })
         if ($emptyNs.Count -gt 0) {
             foreach ($n in $emptyNs) {
@@ -3508,22 +3941,23 @@ try {
         Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_69ccbdc3edf66706')
         $runtimeDir = $env:YURUNA_RUNTIME_DIR
         if (-not $runtimeDir) {
-            # Common default when Get-SystemDiagnostic is invoked outside
-            # a runner cycle. The status service publishes its own copy
-            # of the env var to its child pwsh; absent here, derive from
-            # script location.
-            $runtimeDir = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'test' -AdditionalChildPath 'status', 'track'
+            if ($script:DiagnosticEvidenceRoot) {
+                $runtimeDir = Join-Path -Path $script:DiagnosticEvidenceRoot -ChildPath 'test' -AdditionalChildPath 'status', 'track'
+            }
         }
         $rootPid = 0
         $rootSource = ''
         foreach ($candidate in @('inner.pid','runner.pid')) {
+            if (-not $runtimeDir) { break }
             $candidateFile = Join-Path $runtimeDir $candidate
             if (Test-Path -LiteralPath $candidateFile) {
                 try { $rootPid = [int]((Get-Content -LiteralPath $candidateFile -Raw -ErrorAction Stop).Trim()) } catch { $rootPid = 0 }
                 if ($rootPid -gt 0) { $rootSource = $candidate; break }
             }
         }
-        if ($rootPid -le 0) {
+        if (-not $runtimeDir) {
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.diagnostic_checkout_unavailable')
+        } elseif ($rootPid -le 0) {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_1b5c604fd0694be7' -Arguments @{ runtimeDir = "$runtimeDir" })
         } elseif (-not (Get-Process -Id $rootPid -ErrorAction SilentlyContinue)) {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_fa511b523f557f63' -Arguments @{ rootPid = "$rootPid"; rootSource = "$rootSource" })
@@ -4425,16 +4859,22 @@ try {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_0c0b6c2779c42621')
             return
         }
-        $candidate   = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
+        if (-not $script:DiagnosticEvidenceRoot) {
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.diagnostic_checkout_unavailable')
+            return
+        }
+        $candidate   = Join-Path -Path $script:DiagnosticEvidenceRoot -ChildPath 'project'
         $projectRoot = $null
-        if (Test-Path -LiteralPath $candidate) {
-            $projectRoot = (Resolve-Path -LiteralPath $candidate).Path
+        $projectDirectory = Get-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue
+        if ($projectDirectory -is [IO.DirectoryInfo] -and
+            -not ($projectDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            $projectRoot = $projectDirectory.FullName
         }
         if (-not $projectRoot) {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_aa6b37528c8d7be2' -Arguments @{ candidate = "$candidate" })
             return
         }
-        $yurunaRoot     = (Split-Path -Parent $PSScriptRoot)
+        $yurunaRoot     = $script:DiagnosticEvidenceRoot
         $yurunaVerFile  = Join-Path -Path $yurunaRoot  -ChildPath 'VERSION'
         $projectVerFile = Join-Path -Path $projectRoot -ChildPath 'VERSION'
 
@@ -4688,10 +5128,16 @@ try {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_0c0b6c2779c42621')
             return
         }
-        $candidate   = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
+        if (-not $script:DiagnosticEvidenceRoot) {
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.diagnostic_checkout_unavailable')
+            return
+        }
+        $candidate   = Join-Path -Path $script:DiagnosticEvidenceRoot -ChildPath 'project'
         $projectRoot = $null
-        if (Test-Path -LiteralPath $candidate) {
-            $projectRoot = (Resolve-Path -LiteralPath $candidate).Path
+        $projectDirectory = Get-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue
+        if ($projectDirectory -is [IO.DirectoryInfo] -and
+            -not ($projectDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            $projectRoot = $projectDirectory.FullName
         }
         if (-not $projectRoot) {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_7d384e5a632109dd' -Arguments @{ candidate = "$candidate" })
@@ -4718,11 +5164,7 @@ try {
         } else {
             $helmCount = 0
             try {
-                $helmJson = & helm list -A -o json 2>$null
-                if ($null -ne $helmJson -and -not [string]::IsNullOrWhiteSpace($helmJson)) {
-                    $helmList = $helmJson | ConvertFrom-Json -ErrorAction SilentlyContinue
-                    if ($helmList) { $helmCount = @($helmList).Count }
-                }
+                $helmCount = (Get-DiagnosticHelmSnapshot).Releases.Count
             } catch {
                 Write-Verbose ("helm list failed: {0}" -f $_.Exception.Message)
             }
@@ -4764,7 +5206,7 @@ try {
             if ($declaredNs.Count -eq 0) {
                 Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_007dba8c891ef14e')
             } else {
-                $clusterNs = @(& kubectl get ns -o name --request-timeout=5s 2>$null | ForEach-Object { ($_ -replace '^namespace/','').Trim() } | Where-Object { $_ })
+                $clusterNs = @(Get-DiagnosticKubeSnapshot -Resource ns | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ })
                 foreach ($d in $declaredNs) {
                     if ($clusterNs -contains $d.Name) {
                         Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_13444d1232596727' -FormatValues ($d.Name, $d.File) -FormatBindings @{ name = '0'; file = '1' })
@@ -4782,13 +5224,13 @@ try {
         if (-not $kubectlReady) {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a393cb03dba55e4a')
         } else {
-            $readyNodes = @(& kubectl get nodes --no-headers --request-timeout=5s 2>$null |
+            $readyNodes = @(Get-DiagnosticKubeSnapshot -Resource nodes |
                 Where-Object { ($_ -split '\s+')[1] -match '^Ready' })
             if ($readyNodes.Count -eq 0) {
                 Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_47229a44b80ae93b')
             } else {
                 $systemNs = @('default','kube-system','kube-public','kube-node-lease','kube-flannel','kube-proxy')
-                $userPods = @(& kubectl get pods -A --no-headers --request-timeout=5s 2>$null |
+                $userPods = @(Get-DiagnosticKubeSnapshot -Resource pods |
                     ForEach-Object {
                         $cols = $_ -split '\s+'
                         if ($cols.Count -ge 2 -and $systemNs -notcontains $cols[0]) { $_ }

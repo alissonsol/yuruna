@@ -217,6 +217,7 @@ $defs:
           - pressKey
           - retry
           - saveDiskSnapshot
+          - saveGuestClockSnapshot
           - saveSystemDiagnostic
           - sshExec
           - sshFetchAndExecute
@@ -334,6 +335,14 @@ $defs:
             tabCount:            { type: integer, minimum: 0 }
             charDelayMs:         { type: integer, minimum: 0 }
             delaySeconds:        { type: number,  minimum: 0 }
+
+      - if: { properties: { action: { const: saveGuestClockSnapshot } } }
+        then:
+          required: [phase]
+          properties:
+            phase:
+              type: string
+              enum: [before-cpu-restart, after-cpu-restart]
 
       - if: { properties: { action: { const: saveSystemDiagnostic } } }
         then:

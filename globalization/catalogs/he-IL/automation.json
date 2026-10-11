@@ -3,6 +3,14 @@
   "domain": "automation",
   "locale": "he-IL",
   "messages": {
+    "automation.diagnostic_checkout_unavailable": {
+      "sourceHash": "ed5c11965d58f8769fe9ac82189b07c39cd138aa9d63506b313cff90fb8deba9",
+      "message": "(לא רלוונטי: הראיות מתיקיית המאגר אינן זמינות; יש להעביר -CheckoutRoot כדי להשתמש בעותק קיים של Yuruna)"
+    },
+    "automation.diagnostic_phase_log_limits": {
+      "sourceHash": "39b412c7bea122f70dcf3038b9fcf7a0e7d1f8fe190f9ea593f00be7a4912b00",
+      "message": "סריקת יומני השלבים מוגבלת ל-100 קבצים, 12 רמות תיקייה ו-10 שניות; כל יומן מציג לכל היותר את 64 KiB האחרונים שלו."
+    },
     "automation.operator_d3ead8947216ae55": {
       "sourceHash": "434bb2af13ca31e668a906a9b846da3dd902316600a34609e500122826809b1d",
       "origin": "machine",

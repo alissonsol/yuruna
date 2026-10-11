@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -119,20 +119,8 @@ trap _yuruna_on_err ERR
 [[ $EUID -ne 0 ]] || die "Do not run as root. The script will call sudo when needed."
 
 # --- REGION: Preflight: this account can elevate
-# Same reasoning as the macOS installer: the sudo call is 80 lines on, and a
-# refusal there arrives through the ERR trap naming the previous step rather
-# than the elevation. Bare `id -nG` (no username) reports THIS session's group
-# token, which is what sudo authorizes against -- with a username, id queries the
-# name service and reports a grant the running session does not yet carry.
-# Exit codes only: sudo's refusal wording differs between the C sudo and the Rust
-# rewrite, so a message matcher silently stops matching.
-#
-# group_names is shared word for word with the macOS installer. id exits 1 when
-# one of the groups has no name (deleted mid-session, or a directory group that
-# does not resolve) even though it printed every name it could; under pipefail
-# that status, not the names, would decide a pipeline. Callers use
-# `grep -x ... >/dev/null` rather than -q, which stops reading at the first
-# match and can leave the writer to die of SIGPIPE, which pipefail also reports.
+# See https://yuruna.link/42e220c4-0015
+# Check the running session before any interactive elevation prompt.
 group_names() {
   { id -Gn ${1:+"$1"} 2>/dev/null || true; } | tr ' ' '\n'
 }
@@ -470,20 +458,9 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y virt-manager \
   || note_issue "Installing virt-manager failed; guest consoles remain available through virt-viewer."
 
 # --- REGION: Remove a standalone python3 that shadows the system interpreter
-# Hosts of the AMD Ryzen AI Developer Platform can carry a standalone CPython
-# under /opt/cpython linked as /usr/local/bin/python3. virt-install and the
-# platform's own tools run `python3` from PATH and need /usr/bin/python3's
-# modules, so that link stops every VM build. It is removed before the osinfo
-# check below, the first step that runs virt-install.
-#
-# Provenance comes from the python3 link alone, because that name is the one
-# that shadows the system interpreter. When it points into /opt/cpython, it goes,
-# then any python3.N link into the same version directory, then that directory
-# when its name is a CPython version, then /opt/cpython if that left it empty.
-# Anything else there stays, including a CPython someone unpacked and links only
-# as python3.N, runs by full path, or keeps virtual environments on, and a
-# --prefix=/opt/cpython install whose link has no version directory. The
-# directories are arguments so tests can point them elsewhere.
+# See https://yuruna.link/429fb30b-0035
+# Remove only the python3 symlink into /opt/cpython and its owned version tree.
+# Preserve unrelated interpreters and environments; libvirt needs system Python.
 remove_standalone_python() {
   local bin_dir="${1:-/usr/local/bin}" opt_dir="${2:-/opt/cpython}" target ver link
   [[ -L "$bin_dir/python3" ]] || return 0
@@ -1165,26 +1142,8 @@ bring_powershell_to_required_version() {
 bring_powershell_to_required_version
 
 # --- REGION: AMD Ryzen AI Developer Platform floor repair
-# The platform is Debian trixie underneath, and a Debian stable archive keeps
-# git, python3, curl and qemu-img below the floors in
-# automation/Yuruna.Requirement.yml, which track the Ubuntu 26.04 archive. The
-# apt-get install above already took the newest version trixie carries, so
-# without this region the closing check reports the same four shortfalls on every
-# run and no re-run can clear them.
-#
-# Each tool takes the nearest source that reaches its floor without replacing
-# the platform's base libraries. curl and qemu-img come from trixie-backports.
-# git builds from its signed release tarball, because forky's git pulls in a
-# newer glibc; the Debian package stays installed and the build wins the command
-# name from /usr/local/bin.
-#
-# python3 stays at the platform's version and is left out of the closing check
-# here. The platform's amd-halo-box package depends on python3-torch-rocm,
-# which pins the archive python3 below 3.14. No other interpreter can take the
-# name either: virt-install, virt-manager, virt-clone, virt-xml and the
-# platform's own tools (vllm-start, amd-halo-*) run `#!/usr/bin/env python3`
-# and need the system modules (gi, libvirt, ROCm torch) that only
-# /usr/bin/python3 carries. A python3 earlier on PATH breaks every VM build.
+# See https://yuruna.link/429fb30b-0035
+# Repair tool floors without replacing platform libraries or its ABI-bound system Python.
 
 # The first dotted number on the first line `<tool> --version` prints:
 # "git version 2.47.3", "Python 3.13.5", "curl 8.14.1 (x86_64-pc-linux-gnu) ...",
@@ -1415,18 +1374,8 @@ if [[ ! -f "$TEST_DIR/test.config.yml" && -f "$TEST_DIR/test.config.yml.template
 fi
 
 # --- REGION: https://yuruna.link/4220a755-0027
-# Grant the pre-cycle health check the one command it needs to repair a bridge
-# whose DHCP client identity is not pinned. Without the grant the check detects
-# the fault on every cycle and can do nothing about it, and a host that takes a
-# new address on every renewal spends the LAN pool at a rate the lease time sets
-# rather than the machine count -- which a long lease turns into exhaustion
-# within days, surfacing as guests that boot with no IPv4 at all.
-#
-# Installed here because unattended elevation cannot bootstrap itself: granting
-# the rule needs the sudo the rule provides, so the only place it can be done
-# without asking the operator for a second privileged act is the install that is
-# already elevated. The shipped file names the reference account; the runner
-# account is substituted before it is validated.
+# See https://yuruna.link/4220a755-0027
+# Substitute the runner account and validate the sudoers rule before installing it.
 install_bridge_pin_sudoers() {
   local src="$YURUNA_DIR/host/ubuntu.kvm/yuruna-bridge-pin.sudoers"
   local dst="/etc/sudoers.d/yuruna-bridge-pin"
@@ -1702,20 +1651,9 @@ fast-forward the Yuruna checkout when possible.
 EOF
 
 # --- REGION: Version floor check
-# The tools this installer manages, checked against the floors in
-# automation/Yuruna.Requirement.yml -- the same file the requirement report and
-# the diagnostic read, so a floor is written down once.
-#
-# Only what this script installs: reporting on a cloud CLI the bootstrapper
-# never touches would bury the one real problem in a dozen expected absences.
-#
-# Warn, never fail. Finishing SILENTLY below a floor is the failure mode this
-# closes -- that is how a host ran for weeks on a PowerShell too old to do the
-# crypto every lab enrollment needs, and surfaced it as a rejected Lab token.
-#
-# A shortfall no re-run can clear stays out of the summary, whose closing line
-# promises that a re-run retries every entry. On the AMD Ryzen AI Developer
-# Platform that is python3; the platform floor repair says why when it runs.
+# See https://yuruna.link/429fb30b-0002 and https://yuruna.link/429fb30b-0035
+# Check managed tools only; the AMD platform keeps its ABI-bound system Python.
+# Report shortfalls without failing the completed installation.
 floor_check_tools() {
   local tools="PowerShell,git,qemu-img,wget,tesseract,curl,python3"
   if is_amd_ryzen_ai_platform; then tools="${tools%,python3}"; fi

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,12 +22,18 @@
     cycle flow, config schema, notifications, and YURUNA_CACHING_PROXY_SERVICE_IP;
     see docs/test-harness.md for harness architecture.
 
-.PARAMETER ConfigPath           test.config.yml path (default: next to this script)
-.PARAMETER NoGitPull             Skip `git pull` at cycle start
-.PARAMETER NoConfigGate          Skip this cycle's Test-Config.ps1 preflight
-.PARAMETER NoStatusService       Skip the built-in HTTP status service
-.PARAMETER CycleDelaySeconds     Pause between cycles (default 30)
-.PARAMETER logLevel              One of Error|Warning|Information|Verbose|Debug. Each level shows itself + all higher-priority levels (Error highest). Omit to read test.config.yml.logLevel (default "Information").
+.PARAMETER ConfigPath
+    test.config.yml path (default: next to this script)
+.PARAMETER NoGitPull
+    Skip `git pull` at cycle start
+.PARAMETER NoConfigGate
+    Skip this cycle's Test-Config.ps1 preflight
+.PARAMETER NoStatusService
+    Skip the built-in HTTP status service
+.PARAMETER CycleDelaySeconds
+    Pause between cycles (default 30)
+.PARAMETER logLevel
+    One of Error|Warning|Information|Verbose|Debug. Each level shows itself + all higher-priority levels (Error highest). Omit to read test.config.yml.logLevel (default "Information").
 
 Strict binding: an unknown or misspelled parameter is a binding error, never
 a value silently absorbed into $args while the cycle runs on defaults.

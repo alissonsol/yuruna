@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Dependency pins for guest provisioning; service-VM seeds carry their own pins.
@@ -8,8 +8,8 @@
 # Select one stable Kubernetes minor; its package repository supplies
 # patch updates without moving the cluster to another minor.
 export YURUNA_K8S_MINOR=1.37
-# Keep both deb and standalone installation paths on this stable
-# release so a fallback cannot change the tool version.
+# Verify the exact stable release after standalone installation and before
+# reusing an installed binary.
 export YURUNA_OPENTOFU_VERSION=1.13.1
 # An exact Helm release keeps guest provisioning on a repeatable version.
 export YURUNA_HELM_VERSION=4.3.0

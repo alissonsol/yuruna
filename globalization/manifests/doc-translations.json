@@ -13,7 +13,7 @@
       "source": "docs/extensions-api.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/extensions-api.md",
-      "sourceHash": "317617221223c5f8798f62f2b2ccfeca07704eb4bb1d8a3fc39b4e956450d173",
+      "sourceHash": "5afd41fee04aafb7180dd6842ecea1beaf6ce2d0e3f92f44c4ebbc2533b5b492",
       "origin": "machine"
     },
     {
@@ -21,7 +21,7 @@
       "source": "docs/failure-schema.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/failure-schema.md",
-      "sourceHash": "dbb467efb6fe0f2036772e66097c51e7093654c2bcd9ec3531f0ddf90dca6f66",
+      "sourceHash": "06b006a89f7ea61ebebf89a1436f7daf47a1670c90a85568ae07afb7387cc7bf",
       "origin": "machine"
     },
     {
@@ -29,7 +29,7 @@
       "source": "docs/framework-implementation-notes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/framework-implementation-notes.md",
-      "sourceHash": "c5581262e0cb7e0c4c02cc192e07f4088f9a4f64dea0e0a576a6d87ec9ce83a3",
+      "sourceHash": "33b2ecf0c19c0c41bce2e3f489b34afcb21716bcaf42f6170016ca364dbab427",
       "origin": "machine"
     },
     {
@@ -37,7 +37,7 @@
       "source": "docs/host-implementation-notes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/host-implementation-notes.md",
-      "sourceHash": "de714c4a1540f8c680dd3e291d96667b4f2af4c4ecca0df96935121aaef28739",
+      "sourceHash": "d8d367bd67fbdf6e650f4565c64ea1efdc8b88a752f9d6ca9d268b0b5f726475",
       "origin": "machine"
     },
     {
@@ -45,7 +45,8 @@
       "source": "docs/install.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install.md",
-      "sourceHash": "b10688c6e7c92a7916c9644db00a171123a0f426b5ff2d391c30fdea3d97676f"
+      "sourceHash": "c5437b6e7b99d020911f2667cd0c49391b25bb36500e271a2c4643105c27b528",
+      "origin": "machine"
     },
     {
       "repo": "yuruna",
@@ -76,7 +77,7 @@
       "source": "docs/pool-admin.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/pool-admin.md",
-      "sourceHash": "d54eb8e07acc4ba01b03d4b03a66fbc7fc6fdf64cbfe2c011b28d5f8aa32f2b1",
+      "sourceHash": "91056c7bd9c402db9b6f5538294fe518b49095d347ddf40eef93eed40d0546c4",
       "origin": "machine"
     },
     {
@@ -84,7 +85,7 @@
       "source": "docs/project-implementation-notes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/project-implementation-notes.md",
-      "sourceHash": "bb5f6aca86391cdb7bbb673d03f8d2da1e448aff8d9ba61eb087aa5fc0db8579",
+      "sourceHash": "50dcc026ef13c8f6b200426fe734eee3829d9281238372a6db8075784539370e",
       "origin": "machine"
     },
     {
@@ -92,7 +93,7 @@
       "source": "docs/test-harness.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/test-harness.md",
-      "sourceHash": "383c6628085e622a1461fcb7dc037a56c8da3d9052be89b02f281d51b80af969",
+      "sourceHash": "1b32a41843cb3c84ec6209a5ff8ce1669d405aa8aa55dced2cc06272b82cf73e",
       "origin": "machine"
     },
     {
@@ -100,7 +101,7 @@
       "source": "docs/vmconfig.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/vmconfig.md",
-      "sourceHash": "ff589db5c59f51a9c4f53ee7bbe6af54756bab32e491225286874d61f2e9d73e",
+      "sourceHash": "9c4ec5c250071432e8e295c1f31f92499ee7eb779b9790d3a5faa769ca9da1d9",
       "origin": "machine"
     },
     {
@@ -116,7 +117,8 @@
       "source": "install/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install/README.md",
-      "sourceHash": "a7b8990c100752a313235d5562db9ce20363fe37ccb2259f989ae6fa74c15aed"
+      "sourceHash": "930859a2614b31e6feee3960cc66f944de480645c6d5e1e8055a384b76845ebf",
+      "origin": "machine"
     },
     {
       "repo": "yuruna",
@@ -138,7 +140,7 @@
       "source": "example/text-to-sql/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/example/text-to-sql/README.md",
-      "sourceHash": "02aa3316728c1b21b575da78ff6050893bebf03a22892fc10a6cdf64915ed829",
+      "sourceHash": "2223efee2efe54b5b2300b8ee64e541281747a5604cfd01e83d3050371685e51",
       "origin": "machine"
     },
     {
@@ -146,7 +148,7 @@
       "source": "example/website/components/frontend/website/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/example/website/components/frontend/website/README.md",
-      "sourceHash": "842cd83e8027a93e6c9641b61b6da8b3110fcd2062f3e626bf1bbdb1f6ecb4c1",
+      "sourceHash": "a7b68208c391ff474b47cc85d40bc16451fb69916fb3cab968fbbb83d19639fc",
       "origin": "machine"
     },
     {
@@ -161,7 +163,7 @@
       "source": "README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/README.md",
-      "sourceHash": "f84f038fd238e28d74e389941b86fc0c57792675129a9438717e67246e749549",
+      "sourceHash": "8abcd59008b89a86eb965eae7fffe616333cba8798786b9b8cfcb84b1679332b",
       "origin": "machine"
     },
     {
@@ -169,7 +171,8 @@
       "source": "template/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/template/README.md",
-      "sourceHash": "6bf66e8551b89415bafbbe9bd0c5e5a981f20e20c52432fabd3948cbfc0b7e58"
+      "sourceHash": "a2ce4f8b9190249125a91b3986929ea456b71c7438cfcdf25e338e309521590c",
+      "origin": "machine"
     }
   ]
 }

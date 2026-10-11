@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -57,6 +57,68 @@ assert_tool_runnable() {
         return 1
     fi
     return 0
+}
+
+# --- REGION: Wait for the containerd CRI API
+wait_for_containerd() {
+    local wait_seconds="${1:-30}" crictl_path timeout_path probe_log
+    local deadline remaining probe_seconds last_rc=0
+    crictl_path="$(command -v crictl 2>/dev/null || true)"
+    timeout_path="$(command -v timeout 2>/dev/null || true)"
+    if [ -z "$crictl_path" ] || [ -z "$timeout_path" ]; then
+        echo "ERROR: containerd readiness requires installed cri-tools (crictl) and coreutils (timeout)." >&2
+        return 1
+    fi
+    probe_log="$(mktemp)" || return 1
+    deadline=$((SECONDS + wait_seconds))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        remaining=$((deadline - SECONDS))
+        [ "$remaining" -gt 0 ] || break
+        probe_seconds=$remaining
+        [ "$probe_seconds" -le 5 ] || probe_seconds=5
+        # Resolve both paths before sudo; a restricted root PATH must not hide the probe.
+        # timeout owns the probe process group so a stalled CRI call cannot outlive the wait.
+        # The caller owns this temporary diagnostic file; only the probe needs root.
+        # shellcheck disable=SC2024
+        if sudo "$timeout_path" --kill-after=1 "$probe_seconds" "$crictl_path" \
+            --runtime-endpoint unix:///var/run/containerd/containerd.sock info >"$probe_log" 2>&1; then
+            rm -f "$probe_log"
+            echo "containerd CRI API is ready"
+            return 0
+        else
+            last_rc=$?
+        fi
+        remaining=$((deadline - SECONDS))
+        [ "$remaining" -gt 0 ] || break
+        echo "Waiting for containerd CRI API... (${remaining}s left)"
+        sleep 1
+    done
+    echo "ERROR: containerd CRI API did not become ready within ${wait_seconds}s (last probe exit: ${last_rc})." >&2
+    tail -c 8192 "$probe_log" >&2 || true
+    rm -f "$probe_log"
+    return 1
+}
+
+# --- REGION: Wait for Kubernetes networking
+wait_for_kubernetes_network() {
+    echo ""
+    echo "==== Flannel DaemonSet Status ===="
+    echo "Waiting for Flannel pods to be ready..."
+    kubectl --kubeconfig="${REAL_HOME}/.kube/config" -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=180s \
+        || echo "Note: Flannel rollout status check timed out -- pods may still be starting"
+
+    # A NotReady node cannot run downstream workloads; fail in this script.
+    echo "Waiting for node to be Ready..."
+    if ! kubectl --kubeconfig="${REAL_HOME}/.kube/config" wait --for=condition=ready node --all --timeout=180s; then
+        echo "ERROR: node did not reach Ready within 180s; the CNI plugin never initialized." >&2
+        # The three facts that identify the usual cause (a stalled flannel image
+        # pull) without needing a post-mortem diagnostic dump.
+        kubectl --kubeconfig="${REAL_HOME}/.kube/config" get nodes -o wide >&2 || true
+        kubectl --kubeconfig="${REAL_HOME}/.kube/config" -n kube-flannel get pods -o wide >&2 || true
+        echo "Contents of /etc/cni/net.d (empty means no CNI config was installed):" >&2
+        ls -A /etc/cni/net.d >&2 || true
+        exit 1
+    fi
 }
 
 echo "== Installing Kubernetes requirements for Ubuntu =="
@@ -234,8 +296,9 @@ echo ""
 echo -e "\e[1;36m==== K8S ====\e[0m"
 # K8s repo + keyring already written next to the Docker source above so a
 # single apt-get update covers both.
-apt_retry sudo apt-get install -y kubelet kubeadm kubectl
-sudo apt-mark hold kubelet kubeadm kubectl
+apt_retry sudo apt-get install -y kubelet kubeadm kubectl cri-tools
+sudo apt-mark hold kubelet kubeadm kubectl cri-tools
+assert_tool_runnable crictl --version
 
 # --- REGION: https://yuruna.link/42fa6f45-0011
 sudo mkdir -p /etc/containerd
@@ -475,6 +538,7 @@ sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to b
 
 # Reset any existing kubeadm state so the script can be re-run safely
 # Reference: https://k8s.io/docs/reference/setup-tools/kubeadm/kubeadm-reset/
+docker_network_needs_restore=false
 if [ -f /etc/kubernetes/manifests/kube-apiserver.yaml ] || [ -d /etc/kubernetes/pki ]; then
     echo "Existing Kubernetes cluster detected -- resetting before re-initialization"
     sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock
@@ -489,23 +553,26 @@ if [ -f /etc/kubernetes/manifests/kube-apiserver.yaml ] || [ -d /etc/kubernetes/
         sudo ipvsadm --clear || true
     fi
     sudo rm -f "${REAL_HOME}/.kube/config"
+    docker_network_needs_restore=true
 fi
 
-# Restart containerd after reset (reset can disrupt it) and wait for the socket
+# Reset can disrupt containerd; require a working CRI API before initialization.
 sudo systemctl restart containerd
-# See https://yuruna.link/42e220c4-000e
-# Use a deadline so probe execution time counts toward the wait budget.
-containerd_deadline=$(( $(date +%s) + 30 ))
-while true; do
-    if sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info &>/dev/null; then
-        echo "containerd is ready"
-        break
+wait_for_containerd 30
+
+if [ "$docker_network_needs_restore" = true ]; then
+    # Firewall cleanup also removes Docker's bridge forwarding and NAT rules.
+    # Restore them after containerd recovery so later builds retain network access.
+    echo "Restoring Docker networking after Kubernetes firewall cleanup"
+    if ! sudo timeout --kill-after=1 60 systemctl restart docker; then
+        echo "ERROR: Docker restart failed after Kubernetes firewall cleanup." >&2
+        exit 1
     fi
-    _now=$(date +%s)
-    [ "$_now" -ge "$containerd_deadline" ] && break
-    echo "Waiting for containerd to be ready... ($(( containerd_deadline - _now ))s left)"
-    sleep 1
-done
+    if ! sudo timeout --kill-after=1 10 docker info >/dev/null; then
+        echo "ERROR: Docker engine did not answer after Kubernetes firewall cleanup." >&2
+        exit 1
+    fi
+fi
 
 # Load kernel modules required by Kubernetes networking (Flannel uses vxlan which needs overlay + br_netfilter)
 sudo modprobe overlay
@@ -540,12 +607,7 @@ for kubeadm_attempt in 1 2 3; do
         sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock || true
         sudo rm -rf /etc/cni/net.d
         sudo systemctl restart containerd || true
-        containerd_deadline=$(( $(date +%s) + 30 ))
-        while true; do
-            if sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info &>/dev/null; then break; fi
-            [ "$(date +%s)" -ge "$containerd_deadline" ] && break
-            sleep 1
-        done
+        wait_for_containerd 30
         sleep $((kubeadm_attempt * 10))
     fi
 done
@@ -588,31 +650,6 @@ if ! kubectl --kubeconfig="${REAL_HOME}/.kube/config" apply -f "$FLANNEL_MANIFES
     exit 1
 fi
 
-echo ""
-echo "==== Flannel DaemonSet Status ===="
-echo "Waiting for Flannel pods to be ready..."
-sleep 15
-kubectl --kubeconfig="${REAL_HOME}/.kube/config" -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=180s \
-    || echo "Note: Flannel rollout status check timed out -- pods may still be starting"
-
-# A NotReady node cannot run downstream workloads; fail in this script.
-echo "Waiting for node to be Ready..."
-if ! kubectl --kubeconfig="${REAL_HOME}/.kube/config" wait --for=condition=ready node --all --timeout=180s; then
-    echo "ERROR: node did not reach Ready within 180s; the CNI plugin never initialized." >&2
-    # The three facts that identify the usual cause (a stalled flannel image
-    # pull) without needing a post-mortem diagnostic dump.
-    kubectl --kubeconfig="${REAL_HOME}/.kube/config" get nodes -o wide >&2 || true
-    kubectl --kubeconfig="${REAL_HOME}/.kube/config" -n kube-flannel get pods -o wide >&2 || true
-    echo "Contents of /etc/cni/net.d (empty means no CNI config was installed):" >&2
-    ls -A /etc/cni/net.d >&2 || true
-    exit 1
-fi
-
-# Remove control-plane taint for single-node cluster
-kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kubernetes.io/control-plane- || true
-
-kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
-
 # --- REGION: Install Helm
 # See https://yuruna.link/4220a755-001f
 echo ""
@@ -631,17 +668,40 @@ fi
 # See https://yuruna.link/42d69dfa-0044
 echo ""
 echo -e "\e[1;36m==== OpenTofu ====\e[0m"
-curl_retry --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/install-opentofu.sh
-chmod +x /tmp/install-opentofu.sh
-if ! _yuruna_retry opentofu_deb /tmp/install-opentofu.sh --install-method deb --opentofu-version "$YURUNA_OPENTOFU_VERSION"; then
-    echo "WARNING: OpenTofu deb install failed (often a GPG-key fetch from get.opentofu.org). Falling back to standalone method..."
-    _yuruna_retry opentofu_standalone /tmp/install-opentofu.sh --install-method standalone --opentofu-version "$YURUNA_OPENTOFU_VERSION" || true
-fi
-rm -f /tmp/install-opentofu.sh
-if ! command -v tofu >/dev/null 2>&1; then
-    echo "ERROR: OpenTofu install failed via both deb and standalone methods."
-    echo "Downstream Set-Resource steps rely on 'tofu'; aborting early rather than failing silently at the ingress check."
-    exit 1
+# The signed standalone release avoids refreshing every apt repository twice.
+# Unlike the deb installer, this method honors the exact requested version.
+opentofu_matches_version() {
+    local path version
+    path="$(command -v tofu 2>/dev/null || true)"
+    [ -n "$path" ] && [ -f "$path" ] && [ -s "$path" ] && [ -x "$path" ] || return 1
+    version="$("$path" version 2>/dev/null)" || return 1
+    [ "${version%%$'\n'*}" = "OpenTofu v${YURUNA_OPENTOFU_VERSION}" ]
+}
+if opentofu_matches_version; then
+    echo "OpenTofu ${YURUNA_OPENTOFU_VERSION} is already installed and runnable."
+else
+    OPENTOFU_INSTALLER="$(mktemp /tmp/yuruna-opentofu.XXXXXX)"
+    if ! curl_retry --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o "$OPENTOFU_INSTALLER"; then
+        rm -f "$OPENTOFU_INSTALLER"
+        echo "ERROR: Could not download the OpenTofu installer." >&2
+        exit 1
+    fi
+    chmod +x "$OPENTOFU_INSTALLER"
+    # Keep checksum and GPG/cosign signature verification enabled. Both shells
+    # and new PowerShell processes resolve the installed binary through this link.
+    if ! _yuruna_retry opentofu_standalone "$OPENTOFU_INSTALLER" --install-method standalone \
+        --opentofu-version "$YURUNA_OPENTOFU_VERSION" --install-path /opt/opentofu --symlink-path /usr/local/bin; then
+        rm -f "$OPENTOFU_INSTALLER"
+        echo "ERROR: OpenTofu standalone installation or integrity verification failed." >&2
+        exit 1
+    fi
+    rm -f "$OPENTOFU_INSTALLER"
+    # A previous /usr/bin/tofu lookup must not hide the new /usr/local/bin link.
+    hash -r
+    if ! opentofu_matches_version; then
+        echo "ERROR: OpenTofu ${YURUNA_OPENTOFU_VERSION} is not runnable on PATH after installation." >&2
+        exit 1
+    fi
 fi
 
 # --- REGION: Install mkcert
@@ -705,6 +765,15 @@ if [ "$PFX_XTRACE" = 1 ]; then set -x; fi
 rm -f "$PFX_DIR/aspnetapp.key" "$PFX_DIR/aspnetapp.crt"
 # Ensure the real user owns the certificate files (not root)
 chown -R "$REAL_USER:$REAL_USER" "$PFX_DIR"
+
+# Cluster networking starts while the independent tools and certificates install.
+# Keep the readiness gate before the summary and every downstream workload.
+wait_for_kubernetes_network
+
+# Remove control-plane taint for single-node cluster
+kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kubernetes.io/control-plane- || true
+
+kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
 
 # --- REGION: Installation summary
 echo ""

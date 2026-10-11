@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.10.04
+  Version: 2026.10.11
   Exercise the performance page's actual rendering functions with a minimal DOM.
   Optional argument: aggregate JSON produced by the generated status handler.
 */

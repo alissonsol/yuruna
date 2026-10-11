@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c69d36-b3fb-4b9c-9a06-d3691835d73e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
     dropping real data.
 
     The throw-based Assert-* helpers live at script scope and are referenced from
-    It blocks, so this runs under Pester 4.10.1.
+    It blocks, so this runs under Pester 5.x.
 #>
 
 BeforeAll {

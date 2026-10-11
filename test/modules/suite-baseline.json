@@ -3,8 +3,8 @@
   "recordedUtc": "2026-09-30T17:16:40.8543919Z",
   "pesterVersion": "5.9.0",
   "totals": {
-    "suites": 349,
-    "tests": 7286,
+    "suites": 388,
+    "tests": 8662,
     "failed": 0,
     "skipped": 39
   },
@@ -14,8 +14,13 @@
       "skipped": 0,
       "seconds": 2.21
     },
+    "host/modules/Yuruna.HostConsistency.Tests.ps1": {
+      "total": 12,
+      "skipped": 0,
+      "seconds": 9.61
+    },
     "host/modules/Yuruna.HostReliability.Tests.ps1": {
-      "total": 19,
+      "total": 39,
       "skipped": 0,
       "seconds": 8.86
     },
@@ -302,6 +307,11 @@
       "skipped": 0,
       "seconds": 29.42
     },
+    "test/modules/Test.DiagnosticDockerSnapshots.Tests.ps1": {
+      "total": 56,
+      "skipped": 0,
+      "seconds": 2.59
+    },
     "test/modules/Test.DiagnosticEchoVerify.Tests.ps1": {
       "total": 17,
       "skipped": 0,
@@ -316,6 +326,21 @@
       "total": 15,
       "skipped": 0,
       "seconds": 2.51
+    },
+    "test/modules/Test.DiagnosticPreservation.Tests.ps1": {
+      "total": 17,
+      "skipped": 0,
+      "seconds": 4.14
+    },
+    "test/modules/Test.DiagnosticSnapshots.Tests.ps1": {
+      "total": 36,
+      "skipped": 0,
+      "seconds": 2.51
+    },
+    "test/modules/Test.DiagnosticSourceProvenance.Tests.ps1": {
+      "total": 10,
+      "skipped": 0,
+      "seconds": 2.95
     },
     "test/modules/Test.DiagnosticTtyHygiene.Tests.ps1": {
       "total": 16,
@@ -392,6 +417,11 @@
       "skipped": 0,
       "seconds": 1.66
     },
+    "test/modules/Test.ExecutionLogAttribution.Tests.ps1": {
+      "total": 50,
+      "skipped": 0,
+      "seconds": 5.7
+    },
     "test/modules/Test.Extension.Tests.ps1": {
       "total": 31,
       "skipped": 0,
@@ -432,6 +462,11 @@
       "skipped": 0,
       "seconds": 6.13
     },
+    "test/modules/Test.FrameworkArchiveScope.Tests.ps1": {
+      "total": 6,
+      "skipped": 0,
+      "seconds": 1.32
+    },
     "test/modules/Test.GlobalizationAuthority.Tests.ps1": {
       "total": 12,
       "skipped": 0,
@@ -453,10 +488,25 @@
       "skipped": 0,
       "seconds": 4.57
     },
+    "test/modules/Test.GuestBootstrapPerformance.Tests.ps1": {
+      "total": 52,
+      "skipped": 0,
+      "seconds": 13.73
+    },
     "test/modules/Test.GuestCacheTopology.Tests.ps1": {
       "total": 24,
       "skipped": 0,
       "seconds": 2.39
+    },
+    "test/modules/Test.GuestCaptureMetadata.Tests.ps1": {
+      "total": 10,
+      "skipped": 0,
+      "seconds": 3.44
+    },
+    "test/modules/Test.GuestClockAccounting.Tests.ps1": {
+      "total": 19,
+      "skipped": 0,
+      "seconds": 4.0
     },
     "test/modules/Test.GuestDhcpIdentity.Tests.ps1": {
       "total": 18,
@@ -468,13 +518,18 @@
       "skipped": 0,
       "seconds": 4.55
     },
+    "test/modules/Test.GuestInstallerOutcome.Tests.ps1": {
+      "total": 98,
+      "skipped": 0,
+      "seconds": 25.67
+    },
     "test/modules/Test.GuestK8sCertificate.Tests.ps1": {
-      "total": 31,
+      "total": 50,
       "skipped": 0,
       "seconds": 9.24,
       "platformTotal": {
-        "linux": 27,
-        "macos": 27
+        "linux": 46,
+        "macos": 46
       }
     },
     "test/modules/Test.GuestLeaseRelease.Tests.ps1": {
@@ -492,13 +547,23 @@
       "skipped": 0,
       "seconds": 21.03
     },
+    "test/modules/Test.GuestNodeWorkflow.Tests.ps1": {
+      "total": 24,
+      "skipped": 0,
+      "seconds": 2.1
+    },
     "test/modules/Test.GuestPerformanceEvidence.Tests.ps1": {
       "total": 13,
       "skipped": 0,
       "seconds": 7.81
     },
+    "test/modules/Test.GuestPkillSelfMatch.Tests.ps1": {
+      "total": 1,
+      "skipped": 0,
+      "seconds": 1.0
+    },
     "test/modules/Test.GuestProjectConsistency.Tests.ps1": {
-      "total": 7,
+      "total": 70,
       "skipped": 0,
       "seconds": 3.18
     },
@@ -512,8 +577,18 @@
       "skipped": 0,
       "seconds": 1.81
     },
+    "test/modules/Test.GuestServiceBootstrap.Tests.ps1": {
+      "total": 108,
+      "skipped": 0,
+      "seconds": 4.43
+    },
+    "test/modules/Test.GuestStartWait.Tests.ps1": {
+      "total": 5,
+      "skipped": 0,
+      "seconds": 2.6
+    },
     "test/modules/Test.GuiFetchStaging.Tests.ps1": {
-      "total": 23,
+      "total": 32,
       "skipped": 0,
       "seconds": 4.38
     },
@@ -531,6 +606,11 @@
       "total": 13,
       "skipped": 0,
       "seconds": 8.31
+    },
+    "test/modules/Test.HostAddressBeaconCache.Tests.ps1": {
+      "total": 7,
+      "skipped": 0,
+      "seconds": 1.58
     },
     "test/modules/Test.HostAddressChurn.Tests.ps1": {
       "total": 37,
@@ -648,7 +728,7 @@
       "seconds": 3.68
     },
     "test/modules/Test.HostProvisionConsistency.Tests.ps1": {
-      "total": 12,
+      "total": 65,
       "skipped": 0,
       "seconds": 36.19
     },
@@ -707,6 +787,11 @@
       "skipped": 0,
       "seconds": 6.72
     },
+    "test/modules/Test.HostSamplingCadence.Tests.ps1": {
+      "total": 7,
+      "skipped": 0,
+      "seconds": 9.75
+    },
     "test/modules/Test.HostServiceLifecycle.Tests.ps1": {
       "total": 12,
       "skipped": 0,
@@ -743,7 +828,7 @@
       "seconds": 4.13
     },
     "test/modules/Test.HyperVVirtualizationResponsive.Tests.ps1": {
-      "total": 90,
+      "total": 117,
       "skipped": 0,
       "seconds": 9.22
     },
@@ -751,6 +836,11 @@
       "total": 5,
       "skipped": 0,
       "seconds": 2.39
+    },
+    "test/modules/Test.ImportYaml.Tests.ps1": {
+      "total": 14,
+      "skipped": 0,
+      "seconds": 5.29
     },
     "test/modules/Test.InnerRunnerPrelude.Tests.ps1": {
       "total": 5,
@@ -787,6 +877,11 @@
       "skipped": 3,
       "seconds": 14.78
     },
+    "test/modules/Test.K8sBootstrapOverlap.Tests.ps1": {
+      "total": 12,
+      "skipped": 0,
+      "seconds": 1.26
+    },
     "test/modules/Test.KeyCodeRegistry.Tests.ps1": {
       "total": 42,
       "skipped": 0,
@@ -807,10 +902,20 @@
       "skipped": 0,
       "seconds": 10.29
     },
+    "test/modules/Test.KvmScreenshot.Tests.ps1": {
+      "total": 7,
+      "skipped": 0,
+      "seconds": 2.75
+    },
     "test/modules/Test.KvmStartIfStopped.Tests.ps1": {
-      "total": 56,
+      "total": 100,
       "skipped": 0,
       "seconds": 8.05
+    },
+    "test/modules/Test.KvmText.Tests.ps1": {
+      "total": 33,
+      "skipped": 0,
+      "seconds": 4.21
     },
     "test/modules/Test.KvmVirtualizationResponsive.Tests.ps1": {
       "total": 54,
@@ -927,6 +1032,11 @@
       "skipped": 0,
       "seconds": 4.76
     },
+    "test/modules/Test.MarkdownLocalAnchors.Tests.ps1": {
+      "total": 59,
+      "skipped": 0,
+      "seconds": 4.64
+    },
     "test/modules/Test.McpServer.Tests.ps1": {
       "total": 36,
       "skipped": 0,
@@ -987,6 +1097,11 @@
       "skipped": 0,
       "seconds": 2.01
     },
+    "test/modules/Test.OcrResultCache.Tests.ps1": {
+      "total": 15,
+      "skipped": 0,
+      "seconds": 1.14
+    },
     "test/modules/Test.OuterLog.Tests.ps1": {
       "total": 8,
       "skipped": 0,
@@ -1001,6 +1116,11 @@
       "total": 20,
       "skipped": 0,
       "seconds": 4.33
+    },
+    "test/modules/Test.PerGuestNewVm.Tests.ps1": {
+      "total": 32,
+      "skipped": 0,
+      "seconds": 14.84
     },
     "test/modules/Test.PidFileIdentity.Tests.ps1": {
       "total": 9,
@@ -1127,6 +1247,11 @@
       "skipped": 0,
       "seconds": 4.74
     },
+    "test/modules/Test.PostStallEvidence.Tests.ps1": {
+      "total": 10,
+      "skipped": 0,
+      "seconds": 7.47
+    },
     "test/modules/Test.PreambleStallRecovery.Tests.ps1": {
       "total": 29,
       "skipped": 0,
@@ -1147,10 +1272,25 @@
       "skipped": 0,
       "seconds": 4.63
     },
+    "test/modules/Test.PrivateStateRepair.Tests.ps1": {
+      "total": 59,
+      "skipped": 0,
+      "seconds": 3.65
+    },
     "test/modules/Test.PrivateStateRoot.Tests.ps1": {
       "total": 37,
       "skipped": 0,
       "seconds": 9.56
+    },
+    "test/modules/Test.ProjectBuildProcess.Tests.ps1": {
+      "total": 23,
+      "skipped": 0,
+      "seconds": 9.07
+    },
+    "test/modules/Test.ProjectFetchFallback.Tests.ps1": {
+      "total": 24,
+      "skipped": 0,
+      "seconds": 23.9
     },
     "test/modules/Test.ProjectLocaleMap.Tests.ps1": {
       "total": 35,
@@ -1213,7 +1353,7 @@
       "seconds": 9.64
     },
     "test/modules/Test.RegionAnchors.Tests.ps1": {
-      "total": 12,
+      "total": 50,
       "skipped": 0,
       "seconds": 27.18
     },
@@ -1246,6 +1386,11 @@
       "total": 25,
       "skipped": 0,
       "seconds": 3.43
+    },
+    "test/modules/Test.RetryDiagnosticLog.Tests.ps1": {
+      "total": 45,
+      "skipped": 0,
+      "seconds": 6.51
     },
     "test/modules/Test.RetryPredicate.Tests.ps1": {
       "total": 4,
@@ -1359,6 +1504,11 @@
       "total": 5,
       "skipped": 0,
       "seconds": 2.29
+    },
+    "test/modules/Test.SequenceActionFailureLabel.Tests.ps1": {
+      "total": 5,
+      "skipped": 0,
+      "seconds": 1.84
     },
     "test/modules/Test.SequenceEngine.Tests.ps1": {
       "total": 65,
@@ -1506,7 +1656,7 @@
       "seconds": 3.92
     },
     "test/modules/Test.SourceConsistency.Tests.ps1": {
-      "total": 57,
+      "total": 147,
       "skipped": 0,
       "seconds": 10.35
     },
@@ -1584,10 +1734,25 @@
       "skipped": 0,
       "seconds": 17.42
     },
+    "test/modules/Test.StatusServiceCycleRefresh.Tests.ps1": {
+      "total": 5,
+      "skipped": 0,
+      "seconds": 1.18
+    },
+    "test/modules/Test.StatusServiceErrorLog.Tests.ps1": {
+      "total": 11,
+      "skipped": 0,
+      "seconds": 4.01
+    },
     "test/modules/Test.StatusServiceLocale.Tests.ps1": {
       "total": 25,
       "skipped": 0,
       "seconds": 11.14
+    },
+    "test/modules/Test.StatusServicePrivateState.Tests.ps1": {
+      "total": 11,
+      "skipped": 0,
+      "seconds": 1.5
     },
     "test/modules/Test.StatusServiceRefreshSafe.Tests.ps1": {
       "total": 13,
@@ -1650,7 +1815,7 @@
       "seconds": 3.2
     },
     "test/modules/Test.SystemDiagnosticSelfContained.Tests.ps1": {
-      "total": 28,
+      "total": 54,
       "skipped": 0,
       "seconds": 24.06
     },
@@ -1665,7 +1830,7 @@
       "seconds": 13.03
     },
     "test/modules/Test.Tesseract.Tests.ps1": {
-      "total": 8,
+      "total": 26,
       "skipped": 0,
       "seconds": 1.58
     },
@@ -1689,8 +1854,18 @@
       "skipped": 0,
       "seconds": 1.94
     },
+    "test/modules/Test.UbuntuYamlModuleReuse.Tests.ps1": {
+      "total": 17,
+      "skipped": 0,
+      "seconds": 5.24
+    },
+    "test/modules/Test.UnreachableDependencyGuard.Tests.ps1": {
+      "total": 3,
+      "skipped": 0,
+      "seconds": 1.2
+    },
     "test/modules/Test.UtmctlOutsideDriver.Tests.ps1": {
-      "total": 25,
+      "total": 38,
       "skipped": 0,
       "seconds": 17.09
     },
@@ -1709,8 +1884,13 @@
       "skipped": 0,
       "seconds": 3.93
     },
+    "test/modules/Test.VMConnectSettle.Tests.ps1": {
+      "total": 2,
+      "skipped": 0,
+      "seconds": 1.17
+    },
     "test/modules/Test.VmNameSweep.Tests.ps1": {
-      "total": 22,
+      "total": 30,
       "skipped": 0,
       "seconds": 2.11
     },
@@ -1734,10 +1914,20 @@
       "skipped": 0,
       "seconds": 4.41
     },
+    "test/modules/Test.WindowsInstallerStart.Tests.ps1": {
+      "total": 20,
+      "skipped": 0,
+      "seconds": 10.01
+    },
     "test/modules/Test.WindowsRunnerProtocol.Tests.ps1": {
       "total": 7,
       "skipped": 7,
       "seconds": 1.54
+    },
+    "test/modules/Test.WorkloadToolLog.Tests.ps1": {
+      "total": 16,
+      "skipped": 0,
+      "seconds": 5.05
     },
     "test/modules/Test.YurunaDeadline.Tests.ps1": {
       "total": 22,
@@ -1768,6 +1958,11 @@
       "total": 3,
       "skipped": 0,
       "seconds": 1.48
+    },
+    "test/modules/Test.YurunaRunReplay.Tests.ps1": {
+      "total": 7,
+      "skipped": 0,
+      "seconds": 4.78
     }
   },
   "registrations": [
@@ -1855,6 +2050,296 @@
       "tests": 13,
       "sourceSha256": {
         "test/modules/Test.InstallerCheckoutRepair.Tests.ps1": "67A4A07CC6205CEE4A821CE78F724A9CEDC712BBE1BDD2F8065DA4102A7250FE"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-05T20:07:51.708607Z",
+      "pesterVersion": "5.8.0",
+      "suites": [
+        "test/modules/Test.ImportYaml.Tests.ps1",
+        "test/modules/Test.MarkdownLocalAnchors.Tests.ps1",
+        "test/modules/Test.PerGuestNewVm.Tests.ps1",
+        "test/modules/Test.RetryDiagnosticLog.Tests.ps1",
+        "test/modules/Test.WorkloadToolLog.Tests.ps1"
+      ],
+      "tests": 166,
+      "sourceSha256": {
+        "test/modules/Test.ImportYaml.Tests.ps1": "8478AD0ABE9EB04AA109541DB79A05A3ADC02C5F4269AFE32B5E39414F6F0FF3",
+        "test/modules/Test.MarkdownLocalAnchors.Tests.ps1": "5A8AAFE79F18A8C0233FF324B29C9025450106DD44F677FD6165F15A2D50642D",
+        "test/modules/Test.PerGuestNewVm.Tests.ps1": "84C5D6170F580D039973DF6F7916DE426725BF36DB04905494D248FCDA39E5F0",
+        "test/modules/Test.RetryDiagnosticLog.Tests.ps1": "8DE3787EFCB985C5581F078EC9F6EA5E9E017092CE0E5134DEF728E0ACB9D2ED",
+        "test/modules/Test.WorkloadToolLog.Tests.ps1": "3872676F95C04FD2CAF4F2F2B0C7FEC349FEFF55C8BBF8FE91A14710E4103644"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-06T01:53:07.1885013Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.HostSamplingCadence.Tests.ps1"
+      ],
+      "tests": 7,
+      "sourceSha256": {
+        "test/modules/Test.HostSamplingCadence.Tests.ps1": "26E91F1F559CDBDC125CAF8739B0723CFFD7D8FC62D82E493A1BC9BB2BED4CE7"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-06T02:05:00.1943107Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.OcrResultCache.Tests.ps1"
+      ],
+      "tests": 15,
+      "sourceSha256": {
+        "test/modules/Test.OcrResultCache.Tests.ps1": "E43D516BE8CF4353CD866645360724B421788BD9AADBD32FF227DFA7A2224A4A"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-06T02:32:13.3868737Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.GuestStartWait.Tests.ps1"
+      ],
+      "tests": 5,
+      "sourceSha256": {
+        "test/modules/Test.GuestStartWait.Tests.ps1": "898B42FF1259E8E0A4E6EE4BAA05B06BA34B3B5C6B1F14E300ACD94255CCA808"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-06T02:39:52.0757441Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.StatusServiceCycleRefresh.Tests.ps1"
+      ],
+      "tests": 5,
+      "sourceSha256": {
+        "test/modules/Test.StatusServiceCycleRefresh.Tests.ps1": "A982676A1738357565B595AB3AAC40CFD4B82529AB5E034EFDB2578323DF349E"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-06T02:48:19.997998Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.YurunaRunReplay.Tests.ps1"
+      ],
+      "tests": 7,
+      "sourceSha256": {
+        "test/modules/Test.YurunaRunReplay.Tests.ps1": "C4D8193F8D08FB77B3C41CBBEB2E2F9E5BFD2450ADFBF77C9E2F28D350C6B1F1"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-06T02:56:26.6649986Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.FrameworkArchiveScope.Tests.ps1"
+      ],
+      "tests": 6,
+      "sourceSha256": {
+        "test/modules/Test.FrameworkArchiveScope.Tests.ps1": "0E9C5A05899D44ACFF1FBD6C49D8E2EBCD12FBA2BC2926F920AE8EF3CB79DEE6"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-06T03:06:38.8075768Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.HostAddressBeaconCache.Tests.ps1"
+      ],
+      "tests": 7,
+      "sourceSha256": {
+        "test/modules/Test.HostAddressBeaconCache.Tests.ps1": "29DBB62AC7A58BE2984EB2C0849A860BDACD719EA74F05AEABC9B7286F17D17B"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-06T03:40:25.7816137Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.VMConnectSettle.Tests.ps1"
+      ],
+      "tests": 2,
+      "sourceSha256": {
+        "test/modules/Test.VMConnectSettle.Tests.ps1": "1E4191BD4C872286A13E3198673128FED728CCD16C6AD6912ACC7F29A34839B3"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-07T02:41:16.193866Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.UnreachableDependencyGuard.Tests.ps1"
+      ],
+      "tests": 3,
+      "sourceSha256": {
+        "test/modules/Test.UnreachableDependencyGuard.Tests.ps1": "57B2BF6C891FFA72EC380EBF7F804EBCCDD8C5DCE98A9D9249D47F5A05803325"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-08T11:05:06.382878Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.SequenceActionFailureLabel.Tests.ps1"
+      ],
+      "tests": 5,
+      "sourceSha256": {
+        "test/modules/Test.SequenceActionFailureLabel.Tests.ps1": "5DFFDFA7DF720CC01303EB606EC853FDA78483C9CE8EB84D2E5B5B3BF1B9B19C"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-08T12:01:18.6724859Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.GuestPkillSelfMatch.Tests.ps1"
+      ],
+      "tests": 1,
+      "sourceSha256": {
+        "test/modules/Test.GuestPkillSelfMatch.Tests.ps1": "970024EC88F1606672CEBB7C8E08D76C81B674679E6657DBF91A477D359826C6"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-09T13:43:09.226305Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.KvmScreenshot.Tests.ps1"
+      ],
+      "tests": 7,
+      "sourceSha256": {
+        "test/modules/Test.KvmScreenshot.Tests.ps1": "CAA3A197C0ECC9A53A4FFFF32AAE6552549435FD2E079007EEBB743ED4DB549E"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-09T15:30:25.1715144Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.DiagnosticSnapshots.Tests.ps1",
+        "test/modules/Test.K8sBootstrapOverlap.Tests.ps1",
+        "test/modules/Test.UbuntuYamlModuleReuse.Tests.ps1"
+      ],
+      "tests": 64,
+      "sourceSha256": {
+        "test/modules/Test.DiagnosticSnapshots.Tests.ps1": "F76F55F23E915043A3A0CB2C8A1C714EFF794E47B8910A086B17CB49955F2260",
+        "test/modules/Test.K8sBootstrapOverlap.Tests.ps1": "F7D1E60272A7CE3072645EDE7D637236FC5A48BF89DF759E91E5D9DAEC32A346",
+        "test/modules/Test.UbuntuYamlModuleReuse.Tests.ps1": "508CEDAA534ECE67385CA52C0A9349DC11C8B7B7CEEA698182116EB920575236"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-09T16:59:19.9509041Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.DiagnosticDockerSnapshots.Tests.ps1"
+      ],
+      "tests": 56,
+      "sourceSha256": {
+        "test/modules/Test.DiagnosticDockerSnapshots.Tests.ps1": "834F859CB98F985C2B92F593A90DAF00F69B0F34088970D7751194397556C70E"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-09T18:37:20.68342Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.GuestServiceBootstrap.Tests.ps1"
+      ],
+      "tests": 19,
+      "sourceSha256": {
+        "test/modules/Test.GuestServiceBootstrap.Tests.ps1": "50BB14F1726123935BD489B23152E93DB48F9C79D085246DDAC2951EB47EF74E"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-09T22:33:31.5864945Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.ProjectBuildProcess.Tests.ps1"
+      ],
+      "tests": 16,
+      "sourceSha256": {
+        "test/modules/Test.ProjectBuildProcess.Tests.ps1": "832DBEDE9F14D66F3679D14DAB0948DCB477E834E3F8F9BD21FF52F9D250156D"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-09T23:31:21.2126602Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.GuestInstallerOutcome.Tests.ps1"
+      ],
+      "tests": 98,
+      "sourceSha256": {
+        "test/modules/Test.GuestInstallerOutcome.Tests.ps1": "CD423D59FF430D227D5FE63FA9DDAA16A1DB8BC6981976D99EE10EFD520CE664"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-10T00:32:01.1935601Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.DiagnosticPreservation.Tests.ps1",
+        "test/modules/Test.DiagnosticSourceProvenance.Tests.ps1",
+        "test/modules/Test.GuestCaptureMetadata.Tests.ps1",
+        "test/modules/Test.GuestClockAccounting.Tests.ps1",
+        "test/modules/Test.PostStallEvidence.Tests.ps1"
+      ],
+      "tests": 66,
+      "sourceSha256": {
+        "test/modules/Test.DiagnosticPreservation.Tests.ps1": "CFB68EADCBDA1D09E46044EEF0BAE5D3F727EFBE78BEF2283F74D3E8D0324809",
+        "test/modules/Test.DiagnosticSourceProvenance.Tests.ps1": "30128B8C2755E0F7BC21A17FD1908883FE3D8B32BD25FC920D8EC30513FFA328",
+        "test/modules/Test.GuestCaptureMetadata.Tests.ps1": "A2477DF8C1DDD408E412A538D8188A13903A6CF50FBA67013737A73A74204C61",
+        "test/modules/Test.GuestClockAccounting.Tests.ps1": "C0593BD5B1B5A775A47B3C8713F8609C983EA4AE587CA1C596B09921B9837FDE",
+        "test/modules/Test.PostStallEvidence.Tests.ps1": "9E766C2671E26709CA81EED57401932FDCDC653FFED5AC4607A053B2D1438998"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-10T01:54:42.7346052Z",
+      "pesterVersion": "5.8.0",
+      "suites": [
+        "test/modules/Test.WindowsInstallerStart.Tests.ps1"
+      ],
+      "tests": 20,
+      "sourceSha256": {
+        "test/modules/Test.WindowsInstallerStart.Tests.ps1": "F2FD41DB38E4813DF9E54669E9094AE62A510727080ADA6DFEADC97FCA287058"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-10T02:47:19.9093561Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "host/modules/Yuruna.HostConsistency.Tests.ps1"
+      ],
+      "tests": 12,
+      "sourceSha256": {
+        "host/modules/Yuruna.HostConsistency.Tests.ps1": "B2956D36E56BBFB7BF145E4502461AFCED7E3B3040F6ABDA50F38E2A942C8B0C"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-10T03:01:28.3143513Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.GuestNodeWorkflow.Tests.ps1"
+      ],
+      "tests": 24,
+      "sourceSha256": {
+        "test/modules/Test.GuestNodeWorkflow.Tests.ps1": "D6EEF365A9A65DAD18480DDE97B57B21FCF9505D5A6AA0554FC89C4C8CD7997A"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-10T13:46:44.6683890Z",
+      "pesterVersion": "5.8.0",
+      "suites": [
+        "test/modules/Test.ExecutionLogAttribution.Tests.ps1",
+        "test/modules/Test.ProjectFetchFallback.Tests.ps1",
+        "test/modules/Test.StatusServiceErrorLog.Tests.ps1"
+      ],
+      "tests": 85,
+      "sourceSha256": {
+        "test/modules/Test.ExecutionLogAttribution.Tests.ps1": "AEA98996033946CDEF7F1E85B309B3E81073867D5C89B9399EBACC6B3CB83FD3",
+        "test/modules/Test.ProjectFetchFallback.Tests.ps1": "181833283DFE3317DB67F4B19FA404F3744EEBC64FEB5AEAE60FD3DF979FADC1",
+        "test/modules/Test.StatusServiceErrorLog.Tests.ps1": "AF3A44C7C72092A11A0897949F361677AA2904692ED8D02B578D299F9BB31AB3"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-10T22:19:43.9827810Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.PrivateStateRepair.Tests.ps1",
+        "test/modules/Test.StatusServicePrivateState.Tests.ps1"
+      ],
+      "tests": 70,
+      "sourceSha256": {
+        "test/modules/Test.PrivateStateRepair.Tests.ps1": "A7B1ABA9F8D72094F3B713839384D2A30C5BE4FE7E5F6861C9A1E28F1808EE7E",
+        "test/modules/Test.StatusServicePrivateState.Tests.ps1": "27385A47218C5A692168483DDFB0B879E906C98D541AA10BF31303315B15E07B"
       }
     }
   ]

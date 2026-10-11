@@ -1404,15 +1404,6 @@
     },
     {
       "path": "automation/Get-SystemDiagnostic.ps1",
-      "line": 2420,
-      "sink": "Write-Output",
-      "key": "automation.operator_495dcc6db4d4fc56",
-      "arguments": [
-        "yurunaRootCandidate"
-      ]
-    },
-    {
-      "path": "automation/Get-SystemDiagnostic.ps1",
       "line": 2424,
       "sink": "Write-Output",
       "key": "automation.operator_9cf3996f93916a8c",
@@ -2462,6 +2453,20 @@
     },
     {
       "path": "automation/Get-SystemDiagnostic.ps1",
+      "line": 3239,
+      "sink": "Write-Output",
+      "key": "automation.diagnostic_checkout_unavailable",
+      "arguments": []
+    },
+    {
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "line": 3241,
+      "sink": "Write-Output",
+      "key": "automation.diagnostic_phase_log_limits",
+      "arguments": []
+    },
+    {
+      "path": "automation/Get-SystemDiagnostic.ps1",
       "line": 3209,
       "sink": "Write-Output",
       "key": "automation.operator_dce38997155da39d",
@@ -2930,6 +2935,13 @@
       "line": 3575,
       "sink": "Write-Output",
       "key": "automation.operator_2e15c2e53d3f7ff5",
+      "arguments": []
+    },
+    {
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "line": 3603,
+      "sink": "Write-Output",
+      "key": "automation.diagnostic_checkout_unavailable",
       "arguments": []
     },
     {
@@ -3512,6 +3524,20 @@
       "line": 4141,
       "sink": "Write-Output",
       "key": "automation.operator_926bc2ef75b29511",
+      "arguments": []
+    },
+    {
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "line": 4507,
+      "sink": "Write-Output",
+      "key": "automation.diagnostic_checkout_unavailable",
+      "arguments": []
+    },
+    {
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "line": 4776,
+      "sink": "Write-Output",
+      "key": "automation.diagnostic_checkout_unavailable",
       "arguments": []
     },
     {
@@ -9024,49 +9050,49 @@
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 136,
+      "line": 143,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_f3adc201e5fa38f4",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 139,
+      "line": 146,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_2c990e0b39de5483",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 140,
+      "line": 147,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_d36c28967dd8572f",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 142,
+      "line": 149,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_d506f23d4fcc7fa4",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 158,
+      "line": 165,
       "sink": "Write-Error",
       "key": "host.operator_6c671ec7d3b6b0d2",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 159,
+      "line": 166,
       "sink": "Write-Error",
       "key": "host.operator_1a34f423edf48db4",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 167,
+      "line": 174,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_a2880f954215ada2",
       "arguments": [
@@ -9075,7 +9101,7 @@
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 181,
+      "line": 188,
       "sink": "Write-Error",
       "key": "host.operator_6d45ba53c1de42dd",
       "arguments": [
@@ -9084,7 +9110,7 @@
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 198,
+      "line": 195,
       "sink": "Write-Error",
       "key": "host.operator_2bb96dc39812d94e",
       "arguments": [
@@ -9093,7 +9119,16 @@
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 240,
+      "line": 199,
+      "sink": "Write-Error",
+      "key": "host.operator_6d45ba53c1de42dd",
+      "arguments": [
+        "utmOutput"
+      ]
+    },
+    {
+      "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
+      "line": 230,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_2a896884b1a21323",
       "arguments": [
@@ -9102,28 +9137,38 @@
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 252,
+      "line": 242,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_23aa4a8fe6d65a18",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 268,
+      "line": 258,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_a2099ea8e59df16f",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 316,
+      "line": 280,
+      "sink": "Write-Warning",
+      "key": "host.orphan_sweep_registration_unknown",
+      "arguments": [
+        "path",
+        "target"
+      ]
+    },
+    {
+      "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
+      "line": 304,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_fe45a4bdfe18d51e",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 322,
+      "line": 310,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_a601ce2317e589b6",
       "arguments": [
@@ -9132,21 +9177,21 @@
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 329,
+      "line": 317,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_b912b4ce68796c85",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 333,
+      "line": 321,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_17be5c98af6eef11",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 347,
+      "line": 335,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_3e2337ab67132732",
       "arguments": [
@@ -9155,28 +9200,28 @@
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 351,
+      "line": 339,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_7fe1c2acfba18375",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 353,
+      "line": 341,
       "sink": "Read-Host",
       "key": "host.operator_67b2df91dc3bcc59",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 355,
+      "line": 343,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_ac15f0cb601d9a5f",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 383,
+      "line": 370,
       "sink": "Write-Warning",
       "key": "host.operator_0f6134c653d7783e",
       "arguments": [
@@ -9186,7 +9231,7 @@
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 390,
+      "line": 377,
       "sink": "Write-Warning",
       "key": "host.operator_33915575638287d2",
       "arguments": [
@@ -9196,14 +9241,14 @@
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 398,
+      "line": 385,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_048665fc498f2dc3",
       "arguments": []
     },
     {
       "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
-      "line": 400,
+      "line": 387,
       "sink": "Write-CleanupMessage",
       "key": "host.operator_42dbc0a404948dc9",
       "arguments": [
@@ -15990,559 +16035,17 @@
     },
     {
       "path": "host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1",
-      "line": 46,
+      "line": 38,
       "sink": "Write-Error",
       "key": "host.operator_2542864c23790bce",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1",
-      "line": 51,
-      "sink": "Write-Output",
-      "key": "host.operator_3e3de8bf7b8f6ba1",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1",
-      "line": 53,
-      "sink": "Write-Output",
-      "key": "host.operator_73905e18abf967cb",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1",
-      "line": 54,
-      "sink": "Write-Output",
-      "key": "host.operator_d9fd336c78bc7623",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1",
-      "line": 64,
-      "sink": "Write-Error",
-      "key": "host.operator_1f5a3a41f93d6b9f",
-      "arguments": [
-        "oSArchitecture"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1",
-      "line": 68,
-      "sink": "Write-Output",
-      "key": "host.operator_5d5bccb746b0bc5e",
-      "arguments": [
-        "hostArch"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1",
-      "line": 72,
-      "sink": "Write-Output",
-      "key": "host.operator_e30f6e2006f710fa",
-      "arguments": [
-        "downloadDir"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1",
-      "line": 74,
-      "sink": "Write-Output",
-      "key": "host.operator_84177e952e2487af",
-      "arguments": [
-        "downloadDir"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 70,
-      "sink": "Write-Output",
-      "key": "host.operator_e147c2f7708fdd27",
-      "arguments": [
-        "vMName"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 75,
-      "sink": "Write-Output",
-      "key": "host.operator_cd82e39650ead9bb",
-      "arguments": [
-        "hostname"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 101,
-      "sink": "Write-Error",
-      "key": "host.operator_b35de16dca777b44",
-      "arguments": [
-        "hostCores"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 108,
-      "sink": "Write-Output",
-      "key": "host.operator_73905e18abf967cb",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 109,
-      "sink": "Write-Output",
-      "key": "host.operator_d9fd336c78bc7623",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 123,
-      "sink": "Write-Output",
-      "key": "host.operator_84177e952e2487af",
-      "arguments": [
-        "downloadDir"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 136,
-      "sink": "Write-Error",
-      "key": "exceptions.host_6ac6dfe19b3c2194",
-      "arguments": [
-        "exposeVirtualizationExtensions"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 141,
-      "sink": "Write-Error",
-      "key": "host.operator_09429947681e4567",
-      "arguments": [
-        "oSArchitecture"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 159,
-      "sink": "Write-Error",
-      "key": "host.operator_a8c8c2c47e517a44",
-      "arguments": [
-        "username"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 160,
-      "sink": "Write-Output",
-      "key": "host.operator_762658980a25b8fb",
-      "arguments": [
-        "authActiveName"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 161,
-      "sink": "Write-Output",
-      "key": "host.operator_c427eb2402415f42",
-      "arguments": [
-        "authentication"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 170,
-      "sink": "Write-Error",
-      "key": "host.operator_a22129b198b9c117",
-      "arguments": [
-        "message"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 200,
-      "sink": "Write-Error",
-      "key": "host.operator_d95598955978034f",
-      "arguments": [
-        "vhdxFile"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 221,
-      "sink": "Write-Error",
-      "key": "host.operator_fcf4372c1612b691",
-      "arguments": [
-        "p"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 231,
-      "sink": "Write-Error",
-      "key": "host.operator_6424990f88c7f7bc",
-      "arguments": [
-        "testSshModule"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 250,
-      "sink": "Write-Warning",
-      "key": "host.operator_ebeb445282eb5c15",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 251,
-      "sink": "Write-Warning",
-      "key": "host.operator_d3a388ccdbaaa347",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 253,
-      "sink": "Write-Warning",
-      "key": "host.operator_e715d99e397197d5",
-      "arguments": [
-        "state"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 254,
-      "sink": "Write-Warning",
-      "key": "host.operator_e0834681caaac111",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 263,
-      "sink": "Write-Output",
-      "key": "host.operator_21498b86b803ec5f",
-      "arguments": [
-        "cachingProxyServiceUrl"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 306,
-      "sink": "Write-Error",
-      "key": "host.operator_1f5a3a41f93d6b9f",
-      "arguments": [
-        "oSArchitecture"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 340,
-      "sink": "Write-Warning",
-      "key": "host.operator_f2bb24df290cd0c1",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 401,
-      "sink": "Write-Error",
-      "key": "host.operator_b99bf50072be5d3d",
-      "arguments": [
-        "vMName"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 435,
-      "sink": "Write-Error",
-      "key": "host.operator_0e7d8993e0f54ff9",
-      "arguments": [
-        "cores"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1",
-      "line": 439,
-      "sink": "Write-Warning",
-      "key": "host.operator_fb77dad01082953b",
-      "arguments": [
-        "coresInt",
-        "hostCores"
-      ]
-    },
-    {
       "path": "host/windows.hyper-v/guest.ubuntu.server.26/Get-Image.ps1",
-      "line": 46,
+      "line": 38,
       "sink": "Write-Error",
       "key": "host.operator_ea494ffdd86805ef",
       "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/Get-Image.ps1",
-      "line": 51,
-      "sink": "Write-Output",
-      "key": "host.operator_3e3de8bf7b8f6ba1",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/Get-Image.ps1",
-      "line": 53,
-      "sink": "Write-Output",
-      "key": "host.operator_73905e18abf967cb",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/Get-Image.ps1",
-      "line": 54,
-      "sink": "Write-Output",
-      "key": "host.operator_d9fd336c78bc7623",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/Get-Image.ps1",
-      "line": 64,
-      "sink": "Write-Error",
-      "key": "host.operator_1f5a3a41f93d6b9f",
-      "arguments": [
-        "oSArchitecture"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/Get-Image.ps1",
-      "line": 68,
-      "sink": "Write-Output",
-      "key": "host.operator_5d5bccb746b0bc5e",
-      "arguments": [
-        "hostArch"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/Get-Image.ps1",
-      "line": 72,
-      "sink": "Write-Output",
-      "key": "host.operator_e30f6e2006f710fa",
-      "arguments": [
-        "downloadDir"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/Get-Image.ps1",
-      "line": 74,
-      "sink": "Write-Output",
-      "key": "host.operator_84177e952e2487af",
-      "arguments": [
-        "downloadDir"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 70,
-      "sink": "Write-Output",
-      "key": "host.operator_e147c2f7708fdd27",
-      "arguments": [
-        "vMName"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 75,
-      "sink": "Write-Output",
-      "key": "host.operator_cd82e39650ead9bb",
-      "arguments": [
-        "hostname"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 101,
-      "sink": "Write-Error",
-      "key": "host.operator_b35de16dca777b44",
-      "arguments": [
-        "hostCores"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 108,
-      "sink": "Write-Output",
-      "key": "host.operator_73905e18abf967cb",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 109,
-      "sink": "Write-Output",
-      "key": "host.operator_d9fd336c78bc7623",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 123,
-      "sink": "Write-Output",
-      "key": "host.operator_84177e952e2487af",
-      "arguments": [
-        "downloadDir"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 136,
-      "sink": "Write-Error",
-      "key": "exceptions.host_6ac6dfe19b3c2194",
-      "arguments": [
-        "exposeVirtualizationExtensions"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 141,
-      "sink": "Write-Error",
-      "key": "host.operator_09429947681e4567",
-      "arguments": [
-        "oSArchitecture"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 159,
-      "sink": "Write-Error",
-      "key": "host.operator_a8c8c2c47e517a44",
-      "arguments": [
-        "username"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 160,
-      "sink": "Write-Output",
-      "key": "host.operator_762658980a25b8fb",
-      "arguments": [
-        "authActiveName"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 161,
-      "sink": "Write-Output",
-      "key": "host.operator_c427eb2402415f42",
-      "arguments": [
-        "authentication"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 170,
-      "sink": "Write-Error",
-      "key": "host.operator_a22129b198b9c117",
-      "arguments": [
-        "message"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 200,
-      "sink": "Write-Error",
-      "key": "host.operator_d95598955978034f",
-      "arguments": [
-        "vhdxFile"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 221,
-      "sink": "Write-Error",
-      "key": "host.operator_fcf4372c1612b691",
-      "arguments": [
-        "p"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 231,
-      "sink": "Write-Error",
-      "key": "host.operator_6424990f88c7f7bc",
-      "arguments": [
-        "testSshModule"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 250,
-      "sink": "Write-Warning",
-      "key": "host.operator_ebeb445282eb5c15",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 251,
-      "sink": "Write-Warning",
-      "key": "host.operator_d3a388ccdbaaa347",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 253,
-      "sink": "Write-Warning",
-      "key": "host.operator_e715d99e397197d5",
-      "arguments": [
-        "state"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 254,
-      "sink": "Write-Warning",
-      "key": "host.operator_e0834681caaac111",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 263,
-      "sink": "Write-Output",
-      "key": "host.operator_21498b86b803ec5f",
-      "arguments": [
-        "cachingProxyServiceUrl"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 306,
-      "sink": "Write-Error",
-      "key": "host.operator_1f5a3a41f93d6b9f",
-      "arguments": [
-        "oSArchitecture"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 340,
-      "sink": "Write-Warning",
-      "key": "host.operator_f2bb24df290cd0c1",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 401,
-      "sink": "Write-Error",
-      "key": "host.operator_b99bf50072be5d3d",
-      "arguments": [
-        "vMName"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 438,
-      "sink": "Write-Error",
-      "key": "host.operator_0e7d8993e0f54ff9",
-      "arguments": [
-        "cores"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1",
-      "line": 442,
-      "sink": "Write-Warning",
-      "key": "host.operator_fb77dad01082953b",
-      "arguments": [
-        "coresInt",
-        "hostCores"
-      ]
     },
     {
       "path": "host/windows.hyper-v/guest.windows.11/Get-Image.ps1",
@@ -16977,6 +16480,277 @@
       "key": "host.operator_659701d157b56883",
       "arguments": [
         "answerFileTemplate"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/Get-UbuntuServerImage.ps1",
+      "line": 47,
+      "sink": "Write-Output",
+      "key": "host.operator_3e3de8bf7b8f6ba1",
+      "arguments": []
+    },
+    {
+      "path": "host/windows.hyper-v/modules/Get-UbuntuServerImage.ps1",
+      "line": 49,
+      "sink": "Write-Output",
+      "key": "host.operator_73905e18abf967cb",
+      "arguments": []
+    },
+    {
+      "path": "host/windows.hyper-v/modules/Get-UbuntuServerImage.ps1",
+      "line": 50,
+      "sink": "Write-Output",
+      "key": "host.operator_d9fd336c78bc7623",
+      "arguments": []
+    },
+    {
+      "path": "host/windows.hyper-v/modules/Get-UbuntuServerImage.ps1",
+      "line": 60,
+      "sink": "Write-Error",
+      "key": "host.operator_1f5a3a41f93d6b9f",
+      "arguments": [
+        "oSArchitecture"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/Get-UbuntuServerImage.ps1",
+      "line": 64,
+      "sink": "Write-Output",
+      "key": "host.operator_5d5bccb746b0bc5e",
+      "arguments": [
+        "hostArch"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/Get-UbuntuServerImage.ps1",
+      "line": 68,
+      "sink": "Write-Output",
+      "key": "host.operator_e30f6e2006f710fa",
+      "arguments": [
+        "downloadDir"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/Get-UbuntuServerImage.ps1",
+      "line": 70,
+      "sink": "Write-Output",
+      "key": "host.operator_84177e952e2487af",
+      "arguments": [
+        "downloadDir"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 49,
+      "sink": "Write-Output",
+      "key": "host.operator_e147c2f7708fdd27",
+      "arguments": [
+        "vMName"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 54,
+      "sink": "Write-Output",
+      "key": "host.operator_cd82e39650ead9bb",
+      "arguments": [
+        "hostname"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 80,
+      "sink": "Write-Error",
+      "key": "host.operator_b35de16dca777b44",
+      "arguments": [
+        "hostCores"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 87,
+      "sink": "Write-Output",
+      "key": "host.operator_73905e18abf967cb",
+      "arguments": []
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 88,
+      "sink": "Write-Output",
+      "key": "host.operator_d9fd336c78bc7623",
+      "arguments": []
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 102,
+      "sink": "Write-Output",
+      "key": "host.operator_84177e952e2487af",
+      "arguments": [
+        "downloadDir"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 115,
+      "sink": "Write-Error",
+      "key": "exceptions.host_6ac6dfe19b3c2194",
+      "arguments": [
+        "exposeVirtualizationExtensions"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 120,
+      "sink": "Write-Error",
+      "key": "host.operator_09429947681e4567",
+      "arguments": [
+        "oSArchitecture"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 138,
+      "sink": "Write-Error",
+      "key": "host.operator_a8c8c2c47e517a44",
+      "arguments": [
+        "username"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 139,
+      "sink": "Write-Output",
+      "key": "host.operator_762658980a25b8fb",
+      "arguments": [
+        "authActiveName"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 140,
+      "sink": "Write-Output",
+      "key": "host.operator_c427eb2402415f42",
+      "arguments": [
+        "authentication"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 149,
+      "sink": "Write-Error",
+      "key": "host.operator_a22129b198b9c117",
+      "arguments": [
+        "message"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 179,
+      "sink": "Write-Error",
+      "key": "host.operator_d95598955978034f",
+      "arguments": [
+        "vhdxFile"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 200,
+      "sink": "Write-Error",
+      "key": "host.operator_fcf4372c1612b691",
+      "arguments": [
+        "p"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 210,
+      "sink": "Write-Error",
+      "key": "host.operator_6424990f88c7f7bc",
+      "arguments": [
+        "testSshModule"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 229,
+      "sink": "Write-Warning",
+      "key": "host.operator_ebeb445282eb5c15",
+      "arguments": []
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 230,
+      "sink": "Write-Warning",
+      "key": "host.operator_d3a388ccdbaaa347",
+      "arguments": []
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 232,
+      "sink": "Write-Warning",
+      "key": "host.operator_e715d99e397197d5",
+      "arguments": [
+        "state"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 233,
+      "sink": "Write-Warning",
+      "key": "host.operator_e0834681caaac111",
+      "arguments": []
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 242,
+      "sink": "Write-Output",
+      "key": "host.operator_21498b86b803ec5f",
+      "arguments": [
+        "cachingProxyServiceUrl"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 285,
+      "sink": "Write-Error",
+      "key": "host.operator_1f5a3a41f93d6b9f",
+      "arguments": [
+        "oSArchitecture"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 319,
+      "sink": "Write-Warning",
+      "key": "host.operator_f2bb24df290cd0c1",
+      "arguments": []
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 380,
+      "sink": "Write-Error",
+      "key": "host.operator_b99bf50072be5d3d",
+      "arguments": [
+        "vMName"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 418,
+      "sink": "Write-Error",
+      "key": "host.operator_0e7d8993e0f54ff9",
+      "arguments": [
+        "cores"
+      ]
+    },
+    {
+      "path": "host/windows.hyper-v/modules/New-UbuntuServerVM.ps1",
+      "line": 422,
+      "sink": "Write-Warning",
+      "key": "host.operator_fb77dad01082953b",
+      "arguments": [
+        "coresInt",
+        "hostCores"
       ]
     },
     {

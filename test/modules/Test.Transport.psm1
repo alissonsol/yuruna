@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,6 +20,9 @@
 # Backend inventory and registry contract: https://yuruna.link/4222e5f2
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:DefaultCharDelayMs = 10
+# QEMU schedules a delay after every key down/up. A 1ms pulse consumes
+# at most 4ms for a shifted chord; this floor leaves time for its release.
+$script:KvmMinimumCharDelayMs = 10
 # See https://yuruna.link/4222e5f2-0005
 # Allow a typed field to settle before the next key or screenshot.
 $script:DefaultSettleMs    = 200
@@ -939,7 +942,119 @@ function Send-KeyKvm {
     return $true
 }
 
+function Invoke-KvmTextBurst {
+    <#
+    .SYNOPSIS
+        Send numeric chords through one bounded system-Python libvirt child.
+    .DESCRIPTION
+        Only a missing interpreter or missing Python binding permits fallback.
+        Every other failure can have sent keys, so it must not replay the burst.
+        Numeric chords travel in an exclusively created 0600 file, keeping
+        command text and credentials out of the child command line.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$VMName, [object[]]$Chords, [int]$CharDelayMs)
+    $failure = @{ Available = $true; Success = $false; Sent = 0; UnknownDelivery = $true; Error = '' }
+    if (-not (Test-Path -LiteralPath '/usr/bin/python3' -PathType Leaf)) {
+        return @{ Available = $false; Success = $false; Sent = 0; Error = '' }
+    }
+    $temporary = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-kvm-text-' + [Guid]::NewGuid().ToString('N') + '.json')
+    try {
+        $options = [IO.FileStreamOptions]::new()
+        $options.Mode = [IO.FileMode]::CreateNew
+        $options.Access = [IO.FileAccess]::Write
+        $options.Share = [IO.FileShare]::None
+        $options.UnixCreateMode = [IO.UnixFileMode]'UserRead, UserWrite'
+        $stream = [IO.FileStream]::new($temporary, $options)
+        try {
+            if ([int][IO.File]::GetUnixFileMode($temporary) -ne 384) { throw 'private file mode was not retained' }
+            $request = @{ vmName = $VMName; chords = @($Chords); charDelayMs = [Math]::Max(0, $CharDelayMs) }
+            $bytes = [Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $request -Depth 5 -Compress))
+            $stream.Write($bytes, 0, $bytes.Length)
+        } finally { $stream.Dispose() }
+        if (-not (Get-Command Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -Force -Verbose:$false
+        }
+        # Pacing is intentional work, with a fixed allowance for connection
+        # setup and key RPCs. A wedged RPC is killed within the whole-call cap.
+        $timeout = [int][Math]::Min(2147483, 15 + [Math]::Ceiling($Chords.Count * [double][Math]::Max($script:KvmMinimumCharDelayMs, $CharDelayMs) / 1000))
+        $probe = Invoke-BoundedNativeCommand -FilePath '/usr/bin/python3' -ArgumentList @('-I', (Join-Path $PSScriptRoot 'Test.KvmText.py'), $temporary) -TimeoutSeconds $timeout -MaxCapturedChars 8192
+        if (-not (Test-BoundedNativeResultComplete -Result $probe)) {
+            $failure.Error = 'libvirt text send did not complete inside its deadline; delivery extent is unknown and text was not replayed'
+            return $failure
+        }
+        $result = ConvertFrom-Json -InputObject $probe.StdOut -AsHashtable -ErrorAction Stop
+        if ($result -isnot [Collections.IDictionary] -or $result.status -isnot [string]) { throw 'invalid libvirt send response' }
+        if ($result.sent -isnot [long] -and $result.sent -isnot [int]) { throw 'invalid libvirt send count' }
+        if ($result.sent -lt 0 -or $result.sent -gt $Chords.Count) { throw 'invalid libvirt send count' }
+        if ($result.status -eq 'unavailable' -and $probe.ExitCode -eq 78 -and $result.sent -eq 0) {
+            return @{ Available = $false; Success = $false; Sent = 0; Error = '' }
+        }
+        $failure.Sent = [int]$result.sent
+        if ($probe.ExitCode -eq 0 -and $result.status -eq 'ok' -and $result.sent -eq $Chords.Count) {
+            return @{ Available = $true; Success = $true; Sent = [int]$result.sent; Error = '' }
+        }
+        $failure.Error = [string]$result.error
+        if ([string]::IsNullOrWhiteSpace($failure.Error)) { $failure.Error = 'libvirt text send returned an invalid result' }
+        $failure.UnknownDelivery = ($result.status -ne 'failed' -or $probe.ExitCode -ne 1)
+        if ($failure.UnknownDelivery) { $failure.Error += '; delivery extent is unknown and text was not replayed' }
+        return $failure
+    } catch {
+        $failure.Error = $_.Exception.Message + '; delivery extent is unknown and text was not replayed'
+        return $failure
+    } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+}
+
 function Send-TextKvm {
+    <#
+    .SYNOPSIS
+        Type text through one libvirt connection while preserving chord pacing.
+    .DESCRIPTION
+        Printable ASCII uses the existing PS/2 Set 1 character values, which
+        equal Linux input-event codes for these keys. Tab and Enter use the
+        named map. Shifted characters remain simultaneous two-key chords.
+        Explicit 1ms key pulses and a minimum 10ms character pause prevent
+        QEMU's delayed input queue from dropping key-release events.
+        Hosts without the system Python libvirt binding use the virsh backend;
+        a failed or interrupted libvirt send is never replayed.
+    #>
+    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
+    $ps2 = Get-KeyCodeMap -Kind 'PS2-Char'
+    $named = Get-KeyCodeMap -Kind 'PS2-Named'
+    $chords = [Collections.Generic.List[object]]::new()
+    $characters = [Collections.Generic.List[string]]::new()
+    foreach ($ch in $Text.ToCharArray()) {
+        $character = [string]$ch
+        if (-not $script:KvmCharKeyMap[$character]) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dfe205f918802162' -Arguments @{ ch = "$ch"; x2 = "$([int][char]$ch | ForEach-Object { $_.ToString('X4') })" })
+            continue
+        }
+        if ($ps2.ContainsKey($character)) {
+            $entry = $ps2[$character]
+            $chord = if ($entry[1]) { @([int]$named.LShift, [int]$entry[0]) } else { @([int]$entry[0]) }
+        } elseif ($ch -eq "`t") { $chord = @([int]$named.Tab) }
+        else { $chord = @([int]$named.Enter) }
+        $chords.Add([int[]]$chord)
+        $characters.Add($character)
+    }
+    if ($chords.Count -eq 0) { return $true }
+    $result = Invoke-KvmTextBurst -VMName $VMName -Chords $chords.ToArray() -CharDelayMs $CharDelayMs
+    if (-not $result.Available) {
+        return Send-TextKvmLegacy -VMName $VMName -Text ($characters -join '') -CharDelayMs $CharDelayMs
+    }
+    if (-not $result.Success) {
+        $failedCharacter = if ($result.UnknownDelivery) { '?' } else { $characters[[Math]::Min($result.Sent, $characters.Count - 1)] }
+        $failedCodes = if ($result.UnknownDelivery) { '?' } else { $script:KvmCharKeyMap[$failedCharacter] -join ',' }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_966231fe730b28ff' -Arguments @{ ch = $failedCharacter; join = $failedCodes; trim = $result.Error })
+        return $false
+    }
+    $effectiveDelay = [Math]::Max($script:KvmMinimumCharDelayMs, $CharDelayMs)
+    Write-Debug "      libvirt send-key: $($result.Sent) chars sent (${effectiveDelay}ms delay between chars)"
+    return $true
+}
+
+function Send-TextKvmLegacy {
     <#
     .SYNOPSIS
         Type $Text into a KVM VM one chord at a time via `virsh send-key`.

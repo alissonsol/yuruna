@@ -1,39 +1,13 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
-# Source of truth for the version-probe commands used to identify the
-# tools the Yuruna codebase depends on. Each `command:` is a
-# PowerShell expression that, on a healthy install, prints just the
-# version string on stdout. Consumed by:
-#   * automation/Yuruna.Requirement.psm1 (Confirm-RequirementList)
-#   * automation/Get-SystemDiagnostic.ps1 (HOST > Software subsection)
-# Keep both consumers in lock-step with this file. The expressions
-# here assume the tool is installed; each consumer adds its own
-# missing-tool fallback (a friendly "(not installed)" line in the
-# diagnostic, a captured error string in the requirement listing).
-#
-# YAML quoting note: any expression containing regex backslashes or
-# embedded single quotes uses the block-literal form (`|-`) -- PyYAML
-# rejects `\s` in double-quoted strings as an unknown escape, and
-# single-quoted YAML would force every embedded apostrophe to be
-# doubled. Block literals keep the PowerShell as-typed.
-#
-# Choosing a `version:` -- a floor is the LOWEST version that every
-# supported host's package source ships, never the newest upstream
-# release. The sources do not move together: Homebrew and winget follow
-# upstream within days, while an Ubuntu LTS archive freezes its numbers
-# at release and afterwards carries only backported fixes, so for any
-# tool apt supplies it is the binding constraint and its number is the
-# floor. Set a floor above what a platform's source can deliver and the
-# check reports a defect on a correctly provisioned machine, on every
-# run, with no installer able to clear it -- the same trap the Docker,
-# buildx and npm entries below avoid by tracking their bundling source.
-# A floor says the host is provisioned, not that it is current.
+# See https://yuruna.link/42e220c4-0016
+# --- REGION: requirements
 requirements:
   - tool: "PowerShell"
     command: |-
       "$($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
-    version: "7.6.4 (Core)"
+    version: "7.6.6 (Core)"
     releases: "https://github.com/powershell/powershell/releases"
   - tool: "git"
     command: |-
@@ -46,26 +20,19 @@ requirements:
     version: "3.14.4"
     releases: "https://www.python.org/downloads/"
   - tool: "OpenTofu"
+    # The floor follows winget; standalone guest installs can use a newer patch.
     command: "($(tofu version -json) | ConvertFrom-Json).terraform_version"
-    version: "1.12.6"
+    version: "1.13.0"
     releases: "https://opentofu.org/docs/intro/install/"
   - tool: "Helm"
     command: "helm version --short"
-    version: "v4.2.4"
+    version: "v4.3.0"
     releases: "https://github.com/helm/helm/releases"
   - tool: "Docker"
-    # `docker --version` is local (no daemon roundtrip) -- avoids the
-    # ~30 s hang `docker version -f json` would trigger when dockerd is
-    # unreachable, which is the failure mode the diagnostic catches.
-    #
-    # Tracks the engine Docker Desktop bundles, NOT the newest standalone
-    # Docker Engine on download.docker.com. Desktop trails the engine repo by
-    # a release or two, and nothing here installs an engine separately, so a
-    # floor above what Desktop ships fails this check on a correctly
-    # provisioned machine -- same coupling as the npm/Node LTS entry below.
+    # See https://yuruna.link/42e220c4-0016
     command: |-
       ((docker --version) -replace '^Docker version ','' -replace ',\s*build.*$','')
-    version: "29.8.1"
+    version: "29.8.2"
     releases: "https://docs.docker.com/desktop/"
   - tool: "Docker buildx"
     # Ships as a CLI plugin inside Docker Desktop, so the floor follows the
@@ -73,7 +40,7 @@ requirements:
     # the Docker entry above for why an upstream-leading floor misfires.
     command: |-
       ((docker buildx version) -split '\s+')[1]
-    version: "v0.37.1"
+    version: "v0.37.2"
     releases: "https://github.com/docker/buildx"
   - tool: "containerd"
     platforms: [linux]
@@ -100,8 +67,9 @@ requirements:
     version: "v1.4.4"
     releases: "https://github.com/filosottile/mkcert/releases"
   - tool: "node"
+    # The Windows LTS package can lag the patch that nvm and Homebrew provide.
     command: "node --version"
-    version: "v24.19.0"
+    version: "v24.20.0"
     releases: "https://nodejs.org/en/download"
   - tool: "npm"
     # Tracks whatever the pinned Node LTS bundles, NOT npm's newest
@@ -109,7 +77,7 @@ requirements:
     # fail this check on a correctly provisioned machine, since nothing
     # in the framework or the guest scripts installs npm separately.
     command: "npm --version"
-    version: "11.17.0"
+    version: "11.19.0"
     releases: "https://docs.npmjs.com/cli/v11/configuring-npm/install"
   - tool: "curl"
     # First line is `curl X.Y.Z (build/triplet) libcurl/X.Y.Z ...`; the
@@ -127,23 +95,7 @@ requirements:
     version: "tesseract 5.5.0"
     releases: "https://github.com/tesseract-ocr/tesseract/releases"
   - tool: "qemu-img"
-    # First line is `qemu-img version X.Y.Z, Copyright (c) ... Fabrice
-    # Bellard`; the Copyright tail is a constant suffix.
-    #
-    # The name alone under-reports this on Windows. The QEMU installer does
-    # not register itself on PATH, so a host whose qcow2-to-VHDX conversion
-    # runs fine still answers a by-name probe with CommandNotFoundException
-    # and lands here as MISSING -- a defect no re-install can clear, on a
-    # machine with nothing wrong with it. The candidate directories mirror
-    # Resolve-QemuImgCommand in host/modules/Yuruna.Image.psm1, the resolver
-    # every Windows caller of qemu-img goes through; they have to stay the
-    # same set, or this row resumes disagreeing with the code it describes.
-    #
-    # Windows-only on purpose. Where a package manager owns the tool, a
-    # by-name miss is a real defect and the signal the installers' repair
-    # passes act on (install/macos.utm.sh relinks the Homebrew keg), so an
-    # off-PATH fallback there would report a green floor for exactly the
-    # unlinked state that pass exists to fix.
+    # See https://yuruna.link/42e220c4-0016
     command: |-
       $exe = (Get-Command qemu-img -ErrorAction SilentlyContinue).Source
       if (-not $exe -and $IsWindows) {
@@ -155,27 +107,7 @@ requirements:
     releases: "https://www.qemu.org/download/"
   - tool: "oscdimg"
     platforms: [windows]
-    # The banner line is `OSCDIMG X.YZ CD-ROM and DVD-ROM Premastering
-    # Utility`. There is no version flag -- `-h` means "include hidden files"
-    # -- so the version is read from the banner oscdimg prints ahead of its
-    # usage text when invoked with no source and target. Those missing
-    # arguments also make it exit non-zero, which is NOT a failure signal
-    # here: with $PSNativeCommandUseErrorActionPreference left at the host's
-    # default, a PowerShell 7.4+ session running at ErrorActionPreference
-    # Stop turns that exit into a terminating error, and the caught message
-    # carries no version number, so a healthy ADK would report MISSING.
-    # Match the banner rather than taking line 1, so a leading blank or a
-    # future preamble line does not read as an absent tool.
-    #
-    # Windows-only, and never on PATH: the ADK registers nothing, shipping
-    # DandISetEnv.bat to build an environment on demand instead. It lays
-    # Oscdimg down once per architecture (amd64, arm64 and x86 all appear
-    # after one install), and the glob takes whichever copy is present --
-    # a floor asks how new the ADK is, not which build runs. That second
-    # question belongs to Resolve-OscdimgPath in
-    # host/windows.hyper-v/modules/Yuruna.Host.psm1, and repeating its
-    # ordering here would be a second copy to keep in step for an answer
-    # this row never uses.
+    # See https://yuruna.link/42e220c4-0016
     command: |-
       & {
           if (-not $IsWindows) { return }
@@ -194,15 +126,15 @@ requirements:
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.36.18"
+    version: "aws-cli/2.37.12"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""
-    version: "2.89.0"
+    version: "2.91.0"
     releases: "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
   - tool: "Google Cloud"
     # No `-q` and no 2>&1 capture: a broken bundled-python install fails
     # silently rather than dumping a traceback into the version column.
     command: "(gcloud -v | Select-Object -First 1)"
-    version: "Google Cloud SDK 579.0.0"
+    version: "Google Cloud SDK 588.0.0"
     releases: "https://cloud.google.com/sdk/docs/install-sdk"

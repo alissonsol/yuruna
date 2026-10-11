@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 427dc7e5-42e7-4d34-bef6-83be459c7402
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,6 +60,129 @@ BeforeAll {
         return $source
     }
 
+    function Invoke-UtmCacheFixture {
+        param([string]$State, [string]$Probe = 'unreachable', [string]$Binding = 'unbound')
+        $source = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'host/macos.utm/modules/New-UbuntuServerVM.ps1') -Raw
+        $start = $source.IndexOf('# --- REGION: Detect the caching-proxy service', [StringComparison]::Ordinal)
+        $end = $source.IndexOf('# --- REGION: Build the autoinstall apt block', $start, [StringComparison]::Ordinal)
+        if ($start -lt 0 -or $end -le $start) { throw 'Missing cache selection region' }
+        $calls = Join-Path $script:FixtureRoot ([guid]::NewGuid().ToString() + '.calls')
+        $body = @'
+param([string]$State, [string]$Probe, [string]$Calls, [string]$CachingProxyServiceUrl)
+$ErrorActionPreference = 'Stop'
+function Get-VMStateRecord {
+    param([string]$VMName)
+    if ($VMName -ne 'yuruna-caching-proxy-service') { throw 'Wrong cache VM' }
+    Add-Content -LiteralPath $Calls -Value 'state'
+    if ($State -eq 'exception') { throw 'Fixture state query failed' }
+    [pscustomobject]@{ State = $State; Reason = 'fixture-state' }
+}
+function Test-CachingProxyServiceAvailable {
+    Add-Content -LiteralPath $Calls -Value 'proxy'
+    if ($Probe -eq 'exception') { throw 'Fixture proxy query failed' }
+    if ($Probe -eq 'reachable') { return 'http://192.0.2.7:3128' }
+    return $null
+}
+'@
+        $body += "`n" + $source.Substring($start, $end - $start)
+        $body += "`n'AFTER_CACHE_GATE'; @{ Url = `$CachingProxyServiceUrl } | ConvertTo-Json -Compress"
+        $arguments = @('-State', $State, '-Probe', $Probe, '-Calls', $calls)
+        if ($Binding -ne 'unbound') {
+            $arguments += @('-CachingProxyServiceUrl', $(if ($Binding -eq 'empty') { '' } else { 'http://192.0.2.8:3128' }))
+        }
+        $run = Invoke-ProvisionFixture -Body $body -Argument $arguments
+        $order = if (Test-Path -LiteralPath $calls) { @(Get-Content -LiteralPath $calls) } else { @() }
+        return @{ ExitCode = $run.ExitCode; Output = $run.Output; Calls = @($order) }
+    }
+
+    function Invoke-UtmRemovalFixture {
+        param([string]$Stop = 'success', [string]$PowerOff = 'confirmed', [string]$Registration = 'absent', [switch]$Preview)
+        $ast = Get-ProvisionAst (Join-Path $script:RepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
+        $function = $ast.Find({ param($node)
+                $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Remove-UtmTestVM'
+            }, $true)
+        if (-not $function) { throw 'Missing UTM removal function' }
+        $fixtureHome = Join-Path $script:FixtureRoot ([guid]::NewGuid().ToString())
+        $body = @'
+param([string]$FixtureHome, [string]$Stop, [string]$PowerOff, [string]$Registration, [switch]$Preview)
+$ErrorActionPreference = 'Stop'
+Set-Variable -Name HOME -Value $FixtureHome -Force
+$bundle = Join-Path $HOME 'yuruna/guest.nosync/test-replacement.utm'
+$disk = Join-Path $bundle 'Data/disk.qcow2'
+$null = New-Item -ItemType Directory -Path (Split-Path $disk -Parent) -Force
+[IO.File]::WriteAllText($disk, 'retained guest bytes')
+$script:Order = [Collections.Generic.List[string]]::new()
+function Invoke-UtmctlLifecycle {
+    param([string]$Verb, [string]$VMName)
+    if ($Verb -ne 'stop' -or $VMName -ne 'test-replacement') { throw 'Wrong lifecycle call' }
+    $script:Order.Add('stop')
+    @{ OutcomeKnown = ($Stop -ne 'unknown'); ExitCode = $(if ($Stop -eq 'success') { 0 } else { 1 }); FailureKind = 'none' }
+}
+function Wait-UtmVMPoweredOff {
+    param([string]$VMName)
+    if ($VMName -ne 'test-replacement') { throw 'Wrong power-off call' }
+    $script:Order.Add('poweroff')
+    return ($PowerOff -in @('confirmed', 'absent'))
+}
+function Remove-UtmVMRegistration {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$VMName)
+    if ($VMName -ne 'test-replacement') { throw 'Wrong unregister call' }
+    $script:Order.Add('unregister')
+    return ($Registration -in @('absent', 'files-failed'))
+}
+function Remove-UtmBundleWithRetry {
+    param([string]$Path)
+    if ($Path -ne $bundle) { throw 'Removal escaped fixture' }
+    $script:Order.Add('bundle')
+    if ($Registration -eq 'files-failed') { return $false }
+    Remove-Item -LiteralPath $Path -Recurse -Force
+    return $true
+}
+'@
+        $body += "`n" + $function.Extent.Text
+        $body += @'
+
+$result = Remove-UtmTestVM -VMName 'test-replacement' -Confirm:$false -WhatIf:$Preview
+@{ Result = [bool]$result; Order = $script:Order.ToArray(); DiskExists = (Test-Path -LiteralPath $disk)
+    Bytes = $(if (Test-Path -LiteralPath $disk) { [IO.File]::ReadAllText($disk) } else { '' }) } | ConvertTo-Json -Compress
+'@
+        $arguments = @('-FixtureHome', $fixtureHome, '-Stop', $Stop, '-PowerOff', $PowerOff, '-Registration', $Registration)
+        if ($Preview) { $arguments += '-Preview' }
+        $run = Invoke-ProvisionFixture -Body $body -Argument $arguments
+        if ($run.ExitCode -ne 0) { throw $run.Output }
+        return ($run.Output -split "`n" | Where-Object { $_ -match '^\{' } | Select-Object -Last 1) | ConvertFrom-Json
+    }
+
+    function Invoke-UbuntuWrapperFixture {
+        param([string]$Release, [string]$Workflow, [string]$Invocation = '', [int]$ExitCode = 0)
+        $provider = Join-Path $script:FixtureRoot ([guid]::NewGuid().ToString())
+        $guest = Join-Path $provider "guest.ubuntu.server.$Release"
+        $modules = Join-Path $provider 'modules'
+        $null = New-Item -ItemType Directory -Path $guest, $modules
+        $wrapper = Join-Path $guest "$Workflow.ps1"
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot "host/windows.hyper-v/guest.ubuntu.server.$Release/$Workflow.ps1") -Destination $wrapper
+        $helper = if ($Workflow -eq 'New-VM') { 'New-UbuntuServerVM.ps1' } else { 'Get-UbuntuServerImage.ps1' }
+        $body = @'
+param(
+    [string]$VMName, [string]$CachingProxyServiceUrl, [string]$Username,
+    [string]$Hostname, [string]$MemoryStartupBytes, [string]$Cores,
+    [string]$ExposeVirtualizationExtensions, [switch]$daily,
+    [string]$Release, [string]$GuestScriptRoot, [string]$EnvironmentErrorKey
+)
+$captured = @{} + $PSBoundParameters
+foreach ($name in @($captured.Keys)) {
+    if ($captured[$name] -is [switch]) { $captured[$name] = [bool]$captured[$name] }
+}
+$captured | ConvertTo-Json -Compress
+exit FIXTURE_EXIT
+'@
+        Set-Content -LiteralPath (Join-Path $modules $helper) -Value $body.Replace('FIXTURE_EXIT', [string]$ExitCode) -Encoding utf8
+        $escaped = $wrapper.Replace("'", "''")
+        $run = Invoke-ProvisionFixture -Body ("`$global:LASTEXITCODE = 91`n& '$escaped' $Invocation`nexit `$LASTEXITCODE")
+        return @{ ExitCode = $run.ExitCode; Arguments = ($run.Output | ConvertFrom-Json -AsHashtable); GuestScriptRoot = $guest }
+    }
+
     $script:ServiceBuilders = @(Get-ChildItem (Join-Path $script:RepoRoot 'host/*/guest.*-service/New-VM.ps1'))
     $script:GuestBuilders = @(Get-ChildItem (Join-Path $script:RepoRoot 'host/*/guest.*/New-VM.ps1'))
     $script:UtmFixture = @'
@@ -107,9 +230,12 @@ Set-Content -LiteralPath (Join-Path $vmDir 'disk.qcow2') -Value 'retained guest 
     $script:VmRootDir = $ScratchRoot
     function script:virsh {
         $global:LASTEXITCODE = 1
-        if ($args[2] -eq 'list' -and $script:FixtureMode -ne 'inventory-failed') {
+        if ($args[2] -eq 'undefine' -and $script:FixtureMode -like 'undefined-*') {
             $global:LASTEXITCODE = 0
-            if ($script:FixtureMode -eq 'present') { 'test-provision' }
+        }
+        if ($args[2] -eq 'list' -and $script:FixtureMode -notin @('inventory-failed', 'undefined-inventory-failed')) {
+            $global:LASTEXITCODE = 0
+            if ($script:FixtureMode -in @('present', 'undefined-present')) { 'test-provision' }
         }
     }
 } $Mode $ScratchRoot
@@ -175,6 +301,129 @@ Describe 'Per-guest builder phase order' {
             $diskPhase = $text.IndexOf($kvmDiskPhases[$relativePath], [StringComparison]::Ordinal)
             Assert-True ($seedPhase -ge 0 -and $diskPhase -gt $seedPhase) "$relativePath must preserve the prior disk until the seed preflight succeeds"
         }
+    }
+}
+
+Describe 'Hyper-V Ubuntu release wrappers' {
+    It 'preserves release defaults and unbound overrides in <Workflow> for Ubuntu <Release>' -TestCases @(
+        @{ Release = '24'; Workflow = 'New-VM' }, @{ Release = '26'; Workflow = 'New-VM' },
+        @{ Release = '24'; Workflow = 'Get-Image' }, @{ Release = '26'; Workflow = 'Get-Image' }
+    ) {
+        param($Release, $Workflow)
+        $run = Invoke-UbuntuWrapperFixture -Release $Release -Workflow $Workflow
+        $run.ExitCode | Should -Be 0
+        $run.Arguments.Release | Should -BeExactly $Release
+        $run.Arguments.GuestScriptRoot | Should -BeExactly $run.GuestScriptRoot
+        if ($Workflow -eq 'New-VM') {
+            $run.Arguments.Username | Should -BeExactly "yuuser$Release"
+            foreach ($name in 'CachingProxyServiceUrl', 'Hostname', 'MemoryStartupBytes', 'Cores', 'ExposeVirtualizationExtensions') {
+                $run.Arguments.ContainsKey($name) | Should -BeFalse
+            }
+        } else {
+            $run.Arguments.ContainsKey('daily') | Should -BeFalse
+            $key = if ($Release -eq '24') { 'host.operator_2542864c23790bce' } else { 'host.operator_ea494ffdd86805ef' }
+            $run.Arguments.EnvironmentErrorKey | Should -BeExactly $key
+        }
+    }
+
+    It 'preserves bound values including empty proxy and false switches in <Workflow> for Ubuntu <Release>' -TestCases @(
+        @{ Release = '24'; Workflow = 'New-VM' }, @{ Release = '26'; Workflow = 'New-VM' },
+        @{ Release = '24'; Workflow = 'Get-Image' }, @{ Release = '26'; Workflow = 'Get-Image' }
+    ) {
+        param($Release, $Workflow)
+        $invocation = if ($Workflow -eq 'New-VM') {
+            '-VMName test-override -Username operator -Hostname alternate-host -CachingProxyServiceUrl '''' -MemoryStartupBytes 4GB -Cores 3 -ExposeVirtualizationExtensions false'
+        } else { '-daily:$false' }
+        $run = Invoke-UbuntuWrapperFixture -Release $Release -Workflow $Workflow -Invocation $invocation
+        $run.ExitCode | Should -Be 0
+        if ($Workflow -eq 'New-VM') {
+            $run.Arguments.VMName | Should -BeExactly 'test-override'
+            $run.Arguments.Username | Should -BeExactly 'operator'
+            $run.Arguments.Hostname | Should -BeExactly 'alternate-host'
+            $run.Arguments.ContainsKey('CachingProxyServiceUrl') | Should -BeTrue
+            $run.Arguments.CachingProxyServiceUrl | Should -BeExactly ''
+            $run.Arguments.MemoryStartupBytes | Should -BeExactly '4GB'
+            $run.Arguments.Cores | Should -BeExactly '3'
+            $run.Arguments.ExposeVirtualizationExtensions | Should -BeExactly 'false'
+        } else {
+            $run.Arguments.ContainsKey('daily') | Should -BeTrue
+            $run.Arguments.daily | Should -BeFalse
+        }
+    }
+
+    It 'propagates shared workflow failure in <Workflow> for Ubuntu <Release>' -TestCases @(
+        @{ Release = '24'; Workflow = 'New-VM' }, @{ Release = '26'; Workflow = 'New-VM' },
+        @{ Release = '24'; Workflow = 'Get-Image' }, @{ Release = '26'; Workflow = 'Get-Image' }
+    ) {
+        param($Release, $Workflow)
+        (Invoke-UbuntuWrapperFixture -Release $Release -Workflow $Workflow -ExitCode 19).ExitCode | Should -Be 19
+    }
+
+    It 'retains Ubuntu <Release> processor cap and MAC workaround policy' -TestCases @(
+        @{ Release = '24'; MaximumCores = 2; SpoofCalls = 0 },
+        @{ Release = '26'; MaximumCores = 1; SpoofCalls = 1 }
+    ) {
+        param($Release, $MaximumCores, $SpoofCalls)
+        $ast = Get-ProvisionAst -Path (Join-Path $script:RepoRoot 'host/windows.hyper-v/modules/New-UbuntuServerVM.ps1')
+        $policies = @($ast.EndBlock.Statements | Where-Object {
+                $_ -is [Management.Automation.Language.IfStatementAst] -and
+                $_.Clauses[0].Item1.Extent.Text -eq "`$Release -eq '26'"
+            })
+        $policies.Count | Should -Be 2
+        $body = @'
+param([string]$Release)
+$vmCores = 8
+$script:SpoofCalls = 0
+$VMName = 'test-release-policy'
+function Limit-HyperVLinuxGuestCoreCount {
+    param([int]$RequestedCores, [int]$MaximumCores = 2)
+    [math]::Min($RequestedCores, $MaximumCores)
+}
+function Set-VMNetworkAdapter {
+    param([string]$VMName, [string]$MacAddressSpoofing)
+    if ($VMName -ne 'test-release-policy' -or $MacAddressSpoofing -ne 'On') { throw 'Wrong network policy' }
+    $script:SpoofCalls++
+}
+'@
+        $body += "`n" + (($policies | ForEach-Object { $_.Extent.Text }) -join "`n")
+        $body += "`n@{ Cores = `$vmCores; SpoofCalls = `$script:SpoofCalls } | ConvertTo-Json -Compress"
+        $run = Invoke-ProvisionFixture -Body $body -Argument @('-Release', $Release)
+        $run.ExitCode | Should -Be 0
+        $actual = $run.Output | ConvertFrom-Json
+        $actual.Cores | Should -Be $MaximumCores
+        $actual.SpoofCalls | Should -Be $SpoofCalls
+    }
+
+    It 'retains Ubuntu <Release> live ISO selection and daily preference' -TestCases @(
+        @{ Release = '24'; Codename = 'noble' }, @{ Release = '26'; Codename = 'resolute' }
+    ) {
+        param($Release, $Codename)
+        $ast = Get-ProvisionAst -Path (Join-Path $script:RepoRoot 'host/windows.hyper-v/modules/Get-UbuntuServerImage.ps1')
+        $download = @($ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] })
+        $download.Count | Should -Be 1
+        $body = @'
+param([string]$Release)
+$hostArch = 'arm64'
+$downloadDir = 'test images'
+$daily = $true
+function Save-UbuntuServerImage {
+    param($ReleaseCodename, $Arch, $DownloadDir, $BaseImageName, [switch]$PreferDaily, [switch]$EmitProxyDiagnosticOnFailure)
+    $captured = @{} + $PSBoundParameters
+    $captured.PreferDaily = [bool]$PreferDaily
+    $captured.EmitProxyDiagnosticOnFailure = [bool]$EmitProxyDiagnosticOnFailure
+    $captured | ConvertTo-Json -Compress
+}
+'@
+        $body += "`n" + $download[0].Extent.Text
+        $run = Invoke-ProvisionFixture -Body $body -Argument @('-Release', $Release)
+        $run.ExitCode | Should -Be 0
+        $actual = $run.Output | ConvertFrom-Json
+        $actual.ReleaseCodename | Should -BeExactly $Codename
+        $actual.BaseImageName | Should -BeExactly "host.windows.hyper-v.guest.ubuntu.server.$Release"
+        $actual.Arch | Should -BeExactly 'arm64'
+        $actual.DownloadDir | Should -BeExactly 'test images'
+        $actual.PreferDaily | Should -BeTrue
+        $actual.EmitProxyDiagnosticOnFailure | Should -BeTrue
     }
 }
 
@@ -392,6 +641,29 @@ Describe 'UTM public Stop-VM contract' {
 }
 
 Describe 'KVM public Remove-VM absence proof' {
+    It 'preserves storage after successful undefine when the final inventory is <Mode>' -TestCases @(
+        @{ Mode = 'undefined-present' }, @{ Mode = 'undefined-inventory-failed' }
+    ) {
+        param($Mode)
+        $modulePath = Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
+        $scratchRoot = Join-Path $script:FixtureRoot ([guid]::NewGuid().ToString())
+        $run = Invoke-ProvisionFixture $script:KvmFixture @($modulePath, $Mode, $scratchRoot)
+        $run.ExitCode | Should -Be 0
+        $data = ($run.Output -split "`n" | Where-Object { $_ -match '^\{' } | Select-Object -Last 1) | ConvertFrom-Json
+        $data.Result | Should -BeFalse
+        $data.DiskExists | Should -BeTrue
+    }
+
+    It 'removes storage after successful undefine only when the final inventory confirms absence' {
+        $modulePath = Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
+        $scratchRoot = Join-Path $script:FixtureRoot ([guid]::NewGuid().ToString())
+        $run = Invoke-ProvisionFixture $script:KvmFixture @($modulePath, 'undefined-absent', $scratchRoot)
+        $run.ExitCode | Should -Be 0
+        $data = ($run.Output -split "`n" | Where-Object { $_ -match '^\{' } | Select-Object -Last 1) | ConvertFrom-Json
+        $data.Result | Should -BeTrue
+        $data.DiskExists | Should -BeFalse
+    }
+
     It 'retains guest storage when failed undefine is followed by an unavailable inventory or a surviving domain' {
         $modulePath = Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
         foreach ($mode in @('inventory-failed', 'present')) {
@@ -412,5 +684,139 @@ Describe 'KVM public Remove-VM absence proof' {
         $data = ($r.Output -split "`n" | Where-Object { $_ -match '^\{' } | Select-Object -Last 1) | ConvertFrom-Json
         Assert-True $data.Result $r.Output
         Assert-False $data.DiskExists
+    }
+}
+
+Describe 'UTM Ubuntu cache selection' {
+    It 'refuses implicit direct access for <State> with an <Probe> cache' -TestCases @(
+        @{ State = 'running'; Probe = 'unreachable' },
+        @{ State = 'running'; Probe = 'exception' },
+        @{ State = 'unknown'; Probe = 'unreachable' },
+        @{ State = 'unknown'; Probe = 'exception' },
+        @{ State = ''; Probe = 'unreachable' },
+        @{ State = 'started'; Probe = 'unreachable' },
+        @{ State = 'exception'; Probe = 'unreachable' }
+    ) {
+        param($State, $Probe)
+        $run = Invoke-UtmCacheFixture -State $State -Probe $Probe
+        $run.ExitCode | Should -Not -Be 0
+        $run.Output | Should -Not -Match 'AFTER_CACHE_GATE'
+        $run.Calls[0] | Should -BeExactly 'state'
+    }
+
+    It 'uses a verified endpoint despite <State> provider status' -TestCases @(
+        @{ State = 'running' }, @{ State = 'unknown' }, @{ State = 'stopped' }, @{ State = 'absent' }
+    ) {
+        param($State)
+        $run = Invoke-UtmCacheFixture -State $State -Probe 'reachable'
+        $run.ExitCode | Should -Be 0
+        $run.Output | Should -Match 'AFTER_CACHE_GATE'
+        $data = ($run.Output -split "`n" | Where-Object { $_ -match '^\{' } | Select-Object -Last 1) | ConvertFrom-Json
+        $data.Url | Should -BeExactly 'http://192.0.2.7:3128'
+        ($run.Calls -join ',') | Should -BeExactly 'state,proxy'
+    }
+
+    It 'permits direct access only when the cache is recognized <State>' -TestCases @(
+        @{ State = 'stopped' }, @{ State = 'absent' }
+    ) {
+        param($State)
+        $run = Invoke-UtmCacheFixture -State $State
+        $run.ExitCode | Should -Be 0
+        $run.Output | Should -Match 'AFTER_CACHE_GATE'
+        $data = ($run.Output -split "`n" | Where-Object { $_ -match '^\{' } | Select-Object -Last 1) | ConvertFrom-Json
+        $data.Url | Should -BeExactly ''
+    }
+
+    It 'bypasses provider discovery for an explicitly <Binding> proxy override' -TestCases @(
+        @{ Binding = 'empty'; Expected = '' }, @{ Binding = 'url'; Expected = 'http://192.0.2.8:3128' }
+    ) {
+        param($Binding, $Expected)
+        $run = Invoke-UtmCacheFixture -State 'exception' -Probe 'exception' -Binding $Binding
+        $run.ExitCode | Should -Be 0
+        @($run.Calls).Count | Should -Be 0
+        $data = ($run.Output -split "`n" | Where-Object { $_ -match '^\{' } | Select-Object -Last 1) | ConvertFrom-Json
+        $data.Url | Should -BeExactly $Expected
+    }
+}
+
+Describe 'UTM replacement power-off and registration boundary' {
+    It 'preserves bundle and registration when the final power-off check is <PowerOff>' -TestCases @(
+        @{ PowerOff = 'unknown' }, @{ PowerOff = 'locked' }
+    ) {
+        param($PowerOff)
+        $run = Invoke-UtmRemovalFixture -PowerOff $PowerOff
+        $run.Result | Should -BeFalse
+        ($run.Order -join ',') | Should -BeExactly 'stop,poweroff'
+        $run.DiskExists | Should -BeTrue
+        $run.Bytes | Should -BeExactly 'retained guest bytes'
+    }
+
+    It 'uses the confirmed final <PowerOff> state after a <Stop> stop outcome' -TestCases @(
+        @{ Stop = 'success'; PowerOff = 'confirmed' },
+        @{ Stop = 'failed'; PowerOff = 'confirmed' },
+        @{ Stop = 'unknown'; PowerOff = 'confirmed' },
+        @{ Stop = 'failed'; PowerOff = 'absent' }
+    ) {
+        param($Stop, $PowerOff)
+        $run = Invoke-UtmRemovalFixture -Stop $Stop -PowerOff $PowerOff
+        $run.Result | Should -BeTrue
+        ($run.Order -join ',') | Should -BeExactly 'stop,poweroff,unregister,bundle'
+        $run.DiskExists | Should -BeFalse
+    }
+
+    It 'retains the complete bundle when registration could not be removed' {
+        $run = Invoke-UtmRemovalFixture -Registration 'registered'
+        $run.Result | Should -BeFalse
+        ($run.Order -join ',') | Should -BeExactly 'stop,poweroff,unregister'
+        $run.DiskExists | Should -BeTrue
+        $run.Bytes | Should -BeExactly 'retained guest bytes'
+    }
+
+    It 'reports failed filesystem removal without accepting a partial replacement' {
+        $run = Invoke-UtmRemovalFixture -Registration 'files-failed'
+        $run.Result | Should -BeFalse
+        ($run.Order -join ',') | Should -BeExactly 'stop,poweroff,unregister,bundle'
+        $run.DiskExists | Should -BeTrue
+    }
+
+    It 'does not stop, unregister or delete a previewed VM' {
+        $run = Invoke-UtmRemovalFixture -Preview
+        $run.Result | Should -BeFalse
+        @($run.Order).Count | Should -Be 0
+        $run.DiskExists | Should -BeTrue
+    }
+
+    It 'stops <Guest> before any replacement writes when removal refuses' -TestCases @(
+        @{ Guest = 'guest.amazon.linux.2023' }, @{ Guest = 'guest.caching-proxy-service' },
+        @{ Guest = 'guest.download-agent-service' }, @{ Guest = 'guest.macos.26' },
+        @{ Guest = 'guest.pool-control-service' }, @{ Guest = 'guest.stash-service' },
+        @{ Guest = 'guest.windows.11' }, @{ Guest = 'modules' }
+    ) {
+        param($Guest)
+        $leaf = if ($Guest -eq 'modules') { 'New-UbuntuServerVM.ps1' } else { 'New-VM.ps1' }
+        $path = Join-Path $script:RepoRoot "host/macos.utm/$Guest/$leaf"
+        $ast = Get-ProvisionAst $path
+        $call = $ast.Find({ param($node)
+                $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Remove-UtmTestVM'
+            }, $true)
+        $call | Should -Not -BeNullOrEmpty
+        $gate = $call
+        while ($gate -and $gate -isnot [Management.Automation.Language.IfStatementAst]) { $gate = $gate.Parent }
+        $gate | Should -Not -BeNullOrEmpty
+        $body = @'
+$ErrorActionPreference = 'Continue'
+$VMName = 'test-replacement'
+$UtmDir = 'private-fixture-bundle'
+function Remove-UtmTestVM {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$VMName)
+    if ($VMName -ne 'test-replacement') { throw 'Wrong replacement VM' }
+    return $false
+}
+'@
+        $body += "`n" + $gate.Extent.Text + "`n'AFTER_REPLACEMENT_GATE'; exit 0"
+        $run = Invoke-ProvisionFixture -Body $body
+        $run.ExitCode | Should -Not -Be 0
+        $run.Output | Should -Not -Match 'AFTER_REPLACEMENT_GATE'
     }
 }

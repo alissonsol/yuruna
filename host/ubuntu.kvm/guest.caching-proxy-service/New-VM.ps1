@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,8 +12,6 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
-.PARAMETER AllowPseudoLocale
-    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -51,6 +49,8 @@
     reservation on the LAN router (bridged 'yuruna-external') or in the
     'default' network's dnsmasq (NAT fallback); without it virt-install
     assigns a fresh random MAC on every rebuild and the lease moves.
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 param(

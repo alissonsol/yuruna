@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c57683-d950-42e5-b4d6-4ab0ea4adc92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     Complete-YurunaRun helper, not copy-pasted. These guards assert the helper exists +
     is exported, all three entrypoints delegate to it, none of them still
     open-codes the failure-report JSON, and the tail emits the transcript before the
-    result JSON. Source-text only. Runs under Pester 4.10.1.
+    result JSON. Source-text only. Runs under Pester 5.x.
 #>
 
 BeforeAll {

@@ -8,6 +8,23 @@
       "description": "Ubuntu KVM New-VM error when standalone cache discovery finds a running cache without a reachable URL. Preserve the service name, script path and parameter name.",
       "lifecycle": "active"
     },
+    "host.utm_cache_state_unconfirmed": {
+      "message": "The caching-proxy-service VM state could not be confirmed ({state}; {reason}). Restore UTM access or pass -CachingProxyServiceUrl \"\" to fetch directly.",
+      "description": "Write-Error in the UTM Ubuntu VM builder when automatic caching-proxy discovery cannot establish a safe direct-download state. Preserve the service name, UTM and parameter name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "state": {
+          "type": "token",
+          "trust": "internal",
+          "example": "unknown"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "AppleEvents access was denied"
+        }
+      }
+    },
     "host.clock_service_description": {
       "message": "Windows Time service (W32Time)",
       "description": "Operator-facing permission or restore description; the corresponding operating-system selector remains invariant.",
@@ -5465,7 +5482,7 @@
       }
     },
     "host.operator_69569daab01168ea": {
-      "message": "Remove-UtmTestVM: '{vMName}' did not confirm powered-off within the timeout; proceeding with delete, but the bundle may still be locked.",
+      "message": "Remove-UtmTestVM: '{vMName}' did not confirm powered-off within the timeout; preserving its registration and bundle.",
       "description": "Whole Write-Warning message in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -12110,8 +12127,8 @@
       "lifecycle": "active"
     },
     "host.orphan_sweep_registration_unknown": {
-      "message": "Kept {path}: UTM did not answer whether {target} is registered (utmctl status did not finish).",
-      "description": "Write-Warning in host/macos.utm/Remove-OrphanedVMFiles.ps1 when the bounded registration probe for a bundle did not complete, so the bundle is kept rather than treated as orphaned. Keep the command name utmctl.",
+      "message": "Kept {path}: UTM did not answer whether {target} is registered (utmctl status did not return a recognized answer).",
+      "description": "Write-Warning in host/macos.utm/Remove-OrphanedVMFiles.ps1 when a bounded registration probe times out, fails, or returns unrecognized output. The bundle is kept because absence is not established. Keep the command name utmctl.",
       "lifecycle": "active",
       "placeholders": {
         "path": {
@@ -12669,6 +12686,23 @@
           "type": "integer",
           "trust": "internal",
           "example": "120"
+        }
+      }
+    },
+    "host.windows_installer_boot_key_timeout": {
+      "message": "VM '{vmName}' did not accept a Windows installer boot key within {seconds} seconds.",
+      "description": "Error in host/modules/Yuruna.WindowsInstaller.psm1 when the Windows installation media boot prompt did not accept a key before the deadline; vmName is the virtual machine name and seconds is the maximum wait.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "windows11-01"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "30"
         }
       }
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42f7b847-f2dc-43ee-b9f7-f70bdc728c72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -202,6 +202,8 @@ Write-Status ""
 # Belt-and-suspenders against the very symptom this script exists to fix:
 # VMs surviving across cycles on a long-running host. A rescan that cannot
 # reach the host is reported, not silently read as "no survivors".
+$remaining = @()
+$rescanFailed = $false
 try {
     $remaining = @(Get-VMName -Prefix $Prefix)
     if ($remaining.Count -gt 0) {
@@ -210,6 +212,7 @@ try {
     }
 } catch {
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a206c195828cc91a' -Arguments @{ message = "$($_.Exception.Message)" })
+    $rescanFailed = $true
 }
 
 Write-Status ""
@@ -236,13 +239,17 @@ Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0727e0f3d518124
 Write-Status ""
 $orphanArgs = @{ Force = $true }
 if ($Quiet) { $orphanArgs['Quiet'] = $true }
+$global:LASTEXITCODE = 0
 & $cleanupScript @orphanArgs
+$orphanSucceeded = $?
+$orphanExitCode = $LASTEXITCODE
 
 # Surface incomplete cleanup to an automated caller. Survivors are VMs that
 # resisted registry removal; their on-disk files stay claimed so the orphan
 # sweep above intentionally skips them. A caller (the cycle-start sweep) needs
 # a non-zero exit to retry or alert instead of treating a partial teardown as
 # clean. Run the orphan sweep first so the reclaimable files are always freed.
-if ($survivors.Count -gt 0) {
+if ($survivors.Count -gt 0 -or $remaining.Count -gt 0 -or $rescanFailed -or -not $orphanSucceeded -or $orphanExitCode -ne 0) {
     exit 1
 }
+exit 0

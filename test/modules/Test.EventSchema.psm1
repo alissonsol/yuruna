@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,6 +104,9 @@ $script:TypedField = @{
     causePatternsSought = 'array'
     causeInstallerStage = 'string'
     causeInstallerStageUnchangedSeconds = 'int'
+    causeBlankScreenSeconds = 'int'
+    causeGuestLivelocked = 'bool'
+    causeGuestLivelockedSeconds = 'int'
     staleEvidence       = 'array'
     error               = 'string'
     reason              = 'string'
@@ -123,6 +126,8 @@ $script:TypedField = @{
     configuredMaxAttempts = 'int'
     permittedMaxAttempts = 'int'
     retrySuppressionReason = 'string'
+    guestLivelocked     = 'bool'
+    guestLivelockedSeconds = 'int'
     # Warm resume. resumeFromStep is the step actually restarted; checkpointStep
     # and rewoundSteps appear only when that differs from the recorded
     # checkpoint, i.e. when the resume was pulled back to a restore boundary and

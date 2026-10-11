@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c2bf4c-4df0-494d-8571-5945ed9ab682
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,31 +33,98 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
+# See https://yuruna.link/42e220c4-0005
+# --- REGION: Invoke-GuestWingetInstall
+function Invoke-GuestWingetInstall {
+    <#
+    .SYNOPSIS
+        Install a prerequisite or accept its documented already-present outcome.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$PackageId)
+    $ErrorActionPreference = 'Stop'
+    $PSNativeCommandUseErrorActionPreference = $false
+    $global:LASTEXITCODE = $null
+    try {
+        & winget install --id $PackageId --accept-source-agreements --accept-package-agreements --silent
+        $wingetSucceeded = $?
+        $wingetNativeExitCode = $global:LASTEXITCODE
+    } catch {
+        throw
+    }
+    $wingetExitCode = 0L
+    if ($null -eq $wingetNativeExitCode -or -not [long]::TryParse([string]$wingetNativeExitCode, [ref]$wingetExitCode) -or $wingetExitCode -lt -2147483648 -or $wingetExitCode -gt 4294967295) {
+        throw "Package installation failed for $PackageId without a valid native exit code."
+    }
+    if ($wingetExitCode -ge 2147483648) { $wingetExitCode -= 4294967296 }
+    if ($wingetExitCode -notin @(0, -1978335189, -1978335135) -or ($wingetExitCode -eq 0 -and -not $wingetSucceeded)) {
+        throw "Package installation failed for $PackageId (winget exit code $wingetExitCode)."
+    }
+}
+
 # --- REGION: Install JDK
 Write-Output ""
 Write-Output ">>> Installing JDK (latest LTS OpenJDK)..."
 # winget OpenJDK/Temurin ids are all major-versioned (no float), so resolve
 # the current LTS from the Adoptium API and install its MSI -- no pinned major.
-$jdkArch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x64' }
-$jdkLts = (Invoke-RestMethod -UseBasicParsing -Uri 'https://api.adoptium.net/v3/info/available_releases').most_recent_lts
+# See https://yuruna.link/42e220c4-0015
+# CIM reports native ARM64 (12) even under Windows PowerShell 5.1 emulation.
+$jdkProcessor = Get-CimInstance -ClassName Win32_Processor -Property Architecture -ErrorAction Stop | Select-Object -First 1
+if ($null -eq $jdkProcessor) { throw 'Cannot determine the native processor architecture for the JDK installer.' }
+$jdkArch = switch ($jdkProcessor.Architecture) {
+    9 { 'x64' }
+    12 { 'aarch64' }
+    default { throw "Unsupported native processor architecture for the JDK installer: $($jdkProcessor.Architecture)." }
+}
+$jdkLts = (Invoke-RestMethod -UseBasicParsing -Uri 'https://api.adoptium.net/v3/info/available_releases' -ErrorAction Stop).most_recent_lts
 $jdkMsi = Join-Path $env:TEMP 'temurin-jdk.msi'
-Invoke-WebRequest -UseBasicParsing -Uri "https://api.adoptium.net/v3/installer/latest/$jdkLts/ga/windows/$jdkArch/jdk/hotspot/normal/eclipse" -OutFile $jdkMsi
-# Temurin MSI features: FeatureMain=JDK, FeatureEnvironment=add to PATH, FeatureJavaHome=set JAVA_HOME (all machine-level).
-Start-Process msiexec.exe -ArgumentList "/i `"$jdkMsi`" /qn /norestart ADDLOCAL=FeatureMain,FeatureEnvironment,FeatureJavaHome" -Wait
-Remove-Item $jdkMsi -Force -ErrorAction SilentlyContinue
+try {
+    if (Test-Path -LiteralPath $jdkMsi) {
+        if (-not (Test-Path -LiteralPath $jdkMsi -PathType Leaf)) { throw "Expected a JDK installer file at $jdkMsi." }
+        Remove-Item -LiteralPath $jdkMsi -Force -ErrorAction Stop
+    }
+    Invoke-WebRequest -UseBasicParsing -Uri "https://api.adoptium.net/v3/installer/latest/$jdkLts/ga/windows/$jdkArch/jdk/hotspot/normal/eclipse" -OutFile $jdkMsi -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $jdkMsi -PathType Leaf) -or (Get-Item -LiteralPath $jdkMsi -ErrorAction Stop).Length -eq 0) {
+        throw 'The JDK download did not produce a nonempty installer file.'
+    }
+    # See https://yuruna.link/42e220c4-0005
+    # These features set the machine PATH and JAVA_HOME alongside the JDK.
+    $jdkInstall = Start-Process msiexec.exe -ArgumentList "/i `"$jdkMsi`" /qn /norestart ADDLOCAL=FeatureMain,FeatureEnvironment,FeatureJavaHome" -Wait -PassThru -ErrorAction Stop
+    if ($null -eq $jdkInstall -or $null -eq $jdkInstall.ExitCode) { throw 'The JDK installer returned no process outcome.' }
+    if ($jdkInstall.ExitCode -notin @(0, 1641, 3010)) { throw "JDK installation failed (msiexec exit code $($jdkInstall.ExitCode))." }
+    if ($jdkInstall.ExitCode -ne 0) { Write-Warning "The JDK installation requires a restart (msiexec exit code $($jdkInstall.ExitCode))." }
+} finally {
+    if (Test-Path -LiteralPath $jdkMsi -PathType Leaf) { Remove-Item -LiteralPath $jdkMsi -Force -ErrorAction SilentlyContinue }
+}
 Write-Output "<<< JDK installation complete."
 
 # --- REGION: Install .NET SDK
 Write-Output ""
 Write-Output ">>> Installing .NET SDK..."
-# winget DotNet.SDK ids are major-versioned (no float); use Microsoft's
-# dotnet-install.ps1 -Channel LTS to track the current LTS with no pin.
+# See https://yuruna.link/42e220c4-0005
+# Use Microsoft's installer to follow the current .NET LTS channel.
 $dotnetDir = Join-Path $env:ProgramFiles 'dotnet'
 $dotnetScript = Join-Path $env:TEMP 'dotnet-install.ps1'
-Invoke-WebRequest -UseBasicParsing -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $dotnetScript
-& $dotnetScript -Channel LTS -InstallDir $dotnetDir
-Remove-Item $dotnetScript -Force -ErrorAction SilentlyContinue
-# dotnet-install.ps1 does not touch PATH/DOTNET_ROOT; register them machine-wide.
+try {
+    if (Test-Path -LiteralPath $dotnetScript) {
+        if (-not (Test-Path -LiteralPath $dotnetScript -PathType Leaf)) { throw "Expected a .NET installer file at $dotnetScript." }
+        Remove-Item -LiteralPath $dotnetScript -Force -ErrorAction Stop
+    }
+    Invoke-WebRequest -UseBasicParsing -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $dotnetScript -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $dotnetScript -PathType Leaf) -or (Get-Item -LiteralPath $dotnetScript -ErrorAction Stop).Length -eq 0) {
+        throw 'The .NET download did not produce a nonempty installer file.'
+    }
+    $global:LASTEXITCODE = 0
+    & $dotnetScript -Channel LTS -InstallDir $dotnetDir -ErrorAction Stop
+    $dotnetInstallSucceeded = $?
+    $dotnetInstallExitCode = $global:LASTEXITCODE
+    if (-not $dotnetInstallSucceeded -or $dotnetInstallExitCode -ne 0) { throw ".NET installation failed (installer exit code $dotnetInstallExitCode)." }
+} catch {
+    throw
+} finally {
+    if (Test-Path -LiteralPath $dotnetScript -PathType Leaf) { Remove-Item -LiteralPath $dotnetScript -Force -ErrorAction SilentlyContinue }
+}
+# Register machine-wide PATH and DOTNET_ROOT after the SDK installation succeeds.
 [Environment]::SetEnvironmentVariable('DOTNET_ROOT', $dotnetDir, 'Machine')
 $machPath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
 if ($machPath -notlike "*$dotnetDir*") {
@@ -68,25 +135,25 @@ Write-Output "<<< .NET SDK installation complete."
 # --- REGION: Install Git
 Write-Output ""
 Write-Output ">>> Installing Git..."
-winget install --id Git.Git --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Git.Git'
 Write-Output "<<< Git installation complete."
 
 # --- REGION: Install Visual Studio Code
 Write-Output ""
 Write-Output ">>> Installing Visual Studio Code..."
-winget install --id Microsoft.VisualStudioCode --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Microsoft.VisualStudioCode'
 Write-Output "<<< Visual Studio Code installation complete."
 
-# --- REGION: Install PowerShell 7
+# --- REGION: Ensure PowerShell is installed
 Write-Output ""
 Write-Output ">>> Installing PowerShell 7..."
-winget install --id Microsoft.PowerShell --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'Microsoft.PowerShell'
 Write-Output "<<< PowerShell 7 installation complete."
 
 # --- REGION: Install GitHub CLI
 Write-Output ""
 Write-Output ">>> Installing GitHub CLI..."
-winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements --silent
+Invoke-GuestWingetInstall -PackageId 'GitHub.cli'
 Write-Output "<<< GitHub CLI installation complete."
 
 # --- REGION: Refresh PATH

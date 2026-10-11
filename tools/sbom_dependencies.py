@@ -8,6 +8,7 @@ import base64
 import json
 import posixpath
 import re
+import shlex
 import tomllib
 from urllib.parse import quote
 import xml.etree.ElementTree as ET
@@ -69,9 +70,9 @@ class _Collector:
     def add(self, name: str, ecosystem: str, path: str, *, version=None,
             kind='library', scope='runtime', detail='', needle=None,
             completeness='declared', notes=(), hashes=(), license=None,
-            version_constraint=None) -> dict:
+            version_constraint=None, line=None) -> dict:
         record = {'name': name, 'kind': kind, 'ecosystem': ecosystem, 'scope': scope,
-                  'evidence': [{'path': path, 'line': _line(self.text[path], needle or name),
+                  'evidence': [{'path': path, 'line': line or _line(self.text[path], needle or name),
                                 'detail': detail or 'Declared dependency'}],
                   'hashes': list(hashes), 'dependencies': [],
                   'completeness': completeness, 'notes': list(notes)}
@@ -99,8 +100,13 @@ class _Collector:
                 old['completeness'] = completeness
             if record.get('license') and not old.get('license'):
                 old['license'] = record['license']
-            if record.get('versionConstraint') and not old.get('versionConstraint'):
-                old['versionConstraint'] = record['versionConstraint']
+            constraints = set(old.get('versionConstraints', []))
+            constraints.update(item['versionConstraint'] for item in (old, record) if item.get('versionConstraint'))
+            if len(constraints) > 1:
+                old.pop('versionConstraint', None)
+                old['versionConstraints'] = sorted(constraints)
+            elif constraints:
+                old['versionConstraint'] = next(iter(constraints))
             if kind != 'library':
                 old['kind'] = kind
         return self.records[key]
@@ -124,8 +130,22 @@ def _manifest(path: str) -> bool:
     return (base in {'go.mod', 'go.sum', 'Cargo.toml', 'Cargo.lock', 'package.json',
                      'package-lock.json', 'libman.json', 'pubspec.yaml', 'MODULE.bazel',
                      '.bazelversion', 'pyproject.toml', 'Directory.Packages.props'}
-            or base.endswith('.csproj') or base.startswith('Dockerfile')
+            or base.endswith('.csproj') or base.startswith('Dockerfile') or _terraform_manifest(path)
+            or _helm_manifest(path)
             or bool(re.fullmatch(r'(?:requirements|constraints)[^/]*\.txt', base)))
+
+
+def _terraform_manifest(path: str) -> bool:
+    excluded = {'test', 'tests', 'testdata', 'fixture', 'fixtures', 'vendor', '.terraform', 'docs', 'dev-only'}
+    return path.endswith('.tf') and not (set(path.lower().split('/')) & excluded)
+
+
+def _helm_manifest(path: str) -> bool:
+    excluded = {'test', 'tests', 'testdata', 'fixture', 'fixtures', 'vendor', 'docs', 'dev-only'}
+    parts = set(path.lower().split('/'))
+    return ('config' in parts and not parts & excluded
+            and posixpath.basename(path) in {'resources.yml', 'components.yml', 'workloads.yml',
+                                             'resources.yaml', 'components.yaml', 'workloads.yaml'})
 
 
 # --- REGION: Go modules and recorded checksums
@@ -498,6 +518,316 @@ def _bazel(c: _Collector) -> None:
                       needle=version, detail='Bazel Rust toolchain pin')
 
 
+# --- REGION: OpenTofu and Terraform declarations
+def _hcl_tokens(text: str) -> list[tuple[str, str, int]]:
+    """Keep static HCL declarations without interpreting expressions or string data."""
+    pattern = re.compile(r'\s+|\#[^\n]*|//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|'
+                         r'<<-?([A-Za-z_][\w-]*)[^\n]*\n|[A-Za-z_][\w-]*|.', re.S)
+    tokens, offset = [], 0
+    while offset < len(text):
+        match = pattern.match(text, offset)
+        value = match[0]
+        if text.startswith('/*', offset) and not value.endswith('*/'):
+            raise ValueError('Unterminated HCL comment')
+        offset = match.end()
+        if match[1]:
+            end = re.search(r'(?m)^\s*' + re.escape(match[1]) + r'\s*$', text[offset:])
+            if not end:
+                raise ValueError('Unterminated HCL heredoc')
+            offset += end.end()
+            tokens.append(('expression', '', match.start()))
+        elif value.isspace() or value.startswith(('#', '//', '/*')):
+            continue
+        elif value.startswith('"'):
+            tokens.append(('string', json.loads(value), match.start()))
+        else:
+            tokens.append(('token', value, match.start()))
+    return tokens
+
+
+def _hcl_members(tokens: list[tuple[str, str, int]]):
+    """Yield direct attributes and blocks; nested maps are consumed as one value."""
+    closing = {'{': '}', '[': ']', '(': ')'}
+
+    def end_of(start):
+        stack = [closing[tokens[start][1]]]
+        for index in range(start + 1, len(tokens)):
+            kind, value, _ = tokens[index]
+            if kind != 'token':
+                continue
+            if value in closing:
+                stack.append(closing[value])
+            elif value in closing.values():
+                if value != stack.pop():
+                    raise ValueError('Mismatched HCL delimiters')
+                if not stack:
+                    return index
+        raise ValueError('Unterminated HCL block or expression')
+
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token[0] == 'token' and token[1] in closing:
+            index = end_of(index) + 1
+            continue
+        if not re.fullmatch(r'[A-Za-z_][\w-]*', token[1]):
+            index += 1
+            continue
+        labels, next_index = [], index + 1
+        while next_index < len(tokens) and tokens[next_index][0] == 'string':
+            labels.append(tokens[next_index][1])
+            next_index += 1
+        if next_index < len(tokens) and tokens[next_index][1] == '=':
+            value_index = next_index + 1
+            if value_index < len(tokens):
+                value = tokens[value_index]
+                if value[0] == 'token' and value[1] in closing:
+                    end = end_of(value_index)
+                    yield token[1], labels, tokens[value_index + 1:end] if value[1] == '{' else None, None, token[2]
+                    index = end + 1
+                    continue
+                literal = value[1] if value[0] == 'string' and not re.search(r'\$\{|%\{', value[1]) else None
+                yield token[1], labels, None, literal, token[2]
+                index = value_index + 1
+                continue
+        if next_index < len(tokens) and tokens[next_index][1] == '{':
+            end = end_of(next_index)
+            yield token[1], labels, tokens[next_index + 1:end], None, token[2]
+            index = end + 1
+            continue
+        index += 1
+
+
+def _terraform(c: _Collector) -> None:
+    for path, text in sorted(c.text.items()):
+        if not _terraform_manifest(path):
+            continue
+        parent = None
+
+        def dependency(name, ecosystem, requested, position, detail, notes=(), exact_allowed=True):
+            nonlocal parent
+            if parent is None:
+                parent = c.add(posixpath.dirname(path) or '.', 'opentofu-config', path,
+                               kind='application', scope='build', line=text.count('\n', 0, position) + 1,
+                               detail='OpenTofu/Terraform configuration directory')
+            exact = re.fullmatch(r'=?\s*(\d+\.\d+\.\d+(?:[-+][\w.+-]+)?)', requested or '') if exact_allowed else None
+            record = c.add(name, ecosystem, path, version=exact[1] if exact else None,
+                           version_constraint=requested if requested and not exact else None,
+                           kind='platform' if ecosystem == 'toolchain' else 'library', scope='build',
+                           line=text.count('\n', 0, position) + 1, detail=detail,
+                           completeness='declared' if exact else 'unresolved',
+                           notes=['Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.', *notes])
+            c.edge(parent, record)
+
+        for name, labels, body, _, position in _hcl_members(_hcl_tokens(text)):
+            if name == 'terraform' and body is not None:
+                for key, _, nested, value, site in _hcl_members(body):
+                    if key == 'required_version' and value:
+                        dependency('OpenTofu/Terraform', 'toolchain', value, site, 'Compatible HCL engine requirement')
+                    elif key == 'required_providers' and nested is not None:
+                        for alias, _, provider, legacy, provider_site in _hcl_members(nested):
+                            fields = {k: v for k, _, _, v, _ in _hcl_members(provider or [])}
+                            source = fields.get('source')
+                            dependency(source or alias, 'terraform-provider', fields.get('version') or legacy,
+                                       provider_site, f'Required provider {alias}; declared source={source or "implicit or unresolved"}',
+                                       () if source else ['The provider registry address was not explicitly established.'])
+            elif name == 'module' and labels and body is not None:
+                fields = {k: v for k, _, _, v, _ in _hcl_members(body)}
+                source = fields.get('source')
+                if not source:
+                    dependency(f'{posixpath.dirname(path) or "."}:{labels[0]}', 'terraform-module', None, position,
+                               'Module source expression unresolved', ['No package identity was inferred from a dynamic source.'])
+                    continue
+                local = source.startswith(('./', '../', '/'))
+                identity = posixpath.normpath(posixpath.join(posixpath.dirname(path), source)) if local else source
+                dependency(identity, 'terraform-module', fields.get('version'), position,
+                           f'Module {labels[0]}; declared source={source}',
+                           ['Local configuration module; no external package version is established.'] if local else (),
+                           exact_allowed=not local)
+
+
+# --- REGION: External Helm chart declarations
+def _helm_actions(text: str):
+    """Read literal action scalars without interpreting the surrounding YAML."""
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        number = index + 1
+        match = re.match(r'^( *)(?:- +)?([\w-]+):\s*(.*?)\s*$', lines[index])
+        index += 1
+        if not match:
+            continue
+        indent, key, value = match.groups()
+        if re.fullmatch(r'[>|](?:[1-9][+-]?|[+-][1-9]?)?(?:\s+#.*)?', value):
+            body = []
+            levels = []
+            while index < len(lines):
+                raw = lines[index]
+                if raw.strip() and len(raw) - len(raw.lstrip(' ')) <= len(indent):
+                    break
+                body.append(raw.strip())
+                levels.append(len(raw) - len(raw.lstrip(' ')))
+                index += 1
+            # Skipping every block scalar prevents printed shell/help examples
+            # from being mistaken for nested YAML helm actions.
+            if key == 'helm':
+                base = next((level for line, level in zip(body, levels) if line), 0)
+                command = ''
+                for offset, line in enumerate(body):
+                    if offset:
+                        folded = (value.startswith('>') and line and body[offset - 1]
+                                  and levels[offset] == levels[offset - 1] == base)
+                        command += ' ' if folded else '\n'
+                    command += line
+                yield number, command
+        elif key == 'helm':
+            single = re.fullmatch(r"'((?:[^']|'')*)'\s*(?:#.*)?", value)
+            if single:
+                yield number, single[1].replace("''", "'")
+            elif value.startswith('"'):
+                try:
+                    command, end = json.JSONDecoder().raw_decode(value)
+                    trailing = value[end:].strip()
+                    yield number, command if isinstance(command, str) and (not trailing or trailing.startswith('#')) else None
+                except ValueError:
+                    yield number, None
+            else:
+                yield number, None if value.startswith(('&', '*', '!', '{', '[')) else value
+
+
+def _helm_arguments(command: str) -> tuple[list[str], dict[str, str]] | None:
+    value_options = {'--version', '--repo', '--namespace', '-n', '--values', '-f', '--set',
+                     '--set-string', '--set-file', '--set-json', '--set-literal', '--timeout',
+                     '--description', '--labels', '--post-renderer', '--post-renderer-args',
+                     '--history-max', '--username', '--password', '--ca-file', '--cert-file',
+                     '--key-file', '--kube-context', '--kubeconfig', '--kube-apiserver',
+                     '--kube-token', '--kube-ca-file', '--kube-tls-server-name', '--kube-as-user',
+                     '--kube-as-group', '--qps', '--burst-limit', '--registry-config',
+                     '--repository-config', '--repository-cache', '--output', '-o'}
+    switches = {'--install', '-i', '--atomic', '--wait', '--wait-for-jobs', '--debug',
+                '--create-namespace', '--dependency-update', '--dry-run', '--devel',
+                '--generate-name', '-g', '--force', '--force-update', '--no-hooks',
+                '--skip-crds', '--skip-schema-validation', '--disable-openapi-validation',
+                '--render-subchart-notes', '--take-ownership', '--cleanup-on-fail',
+                '--reset-values', '--reuse-values', '--reset-then-reuse-values',
+                '--pass-credentials', '--insecure-skip-tls-verify', '--plain-http', '--verify'}
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=';&|')
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return None
+    positional, options = [], {}
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        if token in {';', '&&', '&', '|', '||'}:
+            return None
+        if not token.startswith('-'):
+            positional.append(token)
+            continue
+        name, separator, value = token.partition('=')
+        if name in value_options:
+            if not separator:
+                if index >= len(tokens) or tokens[index].startswith('-'):
+                    return None
+                value = tokens[index]
+                index += 1
+            if name in {'--version', '--repo'} and name in options and options[name] != value:
+                return None
+            options[name] = value
+        elif name in switches:
+            options[name] = value if separator else 'true'
+        else:
+            # Unknown option arity can change which positional token is a chart.
+            return None
+    return positional, options
+
+
+def _helm(c: _Collector) -> None:
+    literal = re.compile(r'^[A-Za-z0-9._~:/@%+?#=-]+$')
+    for path, text in sorted(c.text.items()):
+        if not _helm_manifest(path):
+            continue
+        repositories = {}
+        parent = None
+
+        def configuration():
+            nonlocal parent
+            if parent is None:
+                parent = c.add(path, 'helm-config', path, kind='application',
+                               detail='Yuruna Helm action declarations')
+            return parent
+
+        def omitted(number, reason):
+            configuration()['notes'].append(f'Helm coverage at line {number}: {reason}.')
+
+        for number, command in _helm_actions(text):
+            parsed = _helm_arguments(command) if command is not None else None
+            if not parsed:
+                omitted(number, 'scalar or arguments require runtime interpretation')
+                continue
+            args, options = parsed
+            if args[:2] == ['repo', 'add'] and len(args) == 4:
+                alias, url = args[2:]
+                source = (url.rstrip('/'), number) if literal.fullmatch(url) and url.startswith(('https://', 'http://')) else None
+                if alias in repositories and (not source or not repositories[alias]
+                                               or repositories[alias][0] != source[0]):
+                    source = None
+                repositories[alias] = source
+                continue
+            if args[:2] in (['repo', 'remove'], ['repo', 'rm']):
+                for alias in args[2:]:
+                    repositories.pop(alias, None)
+                continue
+            if not args or args[0] not in {'install', 'upgrade'}:
+                continue
+            generate = options.get('--generate-name', options.get('-g')) == 'true'
+            chart_position = 1 if generate and args[0] == 'install' else 2
+            if len(args) != chart_position + 1:
+                omitted(number, 'release/chart arguments are ambiguous')
+                continue
+            chart = args[chart_position]
+            if not literal.fullmatch(chart):
+                omitted(number, 'chart expression is not a literal package identity')
+                continue
+            if chart.startswith(('.', '/', '~')) or re.match(r'^[A-Za-z]:', chart):
+                continue
+            source = None
+            if '--repo' in options:
+                url = options['--repo']
+                if literal.fullmatch(url) and url.startswith(('https://', 'http://')):
+                    source = (url.rstrip('/'), number)
+            elif chart.startswith(('oci://', 'http://', 'https://')):
+                source = (chart, number)
+            elif '/' in chart:
+                alias, chart = chart.split('/', 1)
+                source = repositories.get(alias)
+            if not source:
+                omitted(number, 'repository URL is unknown, dynamic, or ambiguous; local charts are not inventoried as external packages')
+                continue
+            url, source_line = source
+            identity = chart if chart.startswith(('oci://', 'http://', 'https://')) else f'{url}#{chart}'
+            requested = options.get('--version')
+            exact = requested if requested and re.fullmatch(r'v?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.+_-]+)?', requested) else None
+            notes = [f'Declared chart reference: {args[chart_position]}.',
+                     f'Helm repository/source URL: {url}.',
+                     'Chart archives, transitive chart dependencies, and rendered container images were not resolved.']
+            if requested and not literal.fullmatch(requested):
+                notes.append('Version range or expression is retained as declared; no runtime value was inferred.')
+            if not requested:
+                notes.append('No chart version was declared; repository state selects the version at deployment time.')
+            dependency = c.add(identity, 'helm', path, version=exact,
+                               version_constraint=requested if not exact else None,
+                               line=number, detail='External Helm chart declaration', notes=notes,
+                               completeness='declared' if exact else 'unresolved')
+            if source_line != number:
+                dependency['evidence'].append({'path': path, 'line': source_line,
+                                               'detail': f'Helm repository declaration: {url}'})
+            c.edge(configuration(), dependency)
+
+
 # --- REGION: Container base images
 def _docker(c: _Collector) -> None:
     for path, text in sorted(c.text.items()):
@@ -603,6 +933,6 @@ def collect_dependencies(files: dict[str, bytes], repo_name: str) -> list[dict]:
     """
     normalized = {path.replace('\\', '/'): content for path, content in files.items()}
     collector = _Collector(normalized)
-    for parser in (_go, _cargo, _npm, _dotnet, _flutter, _bazel, _docker, _python):
+    for parser in (_go, _cargo, _npm, _dotnet, _flutter, _bazel, _terraform, _helm, _docker, _python):
         parser(collector)
     return collector.finish()

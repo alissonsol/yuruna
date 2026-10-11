@@ -286,8 +286,8 @@ de buscá-los na origem uma vez por hospedeiro.
 
 Este arquivo segue duas regras estruturais, ambas essenciais:
 
-  * Ele não importa NADA -- nem -Global, nem -Force, nem qualquer importação
-    aninhada -- e exporta somente três funções com nomes únicos. Os drivers
+  * Ele importa somente Yuruna.Globalization -- sem -Global nem -Force -- e
+    exporta somente três funções com nomes únicos. Os drivers
     de cada hospedeiro envolvem Save-CachedHttpUri para injetar seu próprio
     resolvedor de cache, e os auxiliares de imagem resolvem esse invólucro
     PELO NOME. Assim, um módulo que reexportasse Save-CachedHttpUri
@@ -669,14 +669,14 @@ Aplica-se a:
 
 - [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
 
-Segue a semântica do contrato Hyper-V: verdadeiro se, e somente se, a VM
-de cache tem seu próprio IP roteável na LAN -- os consumidores da LAN
-podem acessá-la diretamente, sem portproxy no hospedeiro no caminho.
-No KVM, isso equivale a "<source network='...'/> da VM NÃO é a rede NAT
-'default'". 'yuruna-external' (bridge), qualquer YURUNA_EXTERNAL_NETWORK
-definida pelo usuário ou uma bridge personalizada são elegíveis; somente
-a NAT interna 'default' (192.168.122/24, apenas no hospedeiro sem um
-encaminhador de porta) não é.
+Segue a semântica do contrato Hyper-V: a primeira NIC configurada da VM de
+cache deve usar uma bridge do hospedeiro antes que os chamadores removam os
+encaminhadores de portas do lado do hospedeiro. No KVM, uma conexão direta a
+uma bridge é elegível; uma rede libvirt nomeada só é elegível quando sua
+definição legível contém `forward mode='bridge'`. Um nome personalizado ou
+YURUNA_EXTERNAL_NETWORK, por si só, não comprova nada: redes NAT, roteadas e
+isoladas também podem ter bridges gerenciadas pelo libvirt. A ausência de
+evidências legíveis da conexão retorna false, preservando o encaminhamento.
 
 <a id="42e5cdfd-001e"></a>
 
@@ -1272,13 +1272,12 @@ uma preparação recusada apenas ignora o encaminhador :80 (uma conveniência de
 CA para a LAN remota); todo o restante continua sendo ativado.
 
 `utmctl ip-address` não funciona para VMs Apple Virtualization
-("Operation not supported by the backend"). A VM de cache está
-conectada por bridge à NIC LAN do hospedeiro (config.plist.template,
-VZBridgedNetworkDeviceAttachment), portanto sua concessão DHCP fica na
-mesma /24 em que está o hospedeiro. Identificamos NOSSA VM pelo MAC com o qual o
-pacote foi criado (aleatório por pacote, gravado em
-config.plist por guest.caching-proxy-service/New-VM.ps1) e consultamos seu IP
-na tabela ARP do hospedeiro -- nunca pelo "first :3128 we find on the
+("Operation not supported by the backend"). O pacote da VM de cache usa o
+backend QEMU; no modo Bridged, sua NIC se conecta à interface LAN do hospedeiro.
+Identificamos NOSSA VM pelo MAC gravado em config.plist: uma substituição
+explícita por `-MacAddress` ou, por padrão, um endereço determinístico derivado
+da identidade do hospedeiro e do nome da VM. Consultamos seu IP na tabela ARP
+do hospedeiro -- nunca pelo "first :3128 we find on the
 LAN", o que se fixaria sem dificuldade no yuruna-caching-
 proxy de outro hospedeiro que obtivesse DHCP antes do nosso. Corresponde ao contrato
 restrito de Test-CachingProxyServiceAvailable: somente caches que nos pertencem.
@@ -1321,7 +1320,7 @@ Aplica-se a:
 
 - [test/service/Start-CachingProxyServiceVM.ps1](../../test/service/Start-CachingProxyServiceVM.ps1)
 
-Exposição à LAN. Em uma rede com bridge 'yuruna-external' (ou qualquer rede que não seja a padrão),
+Exposição à LAN. Em uma rede verificada como conectada por bridge ao hospedeiro,
 a VM tem seu próprio IP LAN e os consumidores remotos a acessam
 diretamente em $cacheIp. Na rede NAT 'default', a VM é
 acessível somente pelo hospedeiro, portanto Add-PortMap instala encaminhadores
@@ -1359,7 +1358,7 @@ a VM diretamente (a sub-rede NAT 172.25.x.x é visível a partir do hospedeiro e
 de todo convidado Hyper-V nesse switch), portanto este portproxy acrescenta exposição
 à LAN sem alterar o caminho dos convidados locais -- eles continuam apontando
 para o IP privado da VM. A lista de portas corresponde à chamada
-Add-PortMap de Start-TestRunner.ps1; listas diferentes entram em conflito porque
+Add-PortMap de Invoke-TestRunnerInnerLoop.ps1; listas diferentes entram em conflito porque
 a função executa Clear-AllCachingProxyServicePortMapping primeiro. Exige
 elevação; caso contrário, Add-PortMap avisa e não faz nada.
 
@@ -1430,7 +1429,7 @@ Aplica-se a:
 
 - [test/service/Start-StatusService.ps1](../../test/service/Start-StatusService.ps1)
 
-O servidor desacoplado incorpora a here-string de ~1.5 KLOC (e os módulos
+O servidor desacoplado incorpora a here-string de ~3.5 KLOC (e os módulos
 que importa na inicialização) em seu estado em memória. Os arquivos em test/status/
 são servidos do disco a cada solicitação, portanto alterações no frontend NÃO exigem
 reinicialização; apenas uma mudança no código da infraestrutura exige. Persistimos o
@@ -1652,7 +1651,6 @@ Alternativa do macOS: a inicialização do status service seleciona as portas 80
 remapeamentos configurados dos proxies HTTP e HTTPS. Cada porta tem seu próprio pidfile,
 portanto atualizar uma não remove as outras. O caminho normal de cache conectado por bridge
 remove os encaminhadores do hospedeiro e usa o endereço LAN da VM de cache.
-Windows: todas as portas em uma única lista -- netsh limpa tudo primeiro.
 No Windows, todos os mapeamentos de portas do caching-proxy-service são repetidos na lista de cada
 chamador porque Add-PortMap limpa primeiro o estado netsh e de firewall do Yuruna;
 omitir qualquer um aqui o removeria a cada reinicialização de status-service.
@@ -1663,12 +1661,13 @@ remotos a acessam diretamente, e o squid vê os
 IPs reais dos clientes no nível TCP. Remova quaisquer mapeamentos netsh
 anteriores para que o caminho alternativo host:port não
 reescreva silenciosamente uma rota paralela por NAT.
-Test-CacheVMOnExternalNetwork de Yuruna.Host procura
-qualquer vSwitch do tipo External no Windows; no macOS,
-sempre retorna $true porque a VM de cache está conectada por bridge do QEMU.
+Test-CacheVMOnExternalNetwork de Yuruna.Host inspeciona a conexão real da VM
+de cache. O Windows exige um vSwitch do tipo External conectado, sem um uplink
+comprovadamente degradado; o macOS exige um pacote legível no modo Bridged.
+Shared NAT e a ausência de evidências da conexão no macOS retornam false.
 
 O mapeamento de portas HTTP/HTTPS difere entre plataformas na
-alternativa Default-Switch (veja Start-TestRunner.ps1
+alternativa Default-Switch (veja docs/caching.md
 para a justificativa completa): o macOS usa um encaminhador pwsh +
 PROXY v1 (IPs reais da LAN); o Windows usa netsh
 portproxy simples porque o caminho do listener em modo de usuário é

@@ -56,8 +56,6 @@ write_files:
     content: |
       YURUNA_AGGREGATOR_URL=YURUNA_AGGREGATOR_URL_PLACEHOLDER
       YURUNA_POOL_INTENT_GIT_URL=YURUNA_POOL_INTENT_GIT_URL_PLACEHOLDER
-      YURUNA_LANGUAGE=YURUNA_LANGUAGE_PLACEHOLDER
-      YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER
       YURUNA_POOL_NETWORK_PATH=POOL_NAS_NETWORK_PATH_PLACEHOLDER
       YURUNA_POOL_NETWORK_IP=POOL_NAS_NETWORK_IP_PLACEHOLDER
       YURUNA_POOL_NETWORK_USER=POOL_NAS_NETWORK_USER_PLACEHOLDER
@@ -69,6 +67,14 @@ write_files:
     content: |
       username=POOL_NAS_NETWORK_USER_PLACEHOLDER
       password=POOL_NAS_PASSWORD_PLACEHOLDER
+  # See https://yuruna.link/42fffc2c-000d
+  - path: /etc/yuruna/globalization.env
+    owner: root:root
+    permissions: '0644'
+    content: |
+      YURUNA_LANGUAGE=YURUNA_LANGUAGE_PLACEHOLDER
+      YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER
+
   # See https://yuruna.link/429f3d06-0029
   # Empty IP/PORT falls back to the public github mirror for the framework fetch.
   - path: /etc/yuruna/host.env
@@ -84,8 +90,9 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
-      Pool-control service VM. /etc/yuruna/pool.env + host.env + pool-nas.cifs.cred are
-      written by New-VM.ps1 into the seed. The bring-up script reads them.
+      Pool-control service VM. /etc/yuruna/globalization.env + pool.env + host.env +
+      pool-nas.cifs.cred are written by New-VM.ps1 into the seed. The bring-up script
+      reads them.
   # See https://yuruna.link/429f3d06-002a
   # This VM is provisioned once and runs for weeks, so it accumulates host
   # renumbers a per-cycle test guest never sees.
@@ -143,7 +150,19 @@ runcmd:
     YR_PORT=$(sed -nE 's/^YURUNA_STATUS_SERVICE_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
     DEST=/home/pool-control-service-admin/yuruna
     MIRROR_URL=https://github.com/alissonsol/yuruna
-    mkdir -p "$DEST"
+    FETCH_DIR=$(mktemp -d "${DEST}.fetch.XXXXXX") || FETCH_DIR=''
+    # --- REGION: yuruna_accept_framework
+    # Only a validated tree may replace a previously usable checkout.
+    yuruna_accept_framework() {
+      [ -f "$FETCH_DIR/tree/VERSION" ] && [ -s "$FETCH_DIR/tree/VERSION" ] || return 1
+      [ ! -e "$FETCH_DIR/previous" ] || return 1
+      if [ -e "$DEST" ]; then mv "$DEST" "$FETCH_DIR/previous" || return 1; fi
+      if mv "$FETCH_DIR/tree" "$DEST"; then rm -rf "$FETCH_DIR/previous"; return 0; fi
+      if [ -e "$FETCH_DIR/previous" ]; then
+        mv "$FETCH_DIR/previous" "$DEST" || echo "yuruna: previous checkout retained at $FETCH_DIR/previous after restore failed." >&2
+      fi
+      return 1
+    }
     OK=0
     SRC=mirror
     SRC_URL="$MIRROR_URL"
@@ -151,14 +170,15 @@ runcmd:
     ATTEMPT=1
     while [ "$ATTEMPT" -le 6 ]; do
       if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
-        # -s "$DEST/VERSION" is the extraction's success condition, not tar's exit
-        # status: the archive arrives through a pipe, so a transfer cut partway
-        # leaves tar reporting success over a truncated tree.
-        if wget --no-proxy --timeout=30 --tries=1 -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST" && [ -s "$DEST/VERSION" ]; then
+        # Check the transfer separately; tar can succeed after wget fails.
+        if [ -n "$FETCH_DIR" ] &&
+           wget --no-proxy --timeout=30 --tries=1 -qO "$FETCH_DIR/archive.tar.gz" "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" &&
+           mkdir -p "$FETCH_DIR/tree" && tar -xzf "$FETCH_DIR/archive.tar.gz" -C "$FETCH_DIR/tree" && yuruna_accept_framework; then
           OK=1; SRC=host; SRC_URL="http://$YR_HOST:$YR_PORT"
           echo "yuruna pool-control-service: framework extracted from host $SRC_URL"
           break
         fi
+        if [ -n "$FETCH_DIR" ]; then rm -rf "$FETCH_DIR/tree"; fi
       fi
       if [ "$ATTEMPT" -lt 6 ]; then sleep 10; fi
       # Re-read the coordinates every attempt: waiting is only worth anything if
@@ -169,19 +189,22 @@ runcmd:
     done
     if [ "$OK" -eq 0 ]; then
       echo "yuruna pool-control-service: host status service did not serve the framework after 6 attempts; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
-      rm -rf "$DEST"
-      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 "$MIRROR_URL" "$DEST" && OK=1
+      if [ -n "$FETCH_DIR" ] &&
+         git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 "$MIRROR_URL" "$FETCH_DIR/tree" && yuruna_accept_framework; then OK=1; fi
     fi
     # See https://yuruna.link/42fffc2c-0013
     # Record source provenance for the unprivileged seed account's readiness probe.
-    mkdir -p /etc/yuruna
-    {
-      echo "source=$SRC"
-      echo "url=$SRC_URL"
-      echo "version=$(head -n1 "$DEST/VERSION" 2>/dev/null | tr -d '[:space:]')"
-      echo "fetchedAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    } > /etc/yuruna/framework-source
-    chmod 0644 /etc/yuruna/framework-source
+    if [ "$OK" -eq 1 ]; then
+      mkdir -p /etc/yuruna
+      {
+        echo "source=$SRC"
+        echo "url=$SRC_URL"
+        echo "version=$(head -n1 "$DEST/VERSION" 2>/dev/null | tr -d '[:space:]')"
+        echo "fetchedAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      } > /etc/yuruna/framework-source
+      chmod 0644 /etc/yuruna/framework-source
+    fi
+    if [ -n "$FETCH_DIR" ] && [ ! -e "$FETCH_DIR/previous" ]; then rm -rf "$FETCH_DIR"; fi
     chown -R pool-control-service-admin:pool-control-service-admin "$DEST" 2>/dev/null || true
     [ "$OK" -eq 1 ] || echo "yuruna pool-control-service: could not obtain the framework source; run the bring-up manually." >&2
   # --- REGION: Build and start the service

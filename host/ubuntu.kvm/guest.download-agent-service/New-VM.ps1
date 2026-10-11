@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42e86329-1c8d-47ab-b9aa-49b5bb5ed6e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,8 +12,6 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
-.PARAMETER AllowPseudoLocale
-    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -33,6 +31,8 @@
 
 .PARAMETER VMName
     libvirt domain name. Default: yuruna-download-agent-service.
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 param(

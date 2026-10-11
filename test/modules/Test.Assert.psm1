@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 423d6743-1531-4ed7-b6b3-7d5bf06035c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -307,6 +307,36 @@ function Get-YurunaTestFunctionAst {
             param($n)
             $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $wanted
         }.GetNewClosure(), $true) | Select-Object -First 1
+}
+
+function Get-YurunaTestCommandCallCount {
+    <#
+    .SYNOPSIS
+    Counts the invocations of one command under an AST node.
+    .DESCRIPTION
+    Counts command nodes only, at any depth, whose statically known name equals
+    the wanted one without regard to case. A function definition, an
+    Export-ModuleMember bareword, a comment and a string are not invocations,
+    which is why a structural guard counts this way instead of matching text.
+
+    The name is compared as written. A module-qualified call carries its
+    qualifier, so it is counted under the qualified name alone, and a call
+    through a variable or an expression has no static name and is never
+    counted. The suites assert exact counts against this rule; folding a
+    qualifier away would change every one of them on a file that uses both
+    spellings.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory, Position = 0)][Management.Automation.Language.Ast]$Ast,
+        [Parameter(Mandatory, Position = 1)][Alias('Name')][string]$CommandName
+    )
+    $wanted = $CommandName
+    @($Ast.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wanted
+            }.GetNewClosure(), $true)).Count
 }
 
 function Get-YurunaTestCommandArgumentAst {
@@ -642,4 +672,4 @@ Export-ModuleMember -Function Get-YurunaTestBrowser, Get-YurunaTestBrowserDom, I
     Assert-True, Assert-False, Assert-Equal, Assert-StringEqual, Assert-NotEqual, `
     Assert-Null, Assert-NotNull, Assert-Match, Assert-Throw, Assert-NoFinding, `
     Get-YurunaTestRepoRoot, New-YurunaTestTempDir, Remove-YurunaTestTempDir, `
-    Get-YurunaTestFileAst, Get-YurunaTestFunctionAst
+    Get-YurunaTestFileAst, Get-YurunaTestFunctionAst, Get-YurunaTestCommandCallCount

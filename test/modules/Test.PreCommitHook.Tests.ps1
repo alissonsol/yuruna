@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42cf4f7f-3c33-488c-8cc6-1cb70b8f8836
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -448,6 +448,121 @@ exit 0
     It 'passes shellcheck' -Skip:(-not (Get-Command shellcheck -ErrorAction SilentlyContinue)) {
         $output = & shellcheck -s sh --severity=warning -- $script:Hook 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 0 -Because $output
+    }
+}
+
+Describe 'encoding gate file discovery and bounded BOM reads' {
+    BeforeAll {
+        $script:EncodingSource = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'tools/Test-AsciiNoBom.ps1'
+        function New-EncodingFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Creates only disposable encoding fixtures under TestDrive.')]
+            param()
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            Write-FixtureFile -Path (Join-Path $root 'tools/Test-AsciiNoBom.ps1') -Text ([IO.File]::ReadAllText($script:EncodingSource))
+            Write-FixtureFile -Path (Join-Path $root 'test/modules/Test.Prelude.psm1') -Text @'
+function Get-EntryPointExitCode { param($Outcome) if ($Outcome -eq 'Ok') { 0 } else { 1 } }
+Export-ModuleMember -Function Get-EntryPointExitCode
+'@
+            $null = Invoke-FixtureGit -Repository $root -Argument @('init', '--quiet')
+            return $root
+        }
+        function Invoke-EncodingFixture {
+            param([string]$Root, [string[]]$Argument = @())
+            $text = & pwsh -NoProfile -NonInteractive -File (Join-Path $Root 'tools/Test-AsciiNoBom.ps1') @Argument 2>&1 | Out-String
+            return @{ Code = $LASTEXITCODE; Text = $text }
+        }
+    }
+
+    It 'checks new and tracked <Extension> files without changing the ASCII scope' -ForEach @(
+        @{ Extension = 'ps1' }, @{ Extension = 'PSM1' }, @{ Extension = 'psd1' },
+        @{ Extension = 'sh' }, @{ Extension = 'bash' }, @{ Extension = 'css' },
+        @{ Extension = 'json' }, @{ Extension = 'yml' }, @{ Extension = 'yaml' }
+    ) {
+        $root = New-EncodingFixture
+        $file = Join-Path $root "nested/probe.$Extension"
+        Write-FixtureFile -Path $file -Text ('ascii' + [char]0x00E9)
+        $run = Invoke-EncodingFixture -Root $root -Argument @('-Quiet')
+        $run.Code | Should -Be 1 -Because $run.Text
+        $run.Text | Should -Match 'non-ASCII byte at offset 5'
+        $null = Invoke-FixtureGit -Repository $root -Argument @('add', '-A')
+        (Invoke-EncodingFixture -Root $root -Argument @('-Quiet')).Code | Should -Be 1
+    }
+
+    It 'excludes localized catalogs, unrelated types, ignored files, and absent tracked files' {
+        $root = New-EncodingFixture
+        $unicode = 'text' + [char]0x00E9
+        Write-FixtureFile -Path (Join-Path $root 'globalization/catalogs/pt-BR/demo.json') -Text $unicode
+        Write-FixtureFile -Path (Join-Path $root 'README.md') -Text $unicode
+        Write-FixtureFile -Path (Join-Path $root '.gitignore') -Text "ignored.sh`n"
+        Write-FixtureFile -Path (Join-Path $root 'ignored.sh') -Text $unicode
+        Write-FixtureFile -Path (Join-Path $root 'deleted.sh') -Text $unicode
+        $null = Invoke-FixtureGit -Repository $root -Argument @('add', '-A')
+        Remove-Item -LiteralPath (Join-Path $root 'deleted.sh')
+        $run = Invoke-EncodingFixture -Root $root -Argument @('-Quiet')
+        $run.Code | Should -Be 0 -Because $run.Text
+    }
+
+    It 'checks brackets in an existing literal path' {
+        $root = New-EncodingFixture
+        $file = Join-Path $root 'probe[one].sh'
+        Write-FixtureFile -Path $file -Text ([string][char]0x00E9)
+        (Invoke-EncodingFixture -Root $root -Argument @('-Path', $file, '-Quiet')).Code | Should -Be 1
+        (Invoke-EncodingFixture -Root $root -Argument @('-Quiet')).Code | Should -Be 1
+    }
+
+    It 'still resolves explicit wildcard inputs' {
+        $root = New-EncodingFixture
+        Write-FixtureFile -Path (Join-Path $root 'scripts/probe.sh') -Text ([string][char]0x00E9)
+        (Invoke-EncodingFixture -Root $root -Argument @('-Path', (Join-Path $root 'scripts/*.sh'), '-Quiet')).Code | Should -Be 1
+    }
+
+    It 'fails when an explicit path matches nothing' {
+        $root = New-EncodingFixture
+        (Invoke-EncodingFixture -Root $root -Argument @('-Path', (Join-Path $root 'missing.sh'), '-Quiet')).Code | Should -Be 1
+    }
+
+    It 'detects <Label> using only the prefix' -ForEach @(
+        @{ Label = 'UTF-8 BOM'; Bytes = @(239,187,191,65); Code = 1 },
+        @{ Label = 'UTF-16 LE BOM'; Bytes = @(255,254); Code = 1 },
+        @{ Label = 'UTF-16 BE BOM'; Bytes = @(254,255,65); Code = 1 },
+        @{ Label = 'empty file'; Bytes = @(); Code = 0 },
+        @{ Label = 'one-byte prefix'; Bytes = @(239); Code = 0 },
+        @{ Label = 'two-byte prefix'; Bytes = @(239,187); Code = 0 },
+        @{ Label = 'non-BOM Unicode'; Bytes = @(195,169,65); Code = 0 }
+    ) {
+        $root = New-EncodingFixture
+        $file = Join-Path $root 'payload.bin'
+        [IO.File]::WriteAllBytes($file, [byte[]]$Bytes)
+        $run = Invoke-EncodingFixture -Root $root -Argument @('-Path', $file, '-BomOnly', '-Quiet')
+        $run.Code | Should -Be $Code -Because $run.Text
+    }
+
+    It 'checks staged files in BOM-only mode without checking untracked BOMs' {
+        $root = New-EncodingFixture
+        $staged = Join-Path $root 'staged.txt'
+        [IO.File]::WriteAllBytes($staged, [byte[]]@(195,169))
+        [IO.File]::WriteAllBytes((Join-Path $root 'untracked.txt'), [byte[]]@(239,187,191))
+        $null = Invoke-FixtureGit -Repository $root -Argument @('add', '--', 'staged.txt')
+        (Invoke-EncodingFixture -Root $root -Argument @('-Staged', '-BomOnly', '-Quiet')).Code | Should -Be 0
+        [IO.File]::WriteAllBytes($staged, [byte[]]@(239,187,191))
+        $null = Invoke-FixtureGit -Repository $root -Argument @('add', '--', 'staged.txt')
+        (Invoke-EncodingFixture -Root $root -Argument @('-Staged', '-BomOnly', '-Quiet')).Code | Should -Be 1
+    }
+
+    It 'allows a BOM sequence later in a large binary and closes the input stream' {
+        $root = New-EncodingFixture
+        $file = Join-Path $root 'payload.bin'
+        $stream = [IO.File]::Create($file)
+        try {
+            $stream.SetLength(64MB)
+            $stream.Position = 32MB
+            $stream.Write([byte[]]@(239,187,191), 0, 3)
+        } finally { $stream.Dispose() }
+        $run = Invoke-EncodingFixture -Root $root -Argument @('-Path', $file, '-BomOnly', '-Quiet')
+        $run.Code | Should -Be 0 -Because $run.Text
+        $exclusive = [IO.File]::Open($file, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $exclusive.Dispose()
     }
 }
 

@@ -11,6 +11,17 @@ copies debug artifacts to `test/status/log/`, sends a Resend
 notification, and either preserves the VM or cleans it up depending on
 `testCycle.stopOnFailure`.
 
+With `stopOnFailure: true`, the runner writes
+`runtime/diagnostic-preserve.json` before failure capture and pauses before
+automatic recovery, refresh, or another dispatch can replace the VM. The VM
+and marker survive runner shutdown. Remove the marker from the configured
+runtime directory, or explicitly set `testCycle.stopOnFailure: false`, to
+release the hold. Invalid markers or unreadable configuration keep the hold.
+Ubuntu and Amazon Linux seeds retain a bounded persistent kernel journal;
+after recovering access, use `sudo journalctl -k -b -1` to inspect the previous
+boot. See [guest evidence](../docs/system-diagnostic.md#423ef7f5-0014) for
+upload behavior and limits.
+
 ## Where the scripts are
 
 `test/` itself holds only the seven commands reached for daily --
@@ -173,6 +184,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

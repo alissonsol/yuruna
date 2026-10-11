@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -382,7 +382,7 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
     if yuruna_host_livecheck; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
-      if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
+      if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
         HOST_OK=true
         break
       else
@@ -397,12 +397,12 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       exit 1
     fi
     for attempt in 1 2 3; do
-      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ] && break
       echo "git clone attempt $attempt failed"
       rm -rf "$REAL_HOME/yuruna"
       [ $attempt -lt 3 ] && sleep 60
     done
-    if [ ! -d "$REAL_HOME/yuruna" ]; then
+    if [ ! -f "$REAL_HOME/yuruna/VERSION" ] || [ ! -s "$REAL_HOME/yuruna/VERSION" ]; then
       echo "git clone failed after 3 attempts" >&2
       exit 1
     fi

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 429d2507-81f3-45bf-89aa-1a0471f4641c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,15 +26,18 @@
     $Env:YURUNA_CACHING_PROXY_SERVICE_IP, then local discovery -- so the IP this
     script probes is the IP the runner will actually pick.
 
-.PARAMETER CacheIp         Probe this IP instead, bypassing the runner's
-                           config/env/local resolution order.
-.PARAMETER SetHostProxy    On success, promote to host proxy (Windows:
-                           user WinINet; macOS: networksetup, needs sudo).
-                           Wipes any stale WinINet ProxyServer + proxy
-                           env vars BEFORE writing the new state, so a
-                           single `-SetHostProxy` run is enough to fix
-                           a stale-proxy WARN.
-.PARAMETER NetworkService  macOS: override auto-detected network service.
+.PARAMETER CacheIp
+    Probe this IP instead, bypassing the runner's
+    config/env/local resolution order.
+.PARAMETER SetHostProxy
+    On success, promote to host proxy (Windows:
+    user WinINet; macOS: networksetup, needs sudo).
+    Wipes any stale WinINet ProxyServer + proxy
+    env vars BEFORE writing the new state, so a
+    single `-SetHostProxy` run is enough to fix
+    a stale-proxy WARN.
+.PARAMETER NetworkService
+    macOS: override auto-detected network service.
 #>
 
 param(

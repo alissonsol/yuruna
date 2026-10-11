@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 424fe851-fed8-47ea-9226-0b27f8af81c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     checks depend on. These guards assert the base regex appears exactly once,
     the helper is defined with both optional
     switches, and every share-derivation site delegates to it. Source-text only.
-    Runs under Pester 4.10.1 (script-scoped throw helper).
+    Runs under Pester 5.x (script-scoped throw helper).
 #>
 
 BeforeAll {

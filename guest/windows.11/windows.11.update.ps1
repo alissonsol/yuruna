@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,12 +33,48 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     throw 'Guest update failed; review the preceding error.'
 }
 
+# See https://yuruna.link/42e220c4-0005
+# --- REGION: Invoke-GuestWingetInstall
+function Invoke-GuestWingetInstall {
+    <#
+    .SYNOPSIS
+        Install a prerequisite or accept its documented already-present outcome.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$PackageId)
+    $ErrorActionPreference = 'Stop'
+    $PSNativeCommandUseErrorActionPreference = $false
+    $global:LASTEXITCODE = $null
+    try {
+        & winget install --id $PackageId --accept-source-agreements --accept-package-agreements --silent
+        $wingetSucceeded = $?
+        $wingetNativeExitCode = $global:LASTEXITCODE
+    } catch {
+        throw
+    }
+    $wingetExitCode = 0L
+    if ($null -eq $wingetNativeExitCode -or -not [long]::TryParse([string]$wingetNativeExitCode, [ref]$wingetExitCode) -or $wingetExitCode -lt -2147483648 -or $wingetExitCode -gt 4294967295) {
+        throw "Package installation failed for $PackageId without a valid native exit code."
+    }
+    if ($wingetExitCode -ge 2147483648) { $wingetExitCode -= 4294967296 }
+    if ($wingetExitCode -notin @(0, -1978335189, -1978335135) -or ($wingetExitCode -eq 0 -and -not $wingetSucceeded)) {
+        throw "Package installation failed for $PackageId (winget exit code $wingetExitCode)."
+    }
+}
+
 # --- REGION: Ensure execution policy allows scripts
 $ProgressPreference = 'SilentlyContinue'
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 
 # --- REGION: Detect architecture
-$arch = $env:PROCESSOR_ARCHITECTURE
+# See https://yuruna.link/42e220c4-0015
+$nativeProcessor = Get-CimInstance -ClassName Win32_Processor -Property Architecture -ErrorAction Stop | Select-Object -First 1
+if ($null -eq $nativeProcessor -or $null -eq $nativeProcessor.Architecture) { throw 'Cannot determine the native processor architecture for the guest update.' }
+$arch = switch ($nativeProcessor.Architecture) {
+    9 { 'AMD64' }
+    12 { 'ARM64' }
+    default { "Unknown ($($nativeProcessor.Architecture))" }
+}
 Write-Output "Detected architecture: $arch"
 switch ($arch) {
     'AMD64' { Write-Output 'Environment: x86_64/amd64' }
@@ -56,7 +92,7 @@ Write-Output ">>> Checking for PowerShell 7..."
 $pwshPath = Get-Command pwsh -ErrorAction SilentlyContinue
 if (-not $pwshPath) {
     Write-Output "PowerShell 7 not found. Installing..."
-    winget install --id Microsoft.PowerShell --accept-source-agreements --accept-package-agreements --silent
+    Invoke-GuestWingetInstall -PackageId 'Microsoft.PowerShell'
     # Refresh PATH so the newly installed pwsh is discoverable
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     Write-Output "<<< PowerShell 7 installation complete."
@@ -90,6 +126,7 @@ Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 Write-Output ""
 Write-Output ">>> Pre-fetching yuruna framework tarball (for diagnostic availability)..."
 $yurunaRoot = Join-Path $env:USERPROFILE 'yuruna'
+$frameworkVersion = Join-Path $yurunaRoot 'VERSION'
 $hostEnv    = 'C:\ProgramData\yuruna\host.env'
 if (Test-Path -LiteralPath $hostEnv -PathType Leaf) {
     Get-Content -LiteralPath $hostEnv | ForEach-Object {
@@ -110,6 +147,9 @@ if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT -and -not
         # tar.exe (bsdtar) ships in-box since Windows 10 1803 and reads .tar.gz directly.
         tar.exe -xzf $tarPath -C $yurunaRoot
         if ($LASTEXITCODE -ne 0) { throw "Framework archive extraction failed (tar exit code $LASTEXITCODE)." }
+        if (-not (Test-Path -LiteralPath $frameworkVersion -PathType Leaf) -or (Get-Item -LiteralPath $frameworkVersion).Length -eq 0) {
+            throw 'Framework archive lacks a nonempty VERSION file.'
+        }
         Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
         Write-Output "<<< Yuruna framework available at $yurunaRoot (early extract)."
     } catch {
@@ -172,7 +212,7 @@ Write-Output "<<< Windows update check complete."
 Write-Output ""
 Write-Output ">>> Ensuring Git is installed..."
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    winget install --id Git.Git --accept-source-agreements --accept-package-agreements --silent
+    Invoke-GuestWingetInstall -PackageId 'Git.Git'
     # Refresh PATH so the newly installed Git is discoverable in this session.
     $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
 }
@@ -223,6 +263,9 @@ if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
             Invoke-WebRequest -Uri $tarballUrl -UseBasicParsing -OutFile $tarPath -ErrorAction Stop
             tar.exe -xzf $tarPath -C $yurunaRoot
             if ($LASTEXITCODE -ne 0) { throw "Framework archive extraction failed (tar exit code $LASTEXITCODE)." }
+            if (-not (Test-Path -LiteralPath $frameworkVersion -PathType Leaf) -or (Get-Item -LiteralPath $frameworkVersion).Length -eq 0) {
+                throw 'Framework archive lacks a nonempty VERSION file.'
+            }
             Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
             $hostOk = $true
         } catch {
@@ -238,7 +281,7 @@ if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
         $cloned = $false
         for ($attempt = 1; $attempt -le 3 -and -not $cloned; $attempt++) {
             git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone $frameworkUrl $yurunaRoot
-            if ($LASTEXITCODE -eq 0) { $cloned = $true; break }
+            if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $frameworkVersion -PathType Leaf) -and (Get-Item -LiteralPath $frameworkVersion).Length -gt 0) { $cloned = $true; break }
             Write-Output "git clone attempt $attempt failed"
             if (Test-Path -LiteralPath $yurunaRoot) { Remove-Item -LiteralPath $yurunaRoot -Recurse -Force -ErrorAction SilentlyContinue }
             if ($attempt -lt 3) { Start-Sleep -Seconds 60 }

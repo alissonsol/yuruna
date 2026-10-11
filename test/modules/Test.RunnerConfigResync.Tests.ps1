@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42b82fc3-4953-421c-ba0f-6771b3725fe1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@
     at the threshold and not again, and any non-failed reload resets both the
     streak and the one-shot latch.
 
-    Mock and the throw-free Should assertions run under Pester 4.10.1.
+    Mock and the throw-free Should assertions run under Pester 5.x.
 #>
 
 BeforeAll {
@@ -51,11 +51,7 @@ function Get-ModuleAst { return Get-YurunaTestFileAst -Path $modPath }
 # and the Export-ModuleMember bareword are not CommandAst with this name).
 function Get-CommandInvokeCount {
     param($Ast, [string]$Name)
-    $wanted = $Name   # local so the FindAll closure's use is visible to the analyzer
-    @($Ast.FindAll({ param($n)
-        $n -is [System.Management.Automation.Language.CommandAst] -and
-        $n.GetCommandName() -eq $wanted
-    }, $true)).Count
+    return (Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $Name)
 }
 
 # True when some assignment captures the result of invoking $Name into a non-$null

@@ -956,6 +956,11 @@
       "sourceHash": "2adf5e356034394529846d288abbe7397d43856c30ea7ff307cfd71e83f0e4d1",
       "message": "Imagem de falha salva: ./status/log/{cycleBase}/{destSeqName}/ ({copied} frames que conduzem à falha)"
     },
+    "runner.operator_d8507ccd68520716": {
+      "sourceHash": "94fe950e7989de005c7566097d19ac87e030e6a1ed704fb8bcc2ffd6bcc03b0b",
+      "origin": "machine",
+      "message": "  Primeiros frames do console salvos: ./status/log/{cycleBase}/{destSeqName}/earliest/ ({count} frames do início deste convidado)"
+    },
     "runner.operator_144c4b5176e7c3c4": {
       "sourceHash": "0fa82a0332120da9c1ac8a5911dbc34d42cf70e514be20b81e2e49c37bf36194",
       "message": "O sono de exibição já está definido para Nunca."
@@ -2738,6 +2743,11 @@
       "sourceHash": "c1ca213732b8e847828f7076084e004c5ca9ce4b5dc75691d54d45589e747ed6",
       "message": "Captura DHCP salva: ./status/log/{cycleBase}/{destSeqName}/dhcp.capture.txt"
     },
+    "runner.operator_e653bdc981ca5464": {
+      "sourceHash": "d39791f76f5c912d6fd8f2d924141ec208bfeced83cf71ae6d404bdeb599c5d0",
+      "origin": "machine",
+      "message": "  Resumo da captura DHCP para {guestMac}: o convidado enviou {sent} pacote(s), {replies} resposta(s) unicast chegaram a ele, {others} pacote(s) vieram de {clients} outro(s) cliente(s)"
+    },
     "runner.operator_42325e069d98407d": {
       "sourceHash": "c66556e4837c3d4319f5a3f87312f3d4c85d21b90488c877ba59d06e8f55e702",
       "message": "[ciclo externo {cycle}] poolStorage dreno desova erro (não fatal): {message}"
@@ -3545,6 +3555,16 @@
     "runner.operator_55583f4e86287622": {
       "sourceHash": "cbdeb52695d4642bbb153372fc3aa3e317587a3e898d1c517cb8fbf388cd131a",
       "message": "Texto '{patternLabel}' não encontrado dentro de {timeoutSeconds}s"
+    },
+    "runner.operator_7e0c2dd4aa0c5981": {
+      "sourceHash": "80d382255581a01c3532436023d6ef2af1719809da209c84253b7f832be421f9",
+      "origin": "machine",
+      "message": "      O hipervisor relata o convidado em livelock: {detail}"
+    },
+    "runner.operator_6d4042dbe6943c27": {
+      "sourceHash": "4e63fa767cbd91bba69f3b7693c2e728a95349d830e65dd85636a86733b183a9",
+      "origin": "machine",
+      "message": "A espera pelo texto '{patternLabel}' terminou após ~{waited}s de {timeoutSeconds}s: o hipervisor relata o convidado em livelock ({detail})"
     },
     "runner.operator_557ad99d1ffd4409": {
       "sourceHash": "db73d48750929866a850cecc23a80fa09fcc56deaf0281f97f37f1deff7daf7a",
@@ -6368,8 +6388,8 @@
       "message": "Ligação para {macUtmctlBundlePath} assim utmctl está em PATH"
     },
     "runner.operator_966231fe730b28ff": {
-      "sourceHash": "321d0076f04571e895a504cf250eb76bbfa22a24bed8b5034a64b8d37ee73160",
-      "message": "Send-TextKvm: virsh send-key falhou no char '{ch}' (códigos={join}): {trim}"
+      "sourceHash": "0814851fbfe84d70ea628caf2402b06f1804230c4cc02dc2ad62e070fe35e053",
+      "message": "Send-TextKvm: send-key falhou no char '{ch}' (códigos={join}): {trim}"
     },
     "runner.operator_96766746c16f798c": {
       "sourceHash": "9eedc0fc7145965dc665494c295a84238086a5b7a61564889169f73ab82816ae",
@@ -7466,6 +7486,11 @@
     "runner.operator_b3dea02d8275ec49": {
       "sourceHash": "9347a1109a256f5d31fd85849dc77b790a1d75bb26f336a3bb7020fc9e4f456a",
       "message": "Segundo parecer da Consola ({verdict}): {detail}"
+    },
+    "runner.operator_33a0b7c1e1b2be21": {
+      "sourceHash": "5a46a3369ad0c170ce7b33a9a10bfc94a1c8cdfd772f14fde07391ea634b8d7a",
+      "origin": "machine",
+      "message": "{processors} processador(es) virtual(is) com {guestPercent}% de tempo de execução do convidado e {hypervisorPercent}% do hipervisor, {interceptsPerSecond} interceptações/s, sustentado por {seconds}s"
     },
     "runner.operator_b3e21ed4f09c30ff": {
       "sourceHash": "be1ca53b837d8c35c20ea6c547557616c8d026e706f09d39a0d761f790fb1253",

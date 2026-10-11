@@ -1,10 +1,11 @@
 # Component breakdown
 
-These flowcharts expand each Level-1 boundary into at most seven real artifacts or named artifact families.
+These flowcharts map each Level-1 boundary to its current public scripts, modules, and artifact families.
 
 Section order and titles match [Context and components](01-context-and-components.md).
-A family box groups the sources listed below it; inventory diagrams do not
-prescribe a module import or execution order.
+A family box groups the sources listed below it. Each view contains at most
+seven boxes; arrows identify the stated calls or dependencies, and unconnected
+boxes are inventory rather than additional execution steps.
 
 ## Provisioning
 
@@ -16,19 +17,21 @@ flowchart LR
     yuruna-host-setup-psm1["Yuruna.HostSetup"]
     new-local-lab-storage-ps1["Storage preparation"]
     test-service["Service launchers"]
-    test-lab["Lab commands"]
-    install --> setup-ps1
+    test-lab["Lab administration"]
+    install -->|macOS host settings| enable-test-automation-ps1
     setup-ps1 --> enable-test-automation-ps1
     enable-test-automation-ps1 --> yuruna-host-setup-psm1
     setup-ps1 --> new-local-lab-storage-ps1
-    new-local-lab-storage-ps1 -->|storage before guests| test-service
     setup-ps1 --> test-service
-    setup-ps1 -->|lab enrollment| test-lab
+    setup-ps1 -->|lab initialization| test-lab
 ```
 
 Sources: the [Windows](../../install/windows.hyper-v.ps1),
 [Ubuntu](../../install/ubuntu.kvm.sh), and [macOS](../../install/macos.utm.sh)
-bootstrappers install prerequisites and clone the repository.
+bootstrappers install prerequisites and clone the repository. The operator runs
+setup.ps1 separately: there is no bootstrap-to-setup invocation. Windows and
+Ubuntu print an Enable-TestAutomation command; macOS applies its host settings
+with -SkipPoolStorage and reports any remaining operator action.
 [setup.ps1](../../install/setup.ps1) orchestrates
 [Enable-TestAutomation](../../test/lab/Enable-TestAutomation.ps1), storage
 preparation, and [service launchers](../../test/service/).
@@ -38,11 +41,13 @@ to select the platform script; those scripts import
 
 Storage preparation groups
 [New-LocalLabStorage](../../test/lab/New-LocalLabStorage.ps1) with setup's configured
-NAS path. Lab commands group enrollment, storage administration, and
+NAS path. Storage is prepared before the service guests. Lab administration
+groups [test/lab/](../../test/lab/) and [test/pool/](../../test/pool/), including
+token initialization, pool creation, enrollment, storage administration, and
 [Invoke-HostRefresh](../../test/lab/Invoke-HostRefresh.ps1).
-Setup brings up cache and stash for standalone mode and adds download-agent and
-pool-control for lab mode. A healthy service VM can be adopted; rebuilding applies
-changed provisioning settings.
+Setup brings up cache and stash for standalone mode. Download-agent is optional
+there; lab mode enables it and adds pool-control and a default pool. A healthy
+service VM can be adopted; rebuilding applies changed provisioning settings.
 
 ## Deploy engine
 
@@ -54,12 +59,14 @@ flowchart LR
     yuruna-resource-psm1["Yuruna.Resource"]
     yuruna-component-psm1["Yuruna.Component"]
     yuruna-workload-psm1["Yuruna.Workload"]
-    test-configuration-ps1["Validation and cleanup"]
+    test-configuration-ps1["Checks and cleanup"]
     set-resource-ps1 --> yuruna-resource-psm1
     set-component-ps1 --> yuruna-component-psm1
     set-workload-ps1 --> yuruna-workload-psm1
-    set-resource-ps1 -->|caller orders phases| set-component-ps1
-    set-component-ps1 -->|caller orders phases| set-workload-ps1
+    set-workload-ps1 -->|runtime check| test-configuration-ps1
+    yuruna-resource-psm1 -->|configuration validation| test-configuration-ps1
+    yuruna-component-psm1 -->|configuration validation| test-configuration-ps1
+    yuruna-workload-psm1 -->|configuration validation| test-configuration-ps1
 ```
 
 Sources: [Set-Resource](../../automation/Set-Resource.ps1),
@@ -72,16 +79,22 @@ The seventh box groups
 [Test-Configuration](../../automation/Test-Configuration.ps1),
 [Test-Requirement](../../automation/Test-Requirement.ps1),
 [Test-Runtime](../../automation/Test-Runtime.ps1), and
-[Invoke-Clear](../../automation/Invoke-Clear.ps1).
+[Invoke-Clear](../../automation/Invoke-Clear.ps1), together with their
+[validation](../../automation/Yuruna.Validation.psm1),
+[requirement](../../automation/Yuruna.Requirement.psm1), and
+[cleanup](../../automation/Yuruna.Clear.psm1) modules. Cleanup is an explicit
+entry point, not an automatic fourth deployment phase.
 
-Phase-order edges represent caller sequencing: the entry points do not invoke
-one another. The companion
+The phase entry points do not invoke one another. The companion
 [website guest script](https://github.com/alissonsol/yuruna-project/blob/main/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh)
 calls them in this order. The phase modules read the selected config directory,
 use resource outputs, and return
 [result manifests](../../automation/Yuruna.Result.psm1).
 Resource templates resolve from the project first, then global/resources.
-The workload module handles chart, kubectl, helm, and shell deployment entries.
+The workload module and validator share
+[Yuruna.DeploymentKind](../../automation/Yuruna.DeploymentKind.psm1), whose current
+built-ins are chart, kubectl, helm, and shell. Registry publication uses
+[Yuruna.Component.Registry](../../automation/Yuruna.Component.Registry.psm1).
 
 ## Test harness
 
@@ -114,7 +127,8 @@ Sources and aggregate membership:
 | Notifications | [Test.Notify](../../test/modules/Test.Notify.psm1), [Test.PoolNotifier](../../test/modules/Test.PoolNotifier.psm1), and configured providers in [notification/](../../test/extension/notification/). |
 
 The outer runner supervises a fresh cycle process, which launches an inner
-sequence process. The watchdog follows the cycle heartbeat; OCR and guest
+sequence process. These are processes on the host, rather than additional
+network services. The watchdog follows the cycle heartbeat; OCR and guest
 diagnostics supply sequence evidence. The host status listener also runs when
 testing is idle. The caching-proxy launcher starts the host status and
 configuration services through
@@ -139,6 +153,7 @@ flowchart LR
     ubuntu-kvm["ubuntu.kvm"]
     macos-utm["macos.utm"]
     host-modules["host/modules"]
+    host-vmconfig["VM configuration"]
     guest["Guest families"]
     yuruna-host-contract-psm1 --> windows-hyper-v
     yuruna-host-contract-psm1 --> ubuntu-kvm
@@ -146,6 +161,9 @@ flowchart LR
     windows-hyper-v --> host-modules
     ubuntu-kvm --> host-modules
     macos-utm --> host-modules
+    windows-hyper-v --> host-vmconfig
+    ubuntu-kvm --> host-vmconfig
+    macos-utm --> host-vmconfig
     windows-hyper-v --> guest
     ubuntu-kvm --> guest
     macos-utm --> guest
@@ -155,15 +173,22 @@ Sources: [host contract](../../host/Yuruna.Host.Contract.psm1),
 [Hyper-V driver](../../host/windows.hyper-v/modules/Yuruna.Host.psm1),
 [KVM driver](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1),
 [UTM driver](../../host/macos.utm/modules/Yuruna.Host.psm1),
-[host/modules/](../../host/modules/), and [guest/](../../guest/).
+[host/modules/](../../host/modules/), [host/vmconfig/](../../host/vmconfig/), and
+[guest/](../../guest/).
 Each driver dispatches per-guest image and VM builders and implements lifecycle,
 console input, screenshots, discovery, networking, and the host contract checks.
+VM configuration groups shared cloud-init service seeds, per-OS unattended
+installation files, and UTM bundle templates. Guest edges identify the scripts
+selected for the guest, not a requirement that every driver execute every script.
 
 The guest family groups amazon.linux.2023, ubuntu.server.24, ubuntu.server.26,
 windows.11, macos.26, and [guest/shared](../../guest/shared/) helpers. Platform
 support comes from the corresponding builder folders; the diagram does not imply
-every provider supports every guest. Caching-proxy, stash, download-agent, and
-pool-control builders live under each provider and reuse Ubuntu guest scripts.
+every provider supports every guest. macos.26 has a UTM builder only; Hyper-V,
+libvirt, and UTM retain their own native console and networking implementations.
+Caching-proxy, stash, download-agent, and pool-control builders live under each
+provider and reuse the shared seeds and Ubuntu guest scripts. The network
+differences are expanded in [Deployment](06-deployment.md).
 
 ## Project data
 
@@ -195,7 +220,10 @@ Sources in yuruna-project:
 and [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml).
 
 The tests box groups the repository cycle plan with example and book sequence
-definitions. Examples contain projects below their name; template itself contains
+definitions in [book/](https://github.com/alissonsol/yuruna-project/tree/main/book).
+The current deployment examples select localhost, AWS, or Azure; no checked-in
+GCP configuration is present. Examples contain projects below their name;
+template itself contains
 config, resources, components, and workloads without another project-name folder.
 Some examples, including nested.host, supply tests without deployment directories.
 The authentication vault belongs to the harness, as detailed in
@@ -220,6 +248,7 @@ Sources:
 [Import.Yaml](../../automation/Import.Yaml.psm1),
 [Yuruna.Validation](../../automation/Yuruna.Validation.psm1),
 [Yuruna.Requirement](../../automation/Yuruna.Requirement.psm1),
+[Yuruna.DeploymentKind](../../automation/Yuruna.DeploymentKind.psm1),
 [Yuruna.Result](../../automation/Yuruna.Result.psm1),
 [Yuruna.Log](../../automation/Yuruna.Log.psm1),
 [Yuruna.LogLevel](../../automation/Yuruna.LogLevel.psm1),
@@ -228,8 +257,13 @@ Sources:
 [global/](../../global/), [globalization/](../../globalization/), and
 [tools/](../../tools/).
 
-Seven boxes group related libraries and assets. Global contains config, resource,
-component, and workload roots. The globalization aggregate includes
+Seven boxes group related libraries and assets. Common and variables include
+root/path resolution, YAML loading, and variable expansion. Validation and
+requirements include the shared deployment-kind catalog; results and logging
+include completion manifests and log levels. Retry and credentials group the
+transient-operation helper and registry authentication provider catalog.
+Global contains config, resource, component, and workload roots. The
+globalization aggregate includes
 [Yuruna.Globalization](../../automation/Yuruna.Globalization.psm1) and catalogs;
 [Globalization](07-globalization.md) expands its language contract.
 Tools include [Invoke-TestSuite](../../tools/Invoke-TestSuite.ps1) and its
@@ -261,7 +295,9 @@ Sources: [localhost resources](../../global/resources/localhost/),
 [guest setup](../../guest/), and
 [notification providers](../../test/extension/notification/).
 
-The cluster/cloud boxes group targets referenced by current resource templates.
+The cluster/cloud boxes group targets referenced by current resource templates:
+localhost context/registry verification, AWS EKS/ECR, and Azure AKS/ACR plus the
+checked-in resource-group, Linux VM, PostgreSQL, and storage-share templates.
 Registry providers implement ACR, ECR, Google Artifact Registry, Docker Hub, and
 generic Docker authentication. GAR support does not supply GCP provisioning.
 The localhost registry template checks a registry already started by the caller,

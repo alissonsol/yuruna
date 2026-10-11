@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c7f1a9-3e60-4b2d-9a55-1f0c8b6d24ae
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,6 +63,13 @@ $script:HostMetricsServiceName = 'windows_exporter'
 # See https://yuruna.link/4213a0b3-0086
 $script:HostMetricsCollector = @('cpu', 'hyperv', 'logical_disk', 'memory', 'os')
 
+# The only Hyper-V families Get-YurunaHostMetricsRetentionRegex keeps
+# (windows_hyperv_hypervisor_*) and the capability checks read; the other 12
+# sub-collectors in the hyperv collector are gathered and sent every scrape
+# only to be dropped at the receiver. Adding a family to the dashboard means
+# adding it to both the retention regex and this list.
+$script:HostMetricsHyperVSubCollector = @('hypervisor_logical_processor', 'hypervisor_root_virtual_processor', 'hypervisor_virtual_processor')
+
 # The package the exporter is acquired as. Named here rather than only in the
 # command an operator is shown, because the same identifier now drives an
 # unattended acquisition and the two must not be able to drift apart.
@@ -123,6 +130,22 @@ function Get-YurunaHostMetricsCollector {
     [OutputType([string[]])]
     param()
     return [string[]]$script:HostMetricsCollector
+}
+
+function Get-YurunaHostMetricsHyperVSubCollector {
+    <#
+    .SYNOPSIS
+        The Hyper-V sub-collector names the retention filter keeps -- what
+        -HyperVCollector is given on an exporter new enough to accept it.
+    .OUTPUTS
+        [string[]]
+    .EXAMPLE
+        Get-YurunaHostMetricsHyperVSubCollector
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    return [string[]]$script:HostMetricsHyperVSubCollector
 }
 
 function Get-YurunaHostMetricsFirewallRuleName {
@@ -242,6 +265,11 @@ function Resolve-YurunaHostMetricsCommandLine {
         The collector names to publish.
     .PARAMETER Port
         The TCP port to listen on.
+    .PARAMETER HyperVCollector
+        Hyper-V sub-collector names to publish with --collector.hyperv.enabled.
+        Owned only when non-empty AND 'hyperv' is in -Collector; empty leaves
+        any such flag already on the line exactly as found, so an exporter
+        whose version does not accept the flag is never handed one.
     .OUTPUTS
         [pscustomobject] Executable, Desired, Matches, Reason.
     .EXAMPLE
@@ -252,7 +280,8 @@ function Resolve-YurunaHostMetricsCommandLine {
     param(
         [string]$CurrentCommandLine,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string[]]$Collector,
-        [Parameter(Mandatory)][int]$Port
+        [Parameter(Mandatory)][int]$Port,
+        [string[]]$HyperVCollector = @()
     )
     $result = [pscustomobject]@{ Executable = ''; Desired = ''; Matches = $false; Reason = '' }
     # @(...) is load-bearing: a bare executable with no flags is a ONE-element
@@ -268,14 +297,23 @@ function Resolve-YurunaHostMetricsCommandLine {
 
     $wantCollector = @($Collector | ForEach-Object { "$_".Trim().ToLowerInvariant() } |
         Where-Object { $_ } | Sort-Object -Unique)
+    $wantHyperV = @($HyperVCollector | ForEach-Object { "$_".Trim().ToLowerInvariant() } |
+        Where-Object { $_ } | Sort-Object -Unique)
     $collectorFlag = '--collectors.enabled'
     $listenFlag    = '--web.listen-address'
+    $hyperVFlag    = '--collector.hyperv.enabled'
+    # Owned only when both asked for: a non-empty -HyperVCollector for a host
+    # not even collecting hyperv would add a flag the exporter has no series
+    # to apply it to, and leaving the flag untouched otherwise is what keeps
+    # an older exporter -- one -HyperVCollector is never passed to -- stable.
+    $ownHyperV = ($wantCollector -contains 'hyperv') -and ($wantHyperV.Count -gt 0)
 
     # Walk the flags once: keep what is not ours, and record what ours already
     # say so the comparison below reads values rather than text.
     $kept       = [System.Collections.Generic.List[string]]::new()
     $haveList   = $null
     $haveListen = $null
+    $haveHyperV = $null
     for ($i = 1; $i -lt $tokens.Count; $i++) {
         $token = $tokens[$i]
         $name  = $token
@@ -285,7 +323,8 @@ function Resolve-YurunaHostMetricsCommandLine {
             $name  = $token.Substring(0, $split)
             $value = $token.Substring($split + 1).Trim('"')
         }
-        if ($name -ne $collectorFlag -and $name -ne $listenFlag) {
+        $ours = ($name -eq $collectorFlag) -or ($name -eq $listenFlag) -or ($ownHyperV -and $name -eq $hyperVFlag)
+        if (-not $ours) {
             $kept.Add($token)
             continue
         }
@@ -296,7 +335,9 @@ function Resolve-YurunaHostMetricsCommandLine {
             $value = $tokens[$i + 1].Trim('"')
             $i++
         }
-        if ($name -eq $collectorFlag) { $haveList = $value } else { $haveListen = $value }
+        if ($name -eq $collectorFlag) { $haveList = $value }
+        elseif ($name -eq $listenFlag) { $haveListen = $value }
+        else { $haveHyperV = $value }
     }
 
     $desiredList   = ($wantCollector -join ',')
@@ -305,6 +346,7 @@ function Resolve-YurunaHostMetricsCommandLine {
     $rebuilt.Add('"' + $result.Executable + '"')
     foreach ($token in $kept) { $rebuilt.Add($token) }
     $rebuilt.Add("$collectorFlag=$desiredList")
+    if ($ownHyperV) { $rebuilt.Add("$hyperVFlag=$($wantHyperV -join ',')") }
     $rebuilt.Add("$listenFlag=$desiredListen")
     $result.Desired = ($rebuilt -join ' ')
 
@@ -312,20 +354,27 @@ function Resolve-YurunaHostMetricsCommandLine {
         Where-Object { $_ } | Sort-Object -Unique)
     $collectorsAgree = ($haveSet.Count -eq $wantCollector.Count) -and
         (-not (Compare-Object -ReferenceObject $wantCollector -DifferenceObject $haveSet -SyncWindow 0))
+    $haveHyperVSet = @("$haveHyperV".Split(',') | ForEach-Object { $_.Trim().ToLowerInvariant() } |
+        Where-Object { $_ } | Sort-Object -Unique)
+    $hyperVAgrees = (-not $ownHyperV) -or (
+        ($haveHyperVSet.Count -eq $wantHyperV.Count) -and
+        (-not (Compare-Object -ReferenceObject $wantHyperV -DifferenceObject $haveHyperVSet -SyncWindow 0)))
     # ':9182', '0.0.0.0:9182' and '[::]:9182' all bind every interface on this
     # port; only the port is load-bearing, so only the port is compared.
     $listenPort = if ("$haveListen" -match ':(\d+)$') { [int]$Matches[1] } else { 0 }
     $listenAgrees = ($listenPort -eq $Port)
 
-    if ($collectorsAgree -and $listenAgrees) {
+    if ($collectorsAgree -and $hyperVAgrees -and $listenAgrees) {
         $result.Matches = $true
         $result.Reason  = (Format-YurunaOperatorMessage -Key 'runner.operator_a8deab338e7b1f7f')
         return $result
     }
     $missing = @($wantCollector | Where-Object { $haveSet -notcontains $_ })
-    $result.Reason = if (-not $collectorsAgree -and $missing.Count -gt 0) {
+    if ($ownHyperV) { $missing += @($wantHyperV | Where-Object { $haveHyperVSet -notcontains $_ }) }
+    $collectorsOrHyperVAgree = $collectorsAgree -and $hyperVAgrees
+    $result.Reason = if (-not $collectorsOrHyperVAgree -and $missing.Count -gt 0) {
         (Format-YurunaOperatorMessage -Key 'runner.operator_0b9396b3fd26868f' -Arguments @{ join = "$($missing -join ', ')" })
-    } elseif (-not $collectorsAgree) {
+    } elseif (-not $collectorsOrHyperVAgree) {
         (Format-YurunaOperatorMessage -Key 'runner.operator_62bdb0bb034f5e01')
     } else {
         (Format-YurunaOperatorMessage -Key 'runner.operator_8e05cb247fd2cce6' -Arguments @{ port = "$Port" })
@@ -1072,6 +1121,59 @@ function Install-YurunaHostMetricsExporter {
     return $result
 }
 
+function Get-YurunaHostMetricsExporterVersion {
+    <#
+    .SYNOPSIS
+        The exporter executable's own product version, or $null when the
+        file is missing or its version cannot be parsed.
+    .DESCRIPTION
+        Factored out of the ensure path so a test can mock the version this
+        host reports without a real exporter binary -- windows_exporter's
+        ProductVersion can carry a build suffix (a commit hash, a package
+        revision), so only the leading Major.Minor[.Build[.Revision]] run is
+        parsed, not the whole string.
+    .PARAMETER Path
+        Path to the exporter executable.
+    .OUTPUTS
+        [version] or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([version])]
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        $raw = [string]((Get-Item -LiteralPath $Path -ErrorAction Stop).VersionInfo.ProductVersion)
+        $match = [regex]::Match($raw, '^\d+(\.\d+){1,3}')
+        if (-not $match.Success) { return $null }
+        $parsed = $null
+        if ([version]::TryParse($match.Value, [ref]$parsed)) { return $parsed }
+        return $null
+    } catch {
+        Write-Verbose "host metrics exporter version: could not read '$Path' -- $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Test-YurunaHostMetricsExporterSupportsHyperVCollector {
+    <#
+    .SYNOPSIS
+        Does this exporter executable accept --collector.hyperv.enabled?
+    .DESCRIPTION
+        windows_exporter 0.30.0 is the first release that accepts the flag.
+        An exporter whose version cannot be read is treated as not
+        supporting it -- an unreadable version is never evidence the flag is
+        safe, and passing it to a build that refuses it would stop the
+        service from starting at all.
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
+    $version = Get-YurunaHostMetricsExporterVersion -Path $Path
+    if (-not $version) { return $false }
+    return ($version -ge [version]'0.30.0')
+}
+
 function Set-YurunaHostMetricsExporter {
     <#
     .SYNOPSIS
@@ -1168,8 +1270,13 @@ function Set-YurunaHostMetricsExporter {
         }
 
         $current = Get-YurunaHostMetricsServiceCommandLine -ServiceName $serviceName
+        $hyperVCollector = @()
+        $currentTokens = @(Split-YurunaServiceCommandLine -CommandLine $current)
+        if ($currentTokens.Count -gt 0 -and (Test-YurunaHostMetricsExporterSupportsHyperVCollector -Path $currentTokens[0].Trim('"'))) {
+            $hyperVCollector = Get-YurunaHostMetricsHyperVSubCollector
+        }
         $plan = Resolve-YurunaHostMetricsCommandLine -CurrentCommandLine $current `
-            -Collector (Get-YurunaHostMetricsCollector) -Port $port
+            -Collector (Get-YurunaHostMetricsCollector) -Port $port -HyperVCollector $hyperVCollector
         if (-not $plan.Matches -and $plan.Executable) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_26ae0718f0a53461' -Arguments @{ reason = "$($plan.Reason)" })
             if ($PSCmdlet.ShouldProcess($serviceName, (Format-YurunaOperatorMessage -Key 'runner.operator_8182f7798d10a687'))) {
@@ -1245,8 +1352,9 @@ function Test-YurunaHostMetricsAnswering {
 
 Export-ModuleMember -Function Set-YurunaHostMetricsExporter, Set-YurunaHostMetricsFirewallRule,
     Get-YurunaHostMetricsFirewallRuleName, Get-YurunaHostMetricsPort, Get-YurunaHostMetricsServiceName,
-    Get-YurunaHostMetricsCollector, Get-YurunaHostMetricsScrapeSource,
+    Get-YurunaHostMetricsCollector, Get-YurunaHostMetricsHyperVSubCollector, Get-YurunaHostMetricsScrapeSource,
     Resolve-YurunaHostMetricsCommandLine, Split-YurunaServiceCommandLine, Test-YurunaHostMetricsPayload,
     Install-YurunaHostMetricsExporter, Get-YurunaHostMetricsPackageId,
     Get-YurunaHostMetricsInstallArgument, Get-YurunaHostMetricsInstallStatePath,
-    Test-YurunaHostMetricsInstallDue, Get-YurunaHostMetricsCapability, Invoke-YurunaHostMetricsProbe, Get-YurunaHostMetricsRetentionRegex
+    Test-YurunaHostMetricsInstallDue, Get-YurunaHostMetricsCapability, Invoke-YurunaHostMetricsProbe, Get-YurunaHostMetricsRetentionRegex,
+    Get-YurunaHostMetricsExporterVersion, Test-YurunaHostMetricsExporterSupportsHyperVCollector

@@ -88,8 +88,11 @@ component:
     description: "Ask the shell to expand a token agetty cannot"
 
   # Detect PAM rejection before persisting the password; ignore recovered login failures.
-  - action: waitForText
+  # Enter only submits the harmless probe, or an empty line if it already ran.
+  - action: waitForTextWithNudge
     pattern: "yuruna_123456789_ok"
+    nudgeKey: Enter
+    nudgeIntervalSeconds: 15
     timeoutSeconds: 90
     freshMatch: true
     failurePatterns:

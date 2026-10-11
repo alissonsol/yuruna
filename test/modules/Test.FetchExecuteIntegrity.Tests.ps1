@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,17 +74,67 @@ function Get-GitHubSourceFixture {
     return $dir
 }
 
+function New-FetchProjectFixture {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [string]$Root,
+        [string]$ProjectRemote = 'https://github.com/fixture/project.git',
+        [switch]$PlainProject,
+        [switch]$UnbornProject
+    )
+    if (-not $PSCmdlet.ShouldProcess($Root, 'Create isolated project checkout fixture')) { return }
+    $project = Join-Path $Root 'project'
+    $relative = 'project/example/website/test/ubuntu.server.26/website.sh'
+    $payload = Join-Path $Root $relative
+    $retry = Join-Path $Root 'automation/yuruna-retry.sh'
+    foreach ($path in @($payload, $retry)) {
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path)
+        [IO.File]::WriteAllText($path, "printf 'fixture payload\n'`n", [Text.UTF8Encoding]::new($false))
+    }
+    [IO.File]::WriteAllText((Join-Path $Root '.gitignore'), "project/`n", [Text.UTF8Encoding]::new($false))
+    & git -C $Root init --quiet 2>&1 | Out-Null
+    & git -C $Root remote add origin 'https://github.com/fixture/framework.git' 2>&1 | Out-Null
+    & git -C $Root add -A 2>&1 | Out-Null
+    & git -C $Root -c user.email='fixture@example.invalid' -c user.name='Fixture' -c core.hooksPath=.no-hooks commit -qm framework 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not commit the framework fixture.' }
+    $frameworkRef = [string](& git -C $Root rev-parse HEAD)
+    $projectRef = ''
+    if (-not $PlainProject) {
+        & git -C $project init --quiet 2>&1 | Out-Null
+        if ($ProjectRemote) { & git -C $project remote add origin $ProjectRemote 2>&1 | Out-Null }
+        if (-not $UnbornProject) {
+            & git -C $project add -A 2>&1 | Out-Null
+            & git -C $project -c user.email='fixture@example.invalid' -c user.name='Fixture' -c core.hooksPath=.no-hooks commit -qm project 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Could not commit the project fixture.' }
+            $projectRef = [string](& git -C $project rev-parse HEAD)
+        }
+    }
+    return @{ Root = $Root; ProjectRoot = $project; RelativePath = $relative; Payload = $payload;
+        FrameworkRef = $frameworkRef.Trim(); ProjectRef = $projectRef.Trim() }
+}
+
 function Invoke-BashDriver {
     <#
-        Runs a script under the host bash and returns its exit status and trimmed
-        output. PowerShell on Windows ends text piped to a native command with
-        CRLF, so the last line reaches bash with a stray CR: a final `fi` becomes
-        a word bash never closes ("unexpected end of file"). A trailing comment
-        line takes that CR and leaves every real line as written.
+        Runs a file-backed script so nested shells cannot consume the driver's
+        stdin or leave a large heredoc blocked in a native Windows pipe.
     #>
     param([string]$BashPath, [string]$Script)
-    $output = (($Script + "`n#") | & $BashPath -s | Out-String).Trim()
-    return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+    $driverPath = [IO.Path]::GetTempFileName()
+    try {
+        [IO.File]::WriteAllText($driverPath, $Script.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+        $launch = @'
+driver=$1
+if command -v wslpath >/dev/null 2>&1; then
+    driver=$(wslpath -u "$driver") || exit 125
+elif command -v cygpath >/dev/null 2>&1; then
+    driver=$(cygpath -u "$driver") || exit 125
+fi
+exec bash "$driver"
+'@
+        $output = (& $BashPath -c $launch.Replace("`r`n", "`n") 'yuruna-integrity-fixture' $driverPath | Out-String).Trim()
+        return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+    } finally { Remove-Item -LiteralPath $driverPath -Force -ErrorAction SilentlyContinue }
 }
 
 # Exercise the production context builder without importing host I/O modules.
@@ -337,6 +387,107 @@ yfe() { bash automation/yuruna-fetch-context.sh "$@"; }
         try { $run = Invoke-BashDriver -BashPath $bash.Source -Script $driver } finally { Pop-Location }
         $run.Output | Should -Match 'YFE_CONTEXT_FIELD'
         $run.Output | Should -Match 'STATUS=125'
+    }
+}
+
+Describe 'Project payloads keep their own pinned fallback identity' {
+    It 'binds project and framework repository pins independently without changing the served path' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'independent')
+        $context = @{ Step = @{}; RepoRoot = $fixture.Root; StepInvocationId = 'project-step'; SequenceInvocationId = 'project-sequence' }
+        $result = Get-FetchExecutionContext -Context $context -CommandLine "fetch-and-execute.sh $($fixture.RelativePath)"
+        $result.Fields.rel | Should -BeExactly $fixture.RelativePath
+        $result.Fields.E_FB_REPO | Should -BeExactly 'fixture/framework'
+        $result.Fields.E_FB_REF | Should -BeExactly $fixture.FrameworkRef
+        $result.Fields.E_PROJECT_REPO | Should -BeExactly 'fixture/project'
+        $result.Fields.E_PROJECT_REF | Should -BeExactly $fixture.ProjectRef
+        $fixture.FrameworkRef | Should -Not -Be $fixture.ProjectRef
+        $result.Fields.E_SHA | Should -BeExactly (Get-FileHash -LiteralPath $fixture.Payload -Algorithm SHA256).Hash.ToLowerInvariant()
+        $result.Fields.E_RETRY_SHA | Should -BeExactly (Get-FileHash -LiteralPath (Join-Path $fixture.Root 'automation/yuruna-retry.sh') -Algorithm SHA256).Hash.ToLowerInvariant()
+        $result.Launch | Should -Match ([regex]::Escape($fixture.RelativePath))
+        $result.Bytes.Length | Should -BeLessOrEqual 4096
+    }
+
+    It 'uses the project checkout remote even when its clone configuration names another repository' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'remote') -ProjectRemote 'git@github.com:fixture/actual-project.git'
+        $null = New-Item -ItemType Directory -Path (Join-Path $fixture.ProjectRoot 'test') -Force
+        [IO.File]::WriteAllText((Join-Path $fixture.ProjectRoot 'test/test.config.yml'), "repositories:`n  frameworkUrl: https://github.com/fixture/configured-mirror`n", [Text.UTF8Encoding]::new($false))
+        $result = Get-FetchExecutionContext -Context @{ Step = @{}; RepoRoot = $fixture.Root } -CommandLine "fetch-and-execute.sh $($fixture.RelativePath)" -WarningAction SilentlyContinue
+        $result.Fields.E_PROJECT_REPO | Should -BeExactly 'fixture/actual-project'
+        $result.Fields.E_PROJECT_REF | Should -BeExactly $fixture.ProjectRef
+    }
+
+    It 'never inherits framework coordinates from a plain ignored project directory' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'plain') -PlainProject
+        $result = Get-FetchExecutionContext -Context @{ Step = @{}; RepoRoot = $fixture.Root } -CommandLine "fetch-and-execute.sh $($fixture.RelativePath)" -WarningAction SilentlyContinue
+        $result.Fields.Contains('E_PROJECT_REPO') | Should -BeFalse
+        $result.Fields.Contains('E_PROJECT_REF') | Should -BeFalse
+        $result.Fields.E_FB_REPO | Should -BeExactly 'fixture/framework'
+        $result.Fields.E_SHA | Should -Match '^[0-9a-f]{64}$'
+    }
+
+    It 'leaves project fallback unavailable when the project has no committed HEAD' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'unborn') -UnbornProject
+        $result = Get-FetchExecutionContext -Context @{ Step = @{}; RepoRoot = $fixture.Root } -CommandLine "fetch-and-execute.sh $($fixture.RelativePath)" -WarningAction SilentlyContinue
+        $result.Fields.Contains('E_PROJECT_REPO') | Should -BeFalse
+        $result.Fields.Contains('E_PROJECT_REF') | Should -BeFalse
+    }
+
+    It 'leaves project fallback unavailable for a non-GitHub remote' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'non-github') -ProjectRemote 'https://example.invalid/fixture/project.git'
+        $result = Get-FetchExecutionContext -Context @{ Step = @{}; RepoRoot = $fixture.Root } -CommandLine "fetch-and-execute.sh $($fixture.RelativePath)" -WarningAction SilentlyContinue
+        $result.Fields.Contains('E_PROJECT_REPO') | Should -BeFalse
+        $result.Fields.Contains('E_PROJECT_REF') | Should -BeFalse
+    }
+
+    It 'never substitutes a configured framework repository for an unproven project remote' -ForEach @(
+        @{ Name='missing'; Remote='' },
+        @{ Name='non-github'; Remote='https://example.invalid/fixture/project.git' }
+    ) {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive "unproven-$Name") -ProjectRemote $Remote
+        [void][IO.Directory]::CreateDirectory((Join-Path $fixture.ProjectRoot 'test'))
+        [IO.File]::WriteAllText((Join-Path $fixture.ProjectRoot 'test/test.config.yml'), "repositories:`n  frameworkUrl: https://github.com/fixture/framework`n", [Text.UTF8Encoding]::new($false))
+        $result = Get-FetchExecutionContext -Context @{Step=@{};RepoRoot=$fixture.Root} -CommandLine "fetch-and-execute.sh $($fixture.RelativePath)" -WarningAction SilentlyContinue
+        $result.Fields.Contains('E_PROJECT_REPO') | Should -BeFalse
+        $result.Fields.Contains('E_PROJECT_REF') | Should -BeFalse
+        $result.Fields.E_FB_REPO | Should -Be 'fixture/framework'
+    }
+
+    It 'warns about a modified project payload and keeps its working-tree digest and original commit pin' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'modified')
+        [IO.File]::WriteAllText($fixture.Payload, "printf 'changed payload\n'`n", [Text.UTF8Encoding]::new($false))
+        $result = Get-FetchExecutionContext -Context @{ Step = @{}; RepoRoot = $fixture.Root } -CommandLine "fetch-and-execute.sh $($fixture.RelativePath)" -WarningVariable sourceWarnings -WarningAction SilentlyContinue
+        @($sourceWarnings).Count | Should -BeGreaterThan 0
+        ($sourceWarnings -join "`n") | Should -Match ([regex]::Escape($fixture.RelativePath))
+        $result.Fields.E_PROJECT_REF | Should -BeExactly $fixture.ProjectRef
+        $result.Fields.E_SHA | Should -BeExactly (Get-FileHash -LiteralPath $fixture.Payload -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+
+    It 'keeps synthetic project credentials out of the transferable context' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'private')
+        $token = 'ghp_' + ('Fixture9' * 5)
+        $null = New-Item -ItemType Directory -Path (Join-Path $fixture.ProjectRoot 'test') -Force
+        [IO.File]::WriteAllText((Join-Path $fixture.ProjectRoot 'test/test.config.yml'), "repositories:`n  ghToken: $token`n", [Text.UTF8Encoding]::new($false))
+        $result = Get-FetchExecutionContext -Context @{ Step = @{}; RepoRoot = $fixture.Root } -CommandLine "fetch-and-execute.sh $($fixture.RelativePath)"
+        $result.Fields.E_PROJECT_REPO | Should -BeExactly 'fixture/project'
+        $result.Command | Should -Not -Match ([regex]::Escape($token))
+        [Text.Encoding]::UTF8.GetString($result.Bytes) | Should -Not -Match ([regex]::Escape($token))
+    }
+
+    It 'does not attach project coordinates to framework commands' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'framework-only')
+        $result = Get-FetchExecutionContext -Context @{ Step = @{}; RepoRoot = $fixture.Root } -CommandLine 'fetch-and-execute.sh automation/yuruna-retry.sh'
+        $result.Fields.Contains('E_PROJECT_REPO') | Should -BeFalse
+        $result.Fields.Contains('E_PROJECT_REF') | Should -BeFalse
+        $result.Fields.E_FB_REF | Should -BeExactly $fixture.FrameworkRef
+    }
+
+    It 'keeps query-bearing project commands bound to the original command and query-free file' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'project-query')
+        $command = "fetch-and-execute.sh $($fixture.RelativePath)?nocache=123"
+        $result = Get-FetchExecutionContext -Context @{ Step = @{}; RepoRoot = $fixture.Root } -CommandLine $command
+        $result.Fields.rel | Should -BeExactly $fixture.RelativePath
+        $result.Fields.E_PROJECT_REF | Should -BeExactly $fixture.ProjectRef
+        $result.Launch | Should -Match '\?nocache=123'
     }
 }
 

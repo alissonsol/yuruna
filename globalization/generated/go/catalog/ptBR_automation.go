@@ -7,6 +7,8 @@ package catalog
 // DataptBRautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataptBRautomation = `{
+  "automation.diagnostic_checkout_unavailable": "(não se aplica: as evidências do checkout não estão disponíveis; passe -CheckoutRoot para usar um checkout existente do Yuruna)",
+  "automation.diagnostic_phase_log_limits": "A busca de logs de fase está limitada a 100 arquivos, 12 níveis de diretório e 10 segundos; cada log mostra no máximo seus últimos 64 KiB.",
   "automation.host_setup_module_install_skipped": [
     {
       "arg": "module",

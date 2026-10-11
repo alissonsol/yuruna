@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c94790-0880-4f88-b0b7-07f2de824904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,9 +26,8 @@
     snippet-free sequence is returned unchanged. Each case uses a unique temp
     dir so the path-keyed library cache never collides across cases.
 
-    Pester 4 style (top-level Assert-* helpers used inside It): the repo's
-    *.Tests.ps1 share this idiom -- under Pester 5 the Discovery/Run scope split
-    hides top-level functions from It blocks. Run with Pester 4.10.1.
+    Fixtures and helpers live in BeforeAll for Pester 5.x discovery/run scope.
+    See https://yuruna.link/42d38664-000b for suite execution.
 #>
 
 BeforeAll {

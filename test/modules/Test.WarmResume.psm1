@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42ea34d8-15ca-4975-b90d-c0c44c40017d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,7 +41,10 @@ $script:WarmResumeEligibleClass = @(
     # renumbered while the guest held its old address, is gone by the next
     # attempt. It reaches here only for the shortage cases: a digest mismatch
     # never ran either but is a refusal, and the taxonomy keeps it out.
-    'payload_unavailable'
+    'payload_unavailable',
+    # The staged command never closed in the guest shell, so the payload never
+    # ran and replaying the step cannot repeat any of its work.
+    'input_lost'
 )
 
 function Get-WarmResumeUtcNow {

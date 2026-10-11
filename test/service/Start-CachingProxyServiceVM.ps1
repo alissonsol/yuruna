@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,8 +12,6 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
-.PARAMETER AllowPseudoLocale
-    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -27,7 +25,8 @@
     (vmStart.cachingProxyIp probed first, YURUNA_CACHING_PROXY_SERVICE_IP as
     fallback) that make this a no-op.
 
-.PARAMETER VMName   Name for the cache VM. Default: yuruna-caching-proxy-service.
+.PARAMETER VMName
+    Name for the cache VM. Default: yuruna-caching-proxy-service.
 
 .PARAMETER MacAddress
     Optional stable MAC address for the cache VM's NIC, accepted as
@@ -38,6 +37,8 @@
     cache VM's IP is known and stable across rebuilds. Use a
     locally-administered unicast address (first octet 02/06/0A/0E),
     distinct per host -- two hosts on one LAN must not share a MAC.
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]

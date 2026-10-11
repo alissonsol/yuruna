@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 428a8fea-36e6-48a4-aa62-2004e6035a54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -491,6 +491,183 @@ Describe 'Test-CombinedOcrMatch' {
         Assert-Equal -Expected $false -Actual $r.Match
         Assert-Equal -Expected 0 -Actual @($r.EngineResults.Keys).Count
         Assert-Equal -Expected '' -Actual $r.AnyText
+    }
+}
+
+Describe 'Repeated OCR text comparisons' {
+    BeforeEach {
+        InModuleScope Test.OcrMatch { $script:OcrMatchCache.Clear() }
+    }
+
+    It 'reuses both positive and negative answers without rerunning the matcher' {
+        InModuleScope Test.OcrMatch {
+            Mock Test-OCRMatchCore { $Text -ceq 'found' }
+            Test-OCRMatch -Text 'found' -Pattern 'target' | Should -BeTrue
+            Test-OCRMatch -Text 'missing' -Pattern 'target' | Should -BeFalse
+            Test-OCRMatch -Text 'found' -Pattern 'target' | Should -BeTrue
+            Test-OCRMatch -Text 'missing' -Pattern 'target' | Should -BeFalse
+            Should -Invoke Test-OCRMatchCore -Exactly -Times 2
+        }
+    }
+
+    It 'distinguishes original text case and line boundaries ordinally' {
+        InModuleScope Test.OcrMatch {
+            Mock Test-OCRMatchCore { $false }
+            foreach ($text in @('I', 'i', [string][char]0x0131, "first`nsecond", 'firstsecond')) {
+                $null = Test-OCRMatch -Text $text -Pattern 'target'
+                $null = Test-OCRMatch -Text $text -Pattern 'target'
+            }
+            Should -Invoke Test-OCRMatchCore -Exactly -Times 5
+        }
+    }
+
+    It 'distinguishes pattern case ordinally instead of inheriting dictionary culture rules' {
+        InModuleScope Test.OcrMatch {
+            Mock Test-OCRMatchCore { $false }
+            $savedCulture = [Globalization.CultureInfo]::CurrentCulture
+            try {
+                [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('tr-TR')
+                foreach ($pattern in @('I', 'i', [string][char]0x0131)) {
+                    $null = Test-OCRMatch -Text 'console' -Pattern $pattern
+                    $null = Test-OCRMatch -Text 'console' -Pattern $pattern
+                }
+                Should -Invoke Test-OCRMatchCore -Exactly -Times 3
+            } finally { [Globalization.CultureInfo]::CurrentCulture = $savedCulture }
+        }
+    }
+
+    It 'keeps strict prompt matching separate from the reordered segment policy' {
+        $text = "seller reports ready`ncluster is still booting"
+        Test-OCRMatch -Text $text -Pattern 'cluster ready' | Should -BeTrue
+        Test-OCRMatch -Text $text -Pattern 'cluster ready' -NoSegmentMatch | Should -BeFalse
+        Test-OCRMatch -Text $text -Pattern 'cluster ready' | Should -BeTrue
+        Test-OCRMatch -Text $text -Pattern 'cluster ready' -NoSegmentMatch | Should -BeFalse
+    }
+
+    It 'recomputes when a new frame adds or removes the readiness marker' {
+        foreach ($repeat in 1..2) {
+            $null = $repeat
+            Test-OCRMatch -Text 'installing packages' -Pattern 'yuhost26 login:' -NoSegmentMatch | Should -BeFalse
+            Test-OCRMatch -Text 'yuhost26 login:' -Pattern 'yuhost26 login:' -NoSegmentMatch | Should -BeTrue
+            Test-OCRMatch -Text 'restarting system' -Pattern 'yuhost26 login:' -NoSegmentMatch | Should -BeFalse
+        }
+    }
+
+    It 'keeps outcomes for different readiness and failure patterns independent' {
+        $text = 'yuhost26 login:'
+        foreach ($repeat in 1..2) {
+            $null = $repeat
+            Test-OCRMatch -Text $text -Pattern 'yuhost26 login:' -NoSegmentMatch | Should -BeTrue
+            Test-OCRMatch -Text $text -Pattern 'Kernel panic' -NoSegmentMatch | Should -BeFalse
+        }
+    }
+
+    It 'does not make a prompt split across line boundaries pass a strict match' {
+        foreach ($repeat in 1..2) {
+            $null = $repeat
+            Test-OCRMatch -Text "newpasswo`nrd" -Pattern 'New password' -NoSegmentMatch | Should -BeFalse
+            Test-OCRMatch -Text 'newpassword' -Pattern 'New password' -NoSegmentMatch | Should -BeTrue
+        }
+    }
+
+    It 'evicts the oldest text after four distinct frames' {
+        InModuleScope Test.OcrMatch {
+            Mock Test-OCRMatchCore { $false }
+            foreach ($number in 0..4) { $null = Test-OCRMatch -Text "frame $number" -Pattern 'target' }
+            $null = Test-OCRMatch -Text 'frame 4' -Pattern 'target'
+            $null = Test-OCRMatch -Text 'frame 0' -Pattern 'target'
+            Should -Invoke Test-OCRMatchCore -Exactly -Times 6
+            $script:OcrMatchCache.Count | Should -Be 4
+        }
+    }
+
+    It 'bounds combined strict and loose outcomes for one text without changing later answers' {
+        InModuleScope Test.OcrMatch {
+            Mock Test-OCRMatchCore { $Pattern -ceq 'overflow' }
+            foreach ($number in 0..31) {
+                $null = Test-OCRMatch -Text 'frame' -Pattern "target $number" -NoSegmentMatch:($number % 2 -eq 0)
+            }
+            $null = Test-OCRMatch -Text 'frame' -Pattern 'target 0' -NoSegmentMatch
+            Test-OCRMatch -Text 'frame' -Pattern 'overflow' | Should -BeTrue
+            Test-OCRMatch -Text 'frame' -Pattern 'overflow' | Should -BeTrue
+            Should -Invoke Test-OCRMatchCore -Exactly -Times 34
+            ($script:OcrMatchCache[0].Strict.Count + $script:OcrMatchCache[0].Loose.Count) | Should -Be 32
+        }
+    }
+
+    It 'does not retain text above the memory limit' {
+        InModuleScope Test.OcrMatch {
+            Mock Test-OCRMatchCore { $true }
+            $text = 'x' * 65537
+            Test-OCRMatch -Text $text -Pattern 'target' | Should -BeTrue
+            Test-OCRMatch -Text $text -Pattern 'target' | Should -BeTrue
+            Should -Invoke Test-OCRMatchCore -Exactly -Times 2
+            $script:OcrMatchCache.Count | Should -Be 0
+        }
+    }
+
+    It 'does not retain a pattern above the memory limit' {
+        InModuleScope Test.OcrMatch {
+            Mock Test-OCRMatchCore { $false }
+            $pattern = 'x' * 1025
+            Test-OCRMatch -Text 'frame' -Pattern $pattern | Should -BeFalse
+            Test-OCRMatch -Text 'frame' -Pattern $pattern | Should -BeFalse
+            Should -Invoke Test-OCRMatchCore -Exactly -Times 2
+            $script:OcrMatchCache.Count | Should -Be 0
+        }
+    }
+
+    It 'retains inputs at the documented size limits' {
+        InModuleScope Test.OcrMatch {
+            Mock Test-OCRMatchCore { $true }
+            $text = 'x' * 65536
+            $pattern = 'x' * 1024
+            Test-OCRMatch -Text $text -Pattern $pattern -NoSegmentMatch | Should -BeTrue
+            Test-OCRMatch -Text $text -Pattern $pattern -NoSegmentMatch | Should -BeTrue
+            Should -Invoke Test-OCRMatchCore -Exactly -Times 1
+            $script:OcrMatchCache.Count | Should -Be 1
+        }
+    }
+
+    It 'propagates matcher failures each time rather than memoizing them as an answer' {
+        InModuleScope Test.OcrMatch {
+            Mock Test-OCRMatchCore { throw 'matcher fixture failure' }
+            { Test-OCRMatch -Text 'frame' -Pattern 'target' } | Should -Throw '*matcher fixture failure*'
+            { Test-OCRMatch -Text 'frame' -Pattern 'target' } | Should -Throw '*matcher fixture failure*'
+            Should -Invoke Test-OCRMatchCore -Exactly -Times 2
+            $script:OcrMatchCache.Count | Should -Be 0
+        }
+    }
+
+    It 'returns the uncached algorithm verdict for real installer frames and damaged prompts on every repeat' {
+        $texts = @(
+            (Get-Content (Join-Path $script:OcrFixtureDir 'installer-login-vision.txt') -Raw -ErrorAction Stop)
+            (Get-Content (Join-Path $script:OcrFixtureDir 'installer-login-tesseract.txt') -Raw -ErrorAction Stop)
+            "cloud-init finished`nyuhost26 logln:"
+            "Current password:`nNew passwoxrd:"
+            "seller reports ready`ncluster is still booting"
+            ''
+        )
+        InModuleScope Test.OcrMatch -Parameters @{ Texts = $texts } {
+            param($Texts)
+            foreach ($text in $Texts) {
+                foreach ($pattern in @('yuhost26 login:', 'New password', 'cluster ready', 'Kernel panic', 'FETCHED AND EXECUTED:', ']$')) {
+                    foreach ($strict in $true, $false) {
+                        $expected = Test-OCRMatchCore -Text $text -Pattern $pattern -NoSegmentMatch:$strict
+                        Test-OCRMatch -Text $text -Pattern $pattern -NoSegmentMatch:$strict | Should -Be $expected
+                        Test-OCRMatch -Text $text -Pattern $pattern -NoSegmentMatch:$strict | Should -Be $expected
+                    }
+                }
+            }
+        }
+    }
+
+    It 'drops prior answers when the matcher module is force reloaded' {
+        $null = Test-OCRMatch -Text 'console' -Pattern 'target'
+        & (Get-Module Test.OcrMatch) { $script:OcrMatchCache.Count } | Should -Be 1
+        Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1') -Force -DisableNameChecking
+        & (Get-Module Test.OcrMatch) { $script:OcrMatchCache.Count } | Should -Be 0
+        Test-OCRMatch -Text 'yuhost26 login:' -Pattern 'yuhost26 login:' -NoSegmentMatch | Should -BeTrue
     }
 }
 

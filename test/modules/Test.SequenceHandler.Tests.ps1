@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -383,6 +383,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
             $action = [string]@($Steps)[0]['action']
             if ($action -eq 'waitForAndEnter') {
                 $script:retryCall.Add('recovery')
+                $script:recoverySteps = @($Steps)
                 return $true
             }
             $script:retryCall.Add('attempt')
@@ -411,6 +412,13 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
             Assert-True (& $retryHandler $retryContext) 'the second attempt should pass after cold boot recovery'
             Assert-Equal -Expected 'attempt,cold,recovery,attempt' -Actual ($script:retryCall -join ',') `
                 -Because 'cold restart and boot recovery belong strictly between attempts'
+            # The post-restart recovery wait can livelock the same way the main
+            # wait can; it must end early on the hypervisor's verdict too, on a
+            # copy that leaves the declared step alone.
+            Assert-True ($script:recoverySteps[0].endWaitOnGuestLivelock) `
+                'stepsAfterVmRestart must also end early on a livelocked guest'
+            Assert-True (-not $retryContext.Step.stepsAfterVmRestart[0].Contains('endWaitOnGuestLivelock')) `
+                'the declared stepsAfterVmRestart step must not be mutated'
 
             $script:retryCall.Clear()
             $script:failWithPattern = $true
@@ -425,7 +433,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
             }
             $env:YURUNA_RUNTIME_DIR = $savedRuntimeDir
             Remove-Item -LiteralPath $runtimeFixture -Recurse -Force -ErrorAction SilentlyContinue
-            Remove-Variable -Name retryCall, failWithPattern -Scope Script -ErrorAction SilentlyContinue
+            Remove-Variable -Name retryCall, failWithPattern, recoverySteps -Scope Script -ErrorAction SilentlyContinue
             if ($savedFailVariable) { $script:Fail = $savedFailValue }
             else { Remove-Variable -Name Fail -Scope Script -ErrorAction SilentlyContinue }
         }
@@ -534,6 +542,8 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
                 $script:Fail.WaitForTextOcrTail = $script:BootStub.OcrTail
                 $script:Fail.WaitForTextMatchedFailurePattern = $script:BootStub.FailurePattern
                 $script:Fail.WaitForTextConsoleFlood = $script:BootStub.Flood
+                $script:Fail.WaitForTextGuestLivelocked = $script:BootStub.Livelocked
+                $script:Fail.WaitForTextGuestLivelock = if ($script:BootStub.Livelocked) { [pscustomobject]@{ Verdict = 'livelocked'; LivelockedSeconds = 600 } } else { $null }
                 return ($script:BootStub.Attempts -ge $script:BootStub.SuccessAttempt)
             }
         }
@@ -545,7 +555,7 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
             $script:BootStub = @{
                 Architecture = 'Arm64'; RestartOk = $true; Stalled = $true
                 OcrTail = 'Begin: Running /scripts/casper-bottom ... Setting up console keyboard...'
-                FailurePattern = $null; Flood = $null; SuccessAttempt = 2; Attempts = 0
+                FailurePattern = $null; Flood = $null; Livelocked = $false; SuccessAttempt = 2; Attempts = 0
                 Calls = [Collections.Generic.List[string]]::new()
                 Events = [Collections.Generic.List[object]]::new()
                 SeenSteps = [Collections.Generic.List[object]]::new()
@@ -580,6 +590,45 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
         $script:bootContext.Step.steps[0].ContainsKey('failurePatterns') | Should -BeFalse
         $script:bootStub.Events[0].evidencePath | Should -BeExactly 'attempt-evidence'
     }
+    It 'asks the installer wait to end on a livelock without changing the declared step' {
+        (& $script:bootRetryHandler $script:bootContext) | Should -BeTrue
+        $script:bootStub.SeenSteps[0].endWaitOnGuestLivelock | Should -BeTrue
+        $script:bootContext.Step.steps[0].ContainsKey('endWaitOnGuestLivelock') | Should -BeFalse
+    }
+    It 'cold-restarts a livelocked guest whose screen shows <Screen>' -TestCases @(
+        @{ Screen = 'nothing at all'; Tail = '' }
+        @{ Screen = 'early kernel text'; Tail = '[    3.991418] raid6: neonx8   gen()  3433 MB/s' }
+        @{ Screen = 'an installer stage before the confirmation'; Tail = 'start: subiquity/Mirror/cmd-apt-config: curtin command apt-config' }
+    ) {
+        param($Screen, $Tail)
+        $null = $Screen
+        $script:bootStub.OcrTail = $Tail
+        $script:bootStub.Stalled = $false
+        $script:bootStub.Livelocked = $true
+        (& $script:bootRetryHandler $script:bootContext) | Should -BeTrue
+        ($script:bootStub.Calls -join ',') | Should -BeExactly 'attempt,evidence,cold,attempt'
+        $script:bootStub.Events[0].guestLivelocked | Should -BeTrue
+        $script:bootStub.Events[0].guestLivelockedSeconds | Should -Be 600
+    }
+    It 'does not restart a livelocked guest that shows <Reason>' -TestCases @(
+        @{ Reason = 'an installed login prompt'; Field = 'OcrTail'; Value = 'yuhost26 login:'; Expected = 'installed guest login is visible' }
+        @{ Reason = 'an installer error'; Field = 'FailurePattern'; Value = 'install_fail.crash'; Expected = 'installer reported a failure pattern' }
+        @{ Reason = 'a console flood'; Field = 'Flood'; Value = 'repeating error'; Expected = 'console flood prevents a safe restart' }
+    ) {
+        param($Reason, $Field, $Value, $Expected)
+        $null = $Reason
+        $script:bootStub.Livelocked = $true
+        $script:bootStub[$Field] = $Value
+        (& $script:bootRetryHandler $script:bootContext) | Should -BeFalse
+        ($script:bootStub.Calls -join ',') | Should -BeExactly 'attempt,evidence'
+        $script:bootStub.Events[-2].reason | Should -BeExactly $Expected
+    }
+    It 'still needs screen proof when the hypervisor saw no livelock' {
+        $script:bootStub.OcrTail = ''
+        (& $script:bootRetryHandler $script:bootContext) | Should -BeFalse
+        $script:bootStub.Events[-2].reason | Should -Match 'boot phase is unproven'
+        $script:bootStub.Events[0].guestLivelocked | Should -BeFalse
+    }
     It 'stops after two unsuccessful attempts even if configured for five' {
         $script:bootStub.SuccessAttempt = 99
         (& $script:bootRetryHandler $script:bootContext) | Should -BeFalse
@@ -598,6 +647,7 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
         (& $script:bootRetryHandler $script:bootContext) | Should -BeFalse
         ($script:bootStub.Calls -join ',') | Should -BeExactly 'attempt,evidence'
         $script:bootStub.SeenSteps[0].ContainsKey('failurePatterns') | Should -BeFalse
+        $script:bootStub.SeenSteps[0].ContainsKey('endWaitOnGuestLivelock') | Should -BeFalse
         $script:bootStub.SeenSteps[0].timeoutSeconds | Should -Be 1800
     }
     It 'does not restart or retry for <Reason>' -TestCases @(
@@ -650,5 +700,73 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
         $script:bootContext.Step.steps[0][$Field] = $Value
         (& $script:bootRetryHandler $script:bootContext) | Should -BeFalse
         $script:bootStub.Calls.Count | Should -Be 0
+    }
+}
+
+Describe 'ARM64 Hyper-V login-wait recovery ends a livelocked wait early' {
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking
+        $script:loginHandlerModule = Get-Module Test.SequenceHandler
+        $script:loginRetryHandler = (Get-SequenceAction -Name retry).Handler
+        . $script:loginHandlerModule {
+            $script:LoginModeGate = ${function:Test-Arm64HyperVColdPowerCycleMode}
+            function Test-Arm64HyperVColdPowerCycleMode {
+                param($Mode, $HostType)
+                return (& $script:LoginModeGate -Mode $Mode -HostType $HostType -Architecture $script:LoginStub.Architecture)
+            }
+            function Get-PollDelay { return 0 }
+            function Send-CycleEventSafely { param($EventRecord) $null = $EventRecord }
+            $script:LoginInvokeSteps = {
+                param($Steps)
+                $script:LoginStub.SeenSteps = @($Steps)
+                return $true
+            }
+        }
+    }
+    BeforeEach {
+        $script:loginStub = & $script:loginHandlerModule {
+            $script:LoginStub = @{ Architecture = 'Arm64'; SeenSteps = @() }
+            return $script:LoginStub
+        }
+        $script:loginContext = @{
+            Step = @{
+                maxAttempts = 3; restartVmBeforeRetry = 'arm64HyperVColdPowerCycle'
+                steps = @(
+                    @{ action = 'pressKey'; name = 'Enter' }
+                    @{ action = 'waitForTextWithNudge'; pattern = 'yuhost26 login:'; nudgeKey = 'Enter'; nudgeIntervalSeconds = 60; timeoutSeconds = 2400 }
+                )
+            }
+            InvokeStepBlock = (& $script:loginHandlerModule { $script:LoginInvokeSteps })
+            StepNum = 2; StepCount = 17; Description = 'installed login'
+            VMName = 'test-vm'; HostType = 'host.windows.hyper-v'
+        }
+    }
+    AfterAll { Remove-Module Test.SequenceHandler -Force }
+
+    It 'marks only the login wait, on a copy, on native ARM64 Hyper-V' {
+        (& $script:loginRetryHandler $script:loginContext) | Should -BeTrue
+        $seen = @(& $script:loginHandlerModule { $script:LoginStub.SeenSteps })
+        $seen[0].ContainsKey('endWaitOnGuestLivelock') | Should -BeFalse
+        $seen[1].endWaitOnGuestLivelock | Should -BeTrue
+        $script:loginContext.Step.steps[1].ContainsKey('endWaitOnGuestLivelock') | Should -BeFalse
+    }
+    It 'leaves the wait policy alone where no cold restart follows (<Architecture> <Provider>)' -TestCases @(
+        @{ Architecture = 'X64'; Provider = 'host.windows.hyper-v' }
+        @{ Architecture = 'Arm64'; Provider = 'host.macos.utm' }
+    ) {
+        param($Architecture, $Provider)
+        & $script:loginHandlerModule { param($a) $script:LoginStub.Architecture = $a } $Architecture
+        $script:loginContext.HostType = $Provider
+        (& $script:loginRetryHandler $script:loginContext) | Should -BeTrue
+        $seen = @(& $script:loginHandlerModule { $script:LoginStub.SeenSteps })
+        $seen[1].ContainsKey('endWaitOnGuestLivelock') | Should -BeFalse
+    }
+    It 'turns the step flag into the Wait-ForText switch, and nothing at all without it' {
+        $context = @{ Step = @{ pattern = 'x'; endWaitOnGuestLivelock = $true }; Vars = @{}; ExpandVariable = { param($v) $v }; DefaultTimeoutSeconds = 5; DefaultPollSeconds = 1 }
+        $p = & $script:loginHandlerModule { param($c) Resolve-WaitForTextStepParam -Context $c } $context
+        $p.livelockExit.EndOnGuestLivelock | Should -BeTrue
+        $context.Step.Remove('endWaitOnGuestLivelock')
+        $p = & $script:loginHandlerModule { param($c) Resolve-WaitForTextStepParam -Context $c } $context
+        $p.livelockExit.Count | Should -Be 0
     }
 }

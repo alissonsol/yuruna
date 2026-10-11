@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42ff1bc2-5f12-4c34-8a53-a45f6186f94f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -164,12 +164,8 @@ try {
     $unmetCount = if ($unmetCount.Count) { [int]$unmetCount[0] } else { 0 }
 
     # --- REGION: Pool storage and host identity
-    # Offer to configure networkStorage pool (NAS replication) and, on a host with no local
-    # pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
-    # Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
-    # loads its own sibling dependencies (config/vault/mount). See docs/pool-storage.md.
-    # The questionnaire is interactive, so the no-prompt mode never reaches it; its
-    # mode line above already told the operator so.
+    # See https://yuruna.link/428405a0-0009
+    # The no-prompt mode must never reach the interactive questionnaire.
     if ($SkipPoolStorage) {
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_07d790b607ee2b44')
     } elseif (-not $NoOperatorPrompt -and -not $WhatIfPreference) {

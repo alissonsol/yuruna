@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c1f2a7-5d3e-4b8a-9e61-7a4f0b2c9d13
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     The KVM driver's rung-2 action (Start-VirtualizationServiceIfStopped), its
     bounded and identity-verified Stop-VMForce, and the positive-state
-    preconditions of Rename-VM and Assert-Virtualization.
+    preconditions of Rename-VM, disk snapshot rollback and Assert-Virtualization.
 .DESCRIPTION
     Every native call goes through a module-scoped mock of
     Invoke-BoundedNativeCommand that answers from fixture tables (systemctl
@@ -639,6 +639,271 @@ Describe 'Stop-VMForce (KVM) -- bounded, identity-verified escalation' {
         $identity.Identity | Should -Be $Expected
         $gone = & $script:Module { Get-KvmQemuProcessIdentity -ProcessId 6161 -VMName 'vm-a' }
         $gone.Identity | Should -Be 'gone'
+    }
+}
+
+Describe 'Restore-VMDiskSnapshot (KVM) -- discard current state only after validation' {
+    BeforeEach {
+        $script:RestoreCalls = [System.Collections.Generic.List[string]]::new()
+        $script:SnapshotInfoExit = 0
+        $script:SnapshotRevertExit = 0
+        $script:RestoreStopSucceeded = $true
+        $script:RestoreStateReads = 0
+        $script:RestoreStates = @(
+            [pscustomobject]@{ State = 'running'; Raw = 'running' }
+            [pscustomobject]@{ State = 'stopped'; Raw = 'shut off' }
+        )
+        Mock -ModuleName Yuruna.Host Invoke-Virsh {
+            $script:RestoreCalls.Add(($VirshArgs -join ' '))
+            switch ($VirshArgs[0]) {
+                'snapshot-info' { $global:LASTEXITCODE = $script:SnapshotInfoExit }
+                'snapshot-revert' { $global:LASTEXITCODE = $script:SnapshotRevertExit }
+                default { throw "unexpected virsh call: $($VirshArgs -join ' ')" }
+            }
+        }
+        Mock -ModuleName Yuruna.Host Get-KvmDomainState {
+            $index = [Math]::Min($script:RestoreStateReads++, $script:RestoreStates.Count - 1)
+            $state = $script:RestoreStates[$index]
+            $script:RestoreCalls.Add("state:$($state.State):$($state.Raw)")
+            $state
+        }
+        Mock -ModuleName Yuruna.Host Stop-VM {
+            throw 'Rollback must use the force-stop contract'
+        }
+        Mock -ModuleName Yuruna.Host Stop-VMForce {
+            $script:RestoreCalls.Add('force-stop')
+            $script:RestoreStopSucceeded
+        }
+        Mock -ModuleName Yuruna.Host Format-YurunaOperatorMessage { $Key }
+    }
+
+    It 'validates first, requests an immediate force-stop, and confirms power-off before rollback' {
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeTrue
+        ($script:RestoreCalls -join '|') | Should -Be (
+            'snapshot-info --domain vm-a --snapshotname baseline|' +
+            'state:running:running|force-stop|state:stopped:shut off|' +
+            'snapshot-revert --domain vm-a --snapshotname baseline')
+        Should -Invoke -ModuleName Yuruna.Host Stop-VM -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 1 -Exactly -ParameterFilter {
+            $VMName -eq 'vm-a' -and $Confirm -eq $false
+        }
+        Should -Invoke -ModuleName Yuruna.Host Get-KvmDomainState -Times 2 -Exactly -ParameterFilter {
+            $VMName -eq 'vm-a' -and $TimeoutSeconds -eq 20
+        }
+    }
+
+    It 'does not stop or inspect the domain when the snapshot does not exist' {
+        $script:SnapshotInfoExit = 1
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'missing' -Confirm:$false -WarningAction SilentlyContinue | Should -BeFalse
+        $script:RestoreCalls.Count | Should -Be 1
+        Should -Invoke -ModuleName Yuruna.Host Stop-VM -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host Get-KvmDomainState -Times 0 -Exactly
+    }
+
+    It 'refuses rollback when the initial domain state is <State>' -ForEach @(
+        @{ State = 'unknown' }
+        @{ State = 'absent' }
+    ) {
+        $script:RestoreStates = @([pscustomobject]@{ State = $State; Raw = '' })
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeFalse
+        Should -Invoke -ModuleName Yuruna.Host Stop-VM -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 0 -Exactly
+        $script:RestoreCalls | Where-Object { $_ -like 'snapshot-revert*' } | Should -BeNullOrEmpty
+    }
+
+    It 'force-stops the active raw state <Raw> even when normalized to stopped' -ForEach @(
+        @{ Raw = 'paused' }
+        @{ Raw = 'in shutdown' }
+        @{ Raw = 'idle' }
+        @{ Raw = 'pmsuspended' }
+    ) {
+        $script:RestoreStates[0] = [pscustomobject]@{ State = 'stopped'; Raw = $Raw }
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeTrue
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 1 -Exactly
+    }
+
+    It 'skips the stop when raw shut off positively confirms the domain is powered off' {
+        $script:RestoreStates = @([pscustomobject]@{ State = 'stopped'; Raw = 'shut off' })
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeTrue
+        Should -Invoke -ModuleName Yuruna.Host Stop-VM -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 0 -Exactly
+        $script:RestoreCalls | Should -Contain 'snapshot-revert --domain vm-a --snapshotname baseline'
+    }
+
+    It 'explicitly destroys a crashed domain that may still hold the disk' {
+        $script:RestoreStates[0] = [pscustomobject]@{ State = 'stopped'; Raw = 'crashed' }
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeTrue
+        Should -Invoke -ModuleName Yuruna.Host Stop-VM -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 1 -Exactly -ParameterFilter {
+            $VMName -eq 'vm-a' -and $Confirm -eq $false
+        }
+        $script:RestoreCalls.IndexOf('force-stop') | Should -BeGreaterThan 0
+        $script:RestoreCalls | Should -Contain 'snapshot-revert --domain vm-a --snapshotname baseline'
+    }
+
+    It 'does not revert when stopping a retained crashed domain fails' {
+        $script:RestoreStates[0] = [pscustomobject]@{ State = 'stopped'; Raw = 'crashed' }
+        $script:RestoreStopSucceeded = $false
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeFalse
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 1 -Exactly
+        $script:RestoreCalls | Where-Object { $_ -like 'snapshot-revert*' } | Should -BeNullOrEmpty
+    }
+
+    It 'does not revert when the force-stop fails' {
+        $script:RestoreStopSucceeded = $false
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeFalse
+        $script:RestoreStateReads | Should -Be 1
+        $script:RestoreCalls | Where-Object { $_ -like 'snapshot-revert*' } | Should -BeNullOrEmpty
+    }
+
+    It 'does not revert after an apparent successful stop without positive power-off: <State>/<Raw>' -ForEach @(
+        @{ State = 'unknown'; Raw = '' }
+        @{ State = 'absent'; Raw = '' }
+        @{ State = 'running'; Raw = 'running' }
+        @{ State = 'stopped'; Raw = 'paused' }
+        @{ State = 'stopped'; Raw = 'in shutdown' }
+        @{ State = 'stopped'; Raw = 'idle' }
+        @{ State = 'stopped'; Raw = 'pmsuspended' }
+        @{ State = 'stopped'; Raw = 'crashed' }
+    ) {
+        $script:RestoreStates[1] = [pscustomobject]@{ State = $State; Raw = $Raw }
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeFalse
+        $script:RestoreStateReads | Should -Be 2
+        $script:RestoreCalls | Where-Object { $_ -like 'snapshot-revert*' } | Should -BeNullOrEmpty
+    }
+
+    It 'propagates a virsh snapshot-revert failure' {
+        $script:SnapshotRevertExit = 1
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false -WarningAction SilentlyContinue | Should -BeFalse
+        $script:RestoreCalls | Should -Contain 'snapshot-revert --domain vm-a --snapshotname baseline'
+    }
+
+    It 'makes no native or state-changing call under WhatIf' {
+        Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -WhatIf | Should -BeFalse
+        $script:RestoreCalls.Count | Should -Be 0
+    }
+
+    It 'retains graceful shutdown before saving disk contents' {
+        $hostPath = Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($hostPath, [ref]$null, [ref]$null)
+        $save = Get-YurunaTestFunctionAst -Ast $ast -Name 'Save-VMDiskSnapshot'
+        $stopCalls = @($save.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Stop-VM'
+        }, $true))
+        $stopCalls.Count | Should -BeGreaterThan 0
+        foreach ($call in $stopCalls) {
+            @($call.CommandElements | Where-Object {
+                $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'Force'
+            }).Count | Should -Be 0
+        }
+    }
+}
+
+Describe 'Save-VMDiskSnapshot (KVM) -- confirmed power-off before metadata changes' {
+    BeforeEach {
+        $script:SaveCalls = [System.Collections.Generic.List[string]]::new()
+        $script:SaveReads = 0
+        $script:SaveStates = @(
+            [pscustomobject]@{ State = 'running'; Raw = 'running' }
+            [pscustomobject]@{ State = 'stopped'; Raw = 'shut off' }
+        )
+        $script:SaveGraceful = $true
+        $script:SaveForce = $true
+        Mock -ModuleName Yuruna.Host Get-KvmDomainState {
+            $index = [Math]::Min($script:SaveReads++, $script:SaveStates.Count - 1)
+            $row = $script:SaveStates[$index]
+            $script:SaveCalls.Add("state:$($row.State):$($row.Raw)")
+            $row
+        }
+        Mock -ModuleName Yuruna.Host Stop-VM { $script:SaveCalls.Add('graceful'); $script:SaveGraceful }
+        Mock -ModuleName Yuruna.Host Stop-VMForce { $script:SaveCalls.Add('force'); $script:SaveForce }
+        Mock -ModuleName Yuruna.Host Rename-VM { $script:SaveCalls.Add('rename'); $true }
+        Mock -ModuleName Yuruna.Host Invoke-Virsh { $script:SaveCalls.Add(($VirshArgs -join ' ')); $global:LASTEXITCODE = 0 }
+        Mock -ModuleName Yuruna.Host Format-YurunaOperatorMessage { $Key }
+    }
+
+    It 'confirms graceful power-off before promoting the VM and replacing its snapshot' {
+        Save-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeTrue
+        ($script:SaveCalls -join '|') | Should -Be (
+            'state:running:running|graceful|state:stopped:shut off|rename|' +
+            'snapshot-delete baseline --snapshotname baseline|' +
+            'snapshot-create-as --domain baseline --name baseline --atomic')
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 0 -Exactly
+    }
+
+    It 'confirms force-stop fallback after graceful shutdown fails' {
+        $script:SaveGraceful = $false
+        Save-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeTrue
+        ($script:SaveCalls -join '|') | Should -Match '^state:running:running\|graceful\|force\|state:stopped:shut off\|rename\|'
+    }
+
+    It 'requires power-off for a normalized stopped domain with raw state <Raw>' -ForEach @(
+        @{ Raw = 'paused' }
+        @{ Raw = 'in shutdown' }
+        @{ Raw = 'idle' }
+        @{ Raw = 'pmsuspended' }
+        @{ Raw = 'crashed' }
+    ) {
+        $script:SaveStates[0] = [pscustomobject]@{ State = 'stopped'; Raw = $Raw }
+        Save-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeTrue
+        Should -Invoke -ModuleName Yuruna.Host Stop-VM -Times 1 -Exactly -ParameterFilter { -not $Force }
+        $script:SaveReads | Should -Be 2
+    }
+
+    It 'does not stop an already powered-off domain' {
+        $script:SaveStates = @([pscustomobject]@{ State = 'stopped'; Raw = 'shut off' })
+        Save-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeTrue
+        Should -Invoke -ModuleName Yuruna.Host Stop-VM -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 0 -Exactly
+        $script:SaveReads | Should -Be 1
+    }
+
+    It 'preserves the source name and metadata when initial state is <State>' -ForEach @(
+        @{ State = 'unknown' }
+        @{ State = 'absent' }
+    ) {
+        $script:SaveStates = @([pscustomobject]@{ State = $State; Raw = '' })
+        Save-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeFalse
+        $script:SaveCalls.Count | Should -Be 1
+    }
+
+    It 'preserves the source name and metadata when both shutdown paths fail' {
+        $script:SaveGraceful = $false
+        $script:SaveForce = $false
+        Save-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeFalse
+        ($script:SaveCalls -join '|') | Should -Be 'state:running:running|graceful|force'
+    }
+
+    It 'preserves the source name and metadata after an apparent successful stop: <State>/<Raw>' -ForEach @(
+        @{ State = 'unknown'; Raw = '' }
+        @{ State = 'absent'; Raw = '' }
+        @{ State = 'running'; Raw = 'running' }
+        @{ State = 'stopped'; Raw = 'paused' }
+        @{ State = 'stopped'; Raw = 'in shutdown' }
+        @{ State = 'stopped'; Raw = 'idle' }
+        @{ State = 'stopped'; Raw = 'pmsuspended' }
+        @{ State = 'stopped'; Raw = 'crashed' }
+    ) {
+        $script:SaveStates[1] = [pscustomobject]@{ State = $State; Raw = $Raw }
+        Save-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false | Should -BeFalse
+        $script:SaveReads | Should -Be 2
+        @($script:SaveCalls | Where-Object { $_ -eq 'rename' -or $_ -like 'snapshot-*' }).Count | Should -Be 0
+    }
+
+    It 'leaves metadata intact when the provider throws after stopping' {
+        Mock -ModuleName Yuruna.Host Get-KvmDomainState {
+            if ($script:SaveReads++ -gt 0) { throw 'Provider disconnected.' }
+            $script:SaveStates[0]
+        }
+        { Save-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -Confirm:$false } | Should -Throw 'Provider disconnected.'
+        @($script:SaveCalls | Where-Object { $_ -eq 'rename' -or $_ -like 'snapshot-*' }).Count | Should -Be 0
+    }
+
+    It 'makes no native or state-changing call under WhatIf' {
+        Save-VMDiskSnapshot -VMName 'vm-a' -Id 'baseline' -WhatIf | Should -BeFalse
+        $script:SaveCalls.Count | Should -Be 0
     }
 }
 

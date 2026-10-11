@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c9925e-2253-438b-b583-954a89683f39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     capture to disk and returns output='', so it is never a picker candidate. AST
     guards pin that the fallback selection never inspects $lastResult.output and
     that every rung routes through the picker. The throw-free Should assertions
-    run under Pester 4.10.1.
+    run under Pester 5.x.
 #>
 
 BeforeAll {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42dd4c19-b2ea-45c5-930f-d248ded193bb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
     origin chain, while the Hosts page's repository link must stay on the
     location the host actually reported -- a machine running from a local mirror
     must not read as one running from the public repository. Runs under
-    Pester 4.10.1.
+    Pester 5.x.
 #>
 
 BeforeAll {

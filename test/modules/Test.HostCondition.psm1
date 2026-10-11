@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 421a49fd-aa32-431c-979f-99704a673b48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -453,45 +453,37 @@ function script:Register-IfAvailable {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_597096826951b442' -Arguments @{ hostType = "$HostType"; join = "$($missing -join ', ')" })
         return
     }
-    $displayBlock = $null
-    if ($DisplayFn) {
-        $displayCmd = Get-Command -Name $DisplayFn -ErrorAction SilentlyContinue
-        if ($displayCmd) { $displayBlock = $displayCmd.ScriptBlock }
-        else { Write-Verbose "Test.HostCondition: $HostType display ensure '$DisplayFn' not found; skipping that capability." }
+    # One row per optional capability: the record slot, the function name the
+    # caller gave for it, and what the Verbose line calls it when that name
+    # does not resolve. Ordered, because several missing capabilities are
+    # reported in this sequence.
+    $optional = [ordered]@{
+        Display         = @($DisplayFn,         'display ensure')
+        DisplayTeardown = @($TeardownFn,        'display teardown')
+        ClockSync       = @($ClockSyncFn,       'clock sync')
+        NetworkHealth   = @($NetworkHealthFn,   'guest-network probe')
+        MetricsExporter = @($MetricsExporterFn, 'metrics-exporter convergence')
     }
-    $teardownBlock = $null
-    if ($TeardownFn) {
-        $teardownCmd = Get-Command -Name $TeardownFn -ErrorAction SilentlyContinue
-        if ($teardownCmd) { $teardownBlock = $teardownCmd.ScriptBlock }
-        else { Write-Verbose "Test.HostCondition: $HostType display teardown '$TeardownFn' not found; skipping that capability." }
+    $resolved = @{}
+    foreach ($slot in $optional.Keys) {
+        $name, $wording = $optional[$slot]
+        $resolved[$slot] = $null
+        if (-not $name) { continue }
+        $command = Get-Command -Name $name -ErrorAction SilentlyContinue
+        if ($command) { $resolved[$slot] = $command.ScriptBlock }
+        else { Write-Verbose "Test.HostCondition: $HostType $wording '$name' not found; skipping that capability." }
     }
-    $clockBlock = $null
-    if ($ClockSyncFn) {
-        $clockCmd = Get-Command -Name $ClockSyncFn -ErrorAction SilentlyContinue
-        if ($clockCmd) { $clockBlock = $clockCmd.ScriptBlock }
-        else { Write-Verbose "Test.HostCondition: $HostType clock sync '$ClockSyncFn' not found; skipping that capability." }
-    }
-    $networkBlock = $null
-    if ($NetworkHealthFn) {
-        $networkCmd = Get-Command -Name $NetworkHealthFn -ErrorAction SilentlyContinue
-        if ($networkCmd) { $networkBlock = $networkCmd.ScriptBlock }
-        else { Write-Verbose "Test.HostCondition: $HostType guest-network probe '$NetworkHealthFn' not found; skipping that capability." }
-    }
-    $metricsBlock = $null
-    if ($MetricsExporterFn) {
-        $metricsCmd = Get-Command -Name $MetricsExporterFn -ErrorAction SilentlyContinue
-        if ($metricsCmd) { $metricsBlock = $metricsCmd.ScriptBlock }
-        else { Write-Verbose "Test.HostCondition: $HostType metrics-exporter convergence '$MetricsExporterFn' not found; skipping that capability." }
-    }
+    # Every optional slot is passed by name, an unresolved one as $null, so the
+    # stored record never depends on the defaults of the function that stores it.
     Register-HostConditionProvider -HostType $HostType `
         -Assert          (Get-Command $AssertFn).ScriptBlock `
         -AssertMinimum   (Get-Command $MinimumFn).ScriptBlock `
         -RequiresElevation $RequiresElevation `
-        -Display         $displayBlock `
-        -DisplayTeardown $teardownBlock `
-        -ClockSync       $clockBlock `
-        -NetworkHealth   $networkBlock `
-        -MetricsExporter $metricsBlock
+        -Display         $resolved.Display `
+        -DisplayTeardown $resolved.DisplayTeardown `
+        -ClockSync       $resolved.ClockSync `
+        -NetworkHealth   $resolved.NetworkHealth `
+        -MetricsExporter $resolved.MetricsExporter
 }
 Register-IfAvailable -HostType 'host.windows.hyper-v' `
     -AssertFn 'Assert-WindowsHostConditionSet' -MinimumFn 'Test-WindowsHostMinimum' `

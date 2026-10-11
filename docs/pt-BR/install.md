@@ -30,6 +30,17 @@ usada por [memory.md](../memory.md), [definition.md](../definition.md),
 
 ## Todos os hospedeiros (fundamentação compartilhada)
 
+Os instaladores comparam as ferramentas que gerenciam com
+`automation/Yuruna.Requirement.yml` e relatam versões abaixo dos mínimos sem
+transformar uma instalação concluída em falha. Omitem ferramentas que não
+podem atualizar. No Windows, isso inclui o curl integrado, gerenciado pelo
+Windows Update. O PowerShell em execução pode permanecer abaixo do mínimo,
+pois uma atualização por MSI poderia encerrar o instalador. A plataforma AMD
+no Ubuntu preserva o Python do sistema, vinculado à ABI. O macOS corrige a
+precedência no PATH e as cópias do Homebrew em duas passagens antes de relatar
+pendências. Veja a [política do Ubuntu](https://yuruna.link/429fb30b-0035) e a
+[correção no macOS](https://yuruna.link/429fb30b-0029).
+
 <a id="429fb30b-0003"></a>
 
 ### Log de instalação
@@ -536,14 +547,21 @@ varrer.
 
 <a id="429fb30b-0015"></a>
 
-### Enable-TestAutomation.ps1 NÃO é executado automaticamente
+### Configurações de automação do hospedeiro após a instalação
 
-O `host/<platform>/Enable-TestAutomation.ps1` é a etapa explícita de adesão
-que transforma uma máquina em um hospedeiro de testes do Yuruna (suspensão do
-monitor, protetor de tela, edições de registro de bloqueio de tela, ajustes
-do grupo de armazenamento, concessões de Acessibilidade / Gravação de Tela
-no macOS). Essas são mudanças de política do hospedeiro que o operador pode não
-querer, então ficam para invocação manual após a instalação.
+Windows e Ubuntu apresentam `Enable-TestAutomation.ps1` como uma próxima etapa
+explícita. Seus instaladores deixam alterações de suspensão da tela, bloqueio
+e outras políticas do hospedeiro para o operador. O instalador do macOS aplica
+as configurações após atualizar pacotes e o UTM, pois reinstalar ou atualizar
+o UTM pode restaurar padrões que impedem a execução sem supervisão. Ele usa
+`-SkipPoolStorage`: o questionário interativo de armazenamento continua sendo
+uma decisão separada.
+
+O código de saída 2 indica que as configurações possíveis foram aplicadas,
+mas uma concessão TCC, senha de conta ou outra ação do operador ainda é
+necessária. O instalador do macOS registra essa condição como pendência.
+Feche e reabra o UTM para aplicar as configurações de App Nap e fechamento da
+última janela. As permissões de privacidade do macOS continuam manuais.
 
 <a id="429fb30b-0016"></a>
 
@@ -637,12 +655,12 @@ Administrador. A reexecução preserva o shell do qual o usuário partiu --
 pwsh não seja silenciosamente rebaixada para o Windows PowerShell ao
 cruzar a fronteira do UAC.
 
-Para o caminho de entrada `irm | iex`, o script baixado não tem
+Para o caminho de entrada `irm | iex`, o script baixado inicialmente não tem
 `$PSCommandPath`, e o próprio `iex` não repassa argumentos ao código
-invocado. O manipulador de reexecução reconstrói um bootstrap equivalente
-ao `iex` que baixa o script de novo e o invoca via
-`[scriptblock]::Create(...)` com `-SkipPreflight`, para que o filho elevado
-não pergunte de novo a verificação de requisitos.
+invocado. A etapa de materialização estabelece um caminho de arquivo antes
+da elevação. A reexecução usa `-File` com esse mesmo instalador e repassa os
+parâmetros explicitamente vinculados com `-SkipPreflight`, para que o filho
+elevado não baixe o script nem solicite a verificação de requisitos de novo.
 
 Se o shell elevado ainda for PS 5.x, o bloco de bootstrap do PS7 instala o
 `Microsoft.PowerShell` via winget, atualiza o PATH para que o `pwsh.exe`
@@ -719,10 +737,9 @@ pudesse ler a mensagem. O bloco finally imprime um resumo claro de
 SUCCESS / FAILED / RESTART REQUIRED e -- no caminho de sucesso -- automatiza
 a passagem para uma janela pwsh nova com as orientações de NEXT STEPS.
 
-Não existe `exit 1` no ramo de falha. Isso encerraria o processo PowerShell
-hospedeiro, fechando a própria janela do usuário quando ele invocou o
-script diretamente. Cair através do bloco finally deixa o usuário no prompt
-do seu shell.
+Após o resumo e a espera final limitada, o instalador encerra a transcrição e
+retorna o código 1 quando a instalação não foi concluída. Chamadores
+automatizados detectam a falha, e o operador tem tempo para ler sua explicação.
 
 <a id="429fb30b-0020"></a>
 
@@ -742,6 +759,12 @@ janela de passagem não abrir, as mesmas orientações são impressas no
 console de administrador com um `Start-Sleep` de 60 segundos para manter a
 janela legível (sem `Read-Host`, para que um Enter acidental não possa
 encerrar tudo antes da hora).
+
+Instalações com falha e instalações que acabaram de habilitar o Hyper-V não
+têm janela de passagem. Após o resumo completo, esses caminhos também mantêm
+o console elevado aberto por 60 segundos para que as instruções de falha ou
+reinício permaneçam legíveis. A espera é limitada; a transcrição continua
+disponível se o operador estiver ausente.
 
 <a id="429fb30b-0021"></a>
 
@@ -786,9 +809,9 @@ instalador usa a mesma reinterpretação de bits UInt32->Int32 que a função
 de reset do módulo -- um cast simples para `[int]` em valores com o bit
 mais significativo ligado lança `OverflowException`.
 
-A ação de reset correspondente vive em
+A ação de reset correspondente é reexportada por
 [test/modules/Test.HostContract.psm1](../../test/modules/Test.HostContract.psm1)
-`Set-WindowsHostConditionSet`, chamada por
+como `Set-WindowsHostConditionSet` (definida em `Test.HostCondition.Windows.psm1`), chamada por
 [host/windows.hyper-v/Enable-TestAutomation.ps1](../../host/windows.hyper-v/Enable-TestAutomation.ps1).
 Ela escreve 100% nas três fontes e emite linhas de status por monitor via
 `Write-Information`. O script Enable-TestAutomation define
@@ -955,7 +978,7 @@ sudo -- mataria o subshell.
 
 Um único trap de `EXIT` (`yuruna_install_cleanup`) libera o keepalive do
 sudo E qualquer backup temporário de test/status em todo caminho de saída:
-conclusão normal, Ctrl-C, aborto por `set -e`.
+conclusão normal, Ctrl+C, aborto por `set -e`.
 
 <a id="429fb30b-002c"></a>
 
@@ -1103,20 +1126,30 @@ funcional, e o resumo final carrega a versão em que ele ficou preso.
 
 ### Pisos de versão em um hospedeiro Ubuntu
 
-O PowerShell é a única ferramenta da lista de pisos do Ubuntu cujas fontes
-vão à frente do archive, e por isso a única que o instalador consegue
-elevar. git, python3, curl, tesseract e qemu-img chegam ao hospedeiro apenas
-através do `apt`, cujo teto é o Candidate do archive: um archive LTS
-congela seus números de versão no lançamento e depois carrega apenas
-correções retroportadas, então o `apt-get install` em um pacote já atual
-não muda nada e nenhuma reexecução pode mudar mais. Os pisos deles são,
-portanto, definidos como o que aquele archive distribui, conforme a regra
-de seleção registrada em `automation/Yuruna.Requirement.yml` -- um piso
-acima disso reportaria um defeito em uma máquina corretamente
-provisionada, em toda execução, sem que nada pudesse resolvê-lo. Um piso
-aqui diz que o hospedeiro está provisionado, não que ele está atualizado; o
-Ubuntu também retroporta correções de segurança sem mover o número
-upstream, então o nível de patch é uma questão separada desta verificação.
+Em hospedeiros Ubuntu comuns, as fontes do PowerShell podem estar à frente do
+repositório; as demais ferramentas gerenciadas chegam pelo `apt`, limitado à
+versão Candidate. Um repositório LTS congela números de versão upstream e
+retroporta correções. Repetir `apt-get install` não atualiza um pacote já
+atual. Os mínimos em `automation/Yuruna.Requirement.yml` descrevem o
+repositório suportado selecionado, sem prometer a última versão upstream. O
+nível de correções de segurança é uma questão separada do número upstream.
+
+A plataforma AMD Ryzen AI Developer usa Debian trixie. Seu repositório base
+não alcança todos os mínimos baseados no Ubuntu. O instalador obtém curl e
+qemu-img de trixie-backports e compila o Git de uma versão verificada, sem
+substituir a biblioteca C base. O Python deve continuar sendo o interpretador
+do sistema: os pacotes ROCm fixam sua ABI, e as ferramentas libvirt e de
+ambiente gráfico precisam dos módulos `libvirt` e `gi` instalados nele. A
+verificação final dessa plataforma omite o Python, pois o instalador não pode
+atualizá-lo com segurança.
+
+Um CPython independente ligado a `/usr/local/bin/python3` pode ocultar
+`/usr/bin/python3` e impedir o `virt-install` antes da inicialização de qualquer
+VM. A limpeza só ocorre quando esse link `python3` aponta para `/opt/cpython`;
+remove os links de versão correspondentes e o diretório da versão gerenciada.
+Outros runtimes, ambientes e instalações sem diretório de versão permanecem
+intactos. A verificação da origem do link protege os interpretadores gerenciados
+pelo operador.
 
 <a id="429fb30b-0036"></a>
 
@@ -1207,6 +1240,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.04
+Última revisão: 2026.10.11
 
 Voltar para [Yuruna](../../README.md)

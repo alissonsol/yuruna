@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "yuruna-repository",
-  "documentNamespace": "https://github.com/alissonsol/yuruna/sbom/repository/d159609586bf87e293e77b341d8e9385b73a76442e1ef3ac01705b0eacac01d0",
+  "documentNamespace": "https://github.com/alissonsol/yuruna/sbom/repository/3d3a3c4bd2ab5c0ba44f5432a725576a10099876132691ea6097bc96a5ae2f77",
   "creationInfo": {
     "created": "2026-10-03T16:48:41Z",
     "creators": [
@@ -25,8 +25,8 @@
       "licenseDeclared": "LicenseRef-Yuruna",
       "copyrightText": "NOASSERTION",
       "supplier": "Organization: Alisson Sol et al.",
-      "comment": "Declared repository inventory; source-inputs SHA256 d159609586bf87e293e77b341d8e9385b73a76442e1ef3ac01705b0eacac01d0. Not an installed-system scan.",
-      "versionInfo": "2026.10.04"
+      "comment": "Declared repository inventory; source-inputs SHA256 3d3a3c4bd2ab5c0ba44f5432a725576a10099876132691ea6097bc96a5ae2f77. Not an installed-system scan.",
+      "versionInfo": "2026.10.11"
     },
     {
       "name": "Git",
@@ -273,25 +273,25 @@
     },
     {
       "name": "github.com/ncruces/go-strftime",
-      "SPDXID": "SPDXRef-8b082720a3d34c2b5dbc",
+      "SPDXID": "SPDXRef-ec815c737a818436c6b5",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 22, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 19, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v1.0.0",
+      "versionInfo": "v1.1.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "1cc169f262c24cfa77e3533f667038a9a7fb665b1b4dcfa68998c22ce140c3bc"
+          "checksumValue": "bed3e63d63246f9dfd44657d5a9593f44c091aface08abcc348e286d62f8ec79"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/ncruces/go-strftime@v1.0.0"
+          "referenceLocator": "pkg:golang/github.com/ncruces/go-strftime@v1.1.0"
         }
       ]
     },
@@ -393,25 +393,25 @@
     },
     {
       "name": "golang.org/x/crypto",
-      "SPDXID": "SPDXRef-60dfee9fb03302a41503",
+      "SPDXID": "SPDXRef-02ff4d3b302990f322d7",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 12, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 29, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.57.0",
+      "versionInfo": "v0.58.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "dd95428dff06833ef39de47f107455c7af02b5ffb6a6620c3f6505861f5c0ba3"
+          "checksumValue": "08e9182ebe24ee70c8e2be90b4c30bd807f3788b30587009b612d2e8afccff9e"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/crypto@v0.57.0"
+          "referenceLocator": "pkg:golang/golang.org/x/crypto@v0.58.0"
         }
       ]
     },
@@ -441,121 +441,121 @@
     },
     {
       "name": "golang.org/x/sync",
-      "SPDXID": "SPDXRef-c14ef80f642fad4431bd",
+      "SPDXID": "SPDXRef-9ad44d7925eeabd7ab5f",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 33, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.23.0",
+      "versionInfo": "v0.24.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "29a99e1087dcd48925b99c9758b9f7f56778b5445ce866c28884868999b66d09"
+          "checksumValue": "8aa883ac6a03832baf00aae12d0b61504cd4fd1dfbf0defc8176c18f179dee80"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/sync@v0.23.0"
+          "referenceLocator": "pkg:golang/golang.org/x/sync@v0.24.0"
         }
       ]
     },
     {
       "name": "golang.org/x/sys",
-      "SPDXID": "SPDXRef-df855484d764f8891fa3",
+      "SPDXID": "SPDXRef-8bd068a161452022ed8c",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 24, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 35, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.48.0",
+      "versionInfo": "v0.49.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "6db5ff8bfe8c813f4154b33d453d6d866c4bd38c9e4c085b133e12c9a75b5e8a"
+          "checksumValue": "5dbce481824776a87ff26d94bb45bf750bfc9e4b71c780451e9d4cd2044e4d70"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/sys@v0.48.0"
+          "referenceLocator": "pkg:golang/golang.org/x/sys@v0.49.0"
         }
       ]
     },
     {
       "name": "golang.org/x/term",
-      "SPDXID": "SPDXRef-29774b2de7fb21c49708",
+      "SPDXID": "SPDXRef-58f0d150aafb90b4ff7b",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 37, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.46.0",
+      "versionInfo": "v0.47.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "dfe397b936da28383093c8d38b76922c7465996a871140d4b719db16280ee181"
+          "checksumValue": "729c8ec1092bd8dcf17b6a7a2a7ad31bb122db0b738ecb928e1a575dea59fc13"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/term@v0.46.0"
+          "referenceLocator": "pkg:golang/golang.org/x/term@v0.47.0"
         }
       ]
     },
     {
       "name": "golang.org/x/text",
-      "SPDXID": "SPDXRef-218541d2506170a1d473",
+      "SPDXID": "SPDXRef-80c86ce33a8a398b5681",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 13, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 39, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.42.0",
+      "versionInfo": "v0.43.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "25b3995e07de08f53d81a715b5896226a3a10fece1ac4a8ae0b7dda6695466a2"
+          "checksumValue": "d508afae587002c9cc39caa039d97d9b2eecf4ec9997c3b9fd41944c9557a167"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/text@v0.42.0"
+          "referenceLocator": "pkg:golang/golang.org/x/text@v0.43.0"
         }
       ]
     },
     {
       "name": "golang.org/x/tools",
-      "SPDXID": "SPDXRef-9d45139bdebf1c8ece6a",
+      "SPDXID": "SPDXRef-c740ff745f2883ebf5be",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 41, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.49.0",
+      "versionInfo": "v0.51.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "dcd23b557ccbf7ed56643e760f1dadb683f00f90d6ac51a997d9856439668ac2"
+          "checksumValue": "9385dcff53a6f63c24049068e0d54b3120110685ad2b5d26c7e5b90675c27802"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/tools@v0.49.0"
+          "referenceLocator": "pkg:golang/golang.org/x/tools@v0.51.0"
         }
       ]
     },
@@ -585,49 +585,49 @@
     },
     {
       "name": "modernc.org/cc/v4",
-      "SPDXID": "SPDXRef-284e1d1493d9725cc86d",
+      "SPDXID": "SPDXRef-ecb0e3f352e3a0cc6452",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 45, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v4.29.2",
+      "versionInfo": "v4.29.7",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "87afbd7220a73cabad7f8234dc2be1780bc32d7efe20796a47a232e89f9c81df"
+          "checksumValue": "abe357189d1b2b76f84d715841056bf696044c69e6c055a4ad4cc99ccc9afd38"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/cc/v4@v4.29.2"
+          "referenceLocator": "pkg:golang/modernc.org/cc/v4@v4.29.7"
         }
       ]
     },
     {
       "name": "modernc.org/ccgo/v4",
-      "SPDXID": "SPDXRef-b8012295a79e4da43b8f",
+      "SPDXID": "SPDXRef-15b2521b5bd7ca8b0e67",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 47, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v4.35.0",
+      "versionInfo": "v4.36.1",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "17e4d4b26c34f50c4bce68b769e6181b18c05daae665a2a08f798a40735a03cc"
+          "checksumValue": "64d214640af23745209c9c2dcb1add133705737c83e02bb80338df3d7b0bb081"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/ccgo/v4@v4.35.0"
+          "referenceLocator": "pkg:golang/modernc.org/ccgo/v4@v4.36.1"
         }
       ]
     },
@@ -729,25 +729,25 @@
     },
     {
       "name": "modernc.org/libc",
-      "SPDXID": "SPDXRef-caf4b0eb0f8d98a401b2",
+      "SPDXID": "SPDXRef-47c58c7aab9f26416fb2",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 25, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 57, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v1.75.7",
+      "versionInfo": "v1.77.1",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "a370d33fdff4a7da4a998d9608a41ac925bac0889984d33bc1cda5528ca17dec"
+          "checksumValue": "0adf23e3b42d899d449e3d83b455d0b54aab3c202374298f8ed0aebeb610d07b"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/libc@v1.75.7"
+          "referenceLocator": "pkg:golang/modernc.org/libc@v1.77.1"
         }
       ]
     },
@@ -849,25 +849,25 @@
     },
     {
       "name": "modernc.org/sqlite",
-      "SPDXID": "SPDXRef-ea956d7c64319f74b96c",
+      "SPDXID": "SPDXRef-0b3df35735774198d7c1",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 14, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 67, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v1.59.0",
+      "versionInfo": "v1.60.1",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "5f57acd46a6a0654bfe53faf6cce072d475a6bc3ad431e3af03176bebc7edfc0"
+          "checksumValue": "fdb973e773bde7529614eb28e1042f12cfc5aba70304a2ed315ad835278954ac"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/sqlite@v1.59.0"
+          "referenceLocator": "pkg:golang/modernc.org/sqlite@v1.60.1"
         }
       ]
     },
@@ -1022,6 +1022,106 @@
       ]
     },
     {
+      "name": "global/resources/aws/eks-cluster",
+      "SPDXID": "SPDXRef-d554a81a5a8e7741aa3b",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 12, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}, {\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 5, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+    },
+    {
+      "name": "global/resources/aws/registry",
+      "SPDXID": "SPDXRef-a61f0e12e70e2e59d861",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/aws/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+    },
+    {
+      "name": "global/resources/azure/aks-cluster",
+      "SPDXID": "SPDXRef-ae191d8df8d3085693f6",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+    },
+    {
+      "name": "global/resources/azure/postgresql",
+      "SPDXID": "SPDXRef-40a7db3a530a7e4c4531",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/postgresql/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+    },
+    {
+      "name": "global/resources/azure/registry",
+      "SPDXID": "SPDXRef-48d9ec1f813835e178d9",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+    },
+    {
+      "name": "global/resources/azure/resource-group",
+      "SPDXID": "SPDXRef-22cdaecada1415d26fa9",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/resource-group/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+    },
+    {
+      "name": "global/resources/azure/storage-share",
+      "SPDXID": "SPDXRef-a6726f896a788aa23d0c",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/storage-share/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+    },
+    {
+      "name": "global/resources/azure/vm-linux",
+      "SPDXID": "SPDXRef-70532f4e1158659fd728",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+    },
+    {
+      "name": "global/resources/localhost/context-copy",
+      "SPDXID": "SPDXRef-93ef0133b7121038f806",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 9, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+    },
+    {
+      "name": "global/resources/localhost/registry",
+      "SPDXID": "SPDXRef-5f3c88a73f01f726a9af",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 9, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+    },
+    {
       "name": "Python",
       "SPDXID": "SPDXRef-d4da385fc11f7e9f7d15",
       "downloadLocation": "NOASSERTION",
@@ -1029,18 +1129,128 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
-      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"python\", \"evidence\": [{\"detail\": \"SBOM collector uses Python 3.11 tomllib and the standard library\", \"line\": 11, \"path\": \"tools/sbom_dependencies.py\"}], \"notes\": [\"No Python package installation is required.\"], \"scope\": \"build\", \"versionConstraint\": \">=3.11\"}"
+      "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"python\", \"evidence\": [{\"detail\": \"SBOM collector uses Python 3.11 tomllib and the standard library\", \"line\": 12, \"path\": \"tools/sbom_dependencies.py\"}], \"notes\": [\"No Python package installation is required.\"], \"scope\": \"build\", \"versionConstraint\": \">=3.11\"}"
+    },
+    {
+      "name": "terraform-aws-modules/eks/aws",
+      "SPDXID": "SPDXRef-c04377f548d4f48dc896",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-module\", \"evidence\": [{\"detail\": \"Module eks; declared source=terraform-aws-modules/eks/aws\", \"line\": 12, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 21.24\"}"
+    },
+    {
+      "name": "terraform-aws-modules/vpc/aws",
+      "SPDXID": "SPDXRef-bee70e6aa0b7eb181c62",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-module\", \"evidence\": [{\"detail\": \"Module vpc; declared source=terraform-aws-modules/vpc/aws\", \"line\": 65, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 6.6\"}"
+    },
+    {
+      "name": "hashicorp/aws",
+      "SPDXID": "SPDXRef-8907942691304a312548",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider aws; declared source=hashicorp/aws\", \"line\": 10, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider aws; declared source=hashicorp/aws\", \"line\": 8, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 6.54\"}"
+    },
+    {
+      "name": "hashicorp/azurerm",
+      "SPDXID": "SPDXRef-4d77f6ff156b2106610f",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 4.80\"}"
+    },
+    {
+      "name": "hashicorp/external",
+      "SPDXID": "SPDXRef-acf55bb12a36b9aad4cf",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider external; declared source=hashicorp/external\", \"line\": 14, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 2.4\"}"
+    },
+    {
+      "name": "hashicorp/kubernetes",
+      "SPDXID": "SPDXRef-e179ad6c61206e1ec441",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 18, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 33, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.2\"}"
+    },
+    {
+      "name": "hashicorp/local",
+      "SPDXID": "SPDXRef-f704f01136396457f74f",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 22, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 2.9\"}"
+    },
+    {
+      "name": "hashicorp/null",
+      "SPDXID": "SPDXRef-33c624824b422a1e743b",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 23, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 26, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.3\"}"
+    },
+    {
+      "name": "hashicorp/random",
+      "SPDXID": "SPDXRef-54a84111d206a61715b9",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 13, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 30, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.9\"}"
+    },
+    {
+      "name": "hashicorp/tls",
+      "SPDXID": "SPDXRef-8a08acbe6e5b8e2c3e2c",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider tls; declared source=hashicorp/tls\", \"line\": 28, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 4.3\"}"
     },
     {
       "name": "Go",
-      "SPDXID": "SPDXRef-9033cea6b6a5624a74dd",
+      "SPDXID": "SPDXRef-f178c1a1ebf07b0b8ac8",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/caching-proxy-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/download-agent-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/extension-sdk/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/pool-control-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [], \"scope\": \"build\"}",
-      "versionInfo": "1.27.1"
+      "versionInfo": "1.27.2"
+    },
+    {
+      "name": "OpenTofu/Terraform",
+      "SPDXID": "SPDXRef-9eb226995ec7055df6c9",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 5, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.0\"}"
     }
   ],
   "relationships": [
@@ -1067,7 +1277,7 @@
     {
       "spdxElementId": "SPDXRef-d177cf988c867818ae63",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-9033cea6b6a5624a74dd"
+      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1117,7 +1327,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-8b082720a3d34c2b5dbc"
+      "relatedSpdxElement": "SPDXRef-ec815c737a818436c6b5"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1142,7 +1352,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-60dfee9fb03302a41503"
+      "relatedSpdxElement": "SPDXRef-02ff4d3b302990f322d7"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1152,27 +1362,27 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-c14ef80f642fad4431bd"
+      "relatedSpdxElement": "SPDXRef-9ad44d7925eeabd7ab5f"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-df855484d764f8891fa3"
+      "relatedSpdxElement": "SPDXRef-8bd068a161452022ed8c"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-29774b2de7fb21c49708"
+      "relatedSpdxElement": "SPDXRef-58f0d150aafb90b4ff7b"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-218541d2506170a1d473"
+      "relatedSpdxElement": "SPDXRef-80c86ce33a8a398b5681"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-9d45139bdebf1c8ece6a"
+      "relatedSpdxElement": "SPDXRef-c740ff745f2883ebf5be"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1182,12 +1392,12 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-284e1d1493d9725cc86d"
+      "relatedSpdxElement": "SPDXRef-ecb0e3f352e3a0cc6452"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-b8012295a79e4da43b8f"
+      "relatedSpdxElement": "SPDXRef-15b2521b5bd7ca8b0e67"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1212,7 +1422,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-caf4b0eb0f8d98a401b2"
+      "relatedSpdxElement": "SPDXRef-47c58c7aab9f26416fb2"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1237,7 +1447,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-ea956d7c64319f74b96c"
+      "relatedSpdxElement": "SPDXRef-0b3df35735774198d7c1"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1262,7 +1472,7 @@
     {
       "spdxElementId": "SPDXRef-070ba5f14e1b7ce30bbc",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-9033cea6b6a5624a74dd"
+      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1297,7 +1507,7 @@
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-8b082720a3d34c2b5dbc"
+      "relatedSpdxElement": "SPDXRef-ec815c737a818436c6b5"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
@@ -1312,22 +1522,22 @@
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-60dfee9fb03302a41503"
+      "relatedSpdxElement": "SPDXRef-02ff4d3b302990f322d7"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-df855484d764f8891fa3"
+      "relatedSpdxElement": "SPDXRef-8bd068a161452022ed8c"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-218541d2506170a1d473"
+      "relatedSpdxElement": "SPDXRef-80c86ce33a8a398b5681"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-caf4b0eb0f8d98a401b2"
+      "relatedSpdxElement": "SPDXRef-47c58c7aab9f26416fb2"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
@@ -1342,7 +1552,7 @@
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-ea956d7c64319f74b96c"
+      "relatedSpdxElement": "SPDXRef-0b3df35735774198d7c1"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
@@ -1352,7 +1562,7 @@
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-9033cea6b6a5624a74dd"
+      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1367,7 +1577,7 @@
     {
       "spdxElementId": "SPDXRef-9756508f804a7e5f5603",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-9033cea6b6a5624a74dd"
+      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1382,7 +1592,7 @@
     {
       "spdxElementId": "SPDXRef-882d4bb41cb57da0b374",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-9033cea6b6a5624a74dd"
+      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1392,7 +1602,7 @@
     {
       "spdxElementId": "SPDXRef-7909813fb9c6b99a751b",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-9033cea6b6a5624a74dd"
+      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1407,7 +1617,327 @@
     {
       "spdxElementId": "SPDXRef-99fce750b9e0c923e887",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-9033cea6b6a5624a74dd"
+      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-d554a81a5a8e7741aa3b"
+    },
+    {
+      "spdxElementId": "SPDXRef-d554a81a5a8e7741aa3b",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-c04377f548d4f48dc896"
+    },
+    {
+      "spdxElementId": "SPDXRef-d554a81a5a8e7741aa3b",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-bee70e6aa0b7eb181c62"
+    },
+    {
+      "spdxElementId": "SPDXRef-d554a81a5a8e7741aa3b",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-8907942691304a312548"
+    },
+    {
+      "spdxElementId": "SPDXRef-d554a81a5a8e7741aa3b",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e179ad6c61206e1ec441"
+    },
+    {
+      "spdxElementId": "SPDXRef-d554a81a5a8e7741aa3b",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f704f01136396457f74f"
+    },
+    {
+      "spdxElementId": "SPDXRef-d554a81a5a8e7741aa3b",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-33c624824b422a1e743b"
+    },
+    {
+      "spdxElementId": "SPDXRef-d554a81a5a8e7741aa3b",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-54a84111d206a61715b9"
+    },
+    {
+      "spdxElementId": "SPDXRef-d554a81a5a8e7741aa3b",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-8a08acbe6e5b8e2c3e2c"
+    },
+    {
+      "spdxElementId": "SPDXRef-d554a81a5a8e7741aa3b",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-a61f0e12e70e2e59d861"
+    },
+    {
+      "spdxElementId": "SPDXRef-a61f0e12e70e2e59d861",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-8907942691304a312548"
+    },
+    {
+      "spdxElementId": "SPDXRef-a61f0e12e70e2e59d861",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e179ad6c61206e1ec441"
+    },
+    {
+      "spdxElementId": "SPDXRef-a61f0e12e70e2e59d861",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f704f01136396457f74f"
+    },
+    {
+      "spdxElementId": "SPDXRef-a61f0e12e70e2e59d861",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-33c624824b422a1e743b"
+    },
+    {
+      "spdxElementId": "SPDXRef-a61f0e12e70e2e59d861",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-54a84111d206a61715b9"
+    },
+    {
+      "spdxElementId": "SPDXRef-a61f0e12e70e2e59d861",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-ae191d8df8d3085693f6"
+    },
+    {
+      "spdxElementId": "SPDXRef-ae191d8df8d3085693f6",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-4d77f6ff156b2106610f"
+    },
+    {
+      "spdxElementId": "SPDXRef-ae191d8df8d3085693f6",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-acf55bb12a36b9aad4cf"
+    },
+    {
+      "spdxElementId": "SPDXRef-ae191d8df8d3085693f6",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e179ad6c61206e1ec441"
+    },
+    {
+      "spdxElementId": "SPDXRef-ae191d8df8d3085693f6",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f704f01136396457f74f"
+    },
+    {
+      "spdxElementId": "SPDXRef-ae191d8df8d3085693f6",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-33c624824b422a1e743b"
+    },
+    {
+      "spdxElementId": "SPDXRef-ae191d8df8d3085693f6",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-54a84111d206a61715b9"
+    },
+    {
+      "spdxElementId": "SPDXRef-ae191d8df8d3085693f6",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-40a7db3a530a7e4c4531"
+    },
+    {
+      "spdxElementId": "SPDXRef-40a7db3a530a7e4c4531",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-4d77f6ff156b2106610f"
+    },
+    {
+      "spdxElementId": "SPDXRef-40a7db3a530a7e4c4531",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e179ad6c61206e1ec441"
+    },
+    {
+      "spdxElementId": "SPDXRef-40a7db3a530a7e4c4531",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f704f01136396457f74f"
+    },
+    {
+      "spdxElementId": "SPDXRef-40a7db3a530a7e4c4531",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-33c624824b422a1e743b"
+    },
+    {
+      "spdxElementId": "SPDXRef-40a7db3a530a7e4c4531",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-54a84111d206a61715b9"
+    },
+    {
+      "spdxElementId": "SPDXRef-40a7db3a530a7e4c4531",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-48d9ec1f813835e178d9"
+    },
+    {
+      "spdxElementId": "SPDXRef-48d9ec1f813835e178d9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-4d77f6ff156b2106610f"
+    },
+    {
+      "spdxElementId": "SPDXRef-48d9ec1f813835e178d9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e179ad6c61206e1ec441"
+    },
+    {
+      "spdxElementId": "SPDXRef-48d9ec1f813835e178d9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f704f01136396457f74f"
+    },
+    {
+      "spdxElementId": "SPDXRef-48d9ec1f813835e178d9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-33c624824b422a1e743b"
+    },
+    {
+      "spdxElementId": "SPDXRef-48d9ec1f813835e178d9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-54a84111d206a61715b9"
+    },
+    {
+      "spdxElementId": "SPDXRef-48d9ec1f813835e178d9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-22cdaecada1415d26fa9"
+    },
+    {
+      "spdxElementId": "SPDXRef-22cdaecada1415d26fa9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-4d77f6ff156b2106610f"
+    },
+    {
+      "spdxElementId": "SPDXRef-22cdaecada1415d26fa9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e179ad6c61206e1ec441"
+    },
+    {
+      "spdxElementId": "SPDXRef-22cdaecada1415d26fa9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f704f01136396457f74f"
+    },
+    {
+      "spdxElementId": "SPDXRef-22cdaecada1415d26fa9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-33c624824b422a1e743b"
+    },
+    {
+      "spdxElementId": "SPDXRef-22cdaecada1415d26fa9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-54a84111d206a61715b9"
+    },
+    {
+      "spdxElementId": "SPDXRef-22cdaecada1415d26fa9",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-a6726f896a788aa23d0c"
+    },
+    {
+      "spdxElementId": "SPDXRef-a6726f896a788aa23d0c",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-4d77f6ff156b2106610f"
+    },
+    {
+      "spdxElementId": "SPDXRef-a6726f896a788aa23d0c",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e179ad6c61206e1ec441"
+    },
+    {
+      "spdxElementId": "SPDXRef-a6726f896a788aa23d0c",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f704f01136396457f74f"
+    },
+    {
+      "spdxElementId": "SPDXRef-a6726f896a788aa23d0c",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-33c624824b422a1e743b"
+    },
+    {
+      "spdxElementId": "SPDXRef-a6726f896a788aa23d0c",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-54a84111d206a61715b9"
+    },
+    {
+      "spdxElementId": "SPDXRef-a6726f896a788aa23d0c",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-70532f4e1158659fd728"
+    },
+    {
+      "spdxElementId": "SPDXRef-70532f4e1158659fd728",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-4d77f6ff156b2106610f"
+    },
+    {
+      "spdxElementId": "SPDXRef-70532f4e1158659fd728",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e179ad6c61206e1ec441"
+    },
+    {
+      "spdxElementId": "SPDXRef-70532f4e1158659fd728",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f704f01136396457f74f"
+    },
+    {
+      "spdxElementId": "SPDXRef-70532f4e1158659fd728",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-33c624824b422a1e743b"
+    },
+    {
+      "spdxElementId": "SPDXRef-70532f4e1158659fd728",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-54a84111d206a61715b9"
+    },
+    {
+      "spdxElementId": "SPDXRef-70532f4e1158659fd728",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-93ef0133b7121038f806"
+    },
+    {
+      "spdxElementId": "SPDXRef-93ef0133b7121038f806",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-5f3c88a73f01f726a9af"
+    },
+    {
+      "spdxElementId": "SPDXRef-5f3c88a73f01f726a9af",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1417,14 +1947,69 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-9033cea6b6a5624a74dd"
+      "relatedSpdxElement": "SPDXRef-c04377f548d4f48dc896"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-bee70e6aa0b7eb181c62"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-8907942691304a312548"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-4d77f6ff156b2106610f"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-acf55bb12a36b9aad4cf"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e179ad6c61206e1ec441"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f704f01136396457f74f"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-33c624824b422a1e743b"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-54a84111d206a61715b9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-8a08acbe6e5b8e2c3e2c"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eb226995ec7055df6c9"
     }
   ],
   "hasExtractedLicensingInfos": [
     {
       "licenseId": "LicenseRef-Yuruna",
       "name": "LicenseRef-Yuruna",
-      "extractedText": "# Yuruna License\n\nThis is the **Yuruna License**, based on the [MIT License](https://opensource.org/license/mit/).\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\n## No Warranty / \"As Is\"\n\n**There is no warranty of any kind.** The Software is provided **\"as is\"**,\nwithout any guarantees -- express or implied -- including but not limited to\ncorrectness, completeness, fitness for a particular purpose, merchantability,\nor non-infringement. You assume the entire risk of using it.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n\n## <span style=\"color:red;\">Administrator Risk Warning</span>\n\nPortions of this Software are designed to run with **elevated / administrator\nprivileges** (e.g., as Administrator on Windows, or via `sudo` / root on\nLinux and macOS). Running code at this privilege level is **inherently\nrisky**: it can modify system configuration, create or destroy virtual\nmachines, alter networking, install or remove packages, and read or write\narbitrary files. Mistakes -- whether in the Software, in the operator's\ninput, or in the surrounding environment -- **may lead to data loss, system\ninstability, or unrecoverable changes**.\n\nBy executing any part of the Software with administrator or root permissions,\nyou acknowledge this risk and accept full responsibility for the outcome.\nReview the code, take backups, and test in an isolated environment before\nrunning anything privileged against systems you cannot afford to lose.\n\n---\n\nLICENSEURI https://yuruna.link/license\n\nCopyright (c) 2019-2026 by Alisson Sol et al.\n\nLast review: 2026.10.04\n\nBack to [Yuruna](README.md)\n",
+      "extractedText": "# Yuruna License\n\nThis is the **Yuruna License**, based on the [MIT License](https://opensource.org/license/mit/).\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\n## No Warranty / \"As Is\"\n\n**There is no warranty of any kind.** The Software is provided **\"as is\"**,\nwithout any guarantees -- express or implied -- including but not limited to\ncorrectness, completeness, fitness for a particular purpose, merchantability,\nor non-infringement. You assume the entire risk of using it.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n\n## <span style=\"color:red;\">Administrator Risk Warning</span>\n\nPortions of this Software are designed to run with **elevated / administrator\nprivileges** (e.g., as Administrator on Windows, or via `sudo` / root on\nLinux and macOS). Running code at this privilege level is **inherently\nrisky**: it can modify system configuration, create or destroy virtual\nmachines, alter networking, install or remove packages, and read or write\narbitrary files. Mistakes -- whether in the Software, in the operator's\ninput, or in the surrounding environment -- **may lead to data loss, system\ninstability, or unrecoverable changes**.\n\nBy executing any part of the Software with administrator or root permissions,\nyou acknowledge this risk and accept full responsibility for the outcome.\nReview the code, take backups, and test in an isolated environment before\nrunning anything privileged against systems you cannot afford to lose.\n\n---\n\nLICENSEURI https://yuruna.link/license\n\nCopyright (c) 2019-2026 by Alisson Sol et al.\n\nLast review: 2026.10.11\n\nBack to [Yuruna](README.md)\n",
       "seeAlsos": [
         "https://github.com/alissonsol/yuruna/blob/main/LICENSE.md"
       ]

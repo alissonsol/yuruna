@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -50,22 +50,17 @@ apt_retry sudo apt-get update -y
 # migration, so never float this to a newer major via an unattended apt-get.
 apt_retry sudo apt-get install -y postgresql-18 postgresql-contrib-18
 
-# The deb post-install starts a cluster, so stop PostgreSQL after installation.
-if sudo systemctl is-active postgresql &>/dev/null; then
-  sudo systemctl stop postgresql
-  while sudo systemctl is-active postgresql &>/dev/null; do
-    echo "Waiting for PostgreSQL to stop..."
-    sleep 1
-  done
+# --- REGION: Ensure PostgreSQL cluster
+# Package installation normally creates the cluster. Preserve its data on retries;
+# stopping the aggregate unit does not make a subsequent drop/recreate atomic.
+clusters=$(sudo pg_lsclusters --no-header)
+if ! awk '$1 == "18" && $2 == "main" { found = 1 } END { exit !found }' <<< "$clusters"; then
+  sudo pg_createcluster 18 main
 fi
-if sudo pg_lsclusters -h 2>/dev/null | grep -q '18'; then
-  echo "Note: Dropping existing PostgreSQL 18 cluster for re-initialization"
-  sudo pg_dropcluster --stop 18 main 2>/dev/null || true
-fi
-sudo pg_createcluster 18 main --start
 
+# The aggregate service can be active while its cluster is stopped or failed.
 sudo systemctl enable postgresql
-sudo systemctl start postgresql
+sudo systemctl start postgresql@18-main
 
 # --- REGION: Installation summary
 echo ""

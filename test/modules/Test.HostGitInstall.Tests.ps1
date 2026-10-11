@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42b667c7-9705-40d2-b7ab-42c08bffb2a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     only in the module-name string. These AST guards assert the policy is now in
     one Install-YurunaGalleryModuleIfMissing helper, both wrappers delegate, the
     raw Install-Module call appears exactly once, and the helper stays private.
-    AST/source-only. Runs under Pester 4.10.1 (script-scoped throw helper).
+    AST/source-only. Runs under Pester 5.x (script-scoped throw helper).
 #>
 
 BeforeAll {
@@ -59,22 +59,14 @@ function Test-AstCallsCommand {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
-    Write-Verbose "Searching for a call to '$CommandName'"
-    $hits = $Ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $CommandName
-    }, $true)
-    return (@($hits).Count -gt 0)
+    return ((Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $CommandName) -gt 0)
 }
 
 function Get-CommandCallCount {
     [CmdletBinding()]
     [OutputType([int])]
     param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
-    Write-Verbose "Counting calls to '$CommandName'"
-    $hits = $Ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $CommandName
-    }, $true)
-    return @($hits).Count
+    return (Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $CommandName)
 }
 
 $rootAst = Get-ModuleAst -Path $modulePath

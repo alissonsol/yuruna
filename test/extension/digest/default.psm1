@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 428d03de-5680-40f0-8f54-b0a9cc822c77
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,28 +16,8 @@
 
 #requires -version 7
 
-# Default digest extension: SHA-256 values a sequence step hands to a guest
-# inside the launch command, so a guest script can verify what it downloads
-# before it extracts, installs, or executes it. See README.md in this folder.
-#
-# fetch-and-execute verifies the script it launches against a digest the host
-# TYPES into the command (over SSH or the console), never against anything the
-# HTTP download itself carries. That protects the launched script and nothing
-# it fetches afterwards: an archive it extracts, a SQL file it feeds to a
-# database, a binary it installs are plain downloads from a status service on
-# an HTTP LAN, and whoever can answer that request decides their bytes. The
-# fix is the same channel: the sequence puts the digests of those inputs in the
-# command text too, computed here on the host at step time:
-#
-#   command: "X_SHA256='${ext:digest.GetFileSha256(project/poc/db/schema.sql)}' /usr/local/lib/yuruna/fetch-and-execute.sh project/..."
-#
-# Failure contract. The readers used inside ${ext:...} (Get-FileSha256,
-# Get-ArchiveSha256, Get-PublishedSha256) warn and return '' instead of
-# throwing, the way stash-service.ResolveHost does. The empty value reaches the
-# guest as an empty variable, which a verifying guest refuses; a value that
-# merely looks plausible never gets the chance to be wrong. Publish-GuestFileSha256
-# runs from a callExtension step, where a throw is the right way to fail the step.
-
+# --- REGION: Digest extension
+# See https://yuruna.link/42e220c4-0013
 function Get-DigestRepoRoot {
     <#
     .SYNOPSIS

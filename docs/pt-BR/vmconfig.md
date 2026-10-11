@@ -64,7 +64,7 @@ entregar o resultado a `genisoimage` (KVM), `hdiutil makehybrid`
 | `SSH_AUTHORIZED_KEY_PLACEHOLDER` | `test/status/ssh/yuruna_ed25519.pub` (gerado automaticamente se ausente) por meio de `Test.Ssh\Get-YurunaSshPublicKey` | Uma única linha ed25519; inserida em autoinstall.ssh.authorized-keys (Ubuntu) e no bloco `users:` do cloud-init para o usuário de teste (AL2023). É a mesma chave usada para autenticação pelo caminho de diagnóstico após falhas (`Test.Diagnostic\Invoke-RemoteDiagnosticsKeySsh`) -- arquivos de chave por hospedeiro o quebrariam silenciosamente. |
 | `APT_PROXY_BLOCK_PLACEHOLDER` | Construído por hospedeiro por New-VM.ps1 | Bloco `apt:` de várias linhas. Substituído por substring (sem reconhecer tokens), portanto a cadeia literal NÃO DEVE aparecer em nenhum outro lugar do arquivo. |
 | `CACHING_PROXY_URL_PLACEHOLDER` | parâmetro `-CachingProxyServiceUrl` | Cadeia vazia quando nenhum caching-proxy-service está acessível; nesse caso, os blocos `if [ -n ... ]` de user-data não fazem nada. |
-| `CA_CERT_BASE64_PLACEHOLDER` | apenas macos.utm -- CA obtida pelo hospedeiro e incorporada em base64 | Vazio quando a obtenção da CA falha; então, o apt por HTTPS ignora o cache. |
+| `CA_CERT_BASE64_PLACEHOLDER` | Todos os três hospedeiros -- CA obtida pelo hospedeiro e incorporada em base64 | Vazio quando a obtenção da CA falha; então, o apt por HTTPS ignora o cache. |
 | `YURUNA_STATUS_SERVICE_IP_PLACEHOLDER` | Descoberta do IP do hospedeiro por melhor esforço | Torna-se `/etc/yuruna/host.env` e a entrada `yuruna-host` de `/etc/hosts`. |
 | `YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER` | `test/test.config.yml:statusService.port` (padrão 8080) | O mesmo. |
 | `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_VERSIONS_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` / `YURUNA_NETWORK_BASE64_PLACEHOLDER` / `YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER` | Preenchidos automaticamente por `Get-YurunaGuestScriptBase64` | Os cinco auxiliares de convidado `automation/*.sh`, incorporados como entradas `write_files` em base64. As seeds também instalam o lançador `yfe` em `/usr/local/bin/yfe`. |
@@ -85,7 +85,7 @@ valor que o módulo resolveria.
 | Etapa | Função | Entradas | Saída |
 |---|---|---|---|
 | 1. **Combinar** | `Merge-CloudInitUserData` | base compartilhada + overlay por hospedeiro (um de `hyperv` / `kvm` / `utm`) | Modelo resolvido com as âncoras substituídas, ainda contendo tokens `*_PLACEHOLDER` |
-| 2. **Codificar em base64** | `Get-YurunaGuestScriptBase64` | `<RepoRoot>/automation/{yuruna-retry.sh,yuruna-versions.sh,fetch-and-execute.sh,yuruna-network.sh,yuruna-host-locate.sh}` | `@{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>'; HostLocate = '<base64>' }` |
+| 2. **Codificar em base64** | `Get-YurunaGuestScriptBase64` | `<RepoRoot>/automation/{yuruna-retry.sh,yuruna-versions.sh,fetch-and-execute.sh,yuruna-fetch-context.sh,yuruna-network.sh,yuruna-host-locate.sh}` | `@{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; FetchContext = '<base64>'; NetworkLib = '<base64>'; HostLocate = '<base64>' }` |
 | 3. **Resolver** | `Resolve-CloudInitPlaceholder` | Modelo combinado + tabela hash de substituições | Cadeia final de user-data |
 
 `New-CloudInitUserData` é o invólucro chamado por cada `New-VM.ps1`
@@ -138,12 +138,14 @@ Cada linha de âncora na base tem o formato
 `# === YURUNA_OVERLAY_<NAME> ===`. O conjunto de âncoras varia conforme o tipo de convidado
 (autoinstall ou `runcmd:` em imagem pré-compilada):
 
-**Ubuntu Server** -- quatro âncoras:
+**Ubuntu Server** -- seis âncoras: as quatro abaixo mais `HOST_AGENT_PKG` e
+`LATE_HOST_AGENT`, para os pontos de inserção do pacote do agente do hospedeiro
+e dos comandos tardios:
 
 | Âncora | Finalidade | Uso pelos overlays |
 |---|---|---|
-| `NETWORK` | Bloco network: por hospedeiro | Apenas UTM (Hyper-V/KVM usam os padrões do cloud-init) |
-| `EARLY_COMMANDS` | Comandos anteriores à instalação | Apenas KVM (impedir o apagamento do VT) |
+| `NETWORK` | Bloco network: por hospedeiro | Todos os hospedeiros (DHCP baseado em MAC); UTM também recusa RA IPv6 |
+| `EARLY_COMMANDS` | Comandos anteriores à instalação | Todos os hospedeiros (reduzir a saída do kernel e parar o temporizador tmpfiles-clean); KVM também impede o apagamento do VT |
 | `GRUB_PRE_CONSOLE_QUIET` | Particularidades do kernel antes do bloco `console-quiet` | Hyper-V (`hv_balloon`+`hyperv_fb`), KVM (`consoleblank`) |
 | `GRUB_POST_CONSOLE_QUIET` | Particularidades do kernel após o bloco `console-quiet` | Apenas KVM (`nomodeset` seguro para framebuffer) |
 
@@ -191,7 +193,7 @@ convenção para facilitar a comparação por diff das três variantes de hosped
    wget de fuso horário -- ambos usam `/etc/wgetrc`.
 2. `update-grub` DEVE vir depois de todos os arquivos complementares `99-yuruna-*.cfg`.
 3. `umount /cdrom` + `losetup -D` DEVEM ser os últimos late-commands
-   (apenas ubuntu.server.24 -- veja "Finalização silenciosa da reinicialização após a instalação" abaixo).
+   (ubuntu.server.24 e .26 -- veja "Finalização silenciosa da reinicialização após a instalação" abaixo).
 
 Ordem recomendada (um convidado pode omitir os tópicos que não se aplicam):
 
@@ -281,7 +283,7 @@ em `Get-Image.ps1` por hospedeiro.
 ```
 chpasswd:
   list: |
-    ec2-user:amazonlinux
+    USERNAME_PLACEHOLDER:PLAINTEXT_PASSWORD_PLACEHOLDER
 ```
 
 Mantenha o formato `list:` (obsoleto), em vez do esquema mais recente
@@ -293,7 +295,7 @@ pela interface gráfica então repete a caixa de diálogo de senha incorreta. O 
 é apenas visual. O padrão `chpasswd.expire: true` do cloud-init se aplica, portanto
 o diálogo de senha atual/nova/confirmação no primeiro login ainda aparece.
 
-NÃO acrescente espaços após `ec2-user:` -- eles se tornam parte da senha.
+NÃO acrescente espaços após `USERNAME_PLACEHOLDER:` -- eles se tornam parte da senha.
 
 <a id="429f3d06-000d"></a>
 
@@ -413,6 +415,32 @@ autoinstall do Ubuntu), portanto isso ocorre antes de qualquer período de 10 mi
 terminar. É uma preocupação apenas do KVM; inofensiva em `hyperv_fb` do Hyper-V e em
 virtio-gpu de Apple Virtualization.
 
+<a id="429f3d06-009c"></a>
+
+### Impedir que o timer de limpeza de arquivos temporários dispare no instalador LIVE
+
+*(todos os overlays de hipervisor, ubuntu.server.24 e .26, early-commands do autoinstall)*
+
+```
+early-commands:
+  - systemctl stop systemd-tmpfiles-clean.timer 2>/dev/null || true
+```
+
+O `systemd-tmpfiles-clean.timer` do instalador live dispara 15 minutos
+após a inicialização, e o systemd dá ao serviço uma montagem de
+credenciais sob `/run/credentials/`. A cada etapa em chroot, o curtin faz
+um bind mount do `/run` live, uma montagem compartilhada, em
+`/target/run`, então a montagem de credenciais se propaga para baixo de
+`/target/run`. Quando o timer dispara com uma etapa em chroot aberta, a
+limpeza do curtin não consegue desmontar `/target/run` ("target is busy",
+código de saída 32). A instalação então aborta em `install-grub` ou
+`final-kernel-configuration` com "An error occurred. Press enter to start
+a shell", cerca de 15 minutos após a inicialização do instalador. O
+`mounts-at-failure.txt` enviado mostra
+`/target/run/credentials/systemd-tmpfiles-clean.service` ainda montado.
+O ambiente do instalador é descartado ao fim da instalação, então parar
+o timer não custa nada; o sistema instalado mantém o seu.
+
 <a id="429f3d06-0013"></a>
 
 <a id="apt-cache-persist-proxy"></a>
@@ -427,14 +455,14 @@ nenhum cache está configurado, deixando-o inofensivo em hospedeiros sem um.
 O bloco `if` também habilita o cache HTTPS ao confiar na CA do squid
 e apontar `Acquire::https::Proxy` para o listener ssl-bump em `:3129`:
 
-- **Hyper-V / KVM:** o instalador obtém a CA pelo mesmo canal, por meio de
-  `wget http://${CACHE_HOST}/yuruna-squid-ca.crt` -- os convidados alcançam a
-  VM de cache diretamente pelo NAT (Default Switch / 'default' do libvirt).
-  Uma falha mantém o proxy HTTP sem criptografia; o apt por HTTPS vai diretamente à origem.
-- **macos.utm:** o Shared NAT de Apple VZ isola os convidados uns dos outros,
-  portanto a obtenção da CA ocorre no HOSPEDEIRO, dentro de `New-VM.ps1`, e os bytes
-  chegam incorporados em base64 por `CA_CERT_BASE64_PLACEHOLDER`. Um
-  marcador vazio não faz nada, sem causar erro: o apt por HTTPS ignora o cache.
+- **Todos os três hospedeiros:** o construtor de VMs do hospedeiro obtém a CA
+  antes de renderizar o seed, reutilizando uma CA persistida para esse hospedeiro
+  de cache se a obtenção ao vivo falhar. Os bytes chegam incorporados em base64
+  por `CA_CERT_BASE64_PLACEHOLDER`. Um marcador vazio ignora este bloco de
+  confiança/proxy do apt. As configurações posteriores de proxy HTTPS no ambiente
+  e a restrição de saída direta continuam válidas, portanto um convidado sem CA
+  precisa do autorreparo da CA pelo script de atualização antes que o HTTPS com
+  ssl-bump possa funcionar.
 
 <a id="429f3d06-0014"></a>
 
@@ -478,12 +506,10 @@ loopback+conntrack, para que netfilter-persistent tenha um arquivo válido para 
 Âncora: `pin-ipv4-dhcp-refuse-ipv6-ra`
 
 O bloco `network:` de autoinstall no
-`host/vmconfig/ubuntu.server.base.user-data` compartilhado fixa
-a NIC principal (`match: name: "en*"`) em `dhcp4: true; dhcp6: false;
-accept-ra: false`. O glob (em vez de um `enp0s1` literal) resiste
-à mudança do modelo de NIC do convidado 26.04 de `virtio-net-pci` (`enp0s1`)
-para `e1000` (`ens1`) -- veja o comentário sobre o vetor `Network` no
-`config.plist.template` do convidado.
+`host/vmconfig/ubuntu.server.utm.overlay.yml` fixa `enp0s1` em
+`dhcp4: true; dhcp6: false; accept-ra: false; dhcp-identifier: mac`.
+Os overlays Hyper-V e KVM correspondem aos nomes `en*` e `eth*` e fixam
+`dhcp-identifier: mac` sem aplicar a política de RA IPv6 do UTM.
 
 Apenas o backend QEMU do macOS precisa disso: em
 QEMU + `-netdev vmnet-shared`, a implementação VMnet do hospedeiro envia anúncios de
@@ -498,8 +524,9 @@ finish: subiquity/Network/_send_update: CHANGE enp0s1
 ```
 
 para sempre. O backend Apple Virtualization não emite esses RAs, portanto
-a detecção automática do subiquity é segura ali; os convidados Hyper-V e KVM também não recebem
-esse fluxo de RAs, portanto mantêm a detecção automática.
+a detecção automática do subiquity é segura ali. Os convidados Hyper-V e KVM
+também não recebem esse fluxo de RAs; seus overlays mantêm a política IPv6
+nativa e fixam as concessões DHCP IPv4 pelo MAC.
 
 <a id="429f3d06-0016"></a>
 
@@ -548,8 +575,10 @@ removido:
 
 - `New-RandomPassword` de `test/extension/authentication/default.psm1`
   usa um alfabeto que inclui `-`
-  (`a-z A-Z 0-9 !@#$%^&*()-_=+`). Aproximadamente uma em cada 72 senhas geradas
-  começa com `-`. Observado em uma execução real: o cofre produziu `-4aWj*CRw`.
+  (`a-z A-Z 0-9 !@#$%^&*()-_=+`) para todos os caracteres exceto o primeiro,
+  que é alfanumérico; assim, uma senha gerada nunca começa com `-`. Uma senha
+  já existente no cofre ou fornecida por um operador ainda pode começar com `-`.
+  Observado em uma execução real: o cofre produziu `-4aWj*CRw`.
 - Sem `--`, `openssl passwd -6 -4aWj*CRw` interpreta `-4aWj*CRw` como um
   sinalizador de opção desconhecido, exibe `passwd: Use -help for summary` em stderr,
   não grava nada em stdout e termina com saída diferente de zero. O ciclo então grava um
@@ -1085,9 +1114,9 @@ OnUnitActiveSec=60s
 AccuracySec=5s
 ```
 
-As coordenadas do hospedeiro em `/etc/yuruna/host.env` são incorporadas ao criar a VM com `New-VM`, e
-nada no convidado as resolve novamente. `fetch-and-execute.sh` repara o
-endereço no início de cada etapa, deixando um intervalo aberto: uma etapa que
+As coordenadas do hospedeiro em `/etc/yuruna/host.env` são configuradas
+inicialmente ao criar a VM com `New-VM`. `fetch-and-execute.sh` resolve novamente
+um endereço inacessível no início de cada etapa, deixando um intervalo aberto: uma etapa que
 executa por muitos minutos pode ver o endereço do hospedeiro mudar durante sua execução e não ter
 como reencontrá-lo. O temporizador fecha esse intervalo para tudo que nunca passa
 pelo caminho de obtenção -- os scripts do próprio projeto, os pontos de verificação de desempenho,
@@ -1196,7 +1225,7 @@ verdade: `automation/` no repositório do framework.
 
 ```
 timedatectl set-ntp true
-TZ=$(wget -qO - --timeout=5 "http://ip-api.com/line?fields=timezone")
+TZ=$(wget -qO - --timeout=10 "http://ip-api.com/line?fields=timezone")
 [ -n "$TZ" ] && timedatectl set-timezone "$TZ"
 ```
 
@@ -1565,7 +1594,9 @@ substituição posterior não tem efeito.
 
 **Cálculo do limite de cache_mem.** `SQUID_CACHE_MEM_PLACEHOLDER` é resolvido com
 o perfil de memória da VM: 3 GB de cache Squid em uma VM padrão de 8 GB, ou 7 GB em
-um beacon de laboratório de 12 GB, com 4 vCPU em ambos os perfis. RAM e tamanho do cache Squid
+um beacon de laboratório de 12 GB. Ambos os perfis recebem metade dos núcleos do
+hospedeiro, arredondada para baixo, com um mínimo de quatro vCPUs (Hyper-V ARM64
+limita a alocação a duas). RAM e tamanho do cache Squid
 devem mudar juntos porque swap está mascarado. O cálculo da folga está em
 [caching.md -> dimensionamento da VM de cache](../caching.md#cache-vm-sizing).
 
@@ -1611,9 +1642,9 @@ imutáveis por definição, mas os registros retornam
 atinge apenas URLs fixadas por digest (o segmento `sha256:`); elas ficam em cache durante
 o ano inteiro, como arquivos `.deb` do apt. As URLs de manifestos baseadas em tags
 (`/manifests/<tag>` sem `sha256:`) continuam sendo revalidadas -- tags SÃO
-mutáveis, por exemplo, `:latest`, `:2`, `:v0.28.4`. Elas recebem apenas um intervalo curto
-de validade (`5 50% 60`), para que convidados concorrentes no mesmo ciclo usem
-o cache, enquanto uma mudança de tag em poucos minutos ainda é detectada;
+mutáveis, por exemplo, `:latest`, `:2`, `:v0.28.4`. Elas recebem um intervalo de uma hora
+de validade (`60 100% 60`), para que convidados concorrentes no mesmo ciclo usem
+o cache, enquanto uma mudança de tag ainda é detectada dentro dessa hora;
 `collapsed_forwarding` já agrupa as obtenções paralelas, portanto o intervalo
 apenas ultrapassa `must-revalidate`. O padrão de digest corresponde ao CAMINHO da
 URL, portanto funciona para qualquer hospedeiro de registro: registry.k8s.io, ghcr.io,
@@ -1740,8 +1771,9 @@ avaliada para eventos de log no nível de conexão que não contêm uma requisi�
 (túneis CONNECT, erros de TLS-bump anteriores à requisição); o squid então grava "ACL is used
 in context without an HTTP request" em `cache.log` para cada evento desse tipo --
 centenas por minuto, ocultando erros reais. `src` está sempre disponível, portanto a
-exclusão não gera avisos. O tráfego dos convidados vem da LAN, portanto descartar
-loopback remove apenas coletas do próprio serviço e consultas locais de saúde.
+exclusão não gera avisos. O tráfego dos convidados vem da LAN, portanto desviar
+loopback para seu próprio `yuruna_loopback.log` remove apenas coletas do próprio
+serviço e consultas locais de saúde de `yuruna_access.log`.
 
 O Squid 7 exige o prefixo de módulo em `access_log`; sem `stdio:`, o
 interpretador emite um aviso de obsolescência em cada carregamento da configuração.
@@ -1779,7 +1811,7 @@ A seed vincula o Loki a 127.0.0.1:3100 e o Prometheus a 127.0.0.1:9090, substitu
 
 ### Alloy: timestamps sem rótulos adicionais
 
-O Alloy define um rótulo `job` para cada origem e interpreta timestamps de eventos sem usar IPs de clientes ou URLs como rótulos. A seed fixa 1.20.0, valida `/etc/alloy/config.alloy`, para o serviço Promtail legado e importa uma vez suas posições salvas. O estado persistente dos componentes Alloy impede repetição após a reinicialização. Veja [migração do coletor](../caching.md#loki--alloy-boot-order-traps).
+O Alloy define um rótulo `job` para cada origem e interpreta timestamps de eventos sem usar IPs de clientes ou URLs como rótulos. A seed fixa 1.20.1, valida `/etc/alloy/config.alloy`, para o serviço Promtail legado e importa uma vez suas posições salvas. O estado persistente dos componentes Alloy impede repetição após a reinicialização. Veja [migração do coletor](../caching.md#loki--alloy-boot-order-traps).
 
 **Mantenha os erros de sincronização do zot.** A etapa JSON pode encontrar registros de sync-extension sem um `path` HTTP; esses registros explicam os atrasos de novas tentativas e falhas na origem, mesmo quando a requisição final de manifesto registra uma resposta bem-sucedida. O modelo fornece `NO_HTTP_PATH` para caminhos ausentes, e a etapa de descarte remove apenas coletas do próprio serviço em `/metrics`. A sentinela é mantida, não descartada, para que requisições lentas bem-sucedidas preservem as evidências de suas falhas subjacentes.
 
@@ -1791,7 +1823,7 @@ O Alloy define um rótulo `job` para cada origem e interpreta timestamps de even
 
 Arquivo complementar do Alloy: SupplementaryGroups concede leitura aos logs de acesso dos serviços de origem:
 - proxy:  /var/log/squid/yuruna_access.log (proxy:proxy 640)
-- zot:    /var/log/zot/zot.log             (zot:zot     640)
+- zot:    /var/log/zot/zot.log             (zot:zot     600; a permissão de leitura vem da ACL)
 O serviço executa como o usuário `alloy` do pacote; mantenha ambos os grupos suplementares e as ACLs de arquivo/padrão do Zot.
 
 <a id="429f3d06-004a"></a>
@@ -2261,9 +2293,9 @@ Remova o arquivo complementar de proxy apt, para que futuros apt nesta VM não p
 
 ### Mudar o squid para o modo offline
 
-Mude o squid para offline_mode agora que o pré-aquecimento terminou. Com offline_mode habilitado, o squid serve objetos em cache sem contatar a origem -- um acerto retorna conteúdo armazenado; uma ausência retorna 504. Isso permite o fluxo "totalmente desconectado se tudo estiver em cache": os convidados podem instalar pacotes apt por este proxy sem internet no hospedeiro.
+Mude o squid para offline_mode agora que o pré-aquecimento terminou. Com offline_mode habilitado, o squid serve objetos em cache sem contatar a origem -- um acerto retorna conteúdo armazenado; uma ausência ainda consulta a origem. Isso permite o fluxo "totalmente desconectado se tudo estiver em cache": os convidados podem instalar pacotes apt por este proxy sem internet no hospedeiro.
 
-Deve ocorrer DEPOIS do pré-aquecimento -- com offline_mode habilitado, a primeira requisição a um cache frio retorna 504, e o pré-aquecimento não armazena nada. Incluído como arquivo conf.d separado, para que um operador possa atualizar pela origem removendo apenas esse arquivo e executando `squid -k reconfigure`.
+Faça a mudança DEPOIS do pré-aquecimento -- com o cache aquecido, ela não tem custo e economiza uma requisição condicional por objeto. Incluído como arquivo conf.d separado, para que um operador possa atualizar pela origem removendo apenas esse arquivo e executando `squid -k reconfigure`.
 
 <a id="429f3d06-006f"></a>
 
@@ -2369,7 +2401,22 @@ Essas 24h não são o intervalo de tempo padrão do painel acima nem a janela de
 
 ### Inicialização do armazenamento de intenção dos grupos
 
-Armazenamento de intenção dos grupos Yuruna: um repositório Git bare que os hospedeiros de grupos clonam e buscam SOMENTE PARA LEITURA por HTTP (a configuração apache yuruna-pool-intent), para conhecer a composição do grupo e desiredState. A CLI de administração (executada no proxy) envia a intenção para cá. Inicializado com um pools.yml vazio e válido pelo esquema em 'main', para que o primeiro clone não esteja vazio e seja determinístico. O hook post-update mantém as informações dumb-HTTP atuais a cada push. Idempotente (uma nova execução ignora um repositório existente) e com falhas toleradas (cada etapa sujeita a falha usa `|| true`), portanto nunca pode abortar a fase.
+O armazenamento de intenção dos grupos Yuruna é um repositório Git bare que os
+hospedeiros dos grupos clonam e atualizam somente para leitura por HTTP, pela
+configuração Apache `yuruna-pool-intent`. A CLI de administração envia para cá a
+composição dos grupos e `desiredState`. Inicialize `main` com um `pools.yml`
+vazio usando `schemaVersion: 3`: um esquema antigo permite clonar o repositório,
+mas falha na validação da primeira gravação administrativa. A inicialização
+ignora um repositório existente, e falhas na configuração do Git são toleradas
+para permitir que o provisionamento dos demais serviços continue.
+
+Defina `receive.updateServerInfo=true` para atualizar os índices dumb-HTTP após
+cada push. Os modos definidos pela montagem CIFS impedem tornar executável um
+hook `post-update`, por isso é necessário usar a configuração interna do Git.
+Defina `core.fileMode=false` porque o CIFS deriva os modos dos arquivos das
+opções de montagem. Essas opções também atribuem a propriedade; evite `chown`,
+que pode impor uma ACL exclusiva ao proprietário e bloquear a VM de controle
+do grupo que grava no mesmo compartilhamento.
 
 Crie o repositório apenas enquanto o NAS do grupo estiver montado. Inicializá-lo sob um ponto de montagem não montado colocaria a intenção no disco da VM; uma montagem posterior ocultaria esse repositório e deixaria inacessíveis as atualizações feitas nesse intervalo.
 
@@ -2616,7 +2663,7 @@ O destino deve permanecer em um dos caminhos pesquisados pelo daemon quando `--f
 ### Adição de um novo overlay de plataforma
 
 1. Crie `host/vmconfig/ubuntu.server.<platform>.overlay.yml` com os
-   quatro cabeçalhos de âncora (conteúdos vazios para âncoras que a plataforma não
+   seis cabeçalhos de âncora (conteúdos vazios para âncoras que a plataforma não
    usa).
 2. Acrescente um `New-VM.ps1` em `host/<platform>/guest.ubuntu.server.{24,26}/`
    que chame `New-CloudInitUserData` com o novo caminho de overlay.
@@ -2844,6 +2891,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../../README.md)

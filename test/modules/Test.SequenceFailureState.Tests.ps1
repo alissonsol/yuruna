@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,6 +63,11 @@ function Reset-FailState {
     $f.LastFailureDescription = 'OCR: yt2sqluser@'
     $f.LastFailedAction = 'waitForText'
     $f.LastFailedStepNumber = 3
+    $f.LastFailedStepInvocationId = ''
+    $f.LastFailedSequenceInvocationId = ''
+    $f.OriginatingStepInvocationId = ''
+    $f.OriginatingSequenceInvocationId = ''
+    $f.StepProgressAdvisory = $null
     $f.LastSucceededStepNumber = 2
     $f.LastInnerFailedAction = $null
     $f.LastInnerFailureClass = $null
@@ -75,6 +80,9 @@ function Reset-FailState {
     # file reclassified as a flooded console -- the failure mode this baseline
     # exists to prevent.
     $f.WaitForTextConsoleFlood = $null
+    # Same reasoning: a staged-input verdict left set would reclassify every
+    # later failure in this file as input_lost.
+    $f.StepInputLost = $null
     # Same reasoning as the flood slot: a test that sets either of these would
     # otherwise leave every later test in this file reporting a parked console or
     # an operator hold it never had.
@@ -85,6 +93,11 @@ function Reset-FailState {
     # clears it would leave every later test in this file publishing nulls.
     $f.WaitForTextConsoleSignalsMeasured = $true
     $f.LastPauseRelease = $null
+    # Same reasoning again: a test that records a livelock or a blank console
+    # would otherwise leave every later record carrying it.
+    $f.WaitForTextGuestLivelock = $null
+    $f.WaitForTextGuestLivelocked = $false
+    $f.WaitForTextBlankScreenSeconds = 0
     return $f
 }
 
@@ -98,7 +111,88 @@ $script:seqPath = @('C:', 'repo', 'project', 'example',
 
 }
 
+Describe 'progress observations remain advisory' {
+    It 'combines static output and an unresponsive transport without allowing a restart' {
+        $r = Get-GuestProgressAdvisory -OutputStaticSeconds 200 -SshResponsiveness unresponsive
+        $r.Verdict | Should -Be 'progress-suspect'
+        $r.HeartbeatAgeSeconds | Should -BeNullOrEmpty
+        $r.AutomaticRecoveryAllowed | Should -BeFalse
+    }
+    It 'does not treat a quiet console or a single trapped processor as proof of lost progress' {
+        (Get-GuestProgressAdvisory -OutputStaticSeconds 400 -HeartbeatAgeSeconds 10 -SshResponsiveness responsive).Verdict | Should -Be 'insufficient-evidence'
+        (Get-GuestProgressAdvisory).Verdict | Should -Be unavailable
+        (Get-GuestProgressAdvisory -OutputStaticSeconds 20 -HeartbeatAgeSeconds 10 -SshResponsiveness responsive).Verdict | Should -Be 'no-stall-evidence'
+    }
+    It 'combines a stale heartbeat with SSH failure and keeps missing console evidence unknown' {
+        $r = Get-GuestProgressAdvisory -HeartbeatAgeSeconds 180 -SshResponsiveness unresponsive
+        $r.Verdict | Should -Be 'progress-suspect'
+        $r.OutputStaticSeconds | Should -BeNullOrEmpty
+        $r.Signals | Should -Contain 'stale-recorder-heartbeat'
+        $r.AutomaticRecoveryAllowed | Should -BeFalse
+    }
+}
+
 Describe 'New-SequenceFailureRecord actionability enrichment (step)' {
+    It 'preserves nested processor evidence through every production failure-file serializer' {
+        $f = Reset-FailState
+        $f.WaitForTextGuestLivelock = [pscustomobject]@{
+            Verdict='not-livelocked'
+            ProcessorWindow=@{
+                SampleCount=21
+                Processors=@(@{
+                    Processor='1'
+                    Counters=@{
+                        '% Hypervisor Run Time'=@{ Status='present'; Average=89.55; SampleCount=21; UnavailableSampleCount=0 }
+                        'SysReg Accesses/sec'=@{ Status='unavailable'; Average=$null; SampleCount=0; UnavailableSampleCount=21 }
+                    }
+                })
+                CounterCapabilities=@(@{ Counter='SysReg Accesses/sec'; Status='absent'; Reason='not published' })
+            }
+        }
+        $record = New-SequenceFailureRecord -Reason step -VMName v -GuestKey g -HostType h -SequencePath $script:seqPath -LogDir d
+        $serializers = @(foreach ($module in @('Test.SequenceEngine.psm1', 'Test.RunnerInnerLoop.psm1')) {
+            $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here $module), [ref]$null, [ref]$null)
+            foreach ($command in $ast.FindAll({ param($node)
+                $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'ConvertTo-Json'
+            }, $true)) {
+                $pipeline = $command.Parent
+                if ($pipeline.Extent.Text -notmatch '^\$(?:failRec\.File|rec(?:\.File)?)\s*\|') { continue }
+                [pscustomobject]@{
+                    Source = "$module`:$($command.Extent.StartLineNumber)"
+                    Text = $pipeline.Extent.Text.Replace($pipeline.PipelineElements[0].Extent.Text, '$args[0]')
+                }
+            }
+        })
+        $serializers.Count | Should -BeGreaterOrEqual 5
+        foreach ($serializer in $serializers) {
+            $json = & ([scriptblock]::Create($serializer.Text)) $record.File
+            $roundTrip = $json | ConvertFrom-Json -AsHashtable
+            $window = $roundTrip.context.causeDetail.guestLivelock.processorWindow
+            $window.Processors[0].Counters['% Hypervisor Run Time'].Average | Should -Be 89.55 -Because $serializer.Source
+            $missing = $window.Processors[0].Counters['SysReg Accesses/sec']
+            $missing.Status | Should -Be unavailable -Because $serializer.Source
+            $missing.ContainsKey('Average') | Should -BeTrue -Because $serializer.Source
+            $missing.Average | Should -BeNullOrEmpty -Because $serializer.Source
+            $window.CounterCapabilities[0].Status | Should -Be absent -Because $serializer.Source
+        }
+    }
+
+    It 'retains failed invocation IDs and processor evidence even without a livelock' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'failed-step'
+        $f.LastFailedSequenceInvocationId = 'failed-sequence'
+        $f.WaitForTextGuestLivelock = [pscustomobject]@{
+            Verdict='not-livelocked'; ProcessorWindow=@{ SampleCount=21; Processors=@(@{ Processor='1'; HypervisorRunPercent=89.55 }) }
+        }
+        $r = New-SequenceFailureRecord -Reason step -VMName v -GuestKey g -HostType h -SequencePath $script:seqPath -LogDir d
+        $r.File.stepInvocationId | Should -Be 'failed-step'
+        $r.Event.sequenceInvocationId | Should -Be 'failed-sequence'
+        $r.File.originatingStepInvocationId | Should -Be 'failed-step'
+        $r.Event.originatingSequenceInvocationId | Should -Be 'failed-sequence'
+        $r.File.context.causeDetail.guestLivelock.processorWindow.SampleCount | Should -Be 21
+        $r.Event.guestProcessorWindow.Processors[0].Processor | Should -Be '1'
+        $r.Event.causeGuestLivelocked | Should -BeFalse
+    }
     It 'carries sequenceName, reason, classificationSource and a repro block' {
         [void](Reset-FailState)
         $r = New-SequenceFailureRecord -Reason step -VMName 'k8s.text-to-sql' -GuestKey 'guest.ubuntu.server.24' -HostType 'host.windows.hyper-v' -SequencePath $script:seqPath -LogDir 'C:\cyc' -TotalSteps 11
@@ -267,6 +361,28 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass
     }
 
+    It 'classifies a staged command whose guard never closed as input_lost' {
+        # The payload never ran, so the class carries retry guidance: replaying
+        # the step cannot repeat work. A flooded console is the reading a frozen
+        # echo would otherwise produce, so the specific cause has to win over it.
+        $f = Reset-FailState
+        $f.StepInputLost = $true
+        $f.WaitForTextConsoleFlood = 'console filled with a repeating line'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'input_lost' -Actual $r.File.failureClass
+        Assert-Equal -Expected 'retry_with_backoff' -Actual @($r.File.suggestedRecoveries)[0]
+    }
+
+    It 'ranks a matched failure pattern above input_lost' {
+        # A guest that printed its own failure ran the payload, so the input was
+        # not the cause and the class must not claim it was.
+        $f = Reset-FailState
+        $f.StepInputLost = $true
+        $f.WaitForTextMatchedFailurePattern = 'NONZERO SCRIPT EXIT:'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass
+    }
+
     It 'leaves the flood field empty, not absent, on an ordinary failure' {
         # A consumer must never have to tell "not flooded" from "this record
         # predates the check".
@@ -307,6 +423,43 @@ Describe 'New-SequenceFailureRecord OCR causeDetail' {
         Assert-Equal -Expected 0 -Actual (@($r.Event.causePatternsSought).Count) -Because 'empty patterns array (not null)'
         $violations = Test-CycleEventSchema -Record $r.Event
         Assert-Equal -Expected 0 -Actual (@($violations).Count) -Because "event still validates; got: $($violations -join '; ')"
+    }
+    It 'says the console went blank instead of leaving the screen fields empty' {
+        $f = Reset-FailState
+        $f.WaitForTextPatternsSought = [string[]]@('Continue with autoinstall?')
+        $f.WaitForTextBlankScreenSeconds = 1690
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 17
+        Assert-Equal -Expected 1690 -Actual $r.File.context.causeDetail.blankScreenSeconds
+        Assert-Equal -Expected 1690 -Actual $r.Event.causeBlankScreenSeconds
+        Assert-Equal -Expected 'Continue with autoinstall?' -Actual @($r.File.context.causeDetail.patternsSought)[0]
+    }
+    It 'carries the hypervisor livelock verdict into the record and flat on the event' {
+        $f = Reset-FailState
+        $f.WaitForTextGuestLivelocked = $true
+        $f.WaitForTextGuestLivelock = [pscustomobject]@{
+            Verdict = 'livelocked'; LivelockedSeconds = 1230; MinimumSeconds = 300; VirtualProcessors = 1
+            GuestRunPercent = 4.8; HypervisorRunPercent = 94.1; InterceptsPerSecond = 3690000
+            InterceptBreakdown = [ordered]@{ 'SysReg Accesses/sec' = 3600000 }; DominantIntercept = 'SysReg Accesses/sec'
+            SampleCount = 83; NewestSampleUtc = '2026-10-06T17:39:27.0000000Z'; Detail = 'd'; Reason = ''
+        }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 17
+        $livelock = $r.File.context.causeDetail.guestLivelock
+        Assert-Equal -Expected 'livelocked' -Actual $livelock.verdict
+        Assert-Equal -Expected 1230 -Actual $livelock.livelockedSeconds
+        Assert-Equal -Expected 'SysReg Accesses/sec' -Actual $livelock.dominantIntercept
+        Assert-True ($r.Event.causeGuestLivelocked) 'the flat event must say the guest was livelocked'
+        Assert-Equal -Expected 1230 -Actual $r.Event.causeGuestLivelockedSeconds
+        $violations = Test-CycleEventSchema -Record $r.Event
+        Assert-Equal -Expected 0 -Actual (@($violations).Count) -Because "event still validates; got: $($violations -join '; ')"
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass -Because 'the verdict is evidence for the reader, not a reclassification'
+    }
+    It 'keeps the livelock field present and null when no host recording was read' {
+        [void](Reset-FailState)
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 17
+        Assert-True ($r.File.context.causeDetail.Contains('guestLivelock')) 'the field must always be present'
+        Assert-True ($null -eq $r.File.context.causeDetail.guestLivelock) 'not measured must not read as measured and found running'
+        Assert-True (-not $r.Event.causeGuestLivelocked) 'no verdict is not a livelock'
+        Assert-Equal -Expected 0 -Actual $r.File.context.causeDetail.blankScreenSeconds
     }
     It 'omits causeDetail from a crash record context but keeps the flat event fields' {
         [void](Reset-FailState)

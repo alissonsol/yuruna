@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42708dea-607b-47cf-bf37-876b347859d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,12 +65,7 @@ function Get-FunctionAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.FunctionDefinitionAst])]
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$FunctionName)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-    $func = $ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $FunctionName
-    }, $true) | Select-Object -First 1
+    $func = Get-YurunaTestFunctionAst -Path $Path -Name $FunctionName
     if (-not $func) { throw "Function '$FunctionName' not found in $Path" }
     return $func
 }
@@ -96,11 +91,7 @@ function Test-AstCallsCommand {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
-    Write-Verbose "Searching for a call to '$CommandName'"
-    $hits = $Ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $CommandName
-    }, $true)
-    return (@($hits).Count -gt 0)
+    return ((Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $CommandName) -gt 0)
 }
 
 # The parsed dispatch function the AST guards below inspect. It is resolved at

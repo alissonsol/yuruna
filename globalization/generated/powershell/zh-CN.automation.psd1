@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4215a4b8-4fbf-82d7-effd-933fdbd2dd43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,8 @@
 # locale: zh-CN  domain: automation
 
 @{
+    'automation.diagnostic_checkout_unavailable' = '（不适用：检出目录的证据不可用；请传入 -CheckoutRoot 以使用现有的 Yuruna 检出目录）'
+    'automation.diagnostic_phase_log_limits' = '阶段日志扫描最多读取 100 个文件、12 层目录，耗时不超过 10 秒；每个日志最多显示最后 64 KiB。'
     'automation.host_setup_module_install_skipped' = @(
         '未安装'
         @{

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -959,6 +959,30 @@ function Get-InstallerConsoleStage {
     return "$($last.Groups[1].Value.ToLowerInvariant()): $($last.Groups[2].Value)"
 }
 
+function Get-GuestLivelockVerdict {
+    <#
+    .SYNOPSIS
+        The host recording's livelock verdict for a VM, or $null when no
+        recording can be read.
+    .DESCRIPTION
+        Evidence gathering must never fail the wait it serves, so a sampling
+        module that will not load or a recording that will not parse answers
+        $null -- not measured -- rather than an error.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$VMName)
+    try {
+        if (-not (Get-Command Get-YurunaVmLivelockState -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop -Verbose:$false
+        }
+        return (Get-YurunaVmLivelockState -VMName $VMName)
+    } catch {
+        Write-Verbose "      Host livelock verdict unavailable for '$VMName': $($_.Exception.Message)"
+        return $null
+    }
+}
+
 function Wait-ForText {
     <#
     .SYNOPSIS
@@ -1014,7 +1038,12 @@ function Wait-ForText {
         [string[]]$FailurePattern = @(),
         # See https://yuruna.link/4213a0b3-0125
         [string[]]$EarlyFailurePattern = @(),
-        [int]$EarlyFailureSeconds = 0
+        [int]$EarlyFailureSeconds = 0,
+        # End the wait as soon as the host recording shows the guest livelocked
+        # (see Get-YurunaVmLivelockVerdict). Callers can then diagnose or cold
+        # restart at a safe boundary; a partially executed payload must not be
+        # replayed merely because its completion wait ended early.
+        [switch]$EndOnGuestLivelock
     )
     # Reset the cross-function signals so a prior call can't leak into the next
     # Wait-ForText invocation. Like WaitForTextMatchedFailurePattern, the cause
@@ -1034,8 +1063,12 @@ function Wait-ForText {
     $script:Fail.WaitForTextInstallerStage = ''
     $script:Fail.WaitForTextInstallerStageSeconds = 0
     $script:Fail.WaitForTextGuestBootStalled = $false
+    $script:Fail.WaitForTextGuestLivelocked = $false
+    $script:Fail.WaitForTextGuestLivelock = $null
+    $script:Fail.WaitForTextBlankScreenSeconds = 0
     # See https://yuruna.link/4213a0b3-0126
     $script:Fail.WaitForTextConsoleSignalsMeasured = (-not $FreshMatch)
+    $script:Fail.WaitForTextOutputStaticSeconds = $null
     # Per-wait verdict, readable by a caller that has to decide what to do with a
     # wait that came back false. The bool return says only "not found"; it cannot
     # distinguish a guest still working from a guest parked on a prompt that has
@@ -1154,11 +1187,24 @@ function Wait-ForText {
     $lastStaticText        = $null
     $contentStaticSinceUtc = [DateTime]::UtcNow
     $maxConsoleStaticSecs  = 0
+    $progressText = $null
+    $progressSinceUtc = $null
+    $progressStaticSeconds = $null
     $installerStage = ''
     $installerStageSinceUtc = $null
     # See https://yuruna.link/4213a0b3-012b
     $deadlineGrantedSeconds  = 0
     $maxDeadlineGrantSeconds = [math]::Min([int]$TimeoutSeconds, 120)
+    # Blank-console run: consecutive captures from which no engine read any
+    # text. The content-static tracker above measures only text it can read,
+    # so a console that went black would otherwise leave no trace in the
+    # failure record, which then reads like a wait that compared nothing.
+    $blankSinceUtc = $null
+    # The host recording advances once per sampler interval, so asking more
+    # than once a minute buys nothing but parsing.
+    $nextLivelockCheckUtc = $startUtc
+    $livelockVerdict = $null
+    $endedOnLivelock = $false
 
     # Seed the ring-buffer queue once with anything already on disk from
     # earlier Wait-ForText calls in this guest run (the screensDir persists
@@ -1175,6 +1221,18 @@ function Wait-ForText {
             # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
             $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
             Write-ProgressTick -Activity "waitForText" -Status "'$patternLabel' (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
+
+            # Checked before the capture so a feed that stopped delivering
+            # frames cannot postpone the verdict: the hypervisor's view does
+            # not depend on the console path at all.
+            if ($EndOnGuestLivelock -and [DateTime]::UtcNow -ge $nextLivelockCheckUtc) {
+                $nextLivelockCheckUtc = [DateTime]::UtcNow.AddSeconds(60)
+                $livelockVerdict = Get-GuestLivelockVerdict -VMName $VMName
+                if ($livelockVerdict -and $livelockVerdict.Verdict -eq 'livelocked') {
+                    $endedOnLivelock = $true
+                    break
+                }
+            }
 
             # Capture into the ring buffer with a millisecond-precise UTC name
             # so multiple Wait-ForText calls within the same guest produce a
@@ -1317,6 +1375,17 @@ function Wait-ForText {
                     }
                 }
 
+                # Observe output even when a tail-only match disables the
+                # recovery signals. This advisory never triggers console input
+                # or a restart of state-changing work.
+                $progressNow = Get-ConsoleTextSignature -Text ([string]$result.AnyText)
+                if ($progressNow) {
+                    if ($progressNow -cne $progressText) { $progressText=$progressNow; $progressSinceUtc=[datetime]::UtcNow }
+                    $progressStaticSeconds = [int]([datetime]::UtcNow - $progressSinceUtc).TotalSeconds
+                } else {
+                    $progressText=$null; $progressSinceUtc=$null; $progressStaticSeconds=$null
+                }
+
                 # Bounded self-heal (arms Test.VncProvider / Test.ScreenshotProvider):
                 # several consecutive no-text polls suggest the capture feed went
                 # stale. Force the next Get-VMScreenshot to re-handshake by clearing
@@ -1325,7 +1394,9 @@ function Wait-ForText {
                 # normally rather than thrashing the transport.
                 if ($result.AnyText) {
                     $noTextPolls = 0
+                    $blankSinceUtc = $null
                 } else {
+                    if (-not $blankSinceUtc) { $blankSinceUtc = [DateTime]::UtcNow }
                     $noTextPolls++
                     if ($noTextPolls -ge 4 -and $ringRepairs -lt 2) {
                         $noTextPolls = 0
@@ -1470,18 +1541,37 @@ function Wait-ForText {
             Copy-Item -Path $lastCapturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b24a2d8bfa724905' -Arguments @{ failScreenPath = "$failScreenPath"; screensDir = "$screensDir" })
         }
+        # The sought patterns go into causeDetail on every timeout, set on
+        # failure only so a successful wait can't leak them. Recording them
+        # only beside readable text made a blank console's record look like a
+        # wait that sought nothing.
+        $script:Fail.WaitForTextPatternsSought = [string[]]@($Pattern)
         if ($lastOcrText) {
             $failOcrPath = Join-Path $logDir "failure_ocr_${VMName}.txt"
             Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ae9f061222f374f7' -Arguments @{ failOcrPath = "$failOcrPath" })
-            # Bounded tail + the sought patterns into causeDetail (set on failure
-            # only, so a successful wait can't leak them).
             $script:Fail.WaitForTextOcrTail = if ($lastOcrText.Length -le 1200) { $lastOcrText } else { $lastOcrText.Substring($lastOcrText.Length - 1200) }
-            $script:Fail.WaitForTextPatternsSought = [string[]]@($Pattern)
+        }
+        if ($blankSinceUtc) {
+            $script:Fail.WaitForTextBlankScreenSeconds = [int]([DateTime]::UtcNow - $blankSinceUtc).TotalSeconds
+        }
+
+        # The hypervisor's view of the guest, recorded on every timeout where a
+        # host recording exists: it is the one reading that separates a guest
+        # still working from one whose processors are trapping in place, and
+        # neither the console nor the capture path can tell those apart.
+        if (-not $endedOnLivelock) { $livelockVerdict = Get-GuestLivelockVerdict -VMName $VMName }
+        if ($livelockVerdict) {
+            $script:Fail.WaitForTextGuestLivelock = $livelockVerdict
+            $script:Fail.WaitForTextGuestLivelocked = ($livelockVerdict.Verdict -eq 'livelocked')
+            if ($script:Fail.WaitForTextGuestLivelocked -and -not $endedOnLivelock) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7e0c2dd4aa0c5981' -Arguments @{ detail = "$($livelockVerdict.Detail)" })
+            }
         }
 
         # See https://yuruna.link/4213a0b3-0130
         $script:Fail.WaitForTextConsoleStaticSeconds = [int]$maxConsoleStaticSecs
+        $script:Fail.WaitForTextOutputStaticSeconds = $progressStaticSeconds
         $script:Fail.WaitForTextInstallerStage = $installerStage
         if ($installerStageSinceUtc) {
             $script:Fail.WaitForTextInstallerStageSeconds = [int]([DateTime]::UtcNow - $installerStageSinceUtc).TotalSeconds
@@ -1546,7 +1636,10 @@ function Wait-ForText {
             }
         }
 
-        if ($deadlineGrantedSeconds -gt 0) {
+        if ($endedOnLivelock) {
+            $waited = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6d4042dbe6943c27' -Arguments @{ patternLabel = "$patternLabel"; waited = "${waited}"; timeoutSeconds = "${TimeoutSeconds}"; detail = "$($livelockVerdict.Detail)" })
+        } elseif ($deadlineGrantedSeconds -gt 0) {
             $waited = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5d951715d9614411' -Arguments @{ patternLabel = "$patternLabel"; timeoutSeconds = "${TimeoutSeconds}"; deadlineGrantedSeconds = "${deadlineGrantedSeconds}"; waited = "${waited}" })
         } else {
@@ -2180,6 +2273,10 @@ function Invoke-Sequence {
         }
     }
 
+    # Evidence correlation also applies to direct/debug runs without an active
+    # performance cycle. Prefer its ID when available, otherwise own one here.
+    if (-not $sequenceInvocationId) { $sequenceInvocationId = [Guid]::NewGuid().ToString('N') }
+
     if ($steps.Count -eq 0) {
         Write-Verbose "    No steps defined."
         return $true
@@ -2388,10 +2485,16 @@ function Invoke-Sequence {
         $stepNum = $StepOffset
         foreach ($step in $Steps) {
             $stepNum++
+            $ctx = $null
+            $script:Fail.LastFailedStepInvocationId = ''
+            $script:Fail.LastFailedSequenceInvocationId = ''
+            $script:Fail.OriginatingStepInvocationId = ''
+            $script:Fail.OriginatingSequenceInvocationId = ''
             # Cause signals belong to one attempted step, including nested retries.
             foreach ($cause in @('WaitForTextMatchedFailurePattern', 'WaitForTextOcrTail',
                 'WaitForTextClosestOnScreen', 'WaitForTextConsoleFlood', 'StepGuestAddressUnresolved',
-                'StepGuestTransportLost', 'StepGuestRunLost', 'StepGuestPayloadUnavailable')) {
+                'StepGuestTransportLost', 'StepGuestRunLost', 'StepGuestPayloadUnavailable', 'StepInputLost',
+                'WaitForTextGuestLivelock', 'WaitForTextOutputStaticSeconds', 'StepProgressAdvisory')) {
                 $script:Fail[$cause] = $null
             }
             $script:Fail.WaitForTextPatternsSought = [string[]]@()
@@ -2400,6 +2503,8 @@ function Invoke-Sequence {
             $script:Fail.WaitForTextInstallerStage = ''
             $script:Fail.WaitForTextInstallerStageSeconds = 0
             $script:Fail.WaitForTextGuestBootStalled = $false
+            $script:Fail.WaitForTextGuestLivelocked = $false
+            $script:Fail.WaitForTextBlankScreenSeconds = 0
             $script:Fail.WaitForTextConsoleSignalsMeasured = $true
 
             # Gate #2: between-steps pause + cycle-restart check. Catches
@@ -2441,6 +2546,8 @@ function Invoke-Sequence {
         # write itself.
         $stepStartUtc = [DateTime]::UtcNow
         $stepInvocationId = [Guid]::NewGuid().ToString('N')
+        $script:Fail.LastFailedStepInvocationId = $stepInvocationId
+        $script:Fail.LastFailedSequenceInvocationId = $sequenceInvocationId
         $ctx = $null
         $ok = $true
 
@@ -2502,6 +2609,10 @@ function Invoke-Sequence {
         }
         } finally {
             $global:ProgressPreference = $savedProgress
+            if ($ctx) {
+                $script:Fail.LastFailedStepInvocationId = $ctx.StepInvocationId
+                $script:Fail.LastFailedSequenceInvocationId = $ctx.SequenceInvocationId
+            }
         }
 
         # Normalize $ok. Anything that isn't a strict [bool] -- $null, an
@@ -2548,6 +2659,32 @@ function Invoke-Sequence {
         $evidenceCaptureDurationMs = if ($ctx -and $ctx.EvidenceCaptureDurationMs) { [long]$ctx.EvidenceCaptureDurationMs } else { 0L }
         if ($diagnosticOutcome) { $stepEndRecord.diagnosticOutcome = $diagnosticOutcome }
         if ($evidenceCaptureDurationMs -gt 0) { $stepEndRecord.evidenceCaptureDurationMs = $evidenceCaptureDurationMs }
+        if ($ctx -and $ctx.ExecutionProfile) { $stepEndRecord.executionEvidence = $ctx.ExecutionProfile }
+        if (-not $ok) {
+            # Retry explicitly forwards the failed leaf's observations. Its
+            # wrapper has no SSH measurement of its own and must not erase them.
+            if ($ctx -and $ctx.OriginatingStepInvocationId -and $ctx.OriginatingSequenceInvocationId) {
+                $script:Fail.OriginatingStepInvocationId = [string]$ctx.OriginatingStepInvocationId
+                $script:Fail.OriginatingSequenceInvocationId = [string]$ctx.OriginatingSequenceInvocationId
+                $script:Fail.StepProgressAdvisory = $ctx.OriginatingProgressAdvisory
+            } else {
+                $sshResponsiveness = 'unavailable'
+                $heartbeatAge = $null
+                if ($ctx -and $ctx.ExecutionProfile) {
+                    if ($ctx.ExecutionProfile.sshResponsive) { $sshResponsiveness='responsive' }
+                    elseif ($ctx.ExecutionProfile.timedOut) { $sshResponsiveness='unresponsive' }
+                    $heartbeatAge = $ctx.ExecutionProfile.recorder.heartbeatAgeSeconds
+                }
+                $script:Fail.StepProgressAdvisory = Get-GuestProgressAdvisory `
+                    -OutputStaticSeconds $script:Fail.WaitForTextOutputStaticSeconds `
+                    -HeartbeatAgeSeconds $heartbeatAge -SshResponsiveness $sshResponsiveness
+                $script:Fail.OriginatingStepInvocationId = $stepInvocationId
+                $script:Fail.OriginatingSequenceInvocationId = $sequenceInvocationId
+            }
+            $stepEndRecord.originatingStepInvocationId = $script:Fail.OriginatingStepInvocationId
+            $stepEndRecord.originatingSequenceInvocationId = $script:Fail.OriginatingSequenceInvocationId
+            $stepEndRecord.progressAdvisory = $script:Fail.StepProgressAdvisory
+        }
         # See https://yuruna.link/4213a0b3-0143
         if (-not $ok) {
             $stepVerbEntry = Get-SequenceAction -Name ([string]$step.action)
@@ -2596,7 +2733,7 @@ function Invoke-Sequence {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dd72f34f455cfe9b' -Arguments @{ stepNum = "$stepNum"; desc = "$desc" })
 
             # See https://yuruna.link/4213a0b3-0146
-            $actionLabel = Get-SequenceActionFailureLabel -Step $step -Vars $vars -ExpandVariable ${function:Expand-Variable}
+            $actionLabel = Get-SequenceActionFailureLabel -Step $step -Vars $vars -ExpandVariable ${function:Expand-Variable} -VMName $VMName -GuestKey $GuestKey
 
             # See https://yuruna.link/4213a0b3-0147
             $stepUsesWaitSignals = $false
@@ -2612,6 +2749,8 @@ function Invoke-Sequence {
             $script:Fail.LastFailureDescription = $desc
             $script:Fail.LastFailedAction       = $step.action
             $script:Fail.LastFailedStepNumber   = $stepNum
+            $script:Fail.LastFailedStepInvocationId = $stepInvocationId
+            $script:Fail.LastFailedSequenceInvocationId = $sequenceInvocationId
             # The boundary the failure record judges the per-VM screen artifacts
             # against: those files at the log root are sticky and only the verbs
             # that read a screen rewrite them, so one last written before this
@@ -2622,6 +2761,11 @@ function Invoke-Sequence {
             $script:Fail.LastFailedStepStartedUtc = $stepStartUtc
             return $false
         }
+        $script:Fail.LastFailedStepInvocationId = ''
+        $script:Fail.LastFailedSequenceInvocationId = ''
+        $script:Fail.OriginatingStepInvocationId = ''
+        $script:Fail.OriginatingSequenceInvocationId = ''
+        $script:Fail.StepProgressAdvisory = $null
         }  # end foreach inside $invokeStepBlock
         return $true
     }  # end $invokeStepBlock
@@ -2631,6 +2775,11 @@ function Invoke-Sequence {
     $script:Fail.LastFailedAction       = $null
     $script:Fail.LastFailedStepNumber   = 0
     $script:Fail.LastFailedStepStartedUtc = $null
+    $script:Fail.LastFailedStepInvocationId = ''
+    $script:Fail.LastFailedSequenceInvocationId = ''
+    $script:Fail.OriginatingStepInvocationId = ''
+    $script:Fail.OriginatingSequenceInvocationId = ''
+    $script:Fail.StepProgressAdvisory = $null
     # See https://yuruna.link/4213a0b3-0148
     $script:Fail.LastInnerFailedAction         = $null
     $script:Fail.LastInnerFailureClass         = $null
@@ -2673,7 +2822,7 @@ function Invoke-Sequence {
         $failureFile = Join-Path $logDir "last_failure.json"
         # Atomic write: a remediator/status reader must never observe a truncated
         # last_failure.json mid-write (partial-write regression class).
-        $null = Write-YurunaStateFile -Path $failureFile -Content ($failRec.File | ConvertTo-Json -Depth 6) -Confirm:$false
+        $null = Write-YurunaStateFile -Path $failureFile -Content ($failRec.File | ConvertTo-Json -Depth 12) -Confirm:$false
         # One NDJSON line for stream consumers (status service, remediation loop, CI hook).
         Send-CycleEventSafely -EventRecord $failRec.Event
         # Mirror it into the cycle folder in the same breath. The copy above
@@ -2744,7 +2893,7 @@ function Invoke-Sequence {
         $VMName = [string]$script:SequenceFinishedVMName
         $failRec = New-SequenceFailureRecord -Reason 'crash' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $sourceStepCount -CrashError $_
         # Atomic, best-effort: a reader must never see a truncated crash record.
-        $null = Write-YurunaStateFile -Path (Join-Path $logDir "last_failure.json") -Content ($failRec.File | ConvertTo-Json -Depth 6) -Confirm:$false
+        $null = Write-YurunaStateFile -Path (Join-Path $logDir "last_failure.json") -Content ($failRec.File | ConvertTo-Json -Depth 12) -Confirm:$false
         # Mirror the normal failure path NDJSON so a stream consumer does not see
         # the cycle go silent (last step_end but no step_failure).
         Send-CycleEventSafely -EventRecord $failRec.Event

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 426e14b8-0b20-4669-be3f-a832ab317992
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     settle' block appeared in both waitForAndEnter and passwdPrompt. These guards
     assert the block is now in one Send-TabNavigation helper, both handlers
     delegate to it, and the Tab-press loop appears exactly once. Source-text only.
-    Runs under Pester 4.10.1 (script-scoped throw helper). (The divergent
+    Runs under Pester 5.x (script-scoped throw helper). (The divergent
     type/drain/Enter tails remain unshared and are out of scope for these guards.)
 #>
 

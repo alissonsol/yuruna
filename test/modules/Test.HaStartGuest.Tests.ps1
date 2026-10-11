@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a8c19c-6467-464c-bbe1-27786a9557d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,18 +28,16 @@
     gate rejecting a stale sidecar, the mid-chain rename retarget, and value-level
     EffectiveVariables forwarding. AST guards assert the loop is defined once in
     Invoke-Sequence and that each dispatcher delegates to it rather than running
-    Invoke-SequenceByName inline. Pester 4.10.1.
+    Invoke-SequenceByName inline. Pester 5.x.
 #>
 
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-FileAst {
     param([string]$Path)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 function Get-CallCount {
     param($Ast, [string]$Name)
@@ -67,8 +65,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
         Import-Module (Join-Path $here 'Test.Start-GuestWorkload.psm1') -Force -Global -DisableNameChecking
     }
 
-    # Each scenario is its own Context so Pester 4 clears its mocks at the boundary --
-    # behavioral isolation without relying on later-mock-wins override semantics.
+    # Each Context owns its mocks so sibling scenarios remain isolated.
     Context 'an empty sequence list' {
         It '<Cmd> returns success/skipped' -TestCases @(
             @{ Cmd = 'Start-GuestOS' }, @{ Cmd = 'Start-GuestWorkload' }

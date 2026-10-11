@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,8 +12,6 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
-.PARAMETER AllowPseudoLocale
-    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -53,6 +51,8 @@
     $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = '120'
     pwsh test/service/Start-DownloadAgentServiceVM.ps1
     # Short readiness budget for a quick re-check of a VM that is already up.
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]

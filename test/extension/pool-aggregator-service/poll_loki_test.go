@@ -134,3 +134,119 @@ func TestPollOnceSlowLokiLeavesPoolReadableAndSnapshotsTransitions(t *testing.T)
 		t.Fatalf("cycle counters changed: %v", s.fail)
 	}
 }
+
+func TestPollRunnerFaultPreservesCompletedCycle(t *testing.T) {
+	for _, prior := range []string{"", "pass"} {
+		t.Run("prior="+prior, func(t *testing.T) {
+			const hid = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			const start = "2026-10-01T12:00:00Z"
+			s := newPoolState("default", 8080)
+			s.hosts[hid] = &hostView{HostId: hid, CurrentIP: "192.0.2.10"}
+			if prior != "" {
+				s.seen[hid+"|"+start] = prior
+				s.counted[hid+"|"+start] = true
+				s.pass[hid] = 1
+			}
+			var cycleLines []map[string]string
+			runnerState := "paused"
+			client := &http.Client{Transport: pollLokiTransport(func(r *http.Request) (*http.Response, error) {
+				code, body := http.StatusOK, "{}"
+				if r.Method == http.MethodPost {
+					var payload struct {
+						Streams []struct {
+							Stream map[string]string `json:"stream"`
+							Values [][2]string       `json:"values"`
+						} `json:"streams"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Fatal(err)
+					}
+					for _, stream := range payload.Streams {
+						if stream.Stream["src"] != "cycle" {
+							continue
+						}
+						for _, value := range stream.Values {
+							var line map[string]string
+							if err := json.Unmarshal([]byte(value[1]), &line); err != nil {
+								t.Fatal(err)
+							}
+							cycleLines = append(cycleLines, line)
+						}
+					}
+					code = http.StatusNoContent
+				} else {
+					switch r.URL.Path {
+					case "/runtime/status.json":
+						body = fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":%q,"overallStatus":"fail","runnerState":%q,"lastFailure":{"failureClass":"preamble_stall"},"history":[{"cycleStartUtc":%q,"overallStatus":"pass","finishedAt":"2026-10-01T12:30:00Z","hostname":"private-host","lastFailure":null}]}`, hid, start, runnerState, start)
+					case "/runtime/host.registration.json":
+						body = `{"poolId":"test-pool"}`
+					default:
+						code = http.StatusNotFound
+					}
+				}
+				return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+			})}
+			for i := 0; i < 2; i++ {
+				s.pollOnce(client, filepath.Join(t.TempDir(), "absent.log"), "http://loki.invalid/push", time.Now().UTC())
+				runnerState = "cycle-start"
+			}
+			if s.pass[hid] != 1 || s.fail[hid] != 0 || len(s.failWindow[hid]) != 0 {
+				t.Fatalf("runner fault counted as cycle failure: pass=%v fail=%v window=%v", s.pass, s.fail, s.failWindow)
+			}
+			wantLines := 1
+			if prior != "" {
+				wantLines = 0
+			}
+			if len(cycleLines) != wantLines {
+				t.Fatalf("transitions=%v, want %d", cycleLines, wantLines)
+			}
+			for _, line := range cycleLines {
+				if line["overallStatus"] != "pass" || line["failureClass"] != "" || line["finishedAt"] != "2026-10-01T12:30:00Z" {
+					t.Fatalf("incorrect cycle: %v", line)
+				}
+			}
+			if s.hosts[hid].statusLabel() != "fail" {
+				t.Fatal("runner fault must remain visible in live health")
+			}
+			encoded, err := json.Marshal(s.hosts[hid].Status)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), "private-host") {
+				t.Fatal("history leaked host details")
+			}
+		})
+	}
+}
+
+func TestCycleStatusRequiresMatchingTerminalHistory(t *testing.T) {
+	for _, tc := range []struct{ name, historyStart, historyStatus, want string }{
+		{"fault overlay", "cycle", "pass", "pass"},
+		{"failed cycle keeps cause", "cycle", "fail", "fail"},
+		{"aborted refresh stays skipped", "cycle", "skipped", "skipped"},
+		{"different cycle", "older", "pass", "fail"},
+		{"unfinished history", "cycle", "running", "fail"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &hostStatus{CycleStartUtc: "cycle", OverallStatus: "fail"}
+			st.LastFailure.FailureClass = "preamble_stall"
+			row := cycleVerdict{CycleStartUtc: tc.historyStart, OverallStatus: tc.historyStatus}
+			row.LastFailure.FailureClass = "script_error"
+			st.History = []cycleVerdict{row}
+			got := st.cycleStatus()
+			if got.OverallStatus != tc.want {
+				t.Fatalf("got %s, want %s", got.OverallStatus, tc.want)
+			}
+			if tc.name == "failed cycle keeps cause" && got.LastFailure.FailureClass != "script_error" {
+				t.Fatal("lost cycle cause")
+			}
+			if st.OverallStatus != "fail" || st.LastFailure.FailureClass != "preamble_stall" {
+				t.Fatal("mutated live health")
+			}
+		})
+	}
+	st := &hostStatus{OverallStatus: "fail"}
+	if st.cycleStatus() != st {
+		t.Fatal("missing history must preserve an interrupted cycle")
+	}
+}

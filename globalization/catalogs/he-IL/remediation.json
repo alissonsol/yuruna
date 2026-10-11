@@ -23,6 +23,21 @@
       "origin": "machine",
       "message": "lsof -sTCP:LISTEN לא החזיר מזהי תהליכים, אך lsof (בכל מצב) מצא את מזהי התהליכים {join}; הם נחשבים למחזיקי היציאה"
     },
+    "remediation.operator_52e8af97f6901f58": {
+      "sourceHash": "54d287732593a0c5253cf6ed05adf7b2e3c38acbdc8a32914413e3334f084325",
+      "origin": "machine",
+      "message": "הפקודה המוכנה מעולם לא רצה, ולכן הניסיון הבא לא יחזור על שום עבודה באורח"
+    },
+    "remediation.operator_b40349f16bf6efc1": {
+      "sourceHash": "adb6dc89682563671ae7314be5271c96404620362c832c07e819ab6208003866",
+      "origin": "machine",
+      "message": "input_lost אצל {vmName}: הפקודה שהוקלדה מעולם לא נסגרה בתוך ה-shell של האורח, ולכן ה-payload לא הורץ, ואין שאלה לגבי מה שהיה אמור לבצע. האורח עדיין נגיש, והקלט שהוקלד הוא שנכשל, ולכן הרצה חוזרת של השלב בטוחה."
+    },
+    "remediation.operator_6072d4a9739b1fee": {
+      "sourceHash": "c339843f08235ff38585b66f199f3568078dcbf16dc511a164901d589461f72b",
+      "origin": "machine",
+      "message": "הרץ את השלב שוב: הוא יקליד את הפקודה מחדש מההתחלה על אותו אורח"
+    },
     "remediation.operator_bb25c210fa3519d6": {
       "sourceHash": "7f09de1dcca473f557b8123d9c88d3967739525d548280b4afc9e82693891ead",
       "origin": "machine",

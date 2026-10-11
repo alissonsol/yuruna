@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 429aa498-3e96-4845-88b0-cbeb890aeb90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,8 +59,19 @@ case "$verb" in
     [ -f "$d/list.err" ] && cat "$d/list.err" >&2
     exit "$(cat "$d/list.exit" 2>/dev/null || echo 0)" ;;
   status)
-    if [ -f "$d/deleted-$target" ] && [ -f "$d/after-delete-status-$target" ]; then exit "$(cat "$d/after-delete-status-$target")"; fi
-    exit "$(cat "$d/status-$target" 2>/dev/null || echo 1)" ;;
+    if [ -f "$d/deleted-$target" ] && [ -f "$d/after-delete-status-$target" ]; then
+      rc="$(cat "$d/after-delete-status-$target")"
+    else
+      rc="$(cat "$d/status-$target" 2>/dev/null || echo 1)"
+    fi
+    if [ -f "$d/status-output-$target" ]; then
+      cat "$d/status-output-$target"
+    elif [ "$rc" = 0 ]; then
+      echo stopped
+    else
+      echo 'Error: Virtual machine not found' >&2
+    fi
+    exit "$rc" ;;
   delete)
     touch "$d/deleted-$target"
     exit "$(cat "$d/delete-$target" 2>/dev/null || echo 0)" ;;
@@ -177,7 +188,7 @@ Describe 'Remove-OrphanedVMFiles.ps1 -- the bounded registration helpers' -Skip:
             [CmdletBinding()] [OutputType([hashtable])] param([string[]]$Arguments, [int]$TimeoutSeconds, [string]$UtmctlPath, $Deadline, [switch]$Quiet)
             $null = $Deadline
             $script:DriverCalls.Add("probe $($Arguments -join ' ') path=$UtmctlPath quiet=$([bool]$Quiet) cap=$TimeoutSeconds")
-            @{ ExitCode = 0; StdOut = 'listed'; StdErr = ''; TimedOut = $false; Started = $true; DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false }
+            @{ ExitCode = 0; StdOut = $(if ($Arguments[0] -eq 'status') { 'stopped' } else { 'listed' }); StdErr = ''; TimedOut = $false; Started = $true; DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false }
         }
         function global:Invoke-UtmctlLifecycle {
             [CmdletBinding()] [OutputType([hashtable])] param([string]$Verb, [string]$VMName, [switch]$Kill, $Deadline, [int]$TimeoutSeconds, [switch]$Quiet)
@@ -195,6 +206,18 @@ Describe 'Remove-OrphanedVMFiles.ps1 -- the bounded registration helpers' -Skip:
             'probe status DDDD path=/fake/utmctl quiet=True cap=20'
             'lifecycle delete DDDD quiet=True cap=120')
         Get-FakeCall -StateDir $state | Should -BeNullOrEmpty -Because 'the stand-in utmctl was never run directly'
+    }
+
+    It 'keeps a completed <Case> status ambiguous rather than absent' -ForEach @(
+        @{ Case = 'permission refusal'; Code = '1'; Text = 'Not authorized to send Apple events' }
+        @{ Case = 'Apple Event refusal at exit zero'; Code = '0'; Text = 'OSStatus error -1743' }
+        @{ Case = 'provider failure containing not-found text'; Code = '1'; Text = 'Error from event: helper not found' }
+        @{ Case = 'unknown native error'; Code = '7'; Text = 'Connection unavailable' }
+        @{ Case = 'unrecognized successful response'; Code = '0'; Text = 'unavailable' }
+        @{ Case = 'empty successful response'; Code = '0'; Text = '' }
+    ) {
+        $null = New-FakeState -File @{ 'status-UNKNOWN' = $Code; 'status-output-UNKNOWN' = $Text }
+        Get-OrphanSweepRegistration -Target 'UNKNOWN' -UtmctlPath $script:Utmctl | Should -Be 'unknown'
     }
 }
 
@@ -264,10 +287,60 @@ Describe 'Remove-OrphanedVMFiles.ps1 -- the sweep end to end against a stand-in 
         $r.Left | Should -Be @('orphan.utm')
     }
 
+    It 'refuses an <Case> successful listing without touching a bundle' -ForEach @(
+        @{ Case = 'empty'; Listing = '' }
+        @{ Case = 'unrecognized'; Listing = 'UTM temporarily unavailable' }
+    ) {
+        $r = Invoke-OrphanSweep -File @{ 'list.out' = $Listing } -Bundle "orphan=$($script:UuidC)"
+        $r.ExitCode | Should -Be 1
+        $r.Left | Should -Be @('orphan.utm')
+        $r.Calls | Should -Be @('list')
+    }
+
+    It 'accepts a recognized empty listing when there are no bundles to sweep' {
+        $r = Invoke-OrphanSweep -File @{ 'list.out' = "UUID Status Name`n" } -Bundle @()
+        $r.ExitCode | Should -Be 0
+        $r.Left.Count | Should -Be 0
+        $r.Calls | Should -Be @('list')
+    }
+
+    It 'probes an unlisted UUID-less bundle by name before <Case>' -ForEach @(
+        @{ Case = 'preserving its stopped registration'; Code = '0'; Text = 'stopped'; Expected = 0; Kept = $true }
+        @{ Case = 'removing its genuinely absent files'; Code = '1'; Text = 'Virtual machine not found'; Expected = 0; Kept = $false }
+        @{ Case = 'preserving an unreadable registration'; Code = '1'; Text = 'Connection unavailable'; Expected = 1; Kept = $true }
+    ) {
+        $r = Invoke-OrphanSweep -File @{
+            'list.out' = "UUID Status Name`n"
+            'status-unlisted' = $Code
+            'status-output-unlisted' = $Text
+        } -Bundle 'unlisted='
+        $r.ExitCode | Should -Be $Expected
+        $r.Calls[0..1] | Should -Be @('list', 'status unlisted')
+        if ($Kept) {
+            $r.Left | Should -Be @('unlisted.utm')
+            @($r.Calls | Where-Object { $_ -like 'delete*' }).Count | Should -Be 0
+        } else {
+            $r.Left.Count | Should -Be 0
+            $r.Calls | Should -Contain 'delete unlisted'
+        }
+    }
+
     It 'keeps a bundle whose VM is still registered after the delete' {
         $r = Invoke-OrphanSweep -File @{ 'list.out' = $script:ListOut; "after-delete-status-$($script:UuidC)" = '0' } -Bundle "orphan=$($script:UuidC)"
         $r.Left | Should -Be @('orphan.utm')
         $r.Calls | Should -Contain "delete $($script:UuidC)"
+        $r.ExitCode | Should -Be 1
+    }
+
+    It 'keeps an unreadable registration and reports incomplete cleanup before any deletion' {
+        $r = Invoke-OrphanSweep -File @{
+            'list.out' = $script:ListOut
+            "status-$($script:UuidC)" = '1'
+            "status-output-$($script:UuidC)" = 'Not authorized to send Apple events'
+        } -Bundle "orphan=$($script:UuidC)"
+        $r.ExitCode | Should -Be 1
+        $r.Left | Should -Be @('orphan.utm')
+        @($r.Calls | Where-Object { $_ -like 'delete*' }).Count | Should -Be 0
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 424f40c7-7c46-41e1-bd5e-d9b72a02a026
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,32 +16,8 @@
 
 #requires -version 7
 
-# Default stash-service extension. The Go daemon (SCP sink-mode wire-protocol
-# handler, SQLite metadata index, on-disk storage layout) lives under
-# [server/](server/); user guide: https://yuruna.link/42f5e921.
-#
-# Get-StashServiceInfo is a status stub returning a uniform hashtable in the
-# host-side cmdlet vocabulary; host-side status probing (querying a running
-# stash-service VM) is not wired yet, so the flags stay $false until that lands.
-#
-# Resolve-Host is the runtime stash-address discovery a sequence's `variables:`
-# block consumes via ${ext:stash-service.ResolveHost(<vm>)}, so the stash IP is
-# a discovered artifact instead of a hard-coded literal: the same live Get-VMIp
-# lookup the caching-proxy-service/edge discovery uses, then the address a cycle
-# published in <runtime>/stash-host.txt, then whatever the framework's
-# Get-ExtensionHostAddress can find for the area -- the last of which answers
-# for a lab whose stash runs on another host entirely.
-#
-# Test-StashServiceHost + Publish-StashServiceHost are the writer half: a
-# cycle's warm-up resolves the stash ONCE, up front, confirms it answers
-# /healthz, and publishes the address. Doing it there rather than per sequence
-# means an unreachable stash stops the cycle before its long provisioning
-# stages instead of after them, and later scenarios resolve the address without
-# re-deriving it from a VM this host may not run at all. What the warm-up
-# cannot settle is the REST of the cycle: it proves the address once, and a
-# cycle runs for tens of minutes, so Resolve-Host re-probes what was published
-# before handing it out and republishes whatever it falls through to.
-
+# --- REGION: Stash discovery
+# See https://yuruna.link/42e220c4-0013
 function Get-StashServiceInfo {
     <#
     .SYNOPSIS

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4223adbe-1c67-4f91-9007-d00e25adf8ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,19 +129,8 @@ Describe 'the shared guest DHCP identity file' {
 
 Describe 'no seed buys a DHCP identity by taking the network down' {
 
-    # The seed pin above lands before networking comes up, so nothing later has
-    # to bounce a link to make it take effect. That matters because the bounce
-    # is not a symmetric operation: NetworkManager keeps the networking-enabled
-    # flag in /var/lib/NetworkManager/NetworkManager.state, so a disable whose
-    # re-enable does not run outlives the boot that issued it AND every reboot
-    # after it. On a guest reachable only by an OCR'd console, that removes the
-    # one channel through which it could be repaired -- and the guest reports
-    # the same "interface down" a dead switch would, so the failure reads as
-    # lab infrastructure and gets investigated on a healthy host.
-    #
-    # An `off && on` pair does not make it safe either: the enable has to
-    # survive the disable returning non-zero after the daemon already applied
-    # it, which is what a contended first boot produces.
+    # See https://yuruna.link/42e220c4-0004
+    # NetworkManager persists global disable across reboots; pin identity before boot.
     It 'never disables networking globally from any cloud-init seed' {
         $seeds = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'host/vmconfig') -Filter '*.user-data' -File)
         $seeds.Count | Should -BeGreaterThan 0 -Because 'the seeds must actually have been found'
@@ -444,6 +433,23 @@ Describe 'the installer-driven guests' {
             $section.Success | Should -BeTrue -Because "$($o.Name) must anchor an EARLY_COMMANDS section"
             $section.Groups[1].Value | Should -Match 'dmesg -n 1' `
                 -Because "$($o.Name) must lower the installer's console log level before the OCR'd phase begins"
+        }
+    }
+
+    # The live system's tmpfiles-clean timer fires 15 minutes after boot and its
+    # credentials mount propagates into the /run curtin bind-mounts on /target/run;
+    # a chroot step open at that moment cannot unmount it and the install aborts.
+    # Every hypervisor boots the same live installer, so every overlay stops it.
+    It 'stops the live installer''s tmpfiles-clean timer in every hypervisor overlay' {
+        $overlays = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'host/vmconfig') `
+                                    -Filter 'ubuntu.server.*.overlay.yml' -File)
+        $overlays.Count | Should -BeGreaterThan 0 -Because 'the overlays must actually have been found'
+        foreach ($o in $overlays) {
+            $text = Get-Content -Raw -LiteralPath $o.FullName
+            $section = [regex]::Match($text, '(?ms)^# === YURUNA_OVERLAY_EARLY_COMMANDS ===\s*$(.*?)^# === YURUNA_OVERLAY_')
+            $section.Success | Should -BeTrue -Because "$($o.Name) must anchor an EARLY_COMMANDS section"
+            $section.Groups[1].Value | Should -Match '(?m)^\s+- systemctl stop systemd-tmpfiles-clean\.timer 2>/dev/null \|\| true\s*$' `
+                -Because "$($o.Name) must stop the timer before curtin's chroot steps, and a missing unit must not fail early-commands"
         }
     }
 }

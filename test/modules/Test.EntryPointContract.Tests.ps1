@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42eb9613-e03b-4f67-8b89-1b1e1b198727
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,10 +82,14 @@ Describe 'Initialize-YurunaEntryPoint -- the bundle every entry point resolves t
         }
     }
 
-    It 'defaults ConfigPath to the tracked test.config.yml and honors an override' {
+    It 'defaults ConfigPath to test.config.yml beside its tracked template and honors an override' {
         $b = Initialize-YurunaEntryPoint -ScriptRoot $script:TestRoot
         Assert-Equal -Expected (Join-Path $script:TestRoot 'test.config.yml') -Actual $b.ConfigPath
-        Assert-True (Test-Path -LiteralPath $b.ConfigPath) 'the default config path must exist in a clean checkout'
+        # The config itself holds credentials and is ignored by git; setup
+        # writes it from the template beside it. The template is the file a
+        # clean checkout carries, so that is the one this can require.
+        Assert-True (Test-Path -LiteralPath "$($b.ConfigPath).template" -PathType Leaf) `
+            'the template the default config is created from must exist in a clean checkout'
 
         $override = Join-Path ([IO.Path]::GetTempPath()) 'somewhere-else.yml'
         $o = Initialize-YurunaEntryPoint -ScriptRoot $script:TestRoot -ConfigPath $override

@@ -29,7 +29,7 @@ VM, driving its sequences, and recording results. Concretely, each cycle:
 3. Wipe last cycle's `inner.pid` / `inner.start` / `runner.stepHeartbeat` /
    `runner.phase` / `last_failure.json` / `break-active.json`.
 4. Arm the [watchdog](#watchdog-and-heartbeat-protocol).
-5. Spawn the inner runner via the call operator.
+5. Spawn the inner runner through `Diagnostics.Process.Start` and wait for its exit.
 6. On `exitCode == 0`, loop immediately. On non-zero, pause until one of the
    [break-out triggers](#failure-pause-break-out-triggers) fires.
 
@@ -142,9 +142,9 @@ operator can do happen on that run:
   refresh cadence. Pre-seeding lets the unattended loop recover from a
   later failure (or a step that needs manual intervention) without
   blocking on a multi-gigabyte download mid-cycle.
-  - **macOS and Windows base images must be downloaded manually.**
-    Image-provider limitations keep the runner from fetching them;
-    follow the instructions in each `Get-Image.ps1`.
+  - **The Windows 11 ISO may need a manual download** (an image-provider
+    limitation): if neither a download agent nor Fido (Hyper-V and UTM
+    only) can fetch it, follow the instructions in each `Get-Image.ps1`.
 
 <a id="42f909ad-0006"></a>
 
@@ -650,7 +650,7 @@ start:
   acknowledgment the worker is waiting for;
 - never takes over a runner: a live or unidentifiable `runner.pid` refuses the
   start, and only the exact runner generation proven dead is removed;
-- only once it holds `runner.pid`, runs the boot recovery sweep in
+- only once it holds `runner.pid`, runs the boot-recovery sweep in
   preservation mode and resets the runner state, so a refused start never
   touches a live runner's state: pause flags, lab holds and the restart request
   stay for their normal consumers; `inner.pid` goes only when its process is
@@ -692,21 +692,25 @@ treats the result as a crashed runner, which is the designed path.
 
 ## Why the cycle call must not capture the inner runner's stdout
 
-The cycle process reaches the inner runner through the call operator, and
-PowerShell decides the inner's stdout from what happens to the ENCLOSING
-function's success stream: let it reach the host and the inner inherits the
-console; capture it anywhere up the chain -- assign the call's result, pipe it,
-wrap the caller in `$(...)` -- and PowerShell has to create an anonymous pipe
-and read it to EOF.
+The cycle process now starts the inner through `Diagnostics.ProcessStartInfo`
+and `Diagnostics.Process.Start`, with native stdout attached to the console,
+and waits on that process with `WaitForExit()`. Capturing the cycle function's
+typed result therefore does not put the inner's stdout in a PowerShell
+success-stream pipe.
 
-EOF, not the inner's exit, is then what releases the cycle. The inner spawns the
-status service, which inherits a duplicate of that write end and holds it for
-its whole unbounded life, so the cycle never returns: the inner logs that it is
-about to exit with code 0, and the outer's "back in control" line never follows.
-One cycle passes and the runner starts no more -- the worst shape an unattended
-runner can fail in, because nothing reports an error. Observed on a live Hyper-V
-host with the cycle process blocked 44 minutes past a passing cycle, released
-within a second of killing the status service.
+The earlier call-operator launch let the enclosing function's success stream
+determine the inner's stdout: capture the result anywhere up the chain -- assign
+it, pipe it, or wrap the caller in `$(...)` -- and PowerShell created an anonymous
+pipe and read it to EOF.
+
+With that launch, EOF rather than the inner's exit released the cycle. The
+inner's status-service descendant inherited a duplicate of the write end and
+held it for its unbounded lifetime, so the cycle never returned: the inner
+logged that it was about to exit with code 0, and the outer's "back in control"
+line never followed. One cycle passed and the runner started no more, without
+reporting an error. This was observed on a live Hyper-V host with the cycle
+process blocked 44 minutes past a passing cycle, released within a second of
+killing the status service.
 
 This is a Windows-only exposure. The POSIX branch of `Start-StatusService.ps1`
 detaches through `bash -c "... </dev/null >/dev/null 2>err &"`, whose
@@ -801,7 +805,7 @@ The test runner survives indefinitely under sustained guest, network,
 and host-OS failures because every long-running activity emits a
 heartbeat that an out-of-process watchdog reads. When the heartbeat
 goes stale, the watchdog kills the wedged process and the outer
-runner re-spawns the inner from a clean state.
+runner respawns the inner from a clean state.
 
 <a id="42f909ad-0012"></a>
 
@@ -838,7 +842,8 @@ written heartbeat fresh.
 top of every step iteration inside `Invoke-Sequence`. A wedged step
 stops touching it. The watchdog reads this file's mtime and kills the
 inner when its age exceeds the bound in force -- once the sequence is
-running, `testCycle.stepTimeoutSeconds` (default 2700).
+running, `testCycle.stepTimeoutSeconds` (2700-second fallback; 3600 in the
+shipped template).
 
 The split was added after the trap recorded in repo memory
 `feedback_threadpool_heartbeat_watchdog_blind.md`.
@@ -859,7 +864,7 @@ The watchdog:
 1. Waits up to 180 s for `inner.pid` to appear. A loaded host can take
    well past a minute to spawn pwsh and import the runner modules, and
    giving up early runs the whole cycle unguarded while a longer wait
-   costs nothing -- the job just idles. If the file never appears it
+   costs nothing -- the job idles. If the file never appears it
    reports the lapse and exits without action, preferable to picking a
    PID blindly.
 2. Reads `inner.pid` and captures the process's `StartTime` alongside it.
@@ -896,7 +901,7 @@ it mid-download.
 | `runner.phase` | Bound | Why |
 |---|---|---|
 | Present | `testCycle.preambleTimeoutSeconds` (default 600) | The inner is still in bootstrap, host detection, the caching-proxy-service gate, status-service start. None of that is legitimately slow. |
-| Absent | `testCycle.stepTimeoutSeconds` (default 2700) | Either the inner cleared it for a legitimately long stretch (the weekly base-image download) or the sequence has taken over. |
+| Absent | `testCycle.stepTimeoutSeconds` (2700-second fallback; 3600 in the shipped template) | Either the inner cleared it for a legitimately long stretch (the weekly base-image download) or the sequence has taken over. |
 
 The inner *seeds* `runner.stepHeartbeat` at startup, so without the tighter
 bound the preamble is nominally guarded but effectively unguarded: a preamble
@@ -930,7 +935,9 @@ never happened.
 
 ### Tuning `testCycle.stepTimeoutSeconds`
 
-Default 2700 (45 minutes). It and `testCycle.preambleTimeoutSeconds` are both
+The shipped `test/test.config.yml.template` sets 3600 seconds (60 minutes);
+the runner falls back to 2700 (45 minutes) when no valid override is configured.
+It and `testCycle.preambleTimeoutSeconds` are both
 re-read on every cycle's spawn, so an operator can edit `test.config.yml`
 between cycles without restarting the outer, and a pool can tighten either
 one fleet-wide through its `config.testCycle` override without editing each
@@ -1092,6 +1099,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

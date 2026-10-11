@@ -199,12 +199,11 @@ limiter leaves the requested count unchanged.
 ### Distinguish external interrupts from hypercalls
 
 Total intercepts alone do not identify their source. The host sampler records
-`Total Intercepts/sec` and `Other Intercepts/sec` for guest virtual processors;
-it does not record separate `External Interrupts/sec` or `Hypercalls/sec`
-series. If the installed performance provider exposes those counters, capture
-them directly and save the output with the guest console and disk-latency
-readings. A VMBus stack or udev timeout alone does not identify the interrupt
-source.
+`Total Intercepts/sec` and `Other Intercepts/sec` for guest virtual processors,
+plus `External Interrupts/sec` and `Hypercalls/sec` when the installed
+performance provider exposes them. Save these readings with the guest console
+and disk-latency readings. A VMBus stack or udev timeout alone does not identify
+the interrupt source.
 
 The same [host module](../host/windows.hyper-v/modules/Yuruna.Host.psm1) records
 a same-kernel clockevent comparison as historical
@@ -393,8 +392,9 @@ down):
    headless symptom.
 
 If auto-provisioning fails, the per-cycle `Initialize-HostDisplay` step
-falls back to a one-line warning, and `Get-HyperVScreenshot` warns when the
-WMI thumbnail comes back all-black -- both point back at this section.
+falls back to a one-line warning that points back at this section, and
+`Get-HyperVScreenshot` writes a verbose-level note when the WMI thumbnail comes
+back all-black.
 
 <a id="42dc5bb9-000b"></a>
 
@@ -486,15 +486,15 @@ defeats Tesseract segmentation and `waitForText` silently times out on
 text a human reads fine. Fresh Windows 11 (HiDPI, 4K) ships at 125% or
 150%.
 
-`Set-WindowsHostConditionSet` therefore resets three independent
-scaling knobs (HKCU). All require sign-out to take effect; a warning
+When `YURUNA_VIRTUAL_DISPLAY` is truthy, `Set-WindowsHostConditionSet`
+therefore resets three independent scaling knobs (HKCU). All require sign-out to take effect; a warning
 fires if any value changed.
 
 | Knob | Registry | Reset to |
 |------|----------|----------|
 | Per-monitor DPI (Settings -> System -> Display -> Scale) | `HKCU:\Control Panel\Desktop\PerMonitorSettings\<id>\DpiValue` (offset from `RecommendedDpiValue`; 0 = recommended, negative = smaller) | 100% (i.e. `-RecommendedDpiValue`) |
 | System-wide DPI fallback (non-per-monitor-aware processes) | `HKCU:\Control Panel\Desktop\LogPixels` + `Win8DpiScaling` | 96 + 1 |
-| Win11 text size (Settings -> Accessibility -> Text size) | `HKCU:\Software\Microsoft\Accessibility\TextScaleFactor` | 100 |
+| Windows 11 text size (Settings -> Accessibility -> Text size) | `HKCU:\Software\Microsoft\Accessibility\TextScaleFactor` | 100 |
 
 <a id="42dc5bb9-000e"></a>
 
@@ -597,6 +597,38 @@ disk latency/queues, and memory commit/paging. It discovers actual localized PDH
 names through the host inventory and Perflib IDs. An inventory capability means
 a path exists; each sampled row separately reports valid or unavailable data.
 Version-specific counters that are absent remain explicitly marked as unavailable.
+Per-cause intercept rates split `Total Intercepts/sec` by source: hypercalls,
+register traps (`SysReg Accesses/sec` on ARM64; `MSR Accesses/sec` and
+`IO Instructions/sec` on x64), virtual, synthetic, hardware and pending
+interrupts, memory intercept messages, and nested page faults. A processor
+trapping millions of times a second then names what it is trapping on.
+
+The inner runner reads the same recording to judge whether a guest is
+livelocked: every virtual processor of the VM at least 80% busy, with the
+hypervisor holding at least 88% of that time, in an unbroken run of samples.
+Healthy guests on the ARM64 lab host hold that shape for at most about half a
+minute, including a vCPU parked in a spin wait while its sibling works.
+Wedged boots hold it until they are powered off. Every OCR wait that times
+out records the verdict in `causeDetail.guestLivelock` (see the
+[failure schema](failure-schema.md)). A run of 300 seconds is a livelock.
+On native ARM64 Hyper-V, the cold-restart retry modes end their wait as soon
+as the verdict holds, rather than spending the rest of a 30- or 40-minute
+budget (see [test sequences](test-sequences.md)). A host without a recording
+yields no verdict, which the record keeps distinct from a measured one.
+
+Every verdict also carries `processorWindow`: per-processor averages over the
+latest contiguous five-minute window, counter availability and valid sample
+counts. This evidence is retained when only one processor traps heavily and
+the recovery verdict is `not-livelocked`. Missing rates remain unavailable;
+explicitly unsupported architecture-specific rates are listed separately from
+missing readings. The unexplained intercept residual is labeled an estimate
+because the diagnostic counter categories may overlap. Up to twelve additional
+rates are selected from the installed counter inventory for attribution.
+
+Failed steps can carry a separate `progressAdvisory` combining static console
+output, execution-recorder heartbeat age and SSH responsiveness. It never
+authorizes a restart. A single heavily trapping processor also occurs during
+successful workloads, so the all-processor recovery predicate remains intact.
 
 Records carry host UTC and monotonic QPC anchors, actual AC/DC state, and VM CPU
 and memory configuration, including processor reserve/maximum/weight, nested
@@ -679,6 +711,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

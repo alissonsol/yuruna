@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 421d4450-b529-4d80-a244-126649692f4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,10 @@ $original = Get-Location
 try {
     Import-Module powershell-yaml
     . ([scriptblock]::Create((Read-FunctionSource (Join-Path $root 'automation/Yuruna.Workload.psm1') @('Invoke-WorkloadChartDeployment','Invoke-WorkloadToolDeployment'))))
+    # The chart deployment writes its log through the retry module's section
+    # writer. Lifted from source like the deployment functions, so the contract
+    # runs the production writer rather than a stand-in for it.
+    . ([scriptblock]::Create((Read-FunctionSource (Join-Path $root 'automation/Yuruna.Retry.psm1') @('Write-YurunaToolLogSection'))))
     function Format-YurunaOperatorMessage { param($Key, $Arguments) $Key }
     function New-YurunaResultManifest { param($Success) @{ Success = $Success } }
     function helm {

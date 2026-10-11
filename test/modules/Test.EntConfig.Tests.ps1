@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42e237df-6378-43f5-b1f4-c3f181119e39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,11 +26,12 @@
     the behavioral tests extract their definitions from the script AST and dot-source
     them into this scope. AST guards then assert the script routes every network probe
     and all three config boolean flags through the helpers, and that the probe helper
-    disposes in a finally. Pester 4.10.1.
+    disposes in a finally. Pester 5.x.
 #>
 
 BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'Test-Config.ps1')).Path
 
 # Parse the script and lift the two helper definitions into this scope so they can be
@@ -62,10 +63,7 @@ foreach ($name in $wanted) {
 
 function Get-CommandCallCount {
     param($Ast, [string]$Name)
-    $wm = $Name
-    @($Ast.FindAll({ param($n)
-        $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wm
-    }, $true)).Count
+    return (Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $Name)
 }
 function Get-MemberInvokeCount {
     param($Ast, [string]$Member)

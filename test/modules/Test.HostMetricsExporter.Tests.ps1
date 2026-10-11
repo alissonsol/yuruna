@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42b0e5d4-7c31-4e9a-8f06-3ad2716be5c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -152,6 +152,106 @@ Describe 'Resolve-YurunaHostMetricsCommandLine' {
         Assert-False $plan.Matches 'nothing to compare against'
         Assert-Equal -Expected '' -Actual $plan.Executable
         Assert-Equal -Expected '' -Actual $plan.Desired
+    }
+}
+
+Describe 'Hyper-V sub-collectors' {
+    BeforeAll {
+        # Everything shared lives in BeforeAll, never at Describe scope: an
+        # It block cannot see a plain variable declared directly in a
+        # Describe body, which belongs to Pester's discovery pass, not its
+        # run pass.
+        $script:hv = @('hypervisor_logical_processor', 'hypervisor_root_virtual_processor', 'hypervisor_virtual_processor')
+    }
+
+    It 'leaves every existing case unchanged when -HyperVCollector is not passed' {
+        # Characterization: the exact case above ('adds both owned flags to a
+        # command line that carries neither'), run again with no opinion about
+        # Hyper-V at all -- same Desired, same Matches as without this item.
+        $plan = Resolve-YurunaHostMetricsCommandLine -CurrentCommandLine $script:Exe `
+            -Collector @('cpu', 'hyperv') -Port 9182
+        Assert-False $plan.Matches
+        Assert-Equal -Expected "$script:Exe --collectors.enabled=cpu,hyperv --web.listen-address=:9182" -Actual $plan.Desired
+    }
+    It 'adds the sub-collector flag when hyperv is collected and the flag is absent' {
+        $plan = Resolve-YurunaHostMetricsCommandLine -CurrentCommandLine $script:Exe `
+            -Collector @('cpu', 'hyperv') -Port 9182 -HyperVCollector $script:hv
+        Assert-False $plan.Matches 'a line without the flag cannot already agree'
+        Assert-Match 'collector.hyperv.enabled=hypervisor_logical_processor,hypervisor_root_virtual_processor,hypervisor_virtual_processor' $plan.Desired
+    }
+    It 'agrees with a matching flag in the = spelling' {
+        $plan = Resolve-YurunaHostMetricsCommandLine `
+            -CurrentCommandLine "$script:Exe --collectors.enabled=cpu,hyperv --collector.hyperv.enabled=hypervisor_virtual_processor,hypervisor_root_virtual_processor,hypervisor_logical_processor --web.listen-address=:9182" `
+            -Collector @('cpu', 'hyperv') -Port 9182 -HyperVCollector $script:hv
+        Assert-True $plan.Matches 'the same set in another order is the same instrumentation'
+    }
+    It 'agrees with a matching flag in the space-separated spelling' {
+        $plan = Resolve-YurunaHostMetricsCommandLine `
+            -CurrentCommandLine "$script:Exe --collectors.enabled=cpu,hyperv --collector.hyperv.enabled hypervisor_logical_processor,hypervisor_root_virtual_processor,hypervisor_virtual_processor --web.listen-address=:9182" `
+            -Collector @('cpu', 'hyperv') -Port 9182 -HyperVCollector $script:hv
+        Assert-True $plan.Matches 'the two flag spellings say the same thing'
+    }
+    It 'replaces a different sub-collector list' {
+        $plan = Resolve-YurunaHostMetricsCommandLine `
+            -CurrentCommandLine "$script:Exe --collectors.enabled=cpu,hyperv --collector.hyperv.enabled=hypervisor_virtual_processor --web.listen-address=:9182" `
+            -Collector @('cpu', 'hyperv') -Port 9182 -HyperVCollector $script:hv
+        Assert-False $plan.Matches 'a narrower list already present is still a disagreement'
+        Assert-Match 'collector.hyperv.enabled=hypervisor_logical_processor,hypervisor_root_virtual_processor,hypervisor_virtual_processor' $plan.Desired
+    }
+    It 'does not add the flag when hyperv is not among the collected families' {
+        $plan = Resolve-YurunaHostMetricsCommandLine -CurrentCommandLine $script:Exe `
+            -Collector @('cpu', 'memory') -Port 9182 -HyperVCollector $script:hv
+        Assert-Equal -Expected "$script:Exe --collectors.enabled=cpu,memory --web.listen-address=:9182" -Actual $plan.Desired
+    }
+    It 'leaves an existing flag exactly as found when -HyperVCollector is empty' {
+        $plan = Resolve-YurunaHostMetricsCommandLine `
+            -CurrentCommandLine "$script:Exe --collectors.enabled=cpu,hyperv --collector.hyperv.enabled=something-weird --web.listen-address=:9182" `
+            -Collector @('cpu', 'hyperv') -Port 9182
+        Assert-True $plan.Matches 'an owner that was not asked to care about this flag must not rewrite a service over it'
+        Assert-Match 'collector.hyperv.enabled=something-weird' $plan.Desired
+    }
+    It 'still preserves a flag it does not own, with the sub-collector flag also present' {
+        $plan = Resolve-YurunaHostMetricsCommandLine `
+            -CurrentCommandLine "$script:Exe --config.file=C:\w\config.yaml --collectors.enabled=cpu,hyperv --web.listen-address=:9182" `
+            -Collector @('cpu', 'hyperv') -Port 9182 -HyperVCollector $script:hv
+        Assert-Match 'config.file' $plan.Desired 'the unowned flag survives'
+        Assert-Match 'collector.hyperv.enabled' $plan.Desired 'and the owned one is still added'
+    }
+}
+
+if ($IsWindows) {
+    Describe 'the ensure path hands -HyperVCollector only to an exporter that accepts it' {
+        BeforeEach {
+            Mock Get-Service -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Status = 'Running'; StartType = 'Automatic' } }
+            Mock Get-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter {
+                '"C:\w\windows_exporter.exe" --collectors.enabled=os,memory,logical_disk,hyperv,cpu --web.listen-address=:9182'
+            }
+            $script:Written = $null
+            Mock Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter { $script:Written = $CommandLine; 0 }
+            Mock Restart-Service -ModuleName Test.HostMetricsExporter {}
+            Mock Start-Service -ModuleName Test.HostMetricsExporter {}
+            Mock Set-Service -ModuleName Test.HostMetricsExporter {}
+            Mock Test-YurunaHostMetricsAnswering -ModuleName Test.HostMetricsExporter { $true }
+            Mock Set-YurunaHostMetricsFirewallRule -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Ensured = $true; Changed = $false; Message = '' } }
+            Mock Invoke-YurunaHostMetricsProbe -ModuleName Test.HostMetricsExporter {
+                "windows_memory_commit_limit 1`nwindows_memory_committed_bytes 1`nwindows_cpu_time_total 1`nwindows_logical_disk_free_bytes 1`nwindows_os_info 1`nwindows_hyperv_health_ok 1"
+            }
+        }
+        It 'passes the sub-collector list for exporter version 0.31.8' {
+            Mock Get-YurunaHostMetricsExporterVersion -ModuleName Test.HostMetricsExporter { [version]'0.31.8' }
+            $null = Set-YurunaHostMetricsExporter -ConfigIp '192.0.2.42' 3>$null 6>$null
+            Assert-Match 'collector.hyperv.enabled' $script:Written 'a 0.31.8 exporter must be given the sub-collector list'
+        }
+        It 'does not pass the sub-collector list for exporter version 0.29.2' {
+            Mock Get-YurunaHostMetricsExporterVersion -ModuleName Test.HostMetricsExporter { [version]'0.29.2' }
+            $null = Set-YurunaHostMetricsExporter -ConfigIp '192.0.2.42' 3>$null 6>$null
+            Assert-Null $script:Written 'an exporter that predates the flag must never be given it, and the line already agreed otherwise'
+        }
+        It 'does not pass the sub-collector list when the version cannot be read' {
+            Mock Get-YurunaHostMetricsExporterVersion -ModuleName Test.HostMetricsExporter { $null }
+            $null = Set-YurunaHostMetricsExporter -ConfigIp '192.0.2.42' 3>$null 6>$null
+            Assert-Null $script:Written 'an unreadable version is never evidence the flag is safe'
+        }
     }
 }
 
@@ -532,27 +632,6 @@ if ($IsWindows) {
         # The real reader and writer over a throwaway file. Each cycle is a new
         # process, so only something on disk can space the cycle after this one
         # -- which is exactly what a mocked record would hide.
-        It 'reads back the instant it wrote, in UTC' {
-            $dir = New-YurunaTestTempDir -Prefix 'yuruna-hostmetrics'
-            try {
-                $stamp = Join-Path $dir 'host-metrics.install.json'
-                $before = [datetime]::UtcNow
-                InModuleScope Test.HostMetricsExporter -Parameters @{ Stamp = $stamp } {
-                    param($Stamp)
-                    $null = Set-YurunaHostMetricsInstallAttempt -Path $Stamp -Reason 'probe' -ExitCode 1 -Confirm:$false
-                }
-                $read = InModuleScope Test.HostMetricsExporter -Parameters @{ Stamp = $stamp } {
-                    param($Stamp)
-                    Get-YurunaHostMetricsInstallAttempt -Path $Stamp
-                }
-                Assert-NotNull $read 'the record is readable'
-                Assert-Equal -Expected 'Utc' -Actual "$($read.Kind)" 'a record read back as local time is one UTC offset wrong'
-                $drift = [math]::Abs((New-TimeSpan -Start $before -End $read).TotalMinutes)
-                Assert-True ($drift -lt 5) "the record read back $drift minutes from when it was written"
-            } finally {
-                Remove-YurunaTestTempDir $dir
-            }
-        }
         It 'spaces the next attempt after a failure, and treats an unreadable record as none' {
             $dir = New-YurunaTestTempDir -Prefix 'yuruna-hostmetrics'
             try {
@@ -698,60 +777,87 @@ if ($IsWindows) {
             Assert-Match 'firewall service' $r.Reason
         }
     }
+}
 
-    Describe 'Initialize-HostMetricsExporter, the dispatcher (Windows)' {
-        BeforeAll {
-            Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.HostCondition.psm1') -Force -DisableNameChecking
+Describe 'the attempt record reads back what was written' {
+    # The reader and writer are file code with nothing of Windows in them, so
+    # the round trip is held wherever the suite runs. Only the install path
+    # that spaces its attempts by this record needs a Windows host.
+    It 'reads back the instant it wrote, in UTC' {
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-hostmetrics'
+        try {
+            $stamp = Join-Path $dir 'host-metrics.install.json'
+            $before = [datetime]::UtcNow
+            InModuleScope Test.HostMetricsExporter -Parameters @{ Stamp = $stamp } {
+                param($Stamp)
+                $null = Set-YurunaHostMetricsInstallAttempt -Path $Stamp -Reason 'probe' -ExitCode 1 -Confirm:$false
+            }
+            $read = InModuleScope Test.HostMetricsExporter -Parameters @{ Stamp = $stamp } {
+                param($Stamp)
+                Get-YurunaHostMetricsInstallAttempt -Path $Stamp
+            }
+            Assert-NotNull $read 'the record is readable'
+            Assert-Equal -Expected 'Utc' -Actual "$($read.Kind)" 'a record read back as local time is one UTC offset wrong'
+            $drift = [math]::Abs((New-TimeSpan -Start $before -End $read).TotalMinutes)
+            Assert-True ($drift -lt 5) "the record read back $drift minutes from when it was written"
+        } finally {
+            Remove-YurunaTestTempDir $dir
         }
-        # Each test registers its own provider under the same key, which
-        # overwrites the previous one. Clearing between them is not an option:
-        # the registry's Clear drops every platform's registration, including
-        # the real ones the rest of this process relies on.
-        It 'does nothing at all for a host type that registers no provider' {
-            Initialize-HostMetricsExporter -HostType 'host.test.absent' 3>$null
-            Assert-True $true 'a host with no provider returns before touching anything'
-        }
-        It 'does nothing for a provider that registers no metrics-exporter slot' {
-            Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true }
-            Initialize-HostMetricsExporter -HostType 'host.test.metrics' 3>$null
-            Assert-True $true 'an empty slot returns before invoking anything'
-        }
-        It 'announces an install where somebody can see it, and not on the value it returns' {
-            Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true } `
-                -MetricsExporter { [pscustomobject]@{ Status = 'Installed'; Reason = 'installed it' } }
-            $returned = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 6>&1)
-            Assert-Equal -Expected 1 -Actual $returned.Count 'the announcement is emitted once'
-            Assert-Match 'exporter installed' "$($returned[0])" 'and it says what happened'
-            $value = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 6>$null)
-            Assert-Equal -Expected 0 -Actual $value.Count 'nothing reaches the success stream, which the call site discards'
-        }
-        It 'warns with the reason on an outcome an operator has to act on' {
-            Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true } `
-                -MetricsExporter { [pscustomobject]@{ Status = 'Unavailable'; Reason = 'winget is not available to this account' } }
-            $warnings = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 3>&1)
-            Assert-Equal -Expected 1 -Actual $warnings.Count
-            Assert-Match 'winget is not available to this account' "$($warnings[0])" 'a warning that cannot name the reason is a warning nobody can act on'
-        }
-        It 'is quiet on the outcome that happens every cycle' {
-            Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true } `
-                -MetricsExporter { [pscustomobject]@{ Status = 'Present'; Reason = 'already registered' } }
-            $noise = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 3>&1 6>&1)
-            Assert-Equal -Expected 0 -Actual $noise.Count 'a line every twelve minutes forever is a log nobody reads'
-        }
-        It 'still announces when a provider leaks an extra value' {
-            Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true } `
-                -MetricsExporter { 'a stray line'; [pscustomobject]@{ Status = 'Installed'; Reason = 'installed it' } }
-            $returned = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 6>&1)
-            Assert-Equal -Expected 1 -Actual $returned.Count
-            Assert-Match 'exporter installed' "$($returned[0])" 'a stray line must degrade the message, never silence it'
-        }
-        It 'turns a throwing provider into a warning' {
-            Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true } `
-                -MetricsExporter { throw 'the provider exploded' }
-            $warnings = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 3>&1)
-            Assert-Equal -Expected 1 -Actual $warnings.Count
-            Assert-Match 'the provider exploded' "$($warnings[0])" 'the dispatcher owes the cycle that it cannot fail it'
-        }
+    }
+}
+
+Describe 'Initialize-HostMetricsExporter, the dispatcher' {
+    BeforeAll {
+        Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.HostCondition.psm1') -Force -DisableNameChecking
+    }
+    # Each test registers its own provider under the same key, which
+    # overwrites the previous one. Clearing between them is not an option:
+    # the registry's Clear drops every platform's registration, including
+    # the real ones the rest of this process relies on.
+    It 'does nothing at all for a host type that registers no provider' {
+        Initialize-HostMetricsExporter -HostType 'host.test.absent' 3>$null
+        Assert-True $true 'a host with no provider returns before touching anything'
+    }
+    It 'does nothing for a provider that registers no metrics-exporter slot' {
+        Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true }
+        Initialize-HostMetricsExporter -HostType 'host.test.metrics' 3>$null
+        Assert-True $true 'an empty slot returns before invoking anything'
+    }
+    It 'announces an install where somebody can see it, and not on the value it returns' {
+        Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true } `
+            -MetricsExporter { [pscustomobject]@{ Status = 'Installed'; Reason = 'installed it' } }
+        $returned = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 6>&1)
+        Assert-Equal -Expected 1 -Actual $returned.Count 'the announcement is emitted once'
+        Assert-Match 'exporter installed' "$($returned[0])" 'and it says what happened'
+        $value = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 6>$null)
+        Assert-Equal -Expected 0 -Actual $value.Count 'nothing reaches the success stream, which the call site discards'
+    }
+    It 'warns with the reason on an outcome an operator has to act on' {
+        Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true } `
+            -MetricsExporter { [pscustomobject]@{ Status = 'Unavailable'; Reason = 'winget is not available to this account' } }
+        $warnings = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 3>&1)
+        Assert-Equal -Expected 1 -Actual $warnings.Count
+        Assert-Match 'winget is not available to this account' "$($warnings[0])" 'a warning that cannot name the reason is a warning nobody can act on'
+    }
+    It 'is quiet on the outcome that happens every cycle' {
+        Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true } `
+            -MetricsExporter { [pscustomobject]@{ Status = 'Present'; Reason = 'already registered' } }
+        $noise = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 3>&1 6>&1)
+        Assert-Equal -Expected 0 -Actual $noise.Count 'a line every twelve minutes forever is a log nobody reads'
+    }
+    It 'still announces when a provider leaks an extra value' {
+        Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true } `
+            -MetricsExporter { 'a stray line'; [pscustomobject]@{ Status = 'Installed'; Reason = 'installed it' } }
+        $returned = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 6>&1)
+        Assert-Equal -Expected 1 -Actual $returned.Count
+        Assert-Match 'exporter installed' "$($returned[0])" 'a stray line must degrade the message, never silence it'
+    }
+    It 'turns a throwing provider into a warning' {
+        Register-HostConditionProvider -HostType 'host.test.metrics' -Assert { $true } -AssertMinimum { $true } `
+            -MetricsExporter { throw 'the provider exploded' }
+        $warnings = @(Initialize-HostMetricsExporter -HostType 'host.test.metrics' 3>&1)
+        Assert-Equal -Expected 1 -Actual $warnings.Count
+        Assert-Match 'the provider exploded' "$($warnings[0])" 'the dispatcher owes the cycle that it cannot fail it'
     }
 }
 

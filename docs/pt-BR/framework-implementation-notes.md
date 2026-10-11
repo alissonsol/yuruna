@@ -197,7 +197,7 @@ por todo o ambiente de testes; este módulo os importa sob demanda e nunca
 mantém uma segunda cópia, porque uma segunda cópia é uma segunda resposta
 no dia em que um novo tipo de hospedeiro é adicionado.
 
-Nada aqui é específico dos três scripts que o usam hoje: -ScriptName aceita
+Nada aqui é específico dos quatro scripts que o usam hoje: -ScriptName aceita
 qualquer script existente em todas (ou algumas) das pastas de hospedeiro.
 
 <a id="4213a0b3-000d"></a>
@@ -325,19 +325,21 @@ execução manual não arquive sob regras diferentes das usadas pelo executor.
 
 ## test/modules/Invoke-TestCycleRunner.ps1: Transporte de atualização do hospedeiro
 
-Chamado DIRETAMENTE, nunca capturado: `$result = Invoke-RunnerOuterCycle ...`
-lê o ciclo do fluxo de sucesso, e essa única atribuição basta para fazer
-PowerShell fornecer ao pwsh interno um pipe anônimo para stdout em vez de
-deixá-lo herdar o console deste processo. O operador de chamada interno então
-retorna quando esse pipe chega a EOF, e não quando o processo interno sai --
-e o status service iniciado pelo processo interno mantém a ponta de gravação
-aberta durante toda sua vida (Start-Process -RedirectStandard* define
-bInheritHandles=TRUE, o que lhe entrega uma duplicata de cada handle herdável
-que o processo interno possui). O hospedeiro conclui um ciclo e para: o
-processo interno registra "about to exit with code 0", e "outer runner back in control"
-nunca vem depois. Somente no Windows, porque o desacoplamento POSIX substitui
-os descritores. O resultado retorna pelo módulo; permitir que o fluxo alcance
-o hospedeiro também devolve a saída do próprio ciclo ao console do operador.
+Invocado sem capturar o fluxo de sucesso; o resultado tipado é lido por meio de
+`Get-LastOuterCycleResult`, deixando a saída do ciclo no console do operador.
+O processo de execução do ciclo inicia o interno com `Process.Start`, herda o
+console sem redirecionar stdout ou stderr e usa `WaitForExit` para acompanhar
+o encerramento do processo.
+
+Na inicialização anterior pelo operador de chamada, capturar
+`$result = Invoke-RunnerOuterCycle ...` fornecia ao interno um pipe anônimo
+para stdout. O operador de chamada aguardava EOF, e o status service podia
+manter esse pipe aberto após o interno sair: `Start-Process -RedirectStandard*`
+habilitava a herança de handles, duplicando a extremidade de gravação no serviço.
+O sintoma no Windows era um ciclo concluído, um log do interno dizendo
+"about to exit with code 0" e nenhuma mensagem posterior "outer runner back in control".
+O desacoplamento POSIX substituía esses descritores. A espera atual pelo
+processo não depende de EOF no pipe.
 <a id="4213a0b3-0014"></a>
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-resolve-paths"></a>
@@ -383,8 +385,7 @@ Arquivo complementar de runner.heartbeat. O runner.heartbeat, acionado por
 um timer do pool de threads, comprova atividade no nível do processo, mas
 permanece atualizado mesmo quando o runspace está preso em um laço OCR / SSH
 que não termina -- não pode detectar travamentos dentro do runspace.
-runner.step-
-Heartbeat é atualizado pelo próprio runspace no início de cada etapa de
+runner.stepHeartbeat é atualizado pelo próprio runspace no início de cada etapa de
 Invoke-Sequence; o watchdog externo lê seu mtime para detectar uma etapa
 individual que excedeu testCycle.stepTimeoutSeconds. Inicialize aqui para
 que a primeira consulta do watchdog veja um arquivo atualizado antes mesmo
@@ -406,7 +407,7 @@ do watchdog externo, portanto um interno travado executaria sem proteção.
 Isso é uma execução degradada (não monitorada), não fatal -- avise e continue.
 O Write-Warning do console aqui é herdado apenas pelo externo (o proxy
 Write-Warning de Yuruna.Log ainda não foi importado, e a inicialização via
-operador de chamada não redireciona stderr), portanto também o espelhe em
+Process.Start não redireciona stderr), portanto também o espelhe em
 outer.log por meio de Write-InnerLog, onde fica durável e diagnosticável ao
 lado das entradas do executor externo/watchdog.
 O registro de início vem primeiro, para que um leitor nunca associe um PID
@@ -419,8 +420,9 @@ exata que uma atualização do hospedeiro verifica antes de poder retomar este i
 
 ## test/modules/Invoke-TestRunnerInnerLoop.ps1: PID interno + heartbeat
 
-O executor externo inicia este interno com o OPERADOR DE CHAMADA, portanto o
-interno herda o terminal de inicialização. Qualquer prompt que ele emita bloqueia
+O processo de execução do ciclo inicia este interno com `Process.Start`, sem
+redirecionamento dos fluxos padrão; portanto, o interno herda o terminal de
+inicialização. Qualquer prompt que ele emita bloqueia
 todo o hospedeiro até o watchdog encerrá-lo -- e, como runner.heartbeat é gravado
 por um timer do pool de threads que continua avançando com um runspace bloqueado,
 o painel permanece VERDE durante todo o período. Neutralize cada prompt que
@@ -550,11 +552,11 @@ um hospedeiro degradado para todo consumidor que só verifica a existência.
 
 ## test/modules/Invoke-TestRunnerInnerLoop.ps1: Par de hospedeiro degradado -> runtime/host-network.txt + host-network.json
 
-control.cycle-restart é gravado pelo endpoint /control/start-
-cycle do status service. O laço de espera entre ciclos o consome no próximo
+control.cycle-restart é gravado pelo worker por trás do endpoint
+/control/start-cycle do serviço de status. O laço de espera entre ciclos o consome no próximo
 tick; a barreira por etapa de Test.SequenceEngine.psm1 também o respeita.
 Mas, se uma sessão anterior foi encerrada no meio do ciclo antes de consumir
-o indicador (Ctrl-C do operador, reinício do executor externo, falha do
+o indicador (Ctrl+C do operador, reinício do executor externo, falha do
 processo), o arquivo persiste. Um interno que acaba de iniciar É o reinício
 solicitado pelo operador, portanto consuma o indicador aqui -- caso contrário,
 a primeira etapa do ciclo novo lançaria imediatamente YurunaCycleRestart,
@@ -1828,8 +1830,8 @@ de uma segunda caixa de senha sem contexto.
 ## test/modules/Test.HostCondition.Mac.psm1: Initialize-SudoCache
 
 Sem supervisão: ninguém está no console para digitar uma senha. O executor
-de testes inicia seu interno com o operador de chamada, portanto o interno
-herda o terminal de inicialização -- `sudo -v` aqui imprimiria o prompt
+de testes inicia seu interno com stdout nativo conectado ao console, portanto
+o interno herda o terminal de inicialização -- `sudo -v` aqui imprimiria o prompt
 nesse terminal e bloquearia todo o hospedeiro até o watchdog encerrá-lo,
 com a página de status ainda mostrando o verde do ciclo anterior. Recuse
 exatamente como no caminho preparado pelo wrapper: retorne $false
@@ -2559,7 +2561,7 @@ hospedeiro encaminham uma única string KeyName, portanto uma combinação nomea
 nenhuma alteração de assinatura.
 
 As duas combinações das quais a infraestrutura de testes depende são os controles de tty em modo canônico:
-Ctrl-U é VKILL (descartar a linha de entrada atual), e Ctrl-C é VINTR
+Ctrl+U é VKILL (descartar a linha de entrada atual), e Ctrl+C é VINTR
 (interromper o grupo de processos em primeiro plano).
 
 <a id="4213a0b3-0090"></a>
@@ -2959,8 +2961,7 @@ Marque cycleFolder como a IDENTIDADE estável do ciclo, não o
 nome final no disco -- a pasta no disco transita entre
 <base>.incomplete/ -> <base>/ -> <base>.aborted.<UTC>/, e o
 fluxo NDJSON NÃO deve alterar o campo cycleFolder nessas
-renomeações, ou a associação de um consumidor de fluxo falharia. Get-Cycle-
-FolderIdentity remove qualquer um dos três sufixos.
+renomeações, ou a associação de um consumidor de fluxo falharia. Get-CycleFolderIdentity remove qualquer um dos três sufixos.
 
 <a id="4213a0b3-00a5"></a>
 
@@ -3089,9 +3090,9 @@ Precedência da URL base:
      publicado (o operador o define em hospedeiros cujo painel é
      exposto por um proxy reverso, um nome de hospedeiro com túnel ou um IP
      LAN). Um corretor LLM fora do hospedeiro pode seguir o link.
-  2. http://<HOST_FQDN>:<statusService.port> -- melhor estimativa a partir do
-     nome de hospedeiro registrado pelo ciclo + a porta do status-service em execução,
-     quando ambos são conhecidos. Funciona na maioria das LANs em que o nome de
+  2. http://<HOST_FQDN>:8080 -- melhor estimativa a partir do
+     nome de hospedeiro registrado pelo ciclo + a porta padrão do serviço de status,
+     quando o nome de hospedeiro é conhecido. Funciona na maioria das LANs em que o nome de
      hospedeiro do painel é resolvido.
   3. http://localhost:8080/ -- alternativa de último recurso. Útil somente
      para um consumidor em execução no mesmo hospedeiro que o executor.
@@ -3213,7 +3214,7 @@ segredo em um terminal que ainda não desligou o eco.
 
 O OCR pode reordenar partes de uma linha (por exemplo, "[ec2-user@test-amazon-linux01 ~]$"
 vira "test-amazon-I inux01 login: ecZ-user"). Divida o padrão original
-nos caracteres removidos durante a normalização (@, -, etc.) para obter
+nos delimitadores de segmentos (@, -, etc.) para obter
 segmentos significativos, normalize cada um e verifique se todos aparecem
 em algum lugar no texto normalizado completo (em todas as linhas).
 
@@ -4026,7 +4027,7 @@ Três fontes de artefatos, gravadas por caminhos de código diferentes:
                                      falhas que não sejam waitForText (qualquer
                                      etapa de sequência que não seja
                                      waitForText/waitForAndEnter,
-                                     inclusive runOverSsh)
+                                     inclusive sshExec)
   * failure_ocr_<VM>.txt           -- último texto OCR de waitForText
 
 Todos os arquivos ficam diretamente em cycleGuestDataFolder (a pasta por convidado
@@ -4097,8 +4098,9 @@ coleta malsucedida.
 ## test/modules/Test.RunnerInnerLoop.psm1: Update-CycleModuleImport
 
 Chame novamente Initialize-YurunaHost para que o driver do hospedeiro (Yuruna.Host.psm1)
-E os auxiliares entre hospedeiros (Test.VMUtility.psm1 -- Wait-VMRunning,
-Test-IpAddress, ...) sejam reimportados com -Global a cada ciclo.
+seja reimportado com -Global -Force a cada ciclo. Os auxiliares entre hospedeiros
+(Test.VMUtility.psm1 -- Wait-VMRunning, Test-IpAddress, ...) são importados com
+-Global apenas quando esse módulo ainda não está carregado.
 Sem isso, qualquer coisa que limpe a sessão do executor no meio do ciclo
 (uma etapa de sequência chamando Get-Module | Remove-Module, um
 Import-Module transitivo sem -Global, etc.) deixa o executor incapaz de
@@ -4160,9 +4162,9 @@ que claramente teve sucesso -- e nunca reprova um ciclo em nenhum dos casos.
 
 Atualize runner.stepHeartbeat a cada iteração: o watchdog externo
 lê apenas o mtime desse arquivo e encerra o interno após
-testCycle.stepTimeoutSeconds (padrão 2700) sem atualização. Uma
-pausa deliberada não tem fronteiras de etapa para atualizá-lo pelo
-caminho normal de Invoke-Sequence, portanto, sem isso, o watchdog
+testCycle.stepTimeoutSeconds (2700 segundos como valor de fallback; o modelo
+distribuído define 3600) sem atualização. Uma pausa deliberada não tem fronteiras
+de etapa para atualizá-lo pelo caminho normal de Invoke-Sequence, portanto, sem isso, o watchdog
 usaria TerminateProcess no interno durante a pausa, levaria o externo a
 sua espera progressiva após falha e deixaria /control/cycle-resume e
 /control/start-cycle de index.html sem nada com que se comunicar.
@@ -4440,8 +4442,8 @@ pelo conhost enquanto o pwsh interno está ausente.
 A contagem regressiva é dividida em esperas de 1 segundo para que Ctrl+C / desligamento /
 sinalizador de pausa de ciclo possam interrompê-la sem aguardar um
 Start-Sleep longo. Write-Progress mostra uma barra de porcentagem; Write-Output
-emite uma atualização menos frequente (a cada ~5 s), para que um coletor de log que não renderize progresso
-ainda registre o avanço.
+registra somente o início e o fim da espera, portanto um coletor de log que não renderize
+progresso não registra atualizações intermediárias.
 $CycleDelaySeconds é definido dentro do bloco try do ciclo depois que a configuração é
 mesclada; uma exceção anterior a esse ponto o deixaria nulo.
 Recorra ao parâmetro do script para que a espera entre ciclos ainda seja
@@ -4473,7 +4475,7 @@ convidado, 'proceed' prossegue. O estado mutável do ciclo retorna de duas manei
 quatro campos de falha por $IterState e a configuração recarregável pela
 estrutura compartilhada $cfg (alterada no local pelo Sync por etapa; o chamador relê os
 espelhos necessários de $cfg após a chamada). Este auxiliar relê somente as opções
-sobre as quais age: $StopOnFailure (as proteções de parada) e os tempos limite de início/inicialização da VM.
+sobre as quais age: $StopOnFailure (as proteções de parada) e o tempo limite de início da VM.
 Write-Output de status segue para o fluxo do chamador exatamente como quando estava no próprio local (o
 auxiliar é invocado como instrução, sem capturar o retorno).
 
@@ -4586,18 +4588,20 @@ parada / não é possível determinar) prossegue.
 
 ## test/modules/Test.RunnerOuterLoop.psm1: Auxiliar de encaminhamento de ambiente
 
-Todo retorno de Invoke-RunnerOuterCycle chega aqui e também ao pipeline, para que
-Invoke-TestCycleRunner.ps1 possa ler o resultado SEM capturar o fluxo de
-sucesso. Ele não deve capturar: isso faz o PowerShell fornecer ao pwsh interno um
-pipe anônimo para stdout em vez de permitir que herde o console, e o
-operador de chamada então retorna quando esse pipe chega a EOF, não quando o interno
-sai. O status service criado pelo interno é o processo que o mantém aberto --
-Start-Process -RedirectStandard* define bInheritHandles=TRUE, portanto ele recebe uma
-cópia da extremidade de gravação e a mantém durante toda sua vida sem limite. O hospedeiro
-então conclui exatamente um ciclo e nunca inicia outro: o interno registra
-"about to exit with code 0", e "outer runner back in control" nunca aparece depois.
-Somente Windows; o desacoplamento POSIX em Start-StatusService.ps1 substitui os
-descritores inteiramente, portanto nada passa pelo exec ali.
+Todo retorno de Invoke-RunnerOuterCycle também atualiza o espaço reservado ao
+último resultado no módulo, para que Invoke-TestCycleRunner.ps1 possa ler o
+resultado tipado sem capturar o fluxo de sucesso. O interno é iniciado por
+`Process.Start` com os fluxos herdados do console, e `WaitForExit` acompanha
+seu encerramento independentemente de EOF em stdout.
+
+A inicialização anterior pelo operador de chamada podia travar quando o chamador
+capturava o fluxo de sucesso: o PowerShell fornecia um pipe anônimo para stdout,
+e o status service do interno herdava a extremidade de gravação por meio de
+`Start-Process -RedirectStandard*`. No Windows, o serviço podia manter esse pipe
+aberto após o interno registrar "about to exit with code 0", impedindo a mensagem
+"outer runner back in control" e o próximo ciclo. O desacoplamento POSIX
+substituía esses descritores. A espera explícita atual pelo processo evita
+essa dependência de EOF.
 
 <a id="4213a0b3-0109"></a>
 
@@ -4641,7 +4645,7 @@ host/*/Enable-TestAutomation.ps1).
    proteção de instância única do interno em qualquer invocação direta POSTERIOR na
    mesma sessão do shell, desativando silenciosamente a proteção contra concorrência.
    Sync-ForwardEnv reafirma o instantâneo, obtido na inicialização, das variáveis YURUNA_*
-   (IP do cache, diretórios de rastreamento/log, nível de log, combinação de OCR), para que o
+   (IP do cache, diretórios de runtime/log, nível de log, combinação de OCR), para que o
    interno as receba mesmo que algum módulo deste processo externo
    tenha sobrescrito $env: durante a execução.
 
@@ -4680,8 +4684,9 @@ marcador de um executor interno recuperado e deixa intacto o de um interno sobre
 
 Mesmo tempo de vida, contrato diferente: YURUNA_NONINTERACTIVE informa ao
 filho que não há ninguém no console para responder a uma solicitação. A inicialização
-usa o operador de chamada; portanto, o interno HERDA este terminal -- qualquer
-solicitação que ele apresente bloqueia todo o hospedeiro até o watchdog encerrá-lo,
+usa `Process.Start` sem redirecionamento dos fluxos padrão; portanto, o interno
+herda este terminal -- qualquer solicitação que ele apresente bloqueia todo o
+hospedeiro até o watchdog encerrá-lo,
 enquanto o painel continua verde. Os auxiliares de elevação (Initialize-Sudo-
 Cache) leem esse valor e recusam solicitar entrada; o interno o estende ao git
 e a Console.In em sua própria inicialização. A limpeza ocorre no finally pelo
@@ -4914,12 +4919,12 @@ anterior não antecipe indevidamente o fim desta espera.
 
 O corpo de Invoke-Sequence e as chamadas de Wait-ForText / Invoke-TapOn
 chamam funções de contrato (Get-VMScreenshot, Restart-VMConsole) que residem em
-Yuruna.Host. Quando este módulo carrega dentro de um processo pwsh filho iniciado
-por Test.Start-GuestOS / Test.Start-GuestWorkload, o filho não tem outro caminho
-para Yuruna.Host; chamar Initialize-YurunaHost aqui garante que o
-contrato possa ser resolvido em todos os pontos de chamada do mecanismo de sequências. É idempotente
-no executor pai, onde Yuruna.Host já está carregado -- Get-Module
-evita recarregar se o módulo já estiver importado.
+Yuruna.Host. Quando este módulo carrega em um processo sem outro caminho
+para Yuruna.Host, chamar Initialize-YurunaHost aqui garante que o
+contrato possa ser resolvido em todos os pontos de chamada do mecanismo de sequências.
+O driver do hospedeiro é importado globalmente de forma forçada a cada chamada;
+a verificação Get-Module omite apenas a importação do auxiliar compartilhado
+Test.VMUtility quando esse módulo já está carregado.
 <a id="4213a0b3-011e"></a>
 
 <a id="testmodulestestsequenceenginepsm1-load-global-defaults-from-testconfigyml"></a>
@@ -5109,8 +5114,10 @@ e escrita de arquivo auxiliar antes de Start-Sleep -Seconds $PollSeconds no
 fim -- em um hospedeiro Hyper-V ocupado, isso acrescenta 5-25 s à espera; portanto,
 um timeoutSeconds: 1800 configurado levaria 1-3 horas de tempo real para
 expirar (e, multiplicado por retry maxAttempts, poderia exceder meio dia
-antes de desistir). Com um prazo de tempo real, timeoutSeconds significa
-exatamente o que o operador configurou.
+antes de desistir). timeoutSeconds define o orçamento base de tempo real;
+a autorrecuperação do OCR pode estender seu prazo em, no máximo,
+min(timeoutSeconds, 120) segundos no total, para que um fluxo em recuperação
+tenha tempo de fornecer um quadro novo.
 
 <a id="4213a0b3-0128"></a>
 
@@ -5138,7 +5145,7 @@ os momentos que antecederam o defeito. É limpo pelo executor ao fim do convidad
 em caso de falha, é preservado e copiado junto ao log de falha.
 -Global nas reimportações com -Force: um -Force aninhado sem -Global
 remove os módulos do estado de sessão do script pai; portanto, uma
-chamada posterior de nível superior a Get-CycleScreenDir (ramo de sucesso de Invoke-TestRunnerInnerLoop.ps1,
+chamada posterior de nível superior a Get-CycleScreenDir (ramo de sucesso de Invoke-GuestProvisionIteration,
 observado em executores no mesmo processo no macOS) falha com
 "term not recognized".
 Apenas recuperação de remoção: Test.YurunaDir não mantém estado (Initialize-YurunaLogDir usa
@@ -5274,8 +5281,9 @@ Substituições de variáveis em cascata pelo planejador. Quando presentes, cada
 deste mapa SUBSTITUI a entrada de mesmo nome no bloco
 `variables:` do arquivo da sequência antes da expansão da etapa (o topo da cadeia
 vence para toda a cadeia -- ver Test.SequencePlanner). Um mapa
-vazio = invocação independente de Debug-TestSequence.ps1; mantém o
-caminho legado em que "as variáveis locais da sequência prevalecem".
+vazio = invocação direta sem substituições do planejador, mantendo as variáveis
+locais da sequência. Debug-TestSequence encaminha effectiveVariables de seu
+planejador por meio de Invoke-TestSequenceChain.
 Usar IDictionary (não [hashtable]) para que um [ordered]@{} do
 planejador mantenha sua ordem de inserção durante a vinculação de parâmetros.
 Uma conversão [hashtable] transformaria OrderedDictionary -> Hashtable
@@ -5303,7 +5311,8 @@ retorno seja estritamente [bool].
 
 Substituições de variáveis em cascata pelo planejador; ver Invoke-SequenceByName.
 Nulo/vazio = usar literalmente o bloco `variables:` do próprio arquivo
-da sequência (caminho independente de Debug-TestSequence.ps1).
+da sequência. O executor de cadeias de Debug-TestSequence encaminha as
+substituições do planejador.
 Usar IDictionary (não [hashtable]) para que um [ordered]@{} do
 planejador mantenha sua ordem de inserção durante a vinculação de parâmetros.
 Uma conversão [hashtable] transformaria OrderedDictionary -> Hashtable
@@ -5316,8 +5325,8 @@ ser resolvido, e a string literal acaba sendo usada como chave do cofre.
 
 ## test/modules/Test.SequenceEngine.psm1: Invoke-Sequence
 
-Inicializar logDir e trackDir cedo para que o bloco catch possa escrever
-diagnósticos e os caminhos de sinalização de pausa sejam resolvidos abaixo. Invoke-Sequence
+Inicializar logDir cedo para que o bloco catch possa escrever
+diagnósticos; o diretório de runtime usado pelos caminhos de sinalização de pausa é resolvido abaixo. Invoke-Sequence
 executa em um escopo de módulo filho quando um script de extensão de início de teste
 o importa; portanto, o Import-Module global do executor pai não
 se propaga até aqui -- cada auxiliar precisa ser reimportado neste caminho.
@@ -5409,7 +5418,7 @@ que nunca imprimiu; ver docs/control-routes.md, "Pause and resume".
 ## test/modules/Test.SequenceEngine.psm1: Invoke-Sequence
 
 Barreira de reinicialização do ciclo. Lança um marcador de fluxo de controle para que o
-catch de ciclo do executor interno (ver Invoke-TestRunnerInnerLoop.ps1) possa evitar
+catch de ciclo do executor interno (ver Invoke-RunnerInnerCycle) possa evitar
 mensagens de limpeza emergencial e pular o incremento de ConsecutiveCrashes
 para este aborto esperado. A sinalização deliberadamente NÃO é
 limpa aqui: o laço de intervalo entre ciclos após o ciclo a consumirá
@@ -5571,8 +5580,8 @@ matriz tipada do validador de esquema.
 Emitir uma linha estruturada por execução de etapa. stepName é a
 `description:` BRUTA (antes da expansão) do YAML -- variáveis como
 ${vmName} deliberadamente NÃO são expandidas aqui, para que junções entre ciclos
-por stepName continuem estáveis, embora vmName contenha um
-sufixo de timestamp por ciclo. Usa step.action quando nenhuma
+por stepName continuem estáveis, embora vmName mude quando saveDiskSnapshot
+renomeia a VM e contenha um segmento de ID do hospedeiro em um grupo. Usa step.action quando nenhuma
 descrição está definida. Uma repetição emite seu intervalo envolvente e seu
 resultado final, além dos filhos; os leitores contam apenas linhas de nível superior
 ao somar trabalho e falhas finais.
@@ -6684,17 +6693,20 @@ Empiricamente, o QEMU gerenciado por libvirt no Ubuntu 24.04 aceita nossa conex�
 e emite sua saudação 'RFB 003.008', depois encerra a conexão
 imediatamente após escrevermos a versão do cliente -- antes de qualquer negociação de autenticação ou
 tipos de segurança. O QEMU do UTM não faz isso. Em vez de investigar a
-diferença de negociação entre libvirt e QEMU independente, KVM evita VNC completamente
-e injeta teclas via `virsh send-key`, que passa pelo monitor QMP
-do libvirt e não tem as partes variáveis de endereço de escuta / descoberta de porta /
-versão RFB.
+diferença de negociação entre libvirt e QEMU independente, KVM evita VNC completamente.
+O texto normalmente usa um único processo filho do Python do sistema, com execução
+limitada, e uma única conexão libvirt; a ausência do interpretador ou da integração
+Python com libvirt permite o fallback `virsh send-key`. Um envio por libvirt que
+falhe ou seja interrompido nunca é repetido. Ambos os caminhos evitam as partes
+variáveis de endereço de escuta, descoberta de porta e versão RFB do VNC.
 
-`virsh send-key <domain> [keycode...]` aceita nomes de eventos de entrada do Linux
-(KEY_A, KEY_LEFTSHIFT, KEY_ENTER, ...) e os envia como uma combinação
-(todos pressionados simultaneamente, depois soltos). Para digitar texto, enviamos
-uma combinação por caractere; caracteres que exigem Shift tornam-se uma combinação de 2 teclas
-(KEY_LEFTSHIFT + KEY_X).
-Os mapas de teclas KVM ficam em Test.KeyCodeRegistry (KVM-Char / KVM-Named).
+O fallback `virsh send-key <domain> [keycode...]` aceita nomes de eventos de entrada
+do Linux (KEY_A, KEY_LEFTSHIFT, KEY_ENTER, ...) e os envia como uma combinação
+(todos pressionados simultaneamente, depois soltos). Ambos os caminhos de texto
+enviam uma combinação por caractere; caracteres que exigem Shift tornam-se uma
+combinação de 2 teclas. O caminho preferencial por libvirt usa valores numéricos
+PS2-Char / PS2-Named; os caminhos de texto de fallback e de teclas nomeadas usam
+KVM-Char / KVM-Named. Esses mapas ficam em Test.KeyCodeRegistry.
 
 <a id="4213a0b3-0186"></a>
 
@@ -6854,10 +6866,10 @@ isso foi informado na primeira publicação e nada mudou desde então.
 ## test/modules/Test.VMUtility.psm1: Wait-YurunaServiceVmEndpoint
 
 Ainda não vinculado. Estender APENAS com evidência de que o convidado ainda
-está trabalhando: cloud-init `running` significa que a construção progride,
-portanto o orçamento apenas era pequeno demais para este hospedeiro. Qualquer outro status
-significa que a construção terminou, e um daemon ausente é uma falha real
-que não deve ser encoberta por uma espera mais longa.
+está trabalhando: cloud-init `running` ou `not started` permite uma extensão,
+até o prazo máximo configurado. `done` interrompe a extensão do prazo, mas mantém
+a espera dentro do orçamento restante para o daemon vincular sua porta;
+os demais status não estendem o prazo.
 ERROR de cloud-init é terminal, portanto parar, em vez de cumprir
 todo o orçamento. Nada executa cloud-init novamente nesta inicialização: toda
 consulta restante faz uma pergunta já respondida, e o

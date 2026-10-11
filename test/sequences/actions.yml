@@ -103,6 +103,14 @@ actions:
     attempt), stepsAfterVmRestart (optional recursive step array run only
     after that cold restart succeeds; use it to restore or settle boot state).
 
+  saveGuestClockSnapshot: >
+    Capture two bounded guest clock and per-CPU accounting samples around an
+    ARM64 Hyper-V CPU restart using an already proven SSH address. Advisory:
+    unavailable evidence and accounting warnings do not fail the sequence.
+    Parameters: phase (before-cpu-restart or after-cpu-restart). The SSH wall
+    budget is five seconds; other host architectures skip this action.
+    See https://yuruna.link/428e4df6-003a.
+
   startVm: >
     Wait for a guest-requested clean shutdown, then start the VM through the
     host driver. On host.windows.hyper-v, arm64HyperVProcessorCount optionally

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42311ad0-61e0-4919-8d94-c9e0e25c84a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,15 +92,11 @@ function Send-YurunaNotification {
     $areaDir = Resolve-ExtensionAreaDir -Area 'notification'
     foreach ($n in $names) {
         $modPath = [System.IO.Path]::GetFullPath((Join-Path $areaDir "$n.psm1"))
-        $mod = Get-Module | Where-Object {
-            $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $modPath)
-        } | Select-Object -First 1
+        $mod = Find-LoadedExtensionModule -Path $modPath
         if (-not $mod) {
             try {
                 Import-Module -Name $modPath -Global -Force -Verbose:$false -ErrorAction Stop
-                $mod = Get-Module | Where-Object {
-                    $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $modPath)
-                } | Select-Object -First 1
+                $mod = Find-LoadedExtensionModule -Path $modPath
             } catch {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_373d4bd06afcd25d' -Arguments @{ n = "$n"; message = "$($_.Exception.Message)" })
             }

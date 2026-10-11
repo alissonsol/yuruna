@@ -357,12 +357,65 @@ Pod image refs against `localhost:5000` take the form
 non-localhost `registryLocation`. The orphan check matches on the
 `/<repo>:` substring so both shapes resolve.
 
+
+<a id="423ef7f5-0014"></a>
+
+## Guest evidence across CPU restarts and stalls
+
+The Linux snapshot and execution recorder enumerate threads before sorting by
+CPU usage. This avoids procps suppressing worker threads when `ps -eLo` is
+combined with its own `--sort`. Each selected runnable, blocked, or CPU-heavy
+thread includes its raw task accounting, scheduler statistics, wait channel,
+and accessible stack. Memory pressure, VM counters, and cgroup memory events
+help distinguish CPU stalls from reclaim or OOM failures.
+
+Ubuntu Server 26 sequences on native ARM64 Hyper-V capture two clock samples
+before the one-to-two CPU restart and after SSH becomes ready. The five-second
+SSH budget uses an already proven address; an unavailable capture remains
+advisory. Samples include boot ID, UTC, BOOTTIME uptime, monotonic time when
+Python is available, tick rate, online CPUs, and raw per-CPU `/proc/stat`.
+Host samples bracket the processor change with UTC, performance-counter ticks,
+and bounded Hyper-V processor and VM context. Analysis flags impossible
+accounting, counter decreases, incomplete samples, and clock discontinuities.
+Counters from different boot IDs are never subtracted; Linux iowait decreases
+are permitted. Warnings record evidence and do not change the workload result.
+
+Provenance is collected from the guest itself: owned Git HEAD or validated
+archive `.yuruna-revision`, fixed helper and Dockerfile hashes, installed helper
+hashes, and separate downloaded/executed payload hashes. Missing, invalid,
+unsafe, or oversized sources have explicit states. No remote URLs or source
+contents are included. Stable boot metadata and provenance are collected once
+per execution and retained outside the rolling process samples.
+
+A separate kernel collector starts with the execution recorder and uploads
+through the host's existing HTTP diagnostic endpoint without SSH. It keeps
+four 32 KiB samples, polls every five seconds, and posts only changed evidence
+plus the cached process ring. An unchanged-data heartbeat is uploaded every
+60 seconds, and failed uploads are retried. Kernel collection
+has a two-second deadline and HTTP a six-second deadline, each with a
+one-second kill grace. Both recorders stop with their owner or after two hours;
+credentials are redacted before retention. Disable only the kernel stream with
+`EXEC_KERNEL_RECORDER=0`; the existing execution-recorder controls still apply.
+No guest uploader can run through a complete kernel stall, so the last upload
+and the host-side observations remain essential.
+
+New Ubuntu and Amazon Linux seeds keep the journal across boots with 32 MiB
+disk and 8 MiB runtime caps, a 256 MiB free-space reserve, and 30-second sync.
+They do not forward kernel output onto the OCR console. With
+`testCycle.stopOnFailure: true`, the runner writes a durable
+`runtime/diagnostic-preserve.json` before failure capture, and pauses before
+recovery, refresh, or another VM dispatch. Runner shutdown preserves the hold.
+Remove this marker from the configured runtime directory or explicitly set
+`stopOnFailure: false` to release it. Once guest access returns, inspect the
+prior kernel boot with `sudo journalctl -k -b -1`; the newest unsynced journal
+entries may be lost on a hard power-off.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

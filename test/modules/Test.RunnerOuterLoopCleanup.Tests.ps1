@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a641ab-18b0-4d5b-a99c-e837d2b17ef8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,31 +35,25 @@
     would), and is a no-op when nothing was ever leaked. Exercised with real thread
     jobs so .State and Remove-Job behave as in production.
 
-    The throw-free Should assertions run under Pester 4.10.1.
+    The throw-free Should assertions run under Pester 5.x.
 #>
 
 BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.RunnerOuterLoop.psm1'
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 Import-Module $modPath -Force
 
 # --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-ModuleAst {
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($modPath): $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $modPath
 }
 
 # Count of command invocations of $Name (CommandAst only -- a definition or an
 # Export-ModuleMember bareword is not a CommandAst with this name).
 function Get-CommandInvokeCount {
     param($Ast, [string]$Name)
-    $wanted = $Name   # local so the FindAll closure's use is visible to the analyzer
-    @($Ast.FindAll({ param($n)
-        $n -is [System.Management.Automation.Language.CommandAst] -and
-        $n.GetCommandName() -eq $wanted
-    }, $true)).Count
+    return (Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $Name)
 }
 
 # True when some try/finally has $Name invoked inside its finally block.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42ab6606-a979-4194-9acd-a8d1c653dace
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,7 +64,7 @@ $script:YurunaHostContract = @(
     'Test-VirtualizationResponsive', 'Start-VirtualizationServiceIfStopped'
 )
 
-# --- REGION: Contract discovery
+# --- REGION: Get-YurunaHostContractVerb
 function Get-YurunaHostContractVerb {
     <#
     .SYNOPSIS
@@ -76,7 +76,7 @@ function Get-YurunaHostContractVerb {
     return ,$script:YurunaHostContract
 }
 
-# --- REGION: Contract coverage
+# --- REGION: Assert-YurunaHostContractCoverage
 function Assert-YurunaHostContractCoverage {
     <#
     .SYNOPSIS

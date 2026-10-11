@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -664,12 +664,18 @@ function Save-StepFailureEvidence {
         $srcOcr     = if ($logRoot) { Join-Path $logRoot "failure_ocr_${VMName}.txt" } else { $null }
 
         $frames = @()
+        $earliest = @()
         if (Test-Path -LiteralPath $srcScreens) {
             $frames = @(Get-ChildItem -LiteralPath $srcScreens -Filter 'raw_*' -File -ErrorAction SilentlyContinue)
+            # See Add-OcrHistoryFrame: the guest's first evicted frames.
+            $srcEarliest = Join-Path $srcScreens 'earliest'
+            if (Test-Path -LiteralPath $srcEarliest) {
+                $earliest = @(Get-ChildItem -LiteralPath $srcEarliest -Filter 'raw_*' -File -ErrorAction SilentlyContinue)
+            }
         }
         $hasScreen = $srcScreen -and (Test-Path -LiteralPath $srcScreen)
         $hasOcr    = $srcOcr    -and (Test-Path -LiteralPath $srcOcr)
-        if ($frames.Count -eq 0 -and -not $hasScreen -and -not $hasOcr) { return $null }
+        if ($frames.Count -eq 0 -and $earliest.Count -eq 0 -and -not $hasScreen -and -not $hasOcr) { return $null }
 
         if (-not $PSCmdlet.ShouldProcess($destDir, (Format-YurunaOperatorMessage -Key 'runner.operator_e93a4d7fd69e4e80'))) { return $null }
         if (-not (Test-Path -LiteralPath $destDir)) {
@@ -677,6 +683,13 @@ function Save-StepFailureEvidence {
         }
         foreach ($f in ($frames | Sort-Object Name)) {
             Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $destDir $f.Name) -Force -ErrorAction SilentlyContinue
+        }
+        if ($earliest.Count) {
+            $destEarliest = Join-Path $destDir 'earliest'
+            New-Item -ItemType Directory -Path $destEarliest -Force | Out-Null
+            foreach ($f in ($earliest | Sort-Object Name)) {
+                Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $destEarliest $f.Name) -Force -ErrorAction SilentlyContinue
+            }
         }
         if ($hasScreen) {
             Copy-Item -LiteralPath $srcScreen -Destination (Join-Path $destDir 'failure_screenshot.png') -Force -ErrorAction SilentlyContinue
@@ -1217,7 +1230,7 @@ function Write-CycleNdjsonEvent {
         $EventRecord['hostId'] = [string]$global:__YurunaHostId
     }
     try {
-        $json = $EventRecord | ConvertTo-Json -Compress -Depth 5
+        $json = $EventRecord | ConvertTo-Json -Compress -Depth 12
         Add-Content -LiteralPath $path -Value $json -Encoding utf8NoBOM -ErrorAction Stop
         Add-CycleEventDeliveryRecord -Outcome delivered
     } catch {
@@ -1403,6 +1416,14 @@ function Send-YurunaDegradation {
 function Add-OcrHistoryFrame {
     <# .SYNOPSIS
     Adds a capture to the bounded OCR ring and removes evicted image/text sidecars.
+    .DESCRIPTION
+    The ring keeps the frames leading up to a failure, and on a guest that
+    stalled early in its run those are all the same stalled screen. So the
+    first frames the ring evicts are moved to an 'earliest' folder beside it
+    instead of deleted, up to KeepEarliest of them, and the failure evidence
+    also shows how the guest got there. The folder lives inside the ring
+    directory: the success cleanup removes it with the ring, and the ring
+    repair's top-level sweep leaves it alone.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -1410,14 +1431,34 @@ function Add-OcrHistoryFrame {
     param(
         [Parameter(Mandatory)][Collections.Generic.Queue[string]]$Queue,
         [Parameter(Mandatory)][string]$Path,
-        [int]$Limit = 20
+        [int]$Limit = 20,
+        # About two minutes at the usual poll interval.
+        [int]$KeepEarliest = 24
     )
     $Limit = [Math]::Clamp($Limit, 1, 240)
+    $KeepEarliest = [Math]::Clamp($KeepEarliest, 0, 120)
     $Queue.Enqueue($Path)
     while ($Queue.Count -gt $Limit) {
         $evict = $Queue.Dequeue()
+        $sidecar = [IO.Path]::ChangeExtension($evict, '.txt')
+        if ($KeepEarliest -gt 0 -and [IO.File]::Exists($evict)) {
+            try {
+                $earliestDir = Join-Path ([IO.Path]::GetDirectoryName($evict)) 'earliest'
+                $kept = if ([IO.Directory]::Exists($earliestDir)) { [IO.Directory]::GetFiles($earliestDir, '*.png').Length } else { 0 }
+                if ($kept -lt $KeepEarliest) {
+                    $null = [IO.Directory]::CreateDirectory($earliestDir)
+                    [IO.File]::Move($evict, (Join-Path $earliestDir ([IO.Path]::GetFileName($evict))), $true)
+                    if ([IO.File]::Exists($sidecar)) {
+                        [IO.File]::Move($sidecar, (Join-Path $earliestDir ([IO.Path]::GetFileName($sidecar))), $true)
+                    }
+                    continue
+                }
+            } catch {
+                Write-Verbose "Add-OcrHistoryFrame: keeping an earliest frame failed: $($_.Exception.Message)"
+            }
+        }
         Remove-Item -LiteralPath $evict -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath ([IO.Path]::ChangeExtension($evict, '.txt')) -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $sidecar -Force -ErrorAction SilentlyContinue
     }
 }
 

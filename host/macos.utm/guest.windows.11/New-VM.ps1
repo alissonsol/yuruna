@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,7 +132,7 @@ if (-not (Test-Path $spiceImageFile)) {
 }
 
 # --- REGION: Remove existing VM
-if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
+if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
@@ -232,6 +232,7 @@ $plistValues = @{
     '__ISO_IMAGE_NAME__' = "$VMName.iso"
     '__SEED_IDENTIFIER__' = $SeedId
     '__SEED_IMAGE_NAME__' = 'seed.iso'
+    '__VNC_DISPLAY__' = "$(Get-VncDisplayForVm -VMName $VMName)"
     '__CPU_COUNT__' = "$vmCores"
     '__MEMORY_SIZE__' = '12288'
 }
@@ -258,14 +259,25 @@ if ($NetworkMode -eq "Bridged") {
 # --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
+# --- REGION: Start Windows installer
+# UTM can power on the guest before its startup call returns. Arm a separate
+# VNC worker first so the DVD prompt is accepted throughout that call.
+Import-Module (Join-Path $_utmRepoRoot 'host/modules/Yuruna.WindowsInstallerVnc.psm1') -DisableNameChecking
+Start-YurunaWindowsInstallerVnc -VMName $VMName -RepoRoot $_utmRepoRoot -StartVM {
+    param($KeyboardArmed)
+    $launchSignal = $KeyboardArmed
+    $armKeyboard = { $launchSignal.Set() }.GetNewClosure()
+    $startResult = Start-UtmVM -VMName $VMName -Confirm:$false -BeforeLaunch $armKeyboard
+    if (-not $startResult.success) { throw $startResult.errorMessage }
+}
+
 # --- REGION: Guidance
 Write-Verbose ""
-Write-Verbose "== VM bundle created: $UtmDir =="
+Write-Verbose "== VM created and started: $UtmDir =="
 Write-Verbose ""
 Write-Verbose "Network mode : $NetworkMode$(if ($NetworkMode -eq 'Bridged') { " ($BridgeInterface)" })"
 Write-Verbose ""
-Write-Verbose "Double-click '$VMName.utm' in ~/yuruna/guest.nosync/ to import it into UTM and start the installation."
-Write-Verbose "When the VM first starts, press any key when you see 'Press any key to boot from CD or DVD'."
+Write-Verbose "The VM was imported into UTM and started; the DVD boot key was sent automatically."
 Write-Verbose "The Windows installer will then run automatically. Default credentials: ywuser1 / password"
 Write-Verbose ""
 Write-Verbose "After Windows installation completes (~15 min):"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42ec2071-1f84-4394-921b-5ee9b08141b3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,7 @@
     NotFound error must NOT match, or every such error burns the whole backoff
     budget before failing.
 
-    Should assertions only, so the suite runs under Pester 4.10.1 as well as 5.
+    Should assertions only, so the suite runs under Pester 5.x.
 #>
 
 BeforeAll {

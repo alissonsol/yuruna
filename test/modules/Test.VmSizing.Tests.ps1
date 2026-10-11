@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a296aa-3108-4ad0-928d-3bf246b2d537
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,9 +31,11 @@
     forgets the parameter therefore fails silently: the VM builds, at the wrong
     size. These guards make that omission a test failure.
 
-    ConvertTo-MemoryStartupBytes is exercised functionally; everything else is
-    source-text only (no host driver imported, no VM touched). Throw-based
-    assertions so the file runs under Pester 4.10.1 and Pester 5+.
+    ConvertTo-MemoryStartupBytes is exercised functionally, and so is the
+    dispatcher's declare-or-drop forwarding: the real Invoke-PerGuestNewVm runs
+    against a throwaway guest script that only echoes what it was handed.
+    Everything else is source-text only. No host driver is imported and no VM
+    is touched. Throw-based assertions so the file runs under Pester 5.x.
 #>
 
 BeforeDiscovery {
@@ -72,11 +74,39 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-$script:provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1')
 $script:plannerSrc   = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequencePlanner.psm1')
 $script:runnerSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequenceRunner.psm1')
 $script:innerSrc     = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.RunnerInnerLoop.psm1')
 $script:seqEntrySrc  = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/Debug-TestSequence.ps1')
+
+Import-Module (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking
+
+# One run of the real dispatcher against a throwaway guest script that declares
+# -VMName plus $Declare, echoes each of those as "<Name>=<value>", and then
+# echoes whatever it was handed without declaring. Returns the child's lines,
+# the dispatcher's Verbose lines and its result. The script only echoes, so no
+# hypervisor is involved.
+function Invoke-DispatcherFixture {
+    param([string[]]$Declare = @(), [hashtable]$Bind = @{})
+    $root = New-YurunaTestTempDir -Prefix 'yuruna-vm-sizing'
+    try {
+        $guestDir = Join-Path $root (Join-Path 'fixture.host' 'guest.fixture')
+        $null = New-Item -ItemType Directory -Path $guestDir -Force
+        $declared = @('[string]$VMName') + @($Declare | ForEach-Object { "[string]`$$_ = ''" })
+        $lines = @("param($($declared -join ', '))") +
+            @($Declare | ForEach-Object { "Write-Output ""$_=`$$_""" }) +
+            @('Write-Output "undeclared=$($args -join '' '')"')
+        Set-Content -LiteralPath (Join-Path $guestDir 'New-VM.ps1') -Value $lines
+        $relayed = $null
+        $emitted = @(Invoke-PerGuestNewVm -HostSubdir 'fixture.host' -GuestKey 'guest.fixture' -RepoRoot $root -VMName 'vm-fixture' @Bind `
+                -Confirm:$false -Verbose -InformationVariable relayed 4>&1)
+        return @{
+            Result  = @($emitted | Where-Object { $_ -is [hashtable] })[0]
+            Verbose = @($emitted | Where-Object { $_ -is [System.Management.Automation.VerboseRecord] } | ForEach-Object { $_.Message })
+            Child   = @($relayed | ForEach-Object { [string]$_.MessageData })
+        }
+    } finally { Remove-YurunaTestTempDir $root }
+}
 
 }
 
@@ -143,17 +173,31 @@ Describe 'vm-sizing -- guest New-VM.ps1 declares and applies the overrides' {
 }
 
 Describe 'vm-sizing -- the dispatcher forwards under the declare-or-drop rule' {
+    BeforeAll {
+        $sizing = @{ MemoryStartupBytes = '4GB'; Cores = '2' }
+        $script:sizingDeclared   = Invoke-DispatcherFixture -Declare @('MemoryStartupBytes', 'Cores') -Bind $sizing
+        $script:sizingUndeclared = Invoke-DispatcherFixture -Bind $sizing
+    }
     It 'probes the target script for -MemoryStartupBytes and -Cores' {
-        Assert-True ($script:provisionSrc -match [regex]::Escape("ContainsKey('MemoryStartupBytes')")) `
-            'Invoke-PerGuestNewVm must probe for -MemoryStartupBytes before forwarding'
-        Assert-True ($script:provisionSrc -match [regex]::Escape("ContainsKey('Cores')")) `
-            'Invoke-PerGuestNewVm must probe for -Cores before forwarding'
+        # A guest script that declares neither must not be handed them, and the
+        # drop has to be named on Verbose: it is the only trace of a VM built
+        # at the default size.
+        $run = $script:sizingUndeclared
+        Assert-True $run.Result.success "a guest script that declares neither sizing parameter must still run: $($run.Result.errorMessage)"
+        Assert-True ($run.Child -ccontains 'undeclared=') `
+            "Invoke-PerGuestNewVm must probe for -MemoryStartupBytes and -Cores before forwarding; the guest script was handed: $($run.Child -join ' | ')"
+        Assert-True (@($run.Verbose | Where-Object { $_ -cmatch "^Cascaded -MemoryStartupBytes '4GB' NOT forwarded: .* does not declare a -MemoryStartupBytes parameter\.$" }).Count -eq 1) `
+            'a dropped -MemoryStartupBytes must be reported on the Verbose stream'
+        Assert-True (@($run.Verbose | Where-Object { $_ -cmatch "^Cascaded -Cores '2' NOT forwarded: .* does not declare a -Cores parameter\.$" }).Count -eq 1) `
+            'a dropped -Cores must be reported on the Verbose stream'
     }
     It 'appends -MemoryStartupBytes and -Cores to the child argument list' {
-        Assert-True ($script:provisionSrc -match [regex]::Escape("@('-MemoryStartupBytes', `$MemoryStartupBytes)")) `
-            'a probed-and-present -MemoryStartupBytes must reach the child script'
-        Assert-True ($script:provisionSrc -match [regex]::Escape("@('-Cores', `$Cores)")) `
-            'a probed-and-present -Cores must reach the child script'
+        $run = $script:sizingDeclared
+        Assert-True $run.Result.success "the guest script that declares both sizing parameters must run: $($run.Result.errorMessage)"
+        Assert-True ($run.Child -ccontains 'MemoryStartupBytes=4GB') `
+            "a probed-and-present -MemoryStartupBytes must reach the child script; it reported: $($run.Child -join ' | ')"
+        Assert-True ($run.Child -ccontains 'Cores=2') `
+            "a probed-and-present -Cores must reach the child script; it reported: $($run.Child -join ' | ')"
     }
 }
 
@@ -200,16 +244,24 @@ Describe 'nested-virt -- exposeVirtualizationExtensions travels the same cascade
     It 'never hardcodes -ExposeVirtualizationExtensions $true on Set-VMProcessor: <name>' -TestCases $script:hyperVGuestCase {
         param($name, $path)
         $src = Get-Content -Raw -LiteralPath $path
+        $shared = Join-Path (Split-Path -Parent (Split-Path -Parent $path)) 'modules/New-UbuntuServerVM.ps1'
+        if ($src -match 'New-UbuntuServerVM\.ps1' -and (Test-Path -LiteralPath $shared)) { $src = Get-Content -Raw -LiteralPath $shared }
         Assert-True ($src -notmatch [regex]::Escape('-ExposeVirtualizationExtensions $true')) `
             "$name passes -ExposeVirtualizationExtensions `$true unconditionally; an ARM64 host then fails every VM start with 'this platform does not support nested virtualization'"
         Assert-True ($src -match [regex]::Escape('$vmProcessorArgs.ExposeVirtualizationExtensions')) `
             "$name must add ExposeVirtualizationExtensions to the Set-VMProcessor splat only when requested"
     }
     It 'the dispatcher probes and forwards -ExposeVirtualizationExtensions' {
-        Assert-True ($script:provisionSrc -match [regex]::Escape("ContainsKey('ExposeVirtualizationExtensions')")) `
-            'Invoke-PerGuestNewVm must probe for -ExposeVirtualizationExtensions before forwarding'
-        Assert-True ($script:provisionSrc -match [regex]::Escape("@('-ExposeVirtualizationExtensions', `$ExposeVirtualizationExtensions)")) `
-            'a probed-and-present -ExposeVirtualizationExtensions must reach the child script'
+        $request = @{ ExposeVirtualizationExtensions = 'true' }
+        $undeclared = Invoke-DispatcherFixture -Bind $request
+        Assert-True $undeclared.Result.success "a guest script that does not declare the parameter must still run: $($undeclared.Result.errorMessage)"
+        Assert-True ($undeclared.Child -ccontains 'undeclared=') `
+            "Invoke-PerGuestNewVm must probe for -ExposeVirtualizationExtensions before forwarding; the guest script was handed: $($undeclared.Child -join ' | ')"
+        Assert-True (@($undeclared.Verbose | Where-Object { $_ -cmatch "^Cascaded -ExposeVirtualizationExtensions 'true' NOT forwarded: .* does not declare an -ExposeVirtualizationExtensions parameter\.$" }).Count -eq 1) `
+            'a dropped -ExposeVirtualizationExtensions must be reported on the Verbose stream'
+        $declared = Invoke-DispatcherFixture -Declare @('ExposeVirtualizationExtensions') -Bind $request
+        Assert-True ($declared.Child -ccontains 'ExposeVirtualizationExtensions=true') `
+            "a probed-and-present -ExposeVirtualizationExtensions must reach the child script; it reported: $($declared.Child -join ' | ')"
     }
     It 'host-contract New-VM wrappers declare -ExposeVirtualizationExtensions: <name>' -TestCases $script:hostCase {
         param($name, $path)

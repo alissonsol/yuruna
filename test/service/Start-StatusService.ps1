@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,6 +104,7 @@ Initialize-YurunaEntryPointModuleSet -For StatusService -ModulesDir $ModulesDir
 Import-Module (Join-Path $ModulesDir 'Test.StateFile.psm1') -Global -DisableNameChecking
 Import-Module (Join-Path $ModulesDir 'Test.SingleFlightLock.psm1') -Global -DisableNameChecking
 Import-Module (Join-Path $ModulesDir 'Test.StatusControlRoute.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.PrivateStateRepair.psm1') -DisableNameChecking
 
 # --- REGION: Startup serialization and the refresh-safe outcome
 # See https://yuruna.link/42e5cdfd-003d
@@ -219,25 +220,105 @@ if ($Port -le 0) {
 }
 
 $startLockInfo = $null
+$privateStateRepair = $null
 try {
     $startLockInfo = Get-YurunaPrivateStatePath -Name ("status-service.{0}.start.lock" -f (Get-StatusRuntimeKey -RuntimeDir $RuntimeDir)) -ServedRoot $ServedRootSet
 } catch { Write-Verbose "startup lock path unresolved: $($_.Exception.Message)" }
+if (-not $RefreshSafe -and (-not $startLockInfo -or -not $startLockInfo.Resolved)) {
+    $privateStateRepair = Repair-YurunaStartupPrivateState -ServedRoot $ServedRootSet -AllowPrompt -Confirm:$false
+    if ($privateStateRepair.Resolved) {
+        $startLockInfo = Get-YurunaPrivateStatePath -Name ("status-service.{0}.start.lock" -f (Get-StatusRuntimeKey -RuntimeDir $RuntimeDir)) -ServedRoot $ServedRootSet
+    }
+}
 if ($startLockInfo -and $startLockInfo.Resolved) {
     $startLockWaitMs = if ($RefreshSafe) {
         [int][Math]::Min(5000, [Math]::Max(0, (Get-YurunaDeadlineRemainingMs -Deadline $script:RefreshSafeDeadline) - 1000))
     } else { 15000 }
     $startLock = Enter-YurunaSingleFlightLock -Path $startLockInfo.Path -WaitMilliseconds $startLockWaitMs `
         -Metadata @{ purpose = 'status-service-start'; port = $Port }
+    if (-not $RefreshSafe -and -not $startLock.Held -and $startLock.Reason -eq 'access-denied') {
+        $privateStateRepair = Repair-YurunaStartupPrivateState -ServedRoot $ServedRootSet -AllowPrompt -RepairFileAccess -Confirm:$false
+        if ($privateStateRepair.Resolved) {
+            $startLock = Enter-YurunaSingleFlightLock -Path $startLockInfo.Path -WaitMilliseconds $startLockWaitMs `
+                -Metadata @{ purpose = 'status-service-start'; port = $Port }
+        }
+    }
     if ($startLock.Held) {
         $script:StatusStartupLock = $startLock
     } elseif ($RefreshSafe) {
         Complete-RefreshSafeStart -Outcome 'admission-busy' -Reason ([string]$startLock.Reason)
     } else {
-        Write-Verbose "Status service start lock not held ($($startLock.Reason)); proceeding without it."
+        $lockFailureReason = if ($privateStateRepair -and -not $privateStateRepair.Resolved) { $privateStateRepair.Reason } else { $startLock.Reason }
+        throw [IO.IOException]::new("Status service startup is already in progress or its lock cannot be acquired ($lockFailureReason); refusing a concurrent start.")
     }
 } elseif ($RefreshSafe) {
     $lockReason = if ($startLockInfo) { [string]$startLockInfo.Reason } else { 'resolve-failed' }
     Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason "private-state-$lockReason"
+} else {
+    $lockFailureReason = if ($privateStateRepair -and -not $privateStateRepair.Resolved) { $privateStateRepair.Reason } elseif ($startLockInfo) { $startLockInfo.Reason } else { 'resolve-failed' }
+    throw [IO.IOException]::new("Status service startup lock could not be resolved ($lockFailureReason). Start the runner from an interactive terminal to allow any required sudo authentication.")
+}
+
+function Save-StatusServiceErrorLog {
+    <#
+    .SYNOPSIS
+        Preserve three bounded generations of listener errors before a launch.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDirectory,
+        [ValidateRange(1, 10)][int]$Retain = 3,
+        [ValidateRange(1024, 16777216)][int]$MaximumBytes = 1MB
+    )
+    $logNames = @('server.err', 'server.err.old', 'server.stderr')
+    # Check every destination before changing any file. A redirected log must
+    # never follow a link into an unrelated file, including an archive link.
+    foreach ($name in $logNames) {
+        foreach ($suffix in @('') + @(1..$Retain | ForEach-Object { ".previous.$_" })) {
+            $path = Join-Path $RuntimeDirectory "$name$suffix"
+            if (Test-Path -LiteralPath $path) {
+                $item = Get-Item -LiteralPath $path -Force
+                if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                    throw [IO.IOException]::new("Status service error log is not a regular file: $path")
+                }
+            }
+        }
+    }
+    if (-not $PSCmdlet.ShouldProcess($RuntimeDirectory, 'Preserve status-service error logs')) { return }
+    foreach ($name in $logNames) {
+        $current = Join-Path $RuntimeDirectory $name
+        if (-not (Test-Path -LiteralPath $current)) { continue }
+        for ($generation = $Retain; $generation -ge 1; $generation--) {
+            $source = if ($generation -eq 1) { $current } else { "$current.previous.$($generation - 1)" }
+            if (-not (Test-Path -LiteralPath $source)) { continue }
+            $destination = "$current.previous.$generation"
+            $temporary = "$destination.$([Guid]::NewGuid().ToString('N')).tmp"
+            try {
+                $inputStream = [IO.File]::Open($source, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+                try {
+                    $count = [int][Math]::Min($MaximumBytes, $inputStream.Length)
+                    $null = $inputStream.Seek(-$count, [IO.SeekOrigin]::End)
+                    $buffer = [byte[]]::new($count)
+                    $read = 0
+                    while ($read -lt $count) {
+                        $received = $inputStream.Read($buffer, $read, $count - $read)
+                        if ($received -eq 0) { throw [IO.IOException]::new("Status service error log changed while preserving it: $source") }
+                        $read += $received
+                    }
+                    [IO.File]::WriteAllBytes($temporary, $buffer)
+                } finally { $inputStream.Dispose() }
+                [IO.File]::Move($temporary, $destination, $true)
+            } finally {
+                if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+            }
+        }
+    }
+    # Clear only after every current log has a durable archive. A failed
+    # archive leaves all original evidence available for the next attempt.
+    foreach ($name in $logNames) {
+        $current = Join-Path $RuntimeDirectory $name
+        if (Test-Path -LiteralPath $current) { [IO.File]::WriteAllBytes($current, [byte[]]@()) }
+    }
 }
 
 if ($Restart -and (Test-Path $PidFile)) {
@@ -825,32 +906,9 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.InnerSpawn.psm1')        
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostRefreshIntent.psm1')  -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostRefresh.psm1')        -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.StatusControlRoute.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
-# A name-keyed deny-list only protects the name it knows. Every secret this
-# server refuses has derivative forms carrying the same bytes under a different
-# name -- a parsed JSON snapshot of the file, or the pre-write backup taken
-# before each update. Those are generated next to the originals, so they are
-# matched by shape rather than enumerated one at a time.
-#
-# Defined once, above every consumer: both file-serving deny-lists read it, and
-# so does the /archive route, which packs a whole folder in one response and
-# would otherwise carry out in bulk exactly what the per-file lists refuse.
-#
-# The host-refresh shapes are the same defense for private state: that state
-# lives under the private root outside every served tree, and these names --
-# the private root's own directory, the request journal, its locks, critical
-# records, launch handshakes, acknowledgments and key material -- are refused
-# as well, so a root that ever resolved inside a served tree still leaks
-# nothing. The public progress files (host-refresh.state.json,
-# start-cycle.state.json) match none of them.
-#
-# Private SSH keys are refused by NAME rather than by directory. A rule keyed
-# on one folder (ssh/) protects only the keys its author remembered, while
-# anything dropped in a folder of its own -- a project's hand-off directory a
-# guest downloads from, say -- sits outside every such rule and is served to
-# the whole LAN. The default OpenSSH names (id_rsa, id_ecdsa, id_ed25519,
-# id_dsa) are covered by the _rsa/_ecdsa/_ed25519/_dsa suffix shapes, and the
-# -key/_key suffixes catch the names projects pick for their own pairs. The
-# public halves (*.pub) end in none of them, so they keep being served.
+# --- REGION: Secret file policy
+# See https://yuruna.link/42185271-000d
+# File and archive routes share these shapes, including derived secret files.
 `$secretNameShapes = @('*.snapshot.json', '*.snapshot.*.json', '*.backup', '*.bak', '*.tmp',
     'host-refresh/*', '*/host-refresh/*', '*host-refresh.journal*', '*host-refresh.request*',
     '*host-refresh.lock', '*host-refresh.admission.lock', '*.record', '*.record.prev',
@@ -898,18 +956,22 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.StatusControlRoute.psm1')
 # waitForText with timeoutSeconds:3600. UI must stay up, so the ONLY
 # stop path is service/Stop-StatusService.ps1 (kills server.pid). A truly
 # orphaned server must be killed manually -- deliberate trade-off.
-# Log per-iteration exceptions so we can see why the server died. On
-# Windows, Start-Process -WindowStyle Hidden has no stderr redirection,
-# so without this file an unhandled throw dies silently and the server
-# vanishes mid-run with no trace. Bounded so it can't fill the status
-# dir indefinitely.
+# Log per-iteration exceptions so we can see why the server died. Process
+# stderr goes to server.stderr, separately from this rotating log;
+# otherwise its open handle would keep writing into a renamed archive.
 function Write-ServerErr {
     param([string]`$msg)
     try {
-        if ((Test-Path `$serverLogFile) -and ((Get-Item `$serverLogFile).Length -gt 1MB)) {
-            Move-Item -Path `$serverLogFile -Destination "`$serverLogFile.old" -Force -ErrorAction SilentlyContinue
+        foreach (`$path in @(`$serverLogFile, "`$serverLogFile.old")) {
+            if (Test-Path -LiteralPath `$path) {
+                `$item = Get-Item -LiteralPath `$path -Force
+                if (`$item.PSIsContainer -or (`$item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
+            }
         }
-        Add-Content -Path `$serverLogFile -Value "[`$(Get-Date -Format o)] `$msg" -ErrorAction SilentlyContinue
+        if ((Test-Path -LiteralPath `$serverLogFile) -and ((Get-Item -LiteralPath `$serverLogFile).Length -gt 1MB)) {
+            Move-Item -LiteralPath `$serverLogFile -Destination "`$serverLogFile.old" -Force -ErrorAction SilentlyContinue
+        }
+        Add-Content -LiteralPath `$serverLogFile -Value "[`$(Get-Date -Format o)] `$msg" -ErrorAction SilentlyContinue
     } catch { Write-Debug `$_ }
 }
 # JSON string-escaping shared by every error-response builder below. The
@@ -1430,18 +1492,63 @@ function Start-StatusWorker {
     }
 }
 
-# The refresh route reads its body without parking the request loop: the read
+# Refresh and artifact uploads read bodies without parking the request loop: the read
 # is issued asynchronously and the loop keeps accepting and serving while it
 # is pending, waking for whichever comes first -- the next request, a read
 # completing, or the earliest body deadline. At most four bodies are read at
 # once. A finished body is validated and admitted serially, like any other
 # request, and every reply goes to the context the read carries.
 function Add-PendingRequestBody {
-    param([Parameter(Mandatory)]`$RequestContext, [bool]`$Loopback, [string]`$ProofWire)
-    `$bodyRead = New-StatusBoundedBodyRead -Stream `$RequestContext.Request.InputStream -MaxBytes 4096 -TimeoutMs 2000 ``
-        -Tag ([pscustomobject]@{ RequestContext = `$RequestContext; Loopback = `$Loopback; ProofWire = `$ProofWire })
+    param([Parameter(Mandatory)]`$RequestContext, [bool]`$Loopback, [string]`$ProofWire, `$Upload)
+    if (`$pendingBodies.Count -ge 4) {
+        Send-JsonReply -Response `$RequestContext.Response -Request `$RequestContext.Request -StatusCode 503 -Close -RetryAfter '2' ``
+            -Body ([ordered]@{ ok = `$false; reason = 'listener_busy' }) -MessageKey 'status.api_listener_busy'
+        return
+    }
+    if (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.StatusControlRoute.psm1' -RequiredCommand ``
+            'New-StatusBoundedBodyRead', 'Update-StatusBoundedBodyRead', 'Get-StatusBoundedBodyReadWait', 'Close-StatusBoundedBodyRead')) {
+        Send-JsonReply -Response `$RequestContext.Response -Request `$RequestContext.Request -StatusCode 503 -Close ``
+            -Body ([ordered]@{ ok = `$false; reason = 'listener_dependency_missing' }) -MessageKey 'status.api_listener_dependency_missing'
+        return
+    }
+    `$maxBytes = if (`$Upload) { [int]`$Upload.MaximumBytes } else { 4096 }
+    `$timeoutMs = if (`$Upload) { `$script:UploadBodyTimeoutMilliseconds } else { 2000 }
+    `$bodyRead = New-StatusBoundedBodyRead -Stream `$RequestContext.Request.InputStream -MaxBytes `$maxBytes -TimeoutMs `$timeoutMs ``
+        -Tag ([pscustomobject]@{ RequestContext = `$RequestContext; Loopback = `$Loopback; ProofWire = `$ProofWire; Upload = `$Upload })
     `$pendingBodies.Add(`$bodyRead)
     Step-PendingRequestBody
+}
+
+`$script:UploadBodyTimeoutMilliseconds = 30000
+function Complete-StatusArtifactUpload {
+    param([Parameter(Mandatory)]`$RequestContext, [byte[]]`$Bytes, [Parameter(Mandatory)]`$Upload)
+    `$temporary = "`$(`$Upload.Target).`$PID-`$([Guid]::NewGuid().ToString('N')).tmp"
+    try {
+        `$parent = [IO.Path]::GetDirectoryName([string]`$Upload.Target)
+        if (`$Upload.Kind -eq 'log-upload') { `$null = [IO.Directory]::CreateDirectory(`$parent) }
+        [IO.File]::WriteAllBytes(`$temporary, `$Bytes)
+        [IO.File]::Move(`$temporary, [string]`$Upload.Target, `$true)
+        if (`$Upload.Kind -eq 'log-upload') {
+            # Only installer-upload extensions participate in this retention.
+            try {
+                `$sameDir = @(Get-ChildItem -LiteralPath `$parent -File -ErrorAction SilentlyContinue |
+                    Where-Object { `$_.Extension -in '.log','.txt','.json','.err','.crash','.tar' } |
+                    Sort-Object -Property LastWriteTimeUtc -Descending)
+                foreach (`$old in (`$sameDir | Select-Object -Skip 300)) { Remove-Item -LiteralPath `$old.FullName -Force -ErrorAction SilentlyContinue }
+            } catch { Write-Debug `$_ }
+            Send-JsonReply -Response `$RequestContext.Response -Request `$RequestContext.Request -StatusCode 201 ``
+                -Body ([ordered]@{ ok = `$true; path = [string]`$Upload.RelativePath })
+        } else {
+            Send-JsonReply -Response `$RequestContext.Response -Request `$RequestContext.Request -StatusCode 200 ``
+                -Body ([ordered]@{ ok = `$true; bytes = `$Bytes.Length; path = 'log/' + [string]`$Upload.RelativePath })
+        }
+    } catch {
+        Write-ServerErr "`$(`$Upload.Kind) write failed (`$(`$Upload.RelativePath)): `$(`$_.Exception.Message)"
+        Send-JsonError -Response `$RequestContext.Response -Request `$RequestContext.Request -StatusCode 500 ``
+            -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message }
+    } finally {
+        if (Test-Path -LiteralPath `$temporary) { Remove-Item -LiteralPath `$temporary -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function Step-PendingRequestBody {
@@ -1449,7 +1556,7 @@ function Step-PendingRequestBody {
         `$bodyRead = `$pendingBodies[`$bodyIndex]
         `$bodyStatus = 'error'
         try { `$bodyStatus = Update-StatusBoundedBodyRead -BodyRead `$bodyRead } catch {
-            Write-ServerErr "control/host-refresh body read failed: `$(`$_.Exception.Message)"
+            Write-ServerErr "request body read failed: `$(`$_.Exception.Message)"
             `$bodyStatus = 'error'
         }
         if (`$bodyStatus -eq 'reading') { continue }
@@ -1458,23 +1565,28 @@ function Step-PendingRequestBody {
         try {
             switch (`$bodyStatus) {
                 'complete' {
-                    Invoke-HostRefreshRequest -RequestContext `$pendingContext -BodyBytes `$bodyRead.Bytes -Loopback ([bool]`$bodyRead.Tag.Loopback) -ProofWire ([string]`$bodyRead.Tag.ProofWire)
+                    if (`$bodyRead.Tag.Upload) {
+                        Complete-StatusArtifactUpload -RequestContext `$pendingContext -Bytes `$bodyRead.Bytes -Upload `$bodyRead.Tag.Upload
+                    } else {
+                        Invoke-HostRefreshRequest -RequestContext `$pendingContext -BodyBytes `$bodyRead.Bytes -Loopback ([bool]`$bodyRead.Tag.Loopback) -ProofWire ([string]`$bodyRead.Tag.ProofWire)
+                    }
                 }
                 'too_large' {
+                    `$sizeMessage = if (`$bodyRead.Tag.Upload) { [string]`$bodyRead.Tag.Upload.SizeMessage } else { 'status.api_payload_too_large_4_kb' }
                     Send-JsonReply -Response `$pendingContext.Response -Request `$pendingContext.Request -StatusCode 413 -Close ``
-                        -Body ([ordered]@{ ok = `$false; reason = 'payload_too_large' }) -MessageKey 'status.api_payload_too_large_4_kb'
+                        -Body ([ordered]@{ ok = `$false; reason = 'payload_too_large' }) -MessageKey `$sizeMessage
                 }
                 'timeout' {
                     Send-JsonReply -Response `$pendingContext.Response -Request `$pendingContext.Request -StatusCode 408 -Close ``
                         -Body ([ordered]@{ ok = `$false; reason = 'body_timeout' }) -MessageKey 'status.api_request_body_timeout'
                 }
                 default {
-                    Write-ServerErr 'control/host-refresh request body ended with a read error; the connection is dropped.'
+                    Write-ServerErr 'request body ended with a read error; the connection is dropped.'
                     try { `$pendingContext.Response.Abort() } catch { Write-Debug `$_ }
                 }
             }
         } catch {
-            Write-ServerErr "control/host-refresh reply failed: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
+            Write-ServerErr "request body reply failed: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
             try { `$pendingContext.Response.Abort() } catch { Write-Debug `$_ }
         } finally {
             Close-StatusBoundedBodyRead -BodyRead `$bodyRead
@@ -1649,27 +1761,14 @@ function Invoke-StartCycleRequest {
     Send-JsonReply -Response `$Response -Request `$Request -StatusCode `$startCycleReply.StatusCode -Body `$startCycleReply.Body ``
         -MessageKey `$startCycleReply.MessageKey -MessageArguments `$startCycleReply.MessageArguments
 }
-# ``git archive --format=tar.gz`` streamer shared by the two archive
-# endpoints. `$RepoDir is the tree to archive (framework repo or project/),
-# `$ErrorLabel tags the Write-ServerErr line so a failure is attributable to the
-# right endpoint. Reads the tarball and emits it with the same headers/status
-# both endpoints used inline; `$req/`$ctx are the per-request objects the handler
-# already holds.
-#
-# ``git archive`` strips .git/, so an extracted tree can answer neither "where
-# did this come from" nor "which commit is this" on its own. Two sidecars at
-# archive root carry those answers instead: .yuruna-origin (repo origin URL) and
-# .yuruna-revision (the full object name of the archived commit). The commit is
-# resolved first and archived BY SHA rather than by ``HEAD``, so a commit landing
-# between the two git invocations cannot leave the sidecar naming a tree the
-# tarball does not contain. Only a full 40-character object name is written: an
-# abbreviated value cannot be compared against a candidate commit without
-# ambiguity, and an unvalidated one would let a reader report a revision this
-# tarball never carried. When the commit cannot be resolved the sidecar is
-# omitted rather than guessed, because a consumer that finds neither .git/ nor
-# the sidecar reports unknown provenance -- which is the honest answer.
+# --- REGION: Send-GitArchive
+# See https://yuruna.link/42fffc2c-0013
 function Send-GitArchive {
-    param(`$Response, `$Request, `$Context, [string]`$RepoDir, [string]`$ErrorLabel)
+    <#
+    .SYNOPSIS
+        Stream committed framework or project content with origin and revision sidecars.
+    #>
+    param(`$Response, `$Request, `$Context, [string]`$RepoDir, [string]`$ErrorLabel, [string[]]`$ExcludePath = @())
     `$tmp        = [System.IO.Path]::GetTempFileName()
     `$sidecarDir = `$null
     try {
@@ -1689,7 +1788,7 @@ function Send-GitArchive {
             `$sidecars['.yuruna-revision'] = `$commit
             `$treeish = `$commit
         }
-        `$archiveKey = `$commit + '|' + [string]`$sidecars['.yuruna-origin']
+        `$archiveKey = `$commit + '|' + [string]`$sidecars['.yuruna-origin'] + '|' + (`$ExcludePath -join ',')
         if (-not (Get-Variable -Name GitArchiveCache -Scope Script -ErrorAction SilentlyContinue)) { `$script:GitArchiveCache = @{} }
         if (`$commit -match '^[0-9a-f]{40}`$' -and `$script:GitArchiveCache.ContainsKey(`$RepoDir) -and `$script:GitArchiveCache[`$RepoDir].Key -ceq `$archiveKey) {
             `$bytes = `$script:GitArchiveCache[`$RepoDir].Bytes
@@ -1709,6 +1808,11 @@ function Send-GitArchive {
             }
         }
         `$archiveArgs += @('-o', `$tmp, `$treeish)
+        if (`$ExcludePath.Count) {
+            `$archiveArgs += '--'
+            `$archiveArgs += '.'
+            foreach (`$excluded in `$ExcludePath) { `$archiveArgs += (':(exclude)' + `$excluded) }
+        }
         & git @archiveArgs 2>`$null
         if (`$LASTEXITCODE -ne 0 -or -not (Test-Path `$tmp)) {
             `$Response.StatusCode = 500
@@ -1957,40 +2061,17 @@ try {
         try {
             `$req  = `$ctx.Request
             `$res  = `$ctx.Response
-            # No wildcard Access-Control-Allow-Origin. This listener serves the
-            # status pages itself, so its own JS reads every endpoint same-origin
-            # and needs no CORS grant. A '*' here would instead let any foreign
-            # web page read every response and, paired with the mutating control
-            # routes below, drive cross-site requests against the host.
-            #
-            # Security headers on every response, set once here so no handler
-            # can forget them. This origin serves guest-influenced content
-            # (uploaded logs/diagnostics, dir listings with guest-chosen
-            # names, OCR-derived status.json) next to privileged control
-            # routes, so: nosniff pins each handler's explicit Content-Type,
-            # frame-ancestors 'none' stops clickjacking of the control
-            # buttons, script-src 'self' is the real XSS control (the status
-            # pages load only external yuruna.common.js by design), and
-            # style-src 'unsafe-inline' keeps the declarative style=""
-            # attributes in index.html, the dir-listing page, and the cycle
-            # transcripts rendering. Mirrors the stash-service servePage
-            # header set (test/extension/stash-service/.../handlers.go).
+            # --- REGION: HTTP response headers
+            # See https://yuruna.link/42185271-0002
+            # Set every response's policy here; omit cross-origin grants.
             `$res.Headers.Add('X-Content-Type-Options', 'nosniff')
             `$res.Headers.Add('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; media-src 'self'; object-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
             `$path = `$req.Url.LocalPath.TrimStart('/')
             if (`$path -eq '' -or `$path -eq 'status/' -or `$path -eq 'status') { `$path = 'index.html' }
             `$path = `$path -replace '^status[/\\]', ''
 
-            # Cross-site request guard for state-changing operator-control routes.
-            # Requiring a non-simple custom header forces a cross-origin browser
-            # request through a CORS preflight, which the no-ACAO policy above
-            # leaves unanswered, so the browser blocks the follow-up; same-origin
-            # UI calls carry the header and pass. Guest/installer ingest routes
-            # (perf-checkpoints, diagnostics, log-upload) are curl clients, not
-            # browser CSRF vectors, so they stay ungated. Guards the drive-by
-            # class where a foreign page POSTs control/start-cycle (deletes
-            # in-progress VMs), triggers the arbitrary-target host probe, or
-            # spawns the host diagnostic on every hit.
+            # --- REGION: Control request authorization
+            # See https://yuruna.link/42185271-0002
             `$csrfAlwaysProtected = @(
                 'control/start-cycle','control/break-continue','control/test-caching-proxy-service',
                 'control/host-diagnostic','control/step-pause','control/step-resume',
@@ -2018,20 +2099,8 @@ try {
                     Send-JsonError -Response `$res -StatusCode 403 -Request `$req -Key 'status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5'
                     continue
                 }
-                # A mutating control route additionally requires that the caller
-                # is either on the loopback interface (the on-host operator, who
-                # is implicitly trusted) or presents a valid, short-lived control
-                # proof. The proof is an HMAC over the internal authentication key,
-                # minted by the pool-aggregator service when the operator follows a
-                # Grafana deep-link and delivered to the page in a URL fragment
-                # (never sent to a server or written to an access log). A LAN peer
-                # or a guest VM reaches this listener over the network -- it can
-                # neither originate from loopback nor forge the HMAC without the
-                # internal authentication key -- so control is fail-closed for
-                # them. With no such key configured on this host the token reads
-                # empty and every non-loopback caller is rejected, i.e. control
-                # collapses to loopback-only. Guards against the unauthenticated-
-                # remote-control regression class.
+                # See https://yuruna.link/42185271-0003
+                # A missing internal key leaves control loopback-only.
                 if (`$needsHeader) {
                     `$ctlLoopback = `$false
                     # IPAddress.IsLoopback is a STATIC method: the instance-property
@@ -3619,45 +3688,10 @@ try {
                     Send-JsonError -Response `$res -StatusCode 413 -Request `$req -Key 'status.api_payload_too_large_5_mb_ab90ca52'
                     continue
                 }
-                # Stream the body straight to disk via a FileStream copy --
-                # we don't need to decode/inspect, and avoiding the
-                # StreamReader allocation keeps a 1 MB body off the GC
-                # heap. Tmp + atomic [IO.File]::Move preserves the "no partial file
-                # visible to the dashboard" property the dispatcher already
-                # depends on elsewhere.
-                `$tmp = "`$filePath.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
-                `$bytesWritten = 0
-                `$writeOk = `$false
-                try {
-                    `$out = [System.IO.File]::Create(`$tmp)
-                    try {
-                        `$buf = New-Object byte[] 8192
-                        while (`$true) {
-                            `$n = `$req.InputStream.Read(`$buf, 0, `$buf.Length)
-                            if (`$n -le 0) { break }
-                            `$out.Write(`$buf, 0, `$n)
-                            `$bytesWritten += `$n
-                            if (`$bytesWritten -gt 5MB) { throw 'streamed body exceeded 5 MB cap' }
-                        }
-                    } finally { `$out.Dispose() }
-                    [System.IO.File]::Move(`$tmp, `$filePath, `$true)
-                    `$writeOk = `$true
-                } catch {
-                    `$res.StatusCode = 500
-                    `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
-                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message } -Json -NoClose
-                    Write-ServerErr "diagnostics write failed (`$diagFolder/`$diagFile): `$errMsg"
-                } finally {
-                    if (-not `$writeOk -and (Test-Path -LiteralPath `$tmp)) {
-                        Remove-Item -LiteralPath `$tmp -Force -ErrorAction SilentlyContinue
-                    }
-                }
-                if (-not `$writeOk) { `$res.OutputStream.Close(); continue }
-                `$payload = '{"ok":true,"bytes":' + `$bytesWritten + ',"path":"log/' + `$diagFolder + '/' + `$diagFile + '"}'
-                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
-                `$res.ContentLength64 = `$body.Length
-                `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                `$res.OutputStream.Close()
+                Add-PendingRequestBody -RequestContext `$ctx -Upload ([pscustomobject]@{
+                    Kind = 'diagnostics'; Target = `$filePath; RelativePath = `$diagFolder + '/' + `$diagFile
+                    MaximumBytes = 5MB; SizeMessage = 'status.api_payload_too_large_5_mb_ab90ca52'
+                })
                 continue
             }
 
@@ -3673,7 +3707,9 @@ try {
                 # ``git archive`` extract) can still report the framework repo's
                 # origin URL in Get-SystemDiagnostic and prove which exact commit
                 # the running services were built and launched from.
-                Send-GitArchive -Response `$res -Request `$req -Context `$ctx -RepoDir `$repoRoot -ErrorLabel 'yuruna-archive'
+                # Guests extract this tarball every cycle; neither folder is
+                # read on a guest, and the public tree has no dev-only/ at all.
+                Send-GitArchive -Response `$res -Request `$req -Context `$ctx -RepoDir `$repoRoot -ErrorLabel 'yuruna-archive' -ExcludePath @('dev-only', 'docs')
                 continue
             }
 
@@ -3741,60 +3777,10 @@ try {
                     Send-JsonError -Response `$res -StatusCode 403 -Request `$req -Key 'status.api_path_escapes_log_dir_355b2034'
                     continue
                 }
-                `$uploadParent = Split-Path -Parent `$uploadFull
-                `$writeOk = `$false
-                `$writeErr = `$null
-                try {
-                    if (-not (Test-Path -LiteralPath `$uploadParent)) {
-                        `$null = New-Item -ItemType Directory -Force -Path `$uploadParent -ErrorAction Stop
-                    }
-                    `$out = [System.IO.File]::Open(`$uploadFull, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
-                    try {
-                        `$buf = New-Object byte[] 65536
-                        `$total = 0L
-                        while (`$true) {
-                            `$n = `$req.InputStream.Read(`$buf, 0, `$buf.Length)
-                            if (`$n -le 0) { break }
-                            `$total += `$n
-                            if (`$total -gt 4MB) { throw "payload exceeded 4 MB mid-stream" }
-                            `$out.Write(`$buf, 0, `$n)
-                        }
-                    } finally { `$out.Dispose() }
-                    `$writeOk = `$true
-                } catch {
-                    `$writeErr = `$_.Exception.Message
-                    Write-ServerErr "log-upload write failed for `$uploadRel : `$writeErr"
-                }
-                if (-not `$writeOk) {
-                    `$errEsc = (ConvertTo-JsonEscapedString `$writeErr)
-                    Send-JsonError -Response `$res -StatusCode 500 -Json ('{"ok":false,"error":"write failed: ' + `$errEsc + '"}')
-                    continue
-                }
-                # Bound per-directory growth after a successful upload: keep only
-                # the newest N whitelisted files in the target folder so a client
-                # cannot fill the disk by re-posting into one directory (log /
-                # checkpoint spam). The filter is limited to the upload
-                # extensions so it never touches other cycle artifacts, and the
-                # cap is generous so legitimate installer uploads (a handful per
-                # folder) are never pruned. Best-effort; runs on the single-
-                # threaded request loop so no lock is needed.
-                try {
-                    `$uploadCap = 300
-                    `$sameDir = @(Get-ChildItem -LiteralPath `$uploadParent -File -ErrorAction SilentlyContinue |
-                        Where-Object { `$_.Extension -in '.log','.txt','.json','.err','.crash','.tar' } |
-                        Sort-Object -Property LastWriteTimeUtc -Descending)
-                    if (`$sameDir.Count -gt `$uploadCap) {
-                        foreach (`$old in (`$sameDir | Select-Object -Skip `$uploadCap)) {
-                            Remove-Item -LiteralPath `$old.FullName -Force -ErrorAction SilentlyContinue
-                        }
-                    }
-                } catch { `$null = `$_ }
-                `$res.StatusCode = 201
-                `$relEsc = (`$uploadRel -replace '\\','\\' -replace '"','\"')
-                `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true,"path":"' + `$relEsc + '"}')
-                `$res.ContentLength64 = `$body.Length
-                `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                `$res.OutputStream.Close()
+                Add-PendingRequestBody -RequestContext `$ctx -Upload ([pscustomobject]@{
+                    Kind = 'log-upload'; Target = `$uploadFull; RelativePath = `$uploadRel
+                    MaximumBytes = 4MB; SizeMessage = 'status.api_payload_too_large_4_mb_3455f869'
+                })
                 continue
             }
 
@@ -4445,10 +4431,11 @@ if ($serverScriptParseError -and $serverScriptParseError.Count) {
 # prompted for a missing mandatory value would park the whole request loop
 # on a read nobody can answer; non-interactive, it fails that one request.
 try {
+    Save-StatusServiceErrorLog -RuntimeDirectory $RuntimeDir -Confirm:$false
     if ($IsWindows) {
         # See https://yuruna.link/42e5cdfd-0045
         $serverOut = Join-Path $RuntimeDir "server.out"
-        $serverErrFile = Join-Path $RuntimeDir "server.err"
+        $serverErrFile = Join-Path $RuntimeDir "server.stderr"
         # Wrap $serverScriptFile in literal double quotes before handing it to
         # -ArgumentList. Start-Process joins the array elements with spaces
         # WITHOUT quoting, so a path like "C:\Users\Yuruna Test\..." gets
@@ -4470,7 +4457,7 @@ try {
         Set-Content -Path $PidFile -Value $proc.Id
     } else {
         # See https://yuruna.link/42e5cdfd-0045
-        $stdErr = Join-Path $RuntimeDir "server.err"
+        $stdErr = Join-Path $RuntimeDir "server.stderr"
         & bash -c "set -m; nohup pwsh -NoProfile -NonInteractive -File '$serverScriptFile' </dev/null >/dev/null 2>'$stdErr' & echo `$!" | Set-Variable -Name bgPid
         Set-Content -Path $PidFile -Value $bgPid
     }
@@ -4499,7 +4486,7 @@ $serverReady = Wait-WithProgress -Activity "Status service: waiting for http://l
     }
 if (-not $serverReady) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d938ab5118c5d2c1' -Arguments @{ port = "$Port"; statusServiceReadyTimeoutSeconds = "$readyWaitSeconds" })
-    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f8a43d6f86299328' -Arguments @{ err = "$(Join-Path $RuntimeDir 'server.err')" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f8a43d6f86299328' -Arguments @{ err = "$(Join-Path $RuntimeDir 'server.err'), $(Join-Path $RuntimeDir 'server.stderr')" })
     if ($RefreshSafe) {
         $launchedPid = 0
         try { $null = [int]::TryParse(([System.IO.File]::ReadAllText($PidFile)).Trim(), [ref]$launchedPid) } catch { $launchedPid = 0 }

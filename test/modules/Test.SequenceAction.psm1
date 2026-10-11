@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c1c329-52af-4255-9e3b-0caf47235605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,9 +49,13 @@ function Register-SequenceAction {
         Scriptblock that builds the human-readable failure label for a
         failed step. Signature: `param([hashtable]$Context)`, where
         $Context carries Step (the parsed YAML step), Vars (the variable
-        scope hashtable Expand-Variable consumes), and ExpandVariable
-        (the live Expand-Variable function reference). Return a single
-        string. When omitted, the default label is the verb name.
+        scope hashtable Expand-Variable consumes), ExpandVariable (the
+        live Expand-Variable function reference), VMName (the guest's
+        current VM name, post-rename) and GuestKey. This is a narrower
+        context than the step Handler gets -- only these fields are
+        populated, so a closure that reads anything else back from
+        $Context renders it as $null. Return a single string. When
+        omitted, the default label is the verb name.
     .PARAMETER HostIORequirement
         Names of host I/O actions (Send-Key, Send-Text, Send-Click)
         this verb requires. Consumed by Test-CyclePlanCapability.
@@ -126,7 +130,7 @@ function Register-SequenceAction {
             'extension_error','instrumentation_failure','provisioning_failure',
             'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
             'host_network_degraded','ip_not_discovered','payload_unavailable',
-            'pool_storage_full','dhcp_identity_unbounded','lab_dependency_down','unknown')]
+            'pool_storage_full','dhcp_identity_unbounded','lab_dependency_down','input_lost','unknown')]
         [string]$FailureClass = 'unknown',
         [ValidateSet('hard','soft','unknown')]
         [string]$Severity = 'unknown',
@@ -187,7 +191,7 @@ if (Get-Command Assert-FailureTaxonomyInSync -ErrorAction SilentlyContinue) {
             'extension_error','instrumentation_failure','provisioning_failure',
             'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
             'host_network_degraded','ip_not_discovered','payload_unavailable',
-            'pool_storage_full','dhcp_identity_unbounded','lab_dependency_down','unknown') `
+            'pool_storage_full','dhcp_identity_unbounded','lab_dependency_down','input_lost','unknown') `
         -Severity @('hard','soft','unknown')
 }
 
@@ -299,13 +303,22 @@ function Get-SequenceActionFailureLabel {
         because Test.SequenceAction does not import Invoke-Sequence --
         the FailureLabel scriptblocks bind it via the Context hashtable
         at call time).
+    .PARAMETER VMName
+        The guest's current VM name (post-rename, same value the step
+        Handler context carries), for a FailureLabel closure that names
+        the VM being acted on (for example startVm).
+    .PARAMETER GuestKey
+        The guest key, for a FailureLabel closure that names the guest
+        rather than the VM (for example networkRelease).
     #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
         [Parameter(Mandatory)]$Step,
         [Parameter(Mandatory)]$Vars,
-        $ExpandVariable
+        $ExpandVariable,
+        [string]$VMName,
+        [string]$GuestKey
     )
     if (-not $Step.Contains('action')) { return '' }
     $name = [string]$Step.action
@@ -315,6 +328,8 @@ function Get-SequenceActionFailureLabel {
         Step           = $Step
         Vars           = $Vars
         ExpandVariable = $ExpandVariable
+        VMName         = $VMName
+        GuestKey       = $GuestKey
     }
     try {
         return [string](& $entry.FailureLabel $ctx)

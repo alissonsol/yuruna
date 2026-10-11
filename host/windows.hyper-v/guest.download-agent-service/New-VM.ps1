@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4284f1a3-c3b1-43a6-8b63-36822be6e25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,8 +12,6 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
-.PARAMETER AllowPseudoLocale
-    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -33,6 +31,8 @@
 
 .PARAMETER VMName
     Name of the Hyper-V VM. Default: yuruna-download-agent-service.
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 param(

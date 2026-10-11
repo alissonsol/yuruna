@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42782448-e44d-4353-957b-a836ffda43e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@
     rather than by enumerating today's steps, so a cache-addressed step added
     later is caught without this file being updated.
 
-    Should assertions only, so the suite runs under Pester 4.10.1 as well as 5.
+    Should assertions only, so the suite runs under Pester 5.x.
 #>
 
 BeforeAll {

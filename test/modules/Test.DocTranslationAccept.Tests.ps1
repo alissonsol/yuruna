@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42717e9e-cb41-455c-9848-aef41009bf87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,10 +40,24 @@
     The mutations run against a disposable sibling project under TestDrive
     rather than the real checkout, so a killed run cannot leave a repository
     document edited. The framework half of the map is untouched, which is why
-    every case names a project-only document.
+    every mutation case names a project-only document.
+
+    Structural cases compare every mapped document with its checked-out
+    translation. Keep yuruna-project beside this repository, as the document
+    gate requires; a missing checkout or document fails rather than claiming
+    that an unread translation is suitable for publication.
 
     Run: Invoke-Pester -Path test/modules/Test.DocTranslationAccept.Tests.ps1
 #>
+
+BeforeDiscovery {
+    $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $script:TranslationCases = @((ConvertFrom-Json ([IO.File]::ReadAllText(
+                (Join-Path $root 'globalization/manifests/doc-translations.json')))).documents |
+        ForEach-Object {
+            @{ Repo = $_.repo; Source = $_.source; Translated = $_.translated; Locale = $_.locale }
+        })
+}
 
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
@@ -123,6 +137,36 @@ function Invoke-EditedSourceCheck {
     return Invoke-DocTranslation -Argument @('-Locale', 'pt-BR', '-Path', $script:ProjectOnlyDocument,
         '-ProjectRoot', $sibling, '-Manifest', $manifest, '-Quiet')
 }
+
+function Get-DocumentStructure {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$FullPath)
+
+    $ids = [Collections.Generic.List[string]]::new()
+    $headings = [Collections.Generic.List[string]]::new()
+    $code = [Collections.Generic.List[string]]::new()
+    $tables = [Collections.Generic.List[int]]::new()
+    $fence = ''
+    foreach ($line in [IO.File]::ReadAllLines($FullPath)) {
+        if ($fence) {
+            $code.Add($line)
+            $closing = '^\s*' + [regex]::Escape($fence.Substring(0, 1)) + '{' + $fence.Length + ',}\s*$'
+            if ($line -match $closing) { $fence = '' }
+            continue
+        }
+        if ($line -match '^\s*(`{3,}|~{3,})') {
+            $fence = $Matches[1]
+            $code.Add($line)
+            continue
+        }
+        if ($line -match '^<a id="(42[0-9a-f]{6}-[0-9a-f]{4})"></a>$') { $ids.Add($Matches[1]) }
+        if ($line -match '^(#{1,6})\s') { $headings.Add($Matches[1]) }
+        if ($line -match '^\s*\|') { $tables.Add([regex]::Matches($line, '\|').Count) }
+    }
+    if ($fence) { throw "Unclosed code fence in $FullPath" }
+    return @{ Ids = $ids -join ','; Headings = $headings -join ','; Code = $code -join "`n"; Tables = $tables -join ',' }
+}
 }
 
 Describe 'accepting a translation against its English source' {
@@ -183,23 +227,66 @@ Describe 'accepting a translation against its English source' {
     }
 
     It 'a footer-only edit leaves the row current' {
-        $run = Invoke-EditedSourceCheck -Name 'footer-only' -SourceBody "# Template`n`nLast review: 2026.10.04`n" `
-            -Edit { param($text) $text.Replace('Last review: 2026.10.04', 'Last review: 2026.10.04') }
+        $run = Invoke-EditedSourceCheck -Name 'footer-only' -SourceBody "# Template`n`nLast review: 2026.10.11`n" `
+            -Edit { param($text) $text.Replace('Last review: 2026.10.11', 'Last review: 2026.10.11') }
         Assert-Equal -Expected 0 -Actual $run.Code 'a review-footer sweep made the translation look stale'
     }
 
     It 'a release-tag-only edit leaves the row current' {
-        $body = "# Template`n`nhttps://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.04/install/ubuntu.kvm.sh`n"
+        $body = "# Template`n`nhttps://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.11/install/ubuntu.kvm.sh`n"
         $run = Invoke-EditedSourceCheck -Name 'tag-only' -SourceBody $body `
-            -Edit { param($text) $text.Replace('refs/tags/2026.10.04/', 'refs/tags/2026.10.04.1/') }
+            -Edit { param($text) $text.Replace('refs/tags/2026.10.11/', 'refs/tags/2026.10.11.1/') }
         Assert-Equal -Expected 0 -Actual $run.Code 'a release-tag sweep made the translation look stale'
     }
 
     It 'a prose edit stales the row' {
-        $run = Invoke-EditedSourceCheck -Name 'prose-edit' -SourceBody "# Template`n`nLast review: 2026.10.04`n" `
+        $run = Invoke-EditedSourceCheck -Name 'prose-edit' -SourceBody "# Template`n`nLast review: 2026.10.11`n" `
             -Edit { param($text) $text + "A new sentence the translation does not have.`n" }
         Assert-Equal -Expected 1 -Actual $run.Code 'an English prose edit left the translation current'
         Assert-Match -Pattern 'changed since' -Actual $run.Output 'the stale document is not named'
+    }
+
+    It 'keeps a stale <Origin> translation blocked until its replacement is recorded as a draft' -ForEach @(
+        @{ Origin = 'accepted'; Machine = $false }
+        @{ Origin = 'machine'; Machine = $true }
+    ) {
+        $name = "stale-$Origin-replacement"
+        $sibling = New-SiblingFixture -Name $name -SourceBody "# Template`n`nFirst instruction.`n" `
+            -TranslatedBody "# Modelo`n`nPrimeira instrucao.`n"
+        $manifest = New-RecordFixture -Name $name
+        $common = @('-Locale', 'pt-BR', '-Path', "yuruna-project:$script:ProjectOnlyDocument",
+            '-ProjectRoot', $sibling, '-Manifest', $manifest, '-Quiet')
+        $arguments = @('-Accept') + $common
+        if ($Machine) { $arguments += '-Machine' }
+        $initial = Invoke-DocTranslation -Argument $arguments
+        Assert-Equal 0 $initial.Code $initial.Output
+        $before = [IO.File]::ReadAllText($manifest)
+
+        [IO.File]::WriteAllText((Join-Path $sibling 'template/README.md'),
+            "# Template`n`nUse -SkipPoolStorage.`n", [Text.UTF8Encoding]::new($false))
+        $stale = Invoke-DocTranslation -Argument $common
+        Assert-Equal 1 $stale.Code $stale.Output
+        Assert-Match 'changed since' $stale.Output 'a changed instruction was not blocked'
+        Assert-StringEqual $before ([IO.File]::ReadAllText($manifest)) 'checking drift rewrote the record'
+
+        [IO.File]::WriteAllText((Join-Path $sibling 'docs/pt-BR/template/README.md'),
+            "# Modelo`n`nUse -SkipPoolStorage.`n", [Text.UTF8Encoding]::new($false))
+        $unrecorded = Invoke-DocTranslation -Argument $common
+        Assert-Equal 1 $unrecorded.Code 'replacing the text alone unexpectedly advanced its source hash'
+        $replacement = Invoke-DocTranslation -Argument (@('-Accept', '-Machine') + $common)
+        Assert-Equal 0 $replacement.Code $replacement.Output
+        $current = Invoke-DocTranslation -Argument $common
+        Assert-Equal 0 $current.Code $current.Output
+        Assert-Match '0 problem\(s\), 1 machine draft\(s\)' $current.Output `
+            'a synchronized machine translation lost its draft provenance or remained blocked'
+
+        $oldRows = @((ConvertFrom-Json $before).documents | Where-Object {
+                $_.repo -cne 'yuruna-project' -or $_.source -cne $script:ProjectOnlyDocument
+            } | ForEach-Object { ConvertTo-Json $_ -Depth 10 -Compress })
+        $newRows = @((ConvertFrom-Json ([IO.File]::ReadAllText($manifest))).documents | Where-Object {
+                $_.repo -cne 'yuruna-project' -or $_.source -cne $script:ProjectOnlyDocument
+            } | ForEach-Object { ConvertTo-Json $_ -Depth 10 -Compress })
+        Assert-StringEqual ($oldRows -join "`n") ($newRows -join "`n") 'a targeted replacement changed another record'
     }
 
     It '-Accept -Machine writes origin machine and -Accept removes it' {
@@ -258,5 +345,23 @@ Describe 'accepting a translation against its English source' {
         $check = Invoke-DocTranslation -Argument $common
         Assert-Equal -Expected 0 -Actual $check.Code -Because $check.Output
         Assert-Match -Pattern '1 machine draft\(s\)' -Actual $check.Output 'the new machine draft is not reported'
+    }
+}
+
+Describe 'mapped document translation structure' {
+    It 'preserves addresses and executable examples in <Repo>/<Source> [<Locale>]' -ForEach $script:TranslationCases {
+        $root = if ($Repo -ceq 'yuruna') { $script:RepoRoot } else {
+            Join-Path (Split-Path -Parent $script:RepoRoot) $Repo
+        }
+        $english = Get-DocumentStructure -FullPath (Join-Path $root $Source)
+        $localized = Get-DocumentStructure -FullPath (Join-Path $root $Translated)
+        Assert-True ([string]::Equals($english.Ids, $localized.Ids, [StringComparison]::Ordinal)) `
+            'translated anchor identities or their order changed'
+        Assert-True ([string]::Equals($english.Headings, $localized.Headings, [StringComparison]::Ordinal)) `
+            'translated section hierarchy changed'
+        Assert-True ([string]::Equals($english.Code, $localized.Code, [StringComparison]::Ordinal)) `
+            'a translated example differs from its executable source'
+        Assert-True ([string]::Equals($english.Tables, $localized.Tables, [StringComparison]::Ordinal)) `
+            'translated table rows or columns changed'
     }
 }

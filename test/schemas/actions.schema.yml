@@ -32,6 +32,7 @@ properties:
         - pressKey
         - retry
         - saveDiskSnapshot
+        - saveGuestClockSnapshot
         - saveSystemDiagnostic
         - sshExec
         - sshFetchAndExecute

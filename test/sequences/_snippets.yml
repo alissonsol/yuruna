@@ -30,8 +30,11 @@ shellInputPrime:
     text: " echo yuruna_$(seq -s '' 1 9)_ok"
     description: "Ask the shell to expand a token agetty cannot"
 
-  - action: waitForText
+  # Enter only submits the harmless probe, or an empty line if it already ran.
+  - action: waitForTextWithNudge
     pattern: "yuruna_123456789_ok"
+    nudgeKey: Enter
+    nudgeIntervalSeconds: 15
     timeoutSeconds: 90
     freshMatch: true
     description: "OCR: yuruna_123456789_ok"

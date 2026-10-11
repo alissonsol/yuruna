@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4201387d-cf87-45af-987c-08f11f4a809c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,6 +175,8 @@ Describe 'slow' { It 'waits' { Start-Sleep -Seconds 30 } }
         $cancelled.rc | Should -Be 125
         $cancelled.haveXml | Should -BeFalse
         $cancelled.message | Should -Match 'not launched'
+        $run.Result.problems[0] | Should -Match 'Alpha.Tests.ps1.*1 failed'
+        $run.Result.problems[0] | Should -Match 'FAIL  fail.fails'
         Test-Path -LiteralPath (Join-Path $script:FailFastRoot 'test/unexpected-launch') | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $script:FailFastRoot 'test/modules/suite-baseline.json') | Should -BeFalse
     }
@@ -803,5 +805,38 @@ Describe 'result export failure' {
         $run.Result.totals.incomplete | Should -Be 0
         ($run.Result.problems -join ' ') | Should -Match '1 failed'
         ($run.Result.problems -join ' ') | Should -Not -Match 'no result file'
+        $row.message | Should -Match 'FAIL  reported assertion failure.fails'
+        $row.message | Should -Match 'Expected 2, but got 1'
+        $row.message | Should -Match 'Alpha.Tests.ps1:1'
+        $row.message | Should -Match 'NUnit results:.*nunit-test_modules_Alpha.Tests.ps1.xml'
+        $row.message | Should -Match 'Worker logs:'
+        $run.Output | Should -Match 'Expected 2, but got 1'
+    }
+
+    It 'reports unexecuted tests when setup fails' {
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body "BeforeAll { throw 'fixture setup failed' }; Describe 'setup' { It 'cannot run' { 1 | Should -Be 1 } }"
+        $run = Invoke-Runner -Root $script:ReportingRoot
+        $run.ExitCode | Should -Be 1
+        $row = @($run.Result.suites)[0]
+        $row.haveXml | Should -BeTrue
+        $row.message | Should -Match 'FAIL  setup.cannot run'
+        $row.message | Should -Match 'Most likely a setup in some parent block failed'
+        $run.Output | Should -Match 'FAIL  setup.cannot run'
+    }
+
+    It 'bounds console diagnostics while retaining every failure in NUnit' {
+        $body = "Describe 'many failures' { " + ((1..12 | ForEach-Object { "It 'case $_' { throw ('oversized detail ' + ('x' * 3000)) }" }) -join '; ') + ' }'
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body $body
+        $run = Invoke-Runner -Root $script:ReportingRoot
+        $run.ExitCode | Should -Be 1
+        $row = @($run.Result.suites)[0]
+        $row.failed | Should -Be 12
+        ([regex]::Matches($row.message, '(?m)^FAIL  ')).Count | Should -Be 10
+        $row.message | Should -Match '2 more failure'
+        $row.message | Should -Match 'truncated; see NUnit results'
+        $row.message.Length | Should -BeLessThan 30000
+        $xml = [xml]([IO.File]::ReadAllText($script:ReportingXml))
+        @($xml.SelectNodes('//test-case[failure]')).Count | Should -Be 12
+        $xml.SelectSingleNode('//test-case/failure/message').InnerText.Length | Should -BeGreaterThan 3000
     }
 }

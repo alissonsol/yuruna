@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42e5dbd9-8c32-496e-ab48-855a0584ae9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -271,13 +271,16 @@ Describe 'the operating-system drift reading of a capture' {
     }
 
     It 'says nothing when the major version has not moved' {
-        if ($NowOs.Major -le 0) { Set-ItResult -Skipped -Because 'this host does not report a version to compare against' }
+        if ($NowOs.Major -le 0) { Set-ItResult -Skipped -Because 'this host does not report a version to compare against'; return }
         Get-HostAutomationOsDrift -State (New-CaptureWithOsMajor -Major $NowOs.Major) | Should -BeNullOrEmpty
     }
 
     It 'names the upgrade, and the command that re-applies the settings, when it has' {
-        if ($NowOs.Major -le 0) { Set-ItResult -Skipped -Because 'this host does not report a version to compare against' }
-        $drift = Get-HostAutomationOsDrift -State (New-CaptureWithOsMajor -Major ($NowOs.Major - 1))
+        if ($NowOs.Major -le 0) { Set-ItResult -Skipped -Because 'this host does not report a version to compare against'; return }
+        # A major of 0 means "cannot tell", so the fixture must stay positive: a host
+        # on major 1 is compared against 2 rather than against an impossible 0.
+        $wasMajor = if ($NowOs.Major -gt 1) { $NowOs.Major - 1 } else { $NowOs.Major + 1 }
+        $drift = Get-HostAutomationOsDrift -State (New-CaptureWithOsMajor -Major $wasMajor)
         $drift | Should -Not -BeNullOrEmpty
         # The remedy travels inside the line: the pre-cycle gate re-emits only
         # its own findings to the console, so a fix written anywhere else never

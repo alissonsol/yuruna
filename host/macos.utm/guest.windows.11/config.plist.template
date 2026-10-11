@@ -48,7 +48,10 @@
 	<dict>
 		<!-- See https://yuruna.link/42e220c4-000b -->
 		<key>AdditionalArguments</key>
-		<array/>
+		<array>
+			<string>-vnc</string>
+			<string>127.0.0.1:__VNC_DISPLAY__,share=force-shared</string>
+		</array>
 		<key>BalloonDevice</key>
 		<false/>
 		<key>DebugLog</key>
@@ -82,7 +85,7 @@
 			<key>DynamicResolution</key>
 			<false/>
 			<key>Hardware</key>
-			<string>virtio-ramfb-gl</string>
+			<string>virtio-ramfb</string>
 			<key>NativeResolution</key>
 			<false/>
 			<key>UpscalingFilter</key>

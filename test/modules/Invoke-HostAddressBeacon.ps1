@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 421ff7ed-6fcc-4816-b558-d052d6a39c1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -195,7 +195,7 @@ try {
             $grace = 0
         }
         try {
-            $current = [string](Get-BestHostIp)
+            $current = [string](Get-BeaconHostAddress)
             if ($current) {
                 $directory = Resolve-HostAddressBeaconDirectory -Pinned $CacheAddress
                 $null = Invoke-HostAddressBeaconTick -RuntimeDir $RuntimeDir -CurrentAddress $current `

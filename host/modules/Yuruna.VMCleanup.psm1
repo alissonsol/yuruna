@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4298bdda-71c7-493e-b5d5-cd146860d6ea
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
     The three platform scripts ([host/windows.hyper-v/Remove-OrphanedVMFiles.ps1](../windows.hyper-v/Remove-OrphanedVMFiles.ps1),
     [host/macos.utm/Remove-OrphanedVMFiles.ps1](../macos.utm/Remove-OrphanedVMFiles.ps1),
     [host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1](../ubuntu.kvm/Remove-OrphanedVMFiles.ps1))
-    need the same Write-CleanupMessage routing, the same [int64] folder
+    need the same Write-CleanupMessage routing, (on KVM + UTM) [int64] folder
     sizing (Get-VMFolderSize), and (on Hyper-V + UTM) the same
     base-image-name discovery loop, so those helpers live here and stay in
     lockstep. All three route -Quiet through Set-VMCleanupQuiet; the scripts
@@ -86,14 +86,8 @@ function Get-VMFolderSize {
         Recursively sum the byte length of every file under a directory,
         returning a consistent [int64].
     .DESCRIPTION
-        Measure-Object -Sum yields a [double] .Sum that is $null on an empty
-        enumeration, so ad-hoc call sites diverged (one cast to [int64],
-        another null-coalesced the [double]). Centralizing enumeration +
-        aggregation keeps the result [int64] everywhere, so the "{0:N2} GB"
-        totals and any arithmetic on Size stay identical across KVM, UTM, and
-        Hyper-V. An unreadable or missing path sizes as 0 rather than throwing
-        -- callers treat a folder they cannot read as contributing no
-        reclaimable bytes.
+        Enumerates the literal directory and returns Int64, including zero for
+        empty, missing, or unreadable paths. See https://yuruna.link/42ec97cd-001b.
     .PARAMETER Path
         Directory to size. Enumerated with -Recurse -File.
     .OUTPUTS
@@ -104,7 +98,7 @@ function Get-VMFolderSize {
     param(
         [Parameter(Mandatory)][string]$Path
     )
-    $sum = (Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue |
+    $sum = (Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue |
         Measure-Object -Property Length -Sum).Sum
     if ($null -eq $sum) { return [int64]0 }
     return [int64]$sum

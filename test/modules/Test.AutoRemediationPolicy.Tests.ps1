@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c9b3e7-1d58-4a06-9e24-7f3b5c8d1a60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,7 +48,7 @@ Describe 'the auto-remediation allow-list' {
     It 'admits only classes whose retry is the whole repair' {
         $expected = @(
             'wait_timeout', 'network_timeout', 'ip_not_discovered',
-            'instrumentation_failure', 'host_io_blocked'
+            'instrumentation_failure', 'host_io_blocked', 'input_lost'
         )
         foreach ($c in $expected) {
             Assert-True (Test-AutoRemediationAllowed -FailureClass $c) "$c must be retryable"

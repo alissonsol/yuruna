@@ -26,8 +26,9 @@ prints manual instructions if blocked.
 .\New-VM.ps1 -VMName myhost
 ```
 
-Start from Hyper-V Manager. Installer runs unattended via
-`autounattend.xml` (~15 min).
+The script creates and starts the VM, then sends the initial DVD boot key
+automatically. Installer runs unattended via `autounattend.xml` (~15 min).
+Open Hyper-V Manager or `vmconnect.exe localhost windows11-01` to view it.
 
 ## Update
 
@@ -55,6 +56,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../../../README.md)

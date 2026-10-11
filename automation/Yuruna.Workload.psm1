@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,9 +33,10 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Global -Force
 # any nested scope Publish-WorkloadList enters.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global -Force
 # Shared retry policy (10s initial, x2 backoff, 5 attempts, jitter) used
-# by the transient-fetch retry below. -Global -Force so the import does
-# not evict an instance another module loaded; see
-# feedback_module_force_import_evicts_global.md.
+# by the transient-fetch retry below, and Write-YurunaToolLogSection, which
+# writes each "== <cmd> (exit=N) ==" section of the chart log in one append.
+# -Global -Force so the import does not evict an instance another module
+# loaded; see feedback_module_force_import_evicts_global.md.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
 # Shared deployment-kind catalog (chart|kubectl|helm|shell detection,
 # error text, tool-expression mapping, retry gating) consumed by the
@@ -113,9 +114,7 @@ function Invoke-WorkloadChartDeployment {
     Write-Debug "Helm lint"
     $lintOutput = helm lint . *>&1
     $lintExit = $LASTEXITCODE
-    Add-Content -LiteralPath $helmLogFile -Value "== helm lint (exit=$lintExit) =="
-    $logLines = @($lintOutput | ForEach-Object { [string]$_ })
-    if ($logLines.Count -gt 0) { Add-Content -LiteralPath $helmLogFile -Value $logLines }
+    Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm lint (exit=$lintExit) ==" -Line @($lintOutput | ForEach-Object { [string]$_ })
     $lintOutput | ForEach-Object { Write-Verbose "$_" }
     Set-Content -LiteralPath $helmRcFile -Value $lintExit -NoNewline
     if ($lintExit -ne 0) {
@@ -136,14 +135,10 @@ function Invoke-WorkloadChartDeployment {
         if ($statusLine -and $statusLine -match '^STATUS:\s*(pending-\S+)') {
             $pendingState = $Matches[1]
             Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_5010c107b9432bae' -Arguments @{ installName = "$installName"; pendingState = "$pendingState" })
-            Add-Content -LiteralPath $helmLogFile -Value "== pre-flight helm status (state=$pendingState; recovering) =="
-            $logLines = @($statusOutput | ForEach-Object { [string]$_ })
-            if ($logLines.Count -gt 0) { Add-Content -LiteralPath $helmLogFile -Value $logLines }
+            Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== pre-flight helm status (state=$pendingState; recovering) ==" -Line @($statusOutput | ForEach-Object { [string]$_ })
             $rollbackOutput = helm rollback $installName 0 2>&1
             $rollbackExit = $LASTEXITCODE
-            Add-Content -LiteralPath $helmLogFile -Value "== helm rollback $installName 0 (exit=$rollbackExit) =="
-            $logLines = @($rollbackOutput | ForEach-Object { [string]$_ })
-            if ($logLines.Count -gt 0) { Add-Content -LiteralPath $helmLogFile -Value $logLines }
+            Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm rollback $installName 0 (exit=$rollbackExit) ==" -Line @($rollbackOutput | ForEach-Object { [string]$_ })
             if ($rollbackExit -ne 0) {
                 # No prior good revision to roll back to (the very first
                 # upgrade was the one killed): fall through to uninstall
@@ -151,9 +146,7 @@ function Invoke-WorkloadChartDeployment {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_712c78ee18789584' -Arguments @{ rollbackExit = "$rollbackExit" })
                 $uninstallOutput = helm uninstall $installName --no-hooks 2>&1
                 $uninstallExit = $LASTEXITCODE
-                Add-Content -LiteralPath $helmLogFile -Value "== helm uninstall $installName --no-hooks (exit=$uninstallExit) =="
-                $logLines = @($uninstallOutput | ForEach-Object { [string]$_ })
-                if ($logLines.Count -gt 0) { Add-Content -LiteralPath $helmLogFile -Value $logLines }
+                Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm uninstall $installName --no-hooks (exit=$uninstallExit) ==" -Line @($uninstallOutput | ForEach-Object { [string]$_ })
             }
         }
     }
@@ -166,9 +159,7 @@ function Invoke-WorkloadChartDeployment {
     Write-Debug "Helm upgrade --install --atomic $installName"
     $installOutput = helm upgrade --install --atomic $installName . --debug *>&1
     $installExit = $LASTEXITCODE
-    Add-Content -LiteralPath $helmLogFile -Value "== helm upgrade --install --atomic $installName --debug (exit=$installExit) =="
-    $logLines = @($installOutput | ForEach-Object { [string]$_ })
-    if ($logLines.Count -gt 0) { Add-Content -LiteralPath $helmLogFile -Value $logLines }
+    Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm upgrade --install --atomic $installName --debug (exit=$installExit) ==" -Line @($installOutput | ForEach-Object { [string]$_ })
     $installOutput | ForEach-Object { Write-Verbose "$_" }
     Set-Content -LiteralPath $helmRcFile -Value $installExit -NoNewline
     # Match only helm's terminal error shapes: a real error line starts at column

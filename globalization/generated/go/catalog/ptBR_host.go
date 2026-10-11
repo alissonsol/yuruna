@@ -3867,7 +3867,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "' não confirmou desligada dentro do tempo limite; continuando com excluir, mas o pacote ainda pode estar bloqueado."
+    "' não confirmou que está desligada dentro do tempo limite; preservando o registro e o pacote."
   ],
   "host.operator_6959d402ef57f18d": [
     "  Language: ",
@@ -8581,7 +8581,7 @@ const DataptBRhost = `{
       "type": "identifier",
       "trust": "internal"
     },
-    " está registrado (utmctl status não terminou)."
+    " está registrado (utmctl status não retornou uma resposta reconhecida)."
   ],
   "host.orphan_sweep_utmctl_unanswered": [
     "utmctl ",
@@ -8842,6 +8842,21 @@ const DataptBRhost = `{
   ],
   "host.utm_app_restart_action": "Encerrar e reabrir o UTM",
   "host.utm_app_signal_action": "Enviar TERM e depois KILL se o processo persistir, após revalidar a identidade do processo",
+  "host.utm_cache_state_unconfirmed": [
+    "Não foi possível confirmar o estado da VM caching-proxy-service (",
+    {
+      "arg": "state",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Restaure o acesso ao UTM ou passe -CachingProxyServiceUrl \"\" para baixar diretamente."
+  ],
   "host.utm_detached_launch_action": [
     "Executar ",
     {
@@ -9064,6 +9079,21 @@ const DataptBRhost = `{
       "trust": "internal"
     },
     "s e foi interrompido; o efeito é desconhecido até que o estado da VM seja lido novamente."
+  ],
+  "host.windows_installer_boot_key_timeout": [
+    "A VM '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' não aceitou uma tecla de inicialização do instalador do Windows em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " segundos."
   ]
 }
 `

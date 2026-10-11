@@ -96,12 +96,11 @@ consulta de parada a frio do Hyper-V) em cada execução com estado já preparad
 
 `yuruna/test/Debug-TestSequence.ps1`
 
-Encaminhe -Username / -Hostname quando a sequência os declarar. Isso segue o
-encaminhamento em cascata de Invoke-TestRunnerInnerLoop (percorrer a cascata não
-é viável de forma independente, mas variables.username / variables.hostname da
-própria sequência são as substituições que Debug-TestSequence pode respeitar
-sem o planejador). Valores vazios usam os padrões de New-VM de cada hospedeiro
-(o padrão da conta e o nome da VM, respectivamente).
+Encaminhe -Username / -Hostname planejados para New-VM. Resolve-TestSequencePlan
+percorre a cadeia de baselines e retorna o nome de usuário e o nome de hospedeiro
+efetivos, usando a mesma cascata de variáveis do executor recorrente. Valores
+vazios usam os padrões de New-VM de cada hospedeiro (o padrão da conta e o nome
+da VM, respectivamente).
 
 <a id="42010605-0308"></a>
 
@@ -352,7 +351,8 @@ Se nada corresponder, liste tudo o que estiver disponível nas duas árvores.
 
 Por conveniência, quando $SequenceName é o caminho de um arquivo .yml existente
 (a conclusão de tabulação do shell produz isso naturalmente), use-o literalmente
-e reduza o nome ao basename para a derivação posterior de GuestKey. O operador
+e reduza o nome ao basename para o planejamento posterior. GuestKey vem do mapa
+de baselines da sequência, a menos que seja fornecido explicitamente. O operador
 indicou um arquivo específico — respeite essa escolha, sem substituí-la por uma
 variante do hospedeiro obtida na busca por níveis.
 
@@ -432,8 +432,8 @@ Veja "Nested-cycle support" em Test.Status.psm1 para o modelo de propriedade.
 
 `yuruna/test/Debug-TestSequence.ps1`
 
-Test.LogLevel + Test.Config + Test.SequenceAction + Test.HostIO +
-Test.HostContract + Test.Log + Invoke-Sequence + Test.SequencePlanner +
+Inclui Test.LogLevel + Test.Config + Test.SequenceAction + Test.HostIO +
+Test.HostContract + Test.Log + Test.SequenceEngine + Test.SequencePlanner +
 Test.YurunaDir + Test.OcrEngine + Test.Tesseract +
 Test.ConfigPreflight. A ordem importa: o planejador DEPOIS do mecanismo, para que
 a reimportação com -Force do mecanismo dentro do planejador não remova o mecanismo
@@ -467,10 +467,11 @@ de invalidar.
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Siga o padrão de criação de processo de Start-TestRunner, para que Invoke-TestProject
-exercite a mesma fronteira usada pelo executor recorrente:
-  * operador de chamada (não Start-Process) — o executor interno herda nosso
-    ambiente, stdio e contexto de sinais, como em Start-TestRunner
+Invoke-TestProject usa o construtor compartilhado de argumentos tipados para
+invocar diretamente um novo processo interno; o executor recorrente o inicia
+a partir de um worker de ciclo:
+  * operador de chamada (não Start-Process) — o executor interno deste ponto de
+    entrada de execução única herda seu ambiente, stdio e contexto de sinais
   * -Command (não -File) — pwsh -File converte cada argv em [string],
     o que quebraria parâmetros [switch] / [int]
   * -NoProfile — $PROFILE não pode sobrescrever variáveis de ambiente YURUNA_*
@@ -588,9 +589,9 @@ Cada etapa é verificada e informa seu próprio motivo em caso de falha:
             interrompe com uma linha clara de "o quê + por quê"; o executor
             interno nunca é iniciado.
 
-  A etapa 3 inicia Invoke-TestRunnerInnerLoop.ps1 em um pwsh novo — o mesmo
-            formato de criação de processo usado por Start-TestRunner a cada
-            ciclo — com -NoProjectClone (o clone já é novo) e -NoGitPull
+  A etapa 3 inicia Invoke-TestRunnerInnerLoop.ps1 em um pwsh novo usando o
+            construtor compartilhado de argumentos tipados de Test.InnerSpawn,
+            com -NoProjectClone (o clone já é novo) e -NoGitPull
             (Invoke-TestProject testa o projeto como está localmente; uma
             atualização do framework no meio do teste confundiria o sinal).
             O executor interno realiza o ciclo completo, registra-o como um
@@ -651,9 +652,9 @@ do operador que executa o script. Por isso, ela é definida em uma sessão realm
 executada como a nova conta — um logon único aqui quando a conta tem uma senha
 utilizável e uma tarefa agendada no primeiro login quando não tem.
 
-Os pontos de entrada do framework não dependem disso: todos iniciam com
--ExecutionPolicy Bypass. As sessões interativas da própria conta é que seriam
-recusadas sem essa configuração.
+Essa política se aplica às sessões interativas de scripts da própria conta.
+Um processo filho iniciado com -ExecutionPolicy Bypass usa essa substituição
+explícita; nem todos os pontos de entrada do framework a fornecem.
 
 <a id="42010605-0025"></a>
 
@@ -986,10 +987,11 @@ ao executor interno, cuja vinculação estrita os recusaria.
 O registro compartilhado fica em Test.Prelude (Register-EntryPointCancelHandler):
 uma assinatura Register-ObjectEvent CancelKeyPress altera o sinalizador 'Requested'
 da hashtable retornada na thread do pipeline (um delegate .NET direto seria
-acionado em uma thread do pool sem Runspace). O executor externo cede após o
-CICLO atual — tanto o laço contínuo quanto o laço de pausa por falha consultam
-$script:ShutdownState['Requested'] na iteração seguinte —; portanto, passe
--ExitAfterLabel 'cycle'.
+acionado em uma thread do pool sem Runspace). Durante um ciclo iniciado em outro
+processo, o executor externo consulta $script:ShutdownState['Requested'] entre
+esperas de um segundo pelo processo filho e interrompe toda a árvore de processos
+do ciclo quando há uma solicitação de cancelamento. O laço contínuo e o laço de
+pausa por falha também consultam o sinalizador antes de continuar.
 
 <a id="42010605-0036"></a>
 
@@ -1061,16 +1063,17 @@ operador no painel nunca têm efeito.
 
 `yuruna/test/Start-TestRunner.ps1`
 
-Projeto com dois processos: um externo pequeno (este arquivo) e um interno de
-um único ciclo (modules/Invoke-TestRunnerInnerLoop.ps1 — colocado intencionalmente
-em modules/ para não ser confundido com um script de entrada na pasta test/;
-o operador nunca o invoca diretamente).
+O caminho normal usa um executor externo residente (este arquivo), um novo
+worker por ciclo (modules/Invoke-TestCycleRunner.ps1) e o executor interno
+(modules/Invoke-TestRunnerInnerLoop.ps1). O worker executa a orquestração do
+ciclo e invoca o executor interno; o externo mantém o estado entre os ciclos.
+Se o script do worker de ciclo estiver ausente, o externo executa a orquestração
+do ciclo em seu próprio processo como alternativa.
 Motivos da separação:
-  * pwsh novo a cada ciclo em todo hospedeiro — um caminho de código, sem
-    bifurcação específica da plataforma entre execução no processo e criação
-    de outro processo
-  * memória residente O(1); o externo é o único processo residente e passa
-    a maior parte do tempo em Start-Process -Wait
+  * pwsh novo a cada ciclo em todo hospedeiro — a lógica do ciclo e seus módulos
+    são recarregados sem reiniciar o executor externo residente
+  * memória residente O(1); o externo é o único processo mantido entre os ciclos
+    e espera pelo worker de ciclo em intervalos de um segundo
   * espera progressiva com consulta de commits impede consumo contínuo
     por falhas infinitas
 
@@ -1368,14 +1371,14 @@ verificação usando um número inteiramente errado.
 `yuruna/test/Test-Config.ps1`
 
 Checagem prévia ATIVA de escrita: monte localPath e crie a pasta de cada hospedeiro
-'<localPath>/<hostId>'. É a verificação que detecta o caso "NAS acessível,
-replicate=true, mas a replicação silenciosamente nunca ocorre" — senha SMB
+'<localPath>/hosts/<hostId>'. É a verificação que detecta o caso "NAS acessível,
+caminhos configurados, mas a replicação silenciosamente nunca ocorre" — senha SMB
 errada, erro no nome do compartilhamento, sudo sem senha ausente no Linux ou
 compartilhamento somente de leitura —, invisível à verificação passiva de
 acessibilidade acima (a drenagem no hospedeiro executa separada e apenas registra
 a falha no ledger, onde nenhum operador a vê). Só se tenta quando há uma
 credencial configurada E o servidor está acessível; assim, um NAS apenas offline
-permanece como o WARN transitório acima. FAIL (bloqueia o ciclo) quando replicate
+permanece como o WARN transitório acima. FAIL (bloqueia o ciclo) quando moveLogsToPoolStorage
 está ativado; WARN consultivo quando está desativado.
 
 <a id="42010605-004b"></a>
@@ -2199,7 +2202,7 @@ O que cria em -Root:
   <Root>/yuruna.stash         armazenamento durável do próprio stash service
   <Root>/yuruna.pool/pool-intent.git
                               repositório bare de intenção do grupo, inicialmente válido pelo esquema.
-                              pool-control service o serve por git://; essa URL
+                              a VM caching-proxy-service o serve por HTTP; essa URL
                               se torna intentGitUrl do laboratório.
 
 O vault gravado é YAML simples protegido por permissões do sistema de arquivos.
@@ -2492,9 +2495,10 @@ Executa para TODO endereço resolvido, não apenas para um fornecido pelo operad
 — um hospedeiro cujo cachingProxyIp já esteja na configuração ainda precisa da
 vinculação ao grupo, o caso comum em uma nova inscrição.
 
-Idempotente e não destrutivo: um intentGitUrl existente e não vazio fica
-exatamente como está, para que um hospedeiro direcionado pelo operador a outro
-repositório de intenção nunca seja sobrescrito. Toda a ação é de melhor esforço
+Um intentGitUrl existente e não vazio é mantido, a menos que corresponda ao
+formato http://<host>/pool-intent.git inicializado automaticamente e seja diferente
+da URL do proxy resolvido. Esse formato é atualizado para o endereço atual do
+proxy; outras URLs selecionadas pelo operador permanecem inalteradas. Toda a ação é de melhor esforço
 — o token já está armazenado, e uma falha ao inicializar uma vinculação opcional
 não deve fazer a inscrição falhar.
 
@@ -3232,7 +3236,7 @@ Invoke-ExampleCertificateSecret.
 A senha do próprio PFX do desenvolvedor chega na variável lida pelo Kestrel.
 Reutilizar esse nome permite que `docker run -e <name>` passe o valor pelo nome,
 sem que ele apareça em uma linha de comando ou arquivo batch exibido.
-Quando a variável não está definida, o arquivo auxiliar ao lado do PFX
+Quando a variável não está definida ou está vazia, o arquivo auxiliar ao lado do PFX
 (<pfx>.password, uma linha) a fornece: os scripts de provisionamento de convidados
 exportam o PFX com uma senha aleatória e a guardam ali; uma execução no convidado
 não precisa de variável.
@@ -3252,7 +3256,7 @@ O certificado é o PFX do desenvolvedor reexportado com a senha gerada ou,
 quando -SelfSigned é fornecido ou YURUNA_EXAMPLE_SELF_SIGNED_CERT=1, um certificado
 autoassinado descartável nunca gravado em disco. O PFX do desenvolvedor é aberto
 com a senha de ASPNETCORE_Kestrel__Certificates__Default__Password ou, se não
-estiver definida, do arquivo auxiliar '<CertificatePath>.password'. A senha gerada
+estiver definida ou estiver vazia, do arquivo auxiliar '<CertificatePath>.password'. A senha gerada
 existe apenas em memória e no Secret: não é colocada em linha de comando,
 arquivo, variável que o mecanismo de implantação registre nem qualquer saída.
 O manifesto chega a kubectl pela entrada padrão.

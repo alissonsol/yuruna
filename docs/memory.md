@@ -164,7 +164,7 @@ from the only shell that ships in-box: Windows PowerShell 5.1. PS 5.1's
 `Invoke-RestMethod` returns the response body as a string WITHOUT
 stripping a leading UTF-8 BOM (`EF BB BF`). When that string is piped
 to `iex`, the BOM character (`U+FEFF`) becomes the first token of the
-parse stream and PS 5.1 fails the very first line with "Unexpected
+parse stream and PS 5.1 fails the first line with "Unexpected
 token at the beginning of the script." Direct invocation as a file
 works either way -- both PS 5.1 and pwsh handle BOM-prefixed files on
 disk -- but the `irm | iex` path is the documented installer entry
@@ -205,14 +205,14 @@ reachable, the autoinstall apt block injects:
   squashfs ships `ubuntu.sources` with ONLY a `file:/cdrom` entry, and
   curtin's `primary` modifymirrors step only *rewrites* an existing
   URI -- it cannot add one. With no network URI in `ubuntu.sources`,
-  curtin's mirror config never reaches the target and any postinstall
+  curtin's mirror config never reaches the target and any post-install
   `apt install <pkg>` for a package not on the cdrom fails with
   `E: Unable to locate package`. Writing a separate file under
   `sources.list.d/` bypasses that no-op: apt merges `ubuntu.sources`
   (cdrom) + `yuruna-ports.list` (network).
 
 A background early-commands watcher racing to overwrite
-`ubuntu.sources` before postinstall lost that race on an observed
+`ubuntu.sources` before post-install lost that race on an observed
 arm64 Server install, and the install failed. Curtin-owned sources
 land synchronously and deterministically.
 
@@ -393,23 +393,25 @@ Source:
 
 ### Why the inner spawn uses the call operator instead of Start-Process?
 
-The outer test runner invokes the inner `pwsh` via the call operator
-`& $pwshExe @argList` rather than
-`Start-Process -NoNewWindow -Wait -PassThru`. On Windows, the
-`Start-Process -Wait` shape was observed to never return after the
-inner emitted its final cycle-end line.
+The recurring runner's cycle worker launches the inner `pwsh` through
+`Diagnostics.ProcessStartInfo` and `Diagnostics.Process.Start`, then waits on
+that process and reads its exit code. Its native stdout remains attached to the
+console even when a caller captures the cycle function's typed result, so
+descendant services do not inherit a PowerShell success-stream pipe. The
+standalone `Invoke-TestProject.ps1` entry point uses the call operator
+`& $pwshExe @argList` for its direct inner invocation.
 
-Root cause: any long-running grandchild spawned by the inner that
-inherited the inner's console handles kept the outer's `WaitForExit()`
-from completing -- the status service is the worst offender, which is
-why `Start-StatusService.ps1` redirects its stdio explicitly. The call
-operator hands inner invocation to PowerShell's native command
-pipeline, which waits on the child's exit code directly without the
-`.NET Process.WaitForExit` subtleties; with the grandchild stdio
-redirection, control returns cleanly to the outer.
+An earlier `Start-Process -NoNewWindow -Wait -PassThru` launch was observed
+to remain blocked after the inner emitted its final cycle-end line.
+`Start-Process -Wait` waits for the descendant tree, including a status
+service intended to outlive the inner. Waiting on the inner process alone
+avoids that descendant-lifetime wait; service launchers must also keep
+long-lived descendants from holding callers' redirected streams open.
 
-Source:
-[`test/Start-TestRunner.ps1`](../test/Start-TestRunner.ps1).
+Sources:
+[`test/modules/Test.RunnerOuterLoop.psm1`](../test/modules/Test.RunnerOuterLoop.psm1),
+[`test/Invoke-TestProject.ps1`](../test/Invoke-TestProject.ps1), and
+[host service launch constraints](https://yuruna.link/42aaf735-0005).
 
 <a id="42d69dfa-000f"></a>
 
@@ -417,7 +419,7 @@ Source:
 
 The yuruna runner streams its real-time log to a `GetTempFileName`
 transcript that lives OUTSIDE the project tree
-(`Set-Resource.ps1:78` / `Set-Workload.ps1:92`), so the diagnostic
+(`Resolve-YurunaTranscriptPath`, called by `Set-Resource.ps1` and `Set-Workload.ps1`), so the diagnostic
 dump can't reach it from the project root. What it CAN show is which
 files the last cycle wrote: the top-N most-recently-modified files
 under any `.yuruna/` working folder, with mtime and size. On an
@@ -658,7 +660,7 @@ Source: [`test/modules/Test.Ssh.psm1`](../test/modules/Test.Ssh.psm1).
 
 The cache key is absolute path + `LastWriteTimeUtc` + a SHA-256 of the first 64 KB of file content. The content hash defends against an editor restoring a file to its original size AND mtime -- a `git checkout` of a same-size revision, a `touch -d` to an exact prior timestamp, or a CI step that copies a backup over. mtime alone would return stale cached YAML, and downstream callers would silently see an old config for the rest of the process.
 
-64 KB covers the entire repo's YAML files (the current largest is under 8 KB); reading more on every cache check would negate the benefit of caching for big files. Callers that need a guaranteed fresh read -- the outer loop's failure-pause config-mtime trigger, for instance -- pass `-NoCache`.
+64 KB covers the entire repo's YAML files (the current largest is about 22 KB); reading more on every cache check would negate the benefit of caching for big files. Callers that need a guaranteed fresh read -- the outer loop's failure-pause config-mtime trigger, for instance -- pass `-NoCache`.
 
 Source: [`test/modules/Test.Config.psm1`](../test/modules/Test.Config.psm1).
 
@@ -742,7 +744,7 @@ The write surface is scoped narrowly:
 |---|---|
 | Method | `PUT` or `POST` only |
 | Path | `log-upload/<rel>` with no `..` segments |
-| Extension | `.log` `.txt` `.json` `.err` `.crash` -- what `/var/log/installer/*` actually produces; rejects e.g. `.ps1` / `.exe` upload attempts |
+| Extension | `.log` `.txt` `.json` `.err` `.crash` `.tar` -- what `/var/log/installer/*` actually produces; rejects e.g. `.ps1` / `.exe` upload attempts |
 | Body cap | 4 MB (a typical curtin-install.log tail is ~200 KB; the full file ~1-2 MB) |
 
 The path is normalized and range-checked against `$logDir` so nothing
@@ -811,8 +813,9 @@ So `--remove-all-storage` silently nukes the upstream artifact every
 cycle. Symptom on the next cycle: `Get-Image` fails, and on Windows 11
 the operator must re-download the ISO from microsoft.com by hand
 (no `wget`-able URL). The per-VM `Remove-Item` call cleans up
-everything we created under `~/yuruna/vms/<vmname>/`, so plain
-`undefine --nvram` is sufficient and safe.
+everything we created under `~/yuruna/vms/<vmname>/`, so
+`undefine --nvram` plus `--managed-save`, `--snapshots-metadata` and
+`--checkpoints-metadata` is sufficient and safe.
 
 Source:
 [`host/ubuntu.kvm/modules/Yuruna.Host.psm1`](../host/ubuntu.kvm/modules/Yuruna.Host.psm1).
@@ -875,7 +878,7 @@ Source:
 
 `networksetup` has no "remove server" verb; setting `0.0.0.0:0` is
 the documented neutralizer. CRITICAL: `-setwebproxy` /
-`-setsecurewebproxy` flip the proxy state back ON as a side-effect,
+`-setsecurewebproxy` flip the proxy state back ON as a side effect,
 so `-setwebproxystate off` MUST be the last step or the system ends
 up `Enabled=Yes` pointing at `0.0.0.0` -- and .NET `HttpClient` (which
 reads `CFNetworkCopySystemProxySettings`) then fails the next
@@ -1001,7 +1004,7 @@ these binaries run. An operator debugging on the guest invokes
 ordinary shell has no `no_new_privs` set -- there the file capability is
 the ONLY grant available, and without it the same debug run needs root.
 `setcap` itself ships in `libcap2-bin`, which each installer adds to its
-apt line for this purpose. Two of the three installers tolerate a
+apt line for this purpose. All three installers tolerate a
 `setcap` failure (`|| true`) precisely because the systemd path does not
 depend on it.
 
@@ -1046,7 +1049,7 @@ anymore. Console access (the hypervisor's serial or graphical console)
 is the way in when the daemon is wedged, and nothing on the host may
 assume it can `ssh` into a stash guest. A mask is reversible with
 `systemctl unmask ssh.service`, but doing that while the daemon holds
-`:22` simply gives OpenSSH a port conflict of its own -- stop the stash
+`:22` gives OpenSSH a port conflict of its own -- stop the stash
 service first.
 
 Source:
@@ -1295,7 +1298,7 @@ stdout are each enough to fail that second read. `data "external"`
 blocks are the most common offender -- spawning pwsh, parsing stdin
 JSON, and emitting JSON on stdout, on every apply.
 
-Switching to `tofu plan -out=tfplan` followed by `tofu apply tfplan`
+Switching to `tofu plan -out=tofu.planfile` followed by `tofu apply tofu.planfile`
 makes apply deterministic: the planfile pins all values, no refresh
 runs, no external programs re-execute. The class of "plan succeeded
 but apply failed" failures collapses to zero.
@@ -1503,7 +1506,7 @@ the resolved `BASE_URL`, and installs it as root only when the download
 matches `E_RETRY_SHA` (or the caller waived verification with
 `EXEC_ALLOW_UNVERIFIED=1`): every fetched script sources this file, so
 bytes nobody vouched for must not become library code. A missing library
-is still non-fatal (`[ -r ... ] && . ...`); the inner script just runs
+is still non-fatal (`[ -r ... ] && . ...`); the inner script runs
 without the retry helpers in scope.
 
 Source:
@@ -1623,7 +1626,7 @@ state, and clears it via `helm rollback` (which preserves history) so
 the upgrade proceeds cleanly.
 
 Rollback to revision 0 fails when there is no prior good revision
-(the very first upgrade was the one that was killed); the recovery
+(the first upgrade was the one that was killed); the recovery
 then falls through to `helm uninstall --no-hooks` so the next
 `upgrade --install` can land a fresh release.
 
@@ -1641,7 +1644,7 @@ the release disappears mid-cycle) AND atomic in the failure case
 failure, so an interrupted deployment never leaves a half-rendered
 release in the namespace). A two-step uninstall+install pair would, on
 a watchdog kill between the two calls, strand the operator with no
-release, a dirty namespace, and no recovery beyond a full rerun.
+release, a dirty namespace, and no recovery beyond a full re-run.
 
 A non-zero exit is still authoritative -- the release did NOT land (or
 it landed and was auto-rolled-back). The captured output is ALSO
@@ -1742,6 +1745,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

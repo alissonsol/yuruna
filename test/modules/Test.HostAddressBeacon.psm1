@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42d5663b-af64-472f-8342-ab50456c2fc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,6 +91,104 @@ $script:FirstChangeUtc       = [datetime]::MinValue
 $script:ChurnWarningIssued   = $false
 $script:ChurnChangeThreshold = 3
 $script:ChurnWindowMinutes   = 60
+
+# Get-BeaconHostAddress's own kept answer, separate from the announce state
+# above: that state tracks what was last PUBLISHED, this tracks what was
+# last RESOLVED, and a tick can resolve several times between publishes.
+$script:BeaconAddress              = ''
+$script:BeaconAddressResolvedUtc   = [datetime]::MinValue
+$script:BeaconAddressChangeVersion = -1
+
+# A static class rather than a scriptblock handler: NetworkAddressChanged
+# fires on a thread pool thread with no PowerShell runspace, where a
+# scriptblock cannot run at all. The counter only needs to be read and
+# compared, so a plain Interlocked-guarded int clears that bar without a
+# runspace of its own.
+$script:NetworkChangeAvailable = $false
+try {
+    if (-not ('YurunaNetworkChange' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Net.NetworkInformation;
+using System.Threading;
+public static class YurunaNetworkChange {
+    private static int _version;
+    private static bool _started;
+    public static int Version { get { return _version; } }
+    public static void Start() {
+        if (_started) { return; }
+        _started = true;
+        NetworkChange.NetworkAddressChanged += OnAddressChanged;
+    }
+    private static void OnAddressChanged(object sender, EventArgs e) {
+        Interlocked.Increment(ref _version);
+    }
+    public static void Bump() { Interlocked.Increment(ref _version); }
+}
+'@
+    }
+    [YurunaNetworkChange]::Start()
+    $script:NetworkChangeAvailable = $true
+} catch {
+    Write-Verbose "host address beacon: network change notifications unavailable -- $($_.Exception.Message); falling back to the age bound alone."
+}
+
+function Get-BeaconClockUtc {
+<#
+.SYNOPSIS
+    Get-BeaconHostAddress's own time source, seamed out so a test can hold
+    it still rather than racing a real clock across an age bound.
+#>
+    [CmdletBinding()]
+    [OutputType([datetime])]
+    param()
+    return (Get-Date).ToUniversalTime()
+}
+
+function Get-BeaconHostAddress {
+<#
+.SYNOPSIS
+    The host's best address, resolved again only when the network changed
+    or the last answer is older than MaxAgeSeconds.
+.DESCRIPTION
+    Address resolution queries the network stack and, on Hyper-V, the
+    virtual switches -- far more work than the beacon tick it feeds. The
+    operating system announces address changes, so the answer is kept
+    until one arrives; the age bound covers a missed event, and still
+    applies on a host where the notification type failed to load.
+
+    An empty answer is never kept: a resolver that comes back empty has not
+    actually learned anything, so caching it would hide the host for up to
+    MaxAgeSeconds behind an answer that was never true.
+.PARAMETER Resolve
+    Returns the host's current best address. Defaults to the per-driver
+    Get-BestHostIp already imported by the caller.
+.PARAMETER MaxAgeSeconds
+    How long a resolved answer is trusted without a network-change signal.
+.OUTPUTS
+    System.String
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([scriptblock]$Resolve = { Get-BestHostIp }, [int]$MaxAgeSeconds = 120)
+    $currentVersion = if ($script:NetworkChangeAvailable) { [YurunaNetworkChange]::Version } else { $script:BeaconAddressChangeVersion }
+    $ageSeconds = ((Get-BeaconClockUtc) - $script:BeaconAddressResolvedUtc).TotalSeconds
+    $stale = [string]::IsNullOrWhiteSpace($script:BeaconAddress) -or
+        $ageSeconds -ge $MaxAgeSeconds -or
+        $currentVersion -ne $script:BeaconAddressChangeVersion
+    if (-not $stale) { return $script:BeaconAddress }
+
+    $resolved = [string](& $Resolve)
+    $script:BeaconAddressChangeVersion = $currentVersion
+    if ([string]::IsNullOrWhiteSpace($resolved)) {
+        $script:BeaconAddress            = ''
+        $script:BeaconAddressResolvedUtc = [datetime]::MinValue
+        return ''
+    }
+    $script:BeaconAddress            = $resolved
+    $script:BeaconAddressResolvedUtc = Get-BeaconClockUtc
+    return $script:BeaconAddress
+}
 
 function Get-HostAddressBeaconState {
 <#
@@ -988,7 +1086,7 @@ function Invoke-HostAddressBeaconTick {
 
 Export-ModuleMember -Function Get-HostAddressBeaconState, Reset-HostAddressBeaconState, Assert-HostAddressStability,
     Write-HostAddressRecord, Write-HostAddressChangeRecord, Write-HostAddressBaselineRecord,
-    Get-HostAddressChangeCount,
+    Get-HostAddressChangeCount, Get-BeaconHostAddress,
     Get-HostAddressChurnVerdict, Get-HostBridgeDhcpIdentity, Set-HostBridgeDhcpIdentity,
     Get-HostAddressStabilityReport,
     Send-HostAddressAnnounce, Invoke-HostAddressSquidNudge,

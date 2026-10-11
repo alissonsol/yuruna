@@ -131,6 +131,235 @@ class DependencyTests(unittest.TestCase):
         self.assertIn('pypi:other@1.2.3', records)
         self.assertEqual(records['pypi:my-pkg']['versionConstraint'], '>=2')
 
+    def test_hcl_nested_providers_engine_floor_and_module_constraints(self):
+        records = collect({'global/resources/aws/versions.tf': '''terraform {
+  required_version = ">= 1.13.0"
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+      version = "~> 6.54"
+      configuration_aliases = [aws.peer]
+    }
+    local = { source = "hashicorp/local", version = "= 2.9.1" }
+  }
+}
+module "eks" {
+  source = "terraform-aws-modules/eks/aws"
+  version = "~> 21.24"
+  addons = { inner = { version = "99.0.0" } }
+}
+'''})
+        provider = records['terraform-provider:hashicorp/aws']
+        self.assertEqual(provider['versionConstraint'], '~> 6.54')
+        self.assertNotIn('version', provider)
+        self.assertNotIn('purl', provider)
+        self.assertEqual(provider['evidence'][0]['line'], 4)
+        self.assertIn('terraform-provider:hashicorp/local@2.9.1', records)
+        module = records['terraform-module:terraform-aws-modules/eks/aws']
+        self.assertEqual(module['versionConstraint'], '~> 21.24')
+        self.assertEqual(module['evidence'][0]['line'], 12)
+        self.assertEqual(records['toolchain:OpenTofu/Terraform']['versionConstraint'], '>= 1.13.0')
+        self.assertEqual(len(records['opentofu-config:global/resources/aws']['dependencies']), 4)
+
+    def test_hcl_comment_and_heredoc_examples_are_not_dependencies(self):
+        records = collect({'main.tf': '''# module "fake" { source = "fake/comment/aws" }
+/* terraform { required_providers { fake = { source = "fake/block" } } } */
+locals {
+  sample = <<-HCL
+module "fake" { source = "fake/heredoc/aws" }
+HCL
+  quoted = "terraform { required_version = \\\"99.0.0\\\" }"
+}
+module "real" {
+  source = "git::https://example.test/modules.git//nested?ref=v1.2.3" // literal URL
+}
+'''})
+        self.assertEqual(set(records), {'opentofu-config:.',
+                         'terraform-module:git::https://example.test/modules.git//nested?ref=v1.2.3'})
+        record = records['terraform-module:git::https://example.test/modules.git//nested?ref=v1.2.3']
+        self.assertNotIn('version', record)
+        self.assertEqual(record['evidence'][0]['line'], 9)
+
+    def test_hcl_exact_registry_versions_and_local_modules_remain_distinct(self):
+        records = collect({'global/cluster/main.tf': '''module "remote" {
+ source = "registry.example.test/team/cluster/aws"
+ version = "2.3.4"
+}
+module "local" { source = "../shared" }
+'''})
+        self.assertIn('terraform-module:registry.example.test/team/cluster/aws@2.3.4', records)
+        local = records['terraform-module:global/shared']
+        self.assertNotIn('version', local)
+        self.assertTrue(any('Local configuration' in note for note in local['notes']))
+
+    def test_hcl_dynamic_and_implicit_sources_do_not_invent_registry_addresses(self):
+        records = collect({'main.tf': '''terraform {
+ required_providers {
+  old = "~> 1.0"
+  selected = { source = "${var.registry}/team/pkg", version = "~> 2.0" }
+ }
+}
+module "dynamic" { source = local.module_source }
+'''})
+        self.assertEqual(records['terraform-provider:old']['versionConstraint'], '~> 1.0')
+        self.assertIn('terraform-provider:selected', records)
+        self.assertIn('terraform-module:.:dynamic', records)
+        self.assertFalse(any('hashicorp' in key or '${' in key for key in records))
+        self.assertEqual(records['terraform-module:.:dynamic']['completeness'], 'unresolved')
+
+    def test_hcl_test_fixtures_and_downloaded_modules_are_excluded(self):
+        snippet = 'terraform { required_version = "99.0.0" }'
+        records = collect({path: snippet for path in (
+            'global/tests/fixtures/main.tf', 'global/test/main.tf', 'testdata/main.tf',
+            '.terraform/modules/download/main.tf', 'vendor/main.tf', 'docs/main.tf')})
+        self.assertEqual(records, {})
+
+    def test_hcl_combines_provider_constraints_without_discarding_evidence(self):
+        records = collect({
+            'one/main.tf': 'terraform { required_providers { aws = { source="hashicorp/aws" version="~> 6.54" } } }',
+            'two/main.tf': 'terraform { required_providers { alias = { source="hashicorp/aws" version=">= 6.60, < 7.0" } } }',
+        })
+        provider = records['terraform-provider:hashicorp/aws']
+        self.assertEqual(provider['versionConstraints'], ['>= 6.60, < 7.0', '~> 6.54'])
+        self.assertNotIn('versionConstraint', provider)
+        self.assertEqual(len(provider['evidence']), 2)
+
+    def test_hcl_unterminated_blocks_and_heredocs_fail_closed(self):
+        for text in ('terraform { required_version="1.13.0"', 'locals { sample = <<EOF\nmissing',
+                     '/* terraform { required_version="99.0.0" }'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                collect({'main.tf': text})
+
+    def test_hcl_windows_paths_and_crlf_preserve_source_lines(self):
+        records = collect({'global\\resources\\main.tf': '# declaration\r\nterraform {\r\n'
+                           '  required_version = ">= 1.13.0"\r\n}\r\n'})
+        record = records['toolchain:OpenTofu/Terraform']
+        self.assertEqual(record['evidence'][0]['path'], 'global/resources/main.tf')
+        self.assertEqual(record['evidence'][0]['line'], 3)
+
+    def test_helm_folded_workload_actions_keep_repository_and_chart_evidence(self):
+        path = 'example/website/config/localhost/workloads.yml'
+        records = collect({path: '''workloads:
+- context: "${env:context}"
+  deployments:
+    - helm: "repo add ingress-nginx https://kubernetes.github.io/ingress-nginx"
+    - helm: "repo update"
+    - helm: >
+        install nginx-ingress ingress-nginx/ingress-nginx
+        --namespace ingress-ns
+        --create-namespace
+        --set controller.ingressClass=${env:ingressClass}
+'''})
+        key = 'helm:https://kubernetes.github.io/ingress-nginx#ingress-nginx'
+        chart = records[key]
+        self.assertEqual({entry['line'] for entry in chart['evidence']}, {4, 6})
+        self.assertEqual(chart['completeness'], 'unresolved')
+        self.assertNotIn('version', chart)
+        self.assertNotIn('purl', chart)
+        self.assertEqual(records['helm-config:' + path]['dependencies'], [key])
+
+    def test_helm_exact_range_and_dynamic_versions_remain_distinct(self):
+        records = collect({'example/config/azure/workloads.yml': '''globalVariables:
+  certManagerLatest: "v1.21.2"
+workloads:
+  - helm: 'repo add jetstack https://charts.jetstack.io'
+  - helm: >-
+      install cert-manager jetstack/cert-manager --version ${env:certManagerLatest}
+  - helm: 'upgrade --install --namespace services release jetstack/operator --version="1.2.3"'
+  - helm: 'upgrade release jetstack/operator --version ">=1.2.0 <2.0.0"'
+'''})
+        dynamic = records['helm:https://charts.jetstack.io#cert-manager']
+        self.assertEqual(dynamic['versionConstraint'], '${env:certManagerLatest}')
+        self.assertNotIn('version', dynamic)
+        self.assertTrue(any('no runtime value' in note for note in dynamic['notes']))
+        self.assertIn('helm:https://charts.jetstack.io#operator@1.2.3', records)
+        self.assertEqual(records['helm:https://charts.jetstack.io#operator']['versionConstraint'], '>=1.2.0 <2.0.0')
+
+    def test_helm_direct_repo_oci_and_archive_references_are_not_resolved(self):
+        records = collect({'config/aws/workloads.yaml': '''workloads:
+  - helm: install release operator --repo https://charts.example.test/ --version v2.3.4
+  - helm: 'install --generate-name=true oci://registry.example.test/team/chart --version 3.4.5'
+  - helm: 'upgrade release https://charts.example.test/chart-4.5.6.tgz'
+'''})
+        self.assertIn('helm:https://charts.example.test#operator@v2.3.4', records)
+        self.assertIn('helm:oci://registry.example.test/team/chart@3.4.5', records)
+        archive = records['helm:https://charts.example.test/chart-4.5.6.tgz']
+        self.assertNotIn('version', archive)
+        self.assertTrue(any('not resolved' in note for note in archive['notes']))
+
+    def test_helm_alias_identity_is_scoped_by_file_and_repository_url(self):
+        records = collect({
+            'one/config/local/workloads.yml': '''- helm: repo add charts https://one.example.test
+- helm: repo add charts https://one.example.test/
+- helm: install release charts/operator
+''',
+            'two/config/local/workloads.yml': '''- helm: repo add charts https://two.example.test
+- helm: install release charts/operator
+''',
+        })
+        charts = {key for key in records if key.startswith('helm:')}
+        self.assertEqual(charts, {'helm:https://one.example.test#operator', 'helm:https://two.example.test#operator'})
+
+    def test_helm_local_dynamic_and_ambiguous_sources_have_no_fabricated_chart(self):
+        records = collect({'config/local/workloads.yml': '''- helm: repo add charts https://one.example.test
+- helm: repo add charts https://two.example.test
+- helm: install release charts/operator
+- helm: install release ./local-chart
+- helm: install release ../local-chart
+- helm: install release workloads/frontend
+- helm: install release ${env:chart}
+- helm: repo add runtime ${env:repository}
+- helm: install release runtime/chart
+'''})
+        self.assertFalse(any(key.startswith('helm:') for key in records))
+        notes = records['helm-config:config/local/workloads.yml']['notes']
+        self.assertEqual(len(notes), 4)
+        self.assertTrue(any('line 3:' in note and 'ambiguous' in note for note in notes))
+
+    def test_helm_comments_other_scalar_bodies_and_fixtures_are_excluded(self):
+        text = '''# - helm: install fake https://example.test/fake.tgz
+- shell: |
+    helm: install printed https://example.test/printed.tgz
+- helm: "repo add actual https://charts.example.test" # literal declaration
+- helm: >
+    install release actual/chart
+    # --debug
+'''
+        records = collect({'config/local/workloads.yml': text,
+                           'tests/config/local/workloads.yml': '- helm: install fake https://fake.test/a.tgz',
+                           'docs/config/local/workloads.yml': '- helm: install fake https://fake.test/b.tgz'})
+        self.assertEqual({key for key in records if key.startswith('helm:')}, {'helm:https://charts.example.test#chart'})
+
+    def test_helm_unknown_option_arity_and_shell_chains_fail_closed(self):
+        records = collect({'config/local/workloads.yml': '''- helm: "install bad https://example.test/chart.tgz --future-option value"
+- helm: "install bad https://example.test/chart.tgz; echo done"
+- helm: *reused_action
+- helm: "unterminated
+'''})
+        self.assertEqual(set(records), {'helm-config:config/local/workloads.yml'})
+        self.assertEqual(len(records['helm-config:config/local/workloads.yml']['notes']), 4)
+
+    def test_helm_repository_removal_and_partial_versions_stay_unresolved(self):
+        records = collect({'config/local/workloads.yml': '''- helm: repo add charts https://example.test
+- helm: install release charts/chart --version 1.2
+- helm: repo remove charts
+- helm: install release charts/absent
+'''})
+        self.assertEqual(records['helm:https://example.test#chart']['versionConstraint'], '1.2')
+        self.assertNotIn('version', records['helm:https://example.test#chart'])
+        self.assertNotIn('helm:https://example.test#absent', records)
+
+    def test_helm_folded_comment_does_not_create_a_version_from_trailing_text(self):
+        records = collect({'config/local/workloads.yml': '''- helm: repo add charts https://example.test
+- helm: >
+    install release charts/chart
+    # disabled argument
+    --version 9.9.9
+'''})
+        chart = records['helm:https://example.test#chart']
+        self.assertNotIn('version', chart)
+        self.assertNotIn('versionConstraint', chart)
+
     def test_determinism_and_source_exclusions(self):
         files = {'package.json': json.dumps({'name': 'app', 'dependencies': {'x': '1.2.3'}}),
                  'docs/sbom/repository.spdx.json': '{not parsed}', 'tools/sbom-policy.json': '{not parsed}'}

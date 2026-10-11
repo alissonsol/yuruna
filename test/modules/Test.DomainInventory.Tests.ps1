@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42fa3c81-6d07-4b29-95e8-1c04a7b6f2d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,19 @@ Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameCh
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $script:Tool = Join-Path $script:RepoRoot 'tools/Invoke-DomainInventory.ps1'
 $script:Path = Join-Path $script:RepoRoot 'globalization/manifests/domain-inventory.json'
+$script:ProjectRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
+
+# The record counts the sibling project together with the framework. Counted
+# without that checkout, the tree is smaller by the whole project, which reads
+# as drift and asks for a re-record that would write the absence into the
+# record. So the two tests that count the tree fail on the missing checkout
+# itself, and say so.
+function Confirm-ProjectCheckout {
+    [CmdletBinding()]
+    param()
+    Assert-True (Test-Path -LiteralPath $script:ProjectRoot -PathType Container) `
+        "the yuruna-project checkout has to sit beside this one; there is none at '$script:ProjectRoot'. Clone it there and run this suite again; do not re-record the inventory without it."
+}
 
 # The extractors, lifted out so they can be exercised on text the test writes.
 $script:Ast = [System.Management.Automation.Language.Parser]::ParseFile($script:Tool, [ref]$null, [ref]$null)
@@ -164,6 +177,7 @@ Describe 'the inventory measures the tree it ships with' {
         # nobody read what it said. What matters is that the recorded number is
         # still the right size to plan from -- a drift of hundreds means the
         # inventory is describing a tree that no longer exists.
+        Confirm-ProjectCheckout
         $out = & pwsh -NoProfile -File $script:Tool -Quiet 2>&1 | Out-String
         $m = [regex]::Match($out, '(\d+) candidate')
         Assert-True $m.Success 'a fresh run reported no candidate count at all'
@@ -179,6 +193,7 @@ Describe 'the inventory measures the tree it ships with' {
     }
 
     It 'is byte-current for a staged release gate' {
+        Confirm-ProjectCheckout
         $out = & pwsh -NoProfile -File $script:Tool -Check -Quiet 2>&1 | Out-String
         Assert-Equal -Expected 0 -Actual $LASTEXITCODE `
             -Because "the recorded inventory is not reproducible from this tree:`n$out"

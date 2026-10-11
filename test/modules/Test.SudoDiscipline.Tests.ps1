@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42737e44-4d56-4bc8-a429-c72432343f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,6 +91,7 @@ $ScopedFile = @(
     # Start-StatusService.ps1, so its sudo runs inside those same captured
     # children -- the module a scoped script calls is where the shape hides.
     'test/modules/Test.PortOwner.psm1'
+    'test/modules/Test.PrivateStateRepair.psm1'
     'install/setup.ps1'
 )
 
@@ -103,6 +104,14 @@ $script:SudoersInstaller = @('Set-PoolStorageSudoers')
 # File is repo-relative; Function is the enclosing function ('' for file scope);
 # Max is how many prompting sudo calls that body may contain.
 $script:KnownInteractiveSudo = @(
+    @{
+        File = 'test/modules/Test.PrivateStateRepair.psm1'; Function = 'Invoke-YurunaPrivateStateSudoValidation'; Max = 1
+        Reason = @'
+Private-state repair first tries bounded sudo -n. If authentication has expired,
+Test-YurunaCanPrompt requires a visible interactive terminal before sudo -v can
+ask for the password. The runner calls it before its noninteractive sg relaunch.
+'@
+    }
     @{
         File = 'test/modules/Test.HostCondition.Mac.psm1'; Function = 'Initialize-SudoCache'; Max = 1
         Reason = @'

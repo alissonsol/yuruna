@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,14 +122,14 @@ function Get-RemoteDiagnosticsCommand {
     param([string]$BootstrapUrl)
 
     if ([string]::IsNullOrWhiteSpace($BootstrapUrl)) {
-        return "pwsh -NoProfile -File $script:RemoteDiagScript"
+        return "pwsh -NoProfile -File $script:RemoteDiagScript -CheckoutRoot `"`$HOME/yuruna`""
     }
     $u      = $BootstrapUrl.TrimEnd('/')
     $remote = $script:RemoteDiagScript
     return ("if [ -f $remote ]; then " +
-            "pwsh -NoProfile -File $remote; " +
+            "pwsh -NoProfile -File $remote -CheckoutRoot `"`$HOME/yuruna`"; " +
             "elif curl -fsSL '$u/yuruna-repo/automation/Get-SystemDiagnostic.ps1' -o /tmp/yuruna-diag.ps1; then " +
-            "pwsh -NoProfile -File /tmp/yuruna-diag.ps1; rc=`$?; rm -f /tmp/yuruna-diag.ps1; exit `$rc; " +
+            "pwsh -NoProfile -File /tmp/yuruna-diag.ps1 -CheckoutRoot `"`$HOME/yuruna`"; rc=`$?; rm -f /tmp/yuruna-diag.ps1; exit `$rc; " +
             "else echo 'diag-bootstrap: yuruna not extracted and status service unreachable' >&2; exit 64; fi")
 }
 
@@ -268,9 +268,9 @@ function Invoke-RemoteDiagnosticsPasswordSsh {
     # Child-only environment avoids leaking the credential into later commands.
     # The native supervisor bounds stream draining and process cleanup as well
     # as execution; stopping a PowerShell job can itself wait indefinitely.
-    $nativeArgs = @('-e', 'ssh', '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null', '-o', 'GlobalKnownHostsFile=/dev/null',
-        '-o', 'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no',
+    $nativeArgs = @('-e', 'ssh') +
+        @(Test.Ssh\Get-YurunaSshHostKeyOption) +
+        @('-o', 'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no',
         '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=30', '-o', 'LogLevel=ERROR',
         $target, $command)
     $r = Invoke-BoundedNativeCommand -FilePath $SshpassPath -ArgumentList $nativeArgs `
@@ -443,7 +443,7 @@ function New-DiagnosticsConsoleCommand {
     return ("H=$ServerUrl;F=$FailureFolderName;N=$DiagnosticsFileName;" +
             'cd /tmp;' +
             'curl -fsSLo y.ps1 $H/yuruna-repo/automation/Get-SystemDiagnostic.ps1 && ' +
-            'pwsh -NoProfile -File y.ps1 > y.txt 2>&1;' +
+            'pwsh -NoProfile -File y.ps1 -CheckoutRoot "$HOME/yuruna" > y.txt 2>&1;' +
             "curl -sS -X POST --data-binary @y.txt -H 'Content-Type: text/plain' " +
             '$H/diagnostics/$F/$N;' +
             'rm -f y.ps1 y.txt')
@@ -1110,7 +1110,9 @@ function Invoke-GuestEvidenceSsh {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$GuestKey,
         [Parameter(Mandatory)][string]$Command,
-        [ValidateRange(1,60)][int]$TimeoutSeconds = 20
+        [ValidateRange(1,60)][int]$TimeoutSeconds = 20,
+        [ValidateRange(4096,4194304)][int]$MaxCapturedChars = 524288,
+        [switch]$ProvenAddressOnly
     )
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $sshModule = Get-Module Test.Ssh
@@ -1119,6 +1121,9 @@ function Invoke-GuestEvidenceSsh {
         return @{ success=$false; exitCode=-1; output='Evidence unavailable: no existing harness SSH key.' }
     }
     $address = Test.Ssh\Get-ProvenGuestAddress -VMName $VMName
+    if (-not $address -and $ProvenAddressOnly) {
+        return @{ success=$false; exitCode=-1; output='Evidence unavailable: no previously proven guest address.' }
+    }
     if (-not $address) {
         Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop
         $hostModule = (Get-Command Get-VMIp -ErrorAction SilentlyContinue).Module.Path
@@ -1148,7 +1153,279 @@ Write-Output ('YURUNA_EVIDENCE_ADDRESS=' + $address)
     $remaining = [int][math]::Floor($TimeoutSeconds - $clock.Elapsed.TotalSeconds - 1)
     if ($remaining -lt 1) { return @{ success=$false; exitCode=-1; output="Timed out after ${TimeoutSeconds}s (evidence preparation)" } }
     return Test.Ssh\Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $Command `
-        -ResolvedAddress $address -PrivateKeyPath $keyPath -TimeoutSeconds $remaining -AddressWaitSeconds 0 -PreservePartialOutputOnTimeout
+        -ResolvedAddress $address -PrivateKeyPath $keyPath -TimeoutSeconds $remaining -AddressWaitSeconds 0 -PreservePartialOutputOnTimeout -MaxCapturedChars $MaxCapturedChars
+}
+
+# --- REGION: ConvertFrom-GuestClockEvidence
+function ConvertFrom-GuestClockEvidence {
+    <#
+    .SYNOPSIS
+        Parses bounded raw clock samples without interpreting lifetime CPU percentages.
+    .OUTPUTS
+        [hashtable[]] One array, including an empty array when no samples match.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable[]])]
+    param([AllowEmptyString()][string]$Text)
+    $samples = [Collections.Generic.List[hashtable]]::new()
+    $blocks = [regex]::Split($Text, '(?m)^--- YURUNA CLOCK SAMPLE ---\r?$')
+    foreach ($block in $blocks) {
+        if ($block -notmatch '(?m)^guestEvidenceSchema=2\r?$') { continue }
+        $sample = @{ valid=$false; cpus=@{}; rawFields=@{}; problems=@() }
+        foreach ($match in [regex]::Matches($block, '(?m)^(guest[A-Za-z]+)=([^\r\n]*)\r?$')) {
+            if ($sample.rawFields.ContainsKey($match.Groups[1].Value)) { $sample.problems += 'duplicate-field'; continue }
+            $sample.rawFields[$match.Groups[1].Value] = $match.Groups[2].Value
+        }
+        $sample.bootId = [string]$sample.rawFields.guestBootId
+        foreach ($pair in @(@('guestClockUptimeSeconds','uptimeSeconds'), @('guestClockEpochSeconds','epochSeconds'), @('guestClockTicksPerSecond','ticksPerSecond'))) {
+            $value = 0.0
+            if ([double]::TryParse([string]$sample.rawFields[$pair[0]], [Globalization.NumberStyles]::Float,
+                [Globalization.CultureInfo]::InvariantCulture, [ref]$value) -and [double]::IsFinite($value) -and $value -ge 0) {
+                $sample[$pair[1]] = $value
+            } else { $sample.problems += "invalid-$($pair[0])" }
+        }
+        foreach ($pair in @(@('guestClockMonotonicSeconds','monotonicSeconds'), @('guestClockBoottimeSeconds','boottimeSeconds'))) {
+            $rawValue = [string]$sample.rawFields[$pair[0]]
+            if (-not $rawValue -or $rawValue -eq 'unavailable') { continue }
+            $value = 0.0
+            if ([double]::TryParse($rawValue, [Globalization.NumberStyles]::Float,
+                [Globalization.CultureInfo]::InvariantCulture, [ref]$value) -and [double]::IsFinite($value) -and $value -ge 0) {
+                $sample[$pair[1]] = $value
+            } else { $sample.problems += "invalid-$($pair[0])" }
+        }
+        if ($sample.bootId -notmatch '^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { $sample.problems += 'invalid-boot-id' }
+        if ($sample.ticksPerSecond -le 0) { $sample.problems += 'invalid-clock-tick-rate' }
+        # The raw /proc/stat block ends at its next heading. Ignore matching
+        # text from process command lines or other diagnostic sections.
+        $raw = [regex]::Match($block, '(?ms)^--- /proc/stat ---\r?\n(.*?)(?=^--- |^snapshotCompleteUtc=|\z)')
+        foreach ($line in ($raw.Groups[1].Value -split '\r?\n')) {
+            $match = [regex]::Match($line, '^(cpu[0-9]+)\s+([0-9]+(?:\s+[0-9]+){3,9})\s*$')
+            if (-not $match.Success) { continue }
+            if ($sample.cpus.Count -ge 4096 -or $sample.cpus.ContainsKey($match.Groups[1].Value)) { $sample.problems += 'invalid-cpu-list'; break }
+            $counters = [Collections.Generic.List[double]]::new()
+            foreach ($counter in ($match.Groups[2].Value -split '\s+')) {
+                $value = 0.0
+                if (-not [double]::TryParse($counter, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$value) -or
+                    -not [double]::IsFinite($value)) { $sample.problems += 'invalid-cpu-counter'; break }
+                $counters.Add($value)
+            }
+            $sample.cpus[$match.Groups[1].Value] = $counters.ToArray()
+        }
+        if ($sample.cpus.Count -eq 0) { $sample.problems += 'missing-per-cpu-stat' }
+        if ($raw.Groups[1].Value -notmatch '(?m)^procs_running\s+[0-9]+\s*$') { $sample.problems += 'truncated-proc-stat' }
+        $sample.onlineCpus = [string]$sample.rawFields.guestOnlineCpus
+        if ($sample.onlineCpus) {
+            $online = [Collections.Generic.HashSet[int]]::new()
+            if ($sample.onlineCpus -notmatch '^[0-9]+(?:-[0-9]+)?(?:,[0-9]+(?:-[0-9]+)?)*$') { $sample.problems += 'invalid-online-cpus' }
+            else {
+                foreach ($range in ($sample.onlineCpus -split ',')) {
+                    $ends = $range -split '-'; $first=0; $last=0
+                    if (-not [int]::TryParse($ends[0],[ref]$first) -or
+                        -not [int]::TryParse($ends[-1],[ref]$last) -or $first -lt 0 -or $last -lt $first -or $last -ge 4096) {
+                        $sample.problems += 'invalid-online-cpus'; break
+                    }
+                    for ($cpuIndex=$first; $cpuIndex -le $last; $cpuIndex++) { [void]$online.Add($cpuIndex) }
+                }
+                if ($online.Count -ne $sample.cpus.Count -or @($online | Where-Object { -not $sample.cpus.ContainsKey("cpu$_") }).Count) {
+                    $sample.problems += 'incomplete-cpu-inventory'
+                }
+            }
+        }
+        $sample.valid = $sample.problems.Count -eq 0
+        $samples.Add($sample)
+        if ($samples.Count -ge 4) { break }
+    }
+    $PSCmdlet.WriteObject($samples.ToArray(), $false)
+}
+
+# --- REGION: Get-GuestClockAccountingAnalysis
+function Get-GuestClockAccountingAnalysis {
+    <#
+    .SYNOPSIS
+        Emits advisory clock/accounting findings while respecting boot boundaries.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([hashtable[]]$Samples, [hashtable]$Previous, [hashtable]$HostClock)
+    $warnings = [Collections.Generic.List[hashtable]]::new()
+    $comparison = 'unavailable'
+    $prior = $null
+    if ($Previous -and $Previous.samples) { $prior = @($Previous.samples)[-1] }
+    foreach ($sample in @($Samples | Where-Object { $_ })) {
+        if (-not $sample.valid) {
+            $warnings.Add(@{code='clock-evidence-incomplete'; detail=@($sample.problems)})
+            $prior = $null
+            continue
+        }
+        if ($sample.ContainsKey('boottimeSeconds') -and [math]::Abs($sample.boottimeSeconds-$sample.uptimeSeconds) -gt 2) {
+            $warnings.Add(@{code='guest-boottime-uptime-mismatch'; boottimeSeconds=$sample.boottimeSeconds; uptimeSeconds=$sample.uptimeSeconds})
+        }
+        if ($sample.ContainsKey('monotonicSeconds') -and $sample.ContainsKey('boottimeSeconds') -and
+            $sample.monotonicSeconds -gt $sample.boottimeSeconds+2) {
+            $warnings.Add(@{code='guest-monotonic-exceeds-boottime'})
+        }
+        $slack = [math]::Max(5, $sample.uptimeSeconds * 0.01)
+        foreach ($cpu in $sample.cpus.Keys) {
+            $idleSeconds = $sample.cpus[$cpu][3] / $sample.ticksPerSecond
+            if ($idleSeconds -gt $sample.uptimeSeconds + $slack) {
+                $warnings.Add(@{code='cpu-idle-exceeds-boot-uptime'; cpu=$cpu; idleSeconds=$idleSeconds; uptimeSeconds=$sample.uptimeSeconds})
+            }
+        }
+        if ($prior -and $prior.valid) {
+            if ($prior.bootId -ne $sample.bootId) {
+                $comparison = 'reboot-boundary'
+            } else {
+                if ($comparison -ne 'reboot-boundary') { $comparison = 'same-boot' }
+                $elapsed = $sample.uptimeSeconds - $prior.uptimeSeconds
+                if ($elapsed -lt 0) { $warnings.Add(@{code='guest-uptime-decreased'; deltaSeconds=$elapsed}) }
+                $clockTolerance = [math]::Max(2,[math]::Abs($elapsed) * 0.05)
+                foreach ($pair in @(@('monotonicSeconds','guest-monotonic-clock'), @('boottimeSeconds','guest-boottime-clock'))) {
+                    if (-not $sample.ContainsKey($pair[0]) -or -not $prior.ContainsKey($pair[0])) { continue }
+                    $clockDelta = $sample[$pair[0]]-$prior[$pair[0]]
+                    if ($clockDelta -lt 0) { $warnings.Add(@{code="$($pair[1])-decreased"; deltaSeconds=$clockDelta}) }
+                    # Suspend advances BOOTTIME while MONOTONIC can stand still.
+                    # Only an excessive monotonic delta is impossible here.
+                    if ($elapsed -ge 0 -and (($pair[0] -eq 'boottimeSeconds' -and [math]::Abs($clockDelta-$elapsed) -gt $clockTolerance) -or
+                        ($pair[0] -eq 'monotonicSeconds' -and $clockDelta -gt $elapsed+$clockTolerance))) {
+                        $warnings.Add(@{code="$($pair[1])-delta-inconsistent"; deltaSeconds=$clockDelta; uptimeDeltaSeconds=$elapsed})
+                    }
+                }
+
+                if ($prior.ticksPerSecond -ne $sample.ticksPerSecond) {
+                    $warnings.Add(@{code='clock-tick-rate-changed'})
+                } else {
+                    foreach ($cpu in $sample.cpus.Keys) {
+                        if (-not $prior.cpus.ContainsKey($cpu)) { continue }
+                        $currentCounters = @($sample.cpus[$cpu]); $previousCounters = @($prior.cpus[$cpu])
+                        for ($index=0; $index -lt [math]::Min($currentCounters.Count,$previousCounters.Count); $index++) {
+                            # Linux documents iowait as non-monotonic. guest and
+                            # guest_nice overlap user/nice; never sum them twice.
+                            if ($index -eq 4) { continue }
+                            if ($currentCounters[$index] -lt $previousCounters[$index]) {
+                                $warnings.Add(@{code='cpu-counter-decreased'; cpu=$cpu; counterIndex=$index})
+                            }
+                        }
+                        $accountedDelta = 0.0
+                        for ($index=0; $index -lt [math]::Min(8,[math]::Min($currentCounters.Count,$previousCounters.Count)); $index++) {
+                            $accountedDelta += $currentCounters[$index]-$previousCounters[$index]
+                        }
+                        $accountedDelta /= $sample.ticksPerSecond
+                        if ($elapsed -ge 0 -and $accountedDelta -gt $elapsed+$clockTolerance) {
+                            $warnings.Add(@{code='cpu-accounted-delta-exceeds-elapsed'; cpu=$cpu; accountedDeltaSeconds=$accountedDelta; elapsedSeconds=$elapsed})
+                        }
+                        $idleDelta = ($currentCounters[3] - $previousCounters[3]) / $sample.ticksPerSecond
+                        if ($elapsed -ge 0 -and $idleDelta -gt $elapsed + [math]::Max(2,$elapsed * 0.05)) {
+                            $warnings.Add(@{code='cpu-idle-delta-exceeds-elapsed'; cpu=$cpu; idleDeltaSeconds=$idleDelta; elapsedSeconds=$elapsed})
+                        }
+                    }
+                }
+                $wallDelta = $sample.epochSeconds - $prior.epochSeconds
+                if ($elapsed -ge 0 -and [math]::Abs($wallDelta-$elapsed) -gt [math]::Max(5,$elapsed * 0.05)) {
+                    $warnings.Add(@{code='guest-wall-clock-discontinuity'; wallDeltaSeconds=$wallDelta; uptimeDeltaSeconds=$elapsed})
+                }
+            }
+        }
+        $prior = $sample
+    }
+    $valid = @($Samples | Where-Object { $_.valid })
+    if ($Previous -and $Previous.hostClock -and $HostClock -and $valid.Count -gt 0) {
+        $previousSample = @($Previous.samples | Where-Object { $_.valid }) | Select-Object -Last 1
+        if ($previousSample -and $previousSample.bootId -eq $valid[0].bootId -and
+            $Previous.hostClock.frequency -eq $HostClock.frequency -and $HostClock.frequency -gt 0) {
+            $hostElapsed = ($HostClock.beforeTicks - $Previous.hostClock.afterTicks) / $HostClock.frequency
+            $uncertainty = (($HostClock.afterTicks-$HostClock.beforeTicks) + ($Previous.hostClock.afterTicks-$Previous.hostClock.beforeTicks)) / $HostClock.frequency
+            $guestElapsed = $valid[0].uptimeSeconds-$previousSample.uptimeSeconds
+            if ($hostElapsed -ge 0 -and [math]::Abs($guestElapsed-$hostElapsed) -gt [math]::Max(5,$hostElapsed * 0.05)+$uncertainty) {
+                $warnings.Add(@{code='guest-host-monotonic-discontinuity'; hostElapsedSeconds=$hostElapsed; guestElapsedSeconds=$guestElapsed; bracketUncertaintySeconds=$uncertainty})
+            }
+        }
+    }
+    return @{ schema='yuruna.guest-clock-analysis/v1'; advisoryOnly=$true; comparison=$comparison; sampleCount=@($Samples | Where-Object { $_ }).Count
+        validSampleCount=$valid.Count; warnings=$warnings.ToArray() }
+}
+
+# --- REGION: Save-HyperVCpuRestartHostContext
+function Save-HyperVCpuRestartHostContext {
+    <#
+    .SYNOPSIS
+        Saves effective VM settings under a bounded, read-only Hyper-V query.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$OutputFolder,
+        [Parameter(Mandatory)][ValidateSet('before-cpu-restart','after-cpu-restart','offline-before-resize','offline-after-resize')][string]$Phase)
+    $context = @{ schema='yuruna.cpu-restart-host-context/v1'; phase=$Phase; vmName=$VMName; status='unavailable'
+        hostUtc=[DateTime]::UtcNow.ToString('o'); hostTicks=[Diagnostics.Stopwatch]::GetTimestamp(); frequency=[Diagnostics.Stopwatch]::Frequency }
+    try {
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop
+        $encodedName = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($VMName))
+        $query = @'
+$ErrorActionPreference='Stop'
+Import-Module Hyper-V -ErrorAction Stop
+$name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__VM__'))
+$vm=Hyper-V\Get-VM -Name $name -ErrorAction Stop
+$cpu=Hyper-V\Get-VMProcessor -VMName $name -ErrorAction Stop
+$memory=Hyper-V\Get-VMMemory -VMName $name -ErrorAction Stop
+[ordered]@{ vmId=[string]$vm.Id; state=[string]$vm.State; generation=$vm.Generation; version=$vm.Version; processorCount=$cpu.Count; memoryStartupBytes=$memory.Startup; dynamicMemoryEnabled=$memory.DynamicMemoryEnabled; hostArchitecture=[string][Runtime.InteropServices.RuntimeInformation]::OSArchitecture; hostOs=[Runtime.InteropServices.RuntimeInformation]::OSDescription; queryUtc=[DateTime]::UtcNow.ToString('o'); queryTicks=[Diagnostics.Stopwatch]::GetTimestamp() } | ConvertTo-Json -Compress
+'@
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($query.Replace('__VM__',$encodedName)))
+        $result = Invoke-YurunaHostBoundedCommand -FilePath (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) `
+            -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',$encoded) -TimeoutSeconds 3
+        $context.status = [string]$result.Status
+        if ($result.Status -eq 'complete' -and $result.ExitCode -eq 0 -and $result.Output.Length -le 16384) { $context.settings = $result.Output | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
+        else { $context.reason = 'bounded-hyperv-query-unavailable' }
+    } catch { $context.reason='host-context-capture-error'; Write-Verbose $_.Exception.Message }
+    $context.afterUtc=[DateTime]::UtcNow.ToString('o'); $context.afterTicks=[Diagnostics.Stopwatch]::GetTimestamp()
+    try {
+        [void][IO.Directory]::CreateDirectory($OutputFolder)
+        [IO.File]::WriteAllText((Join-Path $OutputFolder "guest.cpu-clock.$Phase.host.json"),($context | ConvertTo-Json -Depth 8))
+    } catch { Write-Verbose $_.Exception.Message }
+    return $context
+}
+
+# --- REGION: Save-GuestCpuRestartEvidence
+function Save-GuestCpuRestartEvidence {
+    <#
+    .SYNOPSIS
+        Captures two guest observations without discovery, recovery, or workload gating.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [Parameter(Mandatory)][ValidateSet('before-cpu-restart','after-cpu-restart')][string]$Phase,
+        [string]$StepInvocationId, [string]$SequenceInvocationId)
+    $capture = @{ schema='yuruna.cpu-restart-evidence/v1'; phase=$Phase; diagnosticOutcome='unavailable'; samples=@(); advisoryOnly=$true }
+    try {
+        $capture.hostContext=Save-HyperVCpuRestartHostContext -VMName $VMName -OutputFolder $OutputFolder -Phase $Phase
+        $source=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../automation/guest-performance-snapshot.sh') -Raw
+        $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($source))
+        $prefix='E_CLOCK_ONLY=1 '
+        foreach ($entry in @(@('E_SI',$StepInvocationId),@('E_QI',$SequenceInvocationId))) {
+            if ($entry[1] -match '^[A-Za-z0-9-]{1,64}$') { $prefix += "$($entry[0])=$($entry[1]) " }
+        }
+        $clock=@{beforeUtc=[DateTime]::UtcNow.ToString('o');beforeTicks=[Diagnostics.Stopwatch]::GetTimestamp();frequency=[Diagnostics.Stopwatch]::Frequency}
+        $result=Invoke-GuestEvidenceSsh -VMName $VMName -GuestKey $GuestKey -Command "printf '%s' '$encoded' | base64 -d | ${prefix}bash" `
+            -TimeoutSeconds 5 -MaxCapturedChars 262144 -ProvenAddressOnly
+        $clock.afterTicks=[Diagnostics.Stopwatch]::GetTimestamp(); $clock.afterUtc=[DateTime]::UtcNow.ToString('o')
+        $capture.hostClock=$clock
+        $safe=Protect-GuestEvidenceText -Text ([string]$result.output)
+        $capture.samples=ConvertFrom-GuestClockEvidence -Text $safe
+        $capture.stepInvocationId=$StepInvocationId; $capture.sequenceInvocationId=$SequenceInvocationId
+        $capture.diagnosticOutcome=if ($result.success -and $safe -match '(?m)^snapshotCompleteUtc=' -and @($capture.samples | Where-Object { $_.valid }).Count -ge 2) { 'complete' }
+            elseif ($capture.samples.Count -gt 0) { 'partial' } else { 'unavailable' }
+        $previous=$null
+        $beforePath=Join-Path $OutputFolder 'guest.cpu-clock.before-cpu-restart.json'
+        if ($Phase -eq 'after-cpu-restart' -and (Test-Path -LiteralPath $beforePath -PathType Leaf)) {
+            try { $previous=[IO.File]::ReadAllText($beforePath) | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { Write-Verbose $_.Exception.Message }
+        }
+        $capture.analysis=Get-GuestClockAccountingAnalysis -Samples $capture.samples -Previous $previous -HostClock $clock
+        [void][IO.Directory]::CreateDirectory($OutputFolder)
+        $capture.outPath=Join-Path $OutputFolder "guest.cpu-clock.$Phase.txt"
+        [IO.File]::WriteAllText($capture.outPath, "# Host clock bracket: $($clock | ConvertTo-Json -Compress)`n"+$safe)
+        [IO.File]::WriteAllText((Join-Path $OutputFolder "guest.cpu-clock.$Phase.json"),($capture | ConvertTo-Json -Depth 12))
+    } catch { $capture.reason='clock-evidence-capture-error'; Write-Verbose $_.Exception.Message }
+    return $capture
 }
 
 function Save-GuestPerformanceSnapshot {
@@ -1184,12 +1461,15 @@ function Save-GuestPerformanceSnapshot {
         [void][System.IO.Directory]::CreateDirectory($OutputFolder)
         $body = "# Guest performance snapshot; budgetSeconds=$TimeoutSeconds`n# Host clock bracket: $($hostClock | ConvertTo-Json -Compress)`n" + [string]$result.output
         $body = Protect-GuestEvidenceText -Text $body
+        $clockSamples = ConvertFrom-GuestClockEvidence -Text ([string]$result.output)
+        $clockAnalysis = Get-GuestClockAccountingAnalysis -Samples $clockSamples -HostClock $hostClock
+        $body += "`n# Clock accounting analysis: $($clockAnalysis | ConvertTo-Json -Compress -Depth 8)`n"
         [System.IO.File]::WriteAllText($path, $body)
         $outcome = if ($result.success -and $body -match '(?m)^snapshotCompleteUtc=') { 'complete' }
             elseif ($result.timedOut -or $result.drainTimedOut -or
                 (-not $result.ContainsKey('timedOut') -and $body -match '(?i)timed? out|timeout')) { 'timeout' }
             elseif ($body -match '(?m)^snapshotUtc=') { 'partial' } else { 'unavailable' }
-        return @{ diagnosticOutcome=$outcome; outPath=$path; reason=if ($outcome -eq 'complete') { $null } else { (Format-YurunaOperatorMessage -Key 'runner.operator_ce1e07b67cff6083') }; exitCode=[int]$result.exitCode; hostClock=$hostClock }
+        return @{ diagnosticOutcome=$outcome; outPath=$path; reason=if ($outcome -eq 'complete') { $null } else { (Format-YurunaOperatorMessage -Key 'runner.operator_ce1e07b67cff6083') }; exitCode=[int]$result.exitCode; hostClock=$hostClock; clockAnalysis=$clockAnalysis }
     } catch {
         Write-Verbose "Guest performance snapshot unavailable: $($_.Exception.Message)"
         return @{ diagnosticOutcome='unavailable'; outPath=$null; reason=$_.Exception.Message }
@@ -1212,6 +1492,12 @@ function Protect-GuestEvidenceText {
     foreach ($key in $Variables.Keys) {
         if ($key -match '(?i)password|passwd|secret|token|credential|private.?key') { $secrets += [string]$Variables[$key] }
     }
+    foreach ($secret in @($secrets | Where-Object { $_ } | Sort-Object { $_.Length } -Descending)) {
+        $Text = $Text.Replace($secret, '[REDACTED]')
+        foreach ($fragment in @($secret -split '\r?\n' | Where-Object { $_.Length -ge 4 })) {
+            $Text = $Text.Replace($fragment, '[REDACTED]')
+        }
+    }
     $Text = [regex]::Replace($Text, '(?s)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[REDACTED PRIVATE KEY]')
     $Text = [regex]::Replace($Text, '\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+)', '[REDACTED]')
     $lines = foreach ($line in ($Text -split '\r?\n')) {
@@ -1221,10 +1507,76 @@ function Protect-GuestEvidenceText {
     return $lines -join "`n"
 }
 
+function Get-GuestExecutionLogVerdict {
+    <#
+    .SYNOPSIS
+        Joins a complete execution-log header to one exact script invocation.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()]$ExecutionLog,
+        [string]$ScriptPath,
+        [string]$StepInvocationId,
+        [string]$SequenceInvocationId
+    )
+    $verdict = @{ state='unavailable'; reasonCode='execution-log-absent';
+        scriptPath=''; stepInvocationId=''; sequenceInvocationId='';
+        expectedScriptPath=$ScriptPath; expectedStepInvocationId=$StepInvocationId;
+        expectedSequenceInvocationId=$SequenceInvocationId }
+    $text = if ($ExecutionLog -is [System.Array]) {
+        (@($ExecutionLog) | ForEach-Object { [string]$_ }) -join "`n"
+    } else { [string]$ExecutionLog }
+    if ([string]::IsNullOrWhiteSpace($text)) { return $verdict }
+    if ($ScriptPath -notmatch '^[A-Za-z0-9_./-]+$' -or $ScriptPath.StartsWith('/') -or
+        $ScriptPath -match '(^|/)\.\.?(/|$)') {
+        $verdict.reasonCode='execution-script-unavailable'; return $verdict
+    }
+    # A script name alone cannot distinguish two executions of the same step.
+    # Older guests without invocation IDs remain inspectable, but unattributed.
+    if ($StepInvocationId -notmatch '^[A-Za-z0-9-]{1,64}$' -or
+        $SequenceInvocationId -notmatch '^[A-Za-z0-9-]{1,64}$') {
+        $verdict.reasonCode='execution-invocation-unavailable'; return $verdict
+    }
+    $rows = @($text -split "`r?`n")
+    if ($rows[0].TrimStart([char]0xFEFF) -cne '# Yuruna fetch-and-execute log') {
+        $verdict.reasonCode='execution-header-invalid'; return $verdict
+    }
+    $headerEnd = -1
+    for ($index = 1; $index -lt [Math]::Min($rows.Count, 64); $index++) {
+        if ($rows[$index] -ceq '# ---') { $headerEnd=$index; break }
+        if ($rows[$index] -notmatch '^#(?: |$)') { break }
+    }
+    if ($headerEnd -le 1) { $verdict.reasonCode='execution-header-incomplete'; return $verdict }
+    $header = $rows[1..($headerEnd - 1)] -join "`n"
+    foreach ($field in 'script','stepInvocationId','sequenceInvocationId') {
+        $fieldMatches = [regex]::Matches($header, "(?m)^# ${field}: *([^`r`n]*)`$")
+        if ($fieldMatches.Count -ne 1 -or [string]::IsNullOrWhiteSpace($fieldMatches[0].Groups[1].Value)) {
+            $verdict.reasonCode='execution-header-incomplete'; return $verdict
+        }
+        $value = $fieldMatches[0].Groups[1].Value
+        $key = if ($field -eq 'script') { 'scriptPath' } else { $field }
+        $valid = if ($field -eq 'script') {
+            $value -match '^[A-Za-z0-9_./-]+$' -and -not $value.StartsWith('/') -and
+                $value -notmatch '(^|/)\.\.?(/|$)'
+        } else { $value -match '^[A-Za-z0-9-]{1,64}$' }
+        if (-not $valid) { $verdict.reasonCode='execution-header-invalid'; return $verdict }
+        $verdict[$key]=$value
+    }
+    foreach ($entry in @(@('scriptPath',$ScriptPath,'script'), @('stepInvocationId',$StepInvocationId,'step'),
+        @('sequenceInvocationId',$SequenceInvocationId,'sequence'))) {
+        if ($verdict[$entry[0]] -cne $entry[1]) {
+            $verdict.state='stale'; $verdict.reasonCode="execution-$($entry[2])-mismatch"; return $verdict
+        }
+    }
+    $verdict.state='current'; $verdict.reasonCode='execution-log-current'
+    return $verdict
+}
+
 function Save-GuestExecutionProfile {
     <#
     .SYNOPSIS
-        Fetches the matching invocation log and bounded command trace before reuse.
+        Fetches matching traces and records complete, partial, or unavailable capture.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -1234,34 +1586,104 @@ function Save-GuestExecutionProfile {
         [Parameter(Mandatory)][string]$OutputFolder,
         [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9-]{1,64}$')][string]$StepInvocationId,
         [ValidateRange(1,60)][int]$TimeoutSeconds = 20,
-        [hashtable]$Variables = @{}
+        [hashtable]$Variables = @{},
+        [string]$ScriptPath,
+        [string]$SequenceInvocationId
     )
     $command = @'
 f=/tmp/yuruna-last-fetch-and-execute.log
-[ -r "$f" ] || exit 66
+[ -r "$f" ] || { printf 'profile execution log absent\n'; exit 66; }
 step=$(sed -n 's/^# stepInvocationId: *//p' "$f" | head -n 1)
 [ "$step" = '__STEP__' ] || { printf 'profile invocation mismatch: %s\n' "$step"; exit 65; }
 printf '%s\n' '--- YURUNA EXECUTION LOG ---'
 sequence=$(sed -n 's/^# sequenceInvocationId: *//p' "$f" | head -n 1)
 printf '# stepInvocationId: %s\n# sequenceInvocationId: %s\n# Log: last 100000 bytes\n' "$step" "$sequence"
-tail -c 100000 "$f"
+__IDENTITY_HEADER__
+# A bounded tail may begin inside a credential; discard that partial line.
+if [ "$(wc -c < "$f")" -gt 100000 ]; then tail -c 100000 "$f" | sed '1d'; else cat "$f"; fi
 p=$(sed -n 's/^# profile: *//p' "$f" | head -n 1)
-case "$p" in /tmp/yuruna-fae-profile.*) ;; *) exit 66 ;; esac
-[ -r "$p" ] || exit 66
-printf '\n%s\n' '--- YURUNA COMMAND PROFILE (last 400000 bytes) ---'
-wc -c < "$p"
-tail -c 400000 "$p"
+profile_rc=66
+case "$p" in /tmp/yuruna-fae-profile.*)
+    if [ -r "$p" ]; then
+        printf '\n%s\n' '--- YURUNA COMMAND PROFILE (last 400000 bytes) ---'
+        bytes=$(wc -c < "$p")
+        printf '%s\n' "$bytes"
+        if [ "$bytes" -gt 400000 ]; then tail -c 400000 "$p" | sed '1d'; else cat "$p"; fi
+        profile_rc=0
+    fi ;;
+esac
+r=$(sed -n 's/^# recorder: *//p' "$f" | head -n 1)
+case "$r" in /tmp/yuruna-fae-recorder.*)
+    suffix=${r#/tmp/yuruna-fae-recorder.}
+    case "$suffix" in ''|*[!A-Za-z0-9]*) ;; *)
+        if [ -r "$r/evidence.txt" ]; then
+            printf '\n%s\n' '--- YURUNA RECORDER EVIDENCE ---'
+            head -c 1100000 "$r/evidence.txt"
+            printf '\n%s\n' '--- YURUNA RECORDER STATUS ---'
+            head -c 2048 "$r/status" 2>/dev/null
+        fi ;;
+    esac ;;
+esac
+exit "$profile_rc"
 '@
-    $result = Invoke-GuestEvidenceSsh -VMName $VMName -GuestKey $GuestKey `
-        -Command $command.Replace('__STEP__',$StepInvocationId) -TimeoutSeconds $TimeoutSeconds
-    if (-not $result.output -or $result.output -notmatch '(?m)^--- YURUNA EXECUTION LOG ---') {
-        return @{ success=$false; outPath=$null; stepInvocationId=$StepInvocationId; reason=[string]$result.output }
+    $strictIdentity = $PSBoundParameters.ContainsKey('ScriptPath') -or $PSBoundParameters.ContainsKey('SequenceInvocationId')
+    # A body tail can omit the original header. Keep a bounded copy separate so
+    # large execution logs can still prove their identity before publication.
+    $identityProbe = if ($strictIdentity) {
+        "printf '%s\n' '--- YURUNA EXECUTION HEADER ---'`n" +
+        'head -n 64 "$f" | sed -n ''1,/^# ---$/p''' + "`n" +
+        "printf '\n%s\n' '--- YURUNA EXECUTION LOG BODY ---'"
+    } else { '' }
+    $command = $command.Replace('__IDENTITY_HEADER__', $identityProbe)
+    $capture = @{ success=$false; diagnosticOutcome='unavailable'; outPath=$null
+        stepInvocationId=$StepInvocationId; reasonCode='profile-unavailable'; reason=$null
+        exitCode=-1; sshResponsive=$false; timedOut=$false; outputTruncated=$false }
+    try {
+        $result = Invoke-GuestEvidenceSsh -VMName $VMName -GuestKey $GuestKey `
+            -Command $command.Replace('__STEP__',$StepInvocationId) -TimeoutSeconds $TimeoutSeconds -MaxCapturedChars 2097152
+        $capture.exitCode = [int]$result.exitCode
+        $capture.outputTruncated = [bool]$result.outputTruncated
+        $capture.timedOut = [bool]($result.timedOut -or $result.drainTimedOut -or
+            (-not $result.success -and $result.exitCode -eq -1 -and
+                ([string]$result.output -notmatch '(?m)^--- YURUNA EXECUTION LOG ---') -and
+                ([string]$result.output -match '(?im)^(?:Timed out after [0-9]+s|ssh: .+ timed out|.+: Connection timed out)')))
+        $capture.sshResponsive = [bool]($result.success -or $result.exitCode -in @(65,66) -or
+            ([string]$result.output -match '(?m)^--- YURUNA EXECUTION LOG ---'))
+        $capture.reasonCode = if ($capture.outputTruncated) { 'profile-output-truncated' }
+            elseif ($capture.timedOut) { 'profile-ssh-timeout' }
+            elseif ($result.exitCode -eq 65) { 'profile-invocation-mismatch' }
+            elseif ($result.exitCode -eq 66) { 'profile-file-absent' } else { 'profile-ssh-unavailable' }
+        $capture.reason = Protect-GuestEvidenceText -Text ([string]$result.output) -Variables $Variables
+        if ($strictIdentity) {
+            $headerMatch = [regex]::Match([string]$result.output,
+                '(?ms)^--- YURUNA EXECUTION HEADER ---\r?\n(?<header>.*?)^--- YURUNA EXECUTION LOG BODY ---(?:\r?\n|$)')
+            $identity = Get-GuestExecutionLogVerdict -ExecutionLog $headerMatch.Groups['header'].Value `
+                -ScriptPath $ScriptPath -StepInvocationId $StepInvocationId -SequenceInvocationId $SequenceInvocationId
+            $capture.executionLog = $identity
+            if ($identity.state -ne 'current') {
+                if (-not $capture.timedOut -and $result.exitCode -ne 65) {
+                    $capture.reasonCode="profile-$($identity.reasonCode)"
+                }
+                $capture.reason=$capture.reasonCode
+                return $capture
+            }
+        }
+        if ([string]$result.output -match '(?m)^--- YURUNA EXECUTION LOG ---') {
+            [void][System.IO.Directory]::CreateDirectory($OutputFolder)
+            $path = Join-Path $OutputFolder "fetch-and-execute.$StepInvocationId.profile.log"
+            [System.IO.File]::WriteAllText($path, $capture.reason)
+            $capture.outPath = $path
+            $capture.success = [bool]($result.success -and -not $capture.outputTruncated -and
+                ([string]$result.output -match '(?m)^--- YURUNA COMMAND PROFILE'))
+            $capture.diagnosticOutcome = if ($capture.success) { 'complete' } else { 'partial' }
+            if ($capture.success) { $capture.reasonCode='profile-complete'; $capture.reason=$null }
+            else { $capture.reason="Execution log retained; command profile capture ended with exit code $($capture.exitCode)." }
+        }
+    } catch {
+        $capture.reasonCode = 'profile-capture-error'
+        $capture.reason = Protect-GuestEvidenceText -Text $_.Exception.Message -Variables $Variables
     }
-    [void][System.IO.Directory]::CreateDirectory($OutputFolder)
-    $path = Join-Path $OutputFolder "fetch-and-execute.$StepInvocationId.profile.log"
-    $safeText = Protect-GuestEvidenceText -Text ([string]$result.output) -Variables $Variables
-    [System.IO.File]::WriteAllText($path,$safeText)
-    return @{ success=[bool]$result.success; outPath=$path; stepInvocationId=$StepInvocationId; exitCode=[int]$result.exitCode }
+    return $capture
 }
 
 function Save-GuestDiagnostic {
@@ -1948,7 +2370,11 @@ function Invoke-GuestDiagnosticCapture {
 Export-ModuleMember -Function `
     Save-GuestDiagnostic, `
     Save-GuestPerformanceSnapshot, `
+    Save-GuestCpuRestartEvidence, `
+    Save-HyperVCpuRestartHostContext, `
     Save-GuestExecutionProfile, `
+    Get-GuestExecutionLogVerdict, `
+    Protect-GuestEvidenceText, `
     Get-DiagnosticsFileName, `
     Resolve-StatusServiceEndpoint, `
     New-DiagnosticsConsoleCommand, `

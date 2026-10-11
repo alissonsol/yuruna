@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4250adff-0991-409e-81bf-56dfdf1149db
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,13 +55,8 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($hostFile, [ref]$null, [ref]$null)
 
 function Get-FunctionAst {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-        Justification = 'Name IS used -- inside the FindAll predicate scriptblock, which the analyzer does not follow.')]
     param([string]$Name)
-    return $ast.FindAll({
-        param($n)
-        $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
-    }, $true) | Select-Object -First 1
+    return Get-YurunaTestFunctionAst -Ast $ast -Name $Name
 }
 
 function Get-CallLine {
@@ -91,7 +86,11 @@ function Get-GuestNewVmScriptPath {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
         Justification = 'GuestName IS used -- in the Join-Path -AdditionalChildPath list below.')]
     param([string]$GuestName)
-    return (Join-Path $repoRoot 'host' -AdditionalChildPath 'windows.hyper-v', $GuestName, 'New-VM.ps1')
+    $path = Join-Path $repoRoot 'host' -AdditionalChildPath 'windows.hyper-v', $GuestName, 'New-VM.ps1'
+    if ((Get-Content -LiteralPath $path -Raw) -match 'modules/New-UbuntuServerVM.ps1') {
+        return (Join-Path $repoRoot 'host/windows.hyper-v/modules/New-UbuntuServerVM.ps1')
+    }
+    return $path
 }
 
 }

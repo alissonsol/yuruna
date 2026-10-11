@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42e861b5-08b7-414a-a164-c414c541a30d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     Get-PortHolderServiceInfo requires a Yuruna field combination.
 .DESCRIPTION
     Behavioral, with the OS-touching primitives mocked in module scope. Mock and the
-    throw-free Should assertions run under Pester 4.10.1.
+    throw-free Should assertions run under Pester 5.x.
 #>
 
 BeforeAll {

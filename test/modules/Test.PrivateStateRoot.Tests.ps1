@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42e081b9-58a9-4e13-8b33-aad4c1f05feb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -255,6 +255,105 @@ Describe 'Get-YurunaPrivateStateRoot -- links and parents' {
         Mock -ModuleName Yuruna.Common Get-YurunaCurrentOwnerId { $shared }.GetNewClosure()
         (Get-YurunaPrivateStateRoot -HomePath $homeDir).Reason | Should -Be 'parent-untrusted' -Because 'a group other users share can swap the directory'
         (Get-Mode $parent) | Should -Be ([IO.UnixFileMode]'UserRead, UserWrite, UserExecute, GroupRead, GroupWrite, GroupExecute, OtherRead, OtherExecute')
+    }
+
+    It 'accepts the account private group after sg changes the process group without changing directory permissions' -Skip:(-not $IsLinux) {
+        $homeDir = New-TempHome
+        $parent = Join-Path $homeDir '.yuruna'
+        $null = [IO.Directory]::CreateDirectory($parent)
+        $mode = [IO.UnixFileMode]'UserRead, UserWrite, UserExecute, GroupRead, GroupWrite, GroupExecute, OtherRead, OtherExecute'
+        [IO.File]::SetUnixFileMode($parent, $mode)
+        $groupId = [string](Get-Item -Force -LiteralPath $parent).UnixStat.GroupId
+        $userId = [string]$script:Me.OwnerId
+        $private = [pscustomobject]@{ Resolved = $true; OwnerId = $userId; UserName = 'someone'; IsRoot = $false; Elevated = $false
+            PrimaryGroupId = ([string]([long]$groupId + 1)); PrimaryGroupName = 'libvirt'; Reason = 'ok' }
+        Mock -ModuleName Yuruna.Common Get-YurunaCurrentOwnerId { $private }.GetNewClosure()
+        Mock -ModuleName Yuruna.Common Invoke-BoundedNativeCommand {
+            @{ ExitCode = 0; StdOut = "someone:x:${userId}:${groupId}::/home/someone:/bin/bash`n"; StdErr = ''; TimedOut = $false; Started = $true
+                DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; ElapsedMs = 1; DeadlineExhausted = $false; ProcessId = 1 }
+        } -ParameterFilter { $FilePath -eq 'getent' -and $ArgumentList[0] -eq 'passwd' }
+        Mock -ModuleName Yuruna.Common Invoke-BoundedNativeCommand {
+            @{ ExitCode = 0; StdOut = "someone:x:${groupId}:someone`n"; StdErr = ''; TimedOut = $false; Started = $true
+                DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; ElapsedMs = 1; DeadlineExhausted = $false; ProcessId = 1 }
+        } -ParameterFilter { $FilePath -eq 'getent' -and $ArgumentList[0] -eq 'group' }
+
+        $r = Get-YurunaPrivateStateRoot -HomePath $homeDir
+        $r.Resolved | Should -Be $true
+        $r.Reason | Should -Be 'ok'
+        (Get-Mode $parent) | Should -Be $mode
+        (Get-YurunaPrivateStateRoot -HomePath $homeDir -NoCreate).Resolved | Should -Be $true
+        Should -Invoke -ModuleName Yuruna.Common Invoke-BoundedNativeCommand -Times 2 -Exactly -ParameterFilter {
+            $FilePath -eq 'getent' -and $ArgumentList[0] -eq 'passwd' -and $ArgumentList[1] -eq $userId -and $TimeoutSeconds -eq 5
+        }
+    }
+
+    It 'refuses incomplete or mismatched account records after the effective primary group changes' {
+        $owner = [pscustomobject]@{ Resolved = $true; OwnerId = '1234'; UserName = 'someone'; IsRoot = $false; Elevated = $false
+            PrimaryGroupId = '999'; PrimaryGroupName = 'libvirt'; Reason = 'ok' }
+        $complete = @{ ExitCode = 0; StdOut = "someone:x:1234:4321::/home/someone:/bin/bash`n"; StdErr = ''; TimedOut = $false; Started = $true
+            DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; ElapsedMs = 1; DeadlineExhausted = $false; ProcessId = 1 }
+        Mock -ModuleName Yuruna.Common Invoke-BoundedNativeCommand { throw 'unverified account must not reach group lookup' } -ParameterFilter {
+            $FilePath -eq 'getent' -and $ArgumentList[0] -eq 'group'
+        }
+        $cases = @(
+            @{ StdOut = "someone:x:4321:4321::/home/someone:/bin/bash`n"; Why = 'the account uid differs' }
+            @{ StdOut = "someone:x:1234:999::/home/someone:/bin/bash`n"; Why = 'the account group differs' }
+            @{ StdOut = "mallory:x:1234:4321::/home/someone:/bin/bash`n"; Why = 'the account name differs' }
+            @{ StdOut = "someone:x:1234:4321`n"; Why = 'the record is incomplete' }
+            @{ StdOut = "someone:x:1234:4321::/home/someone:/bin/bash:extra`n"; Why = 'the record has an extra field' }
+            @{ StdOut = "someone:x:1234:4321::/home/someone:/bin/bash`nsomeone:x:1234:4321::/home/someone:/bin/bash`n"; Why = 'more than one record answered' }
+            @{ StdOut = ''; Why = 'no record answered' }
+            @{ ExitCode = 2; Why = 'lookup failed' }
+            @{ TimedOut = $true; Why = 'lookup timed out' }
+            @{ OutputTruncated = $true; Why = 'the result was truncated' }
+            @{ DrainTimedOut = $true; Why = 'the output did not finish draining' }
+            @{ Started = $false; Why = 'the process never started' }
+        )
+        foreach ($case in $cases) {
+            $answer = $complete.Clone()
+            foreach ($key in $case.Keys) { if ($key -ne 'Why') { $answer[$key] = $case[$key] } }
+            Mock -ModuleName Yuruna.Common Invoke-BoundedNativeCommand { $answer }.GetNewClosure() -ParameterFilter {
+                $FilePath -eq 'getent' -and $ArgumentList[0] -eq 'passwd'
+            }
+            $accepted = & (Get-Module Yuruna.Common) { param($o) Test-YurunaUserPrivateGroup -GroupId '4321' -CurrentOwner $o -Platform linux } $owner
+            $accepted | Should -Be $false -Because $case.Why
+        }
+        Should -Invoke -ModuleName Yuruna.Common Invoke-BoundedNativeCommand -Times 0 -Exactly -ParameterFilter {
+            $FilePath -eq 'getent' -and $ArgumentList[0] -eq 'group'
+        }
+    }
+
+    It 'still verifies the group name and every listed member after accepting the account primary group' {
+        $owner = [pscustomobject]@{ Resolved = $true; OwnerId = '1234'; UserName = 'someone'; IsRoot = $false; Elevated = $false
+            PrimaryGroupId = '999'; PrimaryGroupName = 'libvirt'; Reason = 'ok' }
+        $complete = @{ ExitCode = 0; StdOut = ''; StdErr = ''; TimedOut = $false; Started = $true
+            DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; ElapsedMs = 1; DeadlineExhausted = $false; ProcessId = 1 }
+        Mock -ModuleName Yuruna.Common Invoke-BoundedNativeCommand {
+            $answer = $complete.Clone()
+            $answer.StdOut = "someone:x:1234:4321::/home/someone:/bin/bash`n"
+            $answer
+        } -ParameterFilter { $FilePath -eq 'getent' -and $ArgumentList[0] -eq 'passwd' }
+        $cases = @(
+            @{ StdOut = "someone:x:4321:`n"; Expected = $true }
+            @{ StdOut = "someone:x:4321:someone`n"; Expected = $true }
+            @{ StdOut = "someone:x:4321:someone,mallory`n"; Expected = $false }
+            @{ StdOut = "libvirt:x:4321:someone`n"; Expected = $false }
+            @{ StdOut = "someone:x:999:someone`n"; Expected = $false }
+            @{ StdOut = "someone:x:4321:someone`n"; TimedOut = $true; Expected = $false }
+        )
+        foreach ($case in $cases) {
+            $answer = $complete.Clone()
+            $answer.StdOut = $case.StdOut
+            if ($case.ContainsKey('TimedOut')) { $answer.TimedOut = $case.TimedOut }
+            Mock -ModuleName Yuruna.Common Invoke-BoundedNativeCommand { $answer }.GetNewClosure() -ParameterFilter {
+                $FilePath -eq 'getent' -and $ArgumentList[0] -eq 'group'
+            }
+            $accepted = & (Get-Module Yuruna.Common) { param($o) Test-YurunaUserPrivateGroup -GroupId '4321' -CurrentOwner $o -Platform linux -TimeoutSeconds 2 } $owner
+            $accepted | Should -Be $case.Expected
+        }
+        Should -Invoke -ModuleName Yuruna.Common Invoke-BoundedNativeCommand -Times 6 -Exactly -ParameterFilter {
+            $FilePath -eq 'getent' -and $ArgumentList[0] -eq 'passwd' -and $ArgumentList[1] -eq '1234' -and $TimeoutSeconds -eq 2
+        }
     }
 
     It 'treats a group as private only on Linux, where a bounded group lookup is made' {

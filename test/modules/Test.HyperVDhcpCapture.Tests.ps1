@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4211664b-fb87-4dab-a225-c1006746d404
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,6 +122,54 @@ Describe 'hyper-v DHCP capture: collected with the failure, discarded with the g
         foreach ($name in 'Start-VMDhcpCapture', 'Save-VMDhcpCapture', 'Stop-VMDhcpCapture') {
             $script:DriverText | Should -Match "Export-ModuleMember[\s\S]*$name" -Because "an unexported $name reads as `"driver does not implement it`" and the capture silently never lands"
         }
+    }
+}
+
+Describe 'hyper-v DHCP capture: one line says whether the guest ever asked' {
+    BeforeAll {
+        $ast = [Management.Automation.Language.Parser]::ParseInput($script:DriverText, [ref]$null, [ref]$null)
+        $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-DhcpCaptureSummary' }, $true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        # pktmon etl2txt shape: a header naming the component, then the frame,
+        # once per component the packet crossed, in UTF-16 with a BOM.
+        function Get-PktmonLine {
+            param([string]$Time, [string]$Source, [string]$Destination, [int]$Component, [switch]$Drop)
+            $prefix = if ($Drop) { 'Drop: ' } else { '' }
+            "[00]0000.0000::2026-10-06 $Time [Microsoft-Windows-PktMon] ${prefix}PktGroupId 8855$Component, PktNumber 1, Appearance 0, Direction Rx , Type Ethernet , Component $Component, Edge 1, Filter 1, OriginalSize 335, LoggedSize 335"
+            "`t$prefix$Source > $Destination, ethertype IPv4 (0x0800), length 335: 0.0.0.0.68 > 255.255.255.255.67: UDP, length 293"
+        }
+        $lines = @(
+            Get-PktmonLine -Time '13:08:48.465603600' -Source '42-54-43-AE-01-19' -Destination 'FF-FF-FF-FF-FF-FF' -Component 8
+            Get-PktmonLine -Time '13:08:48.465614700' -Source '42-54-43-AE-01-19' -Destination 'FF-FF-FF-FF-FF-FF' -Component 31
+            Get-PktmonLine -Time '13:08:48.465657800' -Source '42-54-43-AE-01-19' -Destination 'FF-FF-FF-FF-FF-FF' -Component 597 -Drop
+            Get-PktmonLine -Time '13:08:52.100000000' -Source '42-54-43-AE-01-19' -Destination 'FF-FF-FF-FF-FF-FF' -Component 8
+            Get-PktmonLine -Time '13:08:52.300000000' -Source '00-15-5D-01-02-03' -Destination '42-54-43-AE-01-19' -Component 8
+            Get-PktmonLine -Time '13:09:10.000000000' -Source '38-05-25-3A-94-BA' -Destination 'FF-FF-FF-FF-FF-FF' -Component 8
+            Get-PktmonLine -Time '13:09:10.000010000' -Source '38-05-25-3A-94-BA' -Destination 'FF-FF-FF-FF-FF-FF' -Component 31
+        )
+        $script:PktmonPath = Join-Path $TestDrive 'dhcp.capture.txt'
+        [IO.File]::WriteAllLines($script:PktmonPath, [string[]]$lines, [Text.UnicodeEncoding]::new($false, $true))
+    }
+
+    It 'counts packets, not the lines pktmon writes for every component they cross' {
+        $summary = Get-DhcpCaptureSummary -Path $script:PktmonPath -GuestMac '42:54:43:AE:01:19'
+        $summary.sentByGuest | Should -Be 2 -Because 'one DISCOVER seen at three components, then a retransmit seconds later'
+        $summary.unicastToGuest | Should -Be 1
+        $summary.fromOtherClients | Should -Be 1
+        $summary.otherClients | Should -Be 1
+    }
+
+    It 'reads a guest that never transmitted as zero beside a live capture' {
+        $summary = Get-DhcpCaptureSummary -Path $script:PktmonPath -GuestMac '42-54-43-00-00-01'
+        $summary.sentByGuest | Should -Be 0
+        $summary.fromOtherClients | Should -BeGreaterThan 0 -Because 'zero from the guest means something only beside traffic that proves the capture was live'
+    }
+
+    It 'lands the summary beside the capture and prints it with the failure evidence' {
+        $fn = Get-PsFunctionText -Source $script:DriverText -Name 'Save-VMDhcpCapture'
+        $fn | Should -Match 'Get-DhcpCaptureSummary' -Because 'the five-megabyte text is the evidence; the one line is what a reader looks at first'
+        $fn | Should -Match 'dhcp\.capture\.summary\.json'
+        $script:RunnerText | Should -Match 'dhcp\.capture\.summary\.json' -Because 'the runner states the result in the cycle log'
     }
 }
 

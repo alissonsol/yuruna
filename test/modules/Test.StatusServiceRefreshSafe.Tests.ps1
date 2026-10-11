@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 424389c7-e56a-4c48-9b73-1d24e21c6aa1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,6 +185,9 @@ Describe 'the refresh-safe start in its own process' {
                 [IO.File]::WriteAllText((Join-Path $scratch.Runtime $name), "held:$name")
             }
             [IO.File]::WriteAllText((Join-Path $scratch.Runtime 'status.json'), '{"overallStatus":"running","cyclePaused":true}')
+            foreach ($name in @('server.err', 'server.err.old', 'server.stderr')) {
+                [IO.File]::WriteAllText((Join-Path $scratch.Runtime $name), "original-error:$name")
+            }
             return $scratch
         }
 
@@ -359,6 +362,9 @@ while (`$listener.IsListening) {
             Assert-StringEqual $before['server.pid'] $after['server.pid'] 'the pidfile is untouched'
             Assert-StringEqual $before['control.cycle-pause'] $after['control.cycle-pause']
             Assert-StringEqual $before['break-active.json'] $after['break-active.json'] 'the break sidecar a held runner needs survives'
+            foreach ($name in @('server.err', 'server.err.old', 'server.stderr')) {
+                Assert-StringEqual $before[$name] $after[$name] 'an existing-ready start leaves error evidence untouched'
+            }
         } finally {
             if ($standIn -and -not $standIn.HasExited) { try { $standIn.Kill() } catch { $null = $_ } }
             Remove-YurunaTestTempDir $scratch.Root
@@ -420,7 +426,8 @@ while (`$listener.IsListening) {
             }
             Assert-True (Test-Path -LiteralPath (Join-Path $scratch.Home '.yuruna/host-refresh')) 'startup admission belongs to the isolated child profile'
             foreach ($name in $before.Keys) {
-                Assert-StringEqual $before[$name] ([IO.File]::ReadAllText((Join-Path $scratch.Runtime $name))) "$name survives a real listener start"
+                $preserved = if ($run.Result.outcome -eq 'started' -and $name -in @('server.err', 'server.err.old', 'server.stderr')) { "$name.previous.1" } else { $name }
+                Assert-StringEqual $before[$name] ([IO.File]::ReadAllText((Join-Path $scratch.Runtime $preserved))) "$name survives a real listener start"
             }
         } finally {
             if ($listenerProcess) { $listenerProcess.Dispose(); $listenerProcess = $null }
@@ -463,6 +470,29 @@ while (`$listener.IsListening) {
             Assert-True ($watch.Elapsed.TotalSeconds -lt 15) "admission-busy exceeded its startup bound: $($watch.Elapsed.TotalSeconds)s"
             Assert-StringEqual 'admission-busy' $run.Result.outcome
             Assert-StringEqual 'held-elsewhere' $run.Result.reason
+        } finally {
+            if ($held) { Exit-YurunaSingleFlightLock -Lock $held }
+            Remove-YurunaTestTempDir $scratch.Root
+        }
+    }
+
+    It 'refuses a concurrent normal start without rotating existing error evidence' {
+        $scratch = New-RefreshSafeScratch
+        $held = $null
+        try {
+            $lockName = 'status-service.{0}.start.lock' -f (Get-StatusRuntimeKey -RuntimeDir $scratch.Runtime)
+            $lockPath = Get-YurunaPrivateStatePath -Name $lockName -HomePath $scratch.Home
+            Assert-True $lockPath.Resolved
+            $held = Enter-YurunaSingleFlightLock -Path $lockPath.Path
+            Assert-True $held.Held
+            $before = Get-RuntimeSnapshot -Scratch $scratch
+            $run = Invoke-RefreshSafeStart -Scratch $scratch -Argument @('-Port', [string](Get-FreePort))
+            Assert-True ($run.ExitCode -ne 0) 'a normal start must not proceed without serialization'
+            Assert-Match 'held-elsewhere' $run.Output
+            Assert-Match 'concurrent start\.' $run.Output
+            $after = Get-RuntimeSnapshot -Scratch $scratch
+            foreach ($name in $before.Keys) { Assert-StringEqual $before[$name] $after[$name] "$name remains untouched" }
+            Assert-Equal $before.Count $after.Count 'a rejected start creates no rotated evidence or listener'
         } finally {
             if ($held) { Exit-YurunaSingleFlightLock -Lock $held }
             Remove-YurunaTestTempDir $scratch.Root

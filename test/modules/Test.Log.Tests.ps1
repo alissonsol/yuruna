@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4246d32b-8525-4736-8ed7-b3883787ca97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,15 +37,8 @@ Import-Module $evtPath    -Force -DisableNameChecking -ErrorAction SilentlyConti
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-# The archive fixture lives at FILE scope, not inside its Describe: a Describe
-# body is executed during discovery and everything it declares is discarded
-# before any It runs, so a helper defined there is a CommandNotFoundException by
-# the time the It blocks call it.
-#
-# All $global:__Yuruna* access (the Yuruna.Log cross-module channels Stop-LogFile
-# consumes) is confined to these two suppressed helpers so the It blocks stay
-# clean; the production Copy-FailureArtifactsToStatusLog suppresses
-# PSAvoidGlobalVars for the same channels.
+# --- REGION: Fixture helpers
+# See https://yuruna.link/42e220c4-0014
 function New-ArchiveFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = 'Test must seed/save the Yuruna.Log cross-module globals Stop-LogFile reads.')]
@@ -402,5 +395,63 @@ Describe 'Format-CycleFolderBaseName (hostname-free cycle folder)' {
         $name = Format-CycleFolderBaseName -CycleNumber 1 -CycleStartUtc '2026-06-10T15:46:13Z' -HostId ''
         Assert-Equal -Expected '000001.2026-06-10.15-46-13.unknown-host' -Actual $name -Because 'empty hostId -> unknown-host placeholder'
         Assert-True ($name -match '^\d{6}\..+\..+\..+$') 'placeholder still satisfies the 4-segment pattern'
+    }
+}
+
+Describe 'Add-OcrHistoryFrame keeps the earliest frames of a guest' {
+    BeforeAll {
+        function Add-ScriptedFrame {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: writes fixture frames under the test drive.')]
+            param([string]$Directory, [Collections.Generic.Queue[string]]$Queue, [int]$Index, [int]$KeepEarliest)
+            $path = Join-Path $Directory ('raw_{0:d3}.png' -f $Index)
+            [IO.File]::WriteAllText($path, 'frame')
+            [IO.File]::WriteAllText([IO.Path]::ChangeExtension($path, '.txt'), 'ocr')
+            Add-OcrHistoryFrame -Queue $Queue -Path $path -Limit 2 -KeepEarliest $KeepEarliest
+        }
+        function Invoke-InCycleFolder {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+                Justification = 'Test must seed and restore the cycle-folder global Save-StepFailureEvidence reads.')]
+            param([string]$CycleFolder, [string]$LogDir, [scriptblock]$Action)
+            $saved = @{ Cycle = $global:__YurunaCycleFolder; LogDir = $env:YURUNA_LOG_DIR }
+            try {
+                $global:__YurunaCycleFolder = $CycleFolder
+                $env:YURUNA_LOG_DIR = $LogDir
+                $null = New-Item -ItemType Directory $LogDir -Force
+                & $Action
+            } finally {
+                $global:__YurunaCycleFolder = $saved.Cycle
+                $env:YURUNA_LOG_DIR = $saved.LogDir
+            }
+        }
+    }
+    It 'moves the first evicted frames aside with their OCR sidecars and deletes the rest' {
+        $ring = Join-Path $TestDrive 'ring-keep'
+        $null = New-Item -ItemType Directory $ring -Force
+        $queue = [Collections.Generic.Queue[string]]::new()
+        foreach ($index in 1..7) { Add-ScriptedFrame -Directory $ring -Queue $queue -Index $index -KeepEarliest 3 }
+        @(Get-ChildItem $ring -Filter 'raw_*.png' -File).Name | Should -Be @('raw_006.png', 'raw_007.png')
+        @(Get-ChildItem (Join-Path $ring 'earliest') -Filter 'raw_*.png' -File | Sort-Object Name).Name | Should -Be @('raw_001.png', 'raw_002.png', 'raw_003.png')
+        Test-Path (Join-Path $ring 'earliest/raw_001.txt') | Should -BeTrue
+        Test-Path (Join-Path $ring 'raw_004.png') | Should -BeFalse
+        Test-Path (Join-Path $ring 'raw_004.txt') | Should -BeFalse
+    }
+    It 'keeps nothing aside when asked to keep nothing' {
+        $ring = Join-Path $TestDrive 'ring-none'
+        $null = New-Item -ItemType Directory $ring -Force
+        $queue = [Collections.Generic.Queue[string]]::new()
+        foreach ($index in 1..4) { Add-ScriptedFrame -Directory $ring -Queue $queue -Index $index -KeepEarliest 0 }
+        Test-Path (Join-Path $ring 'earliest') | Should -BeFalse
+    }
+    It 'copies the earliest frames into the per-attempt failure evidence' {
+        $cycle = Join-Path $TestDrive 'cycle'
+        $earliest = Join-Path $cycle 'screens_vm-01/earliest'
+        $null = New-Item -ItemType Directory $earliest -Force
+        [IO.File]::WriteAllText((Join-Path $earliest 'raw_001.png'), 'frame')
+        $relative = Invoke-InCycleFolder -CycleFolder $cycle -LogDir (Join-Path $TestDrive 'log') -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step1-attempt1' -Confirm:$false
+        }
+        $relative | Should -Be 'vm-01/failed_step1-attempt1'
+        Test-Path (Join-Path $cycle 'vm-01/failed_step1-attempt1/earliest/raw_001.png') | Should -BeTrue
     }
 }

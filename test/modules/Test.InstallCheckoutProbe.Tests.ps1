@@ -125,15 +125,8 @@ function New-CheckoutFixture {
     return $dir
 }
 
-# Pinning a directory against rename is platform-specific. On Windows an open
-# handle taken with FileShare.None anywhere inside the tree does it -- exactly
-# what an editor or a shell sitting in the checkout holds. POSIX has no
-# mandatory locking: a directory renames fine with its files held open, and the
-# rename is refused only when the PARENT directory denies write, so that is what
-# blocks it there. Either way [System.IO.Directory]::Move raises an access
-# denial, which is the single condition the probe has to survive intact. The
-# returned handle exposes Dispose() on both platforms so callers release it the
-# same way.
+# See https://yuruna.link/42e220c4-0014
+# Both platform fixtures must block rename and restore access through Dispose().
 function Lock-CheckoutAgainstRename {
     [CmdletBinding()]
     # Two concrete types, one per platform: a real file handle on Windows, a

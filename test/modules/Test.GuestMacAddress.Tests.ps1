@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42b98737-f5a4-45fd-a853-c26c9d97ec84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -253,15 +253,8 @@ Describe 'Get-YurunaHostMacSeed -- what the host half is keyed on' {
 }
 
 Describe 'the guest is pinned at build time to the identity it keeps' {
-    # No guest keeps the name it was BUILT with: every one is built as the
-    # per-kind slot and promoted afterwards (test-guest.ubuntu.server.24-01 ->
-    # amisad-core-k8s -> amisad-core). Keying the address on the name the VM
-    # happens to carry therefore moves it twice mid-life, and a guest that
-    # recorded its own address while it held the first one never answers there
-    # again -- a kubeadm control plane writes it into certificates, etcd URLs
-    # and every kubeconfig, so nothing short of a rebuild recovers. Keying on
-    # the identity the guest keeps (its declared hostname) makes the promotion
-    # a pure metadata change.
+    # See https://yuruna.link/42e220c4-0004
+    # Key the NIC on the durable hostname so VM promotion preserves guest identity.
 
     It 'derives from the guest identity, not the slot the VM is built in' {
         foreach ($rel in $script:PromotableBuilders) {
@@ -393,9 +386,21 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         # Deriving from $VMName would re-pin the address the guest already has:
         # a no-op that reads like a fix.
         foreach ($m in @($KvmModule, $script:UtmModule, $script:HyperVModule)) {
-            $body = [regex]::Match((Get-Content -Raw -LiteralPath $m), '(?ms)^function Rename-VM\b.*?\n\}').Value
-            $line = @($body -split "`n" | Where-Object { $_ -match 'Set-GuestMacInDomainXml|Set-GuestMacInBundle|StaticMacAddress' })[0]
-            Assert-True ($line -match '\$NewName') "in $(Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $m))): '$line' must key on the destination name"
+            $ast = [Management.Automation.Language.Parser]::ParseFile($m, [ref]$null, [ref]$null)
+            $rename = $ast.Find({ param($node)
+                    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Rename-VM'
+                }, $true)
+            $commands = @($rename.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -match '(?:^|\\)(?:Set-GuestMacInDomainXml|Set-GuestMacInBundle|Set-VMNetworkAdapter)$'
+                }, $true))
+            Assert-Equal -Expected 1 -Actual $commands.Count -Because 'the rename writes one primary NIC address'
+            $line = $commands[0].Extent.Text
+            $destinationReferences = @($commands[0].FindAll({ param($node)
+                    $node -is [Management.Automation.Language.VariableExpressionAst] -and
+                    $node.VariablePath.UserPath -ceq 'NewName'
+                }, $true))
+            Assert-True ($destinationReferences.Count -gt 0) "in $(Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $m))): '$line' must key on the destination name"
         }
     }
     It 'reads the same first NIC the rewrite would replace' {

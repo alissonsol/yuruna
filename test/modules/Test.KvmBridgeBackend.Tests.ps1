@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42b1ac37-5615-4bfc-a3de-731b717694e9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@
     cross-platform. The module is imported at file scope (it persists into the run
     phase); the module handle is fetched INSIDE each It (a file-scope variable does
     not survive Pester 5's discovery/run split). Throw-based Assert-* helpers so
-    this runs under Pester 4.10.1 and 5+.
+    this runs under Pester 5.x.
 #>
 
 BeforeAll {

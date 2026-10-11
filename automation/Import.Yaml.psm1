@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a7694d-69b5-445b-b086-f13404589e45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,16 +18,24 @@
 
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 
+# Set once powershell-yaml has been found, so the module path is searched once
+# per loaded copy of this module instead of once per converted file. Only the
+# positive answer is kept: a missing module is looked for again on every call,
+# so installing it and retrying in the same session works.
+$script:PowerShellYamlAvailable = $false
 
 function ConvertFrom-Content {
     param (
         $Content
     )
 
-    # Throw a terminating error the caller can catch, rather than killing the whole host process
-    # with Exit -1 (which tears down the runner / any embedding script with no chance to recover).
-    if (-Not (Get-Module -ListAvailable -Name powershell-yaml)) {
-        throw (Format-YurunaOperatorMessage -Key 'automation.operator_4eeea39bff48dea5')
+    if (-not $script:PowerShellYamlAvailable) {
+        # Throw a terminating error the caller can catch, rather than killing the whole host process
+        # with Exit -1 (which tears down the runner / any embedding script with no chance to recover).
+        if (-Not (Get-Module -ListAvailable -Name powershell-yaml)) {
+            throw (Format-YurunaOperatorMessage -Key 'automation.operator_4eeea39bff48dea5')
+        }
+        $script:PowerShellYamlAvailable = $true
     }
 
     if ($Content -is [string[]]) { $Content = $Content -join "`n" }
@@ -40,33 +48,6 @@ function ConvertFrom-File {
     )
 
     return ConvertFrom-Content (Get-Content -Raw $FileName)
-}
-
-function Find-KeyValue {
-    <#
-    .SYNOPSIS
-    Return the value for $KeyName from a list of {key,value} items, or $null when
-    the key is absent -- so a legitimately empty ('') value stays distinguishable
-    from "not found".
-    #>
-    param (
-        [Parameter(Mandatory=$true, Position=0)]
-        $Items,
-        [Parameter(Mandatory=$true, Position=1)]
-        $KeyName
-    )
-
-    $keyValue = $null
-    foreach ($item in $Items) {
-        $key = $item.key
-        Write-Debug "$key"
-        if ($key -eq $KeyName) {
-            $keyValue = $item.value
-            break
-        }
-    }
-
-    return $keyValue
 }
 
 Export-ModuleMember -Function * -Alias *

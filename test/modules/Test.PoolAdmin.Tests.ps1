@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a44cb3-b163-4c40-bb54-44dd8119924a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,9 +36,7 @@ function New-TempDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test helper: throwaway temp dir the It block deletes in its finally.')]
     [CmdletBinding()] [OutputType([string])] param()
-    $d = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-pooladmin-' + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $d
-    return $d
+    return New-YurunaTestTempDir -Prefix 'yrn-pooladmin'
 }
 
 # Fixtures live at file scope, above the first Describe: a Describe body runs during

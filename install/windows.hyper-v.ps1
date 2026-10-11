@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -188,26 +188,8 @@ packages are installed or the Hyper-V feature is touched.
 }
 
 # --- REGION: Preflight: host architecture
-# The machine's architecture as 'AMD64' or 'ARM64' -- or, when no source
-# answers, a name to print instead of a blank.
-#
-# Three sources, machine truth first, because this preflight runs under
-# whatever shell the operator pasted the one-liner into: Windows PowerShell 5.1
-# on .NET Framework, before the relaunch into pwsh.
-#
-#   * The Session Manager environment block in HKLM holds the value Windows
-#     writes for the machine. It names the hardware on every edition and
-#     interpreter, and no emulation layer rewrites it.
-#   * RuntimeInformation::OSArchitecture is the managed answer, and what the
-#     pwsh 7 scripts under host/windows.hyper-v read. Its assembly is not
-#     always loaded under .NET Framework, and PowerShell answers a missing
-#     static member with $null and NO error -- at any ErrorActionPreference --
-#     so an unguarded read yields an empty architecture name that reaches the
-#     operator as "architecture '' detected" and reads as a broken machine
-#     rather than an absent API. Confirm the member exists before reading it.
-#   * PROCESSOR_ARCHITECTURE describes THIS PROCESS: an x64 shell emulated on
-#     an ARM64 host reports AMD64. PROCESSOR_ARCHITEW6432 carries the machine
-#     value whenever the process is the emulated one, so it is read first.
+# See https://yuruna.link/42e220c4-0015
+# Prefer native machine architecture when bootstrapping from PowerShell 5.1.
 function Get-HostArchitecture {
     [OutputType([string])]
     param()
@@ -1684,20 +1666,9 @@ $script:InstallSucceeded = $true
 }
 
 # --- REGION: Version floor check
-# The tools this installer manages, checked against the floors in
-# automation/Yuruna.Requirement.yml -- the same file the requirement report and
-# the diagnostic read, so a floor is written down once.
-#
-# Only what this script installs: reporting on a cloud CLI the bootstrapper
-# never touches would bury the one real problem in a dozen expected absences.
-# curl is deliberately absent for that reason -- on Windows the name resolves
-# to the in-box %WINDIR%\System32\curl.exe, which Windows Update services and
-# nothing here can advance, so a gap it reported would be one no re-run clears.
-#
-# Warn, never fail. Finishing SILENTLY below a floor is the failure mode this
-# closes, and on Windows it is the likelier one: the PowerShell self-upgrade is
-# deliberately skipped when it IS the running interpreter, so a below-floor
-# pwsh survives the run by design and this check is the only thing that says so.
+# See https://yuruna.link/429fb30b-0002
+# Check managed tools only; Windows Update owns the in-box curl.
+# Report shortfalls without upgrading the running PowerShell process.
 $requirementScript = Join-Path $YurunaDir 'automation/Test-Requirement.ps1'
 if (Test-Path -LiteralPath $requirementScript) {
     Write-Step 'Checking installed versions against the required floors'
@@ -1754,22 +1725,9 @@ if ($PSCommandPath -and (Split-Path -Leaf $PSCommandPath) -match '^yuruna-window
 }
 
 # --- REGION: Closing hold on the paths that open no handoff window
-# The elevated console is started without -NoExit, so it is destroyed the
-# instant this script returns. Only a clean finish survives that, and only
-# because it opens a SEPARATE -NoExit window; a failure and a pending Hyper-V
-# activation both end here having printed the operator's next action to a
-# window that is already gone. The whole message reaches the transcript either
-# way, but an operator who has to be told to find a log file has already been
-# told nothing. Hold the console open long enough to read it.
-#
-# Placed after the summary rather than inside the outcome banner, because that
-# banner runs in the finally: the floor check and the summary both print below
-# it, so a hold up there would still let the last words scroll away.
-#
-# Timed, not a prompt. This file's only interactive question is the hardware
-# gate in Test-SystemRequirement, and an operator who walked away from a run
-# they expected to be unattended must not come back to a console still waiting
-# on a keypress.
+# See https://yuruna.link/429fb30b-0020
+# Failure and reboot outcomes have no handoff window; hold after the complete summary.
+# The 60-second delay is bounded and never asks for input.
 if ($script:RestartNeeded -or -not $script:InstallSucceeded) {
     Write-Output ''
     Write-Output '========'

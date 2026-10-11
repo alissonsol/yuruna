@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42367dc8-87ed-6a22-76cb-f406abe4051a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3878,13 +3878,13 @@
         }
     )
     'host.operator_69569daab01168ea' = @(
-        'Remove-UtmTestVM：未在超时时限内确认'''
+        'Remove-UtmTestVM: '''
         @{
             'arg' = 'vMName'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''已关机；继续删除，但包可能仍被锁定。'
+        ''' 未能在超时前确认已关机；保留其注册信息和虚拟机包。'
     )
     'host.operator_6959d402ef57f18d' = @(
         '  语言：'
@@ -8609,7 +8609,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '是否已注册（utmctl status未完成）。'
+        '是否已注册（utmctl status未返回可识别的答复）。'
     )
     'host.orphan_sweep_utmctl_unanswered' = @(
         'utmctl '
@@ -8870,6 +8870,21 @@
     )
     'host.utm_app_restart_action' = '退出并重新启动UTM'
     'host.utm_app_signal_action' = '重新验证进程身份后发送TERM，若进程仍存在则发送KILL'
+    'host.utm_cache_state_unconfirmed' = @(
+        '无法确认 caching-proxy-service 虚拟机的状态（'
+        @{
+            'arg' = 'state'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '；'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）。请恢复 UTM 访问权限，或传入 -CachingProxyServiceUrl "" 以直接下载。'
+    )
     'host.utm_detached_launch_action' = @(
         '启动'
         @{
@@ -9093,5 +9108,20 @@
             'trust' = 'internal'
         }
         's内返回，已被停止；在重新读取虚拟机状态前，其实际效果未知。'
+    )
+    'host.windows_installer_boot_key_timeout' = @(
+        "虚拟机`“"
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”在 "
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 秒内未接受 Windows 安装程序启动按键。'
     )
 }

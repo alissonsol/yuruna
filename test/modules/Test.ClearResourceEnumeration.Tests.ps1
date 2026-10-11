@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 420935c1-4b35-484c-b68d-3295385f8efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@
     ConvertTo-Yaml calls Yuruna.Resource.psm1 uses, so a change to the writer's
     shape breaks these tests rather than silently re-opening the no-op.
     No work folders are created, so no `tofu` invocation is reached and the test
-    needs no provider on PATH. Runs under Pester 4.10.1.
+    needs no provider on PATH. Runs under Pester 5.x.
 #>
 
 BeforeAll {
@@ -90,6 +90,16 @@ function Get-ClearMessage {
     return @($records | ForEach-Object { [string]$_ })
 }
 
+# Clear-Configuration words its "nothing to destroy" report through the operator
+# catalog, so the sentence follows the host's language. Rendering the same key
+# here keeps the assertions true on a host that is not reading English.
+function Get-NothingToDestroyMessage {
+    param([string]$ProjectRoot)
+
+    $resourcesFile = Join-Path -Path $ProjectRoot -ChildPath 'config/localhost/resources.output.yml'
+    return (Format-YurunaOperatorMessage -Key 'automation.operator_e39c3c3dc7a39a89' -Arguments @{ resourcesFile = "$resourcesFile" })
+}
+
 }
 
 Describe 'clear-resource-enumeration' {
@@ -103,7 +113,7 @@ Describe 'clear-resource-enumeration' {
                 Assert-True ($joined -match [regex]::Escape($name)) `
                     "teardown must name deployed resource '$name'; it only reported: $joined"
             }
-            Assert-True ($joined -notmatch 'No deployed resources') `
+            Assert-False ($joined.Contains((Get-NothingToDestroyMessage -ProjectRoot $projectRoot))) `
                 "teardown found no resources in a file that declares two: $joined"
         }
         finally {
@@ -115,7 +125,7 @@ Describe 'clear-resource-enumeration' {
         $projectRoot = New-ResourceOutputFixture -ResourceName @()
         try {
             $joined = (Get-ClearMessage -ProjectRoot $projectRoot) -join "`n"
-            Assert-True ($joined -match 'No deployed resources') `
+            Assert-True ($joined.Contains((Get-NothingToDestroyMessage -ProjectRoot $projectRoot))) `
                 "a resources.output.yml holding only globalVariables has nothing to destroy: $joined"
         }
         finally {

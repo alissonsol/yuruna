@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,13 +71,8 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:DefaultChecksumPattern = '^([0-9a-fA-F]{64})\s+\*?{0}\s*$'
 
-# Pinned PRIMARY-key fingerprints that sign Ubuntu's published SHA256SUMS:
-# the CD Image key signs the ISO mirrors (releases.ubuntu.com / cdimage),
-# the UEC Image key signs the cloud images; cloud-images.ubuntu.com is
-# dual-signed by both. These are the trust anchor for the best-effort GPG
-# authentication in Test-PublishedChecksumSignature. Refresh on an Ubuntu
-# signing-key rotation: verify a fresh SHA256SUMS.gpg with `gpg --verify` and
-# update the fingerprints here (same discipline as the usbmmidd SHA-256 pin).
+# Pin Ubuntu primary signing keys; verify rotations before changing trust.
+# See https://yuruna.link/42e220c4-0003
 $script:UbuntuImageSignerFingerprint = @(
     '843938DF228D22F7B3742BC0D94AA3F0EFE21092'  # Ubuntu CD Image Automatic Signing Key (2012)
     'D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81'  # UEC Image Automatic Signing Key

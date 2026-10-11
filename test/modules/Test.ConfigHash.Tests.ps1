@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42bc0769-be96-4f3c-b97b-00bf8860751f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,7 +31,7 @@
     and both its hash sites delegate the right bytes; and Test.Perf / Test.OcrEngine
     import Test.Hash and call the shared converter. AST/source-only -- no module
     import, no filesystem. The throw-based Assert-True helper is script-scoped so this
-    runs under Pester 4.10.1.
+    runs under Pester 5.x.
 #>
 
 BeforeAll {
@@ -49,24 +49,14 @@ function Get-ModuleAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.ScriptBlockAst])]
     param([Parameter(Mandatory)][string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { throw "Module not found: $Path" }
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 
 function Get-FunctionAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.FunctionDefinitionAst])]
     param([Parameter(Mandatory)]$RootAst, [Parameter(Mandatory)][string]$FunctionName)
-    # Bind to a local so the parameter is referenced in the function body itself
-    # (the closure below captures it, but PSReviewUnusedParameter cannot see a
-    # use that only occurs inside a scriptblock handed to another command).
-    $wanted = $FunctionName
-    return ($RootAst.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $wanted
-    }, $true) | Select-Object -First 1)
+    return Get-YurunaTestFunctionAst -Ast $RootAst -Name $FunctionName
 }
 
 # True iff the AST subtree invokes a command named $CommandName.
@@ -74,11 +64,7 @@ function Test-AstCallsCommand {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
-    Write-Verbose "Searching for a call to '$CommandName'"
-    $hits = $Ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $CommandName
-    }, $true)
-    return (@($hits).Count -gt 0)
+    return ((Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $CommandName) -gt 0)
 }
 
 # Count of static [System.BitConverter]::ToString(...) invocations (not the ubiquitous

@@ -31,6 +31,9 @@
     # --- REGION: https://yuruna.link/429f3d06-0025
     # Quiet the installer kernel; installed-system GRUB settings apply only after reboot.
     - dmesg -n 1 2>/dev/null || true
+    # --- REGION: https://yuruna.link/429f3d06-009c
+    # The live system's 15-minute tmpfiles-clean timer otherwise races curtin's /target/run unmount.
+    - systemctl stop systemd-tmpfiles-clean.timer 2>/dev/null || true
 # === YURUNA_OVERLAY_LATE_HOST_AGENT ===
     # --- REGION: Install qemu guest agent
     # See https://yuruna.link/429f3d06-0031

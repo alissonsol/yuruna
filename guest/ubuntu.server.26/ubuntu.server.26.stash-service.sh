@@ -1,12 +1,12 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- REGION: https://yuruna.link/42e220c4-0005
+# See https://yuruna.link/42e220c4-0005
 # See https://yuruna.link/42f5e921
+# --- REGION: Initialize environment
 set -euo pipefail
 
-# --- REGION: Initialize environment
 # Export HOME for Go module-cache discovery under cloud-init.
 export HOME="${HOME:-/root}"
 
@@ -43,6 +43,7 @@ else
   SERVICE_USER="${SERVICE_USER:-$(id -un)}"
 fi
 echo "Service user: $SERVICE_USER"
+# --- REGION: Load service helpers
 # Load from the framework checkout even when this entry script was fetched to /tmp.
 SERVICE_LIB=''
 for candidate in "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" /home/*/yuruna; do
@@ -53,7 +54,6 @@ done
 [ -n "$SERVICE_LIB" ] || { echo "Missing framework automation/yuruna-service-bringup.sh" >&2; exit 1; }
 # shellcheck source=../../automation/yuruna-service-bringup.sh
 . "$SERVICE_LIB"
-
 
 # --- REGION: Service tunables
 # See https://yuruna.link/42fffc2c-000d

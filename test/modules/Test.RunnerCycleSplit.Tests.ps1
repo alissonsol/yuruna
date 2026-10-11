@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -265,7 +265,7 @@ if ($Capture) { $result = Invoke-Cycle; $null = $result } else { Invoke-Cycle }
 
 Describe 'The cycle result travels out of band' {
     # Self-contained Its (paths re-derived here, no Describe-scope fixture) so they
-    # hold under Pester 4 and 5 -- same reason as the spaced-path test below.
+    # share no mutable fixtures with the spaced-path test below.
     It 'never assigns or pipes Invoke-RunnerOuterCycle in the cycle runner' {
         # Guards the fix for the wedge above from the source: the call has to sit
         # bare in a statement block. An assignment, a pipe, a return, or a
@@ -334,7 +334,7 @@ Describe 'Cycle dispatch' {
         # CreateProcess and the child pwsh reports "The argument 'C:\Users\Yuruna' is
         # not recognized as the name of a script file" and exits 64 -- which the outer
         # reads as a failed cycle, so a host whose path has a space never runs one.
-        # Self-contained (no Describe-scope fixture) so it holds under Pester 4 and 5.
+        # Self-contained fixtures do not depend on Describe discovery scope.
         $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna cycle ' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
         $spacedScript = Join-Path $dir 'Invoke-TestCycleRunner.ps1'

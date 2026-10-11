@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42d6d3a9-02a1-4fb8-87ed-a2137333c910
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,8 +36,21 @@ function Get-YurunaHostCounterSpecification {
     #>
     [CmdletBinding()]
     param()
+    # The per-cause rates after the scheduling counters split Total
+    # Intercepts/sec by source, so a virtual processor trapping millions of
+    # times a second names what it is trapping on: a timer or interrupt-
+    # controller register loop, an interrupt storm, hypercalls, device
+    # memory, or (ARM64) a secure-monitor call. SysReg and SMC are the
+    # ARM64 traps, MSR/IO the x64 ones; capability resolution drops
+    # whichever this host does not publish. This list is deliberately not
+    # exhaustive -- Hyper-V Hypervisor Virtual Processor carries dozens of
+    # narrower sub-counters -- so the livelock verdict also reports what
+    # these named causes leave unaccounted for, rather than reading a gap
+    # in this list as zero cause.
     $groups = [ordered]@{
-        'Hyper-V Hypervisor Virtual Processor' = @('% Guest Run Time','% Hypervisor Run Time','% Total Run Time','Total Intercepts/sec','Other Intercepts/sec','Total Intercepts Cost','CPU Wait Time Per Dispatch','Logical Processor Dispatches/sec','CPU Wake Up Time Per Dispatch','CPU Contention Time Per Dispatch')
+        'Hyper-V Hypervisor Virtual Processor' = @('% Guest Run Time','% Hypervisor Run Time','% Total Run Time','Total Intercepts/sec','Other Intercepts/sec','Total Intercepts Cost','CPU Wait Time Per Dispatch','Logical Processor Dispatches/sec','CPU Wake Up Time Per Dispatch','CPU Contention Time Per Dispatch',
+            'Hypercalls/sec','SysReg Accesses/sec','MSR Accesses/sec','IO Instructions/sec','Virtual Interrupts/sec','Synthetic Interrupts/sec','Hardware Interrupts/sec','Pending Interrupts/sec','Memory Intercept Messages/sec','Nested Page Fault Intercepts/sec',
+            'SMC Instructions/sec','CPPC Request Context Switches/sec','External Interrupts/sec','Posted Interrupt Scans/sec','Posted Interrupt Notifications/sec','Extended Hypercall Intercept Messages/sec','Reflected Guest Page Faults/sec','Other Reflected Guest Exceptions/sec','Global I/O TLB Flushes/sec','Local I/O TLB Flushes/sec')
         'Hyper-V Hypervisor Root Virtual Processor' = @('% Guest Run Time','% Hypervisor Run Time','% Total Run Time','Total Intercepts/sec','CPU Wait Time Per Dispatch')
         'Hyper-V Hypervisor Logical Processor' = @('% Total Run Time','% Hypervisor Run Time','Context Switches/sec','Scheduler Local Run List Size')
         'Processor Information' = @('% Processor Performance','Processor Frequency','% DPC Time','% Interrupt Time')
@@ -58,7 +71,22 @@ function Resolve-YurunaHostCounterCapability {
     #>
     [CmdletBinding()]
     param([object[]]$CounterSets, [hashtable]$NameMap = @{}, [Nullable[int]]$RunningVmCount)
-    foreach ($spec in Get-YurunaHostCounterSpecification) {
+    $specification = @(Get-YurunaHostCounterSpecification)
+    $vpObject = 'Hyper-V Hypervisor Virtual Processor'
+    $localVpObject = if ($NameMap.ContainsKey($vpObject)) { $NameMap[$vpObject] } else { $vpObject }
+    $vpSet = @($CounterSets | Where-Object CounterSetName -EQ $localVpObject | Select-Object -First 1)
+    $known = @($specification | Where-Object Object -EQ $vpObject | ForEach-Object Counter)
+    $englishByLocal = @{}
+    foreach ($name in $NameMap.Keys) { $englishByLocal[[string]$NameMap[$name]] = [string]$name }
+    # Keep a bounded inventory-backed diagnostic tail. These narrower rates
+    # may overlap the named counters; they are observations, not additive causes.
+    $extra = @($vpSet | ForEach-Object Paths | ForEach-Object {
+        $localName = $_.Substring($_.LastIndexOf('\') + 1)
+        $name = if ($englishByLocal.ContainsKey($localName)) { $englishByLocal[$localName] } else { $localName }
+        if ($name -match '(?i)(intercept|access|instruction|fault|flush).*\/sec$' -and $name -notin $known) { $name }
+    } | Sort-Object -Unique | Select-Object -First 12)
+    foreach ($name in $extra) { $specification += [pscustomobject]@{ Object=$vpObject; Counter=$name; Guest=$true } }
+    foreach ($spec in $specification) {
         $objectName = if ($NameMap.ContainsKey($spec.Object)) { $NameMap[$spec.Object] } else { $spec.Object }
         $counterName = if ($NameMap.ContainsKey($spec.Counter)) { $NameMap[$spec.Counter] } else { $spec.Counter }
         $set = @($CounterSets | Where-Object CounterSetName -EQ $objectName | Select-Object -First 1)
@@ -85,7 +113,9 @@ function Get-YurunaHostCounterInventory {
         $localization = 'resolved'
     } catch { Write-Verbose $_.Exception.Message }
     try {
-        $sets = @(Get-Counter -ListSet * -ErrorAction Stop | Select-Object CounterSetName, Paths, PathsWithInstances, Description)
+        # Instance paths are not read by capability resolution, and each sample
+        # already names the instances it measured, so they are left out here.
+        $sets = @(Get-Counter -ListSet * -ErrorAction Stop | Select-Object CounterSetName, Paths, Description)
         [pscustomobject]@{ Status = 'present'; Reason = ''; Localization = $localization; NameMap = $map; CounterSets = $sets }
     } catch {
         [pscustomobject]@{ Status = 'absent'; Reason = $_.Exception.Message; Localization = $localization; NameMap = $map; CounterSets = @() }
@@ -227,34 +257,57 @@ function Invoke-YurunaHostSampling {
     $metadata = Get-YurunaHostSampleInfo
     $metadata | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $Directory 'metadata.json') -Encoding utf8
     $inventory = Get-YurunaHostCounterInventory
-    $inventory | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $Directory 'counter-inventory.json') -Encoding utf8
+    $inventory | ConvertTo-Json -Depth 8 -Compress | Set-Content -LiteralPath (Join-Path $Directory 'counter-inventory.json') -Encoding utf8
     Import-Module (Join-Path $PSScriptRoot 'Test.HostMetricsExporter.psm1') -Global -Force -ErrorAction Stop
     $timer = [Diagnostics.Stopwatch]::StartNew()
-    while ($timer.Elapsed.TotalSeconds -lt $DurationSeconds -and -not (Test-Path (Join-Path $Directory 'stop'))) {
-        if ($OwnerProcessId -gt 0 -and -not (Get-Process -Id $OwnerProcessId -ErrorAction SilentlyContinue)) { break }
-        $start = $timer.Elapsed.TotalSeconds
-        $vm = Get-YurunaHostVmSnapshot
-        $capabilities = @(Resolve-YurunaHostCounterCapability -CounterSets $inventory.CounterSets -NameMap $inventory.NameMap -RunningVmCount $vm.RunningCount)
-        $paths = @($capabilities | Where-Object Status -EQ 'present' | ForEach-Object Paths | Select-Object -Unique)
-        $record = [ordered]@{ Kind='sample'; Utc=[datetime]::UtcNow.ToString('o'); MonotonicTicks=[Diagnostics.Stopwatch]::GetTimestamp(); MonotonicFrequency=[Diagnostics.Stopwatch]::Frequency; ClockDomain='host-qpc'; Power=(Get-YurunaHostPowerStatus); Vm=$vm; Capabilities=$capabilities; Counters=@(); CounterStatus='absent'; CounterReason='No applicable counters.' }
-        if ($paths.Count) {
-            $errors = @()
-            $read = @(Get-Counter -Counter $paths -SampleInterval 1 -MaxSamples 2 -ErrorAction SilentlyContinue -ErrorVariable errors)
-            $record.Counters = @(ConvertTo-YurunaHostCounterSample -CounterSamples @($read | Select-Object -Last 1 | ForEach-Object CounterSamples))
-            $record.CounterStatus = if (@($record.Counters | Where-Object Status -EQ 'present').Count) { 'present' } else { 'absent' }
-            $record.CounterReason = ($errors | ForEach-Object { $_.Exception.Message }) -join '; '
-        }
-        $payload = Invoke-YurunaHostMetricsProbe -Port 9182 -TimeoutSec 3
-        $record.Exporter = Get-YurunaHostMetricsCapability -Payload $payload -RunningVmCount $vm.RunningCount
-        $record.CollectionSeconds = $timer.Elapsed.TotalSeconds - $start
-        Write-YurunaHostSampleRecord -Directory $Directory -Record $record
-        $remaining = $IntervalSeconds - ($timer.Elapsed.TotalSeconds - $start)
-        $sleepUntil = [math]::Min($DurationSeconds, $start + $IntervalSeconds)
-        while ($remaining -gt 0 -and $timer.Elapsed.TotalSeconds -lt $sleepUntil) {
-            if (Test-Path -LiteralPath (Join-Path $Directory 'stop')) { break }
+    # Waiting on the owner's handle below replaces a process lookup per slice;
+    # a handle also cannot be fooled by the PID being reused.
+    $owner = $null
+    if ($OwnerProcessId -gt 0) {
+        try { $owner = [Diagnostics.Process]::GetProcessById($OwnerProcessId) } catch { $owner = $null }
+    }
+    $capabilityVmCount = $null
+    $capabilitiesResolved = $false
+    try {
+        while ($timer.Elapsed.TotalSeconds -lt $DurationSeconds -and -not (Test-Path (Join-Path $Directory 'stop'))) {
             if ($OwnerProcessId -gt 0 -and -not (Get-Process -Id $OwnerProcessId -ErrorAction SilentlyContinue)) { break }
-            Start-Sleep -Milliseconds ([int][math]::Min(100, ($sleepUntil - $timer.Elapsed.TotalSeconds) * 1000))
+            $start = $timer.Elapsed.TotalSeconds
+            $vm = Get-YurunaHostVmSnapshot
+            # The inventory is fixed for this recording; only the running-VM
+            # count changes which capabilities apply.
+            if (-not $capabilitiesResolved -or $vm.RunningCount -ne $capabilityVmCount) {
+                $capabilities = @(Resolve-YurunaHostCounterCapability -CounterSets $inventory.CounterSets -NameMap $inventory.NameMap -RunningVmCount $vm.RunningCount)
+                $paths = @($capabilities | Where-Object Status -EQ 'present' | ForEach-Object Paths | Select-Object -Unique)
+                $capabilityVmCount = $vm.RunningCount
+                $capabilitiesResolved = $true
+            }
+            $record = [ordered]@{ Kind='sample'; Utc=[datetime]::UtcNow.ToString('o'); MonotonicTicks=[Diagnostics.Stopwatch]::GetTimestamp(); MonotonicFrequency=[Diagnostics.Stopwatch]::Frequency; ClockDomain='host-qpc'; Power=(Get-YurunaHostPowerStatus); Vm=$vm; Capabilities=$capabilities; Counters=@(); CounterStatus='absent'; CounterReason='No applicable counters.' }
+            if ($paths.Count) {
+                $errors = @()
+                $read = @(Get-Counter -Counter $paths -SampleInterval 1 -MaxSamples 2 -ErrorAction SilentlyContinue -ErrorVariable errors)
+                $record.Counters = @(ConvertTo-YurunaHostCounterSample -CounterSamples @($read | Select-Object -Last 1 | ForEach-Object CounterSamples))
+                $record.CounterStatus = if (@($record.Counters | Where-Object Status -EQ 'present').Count) { 'present' } else { 'absent' }
+                $record.CounterReason = ($errors | ForEach-Object { $_.Exception.Message }) -join '; '
+            }
+            $payload = Invoke-YurunaHostMetricsProbe -Port 9182 -TimeoutSec 3
+            $record.Exporter = Get-YurunaHostMetricsCapability -Payload $payload -RunningVmCount $vm.RunningCount
+            $record.CollectionSeconds = $timer.Elapsed.TotalSeconds - $start
+            Write-YurunaHostSampleRecord -Directory $Directory -Record $record
+            $remaining = $IntervalSeconds - ($timer.Elapsed.TotalSeconds - $start)
+            $sleepUntil = [math]::Min($DurationSeconds, $start + $IntervalSeconds)
+            while ($remaining -gt 0 -and $timer.Elapsed.TotalSeconds -lt $sleepUntil) {
+                if (Test-Path -LiteralPath (Join-Path $Directory 'stop')) { break }
+                $sliceMs = [int][math]::Min(500, ($sleepUntil - $timer.Elapsed.TotalSeconds) * 1000)
+                if ($sliceMs -le 0) { break }
+                if ($owner) {
+                    if ($owner.WaitForExit($sliceMs)) { break }
+                } else {
+                    Start-Sleep -Milliseconds $sliceMs
+                }
+            }
         }
+    } finally {
+        if ($owner) { $owner.Dispose() }
     }
 }
 
@@ -388,8 +441,21 @@ function Save-YurunaHostSampleSnapshot {
                             $bytes = $buffer.ToArray()
                         } finally { $reader.Dispose(); $buffer.Dispose() }
                         if ($file.Extension -eq '.ndjson' -and $bytes.Length -and $bytes[-1] -ne 10) {
+                            # A trailing-range slice ([byte[]]$bytes[0..$n]) builds an
+                            # intermediate object array sized to the whole segment, which
+                            # costs nearly a second on a multi-MiB ring; Array.Copy does
+                            # not. The two branches assign $bytes directly rather than
+                            # through an if-expression's captured value: PowerShell
+                            # unrolls an empty array to $null when it crosses that
+                            # capture, which an `else { [byte[]]@() }` result would.
                             $lastNewline = [Array]::LastIndexOf($bytes, [byte]10)
-                            $bytes = if ($lastNewline -ge 0) { [byte[]]$bytes[0..$lastNewline] } else { [byte[]]@() }
+                            if ($lastNewline -ge 0) {
+                                $complete = [byte[]]::new($lastNewline + 1)
+                                [Array]::Copy($bytes, $complete, $complete.Length)
+                                $bytes = $complete
+                            } else {
+                                $bytes = [byte[]]@()
+                            }
                         }
                         [IO.File]::WriteAllBytes((Join-Path $target $file.Name), $bytes)
                     }
@@ -402,4 +468,356 @@ function Save-YurunaHostSampleSnapshot {
     } catch { [pscustomobject]@{ Status='unavailable'; Path=''; Reason=$_.Exception.Message } }
 }
 
-Export-ModuleMember -Function Invoke-YurunaHostBoundedCommand, Get-YurunaHostSamplingSetting, Get-YurunaHostCounterSpecification, Resolve-YurunaHostCounterCapability, Get-YurunaHostCounterInventory, Get-YurunaHostPowerStatus, Get-YurunaHostVmSnapshot, Get-YurunaHostSampleInfo, ConvertTo-YurunaHostCounterSample, Write-YurunaHostSampleRecord, Invoke-YurunaHostSampling, Start-YurunaHostSampling, Stop-YurunaHostSampling, Save-YurunaHostSampleSnapshot
+# Parsed virtual-processor readings from the live recording. A wait that asks
+# once a minute then parses only the lines written since it last asked, not
+# the whole multi-MiB ring.
+$script:VmRunCache = @{ Directory = ''; Offsets = @{}; Samples = [Collections.Generic.List[object]]::new() }
+
+# The per-cause intercept rates a livelock verdict averages, so the record
+# names what the trapping virtual processors were trapping on. Named causes
+# never cover every PDH sub-counter Hyper-V Hypervisor Virtual Processor
+# carries; Get-YurunaVmLivelockVerdict adds what these leave unaccounted for
+# against Total Intercepts/sec, so a gap here reads as "not yet named"
+# rather than as a measured zero.
+$script:LivelockCauseCounters = @('Hypercalls/sec','SysReg Accesses/sec','MSR Accesses/sec','IO Instructions/sec','Virtual Interrupts/sec','Synthetic Interrupts/sec','Hardware Interrupts/sec','Pending Interrupts/sec','Memory Intercept Messages/sec','Nested Page Fault Intercepts/sec','Other Intercepts/sec',
+    'SMC Instructions/sec','CPPC Request Context Switches/sec','External Interrupts/sec','Posted Interrupt Scans/sec','Posted Interrupt Notifications/sec','Extended Hypercall Intercept Messages/sec','Reflected Guest Page Faults/sec','Other Reflected Guest Exceptions/sec','Global I/O TLB Flushes/sec','Local I/O TLB Flushes/sec')
+# Synthetic bucket name for Get-YurunaVmLivelockVerdict's unexplained
+# remainder; never a real PDH counter, so it can never collide with one.
+$script:LivelockUnaccountedLabel = 'Unaccounted/sec'
+
+function ConvertTo-YurunaVmRunSample {
+    <# .SYNOPSIS
+        Reduce one sampler record to per-VM virtual-processor readings keyed by English counter name.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)]$Record)
+    # Counter paths carry the host's display language. The capability rows the
+    # record carries map each localized name back to the English one asked for.
+    $english = @{}
+    foreach ($capability in @($Record.Capabilities)) {
+        if ($capability -and $capability.Object -eq 'Hyper-V Hypervisor Virtual Processor' -and $capability.LocalCounter) {
+            $english[([string]$capability.LocalCounter).ToLowerInvariant()] = [string]$capability.Counter
+        }
+    }
+    $machines = @{}
+    foreach ($counter in @($Record.Counters)) {
+        if (-not $counter -or $counter.Status -ne 'present' -or $null -eq $counter.Value) { continue }
+        $instance = [string]$counter.Instance
+        $at = $instance.LastIndexOf(':hv vp ', [StringComparison]::OrdinalIgnoreCase)
+        if ($at -lt 1) { continue }
+        $path = [string]$counter.Path
+        $name = $english[$path.Substring($path.LastIndexOf('\') + 1).ToLowerInvariant()]
+        if (-not $name) { continue }
+        # PDH reports instance names lowercased, so VM names compare that way.
+        $vm = $instance.Substring(0, $at).ToLowerInvariant()
+        $vp = $instance.Substring($at + 7).Trim()
+        if (-not $machines.ContainsKey($vm)) { $machines[$vm] = @{} }
+        if (-not $machines[$vm].ContainsKey($vp)) { $machines[$vm][$vp] = @{} }
+        $machines[$vm][$vp][$name] = [double]$counter.Value
+    }
+    $utc = if ($Record.Utc -is [datetime]) { $Record.Utc.ToUniversalTime() } else {
+        [datetime]::Parse([string]$Record.Utc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+    }
+    [pscustomobject]@{ Utc = $utc; VMs = $machines; CounterCapabilities = @($Record.Capabilities | Where-Object Object -EQ 'Hyper-V Hypervisor Virtual Processor' | Select-Object Counter, Status, Reason) }
+}
+
+function Read-YurunaHostVmRunSample {
+    <# .SYNOPSIS
+        Return the virtual-processor readings the live host recording holds for a recent window.
+    .DESCRIPTION
+        Reads the recording the outer runner's sampler is writing, so the inner
+        runner learns what the hypervisor saw without a PDH query of its own.
+        Returns nothing when no recording exists, which is every host but
+        Windows and any host with sampling turned off.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([string]$RuntimeDirectory = $env:YURUNA_RUNTIME_DIR, [ValidateRange(60, 86400)][int]$WindowSeconds = 3600)
+    $directory = ''
+    try {
+        if ($RuntimeDirectory) {
+            $pointer = Join-Path $RuntimeDirectory 'host-sampling.current.json'
+            if ([IO.File]::Exists($pointer)) { $directory = [string]([IO.File]::ReadAllText($pointer) | ConvertFrom-Json).Directory }
+        }
+    } catch { $directory = '' }
+    $cache = $script:VmRunCache
+    if (-not $directory -or -not [IO.Directory]::Exists($directory)) {
+        $cache.Directory = ''
+        $cache.Offsets = @{}
+        $cache.Samples.Clear()
+        return
+    }
+    if ($cache.Directory -ne $directory) {
+        $cache.Directory = $directory
+        $cache.Offsets = @{}
+        $cache.Samples.Clear()
+    }
+    $cutoff = [datetime]::UtcNow.AddSeconds(-$WindowSeconds)
+    $timestamp = [regex]'^\{"Kind":"sample","Utc":"([^"]+)"'
+    foreach ($file in @(Get-ChildItem -LiteralPath $directory -Filter 'samples.*.ndjson' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $offset = if ($cache.Offsets.ContainsKey($file.Name)) { [long]$cache.Offsets[$file.Name] } else { 0L }
+        if ($file.Length -le $offset) { continue }
+        if ($offset -eq 0 -and $file.LastWriteTimeUtc -lt $cutoff) { $cache.Offsets[$file.Name] = $file.Length; continue }
+        $bytes = $null
+        $read = 0
+        try {
+            $stream = [IO.FileStream]::new($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+            try {
+                $null = $stream.Seek($offset, [IO.SeekOrigin]::Begin)
+                $bytes = [byte[]]::new([math]::Max(0, $stream.Length - $offset))
+                while ($read -lt $bytes.Length) {
+                    $chunk = $stream.Read($bytes, $read, $bytes.Length - $read)
+                    if ($chunk -le 0) { break }
+                    $read += $chunk
+                }
+            } finally { $stream.Dispose() }
+        } catch { Write-Verbose "Host recording segment unreadable: $($_.Exception.Message)"; continue }
+        if ($read -le 0) { continue }
+        # The sampler may be mid-write; only complete lines are consumed, and
+        # the partial tail is read again once its newline lands.
+        $end = [Array]::LastIndexOf($bytes, [byte]10, $read - 1)
+        if ($end -lt 0) { continue }
+        $cache.Offsets[$file.Name] = $offset + $end + 1
+        foreach ($line in [Text.Encoding]::UTF8.GetString($bytes, 0, $end).Split("`n")) {
+            if ($line.IndexOf(':hv vp ', [StringComparison]::OrdinalIgnoreCase) -lt 0) { continue }
+            $stamp = $timestamp.Match($line)
+            if ($stamp.Success) {
+                $lineUtc = [datetime]::MinValue
+                if ([datetime]::TryParse($stamp.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$lineUtc) -and
+                    $lineUtc.ToUniversalTime() -lt $cutoff) { continue }
+            }
+            try { $record = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+            if ($record.Kind -ne 'sample') { continue }
+            $sample = ConvertTo-YurunaVmRunSample -Record $record
+            if ($sample.VMs.Count -and $sample.Utc -ge $cutoff) { $cache.Samples.Add($sample) }
+        }
+    }
+    foreach ($name in @($cache.Offsets.Keys)) {
+        if (-not [IO.File]::Exists((Join-Path $directory $name))) { $cache.Offsets.Remove($name) }
+    }
+    # Segments are read oldest first and lines in order, so the list is sorted.
+    while ($cache.Samples.Count -and $cache.Samples[0].Utc -lt $cutoff) { $cache.Samples.RemoveAt(0) }
+    return $cache.Samples.ToArray()
+}
+
+function Get-YurunaVmProcessorWindow {
+    <# .SYNOPSIS
+        Summarize each processor independently of the automatic recovery predicate.
+    #>
+    [CmdletBinding()]
+    param([object[]]$Reading, [string]$VMKey, [int]$WindowSeconds, [int]$GapLimit)
+    if (-not $Reading.Count) { return [pscustomobject]@{ SampleCount=0; Processors=@(); CounterCapabilities=@() } }
+    $newest = $Reading[-1].Utc
+    $cutoff = $newest.AddSeconds(-$WindowSeconds)
+    $window = [Collections.Generic.List[object]]::new()
+    $previous = $newest
+    for ($i = $Reading.Count - 1; $i -ge 0; $i--) {
+        $row = $Reading[$i]
+        if ($row.Utc -lt $cutoff -or ($previous - $row.Utc).TotalSeconds -gt $GapLimit) { break }
+        $window.Add($row)
+        $previous = $row.Utc
+    }
+    $names = @('% Guest Run Time', '% Hypervisor Run Time', 'Total Intercepts/sec') + $script:LivelockCauseCounters
+    $processorIds = @($window | ForEach-Object { $_.VMs[$VMKey].Keys } | Sort-Object -Unique)
+    $processors = @(foreach ($id in $processorIds) {
+        $counters = [ordered]@{}
+        $observed = @($window | ForEach-Object { if ($_.VMs[$VMKey].ContainsKey($id)) { $_.VMs[$VMKey][$id].Keys } })
+        foreach ($name in @(($names + $observed) | Sort-Object -Unique)) {
+            $values = [Collections.Generic.List[double]]::new()
+            foreach ($row in $window) {
+                $vp = $row.VMs[$VMKey][$id]
+                if (-not $vp -or $null -eq $vp[$name]) { continue }
+                $value = [double]$vp[$name]
+                if (-not [double]::IsFinite($value) -or $value -lt 0 -or ($name.StartsWith('%') -and $value -gt 100.5)) { continue }
+                $values.Add($value)
+            }
+            $counters[$name] = [ordered]@{
+                Status = if ($values.Count -eq 0) { 'unavailable' } elseif ($values.Count -eq $window.Count) { 'present' } else { 'partial' }
+                Average = if ($values.Count) { [math]::Round(($values | Measure-Object -Average).Average, 2) } else { $null }
+                SampleCount = $values.Count; UnavailableSampleCount = $window.Count - $values.Count
+            }
+        }
+        # Compare paired readings only: missing causes must not become zeros
+        # or use a different denominator from Total Intercepts/sec.
+        $residuals = [Collections.Generic.List[double]]::new()
+        foreach ($row in $window) {
+            $vp = $row.VMs[$VMKey][$id]
+            if (-not $vp -or $null -eq $vp['Total Intercepts/sec']) { continue }
+            $total = [double]$vp['Total Intercepts/sec']
+            if (-not [double]::IsFinite($total) -or $total -lt 0) { continue }
+            $sum = 0.0; $complete = $true
+            $absentCauses = @($row.CounterCapabilities | Where-Object { $_.Status -in @('absent','not-applicable') } | ForEach-Object Counter)
+            foreach ($cause in $script:LivelockCauseCounters) {
+                if ($null -eq $vp[$cause] -and $cause -in $absentCauses) { continue }
+                if ($null -eq $vp[$cause] -or -not [double]::IsFinite([double]$vp[$cause]) -or $vp[$cause] -lt 0) { $complete=$false; break }
+                $sum += $vp[$cause]
+            }
+            if ($complete) { $residuals.Add([math]::Max(0, $total - $sum)) }
+        }
+        [pscustomobject]@{
+            Processor = [string]$id; Counters = $counters
+            UnaccountedEstimatePerSecond = if ($residuals.Count) { [math]::Round(($residuals | Measure-Object -Average).Average) } else { $null }
+            ResidualSampleCount = $residuals.Count
+            ResidualStatus = if ($residuals.Count) { 'estimate-counter-categories-may-overlap' } else { 'unavailable-incomplete-counters' }
+            ResidualUnavailableCounters = @($Reading[-1].CounterCapabilities | Where-Object { $_.Counter -in $script:LivelockCauseCounters -and $_.Status -in @('absent','not-applicable') } | ForEach-Object Counter)
+        }
+    })
+    [pscustomobject]@{
+        SampleCount=$window.Count; WindowSeconds=$WindowSeconds
+        OldestSampleUtc=$window[-1].Utc.ToString('o'); NewestSampleUtc=$newest.ToString('o')
+        Processors=$processors; CounterCapabilities=@($Reading[-1].CounterCapabilities)
+    }
+}
+
+function Get-YurunaVmLivelockVerdict {
+    <# .SYNOPSIS
+        Decide whether every virtual processor of a VM has stayed pinned inside the hypervisor long enough to call the guest livelocked.
+    .DESCRIPTION
+        A guest that stopped making progress while its virtual processors keep
+        trapping looks, from the console, like a guest that is merely slow:
+        nothing new appears. The hypervisor's run-time split separates them. A
+        reading counts toward the run when every virtual processor of the VM
+        is at least 80% busy and the hypervisor holds at least 88% of that
+        time. The run is the newest unbroken stretch of such readings.
+
+        Every processor must be pinned at once because a healthy multi-vCPU
+        guest routinely parks one processor in a spin wait while another
+        works, and that processor alone shows the same split. Healthy guests on
+        the ARM64 lab host hold the all-processor shape for at most half a
+        minute; wedged ones hold it until they are powered off. A reading over
+        100% (the counter's first sample after a VM starts) neither extends nor
+        ends the run, and a gap in the recording ends it, because the run must
+        be observed rather than assumed.
+    .OUTPUTS
+        [pscustomobject] Verdict 'livelocked' | 'not-livelocked' | 'unavailable',
+        LivelockedSeconds, the run's averages, InterceptBreakdown (mean per-cause
+        rates, highest first; carries an 'Unaccounted/sec' entry, which can rank
+        first, for the remainder the named causes do not explain), DominantIntercept,
+        Detail and Reason.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [AllowEmptyCollection()][object[]]$Sample = @(),
+        [datetime]$NowUtc = [datetime]::UtcNow,
+        [ValidateRange(30, 86400)][int]$MinimumSeconds = 300,
+        [ValidateRange(5, 300)][int]$IntervalSeconds = 15
+    )
+    $key = $VMName.ToLowerInvariant()
+    $result = [ordered]@{
+        Verdict = 'unavailable'; LivelockedSeconds = 0; MinimumSeconds = $MinimumSeconds; VirtualProcessors = 0
+        GuestRunPercent = $null; HypervisorRunPercent = $null; InterceptsPerSecond = $null
+        InterceptBreakdown = [ordered]@{}; DominantIntercept = ''; SampleCount = 0; NewestSampleUtc = ''
+        Detail = ''; Reason = ''; ProcessorWindow = $null
+    }
+    $readings = @($Sample | Where-Object { $_ -and $_.VMs -and $_.VMs.ContainsKey($key) } | Sort-Object Utc)
+    if ($readings.Count -eq 0) {
+        $result.Reason = 'The host recording holds no virtual-processor readings for this VM.'
+        $result.Detail = $result.Reason
+        return [pscustomobject]$result
+    }
+    $gapLimit = [math]::Max(45, 3 * $IntervalSeconds)
+    $result.ProcessorWindow = Get-YurunaVmProcessorWindow -Reading $readings -VMKey $key -WindowSeconds $MinimumSeconds -GapLimit $gapLimit
+    $newest = $readings[-1].Utc
+    $result.NewestSampleUtc = $newest.ToString('o')
+    if (($NowUtc.ToUniversalTime() - $newest).TotalSeconds -gt $gapLimit) {
+        $result.Reason = 'The newest host reading for this VM is too old to describe the guest now.'
+        $result.Detail = $result.Reason
+        return [pscustomobject]$result
+    }
+    $runStart = $null; $runEnd = $null; $previous = $null
+    $guestSum = 0.0; $hypervisorSum = 0.0; $interceptSum = 0.0; $count = 0
+    $causeSum = @{}
+    for ($i = $readings.Count - 1; $i -ge 0; $i--) {
+        $reading = $readings[$i]
+        if ($previous -and ($previous - $reading.Utc).TotalSeconds -gt $gapLimit) { break }
+        $previous = $reading.Utc
+        $processors = $reading.VMs[$key]
+        $valid = ($processors.Count -gt 0); $pinned = $true
+        $guest = 0.0; $hypervisor = 0.0; $intercepts = 0.0
+        foreach ($vp in $processors.Values) {
+            $g = $vp['% Guest Run Time']; $h = $vp['% Hypervisor Run Time']
+            if ($null -eq $g -or $null -eq $h -or -not [double]::IsFinite([double]$g) -or -not [double]::IsFinite([double]$h) -or $g -lt 0 -or $h -lt 0 -or $g -gt 100.5 -or $h -gt 100.5) { $valid = $false; break }
+            $busy = $g + $h
+            if ($busy -lt 80 -or ($h / $busy) -lt 0.88) { $pinned = $false }
+            $guest += $g; $hypervisor += $h
+            if ($null -ne $vp['Total Intercepts/sec']) { $intercepts += $vp['Total Intercepts/sec'] }
+        }
+        if (-not $valid) { continue }
+        if (-not $pinned) { break }
+        if (-not $runEnd) { $runEnd = $reading.Utc; $result.VirtualProcessors = $processors.Count }
+        $runStart = $reading.Utc
+        $count++
+        $guestSum += $guest / $processors.Count
+        $hypervisorSum += $hypervisor / $processors.Count
+        $interceptSum += $intercepts
+        foreach ($cause in $script:LivelockCauseCounters) {
+            $rate = 0.0; $seen = $false
+            foreach ($vp in $processors.Values) { if ($null -ne $vp[$cause]) { $rate += $vp[$cause]; $seen = $true } }
+            if ($seen) { $causeSum[$cause] = [double]($causeSum[$cause]) + $rate }
+        }
+    }
+    $result.SampleCount = $count
+    if ($runEnd) {
+        $result.LivelockedSeconds = [int]($runEnd - $runStart).TotalSeconds
+        $result.GuestRunPercent = [math]::Round($guestSum / $count, 1)
+        $result.HypervisorRunPercent = [math]::Round($hypervisorSum / $count, 1)
+        $result.InterceptsPerSecond = [math]::Round($interceptSum / $count)
+        foreach ($cause in @($causeSum.Keys | Sort-Object { $causeSum[$_] } -Descending)) {
+            $result.InterceptBreakdown[$cause] = [math]::Round($causeSum[$cause] / $count)
+        }
+        # The named causes above are a bounded list, not every PDH sub-counter
+        # Hyper-V Hypervisor Virtual Processor carries. What they leave
+        # unexplained against the measured total is itself a reading -- the
+        # record says "not yet named" rather than implying nothing was
+        # trapping once the known causes run out, which a breakdown that
+        # silently stopped at its own list would otherwise read as.
+        $namedSum = ([double[]]@($result.InterceptBreakdown.Values) | Measure-Object -Sum).Sum
+        $unaccounted = [math]::Round($result.InterceptsPerSecond - $namedSum)
+        if ($unaccounted -gt 0) { $result.InterceptBreakdown[$script:LivelockUnaccountedLabel] = $unaccounted }
+        # Re-rank now that Unaccounted/sec may belong anywhere in the order,
+        # including first, so a reader scanning the JSON keys top-to-bottom
+        # sees the true ranking rather than Unaccounted/sec always trailing.
+        $ranked = [ordered]@{}
+        foreach ($cause in @($result.InterceptBreakdown.Keys | Sort-Object { $result.InterceptBreakdown[$_] } -Descending)) {
+            $ranked[$cause] = $result.InterceptBreakdown[$cause]
+        }
+        $result.InterceptBreakdown = $ranked
+        $top = @($ranked.Keys)
+        if ($top.Count -and $ranked[$top[0]] -gt 0) { $result.DominantIntercept = [string]$top[0] }
+        $result.Detail = Format-YurunaOperatorMessage -Key 'runner.operator_33a0b7c1e1b2be21' -Arguments @{
+            processors = "$($result.VirtualProcessors)"; guestPercent = "$($result.GuestRunPercent)"
+            hypervisorPercent = "$($result.HypervisorRunPercent)"; interceptsPerSecond = "$($result.InterceptsPerSecond)"
+            seconds = "$($result.LivelockedSeconds)"
+        }
+    } else {
+        $result.Reason = 'The newest host reading does not show every virtual processor pinned in the hypervisor.'
+        $result.Detail = $result.Reason
+    }
+    $result.Verdict = if ($result.LivelockedSeconds -ge $MinimumSeconds) { 'livelocked' } else { 'not-livelocked' }
+    return [pscustomobject]$result
+}
+
+function Get-YurunaVmLivelockState {
+    <# .SYNOPSIS
+        Read the live host recording and return the livelock verdict for one VM.
+    .OUTPUTS
+        The verdict, or $null when no host recording exists to judge from --
+        a host without sampling has not measured anything, which is not the
+        same as having measured and found no readings for the VM.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [string]$RuntimeDirectory = $env:YURUNA_RUNTIME_DIR,
+        [ValidateRange(30, 86400)][int]$MinimumSeconds = 300
+    )
+    $samples = @(Read-YurunaHostVmRunSample -RuntimeDirectory $RuntimeDirectory -WindowSeconds ([math]::Max(3600, 2 * $MinimumSeconds)))
+    if (-not $script:VmRunCache.Directory) { return $null }
+    Get-YurunaVmLivelockVerdict -VMName $VMName -Sample $samples -MinimumSeconds $MinimumSeconds -IntervalSeconds (Get-YurunaHostSamplingSetting).IntervalSeconds
+}
+
+Export-ModuleMember -Function Invoke-YurunaHostBoundedCommand, Get-YurunaHostSamplingSetting, Get-YurunaHostCounterSpecification, Resolve-YurunaHostCounterCapability, Get-YurunaHostCounterInventory, Get-YurunaHostPowerStatus, Get-YurunaHostVmSnapshot, Get-YurunaHostSampleInfo, ConvertTo-YurunaHostCounterSample, Write-YurunaHostSampleRecord, Invoke-YurunaHostSampling, Start-YurunaHostSampling, Stop-YurunaHostSampling, Save-YurunaHostSampleSnapshot, ConvertTo-YurunaVmRunSample, Read-YurunaHostVmRunSample, Get-YurunaVmLivelockVerdict, Get-YurunaVmLivelockState

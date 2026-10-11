@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4241a322-99ef-c7cf-96e0-a7d07ed683f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3883,7 +3883,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' כבויה בתוך הזמן המוקצב; המחיקה נמשכת, אך ייתכן שהחבילה עדיין נעולה.'
+        ''' כבויה בתוך הזמן המוקצב; הרישום והחבילה נשמרים.'
     )
     'host.operator_6959d402ef57f18d' = @(
         '  שפה: '
@@ -8602,7 +8602,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' רשום (utmctl status לא הסתיים).'
+        ' רשום (utmctl status לא החזיר תשובה מזוהה).'
     )
     'host.orphan_sweep_utmctl_unanswered' = @(
         'utmctl '
@@ -8863,6 +8863,21 @@
     )
     'host.utm_app_restart_action' = 'סגרו את UTM והפעילו אותו מחדש'
     'host.utm_app_signal_action' = 'לאחר אימות חוזר של זהות התהליך, שלחו TERM ואז KILL אם התהליך נותר פעיל'
+    'host.utm_cache_state_unconfirmed' = @(
+        'לא ניתן לאמת את מצב המכונה הווירטואלית ⁦caching-proxy-service⁩ ('
+        @{
+            'arg' = 'state'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '; '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). שחזרו את הגישה ל-⁦UTM⁩ או העבירו ⁦-CachingProxyServiceUrl ""⁩ כדי להוריד ישירות.'
+    )
     'host.utm_detached_launch_action' = @(
         'הפעילו את '
         @{
@@ -9085,5 +9100,20 @@
             'trust' = 'internal'
         }
         's ונעצרה; השפעתה אינה ידועה עד שמצב המכונה הווירטואלית ייקרא שוב.'
+    )
+    'host.windows_installer_boot_key_timeout' = @(
+        'המכונה הווירטואלית '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' לא קיבלה מקש אתחול של מתקין Windows בתוך '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות.'
     )
 }

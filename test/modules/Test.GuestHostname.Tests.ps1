@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,10 @@
     requires the resulting shell to compute a freshly observed token first,
     and rejects login logic that tries both the old and new passwords.
 
-    Source-text only -- no host driver is imported and no VM is touched.
+    Source-text only, with one exception: the dispatcher's declare-or-drop
+    forwarding of -Hostname is exercised by running the real
+    Invoke-PerGuestNewVm against a throwaway guest script that only echoes
+    what it was handed. No host driver is imported and no VM is touched.
     Throw-based assertions so the file runs under Pester 3.4 and Pester 5+.
 #>
 
@@ -75,8 +78,36 @@ $script:guestScript = @(
 
 # Source text the It bodies assert against. $script: keeps it reachable from the
 # It scopes, which run after this block has returned.
-$script:provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1')
 $script:engineSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequenceEngine.psm1')
+
+Import-Module (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking
+
+# One run of the real dispatcher against a throwaway guest script that declares
+# -VMName plus $Declare, echoes each of those as "<Name>=<value>", and then
+# echoes whatever it was handed without declaring. Returns the child's lines,
+# the dispatcher's Verbose lines and its result. The script only echoes, so no
+# hypervisor is involved.
+function Invoke-DispatcherFixture {
+    param([string[]]$Declare = @(), [hashtable]$Bind = @{})
+    $root = New-YurunaTestTempDir -Prefix 'yuruna-guest-hostname'
+    try {
+        $guestDir = Join-Path $root (Join-Path 'fixture.host' 'guest.fixture')
+        $null = New-Item -ItemType Directory -Path $guestDir -Force
+        $declared = @('[string]$VMName') + @($Declare | ForEach-Object { "[string]`$$_ = ''" })
+        $lines = @("param($($declared -join ', '))") +
+            @($Declare | ForEach-Object { "Write-Output ""$_=`$$_""" }) +
+            @('Write-Output "undeclared=$($args -join '' '')"')
+        Set-Content -LiteralPath (Join-Path $guestDir 'New-VM.ps1') -Value $lines
+        $relayed = $null
+        $emitted = @(Invoke-PerGuestNewVm -HostSubdir 'fixture.host' -GuestKey 'guest.fixture' -RepoRoot $root -VMName 'vm-fixture' @Bind `
+                -Confirm:$false -Verbose -InformationVariable relayed 4>&1)
+        return @{
+            Result  = @($emitted | Where-Object { $_ -is [hashtable] })[0]
+            Verbose = @($emitted | Where-Object { $_ -is [System.Management.Automation.VerboseRecord] } | ForEach-Object { $_.Message })
+            Child   = @($relayed | ForEach-Object { [string]$_.MessageData })
+        }
+    } finally { Remove-YurunaTestTempDir $root }
+}
 
 }
 
@@ -199,12 +230,21 @@ Describe 'guest-hostname -- instance identity stays pinned to the VM name' {
 
 Describe 'guest-hostname -- the dispatcher forwards under the declare-or-drop rule' {
     It 'introspects the target script for a -Hostname parameter' {
-        Assert-True ($script:provisionSrc -match [regex]::Escape("ContainsKey('Hostname')")) `
-            'Invoke-PerGuestNewVm must probe for -Hostname before forwarding'
+        # A guest script that does not declare -Hostname must not be handed it,
+        # and the drop has to be named on Verbose: it is the only trace of a
+        # guest that came up under the wrong name.
+        $run = Invoke-DispatcherFixture -Bind @{ Hostname = 'node-a' }
+        Assert-True $run.Result.success "a guest script that does not declare -Hostname must still run: $($run.Result.errorMessage)"
+        Assert-True ($run.Child -ccontains 'undeclared=') `
+            "Invoke-PerGuestNewVm must probe for -Hostname before forwarding; the guest script was handed: $($run.Child -join ' | ')"
+        Assert-True (@($run.Verbose | Where-Object { $_ -cmatch "^Cascaded -Hostname 'node-a' NOT forwarded: .* does not declare a -Hostname parameter\.$" }).Count -eq 1) `
+            'a dropped -Hostname must be reported on the Verbose stream'
     }
     It 'appends -Hostname to the child argument list' {
-        Assert-True ($script:provisionSrc -match [regex]::Escape("@('-Hostname', `$Hostname)")) `
-            'a probed-and-present -Hostname must actually reach the child script'
+        $run = Invoke-DispatcherFixture -Declare @('Hostname') -Bind @{ Hostname = 'node-a' }
+        Assert-True $run.Result.success "the guest script that declares -Hostname must run: $($run.Result.errorMessage)"
+        Assert-True ($run.Child -ccontains 'Hostname=node-a') `
+            "a probed-and-present -Hostname must actually reach the child script; it reported: $($run.Child -join ' | ')"
     }
 }
 
@@ -378,7 +418,7 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
                 $_.Step['text'] -eq ' echo yuruna_$(seq -s '''' 1 9)_ok'
             })
         $tokenWaits = @($records | Where-Object {
-                $_.Depth -eq 0 -and $_.Step['action'] -eq 'waitForText' -and
+                $_.Depth -eq 0 -and $_.Step['action'] -eq 'waitForTextWithNudge' -and
                 $_.Step['pattern'] -eq 'yuruna_123456789_ok' -and [bool]$_.Step['freshMatch']
             })
         $loginRetries = @($records | Where-Object {
@@ -450,7 +490,7 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
                 $_.Step['pattern'] -like '*login:'
             }) | Select-Object -First 1
         $tokenWait = @($records | Where-Object {
-                $_.Step['action'] -eq 'waitForText' -and $_.Step['pattern'] -eq 'yuruna_123456789_ok'
+                $_.Step['action'] -eq 'waitForTextWithNudge' -and $_.Step['pattern'] -eq 'yuruna_123456789_ok'
             }) | Select-Object -First 1
         Assert-True ($null -ne $loginWait -and $null -ne $tokenWait) "$name needs login and shell-confirmation waits"
         foreach ($failure in 'passwords do not match', 'Authentication token manipulation error') {
@@ -492,12 +532,30 @@ Describe 'console workload login confirmation' {
                     $_.Step['text'] -eq ' echo yuruna_$(seq -s '''' 1 9)_ok'
                 })
             $waits = @($records | Where-Object {
-                    $_.Step['action'] -eq 'waitForText' -and $_.Step['pattern'] -eq 'yuruna_123456789_ok' -and
+                    $_.Step['action'] -eq 'waitForTextWithNudge' -and $_.Step['pattern'] -eq 'yuruna_123456789_ok' -and
                     [bool]$_.Step['freshMatch']
                 })
             Assert-Equal -Expected 1 -Actual $inputs.Count -Because "$guest must ask a shell to compute the token"
             Assert-Equal -Expected 1 -Actual $waits.Count -Because "$guest must observe the token"
             Assert-True ($inputs[0].TopIndex -lt $waits[0].TopIndex) "$guest must compute before matching"
+        }
+    }
+
+    It 'bounds harmless shell-probe nudges before password persistence or workload execution' {
+        foreach ($kind in 'start', 'workload') {
+            foreach ($guest in 'amazon.linux.2023', 'ubuntu.server.24', 'ubuntu.server.26') {
+                $sequence = Read-SequenceFile -Path (Join-Path $repoRoot "test/sequences/$kind.guest.$guest.yml") -NoCache
+                $probes = @(Get-SequenceStepRecord -Steps $sequence['steps'] | Where-Object {
+                    $_.Step['pattern'] -eq 'yuruna_123456789_ok'
+                })
+                $probes | Should -HaveCount 1
+                $probe = $probes[0].Step
+                $probe['action'] | Should -Be 'waitForTextWithNudge'
+                $probe['nudgeKey'] | Should -Be 'Enter'
+                $probe['nudgeIntervalSeconds'] | Should -Be 15
+                $probe['timeoutSeconds'] | Should -Be 90
+                $probe['freshMatch'] | Should -BeTrue
+            }
         }
     }
 

@@ -32,6 +32,21 @@ anyone on the LAN, `status.json` is served, and the config-sync read
 | `control/test-config`, `control/perf-aggregates` | on `POST`/`PUT` -- their read path stays open |
 | `control/runner-status`, `control/control-status`, `control/host-facts` | never -- read-only, and pool services read them |
 
+The browser UI uses the status service's own origin. State-changing control
+requests require `X-Yuruna: 1`; cross-origin browsers must preflight that custom
+header, and the service returns no `Access-Control-Allow-*` grants. This stops a
+foreign page from driving the host. Guest and installer ingestion routes use
+native clients and remain outside this browser guard.
+
+Every response receives `X-Content-Type-Options: nosniff` and a
+`Content-Security-Policy` before route dispatch. Uploaded diagnostics, guest-chosen
+file names, and OCR status share an origin with privileged controls, so scripts
+must come from that origin and `frame-ancestors 'none'` prevents clickjacking.
+Inline styles remain permitted for declarative UI attributes; inline scripts do
+not. Keep the common headers at the dispatch boundary so an individual handler
+cannot omit them. The stash UI uses the same script and style restrictions;
+raw artifact responses have a stricter sandbox policy.
+
 <a id="42185271-0003"></a>
 
 ## Where the proof comes from
@@ -608,6 +623,11 @@ secrets under `status/` (`vault.yml`, `transports.yml`, `events.log`, the SSH
 private key, the caching-proxy-service state file) are blocked regardless of which
 route reached them.
 
+The shared name shapes also refuse generated copies such as `*.snapshot.json`,
+`*.snapshot.*.json`, `*.backup`, `*.bak`, and `*.tmp`. Renaming a secret into its
+parsed snapshot or pre-write backup must not make the same bytes public. Both
+file-serving paths and the cycle archive packer consume this one policy.
+
 Host-refresh private state lives under `$HOME/.yuruna/host-refresh/`, outside every served
 tree. As a second line of defense, the name shapes of that state are denied on every
 route anyway: the `host-refresh/` directory, the request journal, the repair and
@@ -779,6 +799,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

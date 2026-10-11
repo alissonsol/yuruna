@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,11 @@ function Initialize-SequenceFailureStateStore {
     # failure's evidence. $null means no boundary is known, and the record then
     # claims the artifacts as it always did rather than guessing.
     $Store['LastFailedStepStartedUtc'] = $null
+    $Store['LastFailedStepInvocationId'] = ''
+    $Store['LastFailedSequenceInvocationId'] = ''
+    # The outer retry owns the failure event; the leaf owns its fetch evidence.
+    $Store['OriginatingStepInvocationId'] = ''
+    $Store['OriginatingSequenceInvocationId'] = ''
     # Inner-verb slots: a retry Handler captures the deepest inner verb's
     # classification here before the outer per-step path overwrites
     # LastFailedAction with 'retry', so the failure record can surface both
@@ -92,6 +97,18 @@ function Initialize-SequenceFailureStateStore {
     # Set only on timeout with sustained static content and an independent
     # hypervisor framebuffer confirmation. Never inferred from OCR absence.
     $Store['WaitForTextGuestBootStalled'] = $false
+    # The host recording's livelock verdict at the failed wait (see
+    # Get-YurunaVmLivelockVerdict), and whether it found every virtual
+    # processor pinned in the hypervisor for the verdict's full window.
+    # $null when no host recording exists: not measured, which is not the
+    # same reading as measured and found running.
+    $Store['WaitForTextGuestLivelock'] = $null
+    $Store['WaitForTextGuestLivelocked'] = $false
+    # Seconds the console had read blank -- no engine found any text -- when
+    # the wait ended. The content-static slot above measures only readable
+    # text, so without this a guest that went black leaves a record that
+    # reads like a wait that compared nothing.
+    $Store['WaitForTextBlankScreenSeconds'] = 0
     # Whether the wait that failed actually evaluated the two slots above. A
     # tail-confined match reads the same frames but runs neither tracker, so it
     # leaves them at these initializers -- which are also what a measured, moving,
@@ -99,6 +116,8 @@ function Initialize-SequenceFailureStateStore {
     # behind it keeps the shape it has always had; only a wait that declined to
     # measure clears it.
     $Store['WaitForTextConsoleSignalsMeasured'] = $true
+    $Store['WaitForTextOutputStaticSeconds'] = $null
+    $Store['StepProgressAdvisory'] = $null
     # Set by the sequence-start / per-step pause gate when an operator hold is
     # released: @{ releasedAtUtc; heldSeconds; label; pauseScope }. The gate holds
     # the runner while the guest keeps running, so a hold is part of the cause of
@@ -133,6 +152,10 @@ function Initialize-SequenceFailureStateStore {
     # signal that statement is discarded and an operator is sent to debug a script
     # that never executed.
     $Store['StepGuestPayloadUnavailable'] = $null
+    # Set by a GUI fetch whose staged input was still open in the guest shell
+    # when the wait gave up. The closing guard never ran, so the payload never
+    # executed; that is what separates this from a script that ran and stalled.
+    $Store['StepInputLost'] = $null
 }
 
 $script:SeqFailReg = New-YurunaRegistry -Name 'SequenceFailureState'
@@ -158,6 +181,34 @@ function Get-SequenceFailureState {
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param()
     return $script:SeqFailReg.Store[0]
+}
+
+function Get-GuestProgressAdvisory {
+    <# .SYNOPSIS
+        Describe independent progress observations without authorizing recovery.
+    #>
+    [CmdletBinding()]
+    param(
+        [Nullable[int]]$OutputStaticSeconds,
+        [Nullable[int]]$HeartbeatAgeSeconds,
+        [ValidateSet('responsive','unresponsive','unavailable')][string]$SshResponsiveness = 'unavailable'
+    )
+    $static = $null -ne $OutputStaticSeconds -and $OutputStaticSeconds -ge 120
+    $stale = $null -ne $HeartbeatAgeSeconds -and $HeartbeatAgeSeconds -ge 120
+    $unresponsive = $SshResponsiveness -eq 'unresponsive'
+    $signals = @()
+    if ($static) { $signals += 'static-output' }
+    if ($stale) { $signals += 'stale-recorder-heartbeat' }
+    if ($unresponsive) { $signals += 'ssh-unresponsive' }
+    $verdict = if (($static -and ($stale -or $unresponsive)) -or ($stale -and $unresponsive)) { 'progress-suspect' }
+        elseif ($signals.Count) { 'insufficient-evidence' }
+        elseif ($null -eq $OutputStaticSeconds -and $null -eq $HeartbeatAgeSeconds -and $SshResponsiveness -eq 'unavailable') { 'unavailable' }
+        else { 'no-stall-evidence' }
+    [pscustomobject]@{
+        verdict=$verdict; signals=$signals; outputStaticSeconds=$OutputStaticSeconds
+        heartbeatAgeSeconds=$HeartbeatAgeSeconds; sshResponsiveness=$SshResponsiveness
+        automaticRecoveryAllowed=$false
+    }
 }
 
 function New-SequenceFailureRecord {
@@ -204,6 +255,19 @@ function New-SequenceFailureRecord {
     $verbEntry    = if ($fail.LastFailedAction) { Get-SequenceAction -Name $fail.LastFailedAction } else { $null }
     $failureClass = if ($verbEntry) { [string]$verbEntry.FailureClass } else { 'unknown' }
     $severity     = if ($verbEntry) { [string]$verbEntry.Severity }     else { 'unknown' }
+    # A thrown outer error is a distinct failure, even if a nested invocation
+    # failed first. Only a normal failed wrapper may retain that leaf's join.
+    $originatingStepInvocationId = [string]$fail.LastFailedStepInvocationId
+    $originatingSequenceInvocationId = [string]$fail.LastFailedSequenceInvocationId
+    $progressAdvisory = $fail.StepProgressAdvisory
+    if ($Reason -eq 'step' -and $fail.OriginatingStepInvocationId -and $fail.OriginatingSequenceInvocationId) {
+        $originatingStepInvocationId = [string]$fail.OriginatingStepInvocationId
+        $originatingSequenceInvocationId = [string]$fail.OriginatingSequenceInvocationId
+    } elseif ($Reason -eq 'crash' -and $fail.OriginatingStepInvocationId -and
+        $fail.OriginatingStepInvocationId -ne $fail.LastFailedStepInvocationId) {
+        $progressAdvisory = $null
+    }
+
     if ($Reason -eq 'crash') {
         [string[]]$suggested = @('Inspect the crash origin/stack under .context; cycle continues unless StopOnFailure is set.')
     } else {
@@ -235,6 +299,26 @@ function New-SequenceFailureRecord {
     $consoleStaticSeconds = if (-not $consoleMeasured) { $null } elseif ($fail.WaitForTextConsoleStaticSeconds) { [int]$fail.WaitForTextConsoleStaticSeconds } else { 0 }
     $installerStage = [string]$fail.WaitForTextInstallerStage
     $installerStageSeconds = if ($installerStage) { [int]$fail.WaitForTextInstallerStageSeconds } else { 0 }
+    $blankScreenSeconds = [int]$fail.WaitForTextBlankScreenSeconds
+    $guestLivelock = $null
+    if ($fail.WaitForTextGuestLivelock) {
+        $verdict = $fail.WaitForTextGuestLivelock
+        $guestLivelock = [ordered]@{
+            verdict              = [string]$verdict.Verdict
+            livelockedSeconds    = [int]$verdict.LivelockedSeconds
+            minimumSeconds       = [int]$verdict.MinimumSeconds
+            virtualProcessors    = [int]$verdict.VirtualProcessors
+            guestRunPercent      = $verdict.GuestRunPercent
+            hypervisorRunPercent = $verdict.HypervisorRunPercent
+            interceptsPerSecond  = $verdict.InterceptsPerSecond
+            dominantIntercept    = [string]$verdict.DominantIntercept
+            interceptBreakdown   = $verdict.InterceptBreakdown
+            sampleCount          = [int]$verdict.SampleCount
+            newestSampleUtc      = [string]$verdict.NewestSampleUtc
+            reason               = [string]$verdict.Reason
+            processorWindow      = $verdict.ProcessorWindow
+        }
+    }
     # 0 / '' rather than $null when there was no hold, matching consoleFlood: the
     # fields are always present, so a consumer never has to tell "not paused" from
     # "this record predates the gate reporting it".
@@ -261,6 +345,13 @@ function New-SequenceFailureRecord {
         # answer is to read it, so the class and the recovery both change. Ranked
         # below a matched failure pattern: that is the guest announcing its own
         # failure in words, which outranks an inference drawn from screen shape.
+        # Ranked below a matched failure pattern, which means the guest ran and
+        # announced its own failure. Ranked above the console-flood reading: the
+        # frozen staged input is the specific cause that flood would otherwise hide.
+        elseif ($fail.StepInputLost) {
+            $failureClass = 'input_lost'
+            [string[]]$suggested = @('retry_with_backoff','pause_and_inspect')
+        }
         elseif ($fail.WaitForTextConsoleFlood) {
             $failureClass = 'console_flooded'
             [string[]]$suggested = @('pause_and_inspect')
@@ -463,6 +554,17 @@ function New-SequenceFailureRecord {
                     # flooded" from "this record predates the check".
                     consoleFlood       = $consoleFlood
                     consoleStaticSeconds = $consoleStaticSeconds
+                    # How long the console had read blank when the wait ended;
+                    # 0 when its last frame carried text. A blank console has
+                    # no ocrTail and no static-content reading, so this is the
+                    # field that says the screen went black.
+                    blankScreenSeconds = $blankScreenSeconds
+                    # The hypervisor's view: whether every virtual processor
+                    # sat pinned in the hypervisor, for how long, and which
+                    # intercepts it was taking. $null when the host keeps no
+                    # recording to judge from.
+                    guestLivelock = $guestLivelock
+                    progressAdvisory = $progressAdvisory
                     installerStage = $installerStage
                     installerStageUnchangedSeconds = $installerStageSeconds
                     # The operator hold that ended before this step ran, if any.
@@ -476,11 +578,20 @@ function New-SequenceFailureRecord {
         }
     }
 
+    $file.stepInvocationId = [string]$fail.LastFailedStepInvocationId
+    $file.sequenceInvocationId = [string]$fail.LastFailedSequenceInvocationId
+    $file.originatingStepInvocationId = $originatingStepInvocationId
+    $file.originatingSequenceInvocationId = $originatingSequenceInvocationId
+
     # Send-CycleEventSafely binds -EventRecord as [hashtable]; build a plain
     # hashtable (same shape both reasons; crash adds crashError).
     $eventRecord = @{
         timestamp               = $tsEvent
         event                   = 'step_failure'
+        stepInvocationId        = [string]$fail.LastFailedStepInvocationId
+        sequenceInvocationId    = [string]$fail.LastFailedSequenceInvocationId
+        originatingStepInvocationId = $originatingStepInvocationId
+        originatingSequenceInvocationId = $originatingSequenceInvocationId
         reason                  = $Reason
         stepNumber              = $stepNumber
         totalSteps              = [int]$TotalSteps
@@ -508,6 +619,11 @@ function New-SequenceFailureRecord {
         causePatternsSought     = $patternsSought
         causeInstallerStage     = $installerStage
         causeInstallerStageUnchangedSeconds = $installerStageSeconds
+        causeBlankScreenSeconds = $blankScreenSeconds
+        causeGuestLivelocked    = [bool]$fail.WaitForTextGuestLivelocked
+        causeGuestLivelockedSeconds = [int]$(if ($guestLivelock) { $guestLivelock.livelockedSeconds } else { 0 })
+        progressAdvisory         = $progressAdvisory
+        guestProcessorWindow    = if ($guestLivelock) { $guestLivelock.processorWindow } else { $null }
         reproCommand            = $reproCommand
         failureScreenshotPath   = $failScreenName
         failureOcrPath          = $failOcrName
@@ -631,4 +747,4 @@ function New-InfraFailureRecord {
     return @{ File = $file; Event = $eventRecord }
 }
 
-Export-ModuleMember -Function Get-SequenceFailureState, New-SequenceFailureRecord, New-InfraFailureRecord
+Export-ModuleMember -Function Get-SequenceFailureState, Get-GuestProgressAdvisory, New-SequenceFailureRecord, New-InfraFailureRecord

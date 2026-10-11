@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42074735-e5df-4b56-b216-96e6299e53f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,11 +26,12 @@
     module-private Invoke-PoolAdminGitWithRetry (in module scope), with the git
     primitive + schema validator mocked. AST guards pin that the CI gate marks
     pools.yml -Required and that fetch/clone/push route through the retry wrapper.
-    The throw-free Should assertions run under Pester 4.10.1.
+    The throw-free Should assertions run under Pester 5.x.
 #>
 
 BeforeAll {
 $here          = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $adminPath     = Join-Path $here 'Test.PoolAdmin.psm1'
 $syncPath      = Join-Path $here 'Test.PoolSync.psm1'
 $script:poolIntentPs1 = Join-Path (Split-Path -Parent $here) 'pool/Test-PoolIntent.ps1'
@@ -51,10 +52,7 @@ if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
 # --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-FileAst {
     param([string]$Path)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($Path): $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 function Get-CommandInvocation {
     param($Ast, [string]$Name)

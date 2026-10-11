@@ -116,4 +116,42 @@ extra+="E_RETRY_SHA=$(encode "$(printf 'b%.0s' {1..64})")"$'\n'
 prepare "$id" "$(context "$id" "$command" "$extra")"
 "$launcher" "$id" bash -c "$command"
 
+# Project pins are an atomic pair and only describe a project payload. The
+# framework pins remain independent because its retry helper has another owner.
+id=01234567890
+command='[[ "$E_PROJECT_REPO" == fixture/project && "$E_PROJECT_REF" == aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa && "$E_FB_REPO" == fixture/framework && "$E_FB_REF" == bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ]]'
+integrity_fields="EXEC_REQUIRE_SHA256=$(encode 1)"$'\n'
+integrity_fields+="E_SHA=$(encode "$(printf 'a%.0s' {1..64})")"$'\n'
+integrity_fields+="E_RETRY_SHA=$(encode "$(printf 'b%.0s' {1..64})")"$'\n'
+project_fields="$integrity_fields""rel=$(encode project/example/test.sh)"$'\n'
+project_fields+="E_PROJECT_REPO=$(encode fixture/project)"$'\n'
+project_fields+="E_PROJECT_REF=$(encode "$(printf 'a%.0s' {1..40})")"$'\n'
+project_fields+="E_FB_REPO=$(encode fixture/framework)"$'\n'
+project_fields+="E_FB_REF=$(encode "$(printf 'b%.0s' {1..40})")"$'\n'
+prepare "$id" "$(context "$id" "$command" "$project_fields")"
+"$launcher" "$id" bash -c "$command"
+
+id=01234567891
+project_path="$integrity_fields""rel=$(encode project/example/test.sh)"$'\n'
+repo_field="E_PROJECT_REPO=$(encode fixture/project)"$'\n'
+ref_field="E_PROJECT_REF=$(encode "$(printf 'a%.0s' {1..40})")"$'\n'
+rejected CONTEXT_SOURCE prepare "$id" "$(context "$id" true "$project_path$repo_field")"
+rejected CONTEXT_SOURCE prepare "$id" "$(context "$id" true "$project_path$ref_field")"
+for bad_repo in 'fixture' 'fixture/project/extra' 'fixture/../project' 'fixture/project?token=secret' ''; do
+    rejected CONTEXT_SOURCE prepare "$id" "$(context "$id" true "$project_path$ref_field""E_PROJECT_REPO=$(encode "$bad_repo")")"
+done
+for bad_ref in main abcdef1 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ''; do
+    rejected CONTEXT_SOURCE prepare "$id" "$(context "$id" true "$project_path$repo_field""E_PROJECT_REF=$(encode "$bad_ref")")"
+done
+rejected CONTEXT_SOURCE prepare "$id" "$(context "$id" true "$repo_field$ref_field")"
+rejected CONTEXT_SOURCE prepare "$id" "$(context "$id" true "$integrity_fields""rel=$(encode guest/example.sh)"$'\n'"$repo_field$ref_field")"
+rejected CONTEXT_SOURCE prepare "$id" "$(context "$id" true "$integrity_fields""rel=$(encode project/)"$'\n'"$repo_field$ref_field")"
+
+# A context lacking project pins must not inherit pins from an earlier shell.
+id=01234567892
+command='[[ ! -v E_PROJECT_REPO && ! -v E_PROJECT_REF && ! -v E_FB_REPO && ! -v E_FB_REF && ! -v E_SHA && ! -v E_RETRY_SHA && ! -v FAE_INVOCATION_SCRIPT ]]'
+prepare "$id" "$(context "$id" "$command")"
+E_PROJECT_REPO=stale/project E_PROJECT_REF=stale E_FB_REPO=stale/framework E_FB_REF=stale E_SHA=stale E_RETRY_SHA=stale FAE_INVOCATION_SCRIPT=guest/prior.sh \
+    "$launcher" "$id" bash -c "$command"
+
 printf 'yuruna-fetch-context: all checks passed\n'

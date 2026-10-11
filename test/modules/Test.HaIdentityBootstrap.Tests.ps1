@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42b0a145-9469-4519-979e-1183431dba3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,11 +28,12 @@
     value the caller casts (so the fingerprint is byte-identical on a working host), and
     a failed/empty read returns $null plus a verbose breadcrumb. AST guards assert the
     macOS fingerprint routes its reads through the guard and retains no bare
-    [int]/[int64] sysctl cast. Pester 4.10.1.
+    [int]/[int64] sysctl cast. Pester 5.x.
 #>
 
 BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $modPath  = Join-Path $here 'Test.HostIdentity.psm1'
 # The AST is an unqualified file-scope variable: inside an It block a $script: reference
 # resolves to the test runner's own script scope, not this file's, so a $script:-qualified
@@ -49,10 +50,7 @@ if (-not $fnDef) { throw "Test.HaIdentityBootstrap.Tests.ps1: could not lift Res
 
 function Get-CommandCallCount {
     param($Ast, [string]$Name)
-    $wm = $Name
-    @($Ast.FindAll({ param($n)
-        $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wm
-    }, $true)).Count
+    return (Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $Name)
 }
 
 }

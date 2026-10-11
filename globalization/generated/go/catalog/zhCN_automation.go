@@ -7,6 +7,8 @@ package catalog
 // DatazhCNautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DatazhCNautomation = `{
+  "automation.diagnostic_checkout_unavailable": "（不适用：检出目录的证据不可用；请传入 -CheckoutRoot 以使用现有的 Yuruna 检出目录）",
+  "automation.diagnostic_phase_log_limits": "阶段日志扫描最多读取 100 个文件、12 层目录，耗时不超过 10 秒；每个日志最多显示最后 64 KiB。",
   "automation.host_setup_module_install_skipped": [
     "未安装",
     {

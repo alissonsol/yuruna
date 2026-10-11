@@ -7,6 +7,8 @@ package catalog
 // DataenUSautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataenUSautomation = `{
+  "automation.diagnostic_checkout_unavailable": "(not applicable: checkout evidence is unavailable; pass -CheckoutRoot to use an existing Yuruna checkout)",
+  "automation.diagnostic_phase_log_limits": "Phase log scan is limited to 100 files, 12 directory levels, and 10 seconds; each log shows at most its last 64 KiB.",
   "automation.host_setup_module_install_skipped": [
     {
       "arg": "module",

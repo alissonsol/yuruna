@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 421d3153-a504-4156-917e-10ff36bab08d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     A missing/expired credential made an unattended runner block forever inside
     `git fetch` (git waiting on an interactive username prompt). The behavioral
     tests assert the auth classifier; the AST/source guards assert the pull path
-    stays prompt-proof. Runs under Pester 4.10.1 (script-scoped throw helper).
+    stays prompt-proof. Runs under Pester 5.x (script-scoped throw helper).
 
     Also guards how a refused credential is REPORTED. Every check that reaches a
     remote trips over the same credential, so each one that describes it as a
@@ -49,19 +49,14 @@ function Get-ModuleAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.ScriptBlockAst])]
     param([Parameter(Mandatory)][string]$Path)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 
 function Get-FunctionAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.FunctionDefinitionAst])]
     param([Parameter(Mandatory)]$RootAst, [Parameter(Mandatory)][string]$FunctionName)
-    $f = $RootAst.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $FunctionName
-    }, $true) | Select-Object -First 1
+    $f = Get-YurunaTestFunctionAst -Ast $RootAst -Name $FunctionName
     if (-not $f) { throw "Function '$FunctionName' not found." }
     return $f
 }
@@ -397,5 +392,15 @@ Describe 'external Git diagnostics use an invariant child locale' {
         }
         $function.Extent.Text | Should -Match 'Invoke-BoundedNativeCommand.*?-Environment @'
         $function.Extent.Text | Should -Not -Match '\$env:(?:LC_ALL|LANG|LANGUAGE)\s*='
+    }
+}
+
+Describe 'the function lookup behind these guards' {
+    It 'throws for a function the module does not define' {
+        # A guard reads what the lookup hands it. Were an absent function to come
+        # back as nothing, a guard asserting that something is NOT in it would
+        # pass against nothing.
+        Assert-Throw { Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-FunctionThatIsNotDefined' } 'not found' `
+            'an absent function must stop the test that asked for it'
     }
 }

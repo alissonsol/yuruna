@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a09e37-5c84-4b16-9d72-38ef61c0a4d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,16 @@ $script:ProjectRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-pr
 $script:Validator = Join-Path $script:RepoRoot 'tools/Invoke-ProjectLocaleMap.ps1'
 $script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-project-map-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $script:Sandbox -Force | Out-Null
+
+# The tests that call this read the shipped project itself. A workspace
+# without that checkout has nothing to read, and that has to fail: skipped, a
+# project nobody opened would count as publishable.
+function Confirm-ProjectCheckout {
+    [CmdletBinding()]
+    param()
+    Assert-True (Test-Path -LiteralPath $script:ProjectRoot -PathType Container) `
+        "the yuruna-project checkout has to sit beside this one; there is none at '$script:ProjectRoot'. Clone it there and run this suite again."
+}
 
 function Invoke-MapGate {
     param([Parameter(Mandatory)][string]$Root, [string[]]$Extra = @())
@@ -281,10 +291,7 @@ Describe 'a project label survives every pairing of framework and project' {
         # project that writes one is told rather than silently ignored.
         $repoRoot = Get-YurunaTestRepoRoot -SuiteDirectory (Split-Path -Parent $PSCommandPath)
         $projectRoot = Join-Path (Split-Path -Parent $repoRoot) 'yuruna-project'
-        if (-not (Test-Path -LiteralPath $projectRoot -PathType Container)) {
-            Set-ItResult -Skipped -Because 'the project checkout this reads is not beside this one'
-            return
-        }
+        Confirm-ProjectCheckout
         $findings = @()
         foreach ($file in (Get-ChildItem -LiteralPath $projectRoot -Recurse -File -Include '*.yml', '*.yaml' -ErrorAction SilentlyContinue)) {
             $text = [IO.File]::ReadAllText($file.FullName)
@@ -422,10 +429,7 @@ Describe 'the project publisher validates maps and source hashes' {
     }
 
     It 'accepts the shipped project maps as schema-valid and source-current' {
-        if (-not (Test-Path -LiteralPath $script:ProjectRoot -PathType Container)) {
-            Set-ItResult -Skipped -Because 'the project checkout is not beside this one'
-            return
-        }
+        Confirm-ProjectCheckout
         $run = Invoke-MapGate -Root $script:ProjectRoot
         Assert-Equal -Expected 0 -Actual $run.ExitCode "the shipped project map contract is not publishable: $($run.Output)"
         # Every enabled target locale covers the same set of project maps.
@@ -719,6 +723,7 @@ Describe 'production project and operator localization contracts' {
         Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
     }
     It 'globalization acceptance: all reachable project display scalars' {
+        Confirm-ProjectCheckout
         $enrolled = Get-LocalizationProjectSource -ProjectRoot $script:ProjectRoot -Locale 'pt-BR'
         $rows = @(Get-LocalizationRow -Root $script:RepoRoot -ProjectRoot $script:ProjectRoot -Locale 'pt-BR' | Where-Object kind -EQ 'project-scalar')
         $rows.Count | Should -Be $enrolled.entries.Count

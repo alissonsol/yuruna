@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,11 +32,22 @@ BeforeAll {
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:ProjectRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
     $script:LinkRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna.link'
-    $script:AmisadRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'alius-git/amisad.dev'
+    $script:AmisadRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'amisad.dev'
+    if (-not (Test-Path -LiteralPath $script:AmisadRoot -PathType Container)) {
+        $script:AmisadRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'alius-git/amisad.dev'
+    }
     $script:SeedRoot = Join-Path $script:RepoRoot 'host/vmconfig'
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
     Import-Module powershell-yaml
+
+    # The parity tests that call this read a sibling checkout itself. A
+    # workspace without it has nothing to compare, and that has to fail:
+    # skipped, files nobody read would count as aligned.
+    function Confirm-SiblingCheckout {
+        param([Parameter(Mandatory)][string]$Path)
+        $Path | Should -Exist -Because "the $(Split-Path -Leaf $Path) checkout has to sit beside the framework checkout; clone it there and run this suite again"
+    }
 
     function Resolve-ConsistencyWorkflowPath {
         param([string]$Path)
@@ -99,22 +110,38 @@ BeforeAll {
         return $Node
     }
 
+    # --- REGION: Test-ConsistencySourcePath
+    function Test-ConsistencySourcePath {
+        <#
+        .SYNOPSIS
+            Include maintained source formats without enrolling generated runtime trees.
+        #>
+        param([Parameter(Mandatory)][string]$Path)
+        $relative = $Path -replace '\\', '/'
+        if ($relative -match '(^|/)(?:\.test-results|bin|obj|node_modules|vendor|runtime)(/|$)') { return $false }
+        $leaf = [IO.Path]::GetFileName($relative)
+        $extensions = @('.ps1', '.psm1', '.psd1', '.sh', '.bash', '.yml', '.yaml',
+            '.user-data', '.xml', '.go', '.js', '.cjs', '.mjs', '.ts', '.tsx', '.jsx',
+            '.cs', '.py', '.html', '.css', '.service', '.timer', '.cmd', '.plist',
+            '.template', '.network-config', '.meta-data', '.ini', '.cfg', '.tf', '.tfvars', '.toml')
+        return [IO.Path]::GetExtension($leaf) -in $extensions -or
+            $leaf -in @('Dockerfile', '.gitattributes', '.gitignore') -or
+            $leaf.StartsWith('Dockerfile.', [StringComparison]::OrdinalIgnoreCase) -or
+            $relative -match '(^|/)tools/githooks/[^/]+$'
+    }
+
     function Get-ConsistencySourceFile {
         if (Get-Variable -Name ConsistencySourceFiles -Scope Script -ErrorAction SilentlyContinue) { return $script:ConsistencySourceFiles }
         $roots = @($script:RepoRoot, $script:ProjectRoot, $script:LinkRoot, $script:AmisadRoot |
             Where-Object { Test-Path -LiteralPath $_ -PathType Container })
-        $extensions = @('.ps1', '.psm1', '.sh', '.yml', '.yaml', '.user-data', '.xml',
-            '.go', '.js', '.cs', '.py', '.html', '.service', '.timer', '.cmd',
-            '.plist', '.template', '.network-config', '.meta-data', '.ini', '.cfg')
         $script:ConsistencySourceFiles = @(foreach ($root in $roots) {
             $paths = @(& git -C $root ls-files --cached --others --exclude-standard)
             if ($LASTEXITCODE -ne 0) { throw "Could not inventory consistency sources in $root." }
             foreach ($relative in $paths | Sort-Object -Unique) {
                 $path = Join-Path $root $relative
-                if ([IO.Path]::GetExtension($path) -notin $extensions -or
-                    $relative -match '(^|/)(?:\.test-results|bin|obj|node_modules|vendor|runtime)(/|$)' -or
+                if (-not (Test-ConsistencySourcePath -Path $relative) -or
                     -not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-                Get-Item -LiteralPath $path
+                Get-Item -LiteralPath $path -Force
             }
         })
         return $script:ConsistencySourceFiles
@@ -125,6 +152,116 @@ BeforeAll {
         if (-not (Get-Variable -Name ConsistencySourceText -Scope Script -ErrorAction SilentlyContinue)) { $script:ConsistencySourceText = @{} }
         if (-not $script:ConsistencySourceText.ContainsKey($Path)) { $script:ConsistencySourceText[$Path] = [IO.File]::ReadAllText($Path) }
         return $script:ConsistencySourceText[$Path]
+    }
+
+    function Get-SequenceRegionFinding {
+        param([Parameter(Mandatory)][string]$Text)
+        $lines = $Text -split '\r?\n'
+        $allowed = @('resource', 'component', 'workload')
+        for ($index = 0; $index -lt $lines.Count; $index++) {
+            $line = $lines[$index]
+            if ($line -match '^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)$') {
+                $name = $Matches.name
+                if ($Matches.indent -or $allowed -cnotcontains $name) {
+                    "line $($index + 1): invalid sequence region '$name'"
+                    continue
+                }
+                $next = $index + 1
+                while ($next -lt $lines.Count -and $lines[$next] -match '^#(?! --- REGION:)(?:[ \t]|$)') { $next++ }
+                if ($next -ge $lines.Count -or $lines[$next] -cnotmatch ('^' + $name + ':(?:[ \t].*)?$')) {
+                    "line $($index + 1): '$name' must introduce '${name}:' without a blank line"
+                }
+            } elseif ($line -cmatch '^(resource|component|workload):(?:[ \t].*)?$') {
+                $name = $Matches[1]
+                $previous = $index - 1
+                while ($previous -ge 0 -and $lines[$previous] -match '^#(?! --- REGION:)(?:[ \t]|$)') { $previous-- }
+                if ($previous -lt 0 -or $lines[$previous] -cne "# --- REGION: $name") {
+                    "line $($index + 1): '${name}:' requires its canonical REGION"
+                }
+            }
+        }
+    }
+
+    function Get-StructuralRegionMatch {
+        param([Parameter(Mandatory)][string]$Text, [ValidateSet('Yaml', 'Ini', 'Html', 'Xml')][string]$Kind)
+        $patterns = @{
+            Yaml = @'
+(?m)^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)\r?\n(?:[ \t]*#(?![ \t]*---[ \t]+REGION:)[^\r\n]*\r?\n)*\k<indent>(?<key>'(?:[^'\r\n]|'')*'|"(?:[^"\\\r\n]|\\[^\r\n])*"|[A-Za-z0-9_.-]+)[ \t]*:
+'@
+            Ini = @'
+(?m)^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)\r?\n(?:[ \t]*[#;](?![ \t]*---[ \t]+REGION:)[^\r\n]*\r?\n)*\k<indent>(?<marker>\[[A-Za-z][A-Za-z0-9_. -]*\])[ \t]*\r?$
+'@
+            Html = @'
+(?m)^[ \t]*<!--[ \t]*REGION:[ \t]*(?<name>[^\r\n]*?)[ \t]*-->\r?\n(?:[ \t]*<!--(?![ \t]*REGION:)[^\r\n]*-->[ \t]*\r?\n)*[ \t]*<(?<marker>[A-Za-z][A-Za-z0-9:-]*)\b
+'@
+            Xml = @'
+(?m)^[ \t]*<!--[ \t]*REGION:[ \t]*(?<name>[^\r\n]*?)[ \t]*-->\r?\n(?:[ \t]*<!--(?![ \t]*REGION:)[^\r\n]*-->[ \t]*\r?\n)*[ \t]*(?:<key>(?<marker>[^<]+)</key>|<(?<marker>[A-Za-z][A-Za-z0-9_.:-]*)\b)
+'@
+        }
+        foreach ($match in [regex]::Matches($Text, $patterns[$Kind])) {
+            $marker = $match.Groups['marker'].Value
+            if ($Kind -eq 'Yaml') {
+                $key = $match.Groups['key'].Value
+                if ($key.StartsWith("'") -or $key.StartsWith('"')) {
+                    $document = ConvertFrom-Yaml ($key + ': null') -Ordered
+                    $marker = [string]@($document.Keys)[0]
+                } else { $marker = $key }
+            }
+            [pscustomobject]@{ Name = $match.Groups['name'].Value; Marker = $marker; Match = $match }
+        }
+    }
+
+    function Get-DuplicateDocumentationAnchorFinding {
+        param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+        $visible = [Collections.Generic.List[string]]::new()
+        $fenceCharacter = ''
+        $fenceLength = 0
+        foreach ($line in $Text -split '\r?\n') {
+            if ($fenceCharacter) {
+                $closing = '^ {0,3}' + [regex]::Escape($fenceCharacter) + '{' + $fenceLength + ',}[ \t]*$'
+                if ($line -match $closing) { $fenceCharacter = '' }
+                $visible.Add('')
+                continue
+            }
+            $fence = [regex]::Match($line, '^ {0,3}(`{3,}|~{3,})(.*)$')
+            if ($fence.Success -and -not ($fence.Groups[1].Value[0] -eq '`' -and
+                    $fence.Groups[2].Value.Contains('`'))) {
+                $fenceCharacter = [string]$fence.Groups[1].Value[0]
+                $fenceLength = $fence.Groups[1].Length
+                $visible.Add('')
+                continue
+            }
+            $visible.Add($line)
+        }
+        $body = $visible -join "`n"
+        # Examples and comments do not publish IDs; keep newlines for locations.
+        $body = [regex]::Replace($body, '(?s)<!--.*?-->', {
+            param($match)
+            [regex]::Replace($match.Value, '[^\n]', ' ')
+        })
+        $body = [regex]::Replace($body, '(?<ticks>`+)(?!`)[^\n]*?\k<ticks>(?!`)', {
+            param($match)
+            ' ' * $match.Length
+        })
+        $htmlPattern = @'
+(?i:<[a-z][a-z0-9:-]*\b(?:[^"'<>]|"[^"]*"|'[^']*')*?\s+id\s*=\s*)(?:"(?<id>[^"]+)"|'(?<id>[^']+)'|(?<id>[^\s"'=<>`]+))
+'@
+        $markdownPattern = '(?m)^ {0,3}#{1,6}[ \t]+[^\n]*?\{[ \t]*#(?<id>[^\s{}]+)(?:[ \t]+[^{}\n]*)?\}[ \t]*(?:#+[ \t]*)?$'
+        $anchors = @(
+            foreach ($match in [regex]::Matches($body, $htmlPattern)) {
+                [pscustomobject]@{ Index = $match.Index; Id = [Net.WebUtility]::HtmlDecode($match.Groups['id'].Value) }
+            }
+            foreach ($match in [regex]::Matches($body, $markdownPattern)) {
+                [pscustomobject]@{ Index = $match.Index; Id = $match.Groups['id'].Value }
+            }
+        )
+        $firstLine = [Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
+        foreach ($anchor in $anchors | Sort-Object Index) {
+            $lineNumber = 1 + [regex]::Matches($body.Substring(0, $anchor.Index), "`n").Count
+            if ($firstLine.ContainsKey($anchor.Id)) {
+                [pscustomobject]@{ Id = $anchor.Id; FirstLine = $firstLine[$anchor.Id]; Line = $lineNumber }
+            } else { $firstLine.Add($anchor.Id, $lineNumber) }
+        }
     }
 
     function Format-SourceMatch {
@@ -181,6 +318,15 @@ Describe 'Ubuntu test-sequence parity' {
         $dir = Join-Path $script:RepoRoot 'test/sequences'
         $first = Get-NormalizedUbuntuSequence -Path (Join-Path $dir "start.guest.ubuntu.server.24$Suffix.yml") -AsObject
         $second = Get-NormalizedUbuntuSequence -Path (Join-Path $dir "start.guest.ubuntu.server.26$Suffix.yml") -AsObject
+        # Ubuntu 26 alone changes processor count and needs advisory evidence
+        # on both sides of that transition; preserve parity of workload steps.
+        $clockSteps = @($second.workload | Where-Object action -EQ 'saveGuestClockSnapshot')
+        $clockSteps.Count | Should -Be 2
+        ($clockSteps.phase -join ',') | Should -BeExactly 'before-cpu-restart,after-cpu-restart'
+        $beforeIndex = if ($Flow -eq 'GUI') { 2 } else { 1 }
+        $second.workload[$beforeIndex].action | Should -BeExactly 'saveGuestClockSnapshot'
+        $second.workload[-1].action | Should -BeExactly 'saveGuestClockSnapshot'
+        $second['workload'] = @($second.workload | Where-Object action -NE 'saveGuestClockSnapshot')
         $start = [ordered]@{ action = 'startVm'; arm64HyperVProcessorCount = 2; timeoutSeconds = 180 }
         if ($Flow -eq 'GUI') {
             $second.component[0].action | Should -BeExactly 'retry'
@@ -280,6 +426,21 @@ Describe 'KVM replacement ordering' {
 }
 
 Describe 'VM seed overlay contracts' {
+    It 'keeps the shared globalization seed in <Service>' -TestCases @(
+        @{ Service = 'stash-service' }, @{ Service = 'pool-control-service' },
+        @{ Service = 'download-agent-service' }, @{ Service = 'caching-proxy-service' }
+    ) {
+        param($Service)
+        $seed = ConvertFrom-Yaml (Get-Content (Join-Path $script:SeedRoot "$Service.base.user-data") -Raw)
+        $entry = @($seed.write_files | Where-Object { $_.path -eq '/etc/yuruna/globalization.env' })
+        $entry.Count | Should -Be 1
+        $entry[0].owner | Should -BeExactly 'root:root'
+        $entry[0].permissions | Should -BeExactly '0644'
+        $entry[0].content | Should -BeExactly (
+            "YURUNA_LANGUAGE=YURUNA_LANGUAGE_PLACEHOLDER`n" +
+            "YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER`n")
+    }
+
     It 'keeps host.env key order identical across service guests' {
         $expected = $null
         foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service', 'caching-proxy-service') {
@@ -377,7 +538,7 @@ Describe 'VM seed overlay contracts' {
 
 Describe 'Project workload parity' {
     It 'keeps Helm resource blocks aligned with the documented memory exception' {
-        if (-not (Test-Path -LiteralPath $script:ProjectRoot)) { Set-ItResult -Skipped -Because 'Sibling project checkout is absent'; return }
+        Confirm-SiblingCheckout -Path $script:ProjectRoot
         $templates = @(
             @{ Path = 'example/website/workloads/frontend/website/templates/01-website.yml'; Memory = '256Mi' },
             @{ Path = 'example/text-to-sql/workloads/frontend/text-to-sql-ui/templates/01-text-to-sql-ui.yml'; Memory = '128Mi' }
@@ -401,7 +562,7 @@ Describe 'Project workload parity' {
     }
 
     It 'keeps the website Ubuntu workload copies identical' {
-        if (-not (Test-Path $script:ProjectRoot)) { Set-ItResult -Skipped -Because 'Sibling project checkout is absent'; return }
+        Confirm-SiblingCheckout -Path $script:ProjectRoot
         $first = Get-NormalizedSource (Join-Path $script:ProjectRoot 'example/website/test/ubuntu.server.24/ubuntu.server.24.workload.k8s.website.sh')
         $second = Get-NormalizedSource (Join-Path $script:ProjectRoot 'example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh')
         $second | Should -BeExactly $first
@@ -416,7 +577,7 @@ Describe 'Project workload parity' {
     ) {
         param($Flow, $Path24, $Path26)
         $null = $Flow
-        if (-not (Test-Path $script:ProjectRoot)) { Set-ItResult -Skipped -Because 'Sibling project checkout is absent'; return }
+        Confirm-SiblingCheckout -Path $script:ProjectRoot
         $dir = Join-Path $script:ProjectRoot 'example/website/test'
         $first = Get-NormalizedUbuntuSequence -Path (Join-Path $dir $Path24)
         $second = Get-NormalizedUbuntuSequence -Path (Join-Path $dir $Path26)
@@ -434,7 +595,7 @@ Describe 'Project workload parity' {
             TextToSql = 'components/frontend/text-to-sql-ui/Example.Build.psm1' }
     ) {
         param($Family, $Website, $TextToSql)
-        if (-not (Test-Path $script:ProjectRoot)) { Set-ItResult -Skipped -Because 'Sibling project checkout is absent'; return }
+        Confirm-SiblingCheckout -Path $script:ProjectRoot
         $first = Get-Content (Join-Path $script:ProjectRoot "example/website/$Website") -Raw
         $second = Get-Content (Join-Path $script:ProjectRoot "example/text-to-sql/$TextToSql") -Raw
         $first = $first.Replace('website', 'PROJECT') -replace '(?m)^\.GUID .*$', '.GUID ID'
@@ -443,7 +604,7 @@ Describe 'Project workload parity' {
     }
 
     It 'ships the canonical build module in each independent example context' {
-        if (-not (Test-Path -LiteralPath $script:ProjectRoot)) { Set-ItResult -Skipped -Because 'Sibling project checkout is absent'; return }
+        Confirm-SiblingCheckout -Path $script:ProjectRoot
         $canonical = Get-Content -LiteralPath (Join-Path $script:ProjectRoot 'tools/Example.Build.psm1') -Raw
         foreach ($context in 'example/website/components/frontend/website', 'example/text-to-sql/components/frontend/text-to-sql-ui') {
             $bundled = Get-Content -LiteralPath (Join-Path $script:ProjectRoot "$context/Example.Build.psm1") -Raw
@@ -575,7 +736,7 @@ Describe 'Shared source regions' {
 
     It 'keeps service guest lifecycle regions in the common order' {
         $names = @('Initialize environment', 'Detect architecture', 'Load retry helpers',
-            'Service user', 'Service tunables', 'Storage paths', 'Package dependencies',
+            'Service user', 'Load service helpers', 'Service tunables', 'Storage paths', 'Package dependencies',
             'Locate the daemon source', 'Build', 'Install the binary', 'Storage directories',
             'Environment file', 'systemd unit', 'Start the service and wait for readiness')
         foreach ($service in 'download-agent-service', 'pool-control-service', 'stash-service') {
@@ -616,23 +777,14 @@ Describe 'Shared source regions' {
 
     It 'uses only canonical regions in test-sequence YAML' {
         $findings = @()
-        $allowed = @('resource', 'component', 'workload')
         $sequenceFiles = @(Get-ConsistencySourceFile | Where-Object {
             $_.Extension -in @('.yml', '.yaml') -and $_.FullName -match '[\\/]test[\\/]' -and
             (Get-ConsistencySourceText -Path $_.FullName) -match '(?m)^(?:sequenceGuid|sequenceRevision|resource|component|workload):'
         })
         foreach ($file in $sequenceFiles) {
             $text = Get-ConsistencySourceText -Path $file.FullName
-            $markers = [regex]::Matches($text, '(?m)^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)\r?\n(?:(?:[ \t]*# See https://yuruna\.link/[^\r\n]+)\r?\n)*(?<next>[^\r\n]*)')
-            foreach ($marker in $markers) {
-                $name = $marker.Groups['name'].Value
-                $next = $marker.Groups['next'].Value
-                $location = Format-SourceMatch -File $file -Text $text -Match $marker
-                if ($marker.Groups['indent'].Value -or $allowed -cnotcontains $name) {
-                    $findings += "${location}: invalid sequence region '$name'"
-                } elseif ($next -cnotmatch ('^' + [regex]::Escape($name) + ':(?:[ \t].*)?$')) {
-                    $findings += "${location}: '$name' must be immediately followed by '${name}:'"
-                }
+            foreach ($finding in Get-SequenceRegionFinding -Text $text) {
+                $findings += "$($file.FullName): $finding"
             }
         }
         $findings | Should -BeNullOrEmpty -Because 'sequence regions exist only at resource, component, and workload granularity'
@@ -642,13 +794,12 @@ Describe 'Shared source regions' {
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.yml', '.yaml', '.user-data', '.network-config', '.meta-data')) {
             $text = Get-ConsistencySourceText -Path $file.FullName
-            $markers = [regex]::Matches($text,
-                '(?m)^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)\r?\n(?:(?:\k<indent># See https://yuruna\.link/[^\r\n]+)\r?\n)*\k<indent>(?<key>[A-Za-z0-9_.-]+):')
+            $markers = Get-StructuralRegionMatch -Text $text -Kind Yaml
             foreach ($marker in $markers) {
-                $name = $marker.Groups['name'].Value
-                $key = $marker.Groups['key'].Value
+                $name = $marker.Name
+                $key = $marker.Marker
                 if ($name -cne $key) {
-                    $location = Format-SourceMatch -File $file -Text $text -Match $marker
+                    $location = Format-SourceMatch -File $file -Text $text -Match $marker.Match
                     $findings += "${location}: REGION '$name' precedes '$($key):'"
                 }
             }
@@ -660,12 +811,11 @@ Describe 'Shared source regions' {
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.service', '.timer', '.ini', '.cfg', '.sh', '.user-data', '.template')) {
             $text = Get-ConsistencySourceText -Path $file.FullName
-            $markers = [regex]::Matches($text,
-                '(?m)^(?<indent>[ \t]*)# --- REGION: (?<name>[^\r\n]+)\r?\n(?:(?:\k<indent># See https://yuruna\.link/[^\r\n]+)\r?\n)*\k<indent>(?<section>\[[A-Za-z][A-Za-z0-9_. -]*\])[ \t]*\r?$')
+            $markers = Get-StructuralRegionMatch -Text $text -Kind Ini
             foreach ($marker in $markers) {
-                if ($marker.Groups['name'].Value -cne $marker.Groups['section'].Value) {
-                    $location = Format-SourceMatch -File $file -Text $text -Match $marker
-                    $findings += "${location}: REGION '$($marker.Groups['name'].Value)' precedes '$($marker.Groups['section'].Value)'"
+                if ($marker.Name -cne $marker.Marker) {
+                    $location = Format-SourceMatch -File $file -Text $text -Match $marker.Match
+                    $findings += "${location}: REGION '$($marker.Name)' precedes '$($marker.Marker)'"
                 }
             }
         }
@@ -676,14 +826,12 @@ Describe 'Shared source regions' {
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -eq '.html') {
             $text = Get-ConsistencySourceText -Path $file.FullName
-            $markers = [regex]::Matches($text,
-                '(?m)^[ \t]*<!--[ \t]*REGION:[ \t]*(?<name>[^\r\n]*?)[ \t]*-->\r?\n(?:(?:[ \t]*<!--[ \t]*See https://yuruna\.link/[^\r\n]*-->)[ \t]*\r?\n)*[ \t]*<(?<element>[A-Za-z][A-Za-z0-9:-]*)\b',
-                [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+            $markers = Get-StructuralRegionMatch -Text $text -Kind Html
             foreach ($marker in $markers) {
-                $name = $marker.Groups['name'].Value
-                $element = $marker.Groups['element'].Value
+                $name = $marker.Name
+                $element = $marker.Marker
                 if ($name -cne $element) {
-                    $location = Format-SourceMatch -File $file -Text $text -Match $marker
+                    $location = Format-SourceMatch -File $file -Text $text -Match $marker.Match
                     $findings += "${location}: REGION '$name' precedes '<$element>'"
                 }
             }
@@ -695,13 +843,12 @@ Describe 'Shared source regions' {
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.xml', '.plist', '.template')) {
             $text = Get-ConsistencySourceText -Path $file.FullName
-            $markers = [regex]::Matches($text,
-                '(?m)^[ \t]*<!--[ \t]*REGION:[ \t]*(?<name>[^\r\n]*?)[ \t]*-->\r?\n(?:(?:[ \t]*<!--[ \t]*See https://yuruna\.link/[^\r\n]*-->)[ \t]*\r?\n)*[ \t]*(?:<key>(?<key>[^<]+)</key>|<(?<element>[A-Za-z][A-Za-z0-9_.:-]*)\b)')
+            $markers = Get-StructuralRegionMatch -Text $text -Kind Xml
             foreach ($marker in $markers) {
-                $name = $marker.Groups['name'].Value
-                $element = if ($marker.Groups['key'].Success) { $marker.Groups['key'].Value } else { $marker.Groups['element'].Value }
+                $name = $marker.Name
+                $element = $marker.Marker
                 if ($name -cne $element) {
-                    $location = Format-SourceMatch -File $file -Text $text -Match $marker
+                    $location = Format-SourceMatch -File $file -Text $text -Match $marker.Match
                     $findings += "${location}: REGION '$name' precedes '$element'"
                 }
             }
@@ -780,10 +927,218 @@ Describe 'Shared source regions' {
         $findings | Should -BeNullOrEmpty -Because 'help discovery requires function help before attributes and param inside the function body'
     }
 
+    It 'keeps parameter descriptions out of metadata and on their own help lines' {
+        $findings = @()
+        foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.ps1', '.psm1')) {
+            $text = Get-ConsistencySourceText -Path $file.FullName
+            # Most files have neither form; parse only candidates to exclude
+            # fixture strings without walking every function in the workspace.
+            if ($text -notmatch '(?m)^[ \t]*\.PARAMETER[ \t]+\S+[ \t]+\S' -and
+                $text -notmatch '(?is)<#PSScriptInfo\b(?:(?!#>)[\s\S])*?\n[ \t]*\.PARAMETER\b') { continue }
+            $tokens = $null
+            $parseErrors = $null
+            $ast = [Management.Automation.Language.Parser]::ParseInput(
+                $text, [ref]$tokens, [ref]$parseErrors)
+            foreach ($token in $tokens | Where-Object Kind -EQ Comment) {
+                if ($token.Text -match '(?is)^<#PSScriptInfo\b.*?\n[ \t]*\.PARAMETER\b') {
+                    $findings += "$($file.FullName):$($token.Extent.StartLineNumber): parameter help inside PSScriptInfo"
+                }
+            }
+            $helpBodies = @($ast) + @($ast.FindAll({
+                param($node)
+                $node -is [Management.Automation.Language.FunctionDefinitionAst]
+            }, $true) | ForEach-Object Body)
+            foreach ($body in $helpBodies) {
+                $help = $body.GetHelpContent()
+                if ($null -eq $help) { continue }
+                foreach ($name in $help.Parameters.Keys) {
+                    if ($name -match '\s') {
+                        $findings += "$($file.FullName):$($body.Extent.StartLineNumber): malformed parameter help '$name'"
+                    }
+                }
+            }
+        }
+        $findings | Should -BeNullOrEmpty -Because 'PowerShell treats the entire .PARAMETER line as the parameter name and ignores metadata as command help'
+    }
+
+    It 'discovers documented parameters in <Path>' -TestCases @(
+        @{ Path = 'test/Debug-TestSequence.ps1' },
+        @{ Path = 'test/Invoke-TestProject.ps1' },
+        @{ Path = 'test/Start-TestRunner.ps1' },
+        @{ Path = 'test/Test-CachingProxyService.ps1' },
+        @{ Path = 'test/modules/Invoke-TestRunnerInnerLoop.ps1' },
+        @{ Path = 'test/service/Start-CachingProxyServiceVM.ps1' },
+        @{ Path = 'test/service/Start-StashServiceVM.ps1' },
+        @{ Path = 'test/service/Stop-CachingProxyServiceVM.ps1' },
+        @{ Path = 'test/service/Stop-StashServiceVM.ps1' }
+    ) {
+        param($Path)
+        $tokens = $null
+        $parseErrors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $script:RepoRoot $Path), [ref]$tokens, [ref]$parseErrors)
+        $parseErrors | Should -BeNullOrEmpty
+        $help = $ast.GetHelpContent()
+        $help | Should -Not -BeNullOrEmpty
+        $help.Parameters.Count | Should -BeGreaterThan 0
+        $declared = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+        foreach ($name in $help.Parameters.Keys) {
+            $declared | Should -Contain $name -Because 'every documented parameter must map to a callable parameter'
+            $help.Parameters[$name] | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    It 'discovers pseudo-locale help in every service entrypoint' {
+        $paths = @(foreach ($service in 'CachingProxy', 'DownloadAgent', 'PoolControl', 'Stash') {
+            Join-Path $script:RepoRoot "test/service/Start-${service}ServiceVM.ps1"
+        }) + @(foreach ($hostKind in 'windows.hyper-v', 'macos.utm', 'ubuntu.kvm') {
+            foreach ($service in 'caching-proxy', 'download-agent', 'pool-control', 'stash') {
+                Join-Path $script:RepoRoot "host/$hostKind/guest.$service-service/New-VM.ps1"
+            }
+        })
+        foreach ($path in $paths) {
+            $tokens = $null
+            $parseErrors = $null
+            $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$parseErrors)
+            $parseErrors | Should -BeNullOrEmpty
+            $help = $ast.GetHelpContent()
+            $help | Should -Not -BeNullOrEmpty -Because "$path needs discoverable script help"
+            $help.Parameters['ALLOWPSEUDOLOCALE'] | Should -Not -BeNullOrEmpty -Because "$path documents its locale switch in command help"
+        }
+    }
+
     It 'keeps both short-link entry pages identical' {
-        if (-not (Test-Path $script:LinkRoot)) { Set-ItResult -Skipped -Because 'Sibling link checkout is absent'; return }
+        Confirm-SiblingCheckout -Path $script:LinkRoot
         (Get-Content (Join-Path $script:LinkRoot 'index.html') -Raw) |
             Should -BeExactly (Get-Content (Join-Path $script:LinkRoot '404.html') -Raw)
+    }
+}
+
+Describe 'Consistency source inventory' {
+    It 'enrolls <Path>' -TestCases @(
+        @{ Path = 'tools/test_navigation.cjs' },
+        @{ Path = 'tools/test_navigation.test.cjs' },
+        @{ Path = 'src/module.mjs' },
+        @{ Path = 'src/component.tsx' },
+        @{ Path = 'src/component.jsx' },
+        @{ Path = 'src/config.ts' },
+        @{ Path = 'globalization/generated/powershell/en-US.psd1' },
+        @{ Path = 'test/status/yuruna.common.css' },
+        @{ Path = 'components/site/Dockerfile' },
+        @{ Path = 'components/site/Dockerfile.debug' },
+        @{ Path = 'tools/githooks/pre-commit' },
+        @{ Path = 'tools\githooks\pre-push' },
+        @{ Path = '.gitattributes' },
+        @{ Path = '.gitignore' },
+        @{ Path = 'global/resources/localhost/registry/localhost-registry.tf' },
+        @{ Path = 'config/environment.tfvars' },
+        @{ Path = 'config/settings.toml' },
+        @{ Path = 'test/runtime.ps1' },
+        @{ Path = 'test/binocular.ps1' }
+    ) {
+        param($Path)
+        Test-ConsistencySourcePath -Path $Path | Should -BeTrue
+    }
+
+    It 'excludes <Path>' -TestCases @(
+        @{ Path = 'docs/source-consistency.md' },
+        @{ Path = 'fixtures/source.patch' },
+        @{ Path = 'assets/image.png' },
+        @{ Path = 'node_modules/example/script.cjs' },
+        @{ Path = 'src/vendor/script.mjs' },
+        @{ Path = 'src/bin/module.ps1' },
+        @{ Path = 'src/obj/module.ps1' },
+        @{ Path = 'test/status/runtime/generated.ps1' },
+        @{ Path = '.test-results/generated.ps1' },
+        @{ Path = 'test\status\runtime\generated.ps1' }
+    ) {
+        param($Path)
+        Test-ConsistencySourcePath -Path $Path | Should -BeFalse
+    }
+
+    It 'audits the maintained CommonJS, Dockerfile and Git hook blocks' {
+        $paths = @(Get-ConsistencySourceFile | ForEach-Object FullName)
+        $paths | Should -Contain (Join-Path $script:RepoRoot '.gitattributes')
+        foreach ($relative in 'tools/test_navigation.cjs', 'tools/test_navigation.test.cjs',
+            'example/website/components/frontend/website/Dockerfile', 'tools/githooks/pre-commit') {
+            $paths | Should -Contain (Join-Path $script:ProjectRoot $relative)
+        }
+    }
+}
+
+Describe 'Sequence region guard fixtures' {
+    It 'accepts <Name>' -TestCases @(
+        @{ Name = 'a resource region'; Text = "# --- REGION: resource`nresource: {}" },
+        @{ Name = 'ordinary documentation beside a component region'; Text = "# --- REGION: component`n# See https://yuruna.link/42e220c4-0011`n# Console readiness.`ncomponent: []" },
+        @{ Name = 'CRLF and a workload region'; Text = "# --- REGION: workload`r`nworkload: []`r`n" }
+    ) {
+        param($Name, $Text)
+        $null = $Name
+        @(Get-SequenceRegionFinding -Text $Text) | Should -BeNullOrEmpty
+    }
+
+    It 'rejects <Name>' -TestCases @(
+        @{ Name = 'an unmarked resource'; Text = 'resource: {}' },
+        @{ Name = 'an unmarked component'; Text = 'component: []' },
+        @{ Name = 'an unmarked workload'; Text = 'workload: []' },
+        @{ Name = 'different marker case'; Text = "# --- REGION: Resource`nresource: {}" },
+        @{ Name = 'a variable region'; Text = "# --- REGION: variables`nvariables: {}" },
+        @{ Name = 'an action region'; Text = "# --- REGION: action`n- action: waitForText" },
+        @{ Name = 'a nested component region'; Text = "  # --- REGION: component`n  component: []" },
+        @{ Name = 'a documentation link as a structural region'; Text = "# --- REGION: https://yuruna.link/42e220c4-0011`ncomponent: []" },
+        @{ Name = 'a blank line after the region'; Text = "# --- REGION: component`n`ncomponent: []" },
+        @{ Name = 'a blank line after its documentation'; Text = "# --- REGION: component`n# See https://yuruna.link/42e220c4-0011`n`ncomponent: []" },
+        @{ Name = 'a region introducing the wrong key'; Text = "# --- REGION: resource`ncomponent: []" },
+        @{ Name = 'a region without a block'; Text = '# --- REGION: workload' }
+    ) {
+        param($Name, $Text)
+        $null = $Name
+        @(Get-SequenceRegionFinding -Text $Text).Count | Should -BeGreaterThan 0
+    }
+}
+
+Describe 'Structural region guard fixtures' {
+    It 'compares the exact marker across ordinary comments for <Name>' -TestCases @(
+        @{ Name = 'YAML quoted key'; Kind = 'Yaml'; Region = 'network'; Marker = 'network'; Text = "# --- REGION: network`n# Inline constraint`n# See https://yuruna.link/42e220c4-0006`n'network' : {}" },
+        @{ Name = 'YAML indented comment'; Kind = 'Yaml'; Region = 'Wrong'; Marker = 'network'; Text = "# --- REGION: Wrong`n  # Inline constraint`nnetwork: {}" },
+        @{ Name = 'YAML quoted spaces and colon'; Kind = 'Yaml'; Region = 'network settings: local'; Marker = 'network settings: local'; Text = "# --- REGION: network settings: local`n  # Inline constraint`n'network settings: local': {}" },
+        @{ Name = 'YAML escaped single quote'; Kind = 'Yaml'; Region = "user's settings"; Marker = "user's settings"; Text = "# --- REGION: user's settings`n'user''s settings': {}" },
+        @{ Name = 'YAML escaped double quote'; Kind = 'Yaml'; Region = 'network "settings"'; Marker = 'network "settings"'; Text = ('# --- REGION: network "settings"' + "`n" + '"network \"settings\"": {}') },
+        @{ Name = 'INI indented comment'; Kind = 'Ini'; Region = '[service]'; Marker = '[Service]'; Text = "# --- REGION: [service]`n  ; Inline constraint`n[Service]" },
+        @{ Name = 'YAML case mismatch'; Kind = 'Yaml'; Region = 'Network'; Marker = 'network'; Text = "# --- REGION: Network`n# Inline constraint`nnetwork: {}" },
+        @{ Name = 'YAML nested quoted key with CRLF'; Kind = 'Yaml'; Region = 'Network'; Marker = 'network'; Text = "  # --- REGION: Network`r`n  # Inline constraint`r`n  `"network`": {}" },
+        @{ Name = 'INI semicolon comment'; Kind = 'Ini'; Region = '[service]'; Marker = '[Service]'; Text = "# --- REGION: [service]`n; Inline constraint`n[Service]" },
+        @{ Name = 'INI hash comment'; Kind = 'Ini'; Region = '[Service]'; Marker = '[Service]'; Text = "# --- REGION: [Service]`n# Inline constraint`n[Service]" },
+        @{ Name = 'HTML ordinary comment'; Kind = 'Html'; Region = 'Main'; Marker = 'main'; Text = "<!-- REGION: Main -->`n<!-- Inline constraint -->`n<main>" },
+        @{ Name = 'HTML link and CRLF'; Kind = 'Html'; Region = 'main'; Marker = 'main'; Text = "<!-- REGION: main -->`r`n<!-- See https://yuruna.link/42e220c4-000a -->`r`n<main>" },
+        @{ Name = 'plist key comment'; Kind = 'Xml'; Region = 'Name'; Marker = 'name'; Text = "<!-- REGION: Name -->`n<!-- Inline constraint -->`n<key>name</key>" },
+        @{ Name = 'XML element comment'; Kind = 'Xml'; Region = 'settings'; Marker = 'settings'; Text = "<!-- REGION: settings -->`n<!-- Inline constraint -->`n<settings>" }
+    ) {
+        param($Kind, $Region, $Marker, $Text)
+        $regionMatches = @(Get-StructuralRegionMatch -Text $Text -Kind $Kind)
+        $regionMatches.Count | Should -Be 1
+        $regionMatches[0].Name | Should -BeExactly $Region
+        $regionMatches[0].Marker | Should -BeExactly $Marker
+        ($regionMatches[0].Name -cne $regionMatches[0].Marker) | Should -Be ($Region -cne $Marker)
+    }
+
+    It 'does not bridge another block for <Name>' -TestCases @(
+        @{ Name = 'YAML blank line'; Kind = 'Yaml'; ExpectedCount = 0; Text = "# --- REGION: Outer`n`nnetwork: {}" },
+        @{ Name = 'YAML changed indentation'; Kind = 'Yaml'; ExpectedCount = 0; Text = "# --- REGION: Outer`n  network: {}" },
+        @{ Name = 'YAML second region'; Kind = 'Yaml'; ExpectedCount = 1; Text = "# --- REGION: Outer`n# --- REGION: network`nnetwork: {}" },
+        @{ Name = 'INI blank line'; Kind = 'Ini'; ExpectedCount = 0; Text = "# --- REGION: Outer`n`n[Service]" },
+        @{ Name = 'INI second region'; Kind = 'Ini'; ExpectedCount = 1; Text = "# --- REGION: Outer`n# --- REGION: [Service]`n[Service]" },
+        @{ Name = 'HTML blank line'; Kind = 'Html'; ExpectedCount = 0; Text = "<!-- REGION: Outer -->`n`n<main>" },
+        @{ Name = 'HTML second region'; Kind = 'Html'; ExpectedCount = 1; Text = "<!-- REGION: Outer -->`n<!-- REGION: main -->`n<main>" },
+        @{ Name = 'XML blank line'; Kind = 'Xml'; ExpectedCount = 0; Text = "<!-- REGION: Outer -->`n`n<key>Name</key>" },
+        @{ Name = 'XML second region'; Kind = 'Xml'; ExpectedCount = 1; Text = "<!-- REGION: Outer -->`n<!-- REGION: Name -->`n<key>Name</key>" }
+    ) {
+        param($Kind, $Text, $ExpectedCount)
+        $regionMatches = @(Get-StructuralRegionMatch -Text $Text -Kind $Kind)
+        $regionMatches.Count | Should -Be $ExpectedCount
+        foreach ($match in $regionMatches) {
+            $match.Name | Should -Not -BeExactly 'Outer'
+        }
     }
 }
 
@@ -810,5 +1165,99 @@ Describe 'Stable documentation anchors beside legacy aliases' {
     It 'does not take an id across intervening document content' {
         $lines = @('<a id="42abcdef-0003"></a>', 'A paragraph.', '', '## New heading')
         Get-ExistingAnchor -Line $lines -HeadingIndex 3 | Should -BeNullOrEmpty
+    }
+
+    It 'preserves a title anchor below the first H1 with <Layout>' -TestCases @(
+        @{ Layout = 'no blank lines'; Lines = @('# Title', '<a id="42abcdef-0001"></a>', 'Purpose.'); Index = 1 },
+        @{ Layout = 'blank lines'; Lines = @('# Title', '', '<a id="42abcdef-0001"></a>', '', 'Purpose.'); Index = 2 },
+        @{ Layout = 'a legacy title alias'; Lines = @('# Title', '', '<a id="42abcdef-0001"></a>', '<a id="old-title"></a>', '', 'Purpose.'); Index = 2 },
+        @{ Layout = 'no introductory text'; Lines = @('# Title', '', '<a id="42abcdef-0001"></a>'); Index = 2 }
+    ) {
+        param($Lines, $Index)
+        $found = Get-ExistingAnchor -Line $Lines -HeadingIndex 0
+        $found.File | Should -BeExactly '42abcdef'
+        $found.Anchor | Should -BeExactly '0001'
+        $found.Index | Should -Be $Index
+    }
+
+    It 'does not borrow a following anchor for <Layout>' -TestCases @(
+        @{ Layout = 'a subsection'; Lines = @('## Title', '', '<a id="42abcdef-0001"></a>', '', 'Purpose.'); HeadingIndex = 0 },
+        @{ Layout = 'a later H1'; Lines = @('Introduction.', '# Title', '', '<a id="42abcdef-0001"></a>', '', 'Purpose.'); HeadingIndex = 1 },
+        @{ Layout = 'intervening prose'; Lines = @('# Title', '', 'Purpose.', '', '<a id="42abcdef-0001"></a>'); HeadingIndex = 0 },
+        @{ Layout = 'the next section'; Lines = @('# Title', '', '<a id="42abcdef-0002"></a>', '', '## Section'); HeadingIndex = 0 },
+        @{ Layout = 'the next section with a legacy alias'; Lines = @('# Title', '', '<a id="42abcdef-0002"></a>', '<a id="old-section"></a>', '', '## Section'); HeadingIndex = 0 }
+    ) {
+        param($Lines, $HeadingIndex)
+        Get-ExistingAnchor -Line $Lines -HeadingIndex $HeadingIndex | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Explicit documentation anchor uniqueness' {
+    It 'keeps IDs unique within each enrolled Markdown document' {
+        $roots = @{ yuruna = $script:RepoRoot; 'yuruna-project' = $script:ProjectRoot; 'yuruna.link' = $script:LinkRoot }
+        $paths = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $registry = Get-Content (Join-Path $script:RepoRoot 'globalization/manifests/doc-anchors.json') -Raw | ConvertFrom-Json
+        foreach ($document in $registry.files | Where-Object { $roots.ContainsKey($_.repo) }) {
+            $null = $paths.Add((Join-Path $roots[$document.repo] $document.source))
+            foreach ($translation in $document.translations.PSObject.Properties) {
+                $null = $paths.Add((Join-Path $roots[$document.repo] ([string]$translation.Value)))
+            }
+        }
+        $translations = Get-Content (Join-Path $script:RepoRoot 'globalization/manifests/doc-translations.json') -Raw | ConvertFrom-Json
+        foreach ($document in $translations.documents | Where-Object { $roots.ContainsKey($_.repo) }) {
+            $null = $paths.Add((Join-Path $roots[$document.repo] $document.source))
+            $null = $paths.Add((Join-Path $roots[$document.repo] $document.translated))
+        }
+        $null = $paths.Add((Join-Path $script:RepoRoot 'docs/source-consistency.md'))
+        $null = $paths.Add((Join-Path $script:LinkRoot 'README.md'))
+        $findings = @()
+        foreach ($path in $paths | Sort-Object) {
+            $path | Should -Exist
+            foreach ($finding in Get-DuplicateDocumentationAnchorFinding -Text ([IO.File]::ReadAllText($path))) {
+                $findings += "${path}:$($finding.Line): duplicate id '$($finding.Id)' (first at line $($finding.FirstLine))"
+            }
+        }
+        $findings | Should -BeNullOrEmpty -Because 'an explicit ID identifies exactly one location inside a document'
+    }
+
+    It 'accepts <Name>' -TestCases @(
+        @{ Name = 'distinct stable and legacy aliases'; Text = "<a id=`"42abcdef-0003`"></a>`n<a id=`"old-heading`"></a>`n## Heading" },
+        @{ Name = 'case-distinct HTML IDs'; Text = '<a id="Topic"></a><a id="topic"></a>' },
+        @{ Name = 'backtick fenced examples'; Text = '<a id="topic"></a>' + "`n" + '```html' + "`n" + '<a id="topic"></a>' + "`n" + '```' },
+        @{ Name = 'a longer tilde fence with a shorter interior fence'; Text = "~~~~html`n<a id=`"topic`"></a>`n~~~`n<a id=`"topic`"></a>`n~~~~`n<a id=`"topic`"></a>" },
+        @{ Name = 'inline code examples'; Text = '`<a id="topic"></a>` and `<a id="topic"></a>`' },
+        @{ Name = 'HTML comments'; Text = "<!--`n<a id=`"topic`"></a>`n<a id=`"topic`"></a>`n-->`n<a id=`"topic`"></a>" },
+        @{ Name = 'ID-like text inside other attributes'; Text = '<a title=''id="topic"'' id="first"></a><div title=''id="topic"'' id="second"></div>' },
+        @{ Name = 'data-id attributes'; Text = '<div data-id="topic"></div><div data-id="topic"></div>' },
+        @{ Name = 'an empty document'; Text = '' }
+    ) {
+        param($Name, $Text)
+        $null = $Name
+        @(Get-DuplicateDocumentationAnchorFinding -Text $Text) | Should -BeNullOrEmpty
+    }
+
+    It 'rejects <Name> and reports both locations' -TestCases @(
+        @{ Name = 'repeated stable IDs on separate headings'; Text = "<a id=`"topic`"></a>`n## First`n<a id=`"topic`"></a>`n## Second"; Id = 'topic'; First = 1; Repeat = 3 },
+        @{ Name = 'repeated heading-adjacent IDs'; Text = "<a id=`"42abcdef-0003`"></a>`n`n<a id=`"42abcdef-0003`"></a>`n`n## Heading"; Id = '42abcdef-0003'; First = 1; Repeat = 3 },
+        @{ Name = 'repeated legacy aliases'; Text = "<a id=`"old-heading`"></a>`n<a id=`"old-heading`"></a>"; Id = 'old-heading'; First = 1; Repeat = 2 },
+        @{ Name = 'mixed HTML tag, attribute case and quoting'; Text = "<a ID='topic'></a>`n<div id=topic></div>"; Id = 'topic'; First = 1; Repeat = 2 },
+        @{ Name = 'repeated explicit Markdown heading IDs'; Text = "## First {#topic}`n## Second {#topic}"; Id = 'topic'; First = 1; Repeat = 2 },
+        @{ Name = 'a Markdown ID repeated by HTML'; Text = "## First {#topic}`n<a id=`"topic`"></a>"; Id = 'topic'; First = 1; Repeat = 2 },
+        @{ Name = 'equivalent HTML entity IDs'; Text = "<a id='topic&#45;one'></a>`n<div id=topic-one></div>"; Id = 'topic-one'; First = 1; Repeat = 2 },
+        @{ Name = 'CRLF locations'; Text = "<a id=`"topic`"></a>`r`nA paragraph.`r`n<a id=`"topic`"></a>"; Id = 'topic'; First = 1; Repeat = 3 }
+    ) {
+        param($Name, $Text, $Id, $First, $Repeat)
+        $null = $Name
+        $found = @(Get-DuplicateDocumentationAnchorFinding -Text $Text)
+        $found.Count | Should -Be 1
+        $found[0].Id | Should -BeExactly $Id
+        $found[0].FirstLine | Should -Be $First
+        $found[0].Line | Should -Be $Repeat
+    }
+
+    It 'allows separate documents to reuse an ID without retaining prior state' {
+        $text = '<a id="42abcdef-0003"></a>'
+        @(Get-DuplicateDocumentationAnchorFinding -Text $text) | Should -BeNullOrEmpty
+        @(Get-DuplicateDocumentationAnchorFinding -Text $text) | Should -BeNullOrEmpty
     }
 }

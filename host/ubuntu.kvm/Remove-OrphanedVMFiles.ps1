@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 429b56f1-0d8f-43a6-a6dc-445eb58c952f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,13 +64,8 @@ $_vmCleanupMod  = Join-Path $_repoRoot 'host/modules/Yuruna.VMCleanup.psm1'
 Import-Module -Name $_vmCleanupMod -Force
 Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
 
-# Auto-relaunch under sg libvirt when this shell's running supplementary
-# group set lacks libvirt. The virsh call at "Enumerate registered
-# libvirt domains" below talks directly to /var/run/libvirt/libvirt-sock
-# (no sudo), so a stale-group shell fails with "Permission denied".
-# Helper lives in test/modules/Test.HostContract.psm1 (sibling tree); resolve it
-# relative to this script's location since the host driver and the test
-# harness don't share a CWD assumption.
+# Refresh stale libvirt group membership before accessing the system socket.
+# See https://yuruna.link/42e220c4-0004
 $_testHost   = Join-Path $_repoRoot 'test/modules/Test.HostContract.psm1'
 if (Test-Path $_testHost) {
     Import-Module $_testHost -Force
@@ -146,9 +141,7 @@ $orphanedItems = [System.Collections.Generic.List[hashtable]]::new()
 $dirs = @(Get-ChildItem -LiteralPath $vmRoot -Directory -ErrorAction SilentlyContinue)
 foreach ($d in $dirs) {
     if ($registered.ContainsKey($d.Name)) { continue }
-    $sum = (Get-ChildItem -LiteralPath $d.FullName -Recurse -File -ErrorAction SilentlyContinue |
-        Measure-Object -Property Length -Sum).Sum
-    $size = if ($null -eq $sum) { 0 } else { [int64]$sum }
+    $size = Get-VMFolderSize -Path $d.FullName
     $orphanedItems.Add(@{ Name = $d.Name; Path = $d.FullName; Size = $size })
 }
 
@@ -229,3 +222,4 @@ if ($errors -eq 0) {
 } else {
     Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_42dbc0a404948dc9' -Arguments @{ errors = "$errors" })
 }
+exit ([int]($errors -gt 0))

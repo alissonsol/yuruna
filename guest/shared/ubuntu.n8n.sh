@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -44,11 +44,13 @@ set -eo pipefail
 # NVM installer is idempotent -- re-running updates an existing install
 export NVM_DIR="$HOME/.nvm"
 wget_try -qO- "https://raw.githubusercontent.com/nvm-sh/nvm/v${YURUNA_NVM_VERSION}/install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | bash
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use
 [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
 
 # nvm reinstalls Node gracefully if already present
 nvm install "${YURUNA_NODE_MAJOR}"
+# Future workload shells must select the same major when NVM initializes.
+nvm alias default "${YURUNA_NODE_MAJOR}"
 
 # --- REGION: Install n8n
 echo ""
@@ -56,20 +58,31 @@ echo -e "\e[1;36m==== n8n ====\e[0m"
 npm install -g n8n
 EOF
 
-# Make node, npm, and n8n available to all users by symlinking to /usr/local/bin
-NVM_BIN=$(bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; dirname "$(which node)"')
-if [ -n "$NVM_BIN" ]; then
-    sudo ln -sf "$NVM_BIN/node" /usr/local/bin/node
-    sudo ln -sf "$NVM_BIN/npm" /usr/local/bin/npm
-    sudo ln -sf "$NVM_BIN/n8n" /usr/local/bin/n8n
-fi
+# --- REGION: Expose installed commands
+# See https://yuruna.link/42e220c4-000e
+# Select the installed major explicitly; NVM's saved default may name another version.
+NVM_BIN=$(bash -eo pipefail -c '
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] || { echo "NVM initialization file is missing" >&2; exit 1; }
+    . "$NVM_DIR/nvm.sh" --no-use
+    NODE_PATH=$(nvm which "${YURUNA_NODE_MAJOR}")
+    [ -x "$NODE_PATH" ] || { echo "Selected Node.js executable is missing: $NODE_PATH" >&2; exit 1; }
+    dirname "$NODE_PATH"
+')
+for executable in node npm n8n; do
+    [ -x "$NVM_BIN/$executable" ] || { echo "Installed executable is missing: $NVM_BIN/$executable" >&2; exit 1; }
+done
+sudo ln -sf "$NVM_BIN/node" /usr/local/bin/node
+sudo ln -sf "$NVM_BIN/npm" /usr/local/bin/npm
+sudo ln -sf "$NVM_BIN/n8n" /usr/local/bin/n8n
 
 # --- REGION: Installation summary
 echo ""
 echo "== Installation Summary =="
-bash -c '
+bash -eo pipefail -c '
     export NVM_DIR="$HOME/.nvm"
-    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use
+    nvm use --silent "${YURUNA_NODE_MAJOR}"
     echo "Node.js: $(node --version)"
     echo "npm: $(npm --version)"
     echo "n8n: $(n8n --version)"

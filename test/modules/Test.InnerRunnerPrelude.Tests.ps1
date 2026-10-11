@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a8a29c-b477-4fc9-8825-b4aabcec2cc6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,19 +37,17 @@
         exit with $ExitFailure (Get-EntryPointExitCode -Outcome Failure), so the
         canonical exit contract is honored everywhere.
 
-    The throw-free Should assertions run under Pester 4.10.1.
+    The throw-free Should assertions run under Pester 5.x.
 #>
 
 BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $script = Join-Path $here 'Invoke-TestRunnerInnerLoop.ps1'
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-ScriptAst {
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($script): $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $script
 }
 
 # Count of `exit <arg>` statements whose argument text is exactly $ArgText.

@@ -90,7 +90,7 @@ packages:
   - prometheus-node-exporter
   - grafana
   - loki
-  - [alloy, "1.20.0-1"]
+  - [alloy, "1.20.1-1"]
   # --- REGION: https://yuruna.link/429f3d06-0039
   - acl
   - golang-go
@@ -260,17 +260,13 @@ write_files:
       # Covers anonymous registries; authenticated Docker Hub has a separate gate.
       refresh_pattern -i /v2/.+/manifests/[^/]+$        60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
 
-      # Blob bodies are already persisted by the OCI cache that fetched them;
-      # storing a second copy here buys no hit and spends cache_dir against
-      # the install images it is sized for. Manifests -- small, and the thing
-      # the gate above exists to keep -- are unaffected.
+      # See https://yuruna.link/429f3d06-0042
+      # Keep OCI blobs in zot; Squid still caches the small manifests.
       acl yuruna_oci_blob urlpath_regex /v2/.+/blobs/
       store_miss deny yuruna_oci_blob
 
-      # Registry bearer tokens are short-lived credentials, and a replayed one
-      # is both a stale-auth failure and a credential living longer than its
-      # issuer intended. Token mints are not metered; there is nothing to save
-      # here and something to lose.
+      # See https://yuruna.link/42f6b05f-0021
+      # Never cache short-lived registry bearer tokens.
       acl yuruna_registry_auth dstdomain auth.docker.io auth.ghcr.io
       cache deny yuruna_registry_auth
 
@@ -423,10 +419,8 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
-      # 90d retention + 12GB size-cap safety net; /var/lib/prometheus is on the
-      # VM root fs, so a VM rebuild empties it until pool-history-backfill writes
-      # the host timeline back through the remote-write receiver (loopback only,
-      # like the rest of this listener).
+      # See https://yuruna.link/429f3d06-0046
+      # Bound retention to 90 days/12 GB; backfill restores history after rebuilds.
       ARGS="--web.listen-address=127.0.0.1:9090 --storage.tsdb.retention.time=90d --storage.tsdb.retention.size=12GB --web.enable-remote-write-receiver"
   - path: /etc/default/prometheus-node-exporter
     permissions: '0644'
@@ -465,10 +459,8 @@ write_files:
           metrics_path: /squid-meta
           static_configs:
             - targets: ['localhost:80']
-        # zot metadata: canary that TIMES a manifest request and reads the shared
-        # pull budget, served via Apache like squid-meta -- zot's own /metrics keeps
-        # answering in milliseconds while the sync path behind it is stalled, so the
-        # subject cannot be the reporter. The timer, not the 15s scrape, paces the probe.
+        # See https://yuruna.link/429f3d06-004b
+        # The timer measures manifest latency; zot /metrics can stay healthy during a sync stall.
         - job_name: zot_meta
           metrics_path: /zot-meta
           static_configs:
@@ -787,19 +779,14 @@ write_files:
       [ -n "$MANIFEST_SECONDS" ] || MANIFEST_SECONDS=0
       MANIFEST_OK=0
       [ "$MANIFEST_CODE" = "200" ] && MANIFEST_OK=1
-      # Compared in awk because the elapsed time is fractional and the shell's
-      # test builtin rejects a non-integer operand outright: -le on "30.412"
-      # errors instead of answering, which under set +e would leave the verdict
-      # silently at 0 for every reading that carries a decimal.
+      # Compare fractional seconds in awk; shell integer tests reject them.
       MANIFEST_UNDER_PATIENCE=0
       if [ "$MANIFEST_OK" = 1 ] && awk -v s="$MANIFEST_SECONDS" -v p="$CLIENT_PATIENCE" 'BEGIN{exit !(s<=p)}'; then
           MANIFEST_UNDER_PATIENCE=1
       fi
 
-      # Upstream leg, measured WITHOUT spending pull budget: /v2/ answers 401 on
-      # every registry here and costs no quota, so this separates "the internet
-      # is slow from this VM" from "zot is slow" without becoming a second
-      # consumer of the limit the gauge below reports.
+      # See https://yuruna.link/429f3d06-004b
+      # Probe /v2/ without spending pull quota; an HTTP 401 proves reachability.
       UPSTREAMS='registry-1.docker.io mirror.gcr.io registry.k8s.io ghcr.io quay.io gcr.io public.ecr.aws mcr.microsoft.com'
       for U in $UPSTREAMS; do
           R=$(curl -s -o /dev/null --noproxy '*' -m 10 -w '%{http_code} %{time_total}' "https://${U}/v2/" 2>/dev/null)
@@ -1238,10 +1225,8 @@ write_files:
       Description=Run zot-meta-exporter every 10 minutes
       # --- REGION: [Timer]
       [Timer]
-      # Slower than the 30s squid probe: the canary walks a full mutable-tag
-      # revalidation, too heavy for a 30-second loop. Not a budget question --
-      # the canary's upstream meters nothing, and the one metered read in the
-      # script rate-limits itself to hourly internally.
+      # See https://yuruna.link/429f3d06-004b
+      # Manifest revalidation runs every ten minutes; the metered budget read is hourly.
       OnBootSec=90s
       OnUnitActiveSec=10min
       AccuracySec=30s
@@ -1266,10 +1251,8 @@ write_files:
       LOCK_FILE="$STATE_DIR/prewarm.lock"
       ZOT='http://127.0.0.1:5000'
 
-      # Per-image ceiling. Wide on purpose: it exists to stop a wedged upstream
-      # pinning this unit forever, not to express what is acceptable. A cold
-      # multi-arch control-plane image legitimately takes minutes, and cutting it
-      # short would abandon a sync the next run then has to start over.
+      # See https://yuruna.link/42f6b05f-0020
+      # Allow cold multi-arch syncs to finish while bounding a wedged upstream.
       PREWARM_MAX=900
       # Above this, the request moved content rather than revalidating a tag the
       # cache already held: local storage answers in milliseconds, so a reading
@@ -1348,10 +1331,8 @@ write_files:
           find "$STATE_DIR" -maxdepth 1 -name 'kubeadm-*' ! -name "kubeadm-${K8S_PATCH}-${DEB_ARCH}" -delete 2>/dev/null
       fi
 
-      # Flannel tracks latest rather than a pin, so its tag is resolved exactly
-      # the way the guest resolves it -- follow the release redirect, then read
-      # the image names out of the manifest the guest applies. Same two hops,
-      # same answer, no third place to keep in step.
+      # See https://yuruna.link/42f6b05f-0020
+      # Resolve the latest tag and its manifest exactly as the guest does.
       FLANNEL_TAG=$(curl -fsSI --noproxy '*' -m 20 \
           "https://github.com/flannel-io/flannel/releases/latest" 2>/dev/null \
           | tr -d '\r' | awk 'tolower($1)=="location:"{n=split($2,a,"/"); print a[n]}')
@@ -1378,10 +1359,8 @@ write_files:
       ROWS_TMP=$(mktemp)
       META_TMP=$(mktemp)
       PROGRESS_FILE="$STATE_DIR/prewarm-progress"
-      # The progress marker is removed on ANY exit, including a kill mid-sync: a
-      # marker outliving its run would report a fetch still in flight forever,
-      # and "the cache is busy, wait" is the one line here an operator acts on
-      # by NOT re-running.
+      # See https://yuruna.link/42f6b05f-0020
+      # Remove stale progress on exit so operators do not wait for a finished run.
       trap 'rm -f "$SET_TMP" "$ROWS_TMP" "$META_TMP" "$PROGRESS_FILE"' EXIT
       for r in $K8S_REFS; do printf 'k8s\t%s\n' "$r" >> "$SET_TMP"; done
       for r in $CNI_REFS; do printf 'cni\t%s\n' "$r" >> "$SET_TMP"; done
@@ -1424,10 +1403,8 @@ write_files:
       rm -f "$PROGRESS_FILE"
       install -m 0644 "$ROWS_TMP" "$ROWS_FILE"
 
-      # The watermark answers what a resident/total count cannot: how long a
-      # guest waits when the set is NOT held. Kept per resolved version and
-      # reset when that version moves, because how long an older image set took
-      # to arrive says nothing about the current one.
+      # See https://yuruna.link/42f6b05f-0020
+      # Keep the cold-sync watermark per resolved version; reset it when versions move.
       PREV_WATERMARK=0
       PREV_WATERMARK_REF=""
       YURUNA_PREWARM_WATERMARK=""
@@ -2757,9 +2734,7 @@ write_files:
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/yuruna-fit-pool-dashboard.py
-      # Reads host counts from Prometheus on loopback and rewrites the
-      # provisioned dashboard in place, so the dashboard directory is the only
-      # writable path.
+      # Reads host counts from loopback Prometheus and rewrites the dashboard in place; the dashboard directory is the only writable path.
       ProtectSystem=strict
       ReadWritePaths=/var/lib/grafana/dashboards
       ProtectHome=true
@@ -2790,9 +2765,7 @@ write_files:
       [Install]
       WantedBy=timers.target
   # See https://yuruna.link/429f3d06-0057
-  # Which enlistment built this cache. Nothing else on the VM records it: the
-  # guest is handed built artifacts, never the framework repository, so the
-  # answer has to be seeded or it is unavailable for the life of the VM.
+  # Seed build provenance; this VM receives artifacts rather than the framework checkout.
   - path: /etc/yuruna/brand.env
     permissions: '0644'
     owner: root:root
@@ -2904,10 +2877,8 @@ write_files:
               # uses: monospace and muted, subordinate to the name beside it.
               parts.append("`v" + version + "`")
           if not ours:
-              # The banner otherwise files upstream content alongside ours with
-              # nothing to tell them apart, and this board has had no
-              # accessibility assessment and no review of any other kind. Say so
-              # on the board itself, where an operator reading it will see it.
+              # See https://yuruna.link/429f3d06-0058
+              # Identify unmodified community dashboards without implying a local review.
               parts.append("_Community dashboard, unmodified_")
           return SENTINEL + "\n\n" + SEPARATOR.join(parts)
 
@@ -3039,9 +3010,7 @@ write_files:
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/yuruna-brand-dashboards.py
-      # Reads a seeded env file and rewrites the provisioned dashboards in
-      # place, so the dashboard directory is the only writable path -- and it
-      # talks to nothing, which is what PrivateNetwork records.
+      # Reads a seeded env file and rewrites the provisioned dashboards in place; the dashboard directory is the only writable path, and it talks to nothing, as PrivateNetwork records.
       ProtectSystem=strict
       ReadWritePaths=/var/lib/grafana/dashboards
       ProtectHome=true
@@ -3792,10 +3761,8 @@ write_files:
       YPOOL_NAS_NETWORK_USER='YPOOL_NAS_NETWORK_USER_PLACEHOLDER'
       YPOOL_NAS_HOST_ID='YPOOL_NAS_HOST_ID_PLACEHOLDER'
       YPOOL_NAS_MOUNT='/mnt/ypool-nas'
-  # /etc/yuruna/ypool-nas.cifs.cred is deliberately NOT baked: yuruna-config-fetch.sh
-  # writes it (0600) at runtime from the config service (/v1/nas/pool), so
-  # rotation needs no rebuild and the plaintext pool password never ships in the seed.iso.
   # See https://yuruna.link/429f3d06-005f
+  # Fetch root-only NAS credentials at runtime so rotation needs no seed rebuild.
   - path: /etc/yuruna/internal-auth.key
     permissions: '0640'
     owner: root:proxy
@@ -3887,9 +3854,7 @@ runcmd:
   # a reload to take effect on this boot rather than only on the next one.
   - systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
   # === YURUNA_OVERLAY_RUNCMD_NET ===
-  # Enabled early: the timer's first tick is what makes this VM's host
-  # coordinates true, and the bring-up below fetches framework sources from
-  # exactly those coordinates.
+  # Refresh host coordinates before the framework fetch below.
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
   # --- REGION: https://yuruna.link/429f3d06-0061
   - systemctl stop squid || true
@@ -3979,10 +3944,8 @@ runcmd:
     ) || echo "== YURUNA: pool dashboard aggregator URL rewrite FAILED =="
   # --- REGION: https://yuruna.link/429f3d06-0066
   - |
-    # Built as root then handed to proxy: running security_file_certgen under
-    # `sudo -u proxy` fails with "Cannot create /var/lib/squid/ssl_db", and
-    # without the db squid binds :3129 but cannot mint per-host certs, so
-    # every bumped HTTPS fetch fails.
+    # See https://yuruna.link/429f3d06-0066
+    # Initialize ssl_db as root, then hand it to proxy; a missing DB breaks bumped HTTPS.
     SSL_DB=/var/lib/squid/ssl_db
     install -d -o proxy -g proxy -m 0750 /var/lib/squid
     if [ ! -d "$SSL_DB" ]; then
@@ -4206,9 +4169,7 @@ runcmd:
   # --- REGION: https://yuruna.link/429f3d06-0075
   - /usr/local/bin/squid-meta-exporter.sh || true
   # --- REGION: https://yuruna.link/429f3d06-0076
-  # Armed here, primed after the zot install below: a first run against a
-  # registry that does not exist yet would publish a DOWN reading as the
-  # service's opening data point.
+  # Arm now and prime after zot activation, avoiding a false initial DOWN reading.
   - systemctl enable --now zot-meta-exporter.timer
   # The package starts on install with its stock all-interfaces bind, so the
   # loopback ARGS written above only take effect on a restart.
@@ -4236,17 +4197,13 @@ runcmd:
       # cifs maps every file's mode from the mount options, so git would see a
       # permission change on each file it wrote back.
       git -C "$INTENT_GIT" config core.fileMode false || true
-      # Refresh the dumb-HTTP indexes after EVERY push via git's built-in rather than a
-      # post-update hook: a hook on cifs never becomes executable (the mount fixes
-      # modes), so info/refs would go stale the moment the pool-control-service UI
-      # wrote intent, and runners would keep fetching the previous refs.
+      # See https://yuruna.link/429f3d06-0079
+      # Use the built-in index refresh: CIFS mount modes prevent executable hooks.
       git -C "$INTENT_GIT" config receive.updateServerInfo true || true
       TMP_SEED=$(mktemp -d)
       git -C "$TMP_SEED" init -q --initial-branch=main || true
-      # schemaVersion 3, matching pools.schema.yml's `const: 3`. A store seeded
-      # at an older version READS fine -- nothing validates on read -- and then
-      # fails every write with "Expected 3 at /schemaVersion", so the store looks
-      # healthy until the first admin CLI tries to save.
+      # See https://yuruna.link/429f3d06-0079
+      # Seed the schema's current version; an old version fails the first admin write.
       printf 'schemaVersion: 3\npools: []\n' > "$TMP_SEED/pools.yml"
       git -C "$TMP_SEED" add -A || true
       git -C "$TMP_SEED" -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool intent' || true
@@ -4341,9 +4298,7 @@ runcmd:
     else
       echo "yuruna ypool-nas: service replication disabled in seed (timer not enabled)"
     fi
-  # This VM does NOT mount ystash-nas: extension-host discovery is registration-driven
-  # (activeExtensions in host.registration.json, polled by the pool-aggregator-service),
-  # so the dashboard needs no @stash fetch and no cross-host credential dependency.
+  # Extension discovery uses registration; this VM needs no stash mount or credentials.
   # --- REGION: https://yuruna.link/429f3d06-007f
   - |
     sleep 2
@@ -4387,10 +4342,8 @@ runcmd:
   # (empty-credential rationale on the registries[] comment above config.json).
   - |
     CRED=/etc/zot/sync-credentials.json
-    # One interpreter judges the credential and edits the config, so the file and
-    # the key naming it cannot disagree. 0 = usable pair, 2 = fell back to
-    # anonymous, anything else = the reconcile itself failed (python reports an
-    # uncaught exception as 1, which is why the fallback is not spelled 1).
+    # See https://yuruna.link/429f3d06-0082
+    # Reconcile credentials and config together: 0=usable, 2=anonymous, other=failure.
     python3 - "$CRED" /etc/zot/config.json <<'EOF_HUB_CRED'
     import json, os, sys
     cred_path, cfg_path = sys.argv[1], sys.argv[2]
@@ -4442,7 +4395,7 @@ runcmd:
     # Pinned (not 'latest'): resolving latest needs the rate-limited
     # unauthenticated GitHub releases API, which 403s when many guests
     # share one NAT egress IP -- same rationale as YURUNA_OPENTOFU_VERSION.
-    ZOT_VERSION="v2.1.21"
+    ZOT_VERSION="v2.1.22"
     ARCH=$(uname -m)
     case "$ARCH" in
       x86_64)  ZOT_ARCH="amd64" ;;
@@ -4471,10 +4424,8 @@ runcmd:
       fi
       sleep 1
     done
-    # Grant alloy read access on zot.log so the "Recent 100 OCI requests" panel
-    # populates. zot writes /var/log/zot/zot.log mode 0600 (zot:zot), so alloy's
-    # SupplementaryGroups=zot is NOT enough -- the group bits are 000. The ACL adds a
-    # per-user read entry; the directory's default ACL inherits to rotated files.
+    # See https://yuruna.link/429f3d06-007f
+    # zot.log is 0600: grant Alloy a user ACL and a default ACL for rotated logs.
     if [ -f /var/log/zot/zot.log ]; then
       setfacl -m u:alloy:r /var/log/zot/zot.log 2>&1 || true
       setfacl -d -m u:alloy:r /var/log/zot/    2>&1 || true

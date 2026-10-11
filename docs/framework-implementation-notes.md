@@ -179,7 +179,7 @@ harness resolves against; this module imports them on demand and never keeps
 a second copy, because a second copy is a second answer the day a new host
 type is added.
 
-Nothing here is specific to the three scripts that use it today: -ScriptName
+Nothing here is specific to the four scripts that use it today: -ScriptName
 takes any script that exists in all (or some) of the host folders.
 
 <a id="4213a0b3-000d"></a>
@@ -192,7 +192,7 @@ The transcript's document outline is built from these lines, and until this
 was shared the shape lived twice: once in the orchestrator that writes the
 rule and once in a regex here that recovers it. Two copies of a format drift,
 and the failure is silent in the worst way -- the transcript still renders,
-it simply has no headings, so a reader navigating tens of kilobytes of one
+it has no headings, so a reader navigating tens of kilobytes of one
 <pre> loses every landmark and nothing reports a problem.
 
 Recovering structure from rendered text is the weaker half of the answer and
@@ -294,18 +294,19 @@ manual run cannot archive under different rules than the runner would.
 
 ## test/modules/Invoke-TestCycleRunner.ps1: Host-refresh transport
 
-Called BARE, and never captured: `$result = Invoke-RunnerOuterCycle ...` reads
-the cycle off the success stream, and that one assignment is enough to make
-PowerShell give the inner pwsh an anonymous pipe for stdout instead of letting it
-inherit this process's console. The call operator inside then returns when that
-pipe reaches EOF rather than when the inner exits -- and the status service the
-inner spawns holds the write end open for its whole life (Start-Process
--RedirectStandard* sets bInheritHandles=TRUE, which hands it a duplicate of every
-inheritable handle the inner has). The host completes one cycle and stops: the
-inner logs "about to exit with code 0" and "outer runner back in control" never
-follows. Windows-only, because the POSIX detach replaces the descriptors.
-The result comes back through the module instead; letting the stream reach the
-host also puts the cycle's own output back on the operator's console.
+Invoked without capturing the success stream; the typed outcome is read through
+`Get-LastOuterCycleResult`, leaving the cycle's output on the operator's console.
+The cycle worker launches the inner with `Process.Start`, inherits the console
+without redirecting stdout or stderr, and uses `WaitForExit` to track process exit.
+
+With the earlier call-operator launch, capturing `$result = Invoke-RunnerOuterCycle
+...` gave the inner an anonymous stdout pipe. The call operator waited for EOF,
+and the status service could hold that pipe open after the inner exited:
+`Start-Process -RedirectStandard*` enabled handle inheritance, duplicating the
+write end into the service. The Windows symptom was one completed cycle, an
+inner log saying "about to exit with code 0", and no subsequent "outer runner back
+in control". The POSIX detach replaced those descriptors. The current process
+wait does not depend on pipe EOF.
 
 <a id="4213a0b3-0014"></a>
 
@@ -344,8 +345,8 @@ by the Inner kind at file top.
 Companion file to runner.heartbeat. The threadpool-timer-driven
 runner.heartbeat is proof of life at the process level but stays
 fresh even when the runspace is wedged inside a non-terminating
-OCR / SSH loop -- it can't catch in-runspace hangs. runner.step-
-Heartbeat is touched from the runspace itself at the top of every
+OCR / SSH loop -- it can't catch in-runspace hangs. runner.stepHeartbeat
+is touched from the runspace itself at the top of every
 step in Invoke-Sequence; the outer watchdog reads its mtime to
 detect a single step that has exceeded testCycle.stepTimeoutSeconds.
 Seed here so the first watchdog poll sees a fresh file even before
@@ -364,7 +365,7 @@ Check the write: a failed inner.pid leaves the inner un-targetable by the
 outer's watchdog, so a hung inner would run unguarded. That is a degraded
 (unmonitored) run, not a fatal one -- warn and continue. The console
 Write-Warning here is only inherited by the outer (the Yuruna.Log Write-Warning
-proxy is not imported yet, and the call-op spawn does not redirect stderr), so
+proxy is not imported yet, and the Process.Start spawn does not redirect stderr), so
 also mirror it to outer.log via Write-InnerLog where it stays durable and
 diagnosable next to the outer/watchdog entries.
 The start record goes first, so a reader never pairs a new PID with an old
@@ -375,8 +376,8 @@ checks before it may reclaim this inner.
 
 ## test/modules/Invoke-TestRunnerInnerLoop.ps1: Inner PID + heartbeat
 
-The outer spawns this inner with the CALL OPERATOR, so the inner inherits the
-launch terminal. Any prompt it raises therefore blocks the entire host until
+The cycle worker spawns this inner with `Process.Start` and no standard-stream
+redirection, so the inner inherits the launch terminal. Any prompt it raises therefore blocks the entire host until
 the watchdog kills it -- and because runner.heartbeat is written by a
 threadpool timer that keeps ticking through a blocked runspace, the dashboard
 stays GREEN throughout. Neutralize every prompt this process can raise itself.
@@ -485,10 +486,10 @@ consumer that only tests for existence.
 
 ## test/modules/Invoke-TestRunnerInnerLoop.ps1: Degraded-host pair -> runtime/host-network.txt + host-network.json
 
-control.cycle-restart is written by the status service's /control/start-
-cycle endpoint. The inter-cycle delay loop consumes it on its next tick;
+control.cycle-restart is written by the worker behind the status service's
+/control/start-cycle endpoint. The inter-cycle delay loop consumes it on its next tick;
 the per-step gate in Test.SequenceEngine.psm1 honors it too. But if a prior
-session was killed mid-cycle before consuming the flag (operator Ctrl-C,
+session was killed mid-cycle before consuming the flag (operator Ctrl+C,
 outer-runner restart, process crash), the file persists. A freshly
 starting inner IS the restart the operator asked for, so consume the
 flag here -- otherwise the brand-new cycle's first step would immediately
@@ -506,7 +507,7 @@ the inner never re-sweeps that class.
 
 Re-import Test.CachingProxyService with -Global -Force AFTER Initialize-YurunaHost.
 Yuruna.Host.psm1 force-imports Test.CachingProxyService during its
-module-load; per the eviction pattern,
+module load; per the eviction pattern,
 that nested -Force pulls Test.CachingProxyService out of the global session,
 so Invoke-CachingProxyServiceProbe stops resolving from this script even
 though the Inner-kind bootstrap import above ran first. -Global -Force
@@ -541,7 +542,7 @@ on the switch and drops host networking on the target NIC for a moment -- both
 are fine at a cycle boundary with no guests up, and neither is fine between
 two guest builds. The switch helper called during a build stays detect-only.
 
-Get-Command-gated because only the Hyper-V driver defines this: a vSwitch that
+Get-Command-guarded because only the Hyper-V driver defines this: a vSwitch that
 outlives its uplink binding is a Windows-specific failure. The repair declines
 itself on anything but a stale binding, caps its own attempts, and rolls back
 if the host loses its default route -- see Repair-YurunaExternalSwitch.
@@ -813,7 +814,7 @@ in PowerShell's restricted language, so a generated artifact is data and
 cannot execute.
 
 A missing key is a build error, not a runtime one -- a supported catalog is
-complete by definition, and the compiler fails on a gap. At run time the key
+complete by definition, and the compiler fails on a gap. At runtime the key
 itself is returned so the surface still says something identifiable, and the
 caller sees it in the one place a wrong key can be noticed.
 
@@ -856,7 +857,7 @@ looks for current names -- sees the values instead of nothing.
 
 Nothing did that rewrite, and "sees nothing" is not inert: the networkStorage
 converter reads a missing poolStorageNetworkPath as "the reference has no pool
-storage" and CLEARS the tier, taking the user names with it and leaving the
+storage" and CLEARS the tier, taking the usernames with it and leaving the
 credential sync with an empty user list. A reference host one rename behind
 therefore erased the section it was supposed to supply.
 
@@ -1031,7 +1032,7 @@ No internal authentication key to fetch a possibly-rotated value with, and a wor
 entry is already here: keep it, with no network round-trip and no prompt.
 Fetching (hence refreshing) is impossible without the key by design, so
 there is nothing the reference could tell us that would change the outcome.
-Pass -InternalAuthKey (or store an internal auth key here) to have re-runs refresh
+Pass -InternalAuthKey (or store an internal authentication key here) to have re-runs refresh
 this against the reference.
 
 -RequireReferenceValue takes this branch off the table. The caller has
@@ -1048,7 +1049,7 @@ Every consumer downstream looks up current names only, so a value parked
 under a retired one is indistinguishable from a value that is not there --
 and "not there" is not inert: Convert-ConfigSyncNetworkStorage reads a
 missing poolStorageNetworkPath as "the reference has no pool storage" and
-CLEARS the tier, which takes the user names with it and leaves the
+CLEARS the tier, which takes the usernames with it and leaves the
 credential sync iterating an empty list. A reference one rename behind
 would erase exactly the section it was fetched to supply.
 
@@ -1112,7 +1113,7 @@ template-only nodes are filled with their defaults. Fields that genuinely no
 longer map (top-level orphans, or values under a node whose shape changed)
 cannot be carried -- if any carried a real value, stop the run so the
 operator can hand-migrate them from the .backup; otherwise (a purely
-additive schema change -- a new node the file simply lacked) continue, since
+additive schema change -- a new node the file lacked) continue, since
 nothing was lost and the unattended loop must not halt on a benign bump.
 
 <a id="4213a0b3-0046"></a>
@@ -1429,7 +1430,7 @@ the VM.
 
 That makes the FETCH the whole story. The cloud-init seed pulls this host's
 enlistment from the status service (/yuruna-archive.tar.gz) and falls back to
-cloning the public github mirror when the host does not answer. The mirror is
+cloning the public GitHub mirror when the host does not answer. The mirror is
 a release snapshot -- it lags the working enlistment by however long since
 the last publish -- so the fallback silently swaps the code being deployed
 for an older codebase, and the only evidence left behind is one line in the
@@ -1479,7 +1480,7 @@ rather than after a whole beacon interval.
 Sharing one field makes an unreachable directory re-log the address change
 and rewrite the same files on EVERY tick, forever: the announce never
 succeeds, the field never advances, and nothing downstream can tell a host
-that keeps moving from a host that simply cannot reach the pool.
+that keeps moving from a host that cannot reach the pool.
 
 <a id="4213a0b3-005b"></a>
 
@@ -1668,8 +1669,8 @@ password box with no context.
 ## test/modules/Test.HostCondition.Mac.psm1: Initialize-SudoCache
 
 Unattended: nobody is at the console to type a password. The test runner
-spawns its inner with the call operator, so the inner inherits the launch
-terminal -- `sudo -v` here would print its prompt to that terminal and
+launches its inner with native stdout attached to the console, so the inner
+inherits the launch terminal -- `sudo -v` here would print its prompt to that terminal and
 block the whole host until the watchdog killed it, with the status page
 still showing the previous cycle's green. Decline exactly as the
 wrapper-primed path does: return $false silently and let the caller
@@ -2351,7 +2352,7 @@ scriptblocks all forward a single KeyName string, so a named chord needs
 no signature change anywhere.
 
 The two chords the harness relies on are the canonical-mode tty controls:
-Ctrl-U is VKILL (discard the current input line) and Ctrl-C is VINTR
+Ctrl+U is VKILL (discard the current input line) and Ctrl+C is VINTR
 (interrupt the foreground process group).
 
 <a id="4213a0b3-0090"></a>
@@ -2574,7 +2575,7 @@ without seeing the suffix flip mid-cycle.
 
 The OWNING cycle's identity, held separately from the folder
 events are written into. A nested run repoints __YurunaCycleFolder
-at its own sub-folder so its transcript and events land beside it,
+at its own subfolder so its transcript and events land beside it,
 and deriving the cycleFolder stamp from that would label a child's
 events with the child's leaf -- splitting one cycle into as many
 apparent cycles as it has nested nodes, none of them joinable to
@@ -2735,8 +2736,8 @@ Stamp cycleFolder as the cycle's stable IDENTITY, not the
 on-disk leaf -- the on-disk folder transitions
 <base>.incomplete/ -> <base>/ -> <base>.aborted.<UTC>/, and the
 NDJSON stream must NOT flip the cycleFolder field across those
-renames or a streaming consumer's join would break. Get-Cycle-
-FolderIdentity strips any of the three suffixes.
+renames or a streaming consumer's join would break. Get-CycleFolderIdentity
+strips any of the three suffixes.
 
 <a id="4213a0b3-00a5"></a>
 
@@ -2797,7 +2798,7 @@ name would be shadowed by the extension the moment the first one loads -- and
 every unqualified caller from then on would reach the transport directly,
 skipping the dispatch loop, the -EventData gate, and the delivery ledger. That
 failure is silent by construction: the caller's own try/catch swallows the
-parameter-binding error and the alert is simply never sent. Two distinct names
+parameter-binding error and the alert is never sent. Two distinct names
 make the collision impossible rather than merely unlikely.
 
 Format-FailureMessage stays here so callers can build the EventNote
@@ -2849,7 +2850,7 @@ everyone.
 ## test/modules/Test.Notify.psm1: Get-FailureEventData
 
 Cycle folder URL: the cycle log's basename appended to the status
-server's mount. Consumers can deep-link from the notification
+service's mount. Consumers can deep-link from the notification
 straight to the HTML transcript + artifacts.
 
 Base URL precedence:
@@ -2857,9 +2858,9 @@ Base URL precedence:
      address (operator sets this on hosts whose dashboard is
      exposed via a reverse proxy, a tunneled hostname, or a LAN
      IP). An off-host LLM remediator can follow the link.
-  2. http://<HOST_FQDN>:<statusService.port> -- best guess from the
-     cycle's recorded hostname + the running status-service port,
-     when both are known. Works on most LANs where the dashboard
+  2. http://<HOST_FQDN>:8080 -- best guess from the
+     cycle's recorded hostname + the default status-service port,
+     when the hostname is known. Works on most LANs where the dashboard
      hostname resolves.
   3. http://localhost:8080/ -- last-resort fallback. Only useful
      to a consumer running on the same host as the runner.
@@ -2891,7 +2892,7 @@ line re-runs every time Test.OcrEngine is re-imported -- and the
 Invoke-Sequence -> Test.OcrMatch -> Test.OcrEngine chain re-imports it
 on each Initialize-SequenceEngineRegistry -- the eviction would leave
 Tesseract's exports (Assert-TesseractInstalled, ...) invisible to the
-entry-point's global scope even though Test.OcrEngine's own exports
+entry point's global scope even though Test.OcrEngine's own exports
 stay resolvable. Keep -Global so Tesseract stays globally visible.
 
 <a id="4213a0b3-00ae"></a>
@@ -2973,7 +2974,7 @@ secret into a terminal that has not switched off echo yet.
 
 OCR may reorder parts of a line (e.g. "[ec2-user@test-amazon-linux01 ~]$"
 becomes "test-amazon-I inux01 login: ecZ-user").  Split the original pattern
-on characters that are stripped during normalization (@, -, etc.) to get
+at segment delimiters (@, -, etc.) to get
 meaningful segments, normalize each, and check that every segment appears
 somewhere in the full normalized text (across all lines).
 
@@ -3745,7 +3746,7 @@ Three artifact sources, written by different code paths:
                                      non-waitForText failures (any
                                      sequence step that isn't
                                      waitForText/waitForAndEnter,
-                                     including runOverSsh)
+                                     including sshExec)
   * failure_ocr_<VM>.txt           -- last OCR text from waitForText
 
 All files land flat inside cycleGuestDataFolder (the per-guest
@@ -3770,7 +3771,7 @@ bailed silently while the OCR/screen capture was still focused on a
 downstream poll loop. Soft-failing like the other rungs: an SSH-down
 guest or a never-written log just logs a Verbose line.
 Save-GuestDiagnostic already proved SSH works via Wait-SshReady, so
-we can call Invoke-GuestSsh without re-doing the readiness handshake.
+we can call Invoke-GuestSsh without redoing the readiness handshake.
 
 <a id="4213a0b3-00e7"></a>
 
@@ -3816,8 +3817,9 @@ failed collection.
 ## test/modules/Test.RunnerInnerLoop.psm1: Update-CycleModuleImport
 
 Re-call Initialize-YurunaHost so the host driver (Yuruna.Host.psm1)
-AND the cross-host helpers (Test.VMUtility.psm1 -- Wait-VMRunning,
-Test-IpAddress, ...) are re-imported with -Global on every cycle.
+is re-imported with -Global -Force on every cycle. The cross-host helpers
+(Test.VMUtility.psm1 -- Wait-VMRunning, Test-IpAddress, ...) are imported
+with -Global only when that module is not already loaded.
 Without this, anything that wipes the runner's session mid-cycle
 (a sequence step calling Get-Module | Remove-Module, a transitive
 Import-Module without -Global, etc.) leaves the runner unable to
@@ -3879,8 +3881,8 @@ that plainly succeeded -- and never fails a cycle either way.
 
 Refresh runner.stepHeartbeat each iteration: the outer watchdog
 reads only this file's mtime and kills the inner after
-testCycle.stepTimeoutSeconds (default 2700) of staleness. A
-deliberate pause has no step boundaries to refresh it via
+testCycle.stepTimeoutSeconds (2700-second fallback; the shipped template
+sets 3600) of staleness. A deliberate pause has no step boundaries to refresh it via
 Invoke-Sequence's normal path, so without this the watchdog
 would TerminateProcess the inner mid-pause, drop the outer into
 its failure backoff, and leave /control/cycle-resume and
@@ -4122,7 +4124,7 @@ need a shared assembly; the prefix is unique enough). Treated as a
 NORMAL cycle ending, not an UNHANDLED ERROR:
   - No ConsecutiveCrashes increment -- this is not a code crash.
   - No 60-line origin + stack dump banner -- the flag was visible to
-    the operator who set it, no postmortem needed.
+    the operator who set it, no post-mortem needed.
   - Cycle is finalized as 'fail' so status.json reflects the abort
     rather than a phantom pass; teardown proceeds normally; the
     inter-cycle delay loop's existing flag-check then consumes
@@ -4159,8 +4161,8 @@ by conhost while the inner pwsh is gone.
 The countdown is sliced into 1-second waits so Ctrl+C / shutdown /
 cycle-pause flag can break out without sitting through a long
 Start-Sleep. Write-Progress shows a percentage bar; Write-Output
-emits a coarser tick (every ~5 s) so a non-progress-rendering log
-collector still records forward motion.
+logs only the start and the end of the wait, so a non-progress-rendering
+log collector records no ticks in between.
 $CycleDelaySeconds is set inside the cycle's try block once config is
 merged; an early throw before that point would leave it null.
 Fall back to the script param so the inter-cycle wait is still
@@ -4192,7 +4194,7 @@ guest, 'proceed' falls through. Mutable cycle state carries back two ways -- the
 four failure fields through $IterState, and the reloadable config through the
 shared bag $cfg (mutated in place by the per-step Sync; the caller re-reads the
 mirrors it needs from $cfg after the call). This helper re-reads only the knobs
-it acts on: $StopOnFailure (the stop guards) and the VM start/boot timeouts.
+it acts on: $StopOnFailure (the stop guards) and the VM start timeout.
 Status Write-Output flows to the caller's stream exactly as when inline (the
 helper is invoked as a statement, not captured).
 
@@ -4304,18 +4306,18 @@ stopped / can't-tell) proceeds.
 
 ## test/modules/Test.RunnerOuterLoop.psm1: Forward-env helper
 
-Every Invoke-RunnerOuterCycle return lands here as well as on the pipeline, so
-Invoke-TestCycleRunner.ps1 can read the outcome WITHOUT capturing the success
-stream. It must not capture: doing so makes PowerShell hand the inner pwsh an
-anonymous pipe for stdout instead of letting it inherit the console, and the
-call operator then returns on that pipe reaching EOF rather than on the inner
-exiting. The status service the inner spawns is the process that keeps it open --
-Start-Process -RedirectStandard* sets bInheritHandles=TRUE, so it receives a
-duplicate of the write end and holds it for its whole unbounded life. The host
-then completes exactly one cycle and never starts another: the inner logs
-"about to exit with code 0" and "outer runner back in control" never follows.
-Windows only; the POSIX detach in Start-StatusService.ps1 replaces the
-descriptors outright, so nothing crosses the exec there.
+Every Invoke-RunnerOuterCycle return also updates the module's last-result slot,
+so Invoke-TestCycleRunner.ps1 can read the typed outcome without capturing the
+success stream. The inner is launched through `Process.Start` with inherited
+console streams, and `WaitForExit` tracks its exit independently of stdout EOF.
+
+The earlier call-operator launch could hang when its caller captured the success
+stream: PowerShell supplied an anonymous stdout pipe, and the inner's status
+service inherited the write end through `Start-Process -RedirectStandard*`.
+On Windows the service could keep that pipe open after the inner logged "about
+to exit with code 0", preventing "outer runner back in control" and the next
+cycle. The POSIX detach replaced those descriptors. The current explicit process
+wait avoids that EOF dependency.
 
 <a id="4213a0b3-0109"></a>
 
@@ -4359,7 +4361,7 @@ host/*/Enable-TestAutomation.ps1).
    inner's single-instance guard for any LATER direct invocation in
    the same shell session, silently disabling concurrency protection.
    Sync-ForwardEnv re-asserts the launch-time snapshot of YURUNA_*
-   vars (cache IP, track/log dirs, log level, OCR combine) so the
+   vars (cache IP, runtime/log dirs, log level, OCR combine) so the
    inner sees them even if some module in this outer process
    clobbered $env: mid-run.
 
@@ -4386,7 +4388,7 @@ when a cooperative breakpoint parks the cycle, removed on
 resume. If the operator restarts only Start-TestRunner.ps1
 while a break is parked, the file survives and the first
 new-cycle step's Gate #1 thinks a break is still active --
-hanging the cycle on a non-existent marker. Status-server
+hanging the cycle on a non-existent marker. Status-service
 startup also sweeps this file but the runner can start
 without the status service; clean here so both startup paths
 agree. Not in a preflight cycle: a refresh archives a reclaimed
@@ -4398,8 +4400,9 @@ inner's marker itself and leaves a surviving inner's alone.
 
 Same lifetime, different contract: YURUNA_NONINTERACTIVE tells the
 child there is nobody at the console to answer a prompt. The spawn
-is the call operator, so the inner INHERITS this terminal -- any
-prompt it raises blocks the whole host until the watchdog kills it,
+uses `Process.Start` without standard-stream redirection, so the inner
+inherits this terminal -- any prompt it raises blocks the whole host
+until the watchdog kills it,
 with the dashboard still green. Elevation helpers (Initialize-Sudo-
 Cache) read this and decline to prompt; the inner widens it to git
 and Console.In at its own startup. Cleared in the finally for the
@@ -4628,12 +4631,11 @@ cycle can't short-circuit this wait.
 
 Invoke-Sequence's body and Wait-ForText / Invoke-TapOn call
 contract functions (Get-VMScreenshot, Restart-VMConsole) that live in
-Yuruna.Host. When this module loads inside a child pwsh process spawned
-by Test.Start-GuestOS / Test.Start-GuestWorkload, the child has no other path
-to Yuruna.Host; calling Initialize-YurunaHost here guarantees the
-contract is resolvable from every sequence-engine call site. Idempotent
-in the parent runner where Yuruna.Host is already loaded -- Get-Module
-short-circuits the re-load if the module is already imported.
+Yuruna.Host. When this module loads in a process with no other path
+to Yuruna.Host, calling Initialize-YurunaHost here guarantees the
+contract is resolvable from every sequence-engine call site. The host driver
+is force-imported globally on every call; the Get-Module check skips only
+the shared Test.VMUtility import when that helper module is already loaded.
 
 <a id="4213a0b3-011e"></a>
 
@@ -4816,8 +4818,9 @@ wall-clock. In practice each iteration does a screenshot + tesseract OCR
 bottom -- on a busy Hyper-V host that adds 5-25 s on top of the sleep, so
 a configured timeoutSeconds: 1800 would take 1-3 hours of wall-clock to
 expire (and multiplied by retry maxAttempts could exceed half a day
-before giving up). With a wall-clock deadline timeoutSeconds means
-exactly what the operator configured.
+before giving up). timeoutSeconds sets the base wall-clock budget; an
+OCR self-heal can extend its deadline by at most min(timeoutSeconds, 120)
+seconds in total so a recovering feed has time to deliver a fresh frame.
 
 <a id="4213a0b3-0128"></a>
 
@@ -4845,7 +4848,7 @@ the run-up to the bug. Cleared at end-of-guest on success by the
 runner; preserved on failure and copied alongside the failure log.
 -Global on the -Force re-imports: a nested -Force without -Global
 evicts the modules from the parent script's session state, so a
-later top-level call to Get-CycleScreenDir (Invoke-TestRunnerInnerLoop.ps1
+later top-level call to Get-CycleScreenDir (Invoke-GuestProvisionIteration
 success branch, seen on macOS in-process runners) fails with
 "term not recognized".
 Pure eviction recovery: Test.YurunaDir is stateless (Initialize-YurunaLogDir is
@@ -4982,8 +4985,9 @@ Planner-cascaded variable overrides. When present, each key in
 this map REPLACES the same-named entry under the sequence
 file's `variables:` block before step expansion (top-of-chain
 wins for the whole chain -- see Test.SequencePlanner). Empty
-map = standalone Debug-TestSequence.ps1 invocation, keeps the
-legacy "sequence-local variables win" path.
+map = a direct invocation without planner overrides, keeping the
+sequence-local variables. Debug-TestSequence forwards its planner's
+effectiveVariables through Invoke-TestSequenceChain.
 Use IDictionary (not [hashtable]) so an [ordered]@{} from the
 planner keeps its insertion order through parameter binding.
 A [hashtable] cast would coerce OrderedDictionary -> Hashtable
@@ -5011,7 +5015,7 @@ return is strictly [bool].
 
 Planner-cascaded variable overrides; see Invoke-SequenceByName.
 Null/empty = use the sequence file's own `variables:` block
-verbatim (standalone Debug-TestSequence.ps1 path).
+verbatim. Debug-TestSequence's chain runner forwards planner overrides.
 Use IDictionary (not [hashtable]) so an [ordered]@{} from the
 planner keeps its insertion order through parameter binding.
 A [hashtable] cast would coerce OrderedDictionary -> Hashtable
@@ -5024,8 +5028,8 @@ resolve and the literal string ends up as a vault key.
 
 ## test/modules/Test.SequenceEngine.psm1: Invoke-Sequence
 
-Initialize logDir + trackDir early so the catch block can write
-diagnostics and the pause-flag paths resolve below. Invoke-Sequence
+Initialize logDir early so the catch block can write
+diagnostics; the runtime dir behind the pause-flag paths resolves below. Invoke-Sequence
 runs inside a child module scope when a test-start extension script
 imports it, so the parent runner's global Import-Module doesn't
 propagate here -- each helper has to be re-imported on this path.
@@ -5117,7 +5121,7 @@ that never printed; see docs/control-routes.md, "Pause and resume".
 ## test/modules/Test.SequenceEngine.psm1: Invoke-Sequence
 
 Cycle-restart gate. Throws a control-flow marker so the inner
-runner's cycle-catch (see Invoke-TestRunnerInnerLoop.ps1) can short-
+runner's cycle-catch (see Invoke-RunnerInnerCycle) can short-
 circuit emergency-cleanup chatter and skip the ConsecutiveCrashes
 increment for this expected abort. The flag is intentionally NOT
 cleared here: the post-cycle inter-cycle delay loop will consume it
@@ -5279,8 +5283,9 @@ validator's typed-array check.
 Emit one structured row per step execution. stepName is the
 RAW (pre-expansion) YAML `description:` -- variables like
 ${vmName} are intentionally NOT expanded here so cross-cycle
-joins on stepName remain stable even though vmName carries a
-per-cycle timestamp suffix. Falls back to step.action when no
+joins on stepName remain stable even though vmName changes when
+saveDiskSnapshot renames the VM and carries a host-id segment in a pool.
+Falls back to step.action when no
 description is set. A retry emits its enclosing interval and final
 outcome as well as the children; readers count only top-level rows
 when summing work and final failures.
@@ -6349,17 +6354,18 @@ Empirically, libvirt-managed QEMU on Ubuntu 24.04 accepts our TCP connect
 and emits its 'RFB 003.008' greeting, then drops the connection
 immediately after we write the client version -- before any auth or
 security-types handshake. UTM's QEMU does not. Rather than chase the
-libvirt-vs-stand-alone-QEMU handshake difference, KVM bypasses VNC entirely
-and injects keystrokes via `virsh send-key`, which goes through libvirt's
-QMP monitor and has none of the listen-address / port-discovery /
-RFB-version moving parts.
+libvirt-vs-standalone-QEMU handshake difference, KVM bypasses VNC entirely.
+Text normally uses one bounded system-Python child and one libvirt connection;
+a missing interpreter or Python binding permits the `virsh send-key` fallback.
+A failed or interrupted libvirt send is never replayed. Both paths avoid the
+VNC listen-address, port-discovery, and RFB-version moving parts.
 
-`virsh send-key <domain> [keycode...]` accepts Linux input event names
-(KEY_A, KEY_LEFTSHIFT, KEY_ENTER, ...) and sends them as one chord
-(all pressed simultaneously, then released). For text typing we send
-one chord per character; shifted characters become a 2-key chord
-(KEY_LEFTSHIFT + KEY_X).
-KVM key maps live in Test.KeyCodeRegistry (KVM-Char / KVM-Named).
+The fallback `virsh send-key <domain> [keycode...]` accepts Linux input event
+names (KEY_A, KEY_LEFTSHIFT, KEY_ENTER, ...) and sends them as one chord
+(all pressed simultaneously, then released). Both text paths send one chord
+per character; shifted characters become a 2-key chord. The preferred libvirt
+path uses numeric PS2-Char / PS2-Named values; the fallback text and named-key
+paths use KVM-Char / KVM-Named. These maps live in Test.KeyCodeRegistry.
 
 <a id="4213a0b3-0186"></a>
 
@@ -6515,10 +6521,10 @@ this was said when it was first published and nothing has changed since.
 ## test/modules/Test.VMUtility.psm1: Wait-YurunaServiceVmEndpoint
 
 Not bound yet. Extend ONLY on evidence the guest is still
-working: cloud-init `running` means the build is progressing, so
-the budget was simply too small for this host. Any other status
-means the build is over and a missing daemon is a real failure,
-which must not be papered over by waiting longer.
+working: cloud-init `running` or `not started` permits an extension,
+up to the configured hard deadline. `done` stops extending the deadline
+but keeps waiting within the remaining budget for the daemon to bind;
+other statuses do not extend it.
 cloud-init ERROR is terminal, so stop rather than serve out
 the budget. Nothing re-runs cloud-init on this boot: every
 remaining poll asks a question already answered, and the

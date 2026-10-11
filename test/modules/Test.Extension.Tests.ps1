@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 423477ea-a0ec-419b-b7b3-939dd00dc84a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,10 @@
     the "already loaded, do not re-import" guard that stops one area's
     default.psm1 from evicting another's, and a broken area not taking the whole
     Import-ConfiguredExtension bootstrap down with it.
+
+    The loaded-module lookup is also exercised with the module table replaced by
+    stand-in rows, for the rules real files cannot stage on every platform: a
+    path that differs only by letter case, and a loaded module with no path.
 
     Throw-based assertions (no Should), so the file runs standalone.
     Run: pwsh -NoProfile -File test/modules/Test.Extension.Tests.ps1
@@ -434,5 +438,156 @@ Describe 'Import-ConfiguredExtension' {
         $null = Import-ConfiguredExtension -WarningVariable w -WarningAction SilentlyContinue
         Assert-True (@($w) -match "area 'yzempty' failed to load") 'a failed area is surfaced to the operator'
         Assert-True (@($w) -match "area 'yzghost' failed to load") 'every failed area gets its own warning'
+    }
+}
+
+Describe 'loaded-module lookup by file path' {
+    # Import-Extension and Resolve-ExtensionMethod both ask the module table one
+    # question: is the module from THIS file loaded? Where a test below replaces
+    # the table with stand-in rows, it is because the rule cannot be staged with
+    # real files on every platform: a path that differs only by letter case names
+    # a second file on a case-sensitive file system, and no real module loads
+    # with an empty path.
+    BeforeAll {
+        $script:LookupAreaFile = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $extRoot 'yzsolo') 'yzsolo1.psm1'))
+    }
+    BeforeEach {
+        $script:LookupTable  = @()
+        $script:LookupImport = [System.Collections.Generic.List[object]]::new()
+    }
+
+    It 'answers each area from its own module when two loaded modules share a basename' {
+        # Every shipped area names its module default.psm1, so in a real cycle
+        # several modules called 'default' are loaded at once.
+        $shared = 'yztwin'
+        $null = New-ExtensionArea -Root $extRoot -Area 'yztwina' -ActiveName @($shared) -ModuleName @($shared)
+        $null = New-ExtensionArea -Root $extRoot -Area 'yztwinb' -ActiveName @($shared) -ModuleName @($shared)
+        try {
+            $null = Import-Extension -Area 'yztwina' -WarningAction SilentlyContinue
+            $null = Import-Extension -Area 'yztwinb' -WarningAction SilentlyContinue
+            Assert-Equal -Expected 2 -Actual @(Get-Module -Name $shared).Count -Because 'precondition: both are loaded under one module name'
+            foreach ($area in @('yztwina', 'yztwinb')) {
+                $expectedPath = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $extRoot $area) "$shared.psm1"))
+                $cmd = Resolve-ExtensionMethod -Area $area -ExtensionName $shared -Method 'GetYztwinThing'
+                Assert-Equal -Expected $expectedPath -Actual ([System.IO.Path]::GetFullPath($cmd.Module.Path)) `
+                    -Because "area '$area' must be answered by the module loaded from its own file"
+            }
+        } finally {
+            Get-Module -Name $shared -All | Remove-Module -Force -ErrorAction SilentlyContinue
+        }
+    }
+    It 'matches a loaded module when the requested path differs only by letter case' {
+        # A module keeps the spelling it was imported with -- a lower-case drive
+        # letter, a differently cased folder -- so the lookup has to ignore case
+        # or it reports a loaded module as missing. The upper-case name is never
+        # looked up on disk here, which keeps the test valid on a case-sensitive
+        # file system.
+        $null = Import-Extension -Area 'yzsolo' -WarningAction SilentlyContinue
+        $cmd = Resolve-ExtensionMethod -Area 'yzsolo' -ExtensionName 'YZSOLO1' -Method 'GetYzsolo1Thing'
+        Assert-Equal -Expected 'Get-yzsolo1Thing' -Actual $cmd.Name
+        Assert-True ($cmd.Module.Path -clike '*yzsolo1.psm1') 'the answer is the module as it was loaded, not a second copy'
+    }
+    It 'does not import again a module loaded under another letter case of the same path' {
+        # A second Import-Module -Force would discard the state the loaded module
+        # holds, which is the whole reason the loader looks before it imports.
+        # The contract warning proves the second lookup -- the one that feeds the
+        # coverage check -- found the same row.
+        $partialFile = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $extRoot 'yzpartial') 'yzpart1.psm1'))
+        $script:LookupTable = @(
+            [pscustomobject]@{ Name = 'yzpart1'; Path = $partialFile.ToUpperInvariant(); ExportedCommands = @{ 'Get-yzpart1Thing' = $true } }
+        )
+        Mock -CommandName Get-Module -ModuleName Test.Extension -MockWith { $script:LookupTable }
+        Mock -CommandName Import-Module -ModuleName Test.Extension -MockWith { $script:LookupImport.Add([string]$Name) }
+
+        $w = @()
+        $names = @(Import-Extension -Area 'yzpartial' -WarningVariable w -WarningAction SilentlyContinue)
+
+        Assert-Equal -Expected 'yzpart1' -Actual ($names -join ',')
+        Assert-Equal -Expected 0 -Actual $script:LookupImport.Count -Because 'the module is already loaded; only the spelling of its path differs'
+        Assert-True (@($w) -match 'missing 1 contract verb') "the coverage check must run against the loaded module: [$($w -join '')]"
+    }
+    It 'imports once, globally and forced, when no loaded module came from the area file' {
+        # Three near misses: no path, a null path, and the right basename loaded
+        # from another directory. None of them is the area's module.
+        $script:LookupTable = @(
+            [pscustomobject]@{ Name = 'yznopath';   Path = '';    ExportedCommands = @{} }
+            [pscustomobject]@{ Name = 'yznullpath'; Path = $null; ExportedCommands = @{} }
+            [pscustomobject]@{ Name = 'yzsolo1'; Path = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $extRoot 'yzelsewhere') 'yzsolo1.psm1')); ExportedCommands = @{} }
+        )
+        Mock -CommandName Get-Module -ModuleName Test.Extension -MockWith { $script:LookupTable }
+        Mock -CommandName Import-Module -ModuleName Test.Extension -MockWith {
+            $script:LookupImport.Add([pscustomobject]@{ Name = [string]$Name; Global = [bool]$Global; Force = [bool]$Force })
+        }
+
+        $failure = @()
+        $names = @(Import-Extension -Area 'yzsolo' -WarningAction SilentlyContinue -ErrorVariable failure)
+
+        Assert-Equal -Expected 'yzsolo1' -Actual ($names -join ',')
+        Assert-Equal -Expected 1 -Actual $script:LookupImport.Count -Because 'a near miss is not the area module, and one import is enough'
+        Assert-Equal -Expected (Join-Path (Join-Path $extRoot 'yzsolo') 'yzsolo1.psm1') -Actual $script:LookupImport[0].Name
+        Assert-True $script:LookupImport[0].Global 'the extension verbs must be callable by the cycle step'
+        Assert-True $script:LookupImport[0].Force  'the import is forced, so the file is loaded fresh'
+        Assert-Equal -Expected 0 -Actual @($failure).Count -Because "a module with no file path is skipped, never handed to the path API: $($failure -join ' | ')"
+    }
+    It 'skips loaded modules that have no file path on the way to the match' {
+        $script:LookupTable = @(
+            [pscustomobject]@{ Name = 'yznopath';   Path = '';    ExportedCommands = @{ 'Get-YzOrder' = 'no-path' } }
+            [pscustomobject]@{ Name = 'yznullpath'; Path = $null; ExportedCommands = @{ 'Get-YzOrder' = 'null-path' } }
+            [pscustomobject]@{ Name = 'yzsolo1'; Path = $script:LookupAreaFile; ExportedCommands = @{ 'Get-YzOrder' = 'area' } }
+        )
+        Mock -CommandName Get-Module -ModuleName Test.Extension -MockWith { $script:LookupTable }
+
+        $failure = @()
+        $answer = Resolve-ExtensionMethod -Area 'yzsolo' -ExtensionName 'yzsolo1' -Method 'GetYzOrder' -ErrorVariable failure
+
+        Assert-Equal -Expected 'area' -Actual $answer
+        Assert-Equal -Expected 0 -Actual @($failure).Count -Because "a module with no file path is skipped, never handed to the path API: $($failure -join ' | ')"
+    }
+    It 'answers with the first row when the module table lists the file twice' {
+        # The callers read members of ONE module; two rows handed back together
+        # would turn every member access into an array.
+        $script:LookupTable = @(
+            [pscustomobject]@{ Name = 'yzsolo1'; Path = $script:LookupAreaFile; ExportedCommands = @{ 'Get-YzOrder' = 'first' } }
+            [pscustomobject]@{ Name = 'yzsolo1'; Path = $script:LookupAreaFile; ExportedCommands = @{ 'Get-YzOrder' = 'second' } }
+        )
+        Mock -CommandName Get-Module -ModuleName Test.Extension -MockWith { $script:LookupTable }
+
+        $answer = Resolve-ExtensionMethod -Area 'yzsolo' -ExtensionName 'yzsolo1' -Method 'GetYzOrder'
+
+        Assert-Equal -Expected 'first' -Actual $answer
+    }
+}
+
+Describe 'Find-LoadedExtensionModule' {
+    It 'is exported, because the notification dispatcher calls it from another module' {
+        $loader = Get-Module -Name 'Test.Extension'
+        Assert-True ($loader.ExportedCommands.ContainsKey('Find-LoadedExtensionModule')) `
+            'a module-private lookup would leave the dispatcher unable to find a loaded transport'
+    }
+    It 'returns the module loaded from the file, as one module object' {
+        $null = Import-Extension -Area 'yzsolo' -WarningAction SilentlyContinue
+        $file = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $extRoot 'yzsolo') 'yzsolo1.psm1'))
+
+        $found = Find-LoadedExtensionModule -Path $file
+
+        Assert-True ($found -is [System.Management.Automation.PSModuleInfo]) 'callers read ExportedCommands from the answer'
+        Assert-Equal -Expected 'yzsolo1' -Actual $found.Name
+        Assert-True ($found.ExportedCommands.ContainsKey('Get-yzsolo1Thing')) 'the answer is the loaded module, exports included'
+    }
+    It 'answers with nothing, raises no error and imports nothing for a file no module was loaded from' {
+        # A directory with no config is not an area, so nothing else in this
+        # suite can have imported the module that sits in it.
+        $null = New-ExtensionArea -Root $extRoot -Area 'yzcold' -NoConfig -ModuleName @('yzcold1')
+        $onDisk = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $extRoot 'yzcold') 'yzcold1.psm1'))
+        $absent = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $extRoot 'yzcold') 'absent.psm1'))
+
+        $failure = @()
+        $fromDisk   = @(Find-LoadedExtensionModule -Path $onDisk -ErrorVariable +failure)
+        $fromAbsent = @(Find-LoadedExtensionModule -Path $absent -ErrorVariable +failure)
+
+        Assert-Equal -Expected 0 -Actual $fromDisk.Count -Because 'a file that nothing imported is not a loaded module'
+        Assert-Equal -Expected 0 -Actual $fromAbsent.Count -Because 'a path with no file behind it is a miss, like any other'
+        Assert-Equal -Expected 0 -Actual @($failure).Count -Because "a miss is an empty answer, not an error: $($failure -join ' | ')"
+        Assert-True ($null -eq (Get-Module -Name 'yzcold1')) 'looking must not import; what a miss means is the caller decision'
     }
 }

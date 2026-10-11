@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c40d2c-52f3-f14f-800e-6b343505b865
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3879,7 +3879,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não confirmou desligada dentro do tempo limite; continuando com excluir, mas o pacote ainda pode estar bloqueado.'
+        ''' não confirmou que está desligada dentro do tempo limite; preservando o registro e o pacote.'
     )
     'host.operator_6959d402ef57f18d' = @(
         '  Language: '
@@ -8593,7 +8593,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' está registrado (utmctl status não terminou).'
+        ' está registrado (utmctl status não retornou uma resposta reconhecida).'
     )
     'host.orphan_sweep_utmctl_unanswered' = @(
         'utmctl '
@@ -8854,6 +8854,21 @@
     )
     'host.utm_app_restart_action' = 'Encerrar e reabrir o UTM'
     'host.utm_app_signal_action' = 'Enviar TERM e depois KILL se o processo persistir, após revalidar a identidade do processo'
+    'host.utm_cache_state_unconfirmed' = @(
+        'Não foi possível confirmar o estado da VM caching-proxy-service ('
+        @{
+            'arg' = 'state'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '; '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Restaure o acesso ao UTM ou passe -CachingProxyServiceUrl "" para baixar diretamente.'
+    )
     'host.utm_detached_launch_action' = @(
         'Executar '
         @{
@@ -9076,5 +9091,20 @@
             'trust' = 'internal'
         }
         's e foi interrompido; o efeito é desconhecido até que o estado da VM seja lido novamente.'
+    )
+    'host.windows_installer_boot_key_timeout' = @(
+        'A VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' não aceitou uma tecla de inicialização do instalador do Windows em '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' segundos.'
     )
 }

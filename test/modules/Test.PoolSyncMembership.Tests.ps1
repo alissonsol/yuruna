@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42f48182-9ec5-4e1c-bd71-e3bf9945ef6e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,11 +24,12 @@
 .DESCRIPTION
     Behavioral tests for the pure lookup helpers; AST guards for the git deadline and
     the warning wiring in Sync-YurunaPoolIntent (which does git + file I/O and is not
-    unit-invoked here). The throw-free Should assertions run under Pester 4.10.1.
+    unit-invoked here). The throw-free Should assertions run under Pester 5.x.
 #>
 
 BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $modPath = Join-Path $here 'Test.PoolSync.psm1'
 Import-Module $modPath -Force
 
@@ -39,10 +40,7 @@ $script:TestHostId = '42abcdef0123456789abcdef01234567'.Substring(0, 32)
 
 # --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-ModuleAst {
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($modPath): $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $modPath
 }
 function Get-AssignmentCount {
     param($Ast, [string]$Lhs)
@@ -53,10 +51,7 @@ function Get-AssignmentCount {
 }
 function Get-CommandInvokeCount {
     param($Ast, [string]$Name)
-    $wanted = $Name
-    @($Ast.FindAll({ param($n)
-        $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wanted
-    }, $true)).Count
+    return (Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $Name)
 }
 function Get-MemberAccessCount {
     param($Ast, [string]$Member)

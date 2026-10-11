@@ -306,6 +306,9 @@ type hostStatus struct {
 	StartedAt      string `json:"startedAt"`
 	FinishedAt     string `json:"finishedAt"`
 	CycleFolderUrl string `json:"cycleFolderUrl"`
+	// Only verdict fields are accepted from history: host diagnostics and names
+	// must not escape through the unauthenticated pool snapshot.
+	History []cycleVerdict `json:"history,omitempty"`
 	// CyclePaused mirrors the host's control.cycle-pause flag (status.json sets it on
 	// every write + the status service flips it on the pause toggle). Surfaces a paused
 	// host as its own "paused" status, the same effective-pause signal the host status
@@ -336,6 +339,32 @@ type hostStatus struct {
 		FailureClass string `json:"failureClass"`
 		Severity     string `json:"severity"`
 	} `json:"lastFailure"`
+}
+
+type cycleVerdict struct {
+	CycleStartUtc string `json:"cycleStartUtc"`
+	OverallStatus string `json:"overallStatus"`
+	FinishedAt    string `json:"finishedAt"`
+	LastFailure   struct {
+		FailureClass string `json:"failureClass"`
+		Severity     string `json:"severity"`
+	} `json:"lastFailure"`
+}
+
+// The outer runner overlays host faults on the live verdict even when the next
+// attempt died before creating a cycle. Completed history still describes the
+// actual cycle; counting the overlay would turn a prior pass into a second fail.
+func (st *hostStatus) cycleStatus() *hostStatus {
+	for _, row := range st.History {
+		if row.CycleStartUtc == st.CycleStartUtc && row.CycleStartUtc != "" && (isTerminal(row.OverallStatus) || row.OverallStatus == "skipped") {
+			completed := *st
+			completed.OverallStatus = row.OverallStatus
+			completed.FinishedAt = row.FinishedAt
+			completed.LastFailure = row.LastFailure
+			return &completed
+		}
+	}
+	return st
 }
 
 // failClassOf returns the (terminal-fail) cycle's failure class, defaulting to
@@ -1376,25 +1405,26 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 			}
 		}
 		refreshed[hid] = true
-		if r.st.CycleStartUtc != "" {
-			key := hid + "|" + r.st.CycleStartUtc
+		cycleStatus := r.st.cycleStatus()
+		if cycleStatus.CycleStartUtc != "" {
+			key := hid + "|" + cycleStatus.CycleStartUtc
 			s.seenAt[key] = now
-			if s.seen[key] != r.st.OverallStatus {
-				s.seen[key] = r.st.OverallStatus
+			if s.seen[key] != cycleStatus.OverallStatus {
+				s.seen[key] = cycleStatus.OverallStatus
 				// Capture only immutable values while state is locked. A slow
 				// log store must not hold up pool status, metrics or announces.
-				cycleTransitions = append(cycleTransitions, cycleTransitionPayload(s.poolFor(hid), r.st, base, now))
+				cycleTransitions = append(cycleTransitions, cycleTransitionPayload(s.poolFor(hid), cycleStatus, base, now))
 			}
-			if isTerminal(r.st.OverallStatus) && !s.counted[key] {
+			if isTerminal(cycleStatus.OverallStatus) && !s.counted[key] {
 				s.counted[key] = true
-				if r.st.OverallStatus == "pass" {
+				if cycleStatus.OverallStatus == "pass" {
 					s.pass[hid]++
 				} else {
 					s.fail[hid]++
 					// status.json carries lastFailure (failureClass) in the same doc that
 					// flipped overallStatus to "fail" (Complete-Run flushes both), so the
 					// class is available at count time; "unknown" when unclassified.
-					s.failWindow[hid] = append(s.failWindow[hid], failRec{t: now, class: r.st.failClassOf()}) // ascending: polls are chronological
+					s.failWindow[hid] = append(s.failWindow[hid], failRec{t: now, class: cycleStatus.failClassOf()}) // ascending: polls are chronological
 				}
 			}
 		}
@@ -1627,7 +1657,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.10.04"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.10.11"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line

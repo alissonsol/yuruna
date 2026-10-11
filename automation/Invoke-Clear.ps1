@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42fb7715-90fe-4d23-bc04-b69682dd192a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,13 +54,14 @@ param (
     [string]$logLevel='Error'
 )
 
-# logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+# --- REGION: Log level
+# See https://yuruna.link/42e220c4-0019
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
-# Resolve yuruna/project/config roots (+ Env:) before evicting Yuruna.* -- the resolver
-# lives in the Yuruna.LogLevel leaf imported above, which the eviction then sweeps up.
+# --- REGION: Resolve roots
+# See https://yuruna.link/42e220c4-0019
 $roots = Resolve-YurunaRootSet -ScriptRoot $PSScriptRoot -ProjectRoot $project_root -ConfigSubfolder $config_subfolder
 if (-not $roots) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_36db573bfe1ac885') -WarningAction Continue
@@ -68,25 +69,28 @@ if (-not $roots) {
 }
 $yuruna_root = $roots.YurunaRoot
 $project_root = $roots.ProjectRoot
-# The transcript path is decided here, beside the root set and before the
-# Yuruna.* eviction sweeps up the leaf that resolves it. A caller can name
-# the file it will read afterwards; see Resolve-YurunaTranscriptPath.
+# --- REGION: Transcript path
+# See https://yuruna.link/42e220c4-0019
 $transcriptFileName = Resolve-YurunaTranscriptPath
+# --- REGION: Import operation modules
 Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $clearModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Clear.psm1"
 Import-Module -Name $clearModulePath -Force
 
+# --- REGION: Start transcript
 $null = Start-Transcript $transcriptFileName
 
+# --- REGION: Run operation
 $result = Clear-Configuration $project_root $config_subfolder
 
+# --- REGION: Stop transcript
 $null = Stop-Transcript
+
+# --- REGION: Completion
 if (-Not $result) {
     Write-Output $result
     Write-Output $(Get-Content -Path $transcriptFileName)
-    # Propagate the failure as a non-zero process exit so bash `set -e` wrappers see a
-    # Clear-Configuration failure instead of marching on -- matching `yuruna.ps1 clear`
-    # (its bool-or-manifest tail exits 1) and the Set-Component/Resource/Workload wrappers.
+    # See https://yuruna.link/42e220c4-0019
     exit 1
 }
 else {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 429be071-3a67-44e5-91dc-fd9c3fe536b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,57 +82,39 @@ function Invoke-PerGuestNewVm {
         return @{ success = $false; errorMessage = "New-VM.ps1 not found at: $scriptPath" }
     }
     $childArgs = @('-VMName', $VMName)
-    $scriptAcceptsProxy    = $false
-    $scriptAcceptsUsername = $false
-    $scriptAcceptsHostname = $false
-    $scriptAcceptsMemory   = $false
-    $scriptAcceptsCores    = $false
-    $scriptAcceptsExposeVirt = $false
+    # $null when the script has no parameter table to read: the lookup threw,
+    # or the script does not parse. It then declares nothing.
+    $declared = $null
     try {
-        $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
-        if ($cmdInfo.Parameters) {
-            $scriptAcceptsProxy    = [bool]$cmdInfo.Parameters.ContainsKey('CachingProxyServiceUrl')
-            $scriptAcceptsUsername = [bool]$cmdInfo.Parameters.ContainsKey('Username')
-            $scriptAcceptsHostname = [bool]$cmdInfo.Parameters.ContainsKey('Hostname')
-            $scriptAcceptsMemory   = [bool]$cmdInfo.Parameters.ContainsKey('MemoryStartupBytes')
-            $scriptAcceptsCores    = [bool]$cmdInfo.Parameters.ContainsKey('Cores')
-            $scriptAcceptsExposeVirt = [bool]$cmdInfo.Parameters.ContainsKey('ExposeVirtualizationExtensions')
-        }
+        $declared = (Get-Command -Name $scriptPath -ErrorAction Stop).Parameters
     } catch {
-        $scriptAcceptsProxy    = $false
-        $scriptAcceptsUsername = $false
-        $scriptAcceptsHostname = $false
-        $scriptAcceptsMemory   = $false
-        $scriptAcceptsCores    = $false
-        $scriptAcceptsExposeVirt = $false
+        $declared = $null
     }
-    if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl') -and $scriptAcceptsProxy) {
-        $childArgs += @('-CachingProxyServiceUrl', $CachingProxyServiceUrl)
-    }
-    if ($PSBoundParameters.ContainsKey('Username') -and $Username -and $scriptAcceptsUsername) {
-        $childArgs += @('-Username', $Username)
-    } elseif ($PSBoundParameters.ContainsKey('Username') -and $Username -and -not $scriptAcceptsUsername) {
-        Write-Verbose "Cascaded -Username '$Username' NOT forwarded: $scriptPath does not declare a -Username parameter."
-    }
-    if ($PSBoundParameters.ContainsKey('Hostname') -and $Hostname -and $scriptAcceptsHostname) {
-        $childArgs += @('-Hostname', $Hostname)
-    } elseif ($PSBoundParameters.ContainsKey('Hostname') -and $Hostname -and -not $scriptAcceptsHostname) {
-        Write-Verbose "Cascaded -Hostname '$Hostname' NOT forwarded: $scriptPath does not declare a -Hostname parameter."
-    }
-    if ($PSBoundParameters.ContainsKey('MemoryStartupBytes') -and $MemoryStartupBytes -and $scriptAcceptsMemory) {
-        $childArgs += @('-MemoryStartupBytes', $MemoryStartupBytes)
-    } elseif ($PSBoundParameters.ContainsKey('MemoryStartupBytes') -and $MemoryStartupBytes -and -not $scriptAcceptsMemory) {
-        Write-Verbose "Cascaded -MemoryStartupBytes '$MemoryStartupBytes' NOT forwarded: $scriptPath does not declare a -MemoryStartupBytes parameter."
-    }
-    if ($PSBoundParameters.ContainsKey('Cores') -and $Cores -and $scriptAcceptsCores) {
-        $childArgs += @('-Cores', $Cores)
-    } elseif ($PSBoundParameters.ContainsKey('Cores') -and $Cores -and -not $scriptAcceptsCores) {
-        Write-Verbose "Cascaded -Cores '$Cores' NOT forwarded: $scriptPath does not declare a -Cores parameter."
-    }
-    if ($PSBoundParameters.ContainsKey('ExposeVirtualizationExtensions') -and $ExposeVirtualizationExtensions -and $scriptAcceptsExposeVirt) {
-        $childArgs += @('-ExposeVirtualizationExtensions', $ExposeVirtualizationExtensions)
-    } elseif ($PSBoundParameters.ContainsKey('ExposeVirtualizationExtensions') -and $ExposeVirtualizationExtensions -and -not $scriptAcceptsExposeVirt) {
-        Write-Verbose "Cascaded -ExposeVirtualizationExtensions '$ExposeVirtualizationExtensions' NOT forwarded: $scriptPath does not declare an -ExposeVirtualizationExtensions parameter."
+    # Preserve an explicit empty proxy URL; drop unsupported optional overrides.
+    # ReportDrop keeps diagnostics as literal Write-Verbose arguments.
+    # See https://yuruna.link/42e220c4-0004
+    $passThrough = @(
+        @{ Name = 'CachingProxyServiceUrl'; Value = $CachingProxyServiceUrl }
+        @{ Name = 'Username'; Value = $Username
+            ReportDrop = { Write-Verbose "Cascaded -Username '$Username' NOT forwarded: $scriptPath does not declare a -Username parameter." } }
+        @{ Name = 'Hostname'; Value = $Hostname
+            ReportDrop = { Write-Verbose "Cascaded -Hostname '$Hostname' NOT forwarded: $scriptPath does not declare a -Hostname parameter." } }
+        @{ Name = 'MemoryStartupBytes'; Value = $MemoryStartupBytes
+            ReportDrop = { Write-Verbose "Cascaded -MemoryStartupBytes '$MemoryStartupBytes' NOT forwarded: $scriptPath does not declare a -MemoryStartupBytes parameter." } }
+        @{ Name = 'Cores'; Value = $Cores
+            ReportDrop = { Write-Verbose "Cascaded -Cores '$Cores' NOT forwarded: $scriptPath does not declare a -Cores parameter." } }
+        @{ Name = 'ExposeVirtualizationExtensions'; Value = $ExposeVirtualizationExtensions
+            ReportDrop = { Write-Verbose "Cascaded -ExposeVirtualizationExtensions '$ExposeVirtualizationExtensions' NOT forwarded: $scriptPath does not declare an -ExposeVirtualizationExtensions parameter." } }
+    )
+    foreach ($row in $passThrough) {
+        if (-not $PSBoundParameters.ContainsKey($row.Name)) { continue }
+        $reportsDrop = $row.ContainsKey('ReportDrop')
+        if ($reportsDrop -and -not $row.Value) { continue }
+        if ($null -ne $declared -and $declared.ContainsKey($row.Name)) {
+            $childArgs += @("-$($row.Name)", $row.Value)
+        } elseif ($reportsDrop) {
+            & $row.ReportDrop
+        }
     }
     Write-Verbose "Running: $scriptPath $($childArgs -join ' ')"
     $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1
@@ -505,13 +487,8 @@ function Invoke-CachingProxyServiceAvailableProbe {
         return $null
     }
 
-    # Local cache: probe only the IP recorded at the last
-    # Start-CachingProxyServiceVM.ps1. Empty state -> no cache (the explicit
-    # contract after Stop-CachingProxyServiceVM.ps1). State-set-but-unreachable
-    # warns loudly because the inner runner's bootstrap detection runs ONCE per
-    # cycle: a silently-failed probe sends the whole cycle's guests direct to the
-    # internet under a bare "Caching-proxy service: not detected" headline in
-    # Start-TestRunner output, with no "why" beside it.
+    # An empty saved IP means no owned cache; an unreachable saved IP is reported.
+    # See https://yuruna.link/42e220c4-0004
     $stateIp = (Read-CachingProxyServiceState).ipAddress
     if (-not $stateIp -or -not (Test-IpAddress $stateIp)) {
         & $reportNoCache "Test-CachingProxyServiceAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_SERVICE_IP to point at a remote cache, or run Start-CachingProxyServiceVM.ps1."
@@ -528,13 +505,8 @@ function Invoke-CachingProxyServiceAvailableProbe {
             return "http://$(if ($NoBracketHost) { $stateIp } else { Format-IpUrlHost $stateIp }):${httpPort}"
         }
     }
-    # Name the CAUSE when the host can be asked for it. The generic "re-run
-    # Start-CachingProxyServiceVM.ps1 (a new DHCP lease)" guess fits only a
-    # running VM; after a host reboot the VM is registered and POWERED OFF, fixed
-    # by starting it in seconds with the warm squid cache intact rather than by
-    # the ~15-minute rebuild that hint implies. Every host driver implements
-    # Get-VMState, resolved by name so a caller with no driver loaded still gets
-    # the generic text.
+    # Use the VM state to distinguish a stopped cache from a stale address.
+    # See https://yuruna.link/42e220c4-0004
     $cause = " If not, re-run Start-CachingProxyServiceVM.ps1 (the VM may have restarted with a new DHCP lease)."
     if (Get-Command Get-VMState -ErrorAction SilentlyContinue) {
         $cacheVmName = 'yuruna-caching-proxy-service'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 429aa9e5-4b47-42a5-adc9-b48244e14f6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,8 @@ BeforeAll {
             'Get-DiagnosticOperatorLocale', 'Get-DiagnosticMessageTable', 'Get-DiagnosticEmbeddedMessage',
             'Get-DiagnosticPluralCategory', 'Format-DiagnosticNumber', 'Format-DiagnosticArgument',
             'Format-DiagnosticSegment', 'Format-YurunaOperatorMessage', 'Invoke-DiagnosticBoundedCommand',
-            'Get-DiagnosticUtmctlListing')) {
+            'Invoke-Tool', 'Invoke-WithDeadline', 'Test-ExecutableFile', 'Add-Problem',
+            'Get-DiagnosticUtmctlListing', 'Resolve-DiagnosticEvidenceRoot', 'Get-DiagnosticFileTail')) {
         $definition = $script:DiagnosticAst.Find({ param($node)
                 $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
         if (-not $definition) { throw "Get-SystemDiagnostic.ps1 no longer defines $name." }
@@ -205,13 +206,16 @@ Describe 'Get-SystemDiagnostic.ps1 loads nothing beside itself' {
         Copy-Item -LiteralPath $script:DiagnosticPath -Destination $copy
 
         $run = Invoke-DiagnosticBoundedCommand -FilePath $script:Pwsh -TimeoutSeconds 300 -ArgumentList @(
-            '-NoProfile', '-NonInteractive', '-File', $copy, '-SkipDocker', '-SkipKube', '-SkipProjectGaps')
+            '-NoProfile', '-NonInteractive', '-File', $copy, '-SkipDocker', '-SkipKube',
+            '-CheckoutRoot', (Join-Path $TestDrive 'no-checkout'))
 
         $run.TimedOut | Should -BeFalse
         $run.ExitCode | Should -Be 0
         $text = "$($run.StdOut)`n$($run.StdErr)"
         $text | Should -Not -Match 'is not recognized as a name of a cmdlet'
         $text | Should -Not -Match 'was not loaded because no valid module file was found'
+        $text | Should -Match 'not applicable: checkout evidence is unavailable'
+        $text | Should -Not -Match 'Cannot bind argument to parameter .Path. because it is an empty string'
         $unrendered = @(Get-UsedMessageKey | Where-Object { $text.Contains($_) })
         $unrendered | Should -BeNullOrEmpty -Because 'a key printed in place of its message means the embedded text did not load'
         $summary = [regex]::Match($run.StdOut, '(?ms)^===YURUNA-DIAG-JSON-BEGIN===\r?\n(.*?)\r?\n===YURUNA-DIAG-JSON-END===')
@@ -219,6 +223,96 @@ Describe 'Get-SystemDiagnostic.ps1 loads nothing beside itself' {
         $problems = $summary.Groups[1].Value | ConvertFrom-Json -AsHashtable
         $problems.schema | Should -Be 'yuruna.diagnostic.problems/v1'
         $problems.byClass.Keys | Should -Not -Contain 'DIAG.section-aborted'
+    }
+}
+
+Describe 'standalone diagnostic checkout evidence is independent of its file location' {
+    BeforeEach {
+        $script:FixtureCheckout = Join-Path $TestDrive 'checkout'
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:FixtureCheckout 'automation') -Force
+        [IO.File]::WriteAllText((Join-Path $script:FixtureCheckout 'VERSION'), 'fixture-framework-version')
+        $script:FixtureHome = Join-Path $TestDrive 'home'
+        $homeCheckout = Join-Path $script:FixtureHome 'yuruna'
+        $null = New-Item -ItemType Directory -Path (Join-Path $homeCheckout 'automation') -Force
+        [IO.File]::WriteAllText((Join-Path $homeCheckout 'VERSION'), 'fixture-home-version')
+    }
+
+    It 'uses an explicit validated checkout even when the script was downloaded elsewhere' {
+        Resolve-DiagnosticEvidenceRoot -CheckoutRoot $script:FixtureCheckout -ScriptDirectory '/tmp' -HomeDirectory '' |
+            Should -BeExactly $script:FixtureCheckout
+    }
+
+    It 'discovers only the adjacent checkout or the known home checkout' {
+        Resolve-DiagnosticEvidenceRoot -CheckoutRoot '' -ScriptDirectory (Join-Path $script:FixtureCheckout 'automation') -HomeDirectory $script:FixtureHome |
+            Should -BeExactly $script:FixtureCheckout
+        Resolve-DiagnosticEvidenceRoot -CheckoutRoot '' -ScriptDirectory (Join-Path $TestDrive 'download') -HomeDirectory $script:FixtureHome |
+            Should -BeExactly (Join-Path $script:FixtureHome 'yuruna')
+    }
+
+    It 'does not treat the parent of a copied script as a checkout' {
+        Resolve-DiagnosticEvidenceRoot -CheckoutRoot '' -ScriptDirectory (Join-Path $TestDrive 'download') -HomeDirectory '' |
+            Should -BeNullOrEmpty
+    }
+
+    It 'does not replace an invalid explicit root with a different checkout' {
+        Resolve-DiagnosticEvidenceRoot -CheckoutRoot (Join-Path $TestDrive 'missing') -ScriptDirectory (Join-Path $script:FixtureCheckout 'automation') -HomeDirectory $script:FixtureHome |
+            Should -BeNullOrEmpty
+    }
+
+    It 'rejects filesystem roots and files as evidence roots' {
+        Resolve-DiagnosticEvidenceRoot -CheckoutRoot ([IO.Path]::GetPathRoot($script:FixtureCheckout)) -ScriptDirectory '' -HomeDirectory '' |
+            Should -BeNullOrEmpty
+        Resolve-DiagnosticEvidenceRoot -CheckoutRoot (Join-Path $script:FixtureCheckout 'VERSION') -ScriptDirectory '' -HomeDirectory '' |
+            Should -BeNullOrEmpty
+    }
+
+    It 'rejects a linked evidence root rather than traversing another tree' -Skip:($IsWindows) {
+        $link = Join-Path $TestDrive 'linked-checkout'
+        $null = New-Item -ItemType SymbolicLink -Path $link -Target $script:FixtureCheckout
+        Resolve-DiagnosticEvidenceRoot -CheckoutRoot $link -ScriptDirectory '' -HomeDirectory '' |
+            Should -BeNullOrEmpty
+    }
+
+    It 'collects phase logs and project versions from the supplied checkout with no adjacent modules' {
+        $project = Join-Path $script:FixtureCheckout 'project'
+        $phase = Join-Path $project '.yuruna/localhost/components'
+        $null = New-Item -ItemType Directory -Path $phase -Force
+        [IO.File]::WriteAllText((Join-Path $project 'VERSION'), 'fixture-project-version')
+        [IO.File]::WriteAllText((Join-Path $phase 'docker.stderr.log'), 'fixture-phase-stream-evidence')
+        $solo = Join-Path $TestDrive 'download'
+        $null = New-Item -ItemType Directory -Path $solo -Force
+        $copy = Join-Path $solo 'Get-SystemDiagnostic.ps1'
+        Copy-Item -LiteralPath $script:DiagnosticPath -Destination $copy
+
+        $run = Invoke-DiagnosticBoundedCommand -FilePath $script:Pwsh -TimeoutSeconds 300 -ArgumentList @(
+            '-NoProfile', '-NonInteractive', '-File', $copy, '-SkipDocker', '-SkipKube', '-CheckoutRoot', $script:FixtureCheckout)
+
+        $run.TimedOut | Should -BeFalse
+        $run.ExitCode | Should -Be 0
+        $run.StdOut | Should -Match 'fixture-phase-stream-evidence'
+        $run.StdOut | Should -Match 'fixture-framework-version'
+        $run.StdOut | Should -Match 'fixture-project-version'
+        $run.StdOut | Should -Not -Match 'DIAG.section-aborted'
+    }
+}
+
+Describe 'phase evidence reads fixed byte ranges' {
+    It 'reads only the last capped bytes of a large phase log' {
+        $path = Join-Path $TestDrive 'large.stderr.log'
+        [IO.File]::WriteAllText($path, ('x' * 131072) + 'retained-tail', [Text.UTF8Encoding]::new($false))
+        $tail = Get-DiagnosticFileTail -Path $path
+        [Text.Encoding]::UTF8.GetByteCount($tail) | Should -Be 65536
+        $tail | Should -Match 'retained-tail$'
+        Get-DiagnosticFileTail -Path $path -MaximumBytes 8 | Should -BeExactly 'ned-tail'
+    }
+
+    It 'keeps an empty log empty and recognizes a short UTF-16 log' {
+        $path = Join-Path $TestDrive 'small.stderr.log'
+        [IO.File]::WriteAllText($path, '')
+        Get-DiagnosticFileTail -Path $path | Should -BeExactly ''
+        $content = 'short unicode: ' + [char]0x00e7
+        [IO.File]::WriteAllText($path, $content, [Text.Encoding]::Unicode)
+        Get-DiagnosticFileTail -Path $path | Should -BeExactly $content
     }
 }
 
@@ -449,6 +543,7 @@ Describe 'Invoke-DiagnosticBoundedCommand bounds a command without any module' {
     }
 
     It 'lists utmctl through it when no caller loaded a runner' {
+        Mock Get-Command { return $null } -ParameterFilter { $Name -in @('Invoke-BoundedNativeCommand', 'Invoke-UtmctlProbe') }
         Get-Command -Name Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
         Get-Command -Name Invoke-UtmctlProbe -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
         $bin = Join-Path $TestDrive 'bin'
@@ -467,5 +562,163 @@ Describe 'Invoke-DiagnosticBoundedCommand bounds a command without any module' {
             $lines = @(Get-DiagnosticUtmctlListing -TimeoutSeconds 30)
         } finally { $env:PATH = $savedPath }
         $lines | Should -Be @('UUID Status Name', 'AAAA started one')
+    }
+}
+
+Describe 'Invoke-Tool native diagnostics preserve evidence and classification' {
+    BeforeEach {
+        Reset-DiagnosticRenderer -Root (Join-Path $TestDrive 'no-catalog')
+        $script:Problems = [Collections.Generic.List[string]]::new()
+        $script:ProblemRecords = [Collections.Generic.List[hashtable]]::new()
+        $script:LinuxPriv = @()
+    }
+    It 'captures zero, one and many native output lines without a PowerShell job: <Command>' -ForEach @(
+        @{ Command = 'exit 0'; Expected = @() },
+        @{ Command = '[Console]::WriteLine("one")'; Expected = @('one') },
+        @{ Command = '[Console]::Write("one`r`ntwo`r`n`r`n")'; Expected = @('one', 'two', '') }
+    ) {
+        Mock Invoke-WithDeadline { throw 'Native tools must not start a PowerShell job.' }
+        $lines = @(Invoke-Tool -Tool $script:Pwsh -ToolArgs @('-NoProfile', '-Command', $Command) -TimeoutSeconds 30 -ProblemTag 'FIXTURE.native')
+        $lines.Count | Should -Be $Expected.Count
+        if ($Expected.Count) { $lines | Should -Be $Expected }
+        $script:Problems.Count | Should -Be 0
+        Should -Invoke Invoke-WithDeadline -Times 0
+    }
+    It 'retains Unicode stdout and stderr and the existing nonzero problem class' {
+        $lines = @(Invoke-Tool -Tool $script:Pwsh -ToolArgs @('-NoProfile', '-Command', '[Console]::WriteLine("Caf`u{e9} `u{6771}`u{4eac}"); [Console]::Error.WriteLine("denied `u{fc}"); exit 7') -TimeoutSeconds 30 -ProblemTag 'FIXTURE.native')
+        $lines | Should -Be @("Caf`u{e9} `u{6771}`u{4eac}", "denied `u{fc}")
+        $script:ProblemRecords.Count | Should -Be 1
+        $script:ProblemRecords[0].class | Should -BeExactly 'FIXTURE.native'
+        $script:ProblemRecords[0].message | Should -Match '7'
+    }
+    It 'passes paths and argument boundaries literally without shell evaluation' {
+        $fixture = Join-Path $TestDrive "literal `u{fc} [1]; tool.ps1"
+        'param([string]$Value); [Console]::Write($Value)' | Set-Content -LiteralPath $fixture -Encoding utf8
+        $literal = 'space "quotes" $HOME; $(ignored) [x] ' + "`u{fc}"
+        $lines = @(Invoke-Tool -Tool $script:Pwsh -ToolArgs @('-NoProfile', '-File', $fixture, $literal) -TimeoutSeconds 30)
+        $lines | Should -Be @($literal)
+    }
+    It 'retains partial output and the timeout problem class' {
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $timeout = if ($IsWindows) { 10 } else { 2 }
+        $lines = @(Invoke-Tool -Tool $script:Pwsh -ToolArgs @('-NoProfile', '-Command', '[Console]::WriteLine("before-hang"); Start-Sleep 60') -TimeoutSeconds $timeout -ProblemTag 'FIXTURE.timeout')
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan ($timeout + 13)
+        $lines | Should -Contain 'before-hang'
+        $script:ProblemRecords.Count | Should -Be 1
+        $script:ProblemRecords[0].class | Should -BeExactly 'FIXTURE.timeout'
+        $script:ProblemRecords[0].message | Should -Match ([string]$timeout)
+    }
+    It 'clearly marks incomplete native evidence with <Flag>' -ForEach @(
+        @{ Flag = 'DrainTimedOut' }, @{ Flag = 'OutputTruncated' }, @{ Flag = 'KillFailed' }
+    ) {
+        $script:IncompleteFlag = $Flag
+        Mock Invoke-DiagnosticBoundedCommand {
+            $result = @{ Started = $true; ExitCode = 0; StdOut = 'prefix'; StdErr = ''; TimedOut = $false
+                DrainTimedOut = $false; OutputTruncated = $false; KillFailed = $false; StartError = '' }
+            $result[$script:IncompleteFlag] = $true
+            return $result
+        }
+        $lines = @(Invoke-Tool -Tool $script:Pwsh -TimeoutSeconds 30 -ProblemTag 'FIXTURE.partial')
+        $lines | Should -Contain 'prefix'
+        ($lines -join "`n") | Should -Match "$Flag=True"
+        $script:ProblemRecords[0].class | Should -BeExactly 'FIXTURE.partial'
+    }
+    It 'retains Windows batch shim interpreter semantics for <Extension>' -ForEach @(
+        @{ Extension = '.cmd' }, @{ Extension = '.bat' }
+    ) {
+        $script:BatchPath = 'C:\fixture\tool' + $Extension
+        Mock Get-Command { return [pscustomobject]@{ CommandType = 'Application'; Source = $script:BatchPath } } -ParameterFilter { $Name -eq 'fixture-batch' }
+        Mock Test-ExecutableFile { return $true }
+        Mock Invoke-WithDeadline { return @{ TimedOut = $false; Output = @('batch-output', 0) } }
+        Mock Invoke-DiagnosticBoundedCommand { throw 'A batch shim requires interpreter dispatch.' }
+        $lines = & {
+            # Automatic platform variables are AllScope: forcing a test value
+            # changes the inherited variable too, so restore it even on error.
+            $savedWindows = $IsWindows
+            try {
+                Set-Variable -Name IsWindows -Value $true -Scope Local -Force
+                @(Invoke-Tool -Tool 'fixture-batch' -TimeoutSeconds 30)
+            } finally {
+                Set-Variable -Name IsWindows -Value $savedWindows -Scope Local -Force
+            }
+        }
+        $lines | Should -Be @('batch-output')
+        Should -Invoke Invoke-WithDeadline -Times 1 -Exactly
+        Should -Invoke Invoke-DiagnosticBoundedCommand -Times 0
+    }
+    It 'continues to use the scriptblock compatibility runner for a PowerShell function' {
+        function Invoke-FixtureTool { 'unused' }
+        Mock Invoke-WithDeadline { return @{ TimedOut = $false; Output = @('function-output', 0) } }
+        Mock Invoke-DiagnosticBoundedCommand { throw 'Functions are not executable files.' }
+        @(Invoke-Tool -Tool Invoke-FixtureTool -TimeoutSeconds 30) | Should -Be @('function-output')
+        Should -Invoke Invoke-WithDeadline -Times 1 -Exactly
+        Should -Invoke Invoke-DiagnosticBoundedCommand -Times 0
+    }
+}
+
+Describe 'standalone native stream and descendant safety' {
+    BeforeAll {
+        $script:TreeFixture = Join-Path $TestDrive 'tree-fixture.ps1'
+        @'
+param([string]$PidPath, [switch]$ParentExits)
+$info = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+$info.UseShellExecute = $false
+$info.CreateNoWindow = $true
+foreach ($argument in @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60')) { [void]$info.ArgumentList.Add($argument) }
+$child = [Diagnostics.Process]::Start($info)
+[IO.File]::WriteAllText($PidPath, [string]$child.Id)
+[Console]::WriteLine('parent-prefix')
+if (-not $ParentExits) { Start-Sleep -Seconds 60 }
+'@ | Set-Content -LiteralPath $script:TreeFixture -Encoding utf8
+    }
+    It 'caps each stream while draining simultaneous native stdout and stderr' {
+        $r = Invoke-DiagnosticBoundedCommand -FilePath $script:Pwsh -TimeoutSeconds 30 -MaxCapturedChars 4096 -ArgumentList @(
+            '-NoProfile', '-Command', 'for($i=0;$i -lt 100;$i++){[Console]::Out.Write([string]::new([char]120,1000));[Console]::Error.Write([string]::new([char]121,1000))}')
+        $r.ExitCode | Should -Be 0
+        $r.StdOut | Should -BeExactly ([string]::new([char]120, 4096))
+        $r.StdErr | Should -BeExactly ([string]::new([char]121, 4096))
+        $r.OutputTruncated | Should -BeTrue
+        $r.DrainTimedOut | Should -BeFalse
+    }
+    It 'closes stdin so a native reader sees EOF' {
+        $r = Invoke-DiagnosticBoundedCommand -FilePath $script:Pwsh -TimeoutSeconds 30 -ArgumentList @(
+            '-NoProfile', '-Command', 'if($null -eq [Console]::ReadLine()){[Console]::Write("eof")}else{exit 4}')
+        $r.ExitCode | Should -Be 0
+        $r.StdOut | Should -BeExactly 'eof'
+    }
+    It 'terminates its timed-out process tree and keeps the captured prefix' {
+        $pidPath = Join-Path $TestDrive 'killed-child.pid'
+        try {
+            $timeout = if ($IsWindows) { 10 } else { 2 }
+            $r = Invoke-DiagnosticBoundedCommand -FilePath $script:Pwsh -TimeoutSeconds $timeout -ArgumentList @('-NoProfile', '-File', $script:TreeFixture, $pidPath)
+            $r.TimedOut | Should -BeTrue
+            $r.KillFailed | Should -BeFalse
+            $r.StdOut | Should -Match 'parent-prefix'
+            $childId = [int][IO.File]::ReadAllText($pidPath)
+            $child = Get-Process -Id $childId -ErrorAction SilentlyContinue
+            if ($child) { $child.HasExited | Should -BeTrue }
+        } finally {
+            if (Test-Path -LiteralPath $pidPath) {
+                $child = Get-Process -Id ([int][IO.File]::ReadAllText($pidPath)) -ErrorAction SilentlyContinue
+                if ($child -and -not $child.HasExited) { $child.Kill($true) }
+            }
+        }
+    }
+    It 'reports an inherited stream held open after the immediate parent exits' {
+        $pidPath = Join-Path $TestDrive 'orphan-child.pid'
+        try {
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $r = Invoke-DiagnosticBoundedCommand -FilePath $script:Pwsh -TimeoutSeconds 30 -ArgumentList @('-NoProfile', '-File', $script:TreeFixture, $pidPath, '-ParentExits')
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 15
+            $r.ExitCode | Should -Be 0
+            $r.TimedOut | Should -BeFalse
+            $r.DrainTimedOut | Should -BeTrue
+            $r.StdOut | Should -Match 'parent-prefix'
+        } finally {
+            if (Test-Path -LiteralPath $pidPath) {
+                $child = Get-Process -Id ([int][IO.File]::ReadAllText($pidPath)) -ErrorAction SilentlyContinue
+                if ($child -and -not $child.HasExited) { $child.Kill($true) }
+            }
+        }
     }
 }

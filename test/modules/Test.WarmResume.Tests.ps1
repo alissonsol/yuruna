@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42bc2da1-ebdb-48ed-9d8a-68099d34d1f5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,15 +58,8 @@ function New-WRTempDir {
     return $p
 }
 
-# Fixtures must sit ABOVE THE FIRST Describe, not merely at file scope. Only
-# top-level statements executed before the first Describe land in the session
-# state the run phase reuses; a top-level assignment placed after one is
-# evaluated during discovery and then discarded, so every later It reads $null.
-# Declaring this inside the Describe body has the same effect for the same
-# reason. It is a silent failure: an empty workload list refuses a resume just
-# as surely as the condition each test means to check, so four of the five
-# tests below -- including the two asserting a specific .Reason -- kept passing
-# for the wrong reason while the list was empty.
+# --- REGION: Fixture helpers
+# See https://yuruna.link/42e220c4-0014
 $script:WarmResumeWorkload = @('ubuntu.server.26.update', 'ubuntu.server.26.k8s')
 
 }
@@ -85,10 +78,10 @@ Describe 'Warm-resume class eligibility' {
         # nothing and there is nothing a replay could do twice. Its usual cause
         # -- a host that renumbered while the guest still held the old address --
         # is normally gone by the next attempt.
-        foreach ($c in 'network_timeout','wait_timeout','instrumentation_failure','host_io_blocked','ip_not_discovered','payload_unavailable') {
+        foreach ($c in 'network_timeout','wait_timeout','instrumentation_failure','host_io_blocked','ip_not_discovered','payload_unavailable','input_lost') {
             Assert-True (Test-WarmResumeEligibleClass -FailureClass $c) "expected eligible: $c"
         }
-        Assert-Equal -Expected 6 -Actual (Get-WarmResumeEligibleClass).Count
+        Assert-Equal -Expected 7 -Actual (Get-WarmResumeEligibleClass).Count
     }
     It 'rejects hard/deterministic classes and blanks' {
         foreach ($c in 'script_error','provisioning_failure','pattern_matched_failure','ocr_timeout','plan_invalid','') {
@@ -476,7 +469,7 @@ Describe 'Replay safety is declared by every registered action' {
         # Pinned on purpose: widening this set widens what a resume will replay
         # onto a failed attempt's residue, so it takes a deliberate edit here.
         $observing = @(Get-SequenceActionName | Where-Object { (Get-SequenceActionReplaySafety -Name $_) -eq 'observe' } | Sort-Object)
-        $expected = @('break', 'saveSystemDiagnostic', 'sshWaitReady', 'takeScreenshot', 'waitForSeconds', 'waitForText', 'waitForTextWithNudge')
+        $expected = @('break', 'saveGuestClockSnapshot', 'saveSystemDiagnostic', 'sshWaitReady', 'takeScreenshot', 'waitForSeconds', 'waitForText', 'waitForTextWithNudge')
         Assert-Equal -Expected ($expected -join ',') -Actual ($observing -join ',')
     }
 

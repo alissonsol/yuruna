@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42d5c7e8-3b19-4a62-8f04-6c2ae91b73d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,6 +62,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+Import-Module (Join-Path $PSScriptRoot 'Markdown.LocalAnchors.psm1') -Global -Force
+
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Parent = Split-Path -Parent $RepoRoot
 if (-not $Catalog) { $Catalog = Join-Path $Parent 'yuruna.link/yuruna.link.json' }
@@ -79,37 +81,6 @@ foreach ($needed in @($Catalog, $AnchorManifest)) {
 $RepoUrl = @{
     'yuruna'         = 'https://github.com/alissonsol/yuruna/blob/main/'
     'yuruna-project' = 'https://github.com/alissonsol/yuruna-project/blob/main/'
-}
-
-function Get-LocalSbomAnchorId {
-    <#
-    .SYNOPSIS
-        Read stable anchors from a nonlocalized document, excluding fenced examples.
-    #>
-    [CmdletBinding()]
-    [OutputType([string[]])]
-    param([Parameter(Mandatory)][string]$LiteralPath)
-
-    $ids = [Collections.Generic.List[string]]::new()
-    $fenceCharacter = ''
-    $fenceLength = 0
-    foreach ($line in [IO.File]::ReadAllLines($LiteralPath)) {
-        if ($fenceCharacter) {
-            $closing = '^ {0,3}' + [regex]::Escape($fenceCharacter) + '{' + $fenceLength + ',}[ \t]*$'
-            if ($line -match $closing) { $fenceCharacter = '' }
-            continue
-        }
-        $fence = [regex]::Match($line, '^ {0,3}(`{3,}|~{3,})(.*)$')
-        if ($fence.Success -and -not ($fence.Groups[1].Value[0] -eq '`' -and
-                $fence.Groups[2].Value.Contains('`'))) {
-            $fenceCharacter = [string]$fence.Groups[1].Value[0]
-            $fenceLength = $fence.Groups[1].Length
-            continue
-        }
-        $anchor = [regex]::Match($line, '^[ \t]*<a id="(42[0-9a-f]{6}-[0-9a-f]{4})"></a>[ \t]*$')
-        if ($anchor.Success) { $ids.Add($anchor.Groups[1].Value) }
-    }
-    return [string[]]$ids.ToArray()
 }
 
 $anchorData = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($AnchorManifest))

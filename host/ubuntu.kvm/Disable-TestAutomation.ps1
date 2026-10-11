@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,10 +72,11 @@ $restored = [System.Collections.Generic.List[string]]::new()
 $skipped  = [System.Collections.Generic.List[string]]::new()
 
 # --- REGION: Script-local helpers
-# Thin local shim over the shared driver so the three per-host scripts stay
-# readable: -State, -Cmdlet and the two lists are the same on every call.
+# See https://yuruna.link/42e220c4-0004
+# Pass the script's bound cmdlet: WhatIf preferences do not cross module scope.
 $Script:DisableCmdlet = $PSCmdlet
 
+# --- REGION: Restore-Knob
 function Restore-Knob {
     param(
         [Parameter(Mandatory)][string]$Name,

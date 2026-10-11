@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c5c7b3-f42f-44df-81b8-ce01b38b4d9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,9 +39,7 @@ function New-TempDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test helper: creates a throwaway temp directory the calling It block deletes in its finally.')]
     [CmdletBinding()] [OutputType([string])] param()
-    $d = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-hostid-" + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $d
-    return $d
+    return New-YurunaTestTempDir -Prefix 'yrn-hostid'
 }
 
 # A full, strong fingerprint for the "this is me" side of the comparisons.

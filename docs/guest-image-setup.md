@@ -34,8 +34,9 @@ pwsh ./Get-Image.ps1                # macOS UTM, Ubuntu KVM
 
 `Get-Image.ps1` is idempotent -- it skips the download when the local
 copy matches the upstream metadata (size + timestamp). The script
-writes into `~/yuruna/image/<GUEST>.env/` (POSIX) or
-`%USERPROFILE%\yuruna\image\<GUEST>.env\` (Windows). Architecture
+writes into a folder under `~/yuruna/image/` (POSIX; for example
+`ubuntu.env/`, `amazon.linux.2023/` or `macos.env/`) or into the Hyper-V
+host's `VirtualHardDiskPath` (Windows). Architecture
 (amd64 / arm64) follows the host automatically -- there is no flag to
 force a cross-architecture image.
 
@@ -47,7 +48,7 @@ Image source by host:
   fallback steps when the automated fetch is blocked. Amazon Linux 2023
   is the one guest whose publisher offers no ARM64 Hyper-V image, so on
   ARM64 the script pulls the ARM64 KVM qcow2 and converts it to VHDX
-  with `qemu-img` -- the same file name either way, so `New-VM.ps1` is
+  with `qemu-img` -- the same filename either way, so `New-VM.ps1` is
   unaffected. The converted guest does not boot on Hyper-V, though: that
   image carries no Hyper-V drivers, so it finds neither its root disk nor
   a NIC. See
@@ -113,7 +114,7 @@ through to the resolve /
 skip-if-same-source / publisher-download path below, with the same
 output, sentinel, and exit codes. Failures of an agent that *did*
 answer print one warning line and continue; an agent
-that is simply not there says nothing. `-Verbose` shows the "no download
+that is not there says nothing. `-Verbose` shows the "no download
 agent reachable" line to confirm which path a run took.
 
 Discovery, the pool layout, and the agent's own board are in
@@ -291,11 +292,11 @@ kernel was bumped. Two ways to invoke them:
 
 - **Inside a cycle** -- the framework's workload sequences call the
   matching update script during the per-guest workload phase.
-- **Ad hoc** -- to refresh a long-running VM without a full cycle:
+- **Ad-hoc** -- to refresh a long-running VM without a full cycle:
 
   ```
   ssh -i ../../../test/status/ssh/yuruna_ed25519 <USERNAME>@<ip> \
-      'bash -s' < ../../guest/<GUEST>/<GUEST>.update.sh
+      'bash -s' < ../../../guest/<GUEST>/<GUEST>.update.sh
   ```
 
 The scripts are idempotent -- they're safe to re-run when a GUI lock
@@ -419,8 +420,9 @@ The autoinstall / cloud-init configuration marks the password
 retype before yielding a shell. The harness's `start.guest.*.yml`
 sequence drives that rotation against the OS prompt.
 
-For ad-hoc runs outside a cycle, set `$env:YURUNA_GUEST_PASSWORD` to
-a known plaintext before `New-VM.ps1` to bypass the vault.
+For ad-hoc Ubuntu Server runs on KVM, set `$env:YURUNA_GUEST_PASSWORD`
+to a known plaintext before `New-VM.ps1` to bypass the vault. The Windows
+and macOS builders use the authentication vault.
 
 <a id="42ec97cd-0013"></a>
 
@@ -475,15 +477,19 @@ things -- `Get-Image.ps1`, `New-VM.ps1`, and (UTM only) a
 the `yuruna` user with the harness SSH key and a console password from the
 authentication vault, and `<service>.meta-data`.
 
-Only two things vary, and they vary by HOST, not by service:
+The following defaults apply to the stash, pool-control, and download-agent
+services; the caching-proxy service uses a 512 GiB disk and defaults to 12288 MiB
+RAM on all three hosts. Its memory can be configured separately. The base image
+format and VM configuration also vary by host:
 
 | Host type | Base image | What `New-VM.ps1` creates |
 | --- | --- | --- |
-| `macos.utm` | arm64 qcow2, resized to 256 GB sparse on APFS | a UTM bundle (QEMU backend, `-vnc`, bridged networking), seeded via cloud-init |
+| `macos.utm` | arm64 qcow2, resized to 256 GB sparse on APFS | a UTM bundle (QEMU backend, `-vnc`, Bridged or Shared NAT networking), seeded via cloud-init |
 | `ubuntu.kvm` | host-architecture qcow2, resized to 256 GB sparse | a libvirt domain, seeded via a cloud-init NoCloud ISO |
 | `windows.hyper-v` | host-architecture qcow2 converted to VHDX, resized to 256 GB dynamic | a Hyper-V VM, seeded via a cloud-init ISO |
 
-All three sizes are 2 GB RAM and core-count-policy vCPUs (minimum 4).
+These three services use 2 GB RAM and the host core-count policy. The policy
+requests at least four vCPUs; Hyper-V caps Linux service guests at two on ARM64.
 
 Canonical documentation per service:
 [stash](stash-guide.md), [pool-control](pool-admin.md),
@@ -520,7 +526,8 @@ The **only** platform variable in the New-VM runner is the host
 subdirectory string literal, so it is a plain `-HostSubdir` parameter
 each driver's thin wrapper fills in with its constant value.
 
-Each driver imports the module **non-Global**, into its own scope:
+Each driver imports the module with `-Global` so a forced driver re-import
+preserves the shared commands used by other modules:
 `New-VM` becomes a thin wrapper passing its host subdir, and
 `Get-Image` calls the imported `Write-GetImageLine` directly. The
 driver-private pieces a shared body cannot see are **injected** as
@@ -562,7 +569,7 @@ scriptblock, so this module never reaches across a module boundary by
 name; a by-name reach would be fragile under `-Force` re-imports (see
 `feedback_module_force_import_evicts_global.md`).
 
-Each driver imports the module non-Global into its own scope, keeps its
+Each driver imports the module with `-Global`, keeps its
 own `Resolve-CacheHostIp`, and re-exports the names its callers use.
 The driver's thin `Save-CachedHttpUri` wrapper passes
 `{ Resolve-CacheHostIp }` so the closure resolves the driver's own
@@ -613,17 +620,26 @@ Removing a guest is the inverse of stage 4:
 ```
 # Hyper-V
 Stop-VM -Name <VMName> -Force; Remove-VM -Name <VMName> -Force
-Remove-Item "~\yuruna\vms\<VMName>" -Recurse -Force
+Remove-Item (Join-Path (Get-VMHost).VirtualHardDiskPath "<VMName>") -Recurse -Force
 # KVM
 virsh -c qemu:///system destroy <VMName>
-virsh -c qemu:///system undefine <VMName> --remove-all-storage
+virsh -c qemu:///system undefine <VMName> --nvram --managed-save --snapshots-metadata --checkpoints-metadata
+rm -rf ~/yuruna/vms/<VMName>
 # UTM
 # Right-click the VM in UTM -> Delete; then remove the bundle under
 # ~/yuruna/guest.nosync/.
 ```
 
-The image cache under `~/yuruna/image/<GUEST>.env/` is preserved
-across deletes so the next `New-VM.ps1` need not re-download.
+The image cache under `~/yuruna/image/` (or the Hyper-V host's
+`VirtualHardDiskPath`) is preserved across deletes so the next
+`New-VM.ps1` need not re-download.
+
+KVM and UTM orphan sweeps use `Get-VMFolderSize` for directory totals. It
+recursively enumerates literal paths, so brackets in a VM name cannot select
+another directory, and returns Int64 bytes. Empty, missing, or unreadable paths
+contribute zero. Hyper-V sums the lengths of its individually selected files.
+Provider registration checks still determine whether any artifact may be removed.
+See [cleanup outcomes](https://yuruna.link/42e220c4-0004).
 
 ---
 
@@ -631,6 +647,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

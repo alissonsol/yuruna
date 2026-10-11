@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c53656-cbe7-4882-9a43-998f29ec9609
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,7 @@
         (and pushed) in yuruna-project, not in the clone.
 
     The throw-based Assert-* helpers live at script scope and are referenced
-    from It blocks, so this runs under Pester 4.10.1.
+    from It blocks, so this runs under Pester 5.x.
 #>
 
 BeforeAll {

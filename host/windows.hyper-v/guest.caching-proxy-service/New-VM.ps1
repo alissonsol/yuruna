@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,8 +12,6 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
-.PARAMETER AllowPseudoLocale
-    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -26,11 +24,11 @@
     Builds a lightweight Ubuntu Server cloud-image VM that runs Squid on
     port 3128. Guest VMs that set their HTTP proxy to this VM's IP will
     transparently cache every cacheable HTTP response -- including the
-    .deb packages the Ubuntu installer fetches during its kernel install
+    Debian packages the Ubuntu installer fetches during its kernel install
     step, which security.ubuntu.com rate-limits with intermittent 429
     failures when each guest fetches them uncached.
 
-    The VM is named "caching-proxy-service" by default. Run Get-Image.ps1 first to
+    The VM is named "yuruna-caching-proxy-service" by default. Run Get-Image.ps1 first to
     download the base cloud image.
 
     After creation the script starts the VM, waits for cloud-init to finish
@@ -38,13 +36,16 @@
     VMs should use.
 
 .PARAMETER VMName
-    Name of the Hyper-V VM. Default: caching-proxy-service
+    Name of the Hyper-V VM. Default: yuruna-caching-proxy-service
 
 .PARAMETER MacAddress
     Optional stable MAC for the VM's NIC (AA:BB:CC:DD:EE:FF, dashed, or
     bare hex). Lets the operator pin the cache IP with a one-time DHCP
     reservation on the LAN router; without it Hyper-V assigns a fresh
     dynamic MAC on every rebuild and the lease moves.
+
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for this VM. Disabled by default.
 
 .EXAMPLE
     .\Get-Image.ps1

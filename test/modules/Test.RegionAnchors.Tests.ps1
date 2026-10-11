@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a1c8e3-5b47-4f60-9d2a-7e83b415cc09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,6 +86,124 @@ AfterAll {
 }
 
 Describe 'document anchor history survives partial updates and deletions' {
+    It 'keeps title-first source and translation bytes and ids during Check and Update with <Ending>' -TestCases @(
+        @{ Ending = 'LF'; Separator = "`n" },
+        @{ Ending = 'CRLF'; Separator = "`r`n" }
+    ) {
+        param($Separator, $Ending)
+        $fixture = Join-Path $script:Sandbox "title-first-$Ending/yuruna"
+        foreach ($dir in @('tools', 'test/modules', 'docs/pt-BR', 'globalization/manifests')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force
+        }
+        $generator = Join-Path $fixture 'tools/Invoke-DocAnchor.ps1'
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1') -Destination $generator
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/modules/Test.Prelude.psm1') -Destination (Join-Path $fixture 'test/modules/Test.Prelude.psm1')
+        $readme = Join-Path $fixture 'README.md'
+        $translation = Join-Path $fixture 'docs/pt-BR/README.md'
+        $sourceText = (@('# Title', '', '<a id="42aaaaaa-0001"></a>', '', 'Purpose.', '') -join $Separator)
+        $translatedText = (@('# Titulo', '', '<a id="42aaaaaa-0001"></a>', '', 'Proposito.', '') -join $Separator)
+        [IO.File]::WriteAllText($readme, $sourceText)
+        [IO.File]::WriteAllText($translation, $translatedText)
+        $manifest = Join-Path $fixture 'globalization/manifests/doc-anchors.json'
+        $record = [ordered]@{
+            id = '42aaaaaa'; repo = 'yuruna'; source = 'README.md'
+            translations = [ordered]@{ 'pt-BR' = 'docs/pt-BR/README.md' }
+            anchors = @([ordered]@{ id = '42aaaaaa-0001'; heading = 'Title'; slug = 'title' })
+        }
+        $manifestText = ([ordered]@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } |
+            ConvertTo-Json -Depth 8).Replace("`r`n", "`n").TrimEnd() + "`n"
+        [IO.File]::WriteAllText($manifest, $manifestText)
+
+        foreach ($mode in 'Check', 'Update', 'Check') {
+            $output = & pwsh -NoProfile -File $generator "-$mode" -Path README.md -Quiet 2>&1 | Out-String
+            Assert-Equal 0 $LASTEXITCODE "title anchors must remain stable during ${mode}: $output"
+            Assert-StringEqual $manifestText ([IO.File]::ReadAllText($manifest)) 'the existing title id stays registered'
+            Assert-StringEqual $sourceText ([IO.File]::ReadAllText($readme)) 'the source title remains first'
+            Assert-StringEqual $translatedText ([IO.File]::ReadAllText($translation)) 'the translated title remains first'
+        }
+    }
+
+    It 'refuses repeated explicit ids in <Location> during <Mode> before changing the manifest' -TestCases @(
+        @{ Location = 'source'; Mode = 'Check' }, @{ Location = 'source'; Mode = 'Update' },
+        @{ Location = 'translation'; Mode = 'Check' }, @{ Location = 'translation'; Mode = 'Update' }
+    ) {
+        param($Location, $Mode)
+        $fixture = Join-Path $script:Sandbox "duplicate-$Location-$Mode/yuruna"
+        foreach ($dir in @('tools', 'test/modules', 'docs/pt-BR', 'globalization/manifests')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force
+        }
+        $generator = Join-Path $fixture 'tools/Invoke-DocAnchor.ps1'
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1') -Destination $generator
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/modules/Test.Prelude.psm1') -Destination (Join-Path $fixture 'test/modules/Test.Prelude.psm1')
+        $readme = Join-Path $fixture 'README.md'
+        $translation = Join-Path $fixture 'docs/pt-BR/README.md'
+        $sourceSecond = if ($Location -eq 'source') { '0001' } else { '0002' }
+        $translatedSecond = if ($Location -eq 'translation') { '0001' } else { '0002' }
+        $sourceText = "<a id=`"42aaaaaa-0001`"></a>`r`n`r`n# First`r`n`r`n<a id=`"42aaaaaa-$sourceSecond`"></a>`r`n`r`n## Second`r`n"
+        $translatedText = "<a id=`"42aaaaaa-0001`"></a>`r`n`r`n# Primeiro`r`n`r`n<a id=`"42aaaaaa-$translatedSecond`"></a>`r`n`r`n## Segundo`r`n"
+        [IO.File]::WriteAllText($readme, $sourceText)
+        [IO.File]::WriteAllText($translation, $translatedText)
+        $manifest = Join-Path $fixture 'globalization/manifests/doc-anchors.json'
+        $record = [ordered]@{
+            id = '42aaaaaa'; repo = 'yuruna'; source = 'README.md'
+            translations = [ordered]@{ 'pt-BR' = 'docs/pt-BR/README.md' }
+            anchors = @(
+                [ordered]@{ id = '42aaaaaa-0001'; heading = 'First'; slug = 'first' },
+                [ordered]@{ id = '42aaaaaa-0002'; heading = 'Second'; slug = 'second' }
+            )
+            retiredAnchorIds = @('42aaaaaa-0003')
+        }
+        $manifestText = ([ordered]@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } |
+            ConvertTo-Json -Depth 8).Replace("`r`n", "`n").TrimEnd() + "`n"
+        [IO.File]::WriteAllText($manifest, $manifestText)
+
+        $output = & pwsh -NoProfile -File $generator "-$Mode" -Path README.md -Quiet 2>&1 | Out-String
+        Assert-Equal 2 $LASTEXITCODE $output
+        Assert-Match 'repeat explicit anchor id 42aaaaaa-0001' $output
+        Assert-Match 'lines 3 and 7' $output
+        $document = if ($Location -eq 'source') { 'yuruna/README.md' } else { 'docs/pt-BR/README.md' }
+        Assert-True ($output.Contains($document)) 'the error names the document with the ambiguous headings'
+        Assert-StringEqual $manifestText ([IO.File]::ReadAllText($manifest)) 'a duplicate id cannot update the manifest'
+        Assert-StringEqual $sourceText ([IO.File]::ReadAllText($readme)) 'the source is not rewritten after a collision'
+        Assert-StringEqual $translatedText ([IO.File]::ReadAllText($translation)) 'the translation is not rewritten after a collision'
+    }
+
+    It 'preserves distinct-case explicit suffixes in the source and translation' {
+        $fixture = Join-Path $script:Sandbox 'distinct-case/yuruna'
+        foreach ($dir in @('tools', 'test/modules', 'docs/pt-BR', 'globalization/manifests')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force
+        }
+        $generator = Join-Path $fixture 'tools/Invoke-DocAnchor.ps1'
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1') -Destination $generator
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/modules/Test.Prelude.psm1') -Destination (Join-Path $fixture 'test/modules/Test.Prelude.psm1')
+        $readme = Join-Path $fixture 'README.md'
+        $translation = Join-Path $fixture 'docs/pt-BR/README.md'
+        $sourceText = "<a id=`"42aaaaaa-000a`"></a>`n`n# First`n`n<a id=`"42aaaaaa-000A`"></a>`n`n## Second`n"
+        $translatedText = "<a id=`"42aaaaaa-000a`"></a>`n`n# Primeiro`n`n<a id=`"42aaaaaa-000A`"></a>`n`n## Segundo`n"
+        [IO.File]::WriteAllText($readme, $sourceText)
+        [IO.File]::WriteAllText($translation, $translatedText)
+        $manifest = Join-Path $fixture 'globalization/manifests/doc-anchors.json'
+        $record = [ordered]@{
+            id = '42aaaaaa'; repo = 'yuruna'; source = 'README.md'
+            translations = [ordered]@{ 'pt-BR' = 'docs/pt-BR/README.md' }
+            anchors = @(
+                [ordered]@{ id = '42aaaaaa-000a'; heading = 'First'; slug = 'first' },
+                [ordered]@{ id = '42aaaaaa-000A'; heading = 'Second'; slug = 'second' }
+            )
+        }
+        $manifestText = ([ordered]@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } |
+            ConvertTo-Json -Depth 8).Replace("`r`n", "`n").TrimEnd() + "`n"
+        [IO.File]::WriteAllText($manifest, $manifestText)
+
+        foreach ($mode in 'Check', 'Update') {
+            $output = & pwsh -NoProfile -File $generator "-$mode" -Path README.md -Quiet 2>&1 | Out-String
+            Assert-Equal 0 $LASTEXITCODE "case-sensitive ids must remain distinct during ${mode}: $output"
+            Assert-StringEqual $manifestText ([IO.File]::ReadAllText($manifest)) 'both exact ids remain registered without a rewrite'
+            Assert-StringEqual $sourceText ([IO.File]::ReadAllText($readme)) 'the source keeps its exact-case ids'
+            Assert-StringEqual $translatedText ([IO.File]::ReadAllText($translation)) 'the translation keeps its exact-case ids'
+        }
+    }
+
     It 'preserves unavailable and unselected documents and never reissues a retired id' {
         $fixture = Join-Path $script:Sandbox 'history/yuruna'
         foreach ($dir in @('tools', 'docs', 'globalization/manifests')) {
@@ -163,6 +281,21 @@ Describe 'document anchor history survives partial updates and deletions' {
 
 Describe 'the anchor gate says which of the three things happened' {
 
+    BeforeAll {
+        # The published map lives in a sibling repository, and the cases that
+        # scan the framework tree are about the gate, not about that map. The
+        # one thing such a scan needs a map for is the SBOM document: its ids
+        # sit outside the generated index, so only a published row says where
+        # they live. This map publishes that document under the file id the
+        # document itself carries.
+        $sbom = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'docs/sbom/README.md'))
+        $fileId = [regex]::Match($sbom, '(?m)^<a id="(42[0-9a-f]{6})-[0-9a-f]{4}"></a>').Groups[1].Value
+        Assert-True ([bool]$fileId) 'the framework SBOM document carries no stable anchor for the fixture map to publish'
+        $script:FrameworkMap = New-LinkMap -Name 'framework-only.json' -Entry @(
+            , @($fileId, 'Software bill of materials',
+                'https://github.com/alissonsol/yuruna/blob/main/docs/sbom/README.md'))
+    }
+
     It 'rejects missing, headingless, and substring-only document targets' -ForEach @('missing', 'headingless', 'substring') {
         $project = Join-Path $script:Sandbox ('document-' + $_)
         $null = New-Item -ItemType Directory -Path $project -Force
@@ -172,7 +305,7 @@ Describe 'the anchor gate says which of the three things happened' {
             $content = if ($_ -eq 'substring') { '# Installation guide' } else { 'No headings here.' }
             [IO.File]::WriteAllText((Join-Path $project 'README.md'), $content)
         }
-        [IO.File]::WriteAllText((Join-Path $project 'consumer.ps1'), '# https://yuruna.link/fixture-doc#install')
+        [IO.File]::WriteAllText((Join-Path $project 'consumer.ps1'), '# https://yuruna.link/' + 'fixture-doc#install')
         $map = New-LinkMap -Name ('document-' + $_ + '.json') -Entry @(
             , @('fixture-doc', 'Fixture', 'https://github.com/alissonsol/yuruna-project/blob/main/README.md'))
         $run = Invoke-Gate -Argument @('-Quiet', '-ProjectRoot', $project, '-Path', $project, '-LinkMap', $map)
@@ -197,7 +330,7 @@ Describe 'the anchor gate says which of the three things happened' {
         # the same condition one deleted heading produces for one pointer.
         $empty = Join-Path $script:Sandbox 'no-anchors.json'
         Set-Content -LiteralPath $empty -Value '{ "schema": "yuruna.doc-anchors/v1", "files": [] }' -Encoding utf8
-        $run = Invoke-Gate -Argument @('-Quiet', '-AnchorManifest', $empty)
+        $run = Invoke-Gate -Argument @('-Quiet', '-AnchorManifest', $empty, '-LinkMap', $script:FrameworkMap)
         Assert-Equal -Expected 1 -Actual $run.ExitCode `
             -Because "an id that names no heading is the defect this gate exists for:`n$($run.Output)"
         Assert-Match -Pattern 'names no heading' -Actual $run.Output `
@@ -233,7 +366,7 @@ Describe 'the anchor gate says which of the three things happened' {
         Set-Content -LiteralPath $moved -Value ($payload | ConvertTo-Json -Depth 8) -Encoding utf8
         Assert-True ($null -ne $victim) 'the real manifest carries no anchors to move'
 
-        $run = Invoke-Gate -Argument @('-Quiet', '-AnchorManifest', $moved)
+        $run = Invoke-Gate -Argument @('-Quiet', '-AnchorManifest', $moved, '-LinkMap', $script:FrameworkMap)
         Assert-Equal -Expected 1 -Actual $run.ExitCode `
             -Because "an id the document does not carry has to fail, or a deleted heading goes unnoticed:`n$($run.Output)"
     }
@@ -242,7 +375,11 @@ Describe 'the anchor gate says which of the three things happened' {
         # The other direction: with the real index, the ids actually written
         # into the documents all resolve. A gate that only ever failed would
         # be as useless as one that only ever passed.
-        $run = Invoke-Gate -Argument @('-Quiet')
+        #
+        # The scan is held to the framework tree. What the sibling checkouts
+        # carry is the next case's subject, and this one has to answer the
+        # same way in a workspace that has none of them.
+        $run = Invoke-Gate -Argument @('-Quiet', '-Path', $script:RepoRoot, '-LinkMap', $script:FrameworkMap)
         Assert-Equal -Expected 0 -Actual $run.ExitCode `
             -Because "a pointer names an id the documents no longer carry:`n$($run.Output)"
     }
@@ -266,48 +403,56 @@ Describe 'the anchor gate says which of the three things happened' {
         Assert-Match 'UNRESOLVABLE' $run.Output
     }
 
-    It 'resolves every pointer against the real map when the sibling checkout is there' {
-        if (-not (Test-Path -LiteralPath $script:RealMap -PathType Leaf)) {
-            Set-ItResult -Skipped -Because 'the yuruna.link sibling checkout is not present on this host'
-            return
-        }
+    It 'resolves every pointer against the real map in the sibling checkout' {
+        # The published map exists only in the sibling repository, so a
+        # workspace without it cannot answer this. That has to read as a
+        # failure: skipped, pointers nobody resolved would count as resolved.
+        Assert-True (Test-Path -LiteralPath $script:RealMap -PathType Leaf) `
+            "the yuruna.link checkout has to sit beside this one; there is no link map at '$script:RealMap'. Clone it there and run this suite again."
         $run = Invoke-Gate -Argument @('-Quiet', '-LinkMap', $script:RealMap)
         Assert-Equal -Expected 0 -Actual $run.ExitCode `
             -Because "a published heading was renamed without its pointers:`n$($run.Output)"
     }
 
-    It 'rejects a broken pointer copied into the project candidate' {
-        $sourceProject = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
+    It 'rejects a broken pointer in the project candidate and accepts the valid one beside it' {
+        # The candidate is written here, not copied from the sibling project:
+        # the case is that the gate reads the tree it is handed, and a fixture
+        # that needs a second checkout cannot run where there is none. Each
+        # pointer is assembled from its prefix so that this file, which the
+        # gate also scans, carries no pointer of its own.
         $sourceRelative = 'example/text-to-sql/components/frontend/text-to-sql-ui/Services/ClaudeLlmClient.cs'
         $documentRelative = 'example/text-to-sql/README.md'
-        if (-not (Test-Path -LiteralPath (Join-Path $sourceProject $sourceRelative) -PathType Leaf) -or
-            -not (Test-Path -LiteralPath (Join-Path $sourceProject $documentRelative) -PathType Leaf)) {
-            Set-ItResult -Skipped -Because 'the source project checkout is not beside the framework'
-            return
-        }
-
         $project = Join-Path $script:Sandbox 'project-pointer-candidate'
-        foreach ($relative in @($sourceRelative, $documentRelative)) {
-            $destination = Join-Path $project $relative
-            New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
-            Copy-Item -LiteralPath (Join-Path $sourceProject $relative) -Destination $destination
-        }
         $sourcePath = Join-Path $project $sourceRelative
-        $source = [IO.File]::ReadAllText($sourcePath).Replace(
-            '4286c679-0007', '4286c679-dead')
-        [IO.File]::WriteAllText($sourcePath, $source, [Text.UTF8Encoding]::new($false))
+        New-Item -ItemType Directory -Path (Split-Path -Parent $sourcePath) -Force | Out-Null
+        $pointerPrefix = '// https://yuruna.link/'
+        [IO.File]::WriteAllText($sourcePath,
+            ($pointerPrefix + "4286c679-0007`n" + $pointerPrefix + "4286c679-dead`n"),
+            [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $project $documentRelative),
+            "<a id=`"4286c679-0007`"></a>`n`n# Configure the model`n", [Text.UTF8Encoding]::new($false))
         $null = & git -C $project init --quiet 2>&1
         Assert-Equal -Expected 0 -Actual $LASTEXITCODE 'could not initialize the project candidate fixture'
 
+        $manifest = Join-Path $script:Sandbox 'project-pointer-anchors.json'
+        $record = [ordered]@{
+            id = '4286c679'; repo = 'yuruna-project'; source = $documentRelative
+            anchors = @([ordered]@{ id = '4286c679-0007'; heading = 'Configure the model'; slug = 'configure-the-model' })
+        }
+        Set-Content -LiteralPath $manifest -Encoding utf8 -Value (
+            [ordered]@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } | ConvertTo-Json -Depth 8)
         $map = New-LinkMap -Name 'project-local.json' -Entry @(
             , @('4286c679', 'Text-to-SQL',
                 'https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/README.md'))
         $run = Invoke-Gate -Argument @(
-            '-Quiet', '-ProjectRoot', $project, '-Path', $project, '-LinkMap', $map)
+            '-Quiet', '-ProjectRoot', $project, '-Path', $project, '-LinkMap', $map, '-AnchorManifest', $manifest)
         Assert-Equal -Expected 1 -Actual $run.ExitCode `
             -Because "a broken pointer in the staged project was invisible:`n$($run.Output)"
         Assert-Match -Pattern 'yuruna-project/.+ClaudeLlmClient\.cs' -Actual $run.Output
         Assert-Match -Pattern '4286c679-dead' -Actual $run.Output
+        Assert-False ($run.Output.Contains('4286c679-0007')) `
+            "the pointer the candidate document does carry was rejected:`n$($run.Output)"
+        Assert-Match -Pattern '1 pointer\(s\) name an anchor id that does not exist' -Actual $run.Output
     }
 
     It 'passes the selected project root from cross-repository orchestration' {
@@ -387,6 +532,107 @@ Describe 'the anchor gate inventories additional source repositories' {
     }
 }
 
+Describe 'the anchor gate discovers supported sibling layouts' {
+    It 'checks <Scenario> in the <Layout> AmisAd layout' -TestCases @(
+        foreach ($layout in @('direct', 'nested')) {
+            foreach ($scenario in @('broken', 'valid', 'ignored', 'filtered', 'duplicate-explicit-root')) {
+                @{ Layout = $layout; Scenario = $scenario }
+            }
+        }
+    ) {
+        param($Layout, $Scenario)
+        $workspace = Join-Path $script:Sandbox ([Guid]::NewGuid().ToString('n'))
+        $framework = Join-Path $workspace 'yuruna'
+        foreach ($directory in @('tools', 'test/modules', 'automation', 'docs')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $framework $directory) -Force
+        }
+        foreach ($relative in @('tools/Test-RegionAnchors.ps1', 'tools/Markdown.LocalAnchors.psm1',
+                'test/modules/Test.Prelude.psm1', 'automation/Yuruna.Globalization.psm1')) {
+            Copy-Item -LiteralPath (Join-Path $script:RepoRoot $relative) -Destination (Join-Path $framework $relative)
+        }
+        $relativeRoot = if ($Layout -eq 'direct') { 'amisad.dev' } else { 'alius-git/amisad.dev' }
+        $source = Join-Path $workspace $relativeRoot
+        $null = New-Item -ItemType Directory -Path $source -Force
+        foreach ($repository in @($framework, $source)) {
+            $null = & git -C $repository init --quiet 2>&1
+            Assert-Equal 0 $LASTEXITCODE 'the disposable workspace repository initializes'
+        }
+        [IO.File]::WriteAllText((Join-Path $framework 'docs/source-consistency.md'),
+            "<a id=`"42e220c4-0003`"></a>`n`n# Image acquisition`n")
+        $pointerPrefix = '# See https://yuruna.link/'
+        $selected = $source
+        if ($Scenario -eq 'filtered') {
+            $selected = Join-Path $source 'selected'
+            $null = New-Item -ItemType Directory -Path $selected
+            [IO.File]::WriteAllText((Join-Path $source 'excluded.ps1'), $pointerPrefix + '42ffffff-dead')
+        }
+        [IO.File]::WriteAllText((Join-Path $selected 'consumer.ps1'),
+            $pointerPrefix + $(if ($Scenario -eq 'broken') { '42ffffff-dead' } else { '42e220c4-0003' }))
+        if ($Scenario -eq 'ignored') {
+            [IO.File]::WriteAllText((Join-Path $source '.gitignore'), "ignored.ps1`n")
+            [IO.File]::WriteAllText((Join-Path $source 'ignored.ps1'), $pointerPrefix + '42ffffff-dead')
+        }
+        $map = New-LinkMap -Name ([Guid]::NewGuid().ToString('n') + '.json') -Entry @(
+            , @('fixture-doc', 'Fixture', 'https://github.com/alissonsol/yuruna/blob/main/docs/source-consistency.md'))
+        $argv = @('-NoProfile', '-File', (Join-Path $framework 'tools/Test-RegionAnchors.ps1'),
+            '-Path', $selected, '-LinkMap', $map, '-AnchorManifest',
+            (Join-Path $script:RepoRoot 'globalization/manifests/doc-anchors.json'))
+        if ($Scenario -eq 'duplicate-explicit-root') { $argv += @('-AdditionalSourceRoot', $source) }
+        $output = & pwsh @argv 2>&1 | Out-String
+        if ($Scenario -eq 'broken') {
+            Assert-Equal 1 $LASTEXITCODE $output
+            Assert-Match 'amisad\.dev/consumer\.ps1' $output
+        } else { Assert-Equal 0 $LASTEXITCODE $output }
+        Assert-Match '1 pointer\(s\) checked' $output
+        Assert-False ($output.Contains('ignored.ps1')) $output
+        Assert-False ($output.Contains('excluded.ps1')) $output
+    }
+}
+
+Describe 'local Markdown targets across workspace repositories' {
+    It 'checks <Scenario> targets in <Repository> with query "<Query>"' -TestCases @(
+        foreach ($repository in @('yuruna.link', 'amisad.dev')) {
+            foreach ($scenario in @('valid', 'broken', 'missing')) {
+                foreach ($query in @('', '?plain=1')) {
+                    @{ Repository = $repository; Scenario = $scenario; Query = $query }
+                }
+            }
+        }
+    ) {
+        param($Repository, $Scenario, $Query)
+        $workspace = Join-Path $script:Sandbox ([Guid]::NewGuid().ToString('n'))
+        $framework = Join-Path $workspace 'yuruna'
+        foreach ($directory in @('tools', 'test/modules', 'automation')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $framework $directory) -Force
+        }
+        foreach ($relative in @('tools/Test-RegionAnchors.ps1', 'tools/Markdown.LocalAnchors.psm1',
+                'test/modules/Test.Prelude.psm1', 'automation/Yuruna.Globalization.psm1')) {
+            Copy-Item -LiteralPath (Join-Path $script:RepoRoot $relative) -Destination (Join-Path $framework $relative)
+        }
+        $source = Join-Path $workspace $Repository
+        $null = New-Item -ItemType Directory -Path $source -Force
+        foreach ($root in @($framework, $source)) {
+            $null = & git -C $root init --quiet 2>&1
+            Assert-Equal 0 $LASTEXITCODE 'the disposable workspace repository initializes'
+        }
+        if ($Scenario -ne 'missing') {
+            $heading = if ($Scenario -eq 'valid') { '# Install' } else { '# Different heading' }
+            [IO.File]::WriteAllText((Join-Path $source 'README.md'), $heading)
+        }
+        [IO.File]::WriteAllText((Join-Path $source 'consumer.ps1'),
+            '# See https://yuruna.link/' + 'local-guide#install')
+        $map = New-LinkMap -Name ([Guid]::NewGuid().ToString('n') + '.json') -Entry @(
+            , @('local-guide', 'Local guide', "https://github.com/alissonsol/$Repository/blob/main/README.md$Query"))
+        $output = & pwsh -NoProfile -File (Join-Path $framework 'tools/Test-RegionAnchors.ps1') `
+            -Path $source -LinkMap $map 2>&1 | Out-String
+        $expected = if ($Scenario -eq 'valid') { 0 } else { 1 }
+        Assert-Equal $expected $LASTEXITCODE $output
+        Assert-False ($output.Contains('UNRESOLVABLE')) 'a local workspace target must be checked'
+        Assert-Match '1 pointer\(s\) checked' $output
+        if ($Scenario -ne 'valid') { Assert-Match 'README\.md has no heading' $output }
+    }
+}
+
 Describe 'published nonlocalized SBOM anchor authority' {
     BeforeEach {
         $workspace = Join-Path $script:Sandbox ('sbom-' + [Guid]::NewGuid().ToString('n'))
@@ -397,6 +643,7 @@ Describe 'published nonlocalized SBOM anchor authority' {
         }
         $null = New-Item -ItemType Directory -Path (Join-Path $script:SbomProject 'docs/sbom') -Force
         foreach ($relative in @('tools/Test-RegionAnchors.ps1', 'tools/Update-LinkCatalog.ps1',
+                'tools/Markdown.LocalAnchors.psm1',
                 'test/modules/Test.Prelude.psm1', 'automation/Yuruna.Globalization.psm1')) {
             Copy-Item -LiteralPath (Join-Path $script:RepoRoot $relative) -Destination (Join-Path $script:SbomRepo $relative)
         }

@@ -2273,6 +2273,11 @@
       "origin": "machine",
       "message": "  已保存失败截图：./status/log/{cycleBase}/{destSeqName}/（失败前的{copied}帧）"
     },
+    "runner.operator_d8507ccd68520716": {
+      "sourceHash": "94fe950e7989de005c7566097d19ac87e030e6a1ed704fb8bcc2ffd6bcc03b0b",
+      "origin": "machine",
+      "message": "  已保存最早的控制台帧：./status/log/{cycleBase}/{destSeqName}/earliest/（此客户机开始时的{count}帧）"
+    },
     "runner.operator_144c4b5176e7c3c4": {
       "sourceHash": "0fa82a0332120da9c1ac8a5911dbc34d42cf70e514be20b81e2e49c37bf36194",
       "origin": "machine",
@@ -4328,6 +4333,11 @@
       "origin": "machine",
       "message": "  DHCP捕获数据已保存：./status/log/{cycleBase}/{destSeqName}/dhcp.capture.txt"
     },
+    "runner.operator_e653bdc981ca5464": {
+      "sourceHash": "d39791f76f5c912d6fd8f2d924141ec208bfeced83cf71ae6d404bdeb599c5d0",
+      "origin": "machine",
+      "message": "  {guestMac}的DHCP捕获摘要：客户机发送了{sent}个数据包，收到{replies}个单播回复，另有{others}个数据包来自{clients}个其他客户端"
+    },
     "runner.operator_42325e069d98407d": {
       "sourceHash": "c66556e4837c3d4319f5a3f87312f3d4c85d21b90488c877ba59d06e8f55e702",
       "origin": "machine",
@@ -5282,6 +5292,16 @@
       "sourceHash": "cbdeb52695d4642bbb153372fc3aa3e317587a3e898d1c517cb8fbf388cd131a",
       "origin": "machine",
       "message": "在{timeoutSeconds}s内未找到文本‘{patternLabel}’"
+    },
+    "runner.operator_7e0c2dd4aa0c5981": {
+      "sourceHash": "80d382255581a01c3532436023d6ef2af1719809da209c84253b7f832be421f9",
+      "origin": "machine",
+      "message": "      虚拟机监控程序报告客户机处于活锁状态：{detail}"
+    },
+    "runner.operator_6d4042dbe6943c27": {
+      "sourceHash": "4e63fa767cbd91bba69f3b7693c2e728a95349d830e65dd85636a86733b183a9",
+      "origin": "machine",
+      "message": "等待文本“{patternLabel}”在约{waited}s后结束（上限{timeoutSeconds}s）：虚拟机监控程序报告客户机处于活锁状态（{detail}）"
     },
     "runner.operator_557ad99d1ffd4409": {
       "sourceHash": "db73d48750929866a850cecc23a80fa09fcc56deaf0281f97f37f1deff7daf7a",
@@ -8574,9 +8594,9 @@
       "message": "创建指向{macUtmctlBundlePath}的链接，使utmctl可通过PATH找到"
     },
     "runner.operator_966231fe730b28ff": {
-      "sourceHash": "321d0076f04571e895a504cf250eb76bbfa22a24bed8b5034a64b8d37ee73160",
+      "sourceHash": "0814851fbfe84d70ea628caf2402b06f1804230c4cc02dc2ad62e070fe35e053",
       "origin": "machine",
-      "message": "Send-TextKvm：virsh send-key在字符“{ch}”处失败（codes={join}）：{trim}"
+      "message": "Send-TextKvm：send-key在字符“{ch}”处失败（codes={join}）：{trim}"
     },
     "runner.operator_96766746c16f798c": {
       "sourceHash": "9eedc0fc7145965dc665494c295a84238086a5b7a61564889169f73ab82816ae",
@@ -9402,6 +9422,11 @@
       "sourceHash": "9347a1109a256f5d31fd85849dc77b790a1d75bb26f336a3bb7020fc9e4f456a",
       "origin": "machine",
       "message": "      控制台复核意见（{verdict}）：{detail}"
+    },
+    "runner.operator_33a0b7c1e1b2be21": {
+      "sourceHash": "5a46a3369ad0c170ce7b33a9a10bfc94a1c8cdfd772f14fde07391ea634b8d7a",
+      "origin": "machine",
+      "message": "{processors}个虚拟处理器：客户机运行时间占{guestPercent}%，虚拟机监控程序运行时间占{hypervisorPercent}%，每秒{interceptsPerSecond}次拦截，已持续{seconds}s"
     },
     "runner.operator_b3e21ed4f09c30ff": {
       "sourceHash": "be1ca53b837d8c35c20ea6c547557616c8d026e706f09d39a0d761f790fb1253",

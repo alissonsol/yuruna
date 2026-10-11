@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 421acc52-385e-488d-859e-c51ce10fdcdc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,8 +38,8 @@
     Nothing touches the real status service, its runtime or its port.
 
     Teardown kills only processes whose command line names the scratch tree.
-    The run needs POSIX symbolic links; on Windows it is skipped and the
-    native run is a release gate.
+    POSIX uses links to the shared modules; Windows copies them and binds a
+    localhost prefix so the harness needs no wildcard URL reservation.
 #>
 
 BeforeAll {
@@ -133,8 +133,10 @@ function Start-YurunaDetachedProcess { [CmdletBinding(SupportsShouldProcess)]
     $null = $PrivateDirectory, $HandshakePath, $WaitForHandshakeMilliseconds, $Deadline
     Add-Content -LiteralPath (Join-Path $env:YURUNA_TEST_STUB_DIR 'calls.log') -Value ("launch:$FilePath " + (@($ArgumentList) -join ' '))
     $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $FilePath) + @($ArgumentList)
-    $process = Start-Process -FilePath ([Environment]::ProcessPath) -ArgumentList $arguments -WorkingDirectory $WorkingDirectory `
-        -RedirectStandardOutput $StdOutPath -RedirectStandardError $StdErrPath -RedirectStandardInput $StdInPath -PassThru
+    $options = @{ FilePath = [Environment]::ProcessPath; ArgumentList = $arguments; WorkingDirectory = $WorkingDirectory
+        RedirectStandardOutput = $StdOutPath; RedirectStandardError = $StdErrPath; RedirectStandardInput = $StdInPath; PassThru = $true }
+    if ($IsWindows) { $options.WindowStyle = 'Hidden' }
+    $process = Start-Process @options
     return [pscustomobject]@{ Launched = $true; Reason = 'launched'; LauncherPid = $process.Id; FinalPid = $process.Id } }
 Export-ModuleMember -Function Get-PwshExePath, Start-YurunaDetachedProcess
 '@
@@ -167,12 +169,14 @@ function New-HarnessTree {
     $modules = Join-Path $tree.Repo 'test/modules'
     $null = New-Item -ItemType Directory -Path $modules, (Join-Path $tree.Repo 'test/lab'), $tree.Runtime, $tree.Log, $tree.Home, $tree.Pids, $tree.Stub
     foreach ($name in @('automation', 'globalization')) {
-        $null = New-Item -ItemType SymbolicLink -Path (Join-Path $tree.Repo $name) -Target (Join-Path $script:RepoRoot $name)
+        if ($IsWindows) { Copy-Item -LiteralPath (Join-Path $script:RepoRoot $name) -Destination (Join-Path $tree.Repo $name) -Recurse }
+        else { $null = New-Item -ItemType SymbolicLink -Path (Join-Path $tree.Repo $name) -Target (Join-Path $script:RepoRoot $name) }
     }
     $replaced = @('Test.HostRefresh.psm1', 'Test.HostRefreshIntent.psm1', 'Test.InnerSpawn.psm1', 'Invoke-HostDiagnosticWorker.ps1', 'Invoke-StartCycleWorker.ps1')
     foreach ($file in @(Get-ChildItem -LiteralPath $here -File)) {
         if ($replaced -contains $file.Name -or $file.Name -like '*.Tests.ps1') { continue }
-        $null = New-Item -ItemType SymbolicLink -Path (Join-Path $modules $file.Name) -Target $file.FullName
+        if ($IsWindows) { Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $modules $file.Name) }
+        else { $null = New-Item -ItemType SymbolicLink -Path (Join-Path $modules $file.Name) -Target $file.FullName }
     }
     [IO.File]::WriteAllText((Join-Path $modules 'Test.HostRefresh.psm1'), $script:StubHostRefresh)
     [IO.File]::WriteAllText((Join-Path $modules 'Test.HostRefreshIntent.psm1'), $script:StubHostRefreshIntent)
@@ -204,14 +208,16 @@ function Invoke-HarnessRequest {
         [string]$Body,
         [string]$ContentType = 'application/json',
         [switch]$NoCsrfHeader,
+        [switch]$Chunked,
         [int]$TimeoutMs = 5000
     )
-    $message = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::new($Method), "http://127.0.0.1:$($script:Port)/$Path")
+    $message = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::new($Method), "http://localhost:$($script:Port)/$Path")
     if (-not $NoCsrfHeader) { $null = $message.Headers.TryAddWithoutValidation('X-Yuruna', '1') }
     if ($PSBoundParameters.ContainsKey('Body')) {
         $message.Content = [System.Net.Http.StringContent]::new($Body, [System.Text.UTF8Encoding]::new($false))
         $message.Content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse($ContentType)
     }
+    if ($Chunked) { $message.Headers.TransferEncodingChunked = $true }
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     $cts = [System.Threading.CancellationTokenSource]::new($TimeoutMs)
     try {
@@ -324,16 +330,16 @@ function Stop-HarnessProcess {
     param([Parameter(Mandatory)][int]$ProcessId)
     $commandLine = ''
     try { $commandLine = ([IO.File]::ReadAllText("/proc/$ProcessId/cmdline")).Replace([char]0, ' ') } catch { $commandLine = '' }
-    if (-not $commandLine -and -not $IsLinux) {
+    if (-not $commandLine -and $IsWindows) {
+        try { $commandLine = [string](Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop).CommandLine } catch { $commandLine = '' }
+    } elseif (-not $commandLine -and -not $IsLinux) {
         try { $commandLine = [string]((& /bin/ps -o command= -p $ProcessId 2>$null) -join ' ') } catch { $commandLine = '' }
     }
     if (-not ([string]$commandLine).Contains($script:Tree.Root)) { return }
     try { (Get-Process -Id $ProcessId -ErrorAction Stop).Kill($true) } catch { $null = $_ }
 }
 
-if ($IsWindows) {
-    $script:HarnessSkipReason = 'the harness tree needs POSIX symbolic links; the native Windows run is a release gate'
-} else {
+& {
     $script:Tree = New-HarnessTree
     $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, 0)
     $probe.Start(); $script:Port = $probe.LocalEndpoint.Port; $probe.Stop()
@@ -353,19 +359,24 @@ if ($IsWindows) {
         if ($start -ge 0 -and $lines[$i] -match '^"@$') { $end = $i - 1; break }
     }
     $server = $ExecutionContext.InvokeCommand.ExpandString((($lines[$start..$end]) -join "`n"))
+    if ($IsWindows) { $server = $server.Replace("http://*:$Port/", "http://localhost:$Port/") }
+    $server = $server.Replace('$script:UploadBodyTimeoutMilliseconds = 30000', '$script:UploadBodyTimeoutMilliseconds = 2000')
     $null = $Port, $StatusDir, $RuntimeDir, $LogDir, $RepoRoot, $detectedHost, $ServerConfigPath, $StatusWorkerRoot
     $script:ServerFile = Join-Path $script:Tree.Root 'server.ps1'
     [IO.File]::WriteAllText($script:ServerFile, $server)
     $saved = @{}
-    foreach ($name in @('HOME', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_TEST_STUB_DIR', 'YURUNA_TEST_PID_DIR')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    foreach ($name in @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_TEST_STUB_DIR', 'YURUNA_TEST_PID_DIR')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
     try {
         $env:HOME = $script:Tree.Home
+        if ($IsWindows) { $env:USERPROFILE = $script:Tree.Home }
         $env:YURUNA_RUNTIME_DIR = $script:Tree.Runtime
         $env:YURUNA_LOG_DIR = $script:Tree.Log
         $env:YURUNA_TEST_STUB_DIR = $script:Tree.Stub
         $env:YURUNA_TEST_PID_DIR = $script:Tree.Pids
-        $script:Server = Start-Process -FilePath $script:Pwsh -ArgumentList '-NoProfile', '-NonInteractive', '-File', $script:ServerFile `
-            -RedirectStandardOutput (Join-Path $script:Tree.Root 'server.stdout') -RedirectStandardError (Join-Path $script:Tree.Root 'server.stderr') -PassThru
+        $options = @{ FilePath = $script:Pwsh; ArgumentList = @('-NoProfile', '-NonInteractive', '-File', $script:ServerFile)
+            RedirectStandardOutput = (Join-Path $script:Tree.Root 'server.stdout'); RedirectStandardError = (Join-Path $script:Tree.Root 'server.stderr'); PassThru = $true }
+        if ($IsWindows) { $options.WindowStyle = 'Hidden' }
+        $script:Server = Start-Process @options
     } finally {
         foreach ($name in $saved.Keys) {
             if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
@@ -407,8 +418,87 @@ AfterAll {
 
 Describe 'a live listener stays responsive around bodies and workers' {
 
+    It 'keeps answering health checks while a diagnostic upload withholds its body' {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $folder = Join-Path $script:Tree.Log 'upload-guest'
+        $null = New-Item -ItemType Directory -Path $folder -Force
+        $raw = Open-RawRequest -Head "POST /diagnostics/upload-guest/probe.system.diagnostic.1.txt HTTP/1.1`r`nHost: localhost`r`nContent-Length: 100`r`n`r`n"
+        try {
+            Start-Sleep -Milliseconds 200
+            $health = Invoke-HarnessRequest -Path 'status/' -TimeoutMs 1000
+            Assert-Equal 200 $health.Status
+            Assert-True ($health.ElapsedMs -le 1000) 'health must answer before the upload body arrives'
+        } finally { $raw.Client.Dispose() }
+    }
+
+    It 'stores a complete <Kind> upload with its existing response contract' -ForEach @(
+        @{ Kind = 'diagnostic'; Path = 'diagnostics/upload-guest/complete.system.diagnostic.1.txt'; File = 'upload-guest/complete.system.diagnostic.1.txt'; Status = 200 },
+        @{ Kind = 'execution log'; Path = 'log-upload/upload-guest/execution.log'; File = 'upload-guest/execution.log'; Status = 201 }
+    ) {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:Tree.Log 'upload-guest') -Force
+        $text = "first line`ncomplete evidence: caf$([char]0x00E9)"
+        $reply = Invoke-HarnessRequest -Method POST -Path $Path -Body $text -ContentType 'text/plain'
+        Assert-Equal $Status $reply.Status $reply.Text
+        Assert-True $reply.Json.ok
+        Assert-StringEqual $text ([IO.File]::ReadAllText((Join-Path $script:Tree.Log $File)))
+        if ($Kind -eq 'diagnostic') { Assert-Equal ([Text.Encoding]::UTF8.GetByteCount($text)) $reply.Json.bytes }
+        Assert-Equal 0 @(Get-ChildItem -LiteralPath (Join-Path $script:Tree.Log 'upload-guest') -Filter '*.tmp').Count 'uploads leave no partial temporary files'
+    }
+
+    It 'times out a trickled <Kind> upload without replacing existing evidence' -ForEach @(
+        @{ Kind = 'diagnostic'; Path = 'diagnostics/upload-guest/timeout.system.diagnostic.1.txt'; File = 'upload-guest/timeout.system.diagnostic.1.txt' },
+        @{ Kind = 'execution log'; Path = 'log-upload/upload-guest/timeout.log'; File = 'upload-guest/timeout.log' }
+    ) {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:Tree.Log 'upload-guest') -Force
+        $target = Join-Path $script:Tree.Log $File
+        [IO.File]::WriteAllText($target, 'previous complete evidence')
+        $raw = Open-RawRequest -Head "POST /$Path HTTP/1.1`r`nHost: localhost`r`nContent-Length: 100`r`n`r`na"
+        $health = Invoke-HarnessRequest -Path 'runtime/status.json' -TimeoutMs 1000
+        Assert-Equal 200 $health.Status 'runtime health remains responsive during the upload'
+        $reply = Wait-RawResponse -Raw $raw -TimeoutMs 6000 -TrickleEveryMs 300 -TrickleText 'x'
+        Assert-True ($reply.AnsweredMs -ge 1900 -and $reply.AnsweredMs -le 3500) "the trickled upload answered after $($reply.AnsweredMs) ms"
+        Assert-Equal 408 $reply.Status $reply.Text
+        Assert-Match 'body_timeout' $reply.Text
+        Assert-StringEqual 'previous complete evidence' ([IO.File]::ReadAllText($target))
+    }
+
+    It 'rejects declared and chunked oversized <Kind> uploads before publishing a file' -ForEach @(
+        @{ Kind = 'diagnostic'; Path = 'diagnostics/upload-guest/large.system.diagnostic.1.txt'; File = 'upload-guest/large.system.diagnostic.1.txt'; Limit = 5MB },
+        @{ Kind = 'execution log'; Path = 'log-upload/upload-guest/large.log'; File = 'upload-guest/large.log'; Limit = 4MB }
+    ) {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:Tree.Log 'upload-guest') -Force
+        $raw = Open-RawRequest -Head "POST /$Path HTTP/1.1`r`nHost: localhost`r`nContent-Length: $($Limit + 1)`r`n`r`n"
+        $declared = Wait-RawResponse -Raw $raw -TimeoutMs 3000
+        Assert-Equal 413 $declared.Status $declared.Text
+        $chunked = Invoke-HarnessRequest -Method POST -Path $Path -Body ('x' * ($Limit + 1)) -Chunked -ContentType 'text/plain' -TimeoutMs 10000
+        Assert-Equal 413 $chunked.Status $chunked.Text
+        Join-Path $script:Tree.Log $File | Should -Not -Exist
+        Assert-Equal 200 (Invoke-HarnessRequest -Path 'status/' -TimeoutMs 1000).Status
+    }
+
+    It 'bounds shared pending upload capacity and rejects invalid paths before reading a body' {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $held = @()
+        try {
+            foreach ($index in 1..4) {
+                $held += Open-RawRequest -Head "PUT /log-upload/upload-guest/held-$index.log HTTP/1.1`r`nHost: localhost`r`nContent-Length: 100`r`n`r`n"
+            }
+            Start-Sleep -Milliseconds 200
+            $busy = Invoke-HarnessRequest -Method PUT -Path 'log-upload/upload-guest/fifth.log' -Body 'complete'
+            Assert-Equal 503 $busy.Status $busy.Text
+            Assert-StringEqual 'listener_busy' $busy.Json.reason
+            Assert-Equal 200 (Invoke-HarnessRequest -Path 'status/' -TimeoutMs 1000).Status
+        } finally { foreach ($raw in $held) { $raw.Client.Dispose() } }
+        $invalid = Invoke-HarnessRequest -Method POST -Path 'log-upload/upload-guest/disallowed.exe' -Body 'evidence'
+        Assert-Equal 400 $invalid.Status
+        $missing = Invoke-HarnessRequest -Method POST -Path 'diagnostics/never-created/report.system.diagnostic.1.txt' -Body 'evidence'
+        Assert-Equal 404 $missing.Status
+    }
+
     It 'answers concurrent refresh, start-cycle and diagnostic requests quickly while the read-only routes keep answering' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
         $tasks = @{}
@@ -417,7 +507,7 @@ Describe 'a live listener stays responsive around bodies and workers' {
                 @{ Name = 'refresh'; Method = 'POST'; Path = 'control/host-refresh'; Body = '{}' },
                 @{ Name = 'start-cycle'; Method = 'POST'; Path = 'control/start-cycle' },
                 @{ Name = 'diagnostic'; Method = 'GET'; Path = 'control/host-diagnostic' })) {
-            $message = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::new($spec.Method), "http://127.0.0.1:$($script:Port)/$($spec.Path)")
+            $message = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::new($spec.Method), "http://localhost:$($script:Port)/$($spec.Path)")
             $null = $message.Headers.TryAddWithoutValidation('X-Yuruna', '1')
             if ($spec.Body) {
                 $message.Content = [System.Net.Http.StringContent]::new($spec.Body, [System.Text.UTF8Encoding]::new($false))
@@ -459,7 +549,6 @@ Describe 'a live listener stays responsive around bodies and workers' {
     }
 
     It 'answers 408 for a withheld body within its deadline, admits nothing and keeps serving meanwhile' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
         $admissionsBefore = (Get-HarnessCall -Prefix 'admit:').Count
@@ -478,7 +567,6 @@ Describe 'a live listener stays responsive around bodies and workers' {
     }
 
     It 'cuts a trickled body at two seconds despite progress' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         $raw = Open-RawRequest -Head "POST /control/host-refresh HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nContent-Length: 50`r`n`r`n{"
         $answer = Wait-RawResponse -Raw $raw -TimeoutMs 6000 -TrickleEveryMs 300 -TrickleText ' '
@@ -487,7 +575,6 @@ Describe 'a live listener stays responsive around bodies and workers' {
     }
 
     It 'cuts a chunked trickle the same way, and refuses a chunked body past the cap' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         $raw = Open-RawRequest -Head "POST /control/host-refresh HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nTransfer-Encoding: chunked`r`n`r`n"
         $answer = Wait-RawResponse -Raw $raw -TimeoutMs 6000 -TrickleEveryMs 300 -TrickleText "1`r`n `r`n"
@@ -503,7 +590,6 @@ Describe 'a live listener stays responsive around bodies and workers' {
     }
 
     It 'turns a fifth pending body away at once and keeps serving' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         $held = @()
         try {
@@ -523,7 +609,6 @@ Describe 'a live listener stays responsive around bodies and workers' {
     }
 
     It 'keeps the cross-site guard and the method check in front of the route' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         $get = Invoke-HarnessRequest -Path 'control/host-refresh'
         Assert-Equal 405 $get.Status 'a GET that carries the header reaches the method check'
@@ -536,7 +621,6 @@ Describe 'a live listener stays responsive around bodies and workers' {
     }
 
     It 'refuses forbidden keys with 400 and admits nothing' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
         $before = (Get-HarnessCall -Prefix 'admit:').Count
@@ -549,7 +633,6 @@ Describe 'a live listener stays responsive around bodies and workers' {
     }
 
     It 'replays a known request by its id and refuses a different one while it is active' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
         $id = [Guid]::NewGuid().ToString('D')
@@ -576,7 +659,6 @@ Describe 'a live listener stays responsive around bodies and workers' {
     }
 
     It 'makes start-cycle and refresh exclude each other in both orders' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal @{ requests = @(@{ requestId = 'active-refresh'; maxRung = 'reclaim'; state = 'running'; launch = 'started'; verdict = '' }); reservation = $null }
         $blocked = Invoke-HarnessRequest -Method POST -Path 'control/start-cycle'
@@ -598,7 +680,6 @@ Describe 'a live listener stays responsive around bodies and workers' {
     }
 
     It 'advertises the refresh capability in a small control-status reply' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
         $status = Invoke-HarnessRequest -Path 'control/control-status'
@@ -611,7 +692,6 @@ Describe 'a live listener stays responsive around bodies and workers' {
     }
 
     It 'answers pending on repeated diagnostic requests without launching a second worker' {
-        if ($IsWindows) { Set-ItResult -Skipped -Because $script:HarnessSkipReason; return }
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         $before = (Get-StandInPid -Kind 'diagnostic').Count
         $replies = @(1..4 | ForEach-Object { Invoke-HarnessRequest -Path 'control/host-diagnostic'; Start-Sleep -Milliseconds 400 })

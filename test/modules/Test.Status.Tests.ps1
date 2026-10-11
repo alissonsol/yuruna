@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42d985d1-8774-4cde-a9d4-deb5b4740d25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,11 +68,7 @@ function Get-CommandCallCount {
     [CmdletBinding()]
     [OutputType([int])]
     param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
-    Write-Verbose "Counting calls to '$CommandName'"
-    $hits = $Ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $CommandName
-    }, $true)
-    return @($hits).Count
+    return (Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $CommandName)
 }
 
 # True iff EVERY call to $CommandName has an ancestor if-statement whose

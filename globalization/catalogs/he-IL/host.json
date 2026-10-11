@@ -8,6 +8,11 @@
       "origin": "machine",
       "message": "המכונה הווירטואלית caching-proxy-service פועלת, אך שרת ה-proxy שלה אינו נגיש. הפעילו test/service/Start-CachingProxyServiceVM.ps1 כדי לשחזר אותו, או העבירו -CachingProxyServiceUrl \"\" כדי להוריד ישירות."
     },
+    "host.utm_cache_state_unconfirmed": {
+      "sourceHash": "7a6eef76a798f82d67d54f517af7235733d3a48fe238b592158281846a2333d1",
+      "origin": "machine",
+      "message": "לא ניתן לאמת את מצב המכונה הווירטואלית ⁦caching-proxy-service⁩ ({state}; {reason}). שחזרו את הגישה ל-⁦UTM⁩ או העבירו ⁦-CachingProxyServiceUrl \"\"⁩ כדי להוריד ישירות."
+    },
     "host.clock_service_description": {
       "sourceHash": "5a15326d1b76f3fc950232711437544b25ca4014d0c608159929a9c8454af79e",
       "origin": "machine",
@@ -2714,9 +2719,9 @@
       "message": "החילו שוב כדי שהאינדקסים ששוחזרו ייכנסו לתוקף"
     },
     "host.operator_69569daab01168ea": {
-      "sourceHash": "c25d746c3e08447109f245727dec9a34d42dcc2a05401ca32ee0692440f3e43c",
+      "sourceHash": "10d50550b0675a10ed469287d631553bc18c27c4a0767b0deb8541d2d4f6495e",
       "origin": "machine",
-      "message": "⁦Remove-UtmTestVM⁩: לא אומת ש-'{vMName}' כבויה בתוך הזמן המוקצב; המחיקה נמשכת, אך ייתכן שהחבילה עדיין נעולה."
+      "message": "⁦Remove-UtmTestVM⁩: לא אומת ש-'{vMName}' כבויה בתוך הזמן המוקצב; הרישום והחבילה נשמרים."
     },
     "host.operator_6959d402ef57f18d": {
       "sourceHash": "d15f3fec52232fcd86ce5c883a163b3deaa74be37e6ba994eb75273056cf3895",
@@ -4894,9 +4899,9 @@
       "message": "  אחזור קובץ סכום הביקורת נכשל"
     },
     "host.orphan_sweep_registration_unknown": {
-      "sourceHash": "8e5f2e3578cee9e8f4ac952cc3e444888ddfde3c17b6b852f00111e729abd61f",
+      "sourceHash": "3afb9a95efc18cc2c808b624fd2773e21ff2defd2074039db7a9625e8d1aedbe",
       "origin": "machine",
-      "message": "{path} נשמר: UTM לא השיב אם {target} רשום (utmctl status לא הסתיים)."
+      "message": "{path} נשמר: UTM לא השיב אם {target} רשום (utmctl status לא החזיר תשובה מזוהה)."
     },
     "host.rename_vm_relaunch_unconfirmed": {
       "sourceHash": "89a63db6a2cefadcbff1e967af63fb7be2217427ed20a7b9c584c50c8a61ef6a",
@@ -5877,6 +5882,11 @@
       "sourceHash": "02d4cee2a7bc0c11401ac50a2593291085cb82ee24c1cf8af75d982a193629e5",
       "origin": "machine",
       "message": "לחשיפה לרשת המקומית וגם ללוח בקרה פעיל של המאגר (המכונה הווירטואלית של המטמון מקבלת כתובת אמיתית"
+    },
+    "host.windows_installer_boot_key_timeout": {
+      "sourceHash": "77b62b3bb39cd82c527244867ce76f4ed23605154ab9ee838554d982c69b8926",
+      "origin": "machine",
+      "message": "המכונה הווירטואלית '{vmName}' לא קיבלה מקש אתחול של מתקין Windows בתוך {seconds} שניות."
     }
   }
 }

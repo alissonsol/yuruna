@@ -294,6 +294,11 @@
       "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
       "lifecycle": "active"
     },
+    "remediation.operator_52e8af97f6901f58": {
+      "message": "the staged command never ran, so the next attempt repeats no work on the guest",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
     "remediation.operator_54b0e080b8e528c6": {
       "message": "plan_invalid on {vmName}: the cycle plan is ambiguous or unsatisfiable (duplicate sequence, a backend the host lacks, or a missing host/<host>/<guest> folder). A config error, not auto-remediable.",
       "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
@@ -351,6 +356,11 @@
           "example": "$trimErr"
         }
       }
+    },
+    "remediation.operator_6072d4a9739b1fee": {
+      "message": "Retry the step: it types the command again from the start on the same guest",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
     },
     "remediation.operator_6097b95aeee20519": {
       "message": "On the host console, inspect {switchText} ({verdictText}): Get-VMSwitch, then Get-NetAdapter for the description it names",
@@ -712,6 +722,18 @@
       "message": "Inspect that area's default.psm1 + .contract.yml",
       "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
       "lifecycle": "active"
+    },
+    "remediation.operator_b40349f16bf6efc1": {
+      "message": "input_lost on {vmName}: the typed command never closed in the guest shell, so the payload did not run and nothing it would have done is in question. The guest is still reachable, and the typed input is what failed, so repeating the step is safe.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
     },
     "remediation.operator_b4f9634c3488c4e9": {
       "message": "Classify the failure mode and consider adding a FailureClass to the verb",

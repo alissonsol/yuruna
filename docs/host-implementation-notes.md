@@ -265,8 +265,8 @@ origin once per host.
 
 Two structural rules this file lives by, both load-bearing:
 
-  * It imports NOTHING -- no -Global, no -Force, no nested import at all -- and
-    exports only three uniquely-named functions. The per-host drivers wrap
+  * It imports only Yuruna.Globalization -- no -Global, no -Force -- and exports
+    only three uniquely-named functions. The per-host drivers wrap
     Save-CachedHttpUri to inject their own cache resolver and the image helpers
     resolve that wrapper BY NAME, so a module re-exporting Save-CachedHttpUri
     (or Test-DownloadAlreadyCurrent) and imported after a driver would take the
@@ -627,14 +627,13 @@ Applies to:
 
 - [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
 
-Matches the Hyper-V contract semantic: true iff the cache VM has
-its own LAN-routable IP -- consumers on the LAN can hit it
-directly with no host-side portproxy in the path. On KVM this is
-equivalent to "VM's <source network='...'/> is NOT the NAT
-'default' network". 'yuruna-external' (bridge), any user-defined
-YURUNA_EXTERNAL_NETWORK, or a custom bridge all qualify; only the
-built-in NAT 'default' (192.168.122/24, host-only without a port
-forwarder) does not.
+Matches the Hyper-V contract semantic: the cache VM's configured first
+NIC must use host bridging before callers remove host-side port forwarders.
+On KVM a direct bridge attachment qualifies; a named libvirt network qualifies
+only when its readable definition has `forward mode='bridge'`. A custom name
+or `YURUNA_EXTERNAL_NETWORK` alone proves nothing: NAT, routed, and isolated
+networks can also have libvirt-owned bridges. Missing or unreadable attachment
+evidence returns false, preserving the forwarding path.
 
 <a id="42e5cdfd-001e"></a>
 
@@ -1073,7 +1072,7 @@ TLS, so a rotated NAS password reaches the running VM with no rebuild (the fix
 for the bake-once staleness). mTLS scopes access to VMs THIS host created --
 each carries a client cert signed by this host's Config CA. Detached; persists
 past this script. Best-effort: if it fails, the guest falls back to its baked
-credential (rotation just won't propagate until the service is up). Honors
+credential (rotation won't propagate until the service is up). Honors
 configService.enabled (default true).
 
 <a id="42e5cdfd-0036"></a>
@@ -1178,17 +1177,15 @@ that sudo prompts for a password ASYNCHRONOUSLY on the TTY,
 racing this script's output with no context (the operator sees a
 bare "Password:" mid-bring-up). Re-warm sudo now, with a clear
 reason, so the privileged forwarder binds silently. Best-effort:
-a declined prime just skips the :80 forwarder (a remote-LAN
+a declined prime skips the :80 forwarder (a remote-LAN
 CA-cert convenience); everything else still comes up.
 
 `utmctl ip-address` does not work for Apple Virtualization VMs
-("Operation not supported by the backend"). The cache VM is
-bridged onto the host's LAN NIC (config.plist.template,
-VZBridgedNetworkDeviceAttachment), so its DHCP lease lands on the
-same /24 the host sits on. We identify OUR VM by the MAC the
-bundle was built with (random per-bundle, written into
-config.plist by guest.caching-proxy-service/New-VM.ps1) and look its IP up
-via the host's ARP table -- never by "first :3128 we find on the
+("Operation not supported by the backend"). The cache bundle uses the QEMU
+backend; in Bridged mode its NIC attaches to the host's LAN interface.
+We identify OUR VM by the MAC written into config.plist: an explicit
+`-MacAddress` override, or a deterministic address derived from the host identity
+and VM name by default. We look its IP up via the host's ARP table -- never by "first :3128 we find on the
 LAN", which would happily lock onto a peer host's yuruna-caching-
 proxy that DHCP'd before ours did. Matches the narrow
 Test-CachingProxyServiceAvailable contract: only caches we own.
@@ -1227,8 +1224,8 @@ Applies to:
 
 - [test/service/Start-CachingProxyServiceVM.ps1](../test/service/Start-CachingProxyServiceVM.ps1)
 
-LAN exposure. On a bridged 'yuruna-external' (or any non-default)
-network the VM has its own LAN IP and remote consumers reach it
+LAN exposure. On a network verified to use host bridging, the VM has
+its own LAN IP and remote consumers reach it
 directly at $cacheIp. On the NAT 'default' network the VM is
 host-only, so Add-PortMap installs systemd socket-activated
 forwarders (systemd-socket-proxyd) and LAN clients reach the cache
@@ -1262,7 +1259,7 @@ and Grafana (:3000). Local guests on the Default Switch already reach
 the VM directly (172.25.x.x NAT subnet is visible from the host and
 from every Hyper-V guest on that switch), so this portproxy adds LAN
 exposure without changing the local-guest path -- those still target
-the VM's private IP. The port list matches Start-TestRunner.ps1's
+the VM's private IP. The port list matches Invoke-TestRunnerInnerLoop.ps1's
 Add-PortMap call; mismatched lists fight each other because
 the function runs Clear-AllCachingProxyServicePortMapping first. Requires
 elevation; Add-PortMap warns and no-ops otherwise.
@@ -1328,7 +1325,7 @@ Applies to:
 
 - [test/service/Start-StatusService.ps1](../test/service/Start-StatusService.ps1)
 
-The detached server bakes the ~1.5 KLOC here-string (and the modules
+The detached server bakes the ~3.5 KLOC here-string (and the modules
 it imports at startup) into its in-memory state. Files under test/status/
 are served from disk per request, so frontend edits do NOT need a
 restart; only a change in the framework code does. We persist the
@@ -1538,7 +1535,6 @@ macOS fallback: status startup selects ports 80 and 3000, plus the
 configured HTTP and HTTPS proxy remaps. Each port has its own pidfile,
 so refreshing one does not remove the others. The normal bridged-cache
 path removes host forwarders and uses the cache VM's LAN address.
-Windows: all ports in one list -- netsh clears everything first.
 On Windows, all caching-proxy-service port mappings are repeated in every
 caller's list because Add-PortMap clears Yuruna netsh and firewall state
 first; omitting any here would tear it down each status-service restart.
@@ -1549,12 +1545,13 @@ clients reach it directly and squid sees real
 client IPs at TCP level. Tear down any prior netsh
 mappings so the alternate host:port path doesn't
 silently NAT-rewrite a parallel route.
-Yuruna.Host's Test-CacheVMOnExternalNetwork checks
-for any External-type vSwitch on Windows; on macOS
-always returns $true because the cache VM is QEMU-bridged.
+Yuruna.Host's Test-CacheVMOnExternalNetwork inspects the cache VM's
+actual attachment. Windows requires an attached External-type vSwitch without
+a positively degraded uplink; macOS requires a readable bundle in Bridged mode.
+Shared NAT and missing macOS attachment evidence return false.
 
 HTTP/HTTPS port mapping is platform-divergent on the
-Default-Switch fallback (see Start-TestRunner.ps1
+Default-Switch fallback (see docs/caching.md
 for full rationale): macOS uses pwsh forwarder +
 PROXY v1 (real LAN IPs); Windows uses plain netsh
 portproxy because the user-mode listener path is
@@ -1795,7 +1792,7 @@ Clear-HostProxy (snapshot/restore from $HOME/.yuruna/host-proxy.backup.json).
 Definitive wipe is the right model here: any HTTP_PROXY/HTTPS_PROXY env
 var or WinINet ProxyServer string left after Stop-CachingProxyServiceVM is, by
 definition, pointing at a cache VM we are tearing down -- restoring
-whatever was there before just leaks a stale IP into the next cycle.
+whatever was there before leaks a stale IP into the next cycle.
 Done first so a failure tearing down the VM doesn't leave the host
 pointing at a dead proxy for the rest of the session.
 On macOS networksetup requires root -- the sudo preamble above guarantees

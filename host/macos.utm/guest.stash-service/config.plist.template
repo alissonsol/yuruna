@@ -72,6 +72,7 @@
 		<key>UEFIBoot</key>
 		<true/>
 	</dict>
+	<!-- See https://yuruna.link/42e220c4-000b -->
 	<!-- REGION: Display -->
 	<key>Display</key>
 	<array>

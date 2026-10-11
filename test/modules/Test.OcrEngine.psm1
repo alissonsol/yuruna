@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,6 +101,23 @@ function Test-OcrProviderAvailable {
     return [bool](& $provider.IsAvailable)
 }
 
+# Recognition is the dominant cost of a wait poll -- a tesseract pass over a
+# full-HD console frame is seconds of CPU -- and consecutive polls often
+# capture the same frame. The same engine reading the same bytes gives the
+# same text, so a few recent answers are kept, keyed by engine and content
+# hash. Empty answers are never kept: an engine that came back empty may
+# have failed transiently, and the capture-feed repair counts empty polls.
+$script:OcrResultCache = [System.Collections.Generic.List[object]]::new()
+$script:OcrResultCacheLimit = 4
+
+function Clear-OcrResultCache {
+    <#
+    .SYNOPSIS
+        Drops the remembered OCR answers (test seam).
+    #>
+    $script:OcrResultCache.Clear()
+}
+
 function Invoke-OcrProvider {
     <#
     .SYNOPSIS
@@ -112,7 +129,27 @@ function Invoke-OcrProvider {
     )
     $provider = & $script:OcrProviderRegistry.Get $Name
     if (-not $provider) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_30370fb77a74bcc8' -Arguments @{ name = "$Name" }) }
-    return (& $provider.Invoke $ImagePath)
+    $key = $null
+    try {
+        # Routed through the shared source-hash helper (Base64 round-trips the
+        # bytes losslessly) rather than a second raw SHA-256 call site.
+        $bytes = [System.IO.File]::ReadAllBytes($ImagePath)
+        $key = $Name.ToLowerInvariant() + '|' + (Get-OcrSourceHashKey -Source ([Convert]::ToBase64String($bytes)))
+    } catch {
+        # An unreadable image goes to the engine as before; it owns that error.
+        $key = $null
+    }
+    if ($key) {
+        foreach ($entry in $script:OcrResultCache) {
+            if ($entry.Key -ceq $key) { return $entry.Text }
+        }
+    }
+    $text = & $provider.Invoke $ImagePath
+    if ($key -and -not [string]::IsNullOrWhiteSpace(($text | Out-String))) {
+        $script:OcrResultCache.Add([pscustomobject]@{ Key = $key; Text = $text })
+        while ($script:OcrResultCache.Count -gt $script:OcrResultCacheLimit) { $script:OcrResultCache.RemoveAt(0) }
+    }
+    return $text
 }
 
 # Process-lifetime memo of the resolved enabled-provider list. Key is the raw
@@ -1233,6 +1270,7 @@ Export-ModuleMember -Function @(
     'Invoke-OcrProvider'
     'Get-EnabledOcrProvider'
     'Clear-EnabledOcrProviderCache'
+    'Clear-OcrResultCache'
     'Clear-VisionOcrBinaryCache'
     'Invoke-AllEnabledOcr'
     'Invoke-WinRtOcr'

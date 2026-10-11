@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42b72cec-e0ff-41c1-b348-08961daa46af
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@ $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.RecoveryContract.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.RecoveryLedger.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-T0 {
     [datetime]::new(2026, 10, 4, 12, 0, 0, [DateTimeKind]::Utc)
@@ -47,9 +48,7 @@ function New-ScratchDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: creates a temporary directory that AfterEach removes.')]
     param()
-    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('recledger-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    return $dir
+    return New-YurunaTestTempDir -Prefix 'recledger'
 }
 
 function New-TestResult {
@@ -415,8 +414,13 @@ exit $failed
         $module = Join-Path $here 'Test.RecoveryLedger.psm1'
         $writers = 3
         $each = 40
+        # -WindowStyle is a Windows-only Start-Process parameter: any other
+        # edition throws NotSupportedException on it, and the child there has
+        # no window to hide anyway.
+        $spawn = @{ FilePath = $pwsh; PassThru = $true }
+        if ($IsWindows) { $spawn.WindowStyle = 'Hidden' }
         $processes = foreach ($id in 1..$writers) {
-            Start-Process -FilePath $pwsh -ArgumentList @('-NoProfile', '-File', $worker, '-Module', $module, '-Dir', $script:Dir, '-Id', $id, '-Count', $each) -PassThru -WindowStyle Hidden
+            Start-Process @spawn -ArgumentList @('-NoProfile', '-File', $worker, '-Module', $module, '-Dir', $script:Dir, '-Id', $id, '-Count', $each)
         }
         try {
             $deadline = [datetime]::UtcNow.AddSeconds(90)

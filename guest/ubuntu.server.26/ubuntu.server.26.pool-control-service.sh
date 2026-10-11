@@ -1,12 +1,12 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- REGION: https://yuruna.link/42e220c4-0005
+# See https://yuruna.link/42e220c4-0005
 # See https://yuruna.link/4207d71a-000c
+# --- REGION: Initialize environment
 set -euo pipefail
 
-# --- REGION: Initialize environment
 # Export HOME for Go module-cache discovery under cloud-init.
 export HOME="${HOME:-/root}"
 
@@ -43,6 +43,7 @@ else
   SERVICE_USER="${SERVICE_USER:-$(id -un)}"
 fi
 echo "Service user: $SERVICE_USER"
+# --- REGION: Load service helpers
 # Load from the framework checkout even when this entry script was fetched to /tmp.
 SERVICE_LIB=''
 for candidate in "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" /home/*/yuruna; do
@@ -53,7 +54,6 @@ done
 [ -n "$SERVICE_LIB" ] || { echo "Missing framework automation/yuruna-service-bringup.sh" >&2; exit 1; }
 # shellcheck source=../../automation/yuruna-service-bringup.sh
 . "$SERVICE_LIB"
-
 
 # --- REGION: Service tunables
 # See https://yuruna.link/42fffc2c-000d
@@ -67,9 +67,13 @@ SCAN_INTERVAL="${POOL_CONTROL_SCAN_INTERVAL-15m}"
 
 # See https://yuruna.link/42fffc2c-000d
 # Use the canonical seeded locale; pseudo locales require explicit opt-in.
-POOL_CONTROL_LANGUAGE="$(sed -n 's/^YURUNA_LANGUAGE=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
+# See https://yuruna.link/42e220c4-000f
+# Existing VMs may carry locale settings only in pool.env.
+GLOBALIZATION_ENV=/etc/yuruna/globalization.env
+[ -e "$GLOBALIZATION_ENV" ] || GLOBALIZATION_ENV=/etc/yuruna/pool.env
+POOL_CONTROL_LANGUAGE="$(sed -n 's/^YURUNA_LANGUAGE=//p' "$GLOBALIZATION_ENV" 2>/dev/null | head -1 || true)"
 [ -n "$POOL_CONTROL_LANGUAGE" ] || POOL_CONTROL_LANGUAGE=auto
-POOL_CONTROL_ALLOW_PSEUDO_LOCALE="$(sed -n 's/^YURUNA_ALLOW_PSEUDO_LOCALE=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
+POOL_CONTROL_ALLOW_PSEUDO_LOCALE="$(sed -n 's/^YURUNA_ALLOW_PSEUDO_LOCALE=//p' "$GLOBALIZATION_ENV" 2>/dev/null | head -1 || true)"
 [ "$POOL_CONTROL_ALLOW_PSEUDO_LOCALE" = true ] || POOL_CONTROL_ALLOW_PSEUDO_LOCALE=false
 
 # Aggregator URL + host id + host ip from the shared env files (same as stash).
@@ -164,9 +168,9 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 PWSH_BIN="$(command -v pwsh)"
 pwsh --version
-# The daemon cannot administer intent until the YAML module installs and imports.
+# The daemon needs a working YAML parser before it can administer intent.
 for attempt in 1 2 3; do
-  if sudo pwsh -NoProfile -NonInteractive -Command "if (-not (Get-Module -ListAvailable powershell-yaml)) { Install-Module powershell-yaml -Scope AllUsers -Force -AcceptLicense -ErrorAction Stop }; Import-Module powershell-yaml -ErrorAction Stop"; then
+  if sudo pwsh -NoProfile -NonInteractive -Command "\$ErrorActionPreference = 'Stop'; if (-not (Get-Module -ListAvailable powershell-yaml)) { Install-Module powershell-yaml -Scope AllUsers -Force -AcceptLicense -ErrorAction Stop }; Import-Module powershell-yaml -ErrorAction Stop; if ((ConvertFrom-Yaml 'k: v').k -cne 'v') { throw 'powershell-yaml smoke check failed' }"; then
     break
   fi
   if [ "$attempt" -eq 3 ]; then
@@ -335,7 +339,7 @@ sudo systemctl enable --now pool-control-service.service
 
 if yuruna_service_wait_active pool-control-service.service 30 "http://127.0.0.1:${HTTP_ADDR##*:}/healthz"; then
   ss -ltnp '( sport = :80 )' 2>/dev/null | sed -n '1,4p' || true
-  echo "FETCHED AND EXECUTED: pool-control-service.service active on $HTTP_ADDR (state=${STATE_DIR:-off})"
+  echo "pool-control-service.service ready on $HTTP_ADDR (state=${STATE_DIR:-off})"
 else
   echo "pool-control-service.service failed to start:" >&2
   sudo journalctl -u pool-control-service.service --no-pager -n 40 >&2 || true

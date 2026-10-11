@@ -3,6 +3,14 @@
   "domain": "automation",
   "locale": "pt-BR",
   "messages": {
+    "automation.diagnostic_checkout_unavailable": {
+      "sourceHash": "ed5c11965d58f8769fe9ac82189b07c39cd138aa9d63506b313cff90fb8deba9",
+      "message": "(não se aplica: as evidências do checkout não estão disponíveis; passe -CheckoutRoot para usar um checkout existente do Yuruna)"
+    },
+    "automation.diagnostic_phase_log_limits": {
+      "sourceHash": "39b412c7bea122f70dcf3038b9fcf7a0e7d1f8fe190f9ea593f00be7a4912b00",
+      "message": "A busca de logs de fase está limitada a 100 arquivos, 12 níveis de diretório e 10 segundos; cada log mostra no máximo seus últimos 64 KiB."
+    },
     "automation.memory_plan": {
       "sourceHash": "23b47444f5b76a8bb2fdf3c72511c8f16e77f3da7e27068fd290317f8373d78f",
       "plural": {

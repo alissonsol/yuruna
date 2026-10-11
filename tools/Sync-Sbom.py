@@ -42,6 +42,29 @@ def git(root, *args, input_data=None):
     return result.stdout
 
 
+class IndexSnapshot(dict):
+    """Retain immutable object identities for cheap source revalidation."""
+    def __init__(self, files, entries):
+        super().__init__(files)
+        self.source_index = tuple(entry for entry in entries if not entry[0].startswith(OUTPUT))
+
+
+def read_index(root):
+    """Validate and enumerate stage-zero paths, object IDs, and file modes."""
+    entries = []
+    for raw in git(root, "ls-files", "--stage", "-z").split(b"\0"):
+        if not raw:
+            continue
+        info, raw_path = raw.split(b"\t", 1)
+        mode, object_id, stage = info.split()
+        if stage != b"0":
+            raise RuntimeError("Resolve index conflicts before generating SBOMs")
+        if mode == b"160000":
+            raise RuntimeError("Git submodules require an explicit dependency declaration")
+        entries.append((raw_path.decode("utf-8"), object_id.decode("ascii"), mode.decode("ascii")))
+    return entries
+
+
 def read_snapshot(root, staged=False):
     """Read a working tree or all stage-zero index blobs, preserving binary bytes."""
     if not staged:
@@ -55,18 +78,8 @@ def read_snapshot(root, staged=False):
             elif target.is_file():
                 files[path] = target.read_bytes()
         return files
-    entries = []
-    for raw in git(root, "ls-files", "--stage", "-z").split(b"\0"):
-        if not raw:
-            continue
-        info, raw_path = raw.split(b"\t", 1)
-        mode, object_id, stage = info.split()
-        if stage != b"0":
-            raise RuntimeError("Resolve index conflicts before generating SBOMs")
-        if mode == b"160000":
-            raise RuntimeError("Git submodules require an explicit dependency declaration")
-        entries.append((raw_path.decode("utf-8"), object_id.decode("ascii")))
-    hashes = sorted({oid for _, oid in entries})
+    entries = read_index(root)
+    hashes = sorted({oid for _, oid, _ in entries})
     if not hashes:
         return {}
     data = git(root, "cat-file", "--batch", input_data=("\n".join(hashes) + "\n").encode("ascii"))
@@ -80,7 +93,7 @@ def read_snapshot(root, staged=False):
         offset = end + 1
         blobs[expected] = data[offset:offset + size]
         offset += size + 1
-    return {path: blobs[oid] for path, oid in entries}
+    return IndexSnapshot({path: blobs[oid] for path, oid, _ in entries}, entries)
 
 
 def source_files(files):
@@ -409,7 +422,13 @@ def apply_changes(root, files, writes, removals, staged=False, stage=False):
         for path in removals:
             (root / path).unlink(missing_ok=True)
         if stage and targets:
-            if source_files(read_snapshot(root, staged=True)) != source_files(files):
+            # Object IDs bind exact bytes; file modes also belong to the tree.
+            # Re-reading blobs here doubles repository I/O on every commit.
+            if isinstance(files, IndexSnapshot):
+                unchanged = tuple(entry for entry in read_index(root) if not entry[0].startswith(OUTPUT)) == files.source_index
+            else:
+                unchanged = source_files(read_snapshot(root, staged=True)) == source_files(files)
+            if not unchanged:
                 raise RuntimeError("The staged source changed while generating SBOMs; retry the commit")
             # One Git transaction stages only generated paths, including deletions.
             git(root, "add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul",

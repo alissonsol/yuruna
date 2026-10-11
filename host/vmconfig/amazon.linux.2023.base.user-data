@@ -28,6 +28,18 @@ ssh_pwauth: true
 # See https://yuruna.link/429f3d06-001f
 # --- REGION: write_files
 write_files:
+  # --- REGION: Persistent diagnostic journal
+  - path: /etc/systemd/journald.conf.d/60-yuruna-diagnostic.conf
+    permissions: '0644'
+    content: |
+      # --- REGION: [Journal]
+      [Journal]
+      Storage=persistent
+      SystemMaxUse=32M
+      SystemKeepFree=256M
+      RuntimeMaxUse=8M
+      SyncIntervalSec=30s
+      ForwardToConsole=no
   - path: /etc/modprobe.d/denylist-hv-balloon.conf
     content: |
       blacklist hv_balloon
@@ -141,6 +153,9 @@ write_files:
 
 # --- REGION: runcmd
 runcmd:
+  # --- REGION: Persistent diagnostic journal
+  - mkdir -p /var/log/journal
+  - timeout --kill-after=1 10 systemctl restart systemd-journald.service && timeout --kill-after=1 10 journalctl --flush || echo 'Yuruna => persistent journal activation failed; inspect systemd-journald' >&2
   - rmmod hv_balloon 2>/dev/null || true
   # --- REGION: Reinforce DHCP client identity
   # See https://yuruna.link/4220a755-000b

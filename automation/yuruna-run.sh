@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -174,13 +174,30 @@ fi
 yr_next=$((YR_FROM_LINE + 1))
 
 # --- REGION: yr_drain
+# Replay reads through one descriptor that stays open, so a tick starts
+# no process and costs only the new output: counting lines with wc and
+# printing a range with sed would rescan the whole log every half second.
+yr_read=0
+yr_partial=''
+yr_out_open=0
 yr_drain() {
-    local total
-    total="$(wc -l < "$YR_OUT" 2>/dev/null || echo 0)"
-    if [ "$total" -ge "$yr_next" ]; then
-        sed -n "${yr_next},${total}p" "$YR_OUT"
-        yr_next=$((total + 1))
+    local line
+    if [ "$yr_out_open" != 1 ]; then
+        [ -r "$YR_OUT" ] || return 0
+        exec 7<"$YR_OUT" || return 0
+        yr_out_open=1
     fi
+    while IFS= read -r line <&7; do
+        line="${yr_partial}${line}"
+        yr_partial=''
+        yr_read=$((yr_read + 1))
+        if [ "$yr_read" -ge "$yr_next" ]; then
+            printf '%s\n' "$line"
+            yr_next=$((yr_read + 1))
+        fi
+    done
+    # read returns false at end of file; what it read is an unfinished line.
+    yr_partial="${yr_partial}${line}"
 }
 
 while [ ! -f "$YR_STATUS" ]; do
@@ -188,7 +205,7 @@ while [ ! -f "$YR_STATUS" ]; do
     # See https://yuruna.link/4220a755-0038
     # Report vanished runners promptly when no exit status was recorded.
     if [ -r "$YR_PID" ]; then
-        yr_pid="$(cat "$YR_PID" 2>/dev/null)"
+        yr_pid=''; read -r yr_pid < "$YR_PID" 2>/dev/null || :
         if [ -n "$yr_pid" ] && ! kill -0 "$yr_pid" 2>/dev/null; then
             sleep 1
             if [ ! -f "$YR_STATUS" ]; then

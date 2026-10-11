@@ -24,8 +24,8 @@ Provider registry lives in
 
 ## Per-platform default ordering
 
-`Get-EnabledOcrProvider` returns the first provider that matches, in
-this order, when `$env:YURUNA_OCR_ENGINES` is unset:
+`Get-EnabledOcrProvider` returns the available providers in this
+order when `$env:YURUNA_OCR_ENGINES` is unset:
 
 - **macOS UTM**: `macos-vision, tesseract`
 - **Windows Hyper-V**: `winrt, tesseract`
@@ -47,6 +47,23 @@ fallbacks invoked only when the primary's text did not match.
 | `YURUNA_OCR_ENGINES`      | Comma-separated provider list. Reorders or restricts the active set. Example: `tesseract,winrt`. |
 | `YURUNA_OCR_COMBINE`      | `Or` (default -- first match wins) or `And` (every enabled provider must match). |
 | `YURUNA_OCR_WORKER`       | `0` disables the persistent WinRT worker and reverts to one-shot `powershell.exe` spawns per OCR call (slower; debug only). |
+
+Tesseract text and TSV calls receive `OMP_THREAD_LIMIT=2` in the child
+process when neither `OMP_THREAD_LIMIT` nor `OMP_NUM_THREADS` is present in
+the inherited environment. Any explicit setting is preserved, including an
+empty value; the runner's environment is never changed. Each call has a
+generous 300-second cap and rejects incomplete or truncated output.
+
+The OCR result cache reuses nonempty answers for byte-identical frames.
+KVM's ImageMagick conversion excludes PNG date and time chunks so an
+unchanged framebuffer remains byte-identical across captures. Pixel data,
+color profiles, gamma and other image metadata are preserved.
+
+Tolerant text matching also reuses answers for identical text, pattern and
+matching mode. The comparison cache retains at most four text frames and
+32 answers per frame, and bypasses texts larger than 64 Ki characters or
+patterns larger than 1 Ki characters. Changed text and strict matching use
+their own comparisons, so a cached failure cannot hide a newly drawn prompt.
 
 <a id="42607283-0005"></a>
 
@@ -223,7 +240,7 @@ run-of-unexplained-positions test above catches them anyway.
 **`unknown` is a first-class verdict and always means "proceed."** It is
 returned when the OCR text is too short to judge, or when the normalizer
 itself is unavailable. A caller must press Enter on `unknown`: this is the
-last-resort diagnostics path, and refusing to submit a line that simply could
+last-resort diagnostics path, and refusing to submit a line that could
 not be read would lose the capture outright.
 
 ---
@@ -232,6 +249,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

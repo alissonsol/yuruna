@@ -13,7 +13,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT.parent / 'yuruna-project'
-AMISAD = ROOT.parent / 'alius-git' / 'amisad.dev'
+AMISAD = ROOT.parent / 'amisad.dev'
 
 
 def bash(source, env=None):
@@ -21,6 +21,67 @@ def bash(source, env=None):
 
 
 class ShellContracts(unittest.TestCase):
+    def test_postgresql_preserves_existing_clusters_and_starts_the_instance(self):
+        source = (ROOT / 'guest/shared/ubuntu.postgresql.sh').read_text()
+        block = source.split('# --- REGION: Ensure PostgreSQL cluster\n', 1)[1]
+        block = block.split('# --- REGION: Installation summary\n', 1)[0]
+        mocks = r'''
+sudo() {
+    printf '%s\n' "$*" >> "$CALLS"
+    case "$*" in
+      'pg_lsclusters --no-header')
+        cat "$CLUSTERS"
+        return "$LIST_EXIT"
+        ;;
+      'pg_createcluster 18 main')
+        [ "$CREATE_EXIT" -eq 0 ] || return "$CREATE_EXIT"
+        printf '%s\n' '18 main 5432 down postgres fixture-data fixture-log' >> "$CLUSTERS"
+        ;;
+      'systemctl enable postgresql') return 0 ;;
+      'systemctl start postgresql@18-main') return "$START_EXIT" ;;
+      *) echo "Unexpected privileged command: $*" >&2; return 99 ;;
+    esac
+}
+'''
+        cases = [
+            ('online', '18 main 5432 online postgres data log\n', False, 0, 0, 0),
+            ('stopped', '18 main 5432 down postgres data log\n', False, 0, 0, 0),
+            ('missing', '', True, 0, 0, 0),
+            ('other-major', '17 main 5432 online postgres data log\n', True, 0, 0, 0),
+            ('other-name', '18 reporting 5432 online postgres data log\n', True, 0, 0, 0),
+            ('incidental-version', '16 main 5418 down postgres /data/18 log\n', True, 0, 0, 0),
+            ('inventory-failure', '18 main 5432 down postgres data log\n', False, 37, 0, 0),
+            ('creation-failure', '', True, 0, 41, 0),
+            ('startup-failure', '18 main 5432 down postgres data log\n', False, 0, 0, 43),
+        ]
+        for name, inventory, create, list_exit, create_exit, start_exit in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clusters = root / 'clusters'
+                calls = root / 'calls'
+                clusters.write_text(inventory)
+                env = {**os.environ, 'CLUSTERS': str(clusters), 'CALLS': str(calls),
+                       'LIST_EXIT': str(list_exit), 'CREATE_EXIT': str(create_exit),
+                       'START_EXIT': str(start_exit)}
+                result = bash(mocks + block, env)
+                self.assertEqual(result.returncode, list_exit or create_exit or start_exit, result.stderr)
+                expected = ['pg_lsclusters --no-header']
+                if not list_exit:
+                    if create:
+                        expected.append('pg_createcluster 18 main')
+                    if not create_exit:
+                        expected.extend(['systemctl enable postgresql', 'systemctl start postgresql@18-main'])
+                self.assertEqual(calls.read_text().splitlines(), expected)
+                if not create or list_exit or create_exit:
+                    self.assertEqual(clusters.read_text(), inventory)
+                if result.returncode == 0:
+                    calls.write_text('')
+                    again = bash(mocks + block, env)
+                    self.assertEqual(again.returncode, 0, again.stderr)
+                    self.assertEqual(calls.read_text().splitlines(), [
+                        'pg_lsclusters --no-header', 'systemctl enable postgresql',
+                        'systemctl start postgresql@18-main'])
+
     def test_service_readiness_requires_active_unit_and_optional_http_health(self):
         source = (ROOT / 'automation/yuruna-service-bringup.sh').read_text()
         function = re.search(r'yuruna_service_wait_active\(\) \{.*?\n}', source, re.S)[0]
@@ -138,10 +199,10 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             (root / 'VERSION').write_text('2026.09.30\n')
             subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
 
-            (root / 'VERSION').write_text('2026.10.04\n')
+            (root / 'VERSION').write_text('2026.10.11\n')
             for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
                 shared = root / f'guest/shared/ubuntu.{name}.sh'
-                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.10.04\nexit 17\n')
+                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.10.11\nexit 17\n')
             stale = subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py'), '--check'], capture_output=True, text=True)
             self.assertNotEqual(stale.returncode, 0)
             self.assertEqual(len(stale.stderr.splitlines()) - 1, 10)
@@ -151,7 +212,7 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
                 for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
                     wrapper = (root / f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh').read_text()
                     digest = hashlib.sha256((root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
-                    self.assertIn('# Version: 2026.10.04\n', wrapper)
+                    self.assertIn('# Version: 2026.10.11\n', wrapper)
                     self.assertIn(f'expected="{digest}"', wrapper)
 
     def test_guest_workflow_pre_commit_stages_pins(self):
@@ -194,10 +255,10 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             git('-c', 'core.hooksPath=', 'commit', '-q', '-m', 'seed')
             git('config', 'core.hooksPath', 'tools/githooks')
 
-            (root / 'VERSION').write_text('2026.10.04\n')
+            (root / 'VERSION').write_text('2026.10.11\n')
             for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
                 (root / f'guest/shared/ubuntu.{name}.sh').write_bytes(
-                    b'#!/bin/bash\n# Version: 2026.10.04\nexit 0\n')
+                    b'#!/bin/bash\n# Version: 2026.10.11\nexit 0\n')
             git('add', 'VERSION', 'guest/shared')
             committed = git('commit', '-q', '-m', 'version stamp')
             self.assertIn('regenerated and staged Ubuntu workflow checksum pins', committed.stderr)
@@ -210,7 +271,7 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
                     digest = hashlib.sha256(
                         (root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
                     self.assertIn(f'expected="{digest}"', wrapper)
-                    self.assertIn('# Version: 2026.10.04', wrapper)
+                    self.assertIn('# Version: 2026.10.11', wrapper)
 
             # A staged version with an unstaged workflow edit must not pin
             # bytes that the proposed commit does not contain.
@@ -261,12 +322,17 @@ set -eu
 name=${0##*/}
 printf '%s %s\n' "$name" "$*" >> "$FIXTURE_LOG"
 case "$name:$1" in
- docker:start) [ "$MODE" != registry ] ;;
+ docker:start) [ "$MODE" != registry ] && [ "$MODE" != pull ] ;;
  docker:run) [ "$MODE" != registry ] ;;
  docker:image) if [ "$2" = ls ] && [ "$MODE" != pull ]; then printf 'registry:2\ndotnet/sdk:10.0\ndotnet/aspnet:10.0\n'; fi ;;
  docker:pull) exit 1 ;;
  docker:build) [ "$MODE" != build ] ;;
  docker:push) [ "$MODE" != push ] ;;
+ pwsh:*)
+   case "$1:$MODE" in
+     *Set-Resource.ps1:resource|*Set-Component.ps1:component|*Set-Workload.ps1:workload) exit 1 ;;
+   esac ;;
+ kubectl:wait) [ "$MODE" != readiness ] ;;
  curl:*) printf '200 0' ;;
  *) exit 0 ;;
 esac
@@ -278,7 +344,7 @@ esac
             shell_home = subprocess.run(['bash', '-c', 'pwd -P'], cwd=home, text=True,
                                         capture_output=True, check=True).stdout.strip()
             for path in paths:
-                for mode in ('hit', 'registry', 'pull', 'build', 'push'):
+                for mode in ('hit', 'registry', 'pull', 'resource', 'component', 'workload', 'readiness'):
                     log = home / 'commands.log'
                     log.write_text('')
                     source = re.sub(r'^REAL_HOME=.*$', lambda _: 'REAL_HOME="$FIXTURE_HOME"', path.read_text(), flags=re.M)
@@ -289,10 +355,32 @@ esac
                     commands = log.read_text()
                     if mode == 'hit':
                         self.assertNotIn('docker pull', commands)
-                        self.assertIn('docker build --progress=plain', commands)
-                        self.assertIn('Set-Workload.ps1', commands)
-                    else:
+                        phases = ['Set-Resource.ps1', 'Set-Component.ps1', 'Set-Workload.ps1', 'kubectl wait']
+                        positions = [commands.index(phase) for phase in phases]
+                        self.assertEqual(positions, sorted(positions))
+                        self.assertNotIn('docker build --progress=plain', commands)
+                    elif mode in ('registry', 'pull', 'resource', 'component'):
                         self.assertNotIn('Set-Workload.ps1', commands)
+                    elif mode == 'workload':
+                        self.assertNotIn('kubectl wait', commands)
+
+            for mode in ('hit', 'pull', 'build', 'push'):
+                with self.subTest(build_mode=mode):
+                    log.write_text('')
+                    env = {**os.environ, 'MODE': mode, 'USER': 'fixture', 'FIXTURE_HOME': shell_home,
+                           'FIXTURE_LOG': shell_home + '/commands.log', 'http_proxy': 'http://fixture:3128'}
+                    source = ('export PATH="$FIXTURE_HOME/bin:$PATH"\nREAL_HOME="$FIXTURE_HOME"\n'
+                              '. "$REAL_HOME/yuruna/project/tools/example-workload.sh"\n'
+                              'example_registry_prepare\nexample_build_and_push website website\n')
+                    result = bash(source, env)
+                    self.assertEqual(result.returncode == 0, mode == 'hit', result.stderr)
+                    commands = log.read_text()
+                    if mode == 'hit':
+                        self.assertIn('docker build --progress=plain', commands)
+                        self.assertIn('docker push localhost:5000/website/website:latest', commands)
+                    elif mode == 'build':
+                        self.assertEqual(commands.count('docker build --progress=plain'), 3)
+                        self.assertNotIn('docker push localhost:5000/website/website:latest', commands)
 
     def test_service_seed_framework_fetch_bounds_preserve_fallback_and_provenance(self):
         import textwrap
@@ -304,32 +392,38 @@ wget() {
     case "$url" in
         */livecheck) [ "$MODE" = host ] || [ "$MODE" = archive_failure ];;
         */yuruna-archive.tar.gz)
-            [ "$*" = "--no-proxy --timeout=30 --tries=1 -qO- $url" ] || return 99
+            [ "$*" = "--no-proxy --timeout=30 --tries=1 -qO $FETCH_DIR/archive.tar.gz $url" ] || return 99
+            printf 'ARCHIVE\n' > "$FETCH_DIR/archive.tar.gz"
             [ "$MODE" != archive_failure ] || return 7
-            printf 'ARCHIVE\n';;
+            ;;
         *) return 99;;
     esac
 }
 tar() {
-    [ "$*" = "-xz -C $FIXTURE_DEST" ] || return 99
-    local content; content=$(cat)
+    [ "$*" = "-xzf $FETCH_DIR/archive.tar.gz -C $FETCH_DIR/tree" ] || return 99
+    local content; content=$(cat "$FETCH_DIR/archive.tar.gz")
     [ "$content" = ARCHIVE ] || return 2
-    printf 'fixture-host-version\n' > "$FIXTURE_DEST/VERSION"
+    printf 'fixture-host-version\n' > "$FETCH_DIR/tree/VERSION"
 }
 git() {
-    [ "$*" = "-c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 https://github.com/alissonsol/yuruna $FIXTURE_DEST" ] || return 99
+    [ "$*" = "-c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 https://github.com/alissonsol/yuruna $FETCH_DIR/tree" ] || return 99
     printf 'git %s\n' "$*" >> "$FIXTURE_LOG"
     [ "$MODE" != git_failure ] || return 9
-    command mkdir -p "$FIXTURE_DEST"
-    printf 'fixture-mirror-version\n' > "$FIXTURE_DEST/VERSION"
+    command mkdir -p "$FETCH_DIR/tree"
+    printf 'fixture-mirror-version\n' > "$FETCH_DIR/tree/VERSION"
 }
 mkdir() {
-    [ "$*" = "-p $FIXTURE_DEST" ] || [ "$*" = "-p $FIXTURE_DIR" ] || return 99
+    [ "$*" = "-p $FETCH_DIR/tree" ] || [ "$*" = "-p $FIXTURE_DIR" ] || return 99
     command mkdir "$@"
 }
 sleep() { :; }
 chown() { :; }
-rm() { [ "$*" = "-rf $FIXTURE_DEST" ] || return 99; command rm "$@"; }
+rm() {
+    case "$*" in
+      "-rf $FETCH_DIR"|"-rf $FETCH_DIR/tree"|"-rf $FETCH_DIR/previous") command rm "$@" ;;
+      *) return 99 ;;
+    esac
+}
 '''
         for service in ('stash-service', 'pool-control-service', 'download-agent-service'):
             seed = (ROOT / f'host/vmconfig/{service}.base.user-data').read_text()
@@ -354,6 +448,10 @@ rm() { [ "$*" = "-rf $FIXTURE_DEST" ] || return 99; command rm "$@"; }
                     log.write_text('')
                     destination = fixture / 'checkout'
                     self.assertEqual(destination.resolve().parent, fixture.resolve())
+                    destination.mkdir()
+                    (destination / 'VERSION').write_text('previous-version\n')
+                    (destination / 'sentinel').write_text('preserve unless replacement validated\n')
+                    (fixture / 'framework-source').write_text('source=previous\nversion=previous-version\n')
                     source = re.sub(r'(?m)^[ \t]*DEST=.*$', 'DEST="$FIXTURE_DEST"', block)
                     source = source.replace('/etc/yuruna', '"$FIXTURE_DIR"')
                     env = {**os.environ, 'MODE': mode, 'FIXTURE_LOG': log.as_posix(),
@@ -369,11 +467,16 @@ rm() { [ "$*" = "-rf $FIXTURE_DEST" ] || return 99; command rm "$@"; }
                         self.assertIn('version=fixture-host-version\n', provenance)
                     else:
                         self.assertEqual(commands.count('git '), 1)
-                        self.assertIn('source=mirror\n', provenance)
                         if mode == 'git_failure':
                             self.assertIn('could not obtain the framework source', result.stderr)
+                            self.assertEqual(provenance, 'source=previous\nversion=previous-version\n')
+                            self.assertEqual((destination / 'VERSION').read_text(), 'previous-version\n')
+                            self.assertTrue((destination / 'sentinel').is_file())
                         else:
+                            self.assertIn('source=mirror\n', provenance)
                             self.assertIn('version=fixture-mirror-version\n', provenance)
+                    if mode != 'git_failure':
+                        self.assertFalse((destination / 'sentinel').exists())
 
     def test_download_agent_optional_powershell_requires_verified_tarball(self):
         seed = (ROOT / 'host/vmconfig/download-agent-service.base.user-data').read_text()

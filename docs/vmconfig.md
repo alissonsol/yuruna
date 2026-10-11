@@ -60,7 +60,7 @@ handing the result to `genisoimage` (KVM), `hdiutil makehybrid`
 | `SSH_AUTHORIZED_KEY_PLACEHOLDER` | `test/status/ssh/yuruna_ed25519.pub` (auto-generated if missing) via `Test.Ssh\Get-YurunaSshPublicKey` | Single ed25519 line; placed under autoinstall.ssh.authorized-keys (Ubuntu) and the cloud-init `users:` block for the test user (AL2023). Same key the post-failure diagnostics path (`Test.Diagnostic\Invoke-RemoteDiagnosticsKeySsh`) authenticates with -- per-host key files would silently break it. |
 | `APT_PROXY_BLOCK_PLACEHOLDER` | Built per-host by New-VM.ps1 | Multi-line `apt:` block. Substring-replaced (not token-aware), so the literal string MUST NOT appear anywhere else in the file. |
 | `CACHING_PROXY_URL_PLACEHOLDER` | `-CachingProxyServiceUrl` parameter | Empty string when no caching-proxy-service is reachable; the `if [ -n ... ]` blocks in user-data are no-ops in that case. |
-| `CA_CERT_BASE64_PLACEHOLDER` | macos.utm only -- host-fetched CA, base64-embedded | Empty when CA fetch failed; HTTPS apt then bypasses the cache. |
+| `CA_CERT_BASE64_PLACEHOLDER` | All three hosts -- host-fetched CA, base64-embedded | Empty when CA fetch failed; HTTPS apt then bypasses the cache. |
 | `YURUNA_STATUS_SERVICE_IP_PLACEHOLDER` | Best-effort host IP discovery | Becomes `/etc/yuruna/host.env` and the `yuruna-host` `/etc/hosts` entry. |
 | `YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER` | `test/test.config.yml:statusService.port` (default 8080) | Same. |
 | `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_VERSIONS_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` / `YURUNA_NETWORK_BASE64_PLACEHOLDER` / `YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER` | Auto-populated from `Get-YurunaGuestScriptBase64` | The five `automation/*.sh` guest helpers, embedded as base64 `write_files` entries. The seeds also install the `yfe` launcher at `/usr/local/bin/yfe`. |
@@ -79,7 +79,7 @@ value the module would have resolved.
 | Stage | Function | Inputs | Output |
 |---|---|---|---|
 | 1. **Merge** | `Merge-CloudInitUserData` | shared base + per-host overlay (one of `hyperv` / `kvm` / `utm`) | Resolved template with anchors substituted, still carrying `*_PLACEHOLDER` tokens |
-| 2. **Base64-encode** | `Get-YurunaGuestScriptBase64` | `<RepoRoot>/automation/{yuruna-retry.sh,yuruna-versions.sh,fetch-and-execute.sh,yuruna-network.sh,yuruna-host-locate.sh}` | `@{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>'; HostLocate = '<base64>' }` |
+| 2. **Base64-encode** | `Get-YurunaGuestScriptBase64` | `<RepoRoot>/automation/{yuruna-retry.sh,yuruna-versions.sh,fetch-and-execute.sh,yuruna-fetch-context.sh,yuruna-network.sh,yuruna-host-locate.sh}` | `@{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; FetchContext = '<base64>'; NetworkLib = '<base64>'; HostLocate = '<base64>' }` |
 | 3. **Resolve** | `Resolve-CloudInitPlaceholder` | Merged template + replacement hashtable | Final user-data string |
 
 `New-CloudInitUserData` is the wrapper every per-guest `New-VM.ps1`
@@ -126,12 +126,13 @@ Each anchor line in the base reads
 `# === YURUNA_OVERLAY_<NAME> ===`. The anchor set differs by guest type
 (autoinstall vs prebuilt-image `runcmd:`):
 
-**Ubuntu Server** -- four anchors:
+**Ubuntu Server** -- six anchors: the four below plus `HOST_AGENT_PKG` and
+`LATE_HOST_AGENT` for the host-agent package and late-command slots:
 
 | Anchor | Purpose | Used by overlays |
 |---|---|---|
-| `NETWORK` | Per-host network: block | UTM only (Hyper-V/KVM use cloud-init defaults) |
-| `EARLY_COMMANDS` | Pre-install commands | KVM only (disable VT blanking) |
+| `NETWORK` | Per-host network: block | All hosts (MAC-based DHCP); UTM also refuses IPv6 RA |
+| `EARLY_COMMANDS` | Pre-install commands | All hosts (quiet kernel output and stop tmpfiles-clean timer); KVM also disables VT blanking |
 | `GRUB_PRE_CONSOLE_QUIET` | Kernel quirks before `console-quiet` block | Hyper-V (`hv_balloon`+`hyperv_fb`), KVM (`consoleblank`) |
 | `GRUB_POST_CONSOLE_QUIET` | Kernel quirks after `console-quiet` block | KVM only (`nomodeset` fb-safe) |
 
@@ -175,7 +176,7 @@ convention so the three host variants of each guest stay diff-friendly:
    timezone wget -- both go through `/etc/wgetrc`.
 2. `update-grub` MUST come after every `99-yuruna-*.cfg` drop-in.
 3. `umount /cdrom` + `losetup -D` MUST be the final late-commands
-   (ubuntu.server.24 only -- see "Quiet post-install reboot teardown" below).
+   (ubuntu.server.24 and .26 -- see "Quiet post-install reboot teardown" below).
 
 Recommended order (a guest may omit topics that don't apply):
 
@@ -257,7 +258,7 @@ in `Get-Image.ps1` per host.
 ```
 chpasswd:
   list: |
-    ec2-user:amazonlinux
+    USERNAME_PLACEHOLDER:PLAINTEXT_PASSWORD_PLACEHOLDER
 ```
 
 Stick with the (deprecated) `list:` form rather than the newer
@@ -269,7 +270,7 @@ sequence then loops on a wrong-password dialog. The deprecation warning
 is cosmetic. Cloud-init's default `chpasswd.expire: true` applies, so
 the first-login current/new/retype dialog still fires.
 
-Do NOT add spaces after `ec2-user:` -- they become part of the password.
+Do NOT add spaces after `USERNAME_PLACEHOLDER:` -- they become part of the password.
 
 <a id="429f3d06-000d"></a>
 
@@ -377,6 +378,31 @@ autoinstall reference), so this fires before any 10-min quiet window can
 elapse. KVM-only concern; harmless on Hyper-V's `hyperv_fb` and Apple
 Virtualization's virtio-gpu.
 
+<a id="429f3d06-009c"></a>
+
+### Keep the tmpfiles-clean timer from firing in the LIVE installer
+
+*(all hypervisor overlays, ubuntu.server.24 and .26, autoinstall early-commands)*
+
+```
+early-commands:
+  - systemctl stop systemd-tmpfiles-clean.timer 2>/dev/null || true
+```
+
+The live installer's `systemd-tmpfiles-clean.timer` fires 15 minutes after
+boot, and systemd gives the service a credentials mount under
+`/run/credentials/`. For each chroot step, curtin bind-mounts the live
+`/run`, a shared mount, onto `/target/run`, so the credentials mount
+propagates beneath `/target/run`. When the timer fires while a chroot step
+is open, curtin's cleanup cannot unmount `/target/run` ("target is busy",
+exit 32). The install then aborts in `install-grub` or
+`final-kernel-configuration` with "An error occurred. Press enter to start
+a shell", about 15 minutes after the installer booted. The uploaded
+`mounts-at-failure.txt` shows
+`/target/run/credentials/systemd-tmpfiles-clean.service` still mounted.
+The installer environment is discarded once the install ends, so stopping
+its timer costs nothing; the installed system keeps its own.
+
 <a id="429f3d06-0013"></a>
 
 ### Apt cache: persist proxy
@@ -389,14 +415,13 @@ no cache is configured, leaving the block harmless on hosts without one.
 The `if`-block also opts into HTTPS caching by trusting the squid CA
 and pointing `Acquire::https::Proxy` at the `:3129` ssl-bump listener:
 
-- **Hyper-V / KVM:** the installer fetches the CA in-band via
-  `wget http://${CACHE_HOST}/yuruna-squid-ca.crt` -- guests reach the
-  cache VM directly on the (Default Switch / libvirt 'default') NAT.
-  Failure leaves the plain-HTTP proxy in place; HTTPS apt goes direct.
-- **macos.utm:** Apple VZ Shared NAT isolates guests from each other,
-  so the CA fetch happens on the HOST inside `New-VM.ps1` and the bytes
+- **All three hosts:** the host builder fetches the CA before rendering
+  the seed, reusing a persisted CA for that cache host if the live fetch
+  fails. The bytes
   arrive base64-embedded via `CA_CERT_BASE64_PLACEHOLDER`. An empty
-  placeholder is a graceful no-op: HTTPS apt bypasses the cache.
+  placeholder skips this apt trust/proxy stanza. The later HTTPS proxy
+  environment and direct-egress restriction still apply, so a CA-less guest
+  needs the update script's CA self-heal before bumped HTTPS can succeed.
 
 <a id="429f3d06-0014"></a>
 
@@ -435,13 +460,11 @@ loopback+conntrack so netfilter-persistent has a valid file to load
 
 Anchor: `pin-ipv4-dhcp-refuse-ipv6-ra`
 
-The autoinstall `network:` block in the shared
-`host/vmconfig/ubuntu.server.base.user-data` pins
-the primary NIC (`match: name: "en*"`) to `dhcp4: true; dhcp6: false;
-accept-ra: false`. The glob (rather than a literal `enp0s1`) survives
-the 26.04 guest's NIC model switch from `virtio-net-pci` (`enp0s1`)
-to `e1000` (`ens1`) -- see the comment on the `Network` array in the
-guest's `config.plist.template`.
+The autoinstall `network:` block in
+`host/vmconfig/ubuntu.server.utm.overlay.yml` pins `enp0s1` to
+`dhcp4: true; dhcp6: false; accept-ra: false; dhcp-identifier: mac`.
+The Hyper-V and KVM overlays match `en*` and `eth*` names and pin
+`dhcp-identifier: mac` without applying UTM's IPv6 RA policy.
 
 Only the macOS QEMU backend needs this: on
 QEMU + `-netdev vmnet-shared`, the host's VMnet stub sends IPv6
@@ -456,8 +479,9 @@ finish: subiquity/Network/_send_update: CHANGE enp0s1
 ```
 
 forever. The Apple Virtualization backend emits no such RAs, so
-subiquity's auto-detection is safe there; Hyper-V and KVM guests see no
-such RA stream either, so they keep auto-detection.
+subiquity's auto-detection is safe there. Hyper-V and KVM guests see no
+such RA stream either; their overlays retain the native IPv6 policy while
+pinning IPv4 DHCP leases by MAC.
 
 <a id="429f3d06-0016"></a>
 
@@ -502,8 +526,10 @@ removed:
 
 - `test/extension/authentication/default.psm1` `New-RandomPassword`
   draws from an alphabet that includes `-`
-  (`a-z A-Z 0-9 !@#$%^&*()-_=+`). Roughly one in 72 generated passwords
-  starts with `-`. Observed in the wild: vault produced `-4aWj*CRw`.
+  (`a-z A-Z 0-9 !@#$%^&*()-_=+`) for every character but the first, which is
+  alphanumeric, so a generated password never starts with `-`; a password
+  already in the vault or supplied by an operator still can. Observed in the
+  wild: vault produced `-4aWj*CRw`.
 - Without `--`, `openssl passwd -6 -4aWj*CRw` parses `-4aWj*CRw` as an
   unknown option flag, prints `passwd: Use -help for summary` to stderr,
   writes nothing to stdout, and exits non-zero. The cycle then writes an
@@ -682,8 +708,8 @@ rather than for the floor.
 The trade is crash durability during package operations: a guest that loses
 power mid-unpack can come back with a partially written file where dpkg would
 otherwise have guaranteed one or the other. That is acceptable here because
-these guests are reprovisioned from the installer every cycle. It is worth
-knowing that a guest restored by `loadDiskSnapshot` inherits whatever its last
+these guests are reprovisioned from the installer every cycle. A guest restored
+by `loadDiskSnapshot` inherits whatever its last
 stop left behind, so a baseline captured from a force-stopped VM carries
 slightly more risk of a missing tail than it did before.
 
@@ -1004,9 +1030,9 @@ OnUnitActiveSec=60s
 AccuracySec=5s
 ```
 
-The host coordinates in `/etc/yuruna/host.env` are baked at `New-VM` time and
-nothing in the guest re-resolves them. `fetch-and-execute.sh` repairs the
-address at the top of each step, which leaves one window open: a step that
+The host coordinates in `/etc/yuruna/host.env` are seeded at `New-VM` time.
+`fetch-and-execute.sh` re-resolves an unreachable address at the top of each
+step, which leaves one window open: a step that
 runs for many minutes can watch the host renumber underneath it and has no
 way back. The timer closes that window for everything that never passes
 through the fetch path at all -- the project's own scripts, the perf
@@ -1111,7 +1137,7 @@ truth: `automation/` in the framework repo.
 
 ```
 timedatectl set-ntp true
-TZ=$(wget -qO - --timeout=5 "http://ip-api.com/line?fields=timezone")
+TZ=$(wget -qO - --timeout=10 "http://ip-api.com/line?fields=timezone")
 [ -n "$TZ" ] && timedatectl set-timezone "$TZ"
 ```
 
@@ -1185,7 +1211,7 @@ holder probes can also report users of another bind mount of the same filesystem
 correlate them with the mount IDs and process references before assigning blame.
 
 Each probe has a three-second timeout, a one-second kill grace period, and a
-128 KiB retained-output limit. Missing tools, nonzero exits, truncation, and
+128 KiB retained-output limit. Missing tools, non-zero exits, truncation, and
 timeouts are recorded in the snapshot; if `timeout` is unavailable, probes are
 skipped. No packages are installed on the failure path. The capture happens
 after the installer aborts, so a transient holder may already have exited.
@@ -1438,7 +1464,8 @@ override has no effect.
 
 **cache_mem budget math.** `SQUID_CACHE_MEM_PLACEHOLDER` is resolved with
 the VM memory profile: 3 GB of Squid cache in an 8 GB default VM, or 7 GB in
-a 12 GB lab beacon, with 4 vCPU in either profile. RAM and Squid cache size
+a 12 GB lab beacon. Both profiles get half the host cores, rounded down, with a
+four-vCPU floor (ARM64 Hyper-V caps the allocation at two). RAM and Squid cache size
 must move together because swap is masked. The headroom calculation is in
 [caching.md -> Cache VM sizing](caching.md#cache-vm-sizing).
 
@@ -1484,9 +1511,9 @@ catch-all `refresh_pattern .` revalidates on every request. The override
 targets digest-pinned URLs only (the `sha256:` segment); those cache for
 the full year like apt `.deb` files. Tag-based manifest URLs
 (`/manifests/<tag>` with no `sha256:`) stay revalidated -- tags ARE
-mutable, e.g. `:latest`, `:2`, `:v0.28.4`. They get only a short
-freshness window (`5 50% 60`) so concurrent guests in the same cycle hit
-cache while a tag move within a few minutes is still picked up;
+mutable, e.g. `:latest`, `:2`, `:v0.28.4`. They get a one-hour
+freshness window (`60 100% 60`) so concurrent guests in the same cycle hit
+cache while a tag move is still picked up within the hour;
 `collapsed_forwarding` already pools the parallel fetches, so the window
 just stretches past `must-revalidate`. The digest pattern matches the URL
 PATH, so it works for any registry host: registry.k8s.io, ghcr.io,
@@ -1607,8 +1634,9 @@ evaluated for connection-level log events that carry no parsed HTTP request
 (CONNECT tunnels, pre-request TLS-bump errors); squid then writes "ACL is used
 in context without an HTTP request" to `cache.log` for every such event --
 hundreds per minute, burying genuine errors. `src` is always available, so the
-exclusion stays warning-free. Guest traffic is LAN-sourced, so dropping
-loopback removes only self-scrapes and local health probes.
+exclusion stays warning-free. Guest traffic is LAN-sourced, so diverting
+loopback to its own `yuruna_loopback.log` removes only self-scrapes and local
+health probes from `yuruna_access.log`.
 
 Squid 7 requires the module prefix on `access_log`; without `stdio:` the
 parser emits a deprecation warning at every config load.
@@ -1640,7 +1668,7 @@ The seed binds Loki to 127.0.0.1:3100 and Prometheus to 127.0.0.1:9090, overridi
 
 ### Alloy timestamp only labels
 
-Alloy sets a `job` label for each source and parses event timestamps without labeling client IPs or URLs. The seed pins 1.20.0, validates `/etc/alloy/config.alloy`, stops the legacy Promtail service, and imports its saved offsets once. Persistent Alloy component state prevents replay after restart. See [collector migration](caching.md#loki--alloy-boot-order-traps).
+Alloy sets a `job` label for each source and parses event timestamps without labeling client IPs or URLs. The seed pins 1.20.1, validates `/etc/alloy/config.alloy`, stops the legacy Promtail service, and imports its saved offsets once. Persistent Alloy component state prevents replay after restart. See [collector migration](caching.md#loki--alloy-boot-order-traps).
 
 **Keep zot sync errors.** The JSON stage can encounter sync-extension records without an HTTP `path`; those records explain upstream retry and failure delays even when the eventual manifest request logs a successful response. The template supplies `NO_HTTP_PATH` for missing paths, and the drop stage removes only `/metrics` self-scrapes. The sentinel is retained, not dropped, so slow successful requests keep their underlying failure evidence.
 
@@ -1650,7 +1678,7 @@ Alloy sets a `job` label for each source and parses event timestamps without lab
 
 Alloy drop-in: SupplementaryGroups grants read on the upstream access logs:
 - proxy:  /var/log/squid/yuruna_access.log (proxy:proxy 640)
-- zot:    /var/log/zot/zot.log             (zot:zot     640)
+- zot:    /var/log/zot/zot.log             (zot:zot     600; read comes from the ACL)
 The service runs as the package's `alloy` user; retain both supplementary groups and the Zot file/default ACLs.
 
 <a id="429f3d06-004a"></a>
@@ -1675,7 +1703,7 @@ Times the cache's *manifest* path rather than its liveness, reads the shared Doc
 
 Served by apache, not by zot, so the numbers survive exactly the failure they describe: a zot whose sync path is wedged still answers `/v2/` and `/metrics` in milliseconds, so a probe served BY zot would report health throughout.
 
-**Why the canary is addressed by tag.** A tag is mutable, so serving it re-runs the on-demand sync against the upstream -- the leg that stalls. A digest URL is immutable, answered from local storage, and stays fast right through an outage -- useless as a canary. The repo:tag pair is one the workloads really pull, so the number means what a reader assumes.
+**Why the canary is addressed by tag.** A tag is mutable, so serving it re-runs the on-demand sync against the upstream -- the leg that stalls. A digest URL is immutable, answered from local storage, and stays fast right through an outage -- useless as a canary. The repo:tag pair is one the workloads pull, so the number means what a reader assumes.
 
 **Why `dotnet/sdk` specifically.** A tag probe is indistinguishable from a pull to the upstream it resolves against, so the choice of repo decides what the probe costs. `dotnet/sdk` is claimed by the scoped `mcr.microsoft.com` entry in the sync list, and that upstream meters nothing -- so the probe runs at the cadence the stall it watches deserves, rather than at the cadence a metered quota could afford. A repo that fell through to the Docker Hub catch-all would put the health probe on the one metered budget in the lab, making it a contributor to the exhaustion it is meant to report.
 
@@ -1851,7 +1879,7 @@ Runs zot as an unprivileged service user with ProtectSystem=strict + ReadWritePa
 
 networkStorage pool (ypool-nas) service replication: config + SMB credential + the timer-driven rsync of observability data to the NAS. All values are baked by New-VM.ps1 from the host's networkStorage pool config + vault (empty / REPLICATE=false when off).
 
-The replication job copies Loki, Prometheus, and Grafana observability data into `<mount>/hosts/<hostId>/services/caching-proxy-service/`, beside the host's `test-cycles/` directory. Rebuildable Squid/zot caches and Alloy's tail cursor are excluded. The job is best effort and publishes mount/copy status at `/ypool-nas-status` for diagnosis without SSH. Older `<hostId>/services/` roots are not read automatically; recovery from them is a manual operation described in [pool storage](pool-storage.md).
+The replication job copies Loki, Prometheus, and Grafana observability data into `<mount>/hosts/<hostId>/services/caching-proxy-service/`, beside the host's `test-cycles/` directory. Rebuildable Squid/zot caches and Alloy's tail cursor are excluded. The job is best-effort and publishes mount/copy status at `/ypool-nas-status` for diagnosis without SSH. Older `<hostId>/services/` roots are not read automatically; recovery from them is a manual operation described in [pool storage](pool-storage.md).
 
 `yuruna-config-fetch.sh pool` owns the mount and rotated mTLS-fetched credential. Replication triggers a best-effort refresh before checking `mountpoint -q`; `findmnt --target` can incorrectly accept the enclosing root filesystem when the NAS itself is not mounted.
 
@@ -2047,9 +2075,9 @@ Remove the apt proxy drop-in so future apt inside this VM doesn't loop through i
 
 ### Flip squid into offline mode
 
-Flip squid into offline_mode now that prewarm is done. With offline_mode on, squid serves cached objects without contacting origin -- a hit returns stored content, a miss returns 504. This enables the "fully disconnected if everything is cached" workflow: guests can apt-install against this proxy with no internet on the host.
+Flip squid into offline_mode now that prewarm is done. With offline_mode on, squid serves cached objects without contacting origin -- a hit returns stored content, a miss still goes to origin. This enables the "fully disconnected if everything is cached" workflow: guests can apt-install against this proxy with no internet on the host.
 
-Must be AFTER prewarm -- with offline_mode on, a cold-cache first request returns 504 and prewarm populates nothing. Dropped as a separate conf.d file so an operator can refresh against origin by removing that one file and running `squid -k reconfigure`.
+Flip it AFTER prewarm -- on a warm cache the flip costs nothing and saves a conditional request per object. Dropped as a separate conf.d file so an operator can refresh against origin by removing that one file and running `squid -k reconfigure`.
 
 <a id="429f3d06-006f"></a>
 
@@ -2119,7 +2147,7 @@ caching-proxy-parser-service fails closed (the binary may not be present if the 
 
 ### Enable pool-aggregator service
 
-pool-aggregator-service: read-only pool view. Soft-fail like the parser -- the binary may be absent if the build above failed; prometheus already has the pool-aggregator-service scrape job (it just reads 'down' until the daemon is up).
+pool-aggregator-service: read-only pool view. Soft-fail like the parser -- the binary may be absent if the build above failed; prometheus already has the pool-aggregator-service scrape job (it reads 'down' until the daemon is up).
 
 The unit's `ExecStart` carries `-auth-token-file /etc/yuruna/internal-auth.key -host-ttl 24h -lab-token-rotate 60s`. The token file holds the internal authentication key (see "Internal authentication key" above); the daemon falls back to `/etc/yuruna/lab-auth.token` when that path is absent. `-lab-token-rotate` drives the lab-token exchange: the aggregator mints a 6-character lab connection token (lowercase a-z0-9), rotates it on that interval, surfaces it on the dashboard's "Lab token" tile (via the `yuruna_pool_lab_token` info gauge), and serves the open endpoint `POST /api/v1/lab-token` on :9400 (body `{"labToken":"<code>"}` -> 200 with the internal authentication key; 400 malformed, 403 unknown/expired code, 429 per-IP throttle, 503 exchange disabled). A displayed code stays redeemable for about three rotations; `0` disables the tile and the exchange. Exchanges are counted in `yuruna_pool_lab_token_exchanges_total` and every attempt is audited (aggregator log + Loki, label src="lab-token"). A host enrolls with `pwsh test/lab/Set-LabToken.ps1 -LabToken <code>`.
 
@@ -2133,9 +2161,22 @@ This 24h is neither the dashboard's default time range above nor the last-seen w
 
 ### Pool intent store seeding
 
-Yuruna pool intent store: a bare git repo pooled hosts clone + pull READ-ONLY over HTTP (the yuruna-pool-intent apache conf) to learn pool membership + desiredState. The admin CLI (run on the proxy) pushes intent here. Seeded with an empty, schema-valid pools.yml on 'main' so the first clone is non-empty and deterministic. The post-update hook keeps the dumb-HTTP info current on every push. Idempotent (a re-run skips an existing repo) and soft-fail (each fallible step is `|| true`), so it can never abort the phase.
+The Yuruna pool intent store is a bare Git repository that pooled hosts clone
+and pull read-only over HTTP through the `yuruna-pool-intent` Apache
+configuration. The admin CLI pushes pool membership and `desiredState` here.
+Seed `main` with an empty `pools.yml` using `schemaVersion: 3`: an older schema
+can be cloned successfully but fails validation on the first administrative
+write. Initialization skips an existing repository, and Git setup failures
+remain best-effort so other service provisioning can continue.
 
-Create the repository only while the pool NAS is mounted. Initializing it under an unmounted mountpoint would put intent on the VM disk; a later mount would shadow that repository and strand updates made in between.
+Set `receive.updateServerInfo=true` to refresh dumb-HTTP indexes after every
+push. CIFS mount modes prevent making a `post-update` hook executable, so the
+built-in Git setting is required. Set `core.fileMode=false` because CIFS derives
+file modes from mount options. Those options also assign ownership; avoid
+`chown`, which can impose an owner-only ACL and lock out the pool-control VM
+that writes the same share.
+
+Create the repository only while the pool NAS is mounted. Initializing it under an unmounted mount point would put intent on the VM disk; a later mount would shadow that repository and strand updates made in between.
 
 <a id="429f3d06-007a"></a>
 
@@ -2260,7 +2301,7 @@ Topics for `host/vmconfig/download-agent-service.base.user-data`, reached from t
 
 PowerShell is installed for the **Windows 11 family only**. That family has no wget-able URL: Microsoft mints a short-lived signed one per request, and Fido is what asks for it -- under pwsh, because Fido is a PowerShell script.
 
-The step is best effort on purpose. With no interpreter the daemon reports the family absent and every host keeps its current path (Hyper-V and UTM run Fido themselves, KVM asks for a manual download), so nothing in this step may fail the build.
+The step is best-effort on purpose. With no interpreter the daemon reports the family absent and every host keeps its current path (Hyper-V and UTM run Fido themselves, KVM asks for a manual download), so nothing in this step may fail the build.
 
 Microsoft's prod apt repo is tried first. It publishes a suite per Ubuntu release but does not always ship a `powershell` package IN that suite, and an apt install that resolves no candidate leaves the guest with no interpreter and nothing in the log worth reading -- so the candidate is checked (`apt-cache policy`) rather than assumed. The release tarball, distro-independent and what the sibling guest bring-up scripts use, covers the releases the repo has not caught up with.
 
@@ -2282,7 +2323,7 @@ Only a verified archive is unpacked. A missing, malformed, absent-file, or misma
 
 Fido is pinned to the same tagged release and verified against the same SHA-256 the macOS and Hyper-V host scripts pin (`host/macos.utm/guest.windows.11/Get-Image.ps1` and `host/windows.hyper-v/guest.windows.11/Get-Image.ps1`). Fido runs with the daemon's privileges, so an unpinned moving ref would be an unchecked remote-code hop; a hash mismatch therefore leaves **no file behind** rather than an unverified one.
 
-Like the PowerShell step this is best effort, and the step's last line names the resulting state outright -- because "the agent never serves Windows 11" and "the agent is fine, this lab just has no Fido" look identical from a host.
+Like the PowerShell step this is best-effort, and the step's last line names the resulting state outright -- because "the agent never serves Windows 11" and "the agent is fine, this lab just has no Fido" look identical from a host.
 
 The destination must stay one of the paths the daemon searches when `--fido-script` is empty. Moving it elsewhere disables the family **silently**, since a missing Fido is a supported state rather than an error.
 
@@ -2334,7 +2375,7 @@ The destination must stay one of the paths the daemon searches when `--fido-scri
 ### Adding a new platform overlay
 
 1. Create `host/vmconfig/ubuntu.server.<platform>.overlay.yml` with the
-   four anchor headers (empty payloads for anchors the platform doesn't
+   six anchor headers (empty payloads for anchors the platform doesn't
    use).
 2. Add a `New-VM.ps1` under `host/<platform>/guest.ubuntu.server.{24,26}/`
    that calls `New-CloudInitUserData` with the new overlay path.
@@ -2540,6 +2581,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

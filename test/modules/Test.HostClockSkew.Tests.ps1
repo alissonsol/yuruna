@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42c5e353-0701-44d3-9ece-c8318df10ad6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,27 +59,16 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 
 Import-Module $sharedFile -Force -DisableNameChecking
 
-# Parse once per file; the tests read function bodies out of the AST so
-# comments and strings can never be mistaken for calls.
-$script:AstCache = @{}
+# The tests read function bodies out of the AST so comments and strings can
+# never be mistaken for calls. The shared loader parses each file once.
 function Get-FileAst {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-        Justification = 'Path IS used -- as the cache key and the parse target.')]
     param([string]$Path)
-    if (-not $script:AstCache.ContainsKey($Path)) {
-        $script:AstCache[$Path] = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$null)
-    }
-    return $script:AstCache[$Path]
+    return Get-YurunaTestFileAst -Path $Path
 }
 
 function Get-FunctionAst {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-        Justification = 'Name IS used -- inside the FindAll predicate scriptblock, which the analyzer does not follow.')]
     param([string]$Path, [string]$Name)
-    return (Get-FileAst -Path $Path).FindAll({
-        param($n)
-        $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
-    }, $true) | Select-Object -First 1
+    return Get-YurunaTestFunctionAst -Path $Path -Name $Name
 }
 
 # One-shot NTP responder on loopback: answers a single request with a
@@ -129,16 +118,8 @@ function Get-LoopbackUdpListener {
 
 }
 
-# The three host types this file holds to the same clock contract. The list is
-# built at FILE scope because every Describe body is executed while the file is
-# being discovered, which happens before any BeforeAll runs: a list assigned in
-# BeforeAll is still $null when the foreach that emits the per-host Its reads it,
-# so the loop emits no tests at all and its Describe passes without asserting
-# anything. Each case then reaches its It through -TestCases for the same
-# reason -- discovery's loop variable is gone by the time the body executes, so a
-# $case read inside the body would arrive as $null and assert against an empty
-# path. Nothing here may have a side effect: discovery builds and discards this
-# scope before the first It runs.
+# --- REGION: Discovery cases
+# See https://yuruna.link/42e220c4-0014
 $discoveryHere = Split-Path -Parent $PSCommandPath
 
 $discoveryRepoRoot = Split-Path -Parent (Split-Path -Parent $discoveryHere)

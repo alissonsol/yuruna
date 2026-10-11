@@ -326,6 +326,7 @@ Todos os comandos abaixo ficam em `test/pool/`.
 | Comando | Ação | Parâmetros principais |
 |---|---|---|
 | `New-Pool.ps1` | criar um grupo | `-PoolId` (obrigatório), `-DisplayName`, `-DesiredState` |
+| `Remove-Pool.ps1` | excluir um grupo (recusa um que ainda tenha membros, a menos que `-Force`) | `-PoolId` (obrigatório), `-Force` |
 | `Add-HostToPool.ps1` | adicionar um hospedeiro | `-PoolId` (obrigatório), `-HostId` (obrigatório) |
 | `Remove-HostFromPool.ps1` | remover um hospedeiro dos membros de UM grupo | `-PoolId` (obrigatório), `-HostId` (obrigatório) |
 | `Move-PoolHostIdentity.ps1` | substituir o ID de um hospedeiro com identidade renovada em um único commit no armazenamento de intenção | `-OldHostId` (obrigatório), `-NewHostId` (obrigatório) |
@@ -878,15 +879,19 @@ VM dedicada. `host/vmconfig/pool-control-service.base.user-data` prepara um conv
 que compila o daemon, instala pwsh + `powershell-yaml`, monta o NAS do grupo por CIFS
 para o diretório de estado e o executa com systemd (`guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh`).
 O `guest.pool-control-service/New-VM.ps1` específico de cada hipervisor (seguindo a cadeia da VM do stash-service)
-gera a imagem inicial com `/etc/yuruna/{pool.env,host.env,pool-nas.cifs.cred}` e um
+gera a imagem inicial com `/etc/yuruna/{globalization.env,pool.env,host.env,pool-nas.cifs.cred}` e um
 nome de usuário distinto para o convidado. **O hospedeiro não precisa da cadeia de ferramentas `go`.** A
 linha Extension-hosts então aponta para a VM (IP próprio do beacon); excluir a VM
 remove a linha depois do TTL do anúncio.
 
 Depois que a VM inicia, o lançador espera que o daemon atenda em `:80`
-(até 15 min; substitua com `YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS=<seconds>`) antes
-de informar sucesso &mdash; um IP sozinho não significa que o serviço está "ativo": o convidado ainda precisa compilar
-o daemon. Se `:80` nunca ficar disponível, ele obtém o log de compilação dentro do convidado,
+(45 min por padrão, estendendo-se a no máximo o dobro enquanto o SSH confirma
+que o cloud-init está em execução ou ainda não iniciou; substitua com
+`YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS=<seconds>`) antes de
+informar que o daemon está pronto &mdash; um IP sozinho não significa que o
+serviço está "ativo": o convidado ainda precisa compilá-lo. Uma compilação
+confirmada como ainda em andamento encerra a espera com o resultado não fatal
+`StillBuilding` e um marcador inativo. Se a ativação falhar, ele obtém o log de compilação,
 `cloud-init status` e o journal de `pool-control-service.service` pela chave SSH
 do ambiente de testes e os exibe, para que uma compilação malsucedida mostre o motivo, em vez de uma URL inacessível.
 (Esse log só pode ser lido por root; a conta `yuruna` do ambiente de testes tem `sudo` NOPASSWD, portanto
@@ -902,7 +907,7 @@ pwsh test/service/Start-PoolControlServiceVM.ps1 -HostSideProof [-Port 8090] [-A
 
 `-HostSideProof` compila e executa o daemon diretamente neste hospedeiro, em vez de em uma VM.
 Precisa de `go` + `pwsh` no PATH e do checkout do framework (as CLIs ficam em
-`<repo>/test/*.ps1`).
+`<repo>/test/pool/*.ps1`).
 
 <a id="4207d71a-0014"></a>
 
@@ -912,7 +917,7 @@ Precisa de `go` + `pwsh` no PATH e do checkout do framework (as CLIs ficam em
 
 Um hospedeiro que cadastrou seu token do laboratório e não está em **nenhum grupo** pode entrar em um
 grupo sem que você o adicione. Esse recurso **vem desabilitado**: a varredura só ocorre quando um
-bloco `autoEnrollment` no `pools.yml` do armazenamento de intenção indica um grupo de destino
+bloco `autoEnrollment` no `pools.yml` do armazenamento de intenção define `enabled: true` e indica um grupo de destino
 *e* o daemon é executado com `--auto-enroll` (`--auto-enroll-interval`, padrão 60s,
 define a frequência).
 
@@ -983,7 +988,7 @@ Um comprimento de prefixo maior cobre menos endereços (`/32` é uma máquina); 
 cobre mais. É válido digitar um endereço dentro da rede &mdash;
 `192.168.7.34/24` significa a mesma sub-rede. O campo informa quantos endereços sua
 entrada cobre antes de você pressionar Scan e recusa qualquer valor acima de **4096 endereços**
-(mais restrito que `/20`): um `/8` digitado por engano está a uma tecla de `/24` e colocaria
+(mais amplo que `/20`): um `/8` digitado por engano está a uma tecla de `/24` e colocaria
 dezesseis milhões de tentativas de conexão na rede do laboratório.
 
 **A varredura.** A mesma varredura ocorre automaticamente a cada **15 minutos**
@@ -995,8 +1000,8 @@ ignorada, em vez de enfileirada.
 
 **O que a página mostra.** Os endereços consultados à medida que são processados, o progresso da
 execução e, depois, apenas os hospedeiros que ela **adicionou** &mdash; um hospedeiro Yuruna que
-já era monitorado é contado, não listado novamente. Abaixo fica tudo
-que a descoberta já encontrou, com os horários do primeiro e do último contato e um botão **Forget**
+já era monitorado é contado, não listado novamente. Abaixo ficam todos os hospedeiros
+que a descoberta viu nos últimos 14 dias (`--scan-ttl`), com os horários do primeiro e do último contato e um botão **Forget**
 para uma máquina desativada. Tanto iniciar uma varredura quanto esquecer um
 hospedeiro exigem o token do laboratório; ler a página não exige.
 
@@ -1116,11 +1121,15 @@ Como no pool-control service, o daemon é compilado **dentro** do convidado (sem
 `go` no hospedeiro), a partir de `host/vmconfig/download-agent-service.base.user-data` +
 `guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh`, que
 monta o compartilhamento do grupo por CIFS em `/mnt/yuruna-pool`. O lançador espera que o
-daemon atenda em `:80` (até 15 min; substitua com
+daemon atenda em `:80` (45 min por padrão, estendendo-se a no máximo o dobro
+enquanto o SSH confirma que o cloud-init está em execução ou ainda não iniciou; substitua com
 `YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS=<seconds>`) e obtém o
-log de compilação dentro do convidado e o journal quando isso não ocorre. `install/setup.ps1` executa o
-par de parada/inicialização por você em ambos os modos sempre que o armazenamento está configurado e nunca
-faz a configuração falhar por causa disso. Chaves de configuração:
+log de compilação dentro do convidado e o journal quando a ativação falha. Uma
+compilação confirmada como ainda em andamento encerra a espera com o resultado
+não fatal `StillBuilding` e um marcador inativo. `install/setup.ps1` executa o
+par de parada/inicialização por você em um laboratório ou em um hospedeiro independente
+que define `downloadAgentService.enabled: true`, sempre que o armazenamento está configurado
+(`enabled: false` omite essa etapa em ambos os modos), e nunca faz a configuração falhar por causa disso. Chaves de configuração:
 [test-config.md](../test-config.md#downloadagentservice--the-pool-wide-image-downloader).
 
 <a id="4207d71a-001b"></a>
@@ -1183,6 +1192,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Voltar para [Yuruna](../../README.md)

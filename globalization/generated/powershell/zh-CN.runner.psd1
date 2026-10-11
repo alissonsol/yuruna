@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42dba0ee-ceaf-a7ec-5c0b-f7f0ef9d34c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5665,6 +5665,38 @@
         }
         '中发生失败（继续运行）'
     )
+    'runner.operator_33a0b7c1e1b2be21' = @(
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '个虚拟处理器：客户机运行时间占'
+        @{
+            'arg' = 'guestPercent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '%，虚拟机监控程序运行时间占'
+        @{
+            'arg' = 'hypervisorPercent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '%，每秒'
+        @{
+            'arg' = 'interceptsPerSecond'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '次拦截，已持续'
+        @{
+            'arg' = 'seconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's'
+    )
     'runner.operator_33bdd943ad4ebb3e' = '本地分支领先于远程分支。继续使用本地更改。'
     'runner.operator_33be063a6dbeb4de' = '此操作不会删除任何数据。周期归档、存储服务产物、实验室保管库、'
     'runner.operator_33ed3e2cc8c24f86' = @(
@@ -10447,6 +10479,33 @@
         }
         '个MAC地址）。'
     )
+    'runner.operator_6d4042dbe6943c27' = @(
+        "等待文本`“"
+        @{
+            'arg' = 'patternLabel'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”在约"
+        @{
+            'arg' = 'waited'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's后结束（上限'
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's）：虚拟机监控程序报告客户机处于活锁状态（'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）'
+    )
     'runner.operator_6d53b6631053aee8' = @(
         "级联：链成员`“"
         @{
@@ -11763,6 +11822,14 @@
             'trust' = 'external'
         }
         '）。Disable-TestAutomation只能撤销能够确认由其添加的内容。'
+    )
+    'runner.operator_7e0c2dd4aa0c5981' = @(
+        '      虚拟机监控程序报告客户机处于活锁状态：'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.operator_7e50599bce26a067' = @(
         '无法读取先前状态：'
@@ -13778,7 +13845,7 @@
         '的链接，使utmctl可通过PATH找到'
     )
     'runner.operator_966231fe730b28ff' = @(
-        "Send-TextKvm：virsh send-key在字符`“"
+        "Send-TextKvm：send-key在字符`“"
         @{
             'arg' = 'ch'
             'type' = 'detail'
@@ -18771,6 +18838,27 @@
         }
         ' s）后，操作员已解除实验室暂挂；允许步骤运行。'
     )
+    'runner.operator_d8507ccd68520716' = @(
+        '  已保存最早的控制台帧：./status/log/'
+        @{
+            'arg' = 'cycleBase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/'
+        @{
+            'arg' = 'destSeqName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/earliest/（此客户机开始时的'
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '帧）'
+    )
     'runner.operator_d8523930547c291e' = @(
         'Save-ScreenshotWithClickMarker失败：'
         @{
@@ -20004,6 +20092,39 @@
     'runner.operator_e5f6d0ead5f8eede' = '  已跳过时钟同步：无sudo凭据。'
     'runner.operator_e61bca5dfa1a4c8b' = ' 请在开始测试前自行运行此命令，仅需运行一次：'
     'runner.operator_e63b1a967d2939be' = '  使用以下命令修复：pwsh test/lab/Enable-TestAutomation.ps1  （提升权限 / 使用sudo）'
+    'runner.operator_e653bdc981ca5464' = @(
+        '  '
+        @{
+            'arg' = 'guestMac'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '的DHCP捕获摘要：客户机发送了'
+        @{
+            'arg' = 'sent'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '个数据包，收到'
+        @{
+            'arg' = 'replies'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '个单播回复，另有'
+        @{
+            'arg' = 'others'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '个数据包来自'
+        @{
+            'arg' = 'clients'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '个其他客户端'
+    )
     'runner.operator_e65ab9d1c0be44ef' = @(
         '      NTLM环回豁免：'
         @{

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4264d5c7-e082-4c67-a5f9-915f2f84141e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -182,16 +182,8 @@ Describe 'Start-CachingProxyServiceVM.ps1 gates child scripts on a reset $LASTEX
     }
 }
 
-# The per-platform case list is built at FILE SCOPE, and reaches the It bodies as
-# -TestCases, because file scope is the only part of this file that Pester's
-# discovery pass executes -- and discovery is where the Its below are collected.
-# A path derived inside BeforeAll is still $null here, so Split-Path would fail
-# the whole container and no Describe declared past this point would be collected
-# at all. Feeding the list to a `foreach` inside an It is just as wrong in the
-# other direction: file-scope values are gone by the time the It runs, and
-# `foreach` over $null iterates zero times, so the test asserts nothing and
-# reports green. One It per case cannot degrade that way -- a lost case is a
-# missing test, which the count guard below turns into a hard failure.
+# --- REGION: Discovery cases
+# See https://yuruna.link/42e220c4-0014
 $discoveryRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 $newVmScriptCases = @(
     @{ Platform = 'windows.hyper-v'; Path = (Join-Path $discoveryRepoRoot 'host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1') }

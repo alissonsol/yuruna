@@ -80,6 +80,8 @@ Campos de nível superior, em ordem:
 | `reason` | enum | `step` (uma etapa falhou), `crash` (o mecanismo travou durante uma etapa), `infra` (uma etapa do hospedeiro falhou fora do mecanismo de sequências) ou `watchdog_kill` (o watchdog externo enviou SIGKILL a um processo interno travado; consulte [Registros sintéticos](#synthetic--infra-records)). |
 | `classificationSource` | enum | Como `failureClass` foi derivada: `verb-registry`, `pattern-match` (um padrão OCR de bloqueio definitivo reclassificou a etapa), `unresolved-verb` (`unknown` apenas porque o verbo não tem registro -- registre-o, não escale), `crash`, `infra-stage` (uma etapa de infraestrutura do executor) ou `synthetic` (um registro sintetizado pelo watchdog). Permite que um consumidor diferencie uma causa realmente nova da falta de metadados. |
 | `sequenceName` | string | Nome base da sequência que falhou (sem `.yml`) -- identidade de primeira classe para encaminhamento e reprodução (o caminho continua em `context.sequencePath`). |
+| `stepInvocationId` / `sequenceInvocationId` | string | Identidades da invocação externa que falhou, compartilhadas com os eventos dessa etapa. Uma tentativa que falhou mantém os IDs de seu wrapper. Vazias quando uma falha do mecanismo ou da infraestrutura ocorreu antes de existir uma invocação. |
+| `originatingStepInvocationId` / `originatingSequenceInvocationId` | string | Identidades da etapa interna que falhou quando uma nova tentativa propaga uma falha interna, vinculando suas evidências de fetch e seu parecer de progresso. Nos demais casos, os IDs da própria invocação que falhou, inclusive quando um handler externo lança um erro distinto. |
 | `repro` | object | Reprodução pronta para executar; consulte [repro](#repro). |
 
 <a id="42820e91-0003"></a>
@@ -120,7 +122,7 @@ Eles aparecem em registros **tanto** de etapa quanto de falha do mecanismo (uma 
 | `cycleFolder` | Identidade estável do ciclo (apenas falhas de etapa) -- o mesmo valor registrado pelo fluxo NDJSON, para que este arquivo possa ser associado ao fluxo de eventos e resolvido para a pasta no disco. |
 | `failureScreenshotPath` / `failureOcrPath` | Nomes relativos ao diretório do ciclo das evidências de tela desta falha (apenas falhas de etapa). **Ausentes** a menos que o artefato exista e tenha sido gravado por último depois que a etapa que falhou começou: ambos são arquivos persistentes por VM que apenas os verbos de leitura de tela regravam, portanto uma falha em um verbo que não lê texto apontaria, de outra forma, para a tela de uma etapa anterior. Um leitor segue esses ponteiros; nada os audita, portanto um nome presente é uma afirmação que o registro precisa conseguir sustentar. |
 | `staleEvidence` | Cada artefato removido dos dois ponteiros acima, identificado com quantos segundos antes da etapa que falhou ele foi gravado por último; `[]` quando não houve nenhum. O arquivo continua na pasta do ciclo com esse nome, portanto evidências de uma etapa anterior continuam localizáveis enquanto os ponteiros permanecem confiáveis -- e um ponteiro ausente nunca é interpretado como "não existe nenhuma evidência de tela", que é um fato diferente com uma próxima ação diferente. |
-| `causeDetail` | Apenas registros de etapa: `{ ocrTail, patternsSought }` -- o texto OCR mais recente na tela (cauda limitada, <=1200 caracteres) e os padrões procurados pela espera no ponto de falha. Permite que um consumidor veja a causa em tempo de execução por trás de uma `failureClass` estática do verbo. Espelhado sem aninhamento no evento como `causeOcrTail` / `causePatternsSought`. Também contém `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds` e `pauseReleasedAtUtc` (abaixo). |
+| `causeDetail` | Apenas registros de etapa: `{ ocrTail, patternsSought }` -- o texto OCR mais recente na tela (cauda limitada, <=1200 caracteres) e os padrões procurados pela espera no ponto de falha. Permite que um consumidor veja a causa em tempo de execução por trás de uma `failureClass` estática do verbo. Espelhado sem aninhamento no evento como `causeOcrTail` / `causePatternsSought`. `patternsSought` é registrado em toda espera que expira, inclusive quando o console nunca mostrou texto legível. Também contém `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds` e `pauseReleasedAtUtc` (abaixo). |
 | `crash` | Apenas registros de falha do mecanismo: `{ error, origin, stack }`. |
 | `hostMemory` | Apenas registros de infraestrutura, e somente quando o driver do hospedeiro conseguiu medir a máquina: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A memória de inicialização de uma VM é cobrada do limite de confirmação do sistema -- memória física mais o tamanho atual do arquivo de paginação --, não da memória física livre; por isso, uma recusa de provisionamento é explicada pelos valores de confirmação enquanto a memória física livre pode estar em seu máximo nesse mesmo instante. **Ausente** quando nada foi medido, nunca preenchido com zeros: um bloco zerado indica uma máquina que foi medida e estava vazia, que é um fato diferente com uma próxima ação diferente. Espelhado sem aninhamento no evento como `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
 
@@ -136,12 +138,37 @@ Eles aparecem em registros **tanto** de etapa quanto de falha do mecanismo (uma 
 | `closestOnScreen` | Para cada mecanismo OCR e cada padrão procurado pela espera, a linha do quadro final que mais se aproximou e o grau de proximidade, como a porcentagem de caracteres normalizados do padrão que coincidiram (uma correspondência exige 85%, medidos na mesma forma canônica usada pelo comparador, portanto a confusão entre caracteres do OCR não reduz a pontuação). Uma porcentagem alta significa que o texto foi impresso e a leitura ficou aquém do necessário -- examine a captura ou a tolerância de correspondência; uma baixa significa que a tela mostrava outra coisa, portanto o convidado nunca imprimiu o texto. Três estados, seguindo a mesma disciplina de `consoleFlood`: as linhas, quando a varredura foi executada e encontrou algumas; `[]` quando foi executada e nada no quadro se parecia com o padrão; `null` quando nunca foi executada -- uma espera que termina em um padrão de falha retorna assim que o padrão corresponde, e uma falha fora de uma espera não tem quadro próprio. Uma lista vazia é uma leitura da tela; `null` é a ausência de uma leitura, e somente a primeira sustenta uma conclusão. |
 | `consoleFlood` | Definido quando o console se encheu de uma linha repetida enquanto a espera procurava seu padrão; contém a linha dominante e sua proporção da tela. `''` quando a tela não era repetitiva. `null` quando a espera restringiu a correspondência à cauda do console (`freshMatch`): esse caminho lê os mesmos quadros, mas não verifica inundação, portanto o campo diz "não examinado", em vez de "não repetitivo". |
 | `consoleStaticSeconds` | O maior período, em segundos, em que o CONTEÚDO do console não mudou durante a espera. A repetição é contada dentro de um único quadro; assim, uma parede de texto que rolou antes e depois parou é interpretada como inundação -- é isso que distingue os dois casos. Um valor alto indica um convidado esperando, não trabalhando, e muitas vezes é possível desbloquear um convidado que espera respondendo a ele. `0` quando a tela continuou mudando e `null` quando a espera restringiu a correspondência à cauda do console (`freshMatch`) e nunca fez a medição -- `0` é uma leitura, `null` é a ausência de uma leitura, e somente a primeira sustenta uma conclusão sobre o convidado. Em um tempo limite de `freshMatch`, as evidências de tela são `freshWindowNearMiss` e `ocrTail`. |
+| `blankScreenSeconds` | Segundos em que o console estava em branco -- nenhum mecanismo de OCR encontrou texto -- quando a espera terminou; `0` quando o último quadro tinha texto. Um console em branco deixa `ocrTail` vazio e `consoleStaticSeconds` sem medição, pois ambos leem texto; por isso, este é o campo que diz que a tela ficou preta, e não que nada foi comparado. Espelhado no evento como `causeBlankScreenSeconds`. |
+| `guestLivelock` | A visão do hipervisor sobre o convidado quando a espera terminou, a partir da gravação do amostrador do host: `{ verdict, livelockedSeconds, minimumSeconds, virtualProcessors, guestRunPercent, hypervisorRunPercent, interceptsPerSecond, dominantIntercept, interceptBreakdown, sampleCount, newestSampleUtc, reason }`. `verdict` é `livelocked` quando todo processador virtual ficou pelo menos 80% ocupado, com o hipervisor detendo pelo menos 88% desse tempo, por `minimumSeconds` (300); `not-livelocked` caso contrário; e `unavailable` quando a gravação não tinha leituras recentes da VM. `interceptBreakdown` faz a média das taxas de interceptação por causa ao longo do período, da maior para a menor, e `dominantIntercept` nomeia a primeira. `null` quando o host não mantém gravação (todo host que não é Windows, ou com amostragem desativada): não medido, o que não é a mesma leitura que medido e encontrado em execução. Espelhado no evento como `causeGuestLivelocked` / `causeGuestLivelockedSeconds`. |
 | `installerStage` / `installerStageUnchangedSeconds` | O último marcador `start:` ou `finish:` de uma etapa substantiva de Install ou Mirror do Subiquity visível durante esta espera, e os segundos desde a mudança desse marcador. O tráfego de atualizações de rede é excluído. Registra o último marcador observado, não uma prova de que seu comando ainda está em execução. `''` / `0` quando nenhuma etapa foi vista. Espelhado no evento como `causeInstallerStage` / `causeInstallerStageUnchangedSeconds`. |
+| `progressAdvisory` | Observações independentes: `outputStaticSeconds`, `heartbeatAgeSeconds`, capacidade de resposta SSH e um veredito consultivo. Pelo menos dois sinais sustentados produzem `progress-suspect`; medições ausentes continuam como null/unavailable. A saída também é observada em esperas restritas à cauda, sem habilitar seus sinais de recuperação desativados. `automaticRecoveryAllowed` é sempre false. |
 | `pauseBeforeStepSeconds` | Segundos de uma suspensão solicitada pelo operador, quando uma delas foi liberada antes da etapa que falhou. A barreira de pausa suspende o executor, não o convidado, portanto um prompt que o convidado imprimiu uma vez durante a suspensão já saiu da tela que a etapa retomada precisa ler -- o que parece idêntico a um prompt que nunca foi impresso. `0` quando não houve suspensão. |
 | `pauseReleasedAtUtc` | Quando essa suspensão terminou, para que possa ser comparada ao início da própria etapa. `''` quando não houve suspensão. |
 
 A gravação é atômica (arquivo temporário + renomeação por `Write-YurunaStateFile`), para que um
 remediador ou o serviço de status nunca observe um registro truncado.
+
+`guestLivelock.processorWindow` preserva os contadores individuais do processador
+e sua disponibilidade mesmo quando o predicado de livelock de todos os
+processadores não é atendido. O evento os inclui em `guestProcessorWindow`.
+As médias de cada contador usam suas próprias contagens de amostras válidas;
+leituras ausentes ou inválidas não se tornam zeros. Os resíduos exigem medições
+pareadas de todos os contadores nomeados com suporte e continuam sendo
+estimativas, pois as categorias podem se sobrepor.
+
+A idade do heartbeat descreve a atividade do gravador e da amostragem do
+convidado; um heartbeat recente não comprova que a aplicação progrediu.
+
+Os eventos de fim de etapa de fetch incluem `executionEvidence` com resultado
+da captura, motivo, caminho do artefato e status preservado do gravador. A limpeza
+após uma falha emite um evento `failure_diagnostic` com os resultados independentes
+dos snapshots do host e do convidado, incluindo exceções na captura. Quando as
+tentativas se esgotam, o manifesto e o evento de diagnóstico usam os IDs da etapa
+interna de origem para se vincular ao gravador de fetch; o evento de falha mantém
+os IDs do wrapper externo e publica ambos os pares. Uma falha distinta do
+mecanismo externo usa seus próprios IDs. Wrappers de tentativas com falha
+preservam o parecer de progresso da etapa interna, sem substituir suas
+observações de SSH e heartbeat por medições indisponíveis.
 
 <a id="42820e91-0007"></a>
 
@@ -193,7 +220,7 @@ durável o que tem autoridade:
   despachante para recuperá-la.
 
 Versionado por esquema (`schemaVersion` = `1`), gravado por meio da primitiva
-atômica de arquivo de estado sem BOM. Campos: `timestamp`, `failureClass`,
+atômica de arquivo de estado sem BOM. Campos: `timestamp`, `runId` (a execução que o produziu), `failureClass`,
 `severity`, `recommendation` (do vocabulário canônico de recuperação),
 `rationale`, `actions` (string[]), `handledBy`, `autoApply`, `source`, além de
 `outerFailureClass` quando o despachante encaminhou além de um envoltório
@@ -429,7 +456,7 @@ O uso de checkpoints para retomada a quente (`Test.WarmResume.psm1`) transforma 
 em uma etapa tardia em nova tentativa no mesmo local, em vez de refazer toda a instalação. Quando uma sequência de
 carga de trabalho falha com uma classe **transitória** (`network_timeout`, `wait_timeout`,
 `instrumentation_failure`, `host_io_blocked`, `ip_not_discovered`,
-`payload_unavailable` -- `Get-WarmResumeEligibleClass`), o executor executa novamente a
+`payload_unavailable`, `input_lost` -- `Get-WarmResumeEligibleClass`), o executor executa novamente a
 sequência que *falhou* a partir de `repro.resumeFromStep`
 na **mesma VM ainda ativa** (a desmontagem ocorre apenas no resultado final),
 até `testCycle.warmResume.maxAttempts` (padrão 2), e depois continua as
@@ -514,6 +541,9 @@ possa ser consultada em `cycle.events.ndjson`, em vez de ficar apenas escondida 
   reinicialização nativa ARM64 planejada, com `reason`, `attempt`, `maxAttempts`,
   `permittedMaxAttempts` e `configuredMaxAttempts`. Seu registro terminal contém
   `retrySuppressionReason`, para que a causa continue visível sem associar eventos.
+  Cada `retry_attempt` da sequência também contém `guestLivelocked` e
+  `guestLivelockedSeconds`, o veredito de livelock do host quando a tentativa falhou,
+  para que as reinicializações justificadas por esse veredito possam ser contadas.
 - **A biblioteca bash do convidado** (`automation/yuruna-retry.sh`) não consegue alcançar o fluxo do
   hospedeiro, portanto imprime um marcador `YURUNA_RETRY {stack,label,attempt,maxAttempts,rc,
   permanent}` em stderr; nos verbos SSH (`sshExec` /
@@ -658,12 +688,20 @@ falhou" --, portanto a razão de cada uma está registrada aqui.
   script para depurar nem estado do convidado do qual desconfiar, o que torna correta a
   reexecução da etapa. A causa habitual é um hospedeiro cujo endereço mudou por DHCP enquanto o
   convidado ainda mantinha o endereço antigo; o convidado consulta novamente o diretório do grupo e
-  normalmente se recupera, portanto essa classe pertence às listas permitidas de repetição rápida transitória. Ela
+  normalmente se recupera, portanto essa classe pertence à lista permitida de retomada a quente, mas não à de correção automática. Ela
   permanece UMA classe, em vez de se dividir conforme o trecho que falhou: a chegada do payload
   na próxima tentativa depende de o hospedeiro voltar a ficar acessível, não da
   alternativa do GitHub, portanto um 404 terminal dessa alternativa não torna a
   falha permanente. Quando a alternativa É o caminho sem saída -- um repositório privado
   sem token --, o texto de recuperação a identifica.
+- **`input_lost`** -- um fetch por GUI digitou o comando no shell do convidado, a espera
+  chegou ao tempo limite com a subshell preparada ainda aberta na tela, e o convidado confirmou
+  que a guarda nunca foi executada: não existe contexto preparado para o comando e nenhum
+  processo de busca está em execução. Distinta de `wait_timeout`, em que um script estava em
+  execução e travou, e de `script_error`, em que um script terminou com código diferente de
+  zero: aqui nada foi executado, portanto não há script para depurar. Como nada foi executado, repetir a etapa não
+  repete trabalho algum, e por isso a classe pertence às listas de reinício a quente e de
+  remediação automática, e sua recuperação começa por `retry_with_backoff`.
 - **`pool_storage_full`** -- o compartilhamento do grupo não tem espaço para os resultados deste ciclo.
   Assim como `elevation_required`, repetir é comprovadamente inútil: o executor não
   tem nada próprio para excluir, e nada no próximo ciclo deixa o compartilhamento
@@ -724,7 +762,7 @@ falhou" --, portanto a razão de cada uma está registrada aqui.
 | `Register-RecoveryHandler` | `-FailureClass -Handler` | Módulos externos acrescentam ou substituem um manipulador |
 | `Register-BuiltinRecoveryHandler` | (sem argumentos) | Instala o conjunto padrão de manipuladores ao carregar o módulo |
 | `Get-RecoveryHandler` | `-FailureClass` | Despachante; introspecção |
-| `Get-RegisteredFailureClass` | (sem argumentos) | Matriz de capacidades na inicialização; introspecção |
+| `Get-RegisteredFailureClass` | (sem argumentos) | Suítes que verificam a cobertura dos manipuladores; introspecção |
 | `Get-RecoveryRecommendationName` | (sem argumentos) | Vocabulário canônico de recomendações (compartilhado com SuggestedRecoveries de cada verbo) |
 | `Invoke-Remediation` | `-FailureRecord [-LastFailurePath]` | Operador / laço autônomo; retorna a hashtable de recomendação |
 | `Clear-RecoveryHandler` | (sem argumentos) | Apenas testes |
@@ -832,13 +870,16 @@ validador que controla o fluxo de eventos do ciclo.
    campos de acionabilidade `sequenceName`, `sequencePath`,
    `matchedFailurePattern`, `innerFailureClass`, `outerFailureClass`
    e `reproCommand` -- cada um é uma string vazia quando ausente, para que um manipulador
-   teste strings sem uma proteção contra nulos), retornando `@{ Recommendation =
+   teste strings sem uma proteção contra nulos -- e as leituras de `causeDetail`
+   `consoleStaticSeconds`, `consoleStaticMeasured` e
+   `pauseBeforeStepSeconds`, cujos valores são `0`, `true` e `0` quando ausentes),
+   retornando `@{ Recommendation =
    '<enum>'; Rationale = '<short>' }` (`Actions`, `HandledBy` e
    `AutoApply` opcionais). O despachante anexa a severidade do registro de
    falha, não do manipulador.
-4. A matriz de capacidades de inicialização incorpora o registro
-   automaticamente; o despachante não consegue alcançar uma classe sem encaminhamento,
-   pois o validador ao carregar o módulo lança uma exceção se faltar um manipulador para qualquer valor da enumeração.
+4. `Test.Remediation.Tests.ps1` falha se faltar um manipulador para qualquer
+   valor da enumeração; em tempo de execução, o despachante encaminha uma classe
+   sem manipulador para o manipulador `unknown`.
 
 <a id="42820e91-001f"></a>
 
@@ -994,7 +1035,7 @@ temporários e funções substitutas.
 |---|---|---|---|---|---|
 | `clear_stale_git_lock` | uma falha `bootstrap_sync` na etapa `FrameworkPull` ou `ProjectClone` cujo motivo nomeia um arquivo `.lock` | um arquivo `*.lock` diretamente no `.git` de um repositório (ou em `.git/refs`, com três níveis de profundidade) tem mais de 10 minutos, e nenhum processo `git` está em execução na máquina (uma lista de processos que não pode ser lida conta como em execução, assim como um daemon residente de monitoramento do sistema de arquivos) | move cada bloqueio para `runtime/recovery.quarantine/<attemptId>/<framework or project>/<path inside the repository>` (nunca exclui; nada limpa a pasta depois) | `git --no-optional-locks status --porcelain` (somente leitura, portanto não pode recriar o bloqueio) termina com 0 em até 30 segundos em cada repositório afetado | move os bloqueios de volta, e nunca sobre um bloqueio que reapareceu |
 | `reclone_project` | uma falha `bootstrap_sync` na etapa `ProjectClone` | uma URL de projeto é resolvida (uma atribuição do grupo em `project.access.json` que não seja `denied`, senão `repositories.projectUrl`), e o `project/` atual ainda não está saudável | `Update-ProjectClone`: clona ao lado, verifica, troca; o checkout anterior é mantido quando falha | o checkout passa na verificação de saúde | restaura uma troca interrompida |
-| `end_failure_pause_early` | uma classe de falha que o despachante mapeia para uma repetição claramente segura (`wait_timeout`, `network_timeout`, `ip_not_discovered`, `instrumentation_failure`, `host_io_blocked`) | a classe está nessa lista | nenhuma: o efeito é que a pausa termina | sempre | nenhuma |
+| `end_failure_pause_early` | uma classe de falha que o despachante mapeia para uma repetição claramente segura (`wait_timeout`, `network_timeout`, `ip_not_discovered`, `input_lost`, `instrumentation_failure`, `host_io_blocked`) | a classe está nessa lista | nenhuma: o efeito é que a pausa termina | sempre | nenhuma |
 
 `clear_stale_git_lock` e `reclone_project` executam antes da pausa por falha (e
 `clear_stale_git_lock` também antes da suspensão que segue uma atualização do framework que falhou);
@@ -1029,6 +1070,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Voltar para [Yuruna](../../README.md)

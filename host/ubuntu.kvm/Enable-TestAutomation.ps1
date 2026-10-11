@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,12 +54,8 @@ if (-not $IsLinux) {
 }
 
 # --- REGION: Initialize host setup
-# Shared bootstrap (Test.HostContract import + sudo prime + powershell-yaml +
-# PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
-# -SudoCacheReason keeps the sudo prompt EARLY (before the long install)
-# with a visible reason banner so the operator knows WHAT will need
-# elevation before they consent. When invoked via install/ubuntu.kvm.sh
-# (YURUNA_SUDO_PRIMED=1) Initialize-SudoCache returns silently.
+# See https://yuruna.link/42e5cdfd-000b
+# Prime sudo before module installation so a long wait cannot hide the prompt.
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
 # Test-YurunaCanPrompt: the one predicate for "can a question reach a person".
@@ -72,6 +68,7 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParamete
 )
 
 # --- REGION: Script-local helpers
+# --- REGION: Test-AptPackageInstalled
 function Test-AptPackageInstalled {
     # dpkg-query is the only authority on "is the package installed": probing for
     # a binary on PATH gives false negatives for helpers that live in /sbin, and
@@ -403,13 +400,8 @@ if (Test-Path -LiteralPath $cfgPath) {
 }
 
 # --- REGION: libvirt-qemu search ACL on $HOME
-# Ubuntu 24.04 cloud images create /home/<user> with mode 0750, which
-# excludes the libvirt-qemu user (uid 64055, gid kvm) that runs guest
-# qemu processes. virt-install then fails with:
-#   "Cannot access storage file '/home/<user>/yuruna/vms/.../*.qcow2'
-#    (as uid:64055, gid:994): Permission denied"
-# A traverse-only POSIX ACL is the narrowest fix -- read/write/listing on
-# $HOME is unchanged, only path traversal is granted to libvirt-qemu.
+# Allow libvirt-qemu to traverse a private home without granting file access.
+# See https://yuruna.link/42e220c4-0004
 & getent passwd libvirt-qemu *> $null
 $haveLibvirtQemu = ($LASTEXITCODE -eq 0)
 $haveSetfacl    = [bool](Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue)
@@ -429,13 +421,8 @@ if (-not $libvirtReady) {
 }
 
 # --- REGION: GNOME idle / lock / dim
-# gsettings is GNOME-only. On a server install gsettings is missing
-# entirely; on a desktop install we apply the same equivalents the macOS
-# and Windows scripts apply for their host:
-#   sleep-inactive-{ac,battery}-type   -> 'nothing'
-#   idle-delay                         -> 0
-#   lock-enabled                       -> false
-#   idle-dim                           -> false
+# GNOME settings are optional on hosts without a desktop session.
+# See https://yuruna.link/42e220c4-0004
 $gsettings = Get-Command -Name 'gsettings' -ErrorAction SilentlyContinue
 if ($gsettings) {
     $tweaks = Get-LinuxAutomationGsetting
@@ -492,13 +479,7 @@ foreach ($grp in @('libvirt','kvm')) {
 }
 
 # --- REGION: Pool storage and host identity
-# Offer to configure networkStorage pool (NAS replication) and, on a host with no local
-# pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
-# Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
-# loads its own sibling dependencies (config/vault/mount); sudo is primed above so
-# the privileged fingerprint read + mount work without a second prompt. The
-# host fingerprint read is included in the -SudoCacheReason banner above.
-# See docs/pool-storage.md.
+# See https://yuruna.link/428405a0-0009
 if ($SkipPoolStorage) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d2dcd01d576691e7')
 } elseif (-not $WhatIfPreference) {

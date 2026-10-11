@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4277cde3-5e56-4d5e-beb5-7bed391f35c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -265,7 +265,7 @@ Describe 'A framework pull that fails on a stale git lock' {
         $script:Config = New-LoopConfig -Enabled $true -MaxAttempts 2
         $null = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('pull-error', 'stop') -RepoRoot $script:Repo
         Test-Path -LiteralPath $script:Lock | Should -BeFalse -Because 'the stale lock is out of the way'
-        @(Get-ChildItem -LiteralPath (Join-Path $script:Runtime 'recovery.quarantine') -Recurse -Filter 'index.lock' -File).Count | Should -Be 1 -Because 'it was moved, not deleted'
+        @(Get-ChildItem -LiteralPath (Join-Path $script:Runtime 'recovery.quarantine') -Recurse -Force -Filter 'index.lock' -File).Count | Should -Be 1 -Because 'it was moved, not deleted; the lock sits under .git, which -Force reveals on Unix'
         $script:Waits.Count | Should -Be 0 -Because 'a repair that applied replaces the hold'
         $ledger = @((Read-RecoveryLedger -RuntimeDir $script:Runtime).Records)
         @($ledger | Where-Object { $_.phase -eq 'started' -and $_.action -eq 'clear_stale_git_lock' }).Count | Should -Be 1

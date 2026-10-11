@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4257205b-1908-49c3-840b-b2b3559b3337
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,6 +140,49 @@ function Send-YurunaRetryEvent {
 
 <#
 .SYNOPSIS
+    Appends one section to a per-tool diagnostic log: a header line, then one
+    line for every element of -Line.
+.DESCRIPTION
+    The whole section reaches the file through a single Add-Content call, so
+    the log is opened once however much the tool printed. An append per line
+    pays a file open for every line, and on a host that scans files as they are
+    opened that turns a two-thousand-line transcript into most of a minute.
+
+    Every element is cast to [string] before it is written. Left to itself
+    Add-Content drops a $null element and renders a number in the current
+    culture; the cast writes the $null as an empty line and the number the way
+    PowerShell prints it, which is what appending [string]$element on its own
+    produces.
+
+    Nothing is caught here. A log that cannot be written is reported the way
+    an Add-Content written at the call site would report it -- one error
+    record, terminating only when the caller's error preference says so -- so
+    each caller keeps the handling it already had around its own append.
+#>
+function Write-YurunaToolLogSection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$LogFile,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Header,
+        [object[]]$Line
+    )
+    # A function in this module sees the global error preference, never one a
+    # caller in another module set in its own scope. Read the caller's, so a
+    # caller running under Stop is stopped by a log it cannot write and a
+    # caller that silenced errors stays silent, as with an append of its own.
+    $errorAction = $ErrorActionPreference
+    if (-not $PSBoundParameters.ContainsKey('ErrorAction')) {
+        $errorAction = $PSCmdlet.SessionState.PSVariable.GetValue('ErrorActionPreference', $ErrorActionPreference)
+    }
+    $section = @(
+        $Header
+        foreach ($entry in $Line) { [string]$entry }
+    )
+    Add-Content -LiteralPath $LogFile -Value $section -ErrorAction $errorAction
+}
+
+<#
+.SYNOPSIS
     Runs a scriptblock under capped exponential backoff with optional jitter,
     retrying on non-zero exit (or per the -ShouldRetry predicate) and returning
     a result object describing the outcome.
@@ -200,13 +243,13 @@ function Invoke-WithYurunaRetry {
             try {
                 $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 $header = "== ${stamp} ${Label} attempt ${attempt}/${MaxAttempts} (exit=${lastExit}) =="
-                Add-Content -LiteralPath $LogPath -Value $header
-                foreach ($line in $lastOutput) {
-                    Add-Content -LiteralPath $LogPath -Value ([string]$line)
-                }
-                if ($lastError) {
-                    Add-Content -LiteralPath $LogPath -Value ("[exception] " + $lastError.Exception.Message)
-                }
+                # The attempt is one section: its output can run to thousands
+                # of lines, and each separate append would open the log again.
+                $lines = @(
+                    foreach ($line in $lastOutput) { [string]$line }
+                    if ($lastError) { "[exception] " + $lastError.Exception.Message }
+                )
+                Write-YurunaToolLogSection -LogFile $LogPath -Header $header -Line $lines
             } catch { $null = $_ }
         }
 
@@ -314,4 +357,4 @@ function Invoke-TofuInitWithRetry {
     } -MaxAttempts $MaxAttempts -InitialDelaySeconds $InitialDelaySeconds -LogPath $LogPath -RcFile $RcFile
 }
 
-Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure'
+Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure','Write-YurunaToolLogSection'

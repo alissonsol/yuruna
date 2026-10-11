@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4241baeb-2bf8-4508-8226-252c7f0dd6ac
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     Set-YurunaStatusFirewallRule that opens the status-service port so LAN
     clients reach http://<host>:<port>/status/.
 .DESCRIPTION
-    Throw-based Assert-* helpers (Pester 4.10.1). Every firewall mutation is
+    Throw-based Assert-* helpers (Pester 5.x). Every firewall mutation is
     mocked in module scope, so no test ever touches the real host firewall.
     Platform branches are gated on $IsWindows / $IsLinux and only defined where
     they can run; the cross-platform contract block runs everywhere.

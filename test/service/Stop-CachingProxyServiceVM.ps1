@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42008bcd-66da-4584-84a4-c4454a7f8958
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,8 @@
     (80, 3000, 3128, 3129, 9302, 8022, ...) -- no port-list change is
     needed when a new forwarded port is added on the Start side.
 
-.PARAMETER VMName   Name of the cache VM. Default: yuruna-caching-proxy-service.
+.PARAMETER VMName
+    Name of the cache VM. Default: yuruna-caching-proxy-service.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]

@@ -29,6 +29,16 @@ used by [memory.md](memory.md), [definition.md](definition.md),
 
 ## All hosts (shared rationale)
 
+Installers compare the tools they manage with `automation/Yuruna.Requirement.yml`
+and report remaining shortfalls without turning a completed installation into
+a hard failure. They omit tools the installer cannot advance. Windows excludes
+its in-box curl, which Windows Update owns, and can leave the running PowerShell
+below its floor because an MSI self-upgrade could terminate the installer.
+Ubuntu's AMD platform preserves its ABI-bound system Python. macOS repairs PATH
+precedence and Homebrew copies in two passes before reporting remaining issues.
+See the [Ubuntu floor policy](https://yuruna.link/429fb30b-0035) and
+[macOS floor repair](https://yuruna.link/429fb30b-0029).
+
 <a id="429fb30b-0003"></a>
 
 ### Install log
@@ -203,15 +213,15 @@ them still holds a handle inside the tree.
 Targets are collected from three channels, union-ed so a service is
 caught even when one channel misses it:
 
-1. The PID files the runner/server themselves write (`runner.pid`,
+1. The pidfiles the runner/server themselves write (`runner.pid`,
    `inner.pid`, `server.pid` under the runtime dir). Authoritative, and
    readable even when the process's command line is not -- on Windows a
    runner started under a different account (e.g. a dedicated
    "Yuruna Test" user) reports an EMPTY `Win32_Process.CommandLine` to
    the installer, so the command-line sweep (channel 2) silently skips
-   it; the PID file does not.
+   it; the pidfile does not.
 2. Command-line pattern match -- catches an ad-hoc runner started
-   outside the managed runtime dir, whose PID-file location can't be
+   outside the managed runtime dir, whose pidfile location can't be
    predicted. The patterns: `Start-TestRunner.ps1`,
    `Invoke-TestRunnerInnerLoop.ps1`, `Debug-TestSequence.ps1`,
    `Start-StatusService.ps1`, plus the detached server's generated
@@ -251,7 +261,7 @@ is a PowerShell process.
 
 Two ways an innocent PID reaches the candidate list:
 
-- A PID file left behind by a crashed run holds a raw integer the
+- A pidfile left behind by a crashed run holds a raw integer the
   kernel may since have RECYCLED to an unrelated process; killing that
   match (on Windows, `taskkill /T /F` on its whole tree) would take
   out an innocent process.
@@ -473,7 +483,7 @@ On Ubuntu, group activation needs care: `usermod -aG libvirt $USER`
 adds the user to `/etc/group`, but the CURRENT shell's effective group
 set was sampled at login and won't include `libvirt` until a re-login
 or `newgrp`, so `virsh` fails with "Permission denied" on
-`/var/run/libvirt/libvirt-sock` the very first time after group add.
+`/var/run/libvirt/libvirt-sock` the first time after group add.
 The cleanup therefore runs under `sg libvirt` -- see
 [sg libvirt for the first-run cleanup](#sg-libvirt-for-the-first-run-cleanup).
 
@@ -504,14 +514,19 @@ so there is no equivalent trap to sweep.
 
 <a id="429fb30b-0015"></a>
 
-### Enable-TestAutomation.ps1 is NOT auto-run
+### Host automation settings after installation
 
-`host/<platform>/Enable-TestAutomation.ps1` is the explicit opt-in step
-that turns a machine into a Yuruna test host (display sleep, screen
-saver, screen-lock registry edits, storage-pool tweaks, Accessibility /
-Screen Recording grants on macOS). Those are host-policy changes the
-operator may not want, so they are left for manual invocation after
-install.
+Windows and Ubuntu print an explicit `Enable-TestAutomation.ps1` next step.
+Their bootstrap installers leave display, screen-lock, and other host-policy
+changes to the operator. The macOS installer applies its host settings after
+package and UTM updates, because reinstalling or upgrading UTM can restore
+defaults that prevent unattended execution. It passes `-SkipPoolStorage`: the
+interactive storage questionnaire remains a separate setup decision.
+
+Exit 2 means the settings that could be applied were applied, while a TCC grant,
+account password, or another operator action remains. The macOS installer
+records that condition in its deferred issues. Quit and reopen UTM to consume
+its App Nap and last-window settings. macOS privacy grants remain manual.
 
 <a id="429fb30b-0016"></a>
 
@@ -600,12 +615,12 @@ shell the user started from -- `powershell.exe` on PS 5.1, `pwsh.exe`
 on PS 7+ -- so a pwsh session does not get silently downgraded to
 Windows PowerShell across the UAC boundary.
 
-For the `irm | iex` entry path the downloaded script has no
+For the `irm | iex` entry path the downloaded script initially has no
 `$PSCommandPath`, and `iex` itself does not forward args to the invoked
-code. The relaunch handler reconstructs an `iex`-equivalent bootstrap
-that re-downloads the script and invokes it via
-`[scriptblock]::Create(...)` with `-SkipPreflight` so the elevated
-child does not re-prompt the requirements check.
+code. The materialization gate establishes a file path before elevation.
+The relaunch uses `-File` against that same installer and forwards explicitly
+bound parameters with `-SkipPreflight`, so the elevated child does not
+re-download the script or re-prompt the requirements check.
 
 If the elevated shell is still PS 5.x, the PS7 bootstrap block installs
 `Microsoft.PowerShell` via winget, refreshes PATH so `pwsh.exe`
@@ -682,10 +697,9 @@ read the message. The finally block prints a clear SUCCESS / FAILED /
 RESTART REQUIRED summary and -- on the success path -- automates the
 handoff to a fresh pwsh window with NEXT STEPS guidance.
 
-There is no `exit 1` in the failure branch. That would terminate the
-hosting PowerShell process, closing the user's own window when they
-invoked the script directly. Falling through the finally block leaves
-the user at their shell prompt.
+After the summary and bounded closing hold, the installer stops its transcript
+and returns exit 1 when installation did not complete. Automated callers can
+therefore detect failure while the operator has time to read its explanation.
 
 <a id="429fb30b-0020"></a>
 
@@ -703,6 +717,11 @@ pwsh.exe expects the base64 payload as UTF-16LE (Unicode) bytes. If
 the handoff window doesn't open, the same guidance is printed in the
 admin console with a 60-second `Start-Sleep` to keep the window readable
 (no `Read-Host`, so an accidental Enter cannot end things early).
+
+Failed installations and newly enabled Hyper-V installations have no handoff
+window. After the complete summary, those paths also hold the elevated console
+for 60 seconds so the failure or restart instruction remains readable. This is
+a bounded delay; the transcript remains available if the operator is absent.
 
 <a id="429fb30b-0021"></a>
 
@@ -743,9 +762,9 @@ installer uses the same UInt32->Int32 bit-reinterpret as the module's
 reset function -- a bare `[int]` cast on values with the high bit set
 throws `OverflowException`.
 
-The corresponding reset action lives in
+The corresponding reset action is re-exported by
 [test/modules/Test.HostContract.psm1](../test/modules/Test.HostContract.psm1)
-`Set-WindowsHostConditionSet`, called by
+as `Set-WindowsHostConditionSet` (defined in `Test.HostCondition.Windows.psm1`), called by
 [host/windows.hyper-v/Enable-TestAutomation.ps1](../host/windows.hyper-v/Enable-TestAutomation.ps1).
 It writes 100% to all three sources and emits per-monitor status lines
 via `Write-Information`. The Enable-TestAutomation script sets
@@ -905,7 +924,7 @@ otherwise kill the subshell.
 
 A single `EXIT` trap (`yuruna_install_cleanup`) releases the sudo
 keepalive AND any test/status temp backup on every exit path: normal
-completion, Ctrl-C, `set -e` abort.
+completion, Ctrl+C, `set -e` abort.
 
 <a id="429fb30b-002c"></a>
 
@@ -1048,19 +1067,28 @@ the version it is stuck at.
 
 ### Version floors on an Ubuntu host
 
-PowerShell is the only tool in the Ubuntu floor list whose sources lead
-the archive, and so the only one the installer can raise. git, python3,
-curl, tesseract and qemu-img reach the host through `apt` alone, whose
-ceiling is the archive Candidate: an LTS archive freezes its version
-numbers at release and afterward carries only backported fixes, so
-`apt-get install` on an already-current package changes nothing and no
-re-run can change more. Their floors are therefore set to what that
-archive ships, per the selection rule recorded in
-`automation/Yuruna.Requirement.yml` -- a floor above it would report a
-defect on a correctly provisioned machine, every run, with nothing able
-to clear it. A floor here says the host is provisioned, not that it is
-current; Ubuntu also backports security fixes without moving the
-upstream number, so patch level is a separate question from this check.
+On ordinary Ubuntu hosts, PowerShell's sources can lead the archive; the other
+managed tools reach the host through `apt`, whose ceiling is its Candidate.
+An LTS archive freezes upstream version numbers and backports fixes. Repeating
+`apt-get install` cannot advance an already-current package. Floors in
+`automation/Yuruna.Requirement.yml` therefore describe the selected supported
+archive, rather than promising the latest upstream version. Security patch
+level is a separate question from the upstream number.
+
+The AMD Ryzen AI Developer Platform uses Debian trixie. Its base archive cannot
+reach every Ubuntu-based floor. The installer takes curl and qemu-img from
+trixie-backports and builds Git from a verified release rather than replacing
+the base C library. Python must remain the platform's system interpreter: ROCm
+packages pin its ABI, and libvirt and desktop tools need its installed `libvirt`
+and `gi` modules. That platform's closing floor check omits Python rather than
+promising a repair the installer cannot safely perform.
+
+A standalone CPython linked as `/usr/local/bin/python3` can shadow
+`/usr/bin/python3` and break `virt-install` before any VM boots. Cleanup acts
+only when that exact `python3` symlink points into `/opt/cpython`; it removes
+corresponding version links and the owned version directory. Unrelated runtimes,
+environments, and installs without a version directory remain untouched. The
+link provenance check prevents deleting operator-managed interpreter trees.
 
 <a id="429fb30b-0036"></a>
 
@@ -1096,7 +1124,7 @@ manual `virsh net-start`.
 Up to the preflight section the installer APPLIED configuration. The
 preflight VERIFIES the host actually reached the state
 `Start-TestRunner.ps1` needs. The script collects all failures so the
-operator sees the full punch list at once instead of fix-and-rerun N
+operator sees the full punch list at once instead of fix-and-re-run N
 times. A partial install is worse than no install -- subsequent runs
 see "looks configured" and skip steps that would have re-applied them.
 
@@ -1147,6 +1175,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

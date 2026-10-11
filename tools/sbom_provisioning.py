@@ -23,7 +23,7 @@ _MANAGERS = re.compile(
     r"(?P<action>install|add|groupinstall|toolchain\s+install|tool\s+install)\b",
     re.I,
 )
-_PS_INSTALL = re.compile(r"(?<![\w.-])(Install-Module|Install-PSResource|Install-PackageProvider|Install-WingetPackage)\b", re.I)
+_PS_INSTALL = re.compile(r"(?<![\w.-])(Install-Module|Install-PSResource|Install-PackageProvider|Install-WingetPackage|Invoke-GuestWingetInstall)\b", re.I)
 _CONTAINER = re.compile(r"(?<![\w.-])(?:docker|podman)\s+(pull|run|create)\b", re.I)
 _DOWNLOAD = re.compile(r"(?<![\w.-])(?:curl(?:_retry)?|wget(?:_try)?|Invoke-WebRequest|Start-BitsTransfer|Save-CachedHttpUri|Save-YurunaImage|Save-ImageWithChecksum)\b", re.I)
 _URL = re.compile(r"https?://[^\s\"'<>`]+")
@@ -139,7 +139,13 @@ def _logical_lines(text: str):
                 continue
             if discard:
                 continue
-        marker = re.search(r"<<-?\s*['\"]?([A-Za-z_][\w]*)['\"]?", raw)
+        # Quoted status text, shell here strings and arithmetic shifts do not
+        # open heredocs and must not hide subsequent provisioning commands.
+        marker = None
+        if "<<" in raw:
+            marker = next((match for match in _active_matches(
+                re.compile(r"(?<!<)<<(?!<)-?\s*['\"]?([A-Za-z_][\w]*)['\"]?"), raw,
+            ) if not re.search(r"\(\([^)]*$", raw[:match.start()])), None)
         if marker:
             heredoc = marker[1]
             # File/script construction and PowerShell input are executable
@@ -290,6 +296,48 @@ class _Collector:
         if note not in self.coverage:
             self.coverage.append(note)
 
+    def requirements(self, path: str, text: str):
+        """Record probe floors separately from versions installed by a provider."""
+        tool = None
+        for number, raw in enumerate(_without_comments(text).splitlines(), 1):
+            entry = re.fullmatch(r'\s*-\s+tool:\s*(.+?)\s*', raw)
+            if entry:
+                tool = entry[1].strip("\"'")
+                continue
+            floor = re.fullmatch(r'\s*version:\s*(.+?)\s*', raw)
+            if tool and floor:
+                version = re.search(r'\d+(?:\.\d+)+', floor[1])
+                if version:
+                    self.add(path, number, tool, "generic",
+                             "Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version",
+                             bucket="hosts", constraint=">=" + version[0])
+                else:
+                    self.note(path, number, f"Host requirement {tool}: unparsed version floor {floor[1]}")
+                tool = None
+
+    def guest_pins(self, path: str, text: str):
+        """Keep exact installer pins and floating release lines distinguishable."""
+        pins = {
+            "YURUNA_K8S_MINOR": ("Kubernetes", "generic", False),
+            "YURUNA_OPENTOFU_VERSION": ("OpenTofu", "generic", True),
+            "YURUNA_HELM_VERSION": ("Helm", "generic", True),
+            "YURUNA_NVM_VERSION": ("nvm-sh/nvm", "download", True),
+            "YURUNA_NODE_MAJOR": ("node", "nvm", False),
+        }
+        for number, raw in enumerate(_without_comments(text).splitlines(), 1):
+            entry = re.fullmatch(r'\s*(?:export\s+)?(YURUNA_\w+)=([^\s]+)\s*', raw)
+            if not entry or entry[1] not in pins:
+                continue
+            name, ecosystem, exact = pins[entry[1]]
+            requested = entry[2].strip("\"'")
+            if not re.fullmatch(r'\d+(?:\.\d+)*', requested):
+                self.note(path, number, f"Guest pin {entry[1]}: unresolved version {requested}")
+                continue
+            version = requested if exact and re.fullmatch(r'\d+\.\d+\.\d+', requested) else None
+            self.add(path, number, name, ecosystem,
+                     f"Central guest provisioning declaration {entry[1]}; " + ("exact installer pin" if version else "floating release line"),
+                     version, "platform", bucket="guests", constraint=None if version else requested)
+
     def add(self, path: str, line: int, name: str, ecosystem: str, detail: str,
             version: str | None = None, kind: str = "application", scope: str = "runtime",
             bucket: str | None = None, hashes: list | None = None, constraint: str | None = None):
@@ -417,14 +465,16 @@ class _Collector:
                     continue
                 self.packages(path, line, command[match.end():], "nuget" if manager == "dotnet" else manager, action, values)
             for match in _active_matches(_PS_INSTALL, command):
+                if re.search(r"\bfunction\s+(?:(?:global|local|script|private):)?$", command[:match.start()], re.I):
+                    continue
                 args = command[match.end():]
                 tokens = _tokens(args)
-                name = self._option(tokens, {"-name", "-id"})
+                name = self._option(tokens, {"-name", "-id", "-packageid"})
                 if not name:
                     name = next((item for item in tokens if not item.startswith("-")), "")
                 version = self._option(tokens, {"-requiredversion", "-version"})
                 if name:
-                    manager = "winget" if match[1].lower() == "install-wingetpackage" else "psgallery"
+                    manager = "winget" if match[1].lower() in {"install-wingetpackage", "invoke-guestwingetinstall"} else "psgallery"
                     self.packages(path, line, name, manager, match[1], values, version=version)
             for match in re.finditer(r"(?<![\w.-])(brew_ensure_formula|brew_ensure_cask|yuruna_service_packages)\s+([^;|]+)", command):
                 manager = "brew" if match[1].startswith("brew_") else "apt"
@@ -659,5 +709,9 @@ def collect_provisioning(files: dict[str, bytes], repo_name: str) -> dict:
         text = data.decode("utf-8", errors="replace")
         if "\ufffd" in text:
             collector.note(path, 1, "source is not valid UTF-8; some installer declarations may be unavailable", "unparsed")
+        if path == "automation/Yuruna.Requirement.yml":
+            collector.requirements(path, text)
+        if path == "automation/yuruna-versions.sh":
+            collector.guest_pins(path, text)
         collector.scan(path, text, common)
     return collector.result()

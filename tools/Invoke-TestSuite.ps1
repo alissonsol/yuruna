@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,9 +21,8 @@
     Discover and run every Pester suite in the repo, one process per suite, and
     fail on any regression -- including the ones an exit code cannot express.
 .DESCRIPTION
-    The repo carries ~178 *.Tests.ps1 files, and this script is the only thing
-    that runs them as a set. A suite nothing runs can stop being runnable and
-    stay that way indefinitely.
+    Discover every tracked or new *.Tests.ps1 in the selected source roots.
+    See https://yuruna.link/42d38664-000b for the suite execution contract.
 
     Each suite runs in its own pwsh process via tools/_InvokeOneSuite.ps1, so
     one suite's module imports, global state or crash cannot color another's
@@ -113,7 +112,7 @@
     Emit the result object on the pipeline.
 .PARAMETER FailFast
     After a suite fails, stop its owned sibling processes and retain a result
-    for every cancelled or unlaunched suite with exit code 125. Such results
+    for every canceled or unlaunched suite with exit code 125. Such results
     are incomplete and fail the run. Successful runs retain full coverage;
     omit this switch to collect all failures. Existing suite deadlines still apply.
 .PARAMETER Quiet
@@ -586,6 +585,28 @@ try {
             }
         }
 
+        if ($haveXml -and ($failed -gt 0 -or $errors -gt 0)) {
+            # Worker verbosity is quiet; NUnit is the authority for both the
+            # verdict and the assertion that explains it to the operator.
+            $failures = @($document.SelectNodes('//test-case[failure] | //test-suite[failure]'))
+            $details = [Collections.Generic.List[string]]::new()
+            foreach ($failure in ($failures | Select-Object -First 10)) {
+                $details.Add("FAIL  $($failure.GetAttribute('name'))")
+                foreach ($field in 'message', 'stack-trace') {
+                    $node = $failure.SelectSingleNode("failure/$field")
+                    if ($node -and $node.InnerText) {
+                        $text = $node.InnerText.Trim()
+                        if ($text.Length -gt 2000) { $text = $text.Substring(0, 2000) + ' [truncated; see NUnit results]' }
+                        $details.Add($text)
+                    }
+                }
+            }
+            if ($failures.Count -gt 10) { $details.Add("... $($failures.Count - 10) more failure(s); see NUnit results.") }
+            $details.Add("NUnit results: $xml")
+            $details.Add("Worker logs: $stdoutLog ; $stderrLog")
+            $err = (@($err, ($details -join "`n")) | Where-Object { $_ }) -join "`n"
+        }
+
         if (-not $haveXml) {
             # A zero process exit cannot prove tests passed without their results.
             # Keep Pester's original diagnostic, which can be emitted only on stdout.
@@ -619,14 +640,15 @@ try {
     $results = @($results | Sort-Object path)
     $problems = [Collections.Generic.List[string]]::new()
 
-    foreach ($r in $results) {
+    # Report the originating failure before its canceled siblings.
+    foreach ($r in ($results | Sort-Object @{ Expression = { $_.rc -eq 125 } }, path)) {
         if ($r.rc -ne 0) { $problems.Add("$($r.path): suite process exited with rc=$($r.rc)") }
         if (-not $r.haveXml) {
             $problems.Add("$($r.path): produced no result file (rc=$($r.rc))$(if ($r.message) { " -- $($r.message)" })")
             continue
         }
         if ($r.failed -gt 0 -or $r.errors -gt 0) {
-            $problems.Add("$($r.path): $($r.failed) failed, $($r.errors) error(s)")
+            $problems.Add("$($r.path): $($r.failed) failed, $($r.errors) error(s)$(if ($r.message) { "`n$($r.message)" })")
         }
         if ($r.total -eq 0) {
             $problems.Add("$($r.path): discovered 0 tests")

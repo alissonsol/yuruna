@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 427b2ba5-58ee-4873-9737-869138b121fe
-sequenceRevision: 11
+sequenceRevision: 12
 
 description: "Ubuntu Server 26.04: first login, change password, run update script, then power-cycle into the workload CPU count."
 keystrokeMechanism: gui
@@ -133,8 +133,11 @@ component:
     description: "Ask the shell to expand a token agetty cannot"
 
   # Detect PAM rejection before persisting the password; ignore recovered login failures.
-  - action: waitForText
+  # Enter only submits the harmless probe, or an empty line if it already ran.
+  - action: waitForTextWithNudge
     pattern: "yuruna_123456789_ok"
+    nudgeKey: Enter
+    nudgeIntervalSeconds: 15
     timeoutSeconds: 90
     freshMatch: true
     failurePatterns:
@@ -162,6 +165,12 @@ workload:
   - action: saveSystemDiagnostic
     id: yuruna.update
     description: "Capture diagnostics"
+
+  # Observe the boot and CPU counters while the provisioned guest is still up.
+  # This is advisory and runs only on native ARM64 Hyper-V.
+  - action: saveGuestClockSnapshot
+    phase: before-cpu-restart
+    description: "Capture clocks and CPU accounting before the processor restart"
 
   - action: inputTextAndEnter
     text: "clear; sudo poweroff"
@@ -202,3 +211,9 @@ workload:
         nudgeIntervalSeconds: 60
         freshMatch: true
         description: "OCR: ${hostLabel} login:"
+
+  # Use only the address already proven during provisioning; do not wait for
+  # networking or extend the boot recovery policy to collect diagnostics.
+  - action: saveGuestClockSnapshot
+    phase: after-cpu-restart
+    description: "Capture clocks and CPU accounting after the processor restart"

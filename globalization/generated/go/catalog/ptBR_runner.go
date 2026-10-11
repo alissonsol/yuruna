@@ -5625,6 +5625,38 @@ const DataptBRrunner = `{
     },
     " (continuação)"
   ],
+  "runner.operator_33a0b7c1e1b2be21": [
+    {
+      "arg": "processors",
+      "type": "detail",
+      "trust": "external"
+    },
+    " processador(es) virtual(is) com ",
+    {
+      "arg": "guestPercent",
+      "type": "detail",
+      "trust": "external"
+    },
+    "% de tempo de execução do convidado e ",
+    {
+      "arg": "hypervisorPercent",
+      "type": "detail",
+      "trust": "external"
+    },
+    "% do hipervisor, ",
+    {
+      "arg": "interceptsPerSecond",
+      "type": "detail",
+      "trust": "external"
+    },
+    " interceptações/s, sustentado por ",
+    {
+      "arg": "seconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s"
+  ],
   "runner.operator_33bdd943ad4ebb3e": "A ramificação local está à frente do remoto. A prosseguir com as alterações locais.",
   "runner.operator_33be063a6dbeb4de": "Os arquivos do ciclo, os artefactos do stash, o cofre do laboratório,",
   "runner.operator_33ed3e2cc8c24f86": [
@@ -10394,6 +10426,33 @@ const DataptBRrunner = `{
     },
     " MAC(s))."
   ],
+  "runner.operator_6d4042dbe6943c27": [
+    "A espera pelo texto '",
+    {
+      "arg": "patternLabel",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' terminou após ~",
+    {
+      "arg": "waited",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s de ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s: o hipervisor relata o convidado em livelock (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")"
+  ],
   "runner.operator_6d53b6631053aee8": [
     "Cascade: o membro de cadeia '",
     {
@@ -11704,6 +11763,14 @@ const DataptBRrunner = `{
       "trust": "external"
     },
     "). A Disable-TestAutomation só poderá reverter o que pode provar que foi adicionado."
+  ],
+  "runner.operator_7e0c2dd4aa0c5981": [
+    "      O hipervisor relata o convidado em livelock: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
   ],
   "runner.operator_7e50599bce26a067": [
     "Não foi possível ler o estado anterior: ",
@@ -13713,7 +13780,7 @@ const DataptBRrunner = `{
     " assim utmctl está em PATH"
   ],
   "runner.operator_966231fe730b28ff": [
-    "Send-TextKvm: virsh send-key falhou no char '",
+    "Send-TextKvm: send-key falhou no char '",
     {
       "arg": "ch",
       "type": "detail",
@@ -18690,6 +18757,27 @@ const DataptBRrunner = `{
     },
     " s); deixando o passo correr."
   ],
+  "runner.operator_d8507ccd68520716": [
+    "  Primeiros frames do console salvos: ./status/log/",
+    {
+      "arg": "cycleBase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "/",
+    {
+      "arg": "destSeqName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "/earliest/ (",
+    {
+      "arg": "count",
+      "type": "detail",
+      "trust": "external"
+    },
+    " frames do início deste convidado)"
+  ],
   "runner.operator_d8523930547c291e": [
     "Save-ScreenshotWithClickMarker falhou: ",
     {
@@ -19918,6 +20006,39 @@ const DataptBRrunner = `{
   "runner.operator_e5f6d0ead5f8eede": "Sincronização do relógio ignorada: nenhuma credencial de sudo.",
   "runner.operator_e61bca5dfa1a4c8b": "Execute este comando ONE-TIME você mesmo antes de iniciar os testes:",
   "runner.operator_e63b1a967d2939be": "Corrigir com: pwsh test/lab/Enable-TestAutomation.ps1 (elevado / com sudo)",
+  "runner.operator_e653bdc981ca5464": [
+    "  Resumo da captura DHCP para ",
+    {
+      "arg": "guestMac",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": o convidado enviou ",
+    {
+      "arg": "sent",
+      "type": "detail",
+      "trust": "external"
+    },
+    " pacote(s), ",
+    {
+      "arg": "replies",
+      "type": "detail",
+      "trust": "external"
+    },
+    " resposta(s) unicast chegaram a ele, ",
+    {
+      "arg": "others",
+      "type": "detail",
+      "trust": "external"
+    },
+    " pacote(s) vieram de ",
+    {
+      "arg": "clients",
+      "type": "detail",
+      "trust": "external"
+    },
+    " outro(s) cliente(s)"
+  ],
   "runner.operator_e65ab9d1c0be44ef": [
     "NTLM Loopback Isention: ",
     {

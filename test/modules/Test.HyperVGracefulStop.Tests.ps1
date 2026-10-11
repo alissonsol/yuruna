@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a3f399-960c-4d30-9108-c415e558a708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,14 +50,8 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($hostFile, [ref]$null, [ref]$null)
 
 function Get-FunctionAst {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-        Justification = 'Name IS used -- inside the FindAll predicate scriptblock, which the analyzer does not follow.')]
     param([string]$Name)
-    $fn = $ast.FindAll({
-        param($n)
-        $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
-    }, $true) | Select-Object -First 1
-    return $fn
+    return Get-YurunaTestFunctionAst -Ast $ast -Name $Name
 }
 
 function Get-CommandNameList {

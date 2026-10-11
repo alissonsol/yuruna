@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42541303-69a5-4838-b859-71ad4fcefc3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,11 +63,7 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 
 function Get-ScriptAst {
     param([string]$Path)
-    Assert-True (Test-Path -LiteralPath $Path) "script exists: $Path"
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($Path): $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 
 function Get-CommandCall {
@@ -195,15 +191,8 @@ Describe 'service VM scripts leave ErrorActionPreference at the inherited value'
             $stops = @(Get-AssignedValueText -Ast $ast -Variable 'ErrorActionPreference' |
                        ForEach-Object { $_.Trim([char[]]@("'", '"')) } |
                        Where-Object { $_ -eq 'Stop' })
-            # A script-scoped preference is not scoped to the script: an advanced
-            # function called from here runs under it, so 'Stop' promotes the
-            # NON-terminating errors of every host-contract and storage helper to
-            # terminating ones. Those helpers report and continue by design --
-            # Get-VMState answering 'absent', a storage pre-flight warning and
-            # proceeding, a -BestEffort teardown tolerating a gone VM -- and each
-            # of those intended outcomes then ends the script instead, leaving the
-            # reason on a console rather than in any log. A script that genuinely
-            # must stop says so at the point that matters, with Write-Error + exit.
+            # See https://yuruna.link/42e220c4-0014
+            # Preserve helpers' nonterminating outcomes; hard stops are explicit.
             Assert-True ($stops.Count -eq 0) "$Name assigns ErrorActionPreference = 'Stop'; service VM scripts must run at the inherited 'Continue' and stop explicitly where they mean to"
         }
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42fd45e3-d490-4fe2-a3d8-49d6577c6a35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     guard in Start-StatusService.ps1 -- shape, so a comment cannot satisfy them.
 
     The throw-based Assert-* helpers live at script scope and are referenced
-    from It blocks, so this runs under Pester 4.10.1.
+    from It blocks, so this runs under Pester 5.x.
 #>
 
 $here     = Split-Path -Parent $PSCommandPath

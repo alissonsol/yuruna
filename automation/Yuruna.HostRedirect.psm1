@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 423d0e57-097d-4f6e-aabb-76a866d96fe5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,9 +19,12 @@
 # See https://yuruna.link/4213a0b3-000c
 
 # Test-IsAdministrator comes from the dependency-free leaf next door. Imported
-# into this module's scope only -- the caller's session is left alone.
+# into this module's scope only -- the caller's session is left alone. No
+# -Force: a reload issued from inside a module lands in that module's private
+# scope, which takes Yuruna.Common away from a session that had already
+# imported it (the legacy-eviction regression class).
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
-Import-Module -Name (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Force -DisableNameChecking
+Import-Module -Name (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -DisableNameChecking
 
 function Get-YurunaRepoRoot {
 <#

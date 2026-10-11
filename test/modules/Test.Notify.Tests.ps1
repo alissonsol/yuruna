@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42f41a3a-96b8-4ab6-ac90-5f5f7b020de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,7 +29,8 @@
 
     Every dispatch here uses an event code with no subscribers, so no transport
     is ever contacted; the extension resolves the code, finds nobody to mail,
-    and returns.
+    and returns. The transport-lookup tests go one step further and point the
+    loader at a private tree of stand-in transports.
 
     Throw-based assertions rather than Should.
     Run: pwsh -NoProfile -File test/modules/Test.Notify.Tests.ps1
@@ -675,5 +676,273 @@ Describe 'Send-EmailViaResend -- the message every subscriber actually reads' {
         Assert-True ($payload.html -match 'lang="[A-Za-z]{2,3}(-[A-Za-z0-9]+)*"')          'the html part declares a document language'
         Assert-True ($payload.html -match 'pre-wrap')            'the html part wraps instead of scrolling horizontally'
         Assert-True ($payload.html -match 'line two &lt;b&gt;')  'the html part is still encoded'
+    }
+}
+
+Describe 'dispatcher transport lookup' {
+    # The dispatcher finds each active transport by the FILE it was loaded from,
+    # and imports the transport itself when it is not loaded. These tests point
+    # the loader at a private tree of stand-in transports, so no shipped
+    # transport and no network is involved: each stand-in appends the call it
+    # received, and the marker its module instance holds, to a log file.
+    BeforeAll {
+        function Use-LookupExtensionRoot {
+            <#
+            .SYNOPSIS
+                Point the extension loader at a root, the way the loader suite
+                does: its root is resolved at import, so the module-scope
+                variable is the only handle.
+            #>
+            [CmdletBinding()] [OutputType([void])] param([Parameter(Mandatory)][string]$Path)
+            & (Get-Module Test.Extension) { param($p) $script:ExtensionDir = $p } $Path
+        }
+        function Get-LookupExtensionRoot {
+            <#
+            .SYNOPSIS
+                Read back the loader's current extension root.
+            #>
+            [CmdletBinding()] [OutputType([string])] param()
+            return (& (Get-Module Test.Extension) { $script:ExtensionDir })
+        }
+        function Initialize-LookupLoaderLatch {
+            <#
+            .SYNOPSIS
+                Set the dispatcher's "the loader already ran in this process"
+                latch. Once it is set the dispatcher is on its own: it must find
+                or import every active transport by itself.
+            #>
+            [CmdletBinding()] [OutputType([void])] param([Parameter(Mandatory)][bool]$Loaded)
+            & (Get-Module Test.Notify) { param($v) $script:NotificationExtensionsLoaded = $v } $Loaded
+        }
+        function Get-LookupLoaderLatch {
+            <#
+            .SYNOPSIS
+                Read back the dispatcher's loader latch.
+            #>
+            [CmdletBinding()] [OutputType([bool])] param()
+            return [bool](& (Get-Module Test.Notify) { $script:NotificationExtensionsLoaded })
+        }
+        function Initialize-LookupArea {
+            <#
+            .SYNOPSIS
+                Write <Root>/notification/notification.config.yml naming the
+                active transports, and return the area directory.
+            #>
+            [CmdletBinding()]
+            [OutputType([string])]
+            param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string[]]$ActiveName)
+            $dir = Join-Path $Root 'notification'
+            $null = New-Item -ItemType Directory -Path $dir -Force
+            $lines = @('active:') + ($ActiveName | ForEach-Object { "  - $_" })
+            Set-Content -LiteralPath (Join-Path $dir 'notification.config.yml') -Value ($lines -join "`n")
+            return $dir
+        }
+        function Add-LookupTransport {
+            <#
+            .SYNOPSIS
+                Write a stand-in transport module and return its path. Its
+                Send-Notification logs "<Tag>|<EventCode>|<Marker>", where Marker
+                is a module-scope value: a test sets it on a loaded instance and
+                a fresh import of the same file comes back without it.
+            #>
+            [CmdletBinding()]
+            [OutputType([string])]
+            param(
+                [Parameter(Mandatory)][string]$Directory,
+                [Parameter(Mandatory)][string]$Name,
+                [Parameter(Mandatory)][string]$Tag
+            )
+            $null = New-Item -ItemType Directory -Path $Directory -Force
+            $file = Join-Path $Directory "$Name.psm1"
+            $log  = $script:LookupCallLog -replace "'", "''"
+            $body = @(
+                "`$script:Marker = ''"
+                'function Send-Notification {'
+                '    param([string]$EventCode, [string]$EventMessage, [string]$EventNote)'
+                "    Add-Content -LiteralPath '$log' -Value (@('$Tag', `$EventCode, `$script:Marker) -join '|')"
+                '}'
+                'Export-ModuleMember -Function Send-Notification'
+            ) -join "`n"
+            Set-Content -LiteralPath $file -Value $body
+            return $file
+        }
+        function Get-LookupCall {
+            <#
+            .SYNOPSIS
+                The calls the stand-in transports logged, oldest first.
+            #>
+            [CmdletBinding()]
+            [OutputType([object[]])]
+            param()
+            if (-not (Test-Path -LiteralPath $script:LookupCallLog)) { return @() }
+            return @(Get-Content -LiteralPath $script:LookupCallLog | Where-Object { $_ })
+        }
+
+        $script:LookupRoot       = New-YurunaTestTempDir -Prefix 'yuruna-notify-lookup'
+        $script:LookupCycleDir   = Join-Path $script:LookupRoot 'cycle'
+        $script:LookupCallLog    = Join-Path $script:LookupRoot 'calls.log'
+        $script:LookupModuleName = @('yznfound', 'yznreload', 'yzntwin', 'yzncase', 'yznblank', 'yznlive')
+        $script:LookupSavedRoot  = Get-LookupExtensionRoot
+        $script:LookupSavedLatch = Get-LookupLoaderLatch
+        $null = New-Item -ItemType Directory -Path $script:LookupCycleDir -Force
+        Initialize-TestCycleFolder -Path $script:LookupCycleDir
+    }
+    AfterAll {
+        Use-LookupExtensionRoot -Path $script:LookupSavedRoot
+        Initialize-LookupLoaderLatch -Loaded $script:LookupSavedLatch
+        Initialize-TestCycleFolder -Path ''
+        foreach ($name in $script:LookupModuleName) {
+            Get-Module -Name $name -All | Remove-Module -Force -ErrorAction SilentlyContinue
+        }
+        Remove-YurunaTestTempDir $script:LookupRoot
+    }
+    BeforeEach {
+        Remove-Item -LiteralPath $script:LookupCallLog -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $script:LookupCycleDir 'notification.delivery.json') -Force -ErrorAction SilentlyContinue
+        Initialize-LookupLoaderLatch -Loaded $false
+    }
+
+    It 'calls the transport that is already loaded, without importing it again' {
+        $root    = Join-Path $script:LookupRoot 'found'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('yznfound')
+        $null    = Add-LookupTransport -Directory $areaDir -Name 'yznfound' -Tag 'found'
+        Use-LookupExtensionRoot -Path $root
+
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous
+        $module = Get-Module -Name 'yznfound'
+        Assert-True ($null -ne $module) 'precondition: the first dispatch loaded the transport'
+        & $module { $script:Marker = 'kept' }
+
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous
+
+        $calls = @(Get-LookupCall)
+        Assert-Equal -Expected 2 -Actual $calls.Count
+        Assert-Equal -Expected 'found|test.lookup|kept' -Actual $calls[1] `
+            -Because 'the second dispatch must reach the instance that is loaded, not a fresh import of the file'
+        $records = Get-DeliveryRecord -CycleFolder $script:LookupCycleDir
+        Assert-Equal -Expected 2 -Actual $records.Count
+        Assert-Equal -Expected 'yznfound' -Actual $records[1].extension
+        Assert-Equal -Expected 'ok' -Actual $records[1].status
+    }
+    It 'imports the transport itself when the loader ran earlier and the module is not loaded' {
+        $root    = Join-Path $script:LookupRoot 'reload'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('yznreload')
+        $file    = Add-LookupTransport -Directory $areaDir -Name 'yznreload' -Tag 'reload'
+        Use-LookupExtensionRoot -Path $root
+        Initialize-LookupLoaderLatch -Loaded $true
+        Assert-True ($null -eq (Get-Module -Name 'yznreload')) 'precondition: nothing has loaded the transport'
+
+        $w = @()
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous `
+            -WarningVariable w -WarningAction SilentlyContinue
+
+        Assert-Equal -Expected 0 -Actual @($w).Count -Because "a transport that imports cleanly is imported quietly: $($w -join ' | ')"
+        Assert-Equal -Expected 'reload|test.lookup|' -Actual (@(Get-LookupCall) -join ',')
+        $module = Get-Module -Name 'yznreload'
+        Assert-True ($null -ne $module) 'the import is global, so the next dispatch finds the transport loaded'
+        Assert-Equal -Expected ([System.IO.Path]::GetFullPath($file)) -Actual ([System.IO.Path]::GetFullPath($module.Path))
+        $records = Get-DeliveryRecord -CycleFolder $script:LookupCycleDir
+        Assert-Equal -Expected 1 -Actual $records.Count
+        Assert-Equal -Expected 'ok' -Actual $records[0].status
+    }
+    It 'calls the notification area transport when other loaded modules share its basename' {
+        # Every area names its module default.psm1. A lookup by module name, or a
+        # bare Send-Notification call, reaches whichever of them the module table
+        # happens to list first -- so one namesake is loaded before the transport
+        # and one after, from directories that sort on either side of it.
+        $root    = Join-Path $script:LookupRoot 'twin'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('yzntwin')
+        $null    = Add-LookupTransport -Directory $areaDir -Name 'yzntwin' -Tag 'notification-area'
+        $earlier = Add-LookupTransport -Directory (Join-Path $root 'aaa-other') -Name 'yzntwin' -Tag 'loaded-earlier'
+        $later   = Add-LookupTransport -Directory (Join-Path $root 'zzz-other') -Name 'yzntwin' -Tag 'loaded-later'
+        Use-LookupExtensionRoot -Path $root
+
+        Import-Module -Name $earlier -Global -Force -DisableNameChecking
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous
+        Import-Module -Name $later -Global -Force -DisableNameChecking
+        Assert-Equal -Expected 3 -Actual @(Get-Module -Name 'yzntwin').Count -Because 'precondition: all three are loaded under one module name'
+
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous
+
+        Assert-Equal -Expected 'notification-area|test.lookup|,notification-area|test.lookup|' -Actual (@(Get-LookupCall) -join ',') `
+            -Because 'the transport is matched by its file, never by the module name it shares with the others'
+    }
+    It 'matches the loaded transport when the configured name differs only by letter case' {
+        # A module keeps the spelling it was imported with. The differently
+        # spelled name is never looked up on disk here -- the loader latch is set,
+        # so only the dispatcher's own lookup runs -- which keeps the test valid
+        # on a case-sensitive file system.
+        $root    = Join-Path $script:LookupRoot 'case'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('YZNCASE')
+        $file    = Add-LookupTransport -Directory $areaDir -Name 'yzncase' -Tag 'case'
+        Use-LookupExtensionRoot -Path $root
+        $module = Import-Module -Name $file -Global -Force -PassThru -DisableNameChecking
+        & $module { $script:Marker = 'kept' }
+        Initialize-LookupLoaderLatch -Loaded $true
+
+        $w = @()
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous `
+            -WarningVariable w -WarningAction SilentlyContinue
+
+        Assert-Equal -Expected 0 -Actual @($w).Count -Because "the transport is loaded; nothing needs reporting: $($w -join ' | ')"
+        Assert-Equal -Expected 'case|test.lookup|kept' -Actual (@(Get-LookupCall) -join ',') `
+            -Because 'the loaded instance answers; a letter-case difference must not cause a second import'
+        Assert-Equal -Expected 1 -Actual @(Get-Module -Name 'yzncase').Count
+    }
+    It 'skips loaded modules that have no file path on the way to the transport' {
+        # No real module loads with an empty path, so the module table is
+        # replaced with stand-in rows -- in both modules on the dispatch path
+        # that read it.
+        $root    = Join-Path $script:LookupRoot 'blank'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('yznblank')
+        $file    = Add-LookupTransport -Directory $areaDir -Name 'yznblank' -Tag 'blank'
+        Use-LookupExtensionRoot -Path $root
+        $module = Import-Module -Name $file -Global -Force -PassThru -DisableNameChecking
+        Initialize-LookupLoaderLatch -Loaded $true
+        $script:LookupTable = @(
+            [pscustomobject]@{ Name = 'yznopath';   Path = '';    ExportedCommands = @{} }
+            [pscustomobject]@{ Name = 'yznullpath'; Path = $null; ExportedCommands = @{} }
+            $module
+        )
+        Mock -CommandName Get-Module -ModuleName Test.Notify -MockWith { $script:LookupTable }
+        Mock -CommandName Get-Module -ModuleName Test.Extension -MockWith { $script:LookupTable }
+
+        $w = @()
+        $failure = @()
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous `
+            -WarningVariable w -WarningAction SilentlyContinue -ErrorVariable failure
+
+        Assert-Equal -Expected 'blank|test.lookup|' -Actual (@(Get-LookupCall) -join ',')
+        Assert-Equal -Expected 0 -Actual @($w).Count -Because "the transport is loaded; nothing needs reporting: $($w -join ' | ')"
+        Assert-Equal -Expected 0 -Actual @($failure).Count -Because "a module with no file path is skipped, never handed to the path API: $($failure -join ' | ')"
+    }
+    It 'warns and moves on to the next transport when one cannot be imported' {
+        $root    = Join-Path $script:LookupRoot 'ghost'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('yznghost', 'yznlive')
+        $null    = Add-LookupTransport -Directory $areaDir -Name 'yznlive' -Tag 'live'
+        Use-LookupExtensionRoot -Path $root
+        Initialize-LookupLoaderLatch -Loaded $true
+
+        $w = @()
+        $threw = $null
+        try {
+            Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous `
+                -WarningVariable w -WarningAction SilentlyContinue
+        } catch {
+            $threw = $_.Exception.Message
+        }
+
+        Assert-True ($null -eq $threw) "one transport that cannot be imported must not fail the dispatch: $threw"
+        $ghostFile  = [System.IO.Path]::GetFullPath((Join-Path $areaDir 'yznghost.psm1'))
+        $aboutGhost = @($w | Where-Object { "$_" -like '*yznghost*' })
+        Assert-Equal -Expected 2 -Actual $aboutGhost.Count `
+            -Because "one warning for the import that failed, one for the transport that could not be called: $($w -join ' | ')"
+        Assert-True (@($aboutGhost | Where-Object { "$_".Contains($ghostFile) }).Count -ge 1) 'the operator is told which file was looked for'
+        Assert-Equal -Expected 'live|test.lookup|' -Actual (@(Get-LookupCall) -join ',') `
+            -Because 'the transports listed after the broken one still receive the event'
+        $records = Get-DeliveryRecord -CycleFolder $script:LookupCycleDir
+        Assert-Equal -Expected 1 -Actual $records.Count -Because 'only a transport that was called leaves a delivery record'
+        Assert-Equal -Expected 'yznlive' -Actual $records[0].extension
+        Assert-Equal -Expected 'ok' -Actual $records[0].status
     }
 }

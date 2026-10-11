@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,6 +91,9 @@ $script:AutoRemediationAllowList = [ordered]@{
     'wait_timeout'           = (Format-YurunaOperatorMessage -Key 'remediation.operator_b9e5f8c44bec51fc')
     'network_timeout'        = (Format-YurunaOperatorMessage -Key 'remediation.operator_4046c1f6949f7aad')
     'ip_not_discovered'      = (Format-YurunaOperatorMessage -Key 'remediation.operator_787985aef3c53e0a')
+    # The staged command never reached the guest's shell as a runnable payload,
+    # so a retry repeats no work the guest already did.
+    'input_lost'             = (Format-YurunaOperatorMessage -Key 'remediation.operator_52e8af97f6901f58')
     # Backed by a Repair-* primitive that is safe to run twice.
     'instrumentation_failure' = (Format-YurunaOperatorMessage -Key 'remediation.operator_36573af397a13ade')
     'host_io_blocked'         = (Format-YurunaOperatorMessage -Key 'remediation.operator_70fab6da39ee36e1')
@@ -743,6 +746,19 @@ function Register-BuiltinRecoveryHandler {
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_c00ffc306428603b'),
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_03c7dac9d2e3c13f'),
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_16b7173fb133ad34')
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'input_lost' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'retry_with_backoff'
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_b40349f16bf6efc1' -Arguments @{ vmName = "$($c.Context.vmName)" })
+            Actions        = @(
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_6072d4a9739b1fee'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_e59c2d7e4aa9e176'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_26c6f6da9a72b538')
             )
         }
     }

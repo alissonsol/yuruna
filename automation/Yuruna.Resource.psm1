@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,8 +29,10 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
 # timestamp format cannot drift between the three publishers.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Global -Force
 # Shared retry policy with the guest-side automation/yuruna-retry.sh.
+# -Global -Force, as for its two neighbors: a private copy would be re-exported
+# by the Export-ModuleMember -Function * below and replace the importer's own.
 # --- REGION: https://yuruna.link/4220a755-0003
-Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
 
 $globalVariables = [ordered]@{}
 

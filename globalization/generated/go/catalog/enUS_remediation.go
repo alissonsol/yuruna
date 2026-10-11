@@ -121,6 +121,7 @@ const DataenUSremediation = `{
   ],
   "remediation.operator_443019dfa8dbce7c": "Open the cycle folder's last-fetch-and-execute.log",
   "remediation.operator_4fccd2ceaaf44c3a": "Inspect project/test/test.runner.yml for duplicate or malformed entries",
+  "remediation.operator_52e8af97f6901f58": "the staged command never ran, so the next attempt repeats no work on the guest",
   "remediation.operator_54b0e080b8e528c6": [
     "plan_invalid on ",
     {
@@ -162,6 +163,7 @@ const DataenUSremediation = `{
       "trust": "external"
     }
   ],
+  "remediation.operator_6072d4a9739b1fee": "Retry the step: it types the command again from the start on the same guest",
   "remediation.operator_6097b95aeee20519": [
     "On the host console, inspect ",
     {
@@ -359,6 +361,15 @@ const DataenUSremediation = `{
   ],
   "remediation.operator_ae1a107543e2b1da": "register a handler via Register-RecoveryHandler",
   "remediation.operator_b0efdbb198fceec5": "Inspect that area's default.psm1 + .contract.yml",
+  "remediation.operator_b40349f16bf6efc1": [
+    "input_lost on ",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": the typed command never closed in the guest shell, so the payload did not run and nothing it would have done is in question. The guest is still reachable, and the typed input is what failed, so repeating the step is safe."
+  ],
   "remediation.operator_b4f9634c3488c4e9": "Classify the failure mode and consider adding a FailureClass to the verb",
   "remediation.operator_b51fc0ab27411fec": [
     "dhcp_identity_unbounded on ",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42869a92-a8d2-410d-9364-cdfba1a4ed8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -296,19 +296,8 @@ Describe 'VNC sends never leave a key held in the guest' {
 }
 
 Describe 'Hyper-V keyboard cache invalidation' {
-    # Hyper-V re-creates a VM's Msvm_Keyboard association across a guest
-    # reboot while the VM name stays the same, so the cache key cannot detect
-    # a handle that has gone stale. A failed delivery is the only evidence,
-    # and a cache that survives one turns a single stale handle into every
-    # later keystroke failing identically -- which no retry above can undo,
-    # because each attempt is handed the same dead instance.
-    #
-    # Invoke-CimMethod is a Windows-only cmdlet, so there is nothing for Mock
-    # to intercept on the host this suite usually runs on. Set-Item into
-    # function:script: inside the module's own session state shadows the cmdlet
-    # by name-resolution order, which drives the same branches on either
-    # platform; AfterEach removes it so nothing else in the run inherits the
-    # shadow.
+    # See https://yuruna.link/42e220c4-0014
+    # Shadow native CIM inside the module and remove the fixture after each case.
     AfterEach {
         InModuleScope 'Test.Transport' {
             Remove-Item -LiteralPath 'function:script:Invoke-CimMethod' -ErrorAction SilentlyContinue

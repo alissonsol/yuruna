@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42ab6d19-74c3-4f80-9e25-3d0c81af57b6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -173,8 +173,9 @@ function Get-HeadingIndex {
     return , $indices
 }
 
-# The id sitting above a heading, if one is already there. The layout is the
-# anchor, a blank line, then the heading.
+# Existing anchors normally precede their heading. A document may put its
+# title anchor immediately below the first H1 so its first visible line and
+# first source line are both the title.
 function Get-ExistingAnchor {
     param([Parameter(Mandatory)][AllowEmptyString()][string[]]$Line, [Parameter(Mandatory)][int]$HeadingIndex)
 
@@ -188,6 +189,22 @@ function Get-ExistingAnchor {
         if ($Line[$probe].Trim() -ne '' -and
             $Line[$probe] -notmatch '^\s*<a id="[^"<>]+"></a>\s*$') { break }
         $probe--
+    }
+    if ($HeadingIndex -eq 0 -and $Line[0] -match '^#\s+\S') {
+        $probe = 1
+        while ($probe -lt $Line.Count -and $Line[$probe].Trim() -eq '') { $probe++ }
+        if ($probe -lt $Line.Count -and $Line[$probe] -match $AnchorPattern) {
+            $fileId = $Matches[1]
+            $anchorId = $Matches[2]
+            $after = $probe + 1
+            while ($after -lt $Line.Count -and ($Line[$after].Trim() -eq '' -or
+                    $Line[$after] -match '^\s*<a id="[^"<>]+"></a>\s*$')) { $after++ }
+            # An anchor immediately before another heading belongs to that
+            # heading, even when the document has no introduction.
+            if ($after -eq $Line.Count -or $Line[$after] -notmatch '^#{1,6}\s+\S') {
+                return @{ Index = $probe; File = $fileId; Anchor = $anchorId }
+            }
+        }
     }
     return $null
 }
@@ -311,10 +328,16 @@ foreach ($doc in $documents) {
         }
     }
     $idByHeading = @{}
+    $explicitAnchorLines = [Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
     $needing = [Collections.Generic.List[int]]::new()
     foreach ($h in $headings) {
         $existing = Get-ExistingAnchor -Line $lines -HeadingIndex $h
         if ($existing) {
+            $explicitId = "$($existing.File)-$($existing.Anchor)"
+            if ($explicitAnchorLines.ContainsKey($explicitId)) {
+                throw "$label headings at lines $($explicitAnchorLines[$explicitId]) and $($h + 1) repeat explicit anchor id $explicitId"
+            }
+            $explicitAnchorLines[$explicitId] = $h + 1
             if ($existing.File -ne $fileId) {
                 $problem.Add("$label heading at line $($h + 1) carries an id for a different file ($($existing.File))")
             }
@@ -388,11 +411,17 @@ foreach ($doc in $documents) {
         }
 
         $tInject = @{}
+        $tExplicitAnchorLines = [Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
         for ($k = 0; $k -lt $tHeadings.Count; $k++) {
             $want = $idByHeading[$headings[$k]]
             if (-not $want) { continue }
             $e = Get-ExistingAnchor -Line $tLines -HeadingIndex $tHeadings[$k]
             if ($e) {
+                $explicitId = "$($e.File)-$($e.Anchor)"
+                if ($tExplicitAnchorLines.ContainsKey($explicitId)) {
+                    throw "$tRel headings at lines $($tExplicitAnchorLines[$explicitId]) and $($tHeadings[$k] + 1) repeat explicit anchor id $explicitId"
+                }
+                $tExplicitAnchorLines[$explicitId] = $tHeadings[$k] + 1
                 if ("$($e.File)-$($e.Anchor)" -ne $want) {
                     $problem.Add("$tRel heading $($k + 1) carries id $($e.File)-$($e.Anchor) but its source says $want")
                 }

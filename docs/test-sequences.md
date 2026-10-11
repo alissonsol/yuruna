@@ -235,9 +235,29 @@ snapshotPolicy:
   maxAgeHours: 24
   rebuildOnMismatch: true
   sourceFiles:
+    - guest/shared/*.sh
     - guest/ubuntu.server.26/*.sh
     - host/*/guest.ubuntu.server.26/*.ps1
+    - host/*/modules/*UbuntuServer*.ps1
+    - host/*/modules/Yuruna.Host.psm1
+    - host/modules/Yuruna.UbuntuImage.psm1
+    - host/modules/Yuruna.Image.psm1
     - host/vmconfig/ubuntu.server.*
+    - host/vmconfig/guest-dhcp.network-config
+    - host/macos.utm/guest.ubuntu.server.26/config.plist.template
+    - automation/Yuruna.CloudInitTemplate.psm1
+    - automation/Yuruna.Common.psm1
+    - automation/Yuruna.GitHubSource.psm1
+    - automation/Yuruna.GuestSeed.psm1
+    - automation/fetch-and-execute.sh
+    - automation/yuruna-fetch-context.sh
+    - automation/yuruna-retry.sh
+    - automation/yuruna-versions.sh
+    - automation/yuruna-network.sh
+    - automation/yuruna-host-locate.sh
+    - test/modules/Test.Ssh.psm1
+    - test/modules/Test.Config.psm1
+    - test/modules/Test.CachingProxyService.psm1
 ```
 
 The producer's `saveDiskSnapshot` stores a managed marker, checkout revisions
@@ -247,7 +267,11 @@ The image-builder and cloud-init hashes identify the image definition and
 version pins; they do not attest to the downloaded ISO's bytes. Secrets are
 excluded. Every source pattern must match, and paths must remain relative to
 the framework checkout. Include the baseline sequence itself and any additional
-scripts it invokes in `sourceFiles`.
+scripts it invokes in `sourceFiles`. The list has no implicit source defaults:
+include shared image/VM builders, seed renderers, guest helpers, and network
+configuration as well as release-specific wrappers. The example above shows
+shared inputs; each producer and consumer must declare the same complete list
+for its own baseline.
 
 The consumer's chain planner and `loadDiskSnapshot` both validate source
 identity and age. A matching baseline skips prerequisites; an absent snapshot
@@ -279,7 +303,7 @@ Reference one with a step whose only key is `snippet:` (it has no
 `action:`). It works at the top level **and inside `retry.steps`**:
 
 ```yaml
-steps:
+component:
   - action: retry
     maxAttempts: 2
     steps:
@@ -302,13 +326,13 @@ Snippets are defined in a `_snippets.yml` library -- a map of
 ```yaml
 # test/sequences/_snippets.yml
 firstLoginPrime:
-  - action: waitForText
-    pattern: "login:"
-    description: "OCR: login:"
   - action: pressKey
     name: Enter
   - action: waitForSeconds
     seconds: 2
+  - action: waitForText
+    pattern: "login:"
+    description: "OCR: login:"
 ```
 
 Schema: [`test/schemas/snippets.schema.yml`](../test/schemas/snippets.schema.yml).
@@ -345,7 +369,7 @@ broken or missing snippet reference is caught before a cycle starts.
 The bundled gui snippet. Wakes a freshly rebooted agetty before a
 username is typed: the first keystroke into a cold `login:` prompt is
 swallowed while the tty input layer drains, so on KVM (one
-`virsh send-key` per char, no lead-in) the leading character of the
+key RPC per char, no lead-in) the leading character of the
 username is lost. Pressing Enter (a harmless empty submit at a `login:`
 prompt) and pausing lets the prompt settle before the
 [`passwdPrompt`](#passwdprompt) types the username.
@@ -482,8 +506,8 @@ Type a command + Enter, then wait for `waitPattern` to appear on screen
 | Parameter | Type | Notes |
 |---|---|---|
 | `text` | string | Command to type. |
-| `charDelayMs` | number | Default `50`. |
-| `delaySeconds` | number | Drain pause before Enter; default `2`. |
+| `charDelayMs` | number | Default `vmCommunication.charDelayMs` (`10` ms). |
+| `delaySeconds` | number | Drain pause before Enter; default `2` for the final input and `0` for intermediate verified staging lines, except on `host.macos.utm`, where intermediate lines keep `2`. An explicit value applies to every line. |
 | `waitPattern` | string | Required completion marker. |
 | `noSegmentMatch` | boolean | Default `false`. Require the completion pattern within one line and a bounded character span, preserving OCR character tolerance. |
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
@@ -518,7 +542,32 @@ lines, without the fallback's per-command shell rewrite.
 
 Staging preserves both file digests, the required-verification flag, the pinned
 fallback source, full invocation IDs and profiling. It uses GUI input throughout
-and needs no new guest helper. Short commands retain one send. The completion
+after a small optional capability check. When an existing SSH key, proven guest
+address and login user are available, a read-only probe asks the seeded `yfe`
+launcher whether it supports compact envelopes. It spends at most one second
+on SSH, with another second reserved for local prerequisites, and performs no
+IP discovery or key creation. The answer is checked on every fetch so restoring
+an older VM snapshot cannot inherit a cached capability. An absent connection,
+old launcher, failed probe or unexpected answer retains the original GUI input
+before anything is typed; the first fetch on a fresh VM can therefore use the
+original form.
+
+On a supported guest, the harness compresses the unchanged context and original
+command together, using raw byte lengths inside the envelope to avoid nested
+base64 expansion. The launcher caps decompression at 65,536 bytes, checks the
+full envelope SHA-256 and gzip footer, and then applies the existing context
+byte count, full digest, field allowlist, one-use consumption and command binding.
+This replaces repeated typed shell syntax with a short verification call. The
+compact form is selected only when it uses fewer input characters and no more
+physical lines. Once typing starts, a failed send or execution is never replayed
+through the original form.
+
+The original context transport uses gzip when that reduces
+input length; the existing launcher verifies the decompressed byte count and
+full SHA-256 before consuming the context. A failed decoder or decompressor
+aborts preparation even when it emitted all expected bytes before reporting an
+error; pipeline options stay isolated from the payload. SSH retains its original transport.
+Short commands retain one send. The completion
 and failure OCR checks continue after the final input. The verification line encodes its failure marker
 so the echoed command cannot itself trigger the fuzzy failure matcher.
 The existing 20-second shell-rejection window also recognizes Bash syntax
@@ -527,10 +576,15 @@ therefore cannot emit the wrapper's failure marker.
 
 **Authors: the budget includes the YAML `text:`, metadata and shell quoting.**
 The complete invocation includes the integrity envelope, observation IDs,
-shell wrapper, and assignment terminators. Each additional send pays the
-configured drain pause (2 seconds by default) and 800-millisecond settle,
-plus additional typing. Keep substantive work inside the fetched script to
-limit that overhead.
+shell wrapper, and assignment terminators. Each send retains character pacing
+and an 800-millisecond drain. Intermediate staging lines only assemble data in
+an open subshell, so on most backends their default additional drain pause is
+zero. UTM is the exception: it delivers each line through its own AppleScript
+call, and the staged subshell has stalled when lines followed each other with no
+settle, so UTM keeps the two-second default on intermediate lines. The final
+verification and launch line keeps the two-second default everywhere. An
+explicit `delaySeconds`, including zero, applies to every input line. Keep substantive
+work inside the fetched script to limit typing overhead.
 
 <a id="428e4df6-0015"></a>
 
@@ -542,7 +596,7 @@ Type a text string.
 |---|---|---|
 | `text` | string | |
 | `sensitive` | boolean | Masks output in logs. |
-| `charDelayMs` | number | Default `50`. Hyper-V uses `Msvm_Keyboard.TypeText`. |
+| `charDelayMs` | number | Default `vmCommunication.charDelayMs` (`10` ms). Hyper-V uses `Msvm_Keyboard.TypeScancodes`. |
 
 <a id="428e4df6-0016"></a>
 
@@ -554,7 +608,7 @@ Type, wait, press Enter.
 |---|---|---|
 | `text` | string | |
 | `sensitive` | boolean | |
-| `charDelayMs` | number | Default `50`. |
+| `charDelayMs` | number | Default `vmCommunication.charDelayMs` (`10` ms). |
 | `delaySeconds` | number | Default `2`. |
 
 <a id="428e4df6-0017"></a>
@@ -590,7 +644,7 @@ Windows.11 is a no-op reminder (TODO). Uses the `Send-Text` and
 | Parameter | Type | Notes |
 |---|---|---|
 | `text` | string | Optional override of the typed command. Default `bash /usr/local/lib/yuruna/yuruna-network.sh release` (Ubuntu / Amazon only). |
-| `charDelayMs` | number | Per-character delay; default `50`. |
+| `charDelayMs` | number | Per-character delay; default `vmCommunication.charDelayMs` (`10` ms). |
 
 <a id="428e4df6-0019"></a>
 
@@ -686,15 +740,32 @@ before it asks, so either one on screen says nothing about the answer. A
 confirmation wait that stopped on them would leave the prompt unanswered
 for the whole login wait. The later login wait owns a stall after
 installation began.
-It requires a timed-out wait, at least 120 seconds of currently unchanged
-console content, an independent Hyper-V framebuffer verdict of `guest-static`,
-and pre-installer evidence in the OCR tail: `/scripts/casper-` or
-`Setting up console keyboard`. The code does not recognize storage-stall
-stack frames or reject login and installation-complete text independently.
-Missing boot markers, explicit failure patterns (including the installer
-error patterns added for this mode), and console floods end the retry without
+It requires a timed-out wait and one of two proofs of a stall. The first is
+read off the screen: at least 120 seconds of currently unchanged console
+content, an independent Hyper-V framebuffer verdict of `guest-static`, and
+pre-installer evidence in the OCR tail: `/scripts/casper-` or
+`Setting up console keyboard`. The second comes from the hypervisor: the host
+recording shows every virtual processor of the VM pinned in the hypervisor
+for 300 seconds (see [host metrics](host-hyperv.md#42dc5bb9-0010)). The
+second proof covers boots that wedge before the console prints anything --
+a blank framebuffer has no casper line to read and no text to call unchanged
+-- and wedges in the installer before its confirmation, when nothing has been
+written to the target disk. It is refused only when the OCR tail shows an
+installed system's `login:` prompt, which the later login wait owns. The code
+does not recognize storage-stall stack frames. Missing boot markers without a
+livelock verdict, explicit failure patterns (including the installer error
+patterns added for this mode), and console floods end the retry without
 restarting. A `retry_suppressed` event and the terminal failure label name
-the reason and the number of attempts the configuration allowed.
+the reason and the number of attempts the configuration allowed. Each
+`retry_attempt` event records `guestLivelocked` and `guestLivelockedSeconds`.
+
+On native ARM64 Hyper-V, both cold-restart modes also end their wait early:
+the installer confirmation wait here, and the `waitForTextWithNudge` login
+wait under `arm64HyperVColdPowerCycle`. Each ends as soon as the livelock
+verdict holds, rather than after the remainder of its 1800- or 2400-second
+budget. The retry hands the wait a copy of its step marked
+`endWaitOnGuestLivelock`. The sequence file is unchanged, and other hosts keep
+the declared wait.
 This is a bounded recovery from a confirmed boot stall, not a fix for the
 underlying Hyper-V fault. Sensitive input and
 post-restart steps are forbidden in this mode. AMD64 Hyper-V and other
@@ -777,8 +848,8 @@ unless `allowFailure=true`.
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `allowFailure` | boolean | If true, non-zero exit logs a warning instead of failing. |
 | `sensitive` | boolean | Masks command in logs. |
-| `detach` | boolean | Default **false** here. See [Surviving a dropped session](#surviving-a-dropped-session). Off by default for this verb because it runs whatever the YAML names, and a detached run stages that command to a file on the guest -- which the deploy sequence's password piping must not do. |
-| `transportRetries` | number | Default `0`. Reconnects to spend when the session dies mid-command. Only consulted when the step is not detached. Raise it only for a command that is safe to run twice. |
+| `detach` | boolean | Ignored here; this verb never detaches. See [Surviving a dropped session](#surviving-a-dropped-session). Off for this verb because it runs whatever the YAML names, and a detached run stages that command to a file on the guest -- which the deploy sequence's password piping must not do. |
+| `transportRetries` | number | Default `0`. Reconnects to spend when the session dies mid-command. Raise it only for a command that is safe to run twice. |
 
 <a id="428e4df6-0020"></a>
 
@@ -1027,7 +1098,7 @@ dispatch.
 | `Vars`                 | `hashtable` (writable)        | Variable scope. `Expand-Variable` reads from it; some verbs write back.    |
 | `VMName`               | `string`                      | Target VM name on the current host.                                        |
 | `GuestKey`             | `string`                      | Planner identity for the guest (e.g. `ubuntu.server.24`).                  |
-| `HostType`             | `string`                      | Host platform (`windows.hyper-v`, `macos.utm`, `ubuntu.kvm`, ...).         |
+| `HostType`             | `string`                      | Host platform (`host.windows.hyper-v`, `host.macos.utm`, `host.ubuntu.kvm`, ...).         |
 | `LogDir`               | `string`                      | Per-cycle log directory.                                                   |
 | `RuntimeDir`           | `string`                      | Per-cycle runtime/control-flag directory.                                  |
 | `ScreenshotDir`        | `string`                      | Where OCR snapshots and screenshots go.                                    |
@@ -1077,9 +1148,9 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note carried on the entry. Nothing in the engine reads it; it is there for `Get-SequenceAction` consumers (matrix dumps, docs generators).         |
 | `Aliases`            | `[string[]]`                                                                                                                                                                                                                                                                                   | Alternate YAML names that resolve to the same entry (legacy renames).                                                                                       |
 | `Handler`            | `[scriptblock]` `param([hashtable]$c)` -> `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches.                                                                                                                |
-| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
+| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `console_flooded`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `input_lost`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
-| `SuggestedRecoveries`| `[string[]]` -- free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `wait_and_retry`, `restore_snapshot`, `notify_operator`. A token outside the remediation dispatcher's vocabulary warns at registration. |
+| `SuggestedRecoveries`| `[string[]]` -- free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `retry_with_backoff`, `restart_from_snapshot`, `operator_intervention_required`. A token outside the remediation dispatcher's vocabulary warns at registration. |
 | `UsesWaitSignals`    | `[bool]`                                                                                                                                                                                                                                                                                       | **Changes engine behavior.** `$true` lets the engine append `-- matched failurePattern "..."` to the step's failure label when the verb short-circuited on an anti-pattern. Set it on any verb that writes that signal: without it the step is labeled as a plain "pattern not found within Ns" timeout, so the ERROR banner and `last_failure.json` both hide the real cause -- a guest process that crashed and printed why. |
 | `CapturesOwnFailureScreenshot` | `[bool]`                                                                                                                                                                                                                                                                             | **Changes engine behavior.** `$true` suppresses the engine's generic post-failure `Get-VMScreenshot`. Set it on a verb that already writes `failure_screenshot_<vm>.png` from inside its own failure path: that frame was captured at the moment of failure, and the engine's later capture would overwrite it with whatever the screen shows once the step has given up. |
 | `ReplaySafety`       | `ValidateSet`: `observe`, `input`, `state-changing`, `restore-point`, `composite`, `unclassified` (default) | **Changes warm-resume behavior.** What running this step a second time, in place, on top of a failed first attempt's leftovers can do. Only `observe` verbs are replayed with no restore point; `unclassified` counts as unsafe. Every built-in verb declares one, and `Test.WarmResume.Tests.ps1` fails when a registered verb does not. |
@@ -1088,8 +1159,8 @@ Both flags are registry entries rather than verb-name lists inside the engine
 because the engine's two decision sites would otherwise each carry a literal
 list that silently goes stale the moment a verb is added -- a new wait verb would
 lose its annotation, and a new self-capturing verb would have its frame
-overwritten, with nothing failing. Today `waitForText`, `waitForAndEnter` and
-`passwdPrompt` set both; `sshWaitReady` sets only `UsesWaitSignals`;
+overwritten, with nothing failing. Today `waitForText`, `waitForTextWithNudge`,
+`waitForAndEnter` and `passwdPrompt` set both; `sshWaitReady` sets only `UsesWaitSignals`;
 `fetchAndExecute` sets only `CapturesOwnFailureScreenshot`.
 `Test.SequenceEngineFlags.Tests.ps1` pins those sets.
 
@@ -1209,7 +1280,7 @@ know what happens on each host.
 Backs the [`saveDiskSnapshot`](#savedisksnapshot) action. Two
 operations run in sequence: capture a disk-only point, then move
 the VM out of the `test-*` namespace so it survives the next cycle's
-cleanup sweep. The rename is **part of the contract** -- calling the
+cleanup sweep (KVM reverses the order). The rename is **part of the contract** -- calling the
 contract function commits to both legs and returns `$false` if either
 fails.
 
@@ -1236,7 +1307,7 @@ fails.
 #### KVM (Ubuntu / libvirt) -- full support
 
 - **Snapshot:** stop VM, drop any prior snapshot with the same name,
-  `virsh snapshot-create-as --atomic --domain <vm> --name <id>` on the
+  `virsh snapshot-create-as --atomic --domain <id> --name <id>` on the
   offline domain. `--atomic` rolls back partial snapshots on failure.
 - **Rename:** `virsh domrename <old> <new>` (libvirt >= 1.2.19;
   available on the Ubuntu baseline). Followed by:
@@ -1292,7 +1363,7 @@ Backs the [`loadDiskSnapshot`](#loaddisksnapshot) action.
 | Host | Implementation |
 |---|---|
 | Hyper-V | Verifies checkpoint exists, stops VM, `Hyper-V\Restore-VMCheckpoint`. |
-| KVM | Verifies snapshot via `virsh snapshot-info`, stops domain, `virsh snapshot-revert`. |
+| KVM | Verifies snapshot via `virsh snapshot-info`, force-stops an active domain, confirms `shut off`, then runs `virsh snapshot-revert`. |
 | UTM | For each `*.qcow2` in the bundle's `Data/`: `qemu-img snapshot -a <id>`. |
 
 All three leave the VM stopped on return -- callers must explicitly
@@ -1324,9 +1395,9 @@ per host (and per the sequence's own `keystrokeMechanism`):
 
 | Host | GUI mode | SSH mode |
 |---|---|---|
-| Hyper-V | `Msvm_Keyboard.TypeText` / scancodes via WMI; mouse via vmconnect + `SendInput`. | OpenSSH to the per-host harness key in `test/status/ssh/`. |
-| KVM | `virsh send-key` / `virsh screenshot`; mouse via VNC (libvirt). | Same. |
-| UTM | AXUI via accessibility events on the UTM app window; VNC fallback for some keys. | Same. |
+| Hyper-V | Batched PS/2 scancodes through `Msvm_Keyboard.TypeScancodes`; mouse via vmconnect + `SendInput`. | OpenSSH to the per-host harness key in `test/status/ssh/`. |
+| KVM | libvirt text chords / `virsh send-key` named keys / `virsh screenshot`; mouse input is not implemented. | Same. |
+| UTM | VNC first for keys and text, with AppleScript / CGEvent fallback; mouse via CGEvent. | Same. |
 
 The ssh variant of a sequence is a distinct `<name>.ssh.yml` file; the
 per-host driver routes the gui vs ssh backend.
@@ -1366,12 +1437,30 @@ I/O must qualify with `Test.SequenceEngine\` (e.g.
 `Start-VM` / `Stop-VM` / `Remove-VM` and any other contract export
 whose unqualified name collides with a platform cmdlet.
 
+
+<a id="428e4df6-003a"></a>
+
+## saveGuestClockSnapshot
+
+Collect two guest clock and CPU-accounting samples using the snapshot helper
+and an already proven SSH address. The required `phase` is
+`before-cpu-restart` or `after-cpu-restart`. Native ARM64 Hyper-V Linux guests
+use a five-second SSH wall budget; other hosts skip the action. Missing evidence
+and clock warnings are advisory, so the action does not fail the sequence.
+Ubuntu Server 26 places these captures before clean shutdown and after the
+existing SSH readiness or console login steps. `startVm` separately brackets
+the offline processor change with bounded host Hyper-V context.
+
+Raw text, parsed samples, and analysis are written under the guest's cycle
+artifact directory. See [guest evidence](system-diagnostic.md#423ef7f5-0014)
+for accounting rules, provenance, and preservation limits.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

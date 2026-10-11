@@ -4342,6 +4342,28 @@
         }
       }
     },
+    "runner.operator_d8507ccd68520716": {
+      "message": "  Earliest console frames saved: ./status/log/{cycleBase}/{destSeqName}/earliest/ ({count} frames from the start of this guest)",
+      "description": "Whole Write-Output message in test/modules/Test.RunnerInnerLoop.psm1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycleBase": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$cycleBase"
+        },
+        "destSeqName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$destSeqName"
+        },
+        "count": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$earliestCount"
+        }
+      }
+    },
     "runner.operator_144c4b5176e7c3c4": {
       "message": "Display sleep is already set to Never.",
       "description": "Whole Write-Information message in test/modules/Test.HostCondition.Mac.psm1; preserve command names, paths, codes, and argument boundaries.",
@@ -9212,6 +9234,38 @@
         }
       }
     },
+    "runner.operator_e653bdc981ca5464": {
+      "message": "  DHCP capture summary for {guestMac}: the guest sent {sent} packet(s), {replies} unicast reply(ies) reached it, {others} packet(s) came from {clients} other client(s)",
+      "description": "Whole Write-Output message in test/modules/Test.RunnerInnerLoop.psm1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "guestMac": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($dhcpSummary.guestMac)"
+        },
+        "sent": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($dhcpSummary.sentByGuest)"
+        },
+        "replies": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($dhcpSummary.unicastToGuest)"
+        },
+        "others": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($dhcpSummary.fromOtherClients)"
+        },
+        "clients": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($dhcpSummary.otherClients)"
+        }
+      }
+    },
     "runner.operator_42325e069d98407d": {
       "message": "[outer cycle {cycle}] poolStorage drain spawn error (non-fatal): {message}",
       "description": "Whole Write-Warning message in test/modules/Test.RunnerOuterLoop.psm1; preserve command names, paths, codes, and argument boundaries.",
@@ -11422,6 +11476,45 @@
           "type": "detail",
           "trust": "external",
           "example": "${TimeoutSeconds}"
+        }
+      }
+    },
+    "runner.operator_7e0c2dd4aa0c5981": {
+      "message": "      Hypervisor reports the guest livelocked: {detail}",
+      "description": "Whole Write-Warning message in test/modules/Test.SequenceEngine.psm1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($livelockVerdict.Detail)"
+        }
+      }
+    },
+    "runner.operator_6d4042dbe6943c27": {
+      "message": "Text '{patternLabel}' wait ended after ~{waited}s of {timeoutSeconds}s: the hypervisor reports the guest livelocked ({detail})",
+      "description": "Whole Write-Warning message in test/modules/Test.SequenceEngine.psm1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "patternLabel": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$patternLabel"
+        },
+        "waited": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${waited}"
+        },
+        "timeoutSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${TimeoutSeconds}"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($livelockVerdict.Detail)"
         }
       }
     },
@@ -19105,7 +19198,7 @@
       }
     },
     "runner.operator_966231fe730b28ff": {
-      "message": "Send-TextKvm: virsh send-key failed at char '{ch}' (codes={join}): {trim}",
+      "message": "Send-TextKvm: send-key failed at char '{ch}' (codes={join}): {trim}",
       "description": "Whole Write-Warning message in test/modules/Test.Transport.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -22113,6 +22206,38 @@
           "type": "detail",
           "trust": "external",
           "example": "$($secondOpinion.Detail)"
+        }
+      }
+    },
+    "runner.operator_33a0b7c1e1b2be21": {
+      "message": "{processors} virtual processor(s) at {guestPercent}% guest and {hypervisorPercent}% hypervisor run time with {interceptsPerSecond} intercepts/s, sustained for {seconds}s",
+      "description": "Livelock verdict detail built in test/modules/Test.HostSampling.psm1 and shown inside other operator warnings; preserve the units, the percent signs and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processors": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($result.VirtualProcessors)"
+        },
+        "guestPercent": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($result.GuestRunPercent)"
+        },
+        "hypervisorPercent": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($result.HypervisorRunPercent)"
+        },
+        "interceptsPerSecond": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($result.InterceptsPerSecond)"
+        },
+        "seconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($result.LivelockedSeconds)"
         }
       }
     },

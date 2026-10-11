@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,20 @@ $script:CrossRepoAst = [Management.Automation.Language.Parser]::ParseFile(
     $script:CrossRepoPath, [ref]$null, [ref]$null)
 $script:LintAst = [Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $script:RepoRoot 'tools/Invoke-Lint.ps1'), [ref]$null, [ref]$null)
+
+# The tests that call this read a sibling checkout itself. A workspace without
+# it has nothing for them to check, and that has to fail: skipped, a project or
+# a link map nobody read would count as passing its gates.
+function Confirm-SiblingCheckout {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateSet('yuruna-project', 'yuruna.link')][string[]]$Name)
+
+    foreach ($checkout in $Name) {
+        $path = Join-Path (Split-Path -Parent $script:RepoRoot) $checkout
+        Assert-True (Test-Path -LiteralPath $path -PathType Container) `
+            "the $checkout checkout has to sit beside this one; there is none at '$path'. Clone it there and run this suite again."
+    }
+}
 
 function Get-CrossRepoFunction {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
@@ -946,13 +960,17 @@ Describe 'the publisher validates the artifacts it is about to publish' {
     }
 
     It 'rejects a mismatched pair and records what it actually checked' {
-        $project = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
-        $linkMap = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna.link/yuruna.link.json'
-        if (-not (Test-Path -LiteralPath $project -PathType Container) -or
-            -not (Test-Path -LiteralPath $linkMap -PathType Leaf)) {
-            Set-ItResult -Skipped -Because 'the project and link-map support checkouts are not beside this tree'
-            return
-        }
+        # Both expected hashes are wrong by construction, so the pair has to
+        # be refused whatever the project holds. The project and the link map
+        # are written here for that reason: the case is the binding, and it
+        # has to be answered the same way in a workspace with no sibling
+        # checkout beside it.
+        $project = Join-Path $TestDrive 'mismatched-pair-project'
+        New-Item -ItemType Directory -Path $project -Force | Out-Null
+        $null = & git -C $project init --quiet 2>&1
+        Assert-Equal -Expected 0 -Actual $LASTEXITCODE 'could not initialize the project fixture'
+        $linkMap = Join-Path $TestDrive 'mismatched-pair-link-map.json'
+        [IO.File]::WriteAllText($linkMap, '[["fixture-doc","Fixture","https://example.com/fixture"]]')
         $evidence = Join-Path $TestDrive 'cross-repo-evidence.json'
         $result = Invoke-Gate -Script 'tools/Invoke-CrossRepoGate.ps1' -Arguments @(
             '-Release', '-ProjectRoot', $project, '-LinkMap', $linkMap,
@@ -1013,12 +1031,12 @@ Describe 'the generated artifacts match their sources' {
         # remembered to type the command.
         #
         # Exit 2 is "could not run" -- the sibling checkout is absent -- which
-        # is not a drift finding and must not be reported as one.
+        # is not a drift finding and must not be reported as one. It is not a
+        # skip either: six of the documents live in that checkout, and
+        # documents nobody compared would count as current.
+        Confirm-SiblingCheckout -Name 'yuruna-project'
         $result = Invoke-Gate -Script 'tools/Test-DocTranslation.ps1' -Arguments @('-Quiet')
-        if ($result.Code -eq 2) {
-            Set-ItResult -Skipped -Because 'the yuruna-project checkout this gate reads is not beside this one'
-            return
-        }
+        Assert-False ($result.Code -eq 2) "the document gate could not run:`n$($result.Output)"
         Assert-Equal -Expected 0 -Actual $result.Code `
             "a translated document has drifted from the English it was translated from:`n$($result.Output)"
     }
@@ -1030,12 +1048,13 @@ Describe 'the generated artifacts match their sources' {
         # that already crossed the boundary.
         #
         # Exit 2 is "a gate could not run" -- no project checkout, or a missing
-        # tool -- which is not a pass and must not be reported as one.
+        # tool -- which is not a pass and must not be reported as one. It is
+        # not a skip either: the gates are the subject here, and one that did
+        # not run has checked nothing.
+        Confirm-SiblingCheckout -Name 'yuruna-project', 'yuruna.link'
         $result = Invoke-Gate -Script 'tools/Invoke-CrossRepoGate.ps1' -Arguments @('-Quiet')
-        if ($result.Code -eq 2) {
-            Set-ItResult -Skipped -Because 'a cross-repository gate could not run on this host'
-            return
-        }
+        Assert-False ($result.Code -eq 2) `
+            "a cross-repository gate could not run on this host; its output names the gate and the repair:`n$($result.Output)"
         Assert-Equal -Expected 0 -Actual $result.Code `
             "a gate failed against the project repository:`n$($result.Output)"
     }
@@ -1045,11 +1064,12 @@ Describe 'the generated artifacts match their sources' {
         # the project passes, and reporting it as N/A with a reason is the
         # difference between coverage and the appearance of it.
         # An explicit mode keeps this run apart from the cached -Quiet run of the same tool, whose output omits the table when every gate passes.
+        #
+        # The table is printed whatever the gates in it answer, so only the
+        # project checkout is needed here: without one the tool stops before
+        # it has a table to print.
+        Confirm-SiblingCheckout -Name 'yuruna-project'
         $result = Invoke-Gate -Script 'tools/Invoke-CrossRepoGate.ps1' -Arguments @('-Mode', 'changed-domain')
-        if ($result.Code -eq 2) {
-            Set-ItResult -Skipped -Because 'a cross-repository gate could not run on this host'
-            return
-        }
         foreach ($gate in @('catalog-compile', 'perf-baseline', 'go-build')) {
             Assert-True ($result.Output -match [regex]::Escape($gate)) "the report does not mention $gate at all"
         }

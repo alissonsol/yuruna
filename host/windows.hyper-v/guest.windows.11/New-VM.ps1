@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -249,13 +249,19 @@ Set-VMHost -EnableEnhancedSessionMode $false
 # --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
+# --- REGION: Start Windows installer
+# Load the keyboard transport before powering on: console initialization can
+# outlast the DVD loader's brief keypress prompt.
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Transport.psm1') -DisableNameChecking
+Import-Module (Join-Path $repoRoot 'host/modules/Yuruna.WindowsInstaller.psm1') -DisableNameChecking
+Start-YurunaWindowsInstaller -VMName $VMName -StartVM {
+    Hyper-V\Start-VM -Name $VMName -ErrorAction Stop | Out-Null
+} -SendBootKey {
+    Test.Transport\Send-KeyHyperV -VMName $VMName -KeyName Space
+} -Confirm:$false
+
 # --- REGION: Guidance
-Write-Verbose "VM '$VMName' created and configured."
-Write-Verbose "The test runner will start the VM, open vmconnect, and send the"
-Write-Verbose "'Press any key to boot from CD/DVD' keystroke automatically."
-Write-Verbose "To start manually instead:"
-Write-Verbose "  Start-VM -Name '$VMName'"
-Write-Verbose "  vmconnect.exe localhost '$VMName'"
-Write-Verbose "  # Press any key in the vmconnect window within 5 seconds"
-Write-Verbose "The Windows installer will run automatically via autounattend.xml."
+Write-Verbose "VM '$VMName' created and started; the initial DVD boot key was sent automatically."
+Write-Verbose "The Windows installer runs unattended via autounattend.xml."
+Write-Verbose "To view the installation: vmconnect.exe localhost '$VMName'"
 Write-Verbose "Default credentials - username: ywuser1, password: password (must be changed on first login)"

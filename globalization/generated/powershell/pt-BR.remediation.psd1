@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 423016db-0df4-34b1-40de-ed496a3fd9c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,6 +133,7 @@
     )
     'remediation.operator_443019dfa8dbce7c' = 'Abra last-fetch-and-execute.log na pasta do ciclo'
     'remediation.operator_4fccd2ceaaf44c3a' = 'Inspecione project/test/test.runner.yml para identificar entradas duplicadas ou malformadas'
+    'remediation.operator_52e8af97f6901f58' = 'o comando preparado nunca foi executado, então a próxima tentativa não repete trabalho algum no convidado'
     'remediation.operator_54b0e080b8e528c6' = @(
         'plan_invalid no '
         @{
@@ -174,6 +175,7 @@
             'trust' = 'external'
         }
     )
+    'remediation.operator_6072d4a9739b1fee' = 'Repita a etapa: ela digita o comando novamente, desde o início, no mesmo convidado'
     'remediation.operator_6097b95aeee20519' = @(
         'No console da máquina, inspecione '
         @{
@@ -371,6 +373,15 @@
     )
     'remediation.operator_ae1a107543e2b1da' = 'registrar um manipulador via Register-RecoveryHandler'
     'remediation.operator_b0efdbb198fceec5' = 'Inspecione o default.psm1 + .contract.yml dessa área'
+    'remediation.operator_b40349f16bf6efc1' = @(
+        'input_lost no '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': o comando digitado nunca foi fechado no shell do convidado, portanto o payload não foi executado e nada do que ele faria está em questão. O convidado continua acessível, e o que falhou foi a entrada digitada, então repetir a etapa é seguro.'
+    )
     'remediation.operator_b4f9634c3488c4e9' = 'Classificar o modo de falha e considerar adicionar uma Classe de Falha ao verbo'
     'remediation.operator_b51fc0ab27411fec' = @(
         'dhcp_identity_unbounded on '

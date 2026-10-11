@@ -3,6 +3,14 @@
   "domain": "automation",
   "locale": "zh-CN",
   "messages": {
+    "automation.diagnostic_checkout_unavailable": {
+      "sourceHash": "ed5c11965d58f8769fe9ac82189b07c39cd138aa9d63506b313cff90fb8deba9",
+      "message": "（不适用：检出目录的证据不可用；请传入 -CheckoutRoot 以使用现有的 Yuruna 检出目录）"
+    },
+    "automation.diagnostic_phase_log_limits": {
+      "sourceHash": "39b412c7bea122f70dcf3038b9fcf7a0e7d1f8fe190f9ea593f00be7a4912b00",
+      "message": "阶段日志扫描最多读取 100 个文件、12 层目录，耗时不超过 10 秒；每个日志最多显示最后 64 KiB。"
+    },
     "automation.host_setup_module_install_skipped": {
       "sourceHash": "99384db4ce4de9b1be2c0e3fc659bdf71eaf1323f8ec54740c74c9a384e5065c",
       "origin": "machine",

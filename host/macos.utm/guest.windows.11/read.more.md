@@ -55,14 +55,16 @@ Three sourcing options:
   virtio-net-pci, intel-hda, clipboard.
 - Warns if the UTM Guest Tools ISO (`spice.iso`) is missing -- attach it
   manually after install (see 2.1), never during it.
+- Imports the bundle into UTM, starts it, and sends Space repeatedly during
+  the initial DVD boot prompt through QEMU's local VNC connection.
 
 ```
 pwsh ./New-VM.ps1                    # default windows11-01
 pwsh ./New-VM.ps1 -VMName myhost
 ```
 
-Double-click `<hostname>.utm` to import; the installer runs unattended
-via autounattend.xml.
+The installer starts automatically and runs unattended via
+`autounattend.xml`. Keyboard focus in the UTM window is not required.
 
 ### 2.1) Removing installer drives and installing UTM Guest Tools
 
@@ -142,7 +144,7 @@ UTM rejected the `config.plist`. Diagnose:
 
 ## Known limitations
 
-- ISO must be obtained manually (see 1 above).
+- If automatic ISO download fails, obtain it manually (see 1 above).
 - Remove the DVD drives after install.
 - VM is unactivated until a key is provided.
 - Virtual TPM 2.0 satisfies Windows 11's TPM requirement.
@@ -154,6 +156,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../../../README.md)

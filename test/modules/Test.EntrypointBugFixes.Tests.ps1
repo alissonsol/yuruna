@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 429891ae-9406-4583-9c31-a48225c4c40e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     (Resolve-Path -Path -> wildcard expansion; IsNullOrEmpty -> no ambiguity check),
     accepting a wildcard/multi-match project path. It must now delegate to
     Resolve-YurunaRootSet (-LiteralPath + Count ambiguity guard). Source-text only.
-    Runs under Pester 4.10.1.
+    Runs under Pester 5.x.
 #>
 
 BeforeAll {

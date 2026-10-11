@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,16 +67,13 @@ function Resolve-HostTag {
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
-# Shared squid download / TLS-bump stack -- single source of truth across host drivers.
-# The X509 chain-validation callback lives here verbatim; per-driver cache-host
-# discovery is injected via the -ResolveCacheHostIp scriptblock (see wrapper below).
+# --- REGION: Shared host modules
+# See https://yuruna.link/42ec97cd-0018
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
-# Download-agent client. The Get-Image hooks feature-detect its two functions by
-# name, so this import is what decides whether the agent path exists at all on
-# this host; without it the agent is silently never consulted.
+# Get-Image discovers the agent by name, so its import must be global.
+# See https://yuruna.link/42ec97cd-001a
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.DownloadAgent.psm1') -Force -DisableNameChecking -Global
-# Shared per-guest provisioning helpers (the New-VM.ps1 child-runner +
-# the Get-Image log-line writer) common to all three drivers.
+# See https://yuruna.link/42ec97cd-0017
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 # The GUI-session probe and the in-bundle utmctl path come from the macOS
 # host-condition module. -Global without -Force: a copy the host-condition
@@ -93,6 +90,7 @@ if (-not (Get-Command -Name 'Get-MacUtmctlBundlePath' -CommandType Function -Err
 }
 Remove-Variable -Name 'macSessionCommand' -ErrorAction SilentlyContinue
 # --- REGION: macOS/UTM host helpers
+# --- REGION: Remove-UtmBundleWithRetry
 function Remove-UtmBundleWithRetry {
     <#
     .SYNOPSIS
@@ -718,6 +716,7 @@ function Resolve-UtmctlExecutable {
 }
 
 # --- REGION: Port-map helpers
+# --- REGION: Start-CachingProxyServiceForwarder
 function Start-CachingProxyServiceForwarder {
     <#
     .SYNOPSIS
@@ -1114,6 +1113,7 @@ function Get-PortMapTarget {
 }
 
 # --- REGION: Caching-proxy service IP discovery
+# --- REGION: Resolve-CacheHostIp
 function Resolve-CacheHostIp {
     <#
     .SYNOPSIS
@@ -1390,6 +1390,7 @@ function Write-UtmDialogWatchdogIdentity {
 }
 
 # --- REGION: UTM VM lifecycle primitives
+# --- REGION: Confirm-UtmVMCreated
 function Confirm-UtmVMCreated {
     <#
     .SYNOPSIS
@@ -1688,13 +1689,11 @@ function Remove-UtmTestVM {
     if ($stop.OutcomeKnown -and $stop.ExitCode -eq 0 -and $stop.FailureKind -eq 'none') {
         Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_ad3787aa98e176ba' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
     }
-    # Confirm the VM is actually powered off (escalating to `utmctl stop --kill`
-    # if the soft stop stalls) and its qcow2/bundle handles are released BEFORE
-    # the deregistration -- otherwise the delete runs against a still-locked
-    # bundle. Wait-UtmVMPoweredOff drives the same kill-escalation + lock check
-    # the snapshot paths use.
+    # See https://yuruna.link/42e220c4-0004
+    # Confirm power-off and released disk locks before unregistering the bundle.
     if (-not (Wait-UtmVMPoweredOff -VMName $VMName)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_69569daab01168ea' -Arguments @{ vMName = "$VMName" })
+        return $false
     }
     if (-not (Remove-UtmVMRegistration -VMName $VMName -Confirm:$false)) {
         # Leaving the bundle on disk is the point. UTM deletes a VM by moving
@@ -1930,7 +1929,11 @@ function Invoke-UtmVMStartWithRetry {
 function Start-UtmVM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$VMName)
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        # Called after the VNC display is reserved, before UTM can power on.
+        [scriptblock]$BeforeLaunch
+    )
     $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (-not (Test-Path $utmBundle)) {
         # See https://yuruna.link/42e5cdfd-0003
@@ -1948,6 +1951,12 @@ function Start-UtmVM {
     }
     try {
         if ($PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_13ef318fcba6de6e'))) {
+            # New-VM can already have started the installer. Reusing that VM
+            # must not rewrite its active VNC configuration or clear vmstate.
+            if ((Get-VMStateRecord -VMName $VMName).State -eq 'running') {
+                if ($BeforeLaunch) { $null = & $BeforeLaunch }
+                return @{ success = $true; errorMessage = $null }
+            }
             $vmstatePath = Join-Path $utmBundle "Data/vmstate"
             if (Test-Path $vmstatePath) {
                 Remove-Item -LiteralPath $vmstatePath -Force -ErrorAction SilentlyContinue
@@ -1969,17 +1978,20 @@ function Start-UtmVM {
                 if (Set-VncDisplayInBundle -VMName $VMName -Display $wantDisplay -Confirm:$false) {
                     Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_645bdc6defb51655' -Arguments @{ vMName = "$VMName"; wantDisplay = "$wantDisplay"; wantDisplay2 = "$(5900 + $wantDisplay)" }) -InformationAction Continue
                 } else {
+                    if ($BeforeLaunch) {
+                        return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_d3e7833e5fc51e09' -Arguments @{ vMName = "$VMName" }) }
+                    }
                     # Not fatal on its own: the bundle may still hold a usable
                     # display. Say so, because a screenshot aimed at the stale
                     # port would otherwise capture another VM's framebuffer.
                     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d3e7833e5fc51e09' -Arguments @{ vMName = "$VMName" })
                 }
             }
+            if ($BeforeLaunch) { $null = & $BeforeLaunch }
             Start-UtmDialogWatchdog
             # Detached: `open` hands the bundle to UTM and returns, and UTM
             # must outlive this call, so only the acknowledgment is bounded.
             $null = Start-UtmDetachedLaunch -Tool 'open' -ArgumentList @($utmBundle) -Confirm:$false
-            Start-Sleep -Seconds 3
             # See https://yuruna.link/42e5cdfd-0003
             $start = Invoke-UtmVMStartWithRetry -VMName $VMName -Confirm:$false
             if (-not $start.success) {
@@ -4061,6 +4073,7 @@ function Get-UtmWindowScreenshot {
 }
 
 # --- REGION: VM lifecycle
+# --- REGION: New-VM
 function New-VM {
     <#
     .SYNOPSIS
@@ -4075,37 +4088,26 @@ function New-VM {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VMName,
         [string]$CachingProxyServiceUrl,
-        # Planner-cascaded username override; forwarded only when the
-        # per-guest script declares -Username (introspected below).
+        # Forward bound overrides only when the per-guest script declares them.
+        # See https://yuruna.link/42ec97cd-0017
         [string]$Username,
-        # Planner-cascaded guest hostname (variables.hostname); same
-        # declare-or-drop forwarding rule as -Username.
         [string]$Hostname,
-        # Planner-cascaded VM sizing (variables.memoryStartupBytes /
-        # variables.cores); same declare-or-drop forwarding rule as -Username.
         [string]$MemoryStartupBytes,
         [string]$Cores,
-        # Planner-cascaded nested-virtualization request
-        # (variables.exposeVirtualizationExtensions); same declare-or-drop
-        # forwarding rule as -Username. Declared for host-contract parity: no
-        # UTM guest script consumes it today (Apple's Virtualization framework
-        # offers no per-VM nested-virtualization knob), so the dispatcher
-        # drops it on the Verbose stream.
+        # UTM currently has no per-VM nested-virtualization setting.
         [string]$ExposeVirtualizationExtensions
     )
-    # Thin wrapper over the shared per-guest runner; the host subdir is the
-    # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores/
-    # -ExposeVirtualizationExtensions
-    # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
+    # Preserve bound overrides and -WhatIf/-Confirm in the shared runner.
+    # See https://yuruna.link/42ec97cd-0017
     Invoke-PerGuestNewVm -HostSubdir 'host/macos.utm' @PSBoundParameters
 }
 
-<#
-.SYNOPSIS
-    Start a guest VM previously created by New-VM.
-#>
+# --- REGION: Start-VM
 function Start-VM {
+    <#
+    .SYNOPSIS
+        Start a guest VM previously created by New-VM.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -4113,11 +4115,12 @@ function Start-VM {
     return Start-UtmVM -VMName $VMName -Confirm:$false
 }
 
-<#
-.SYNOPSIS
-    Stop a running guest VM (graceful by default; -Force uses Stop-VMForce).
-#>
+# --- REGION: Stop-VM
 function Stop-VM {
+    <#
+    .SYNOPSIS
+        Stop a running guest VM (graceful by default; -Force uses Stop-VMForce).
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -4129,27 +4132,28 @@ function Stop-VM {
     return [bool](Stop-UtmVM -VMName $VMName -Confirm:$false)
 }
 
-<#
-.SYNOPSIS
-    Force-stop a UTM VM via `utmctl stop --kill`, bounded by -StopTimeoutSeconds.
-.DESCRIPTION
-    --kill hard-kills the VM process instead of sending the power-off event,
-    so the qcow2 write lock is released without waiting on an ACPI shutdown
-    that a busy or mid-reboot guest may ignore. The whole call is bounded by
-    -StopTimeoutSeconds (and by -Deadline when one is given). $true only for
-    a call that completed, exited 0 and printed no Apple Event failure:
-    utmctl exits 0 on a denial, so the exit code alone would report a kill
-    that never reached UTM.
-.PARAMETER StopTimeoutSeconds
-    Cap for the whole call, clamped to 1..600. The dialog-watchdog stop that
-    precedes the kill gets a short slice of it -- two seconds at most, half
-    the cap at most -- and the kill the whole seconds that remain, never
-    fewer than one: a kill that is never attempted helps nobody, so the call
-    can end up to a fraction of a second past the cap, not twice the cap.
-.PARAMETER Deadline
-    Optional shared deadline (New-YurunaDeadline).
-#>
+# --- REGION: Stop-VMForce
 function Stop-VMForce {
+    <#
+    .SYNOPSIS
+        Force-stop a UTM VM via `utmctl stop --kill`, bounded by -StopTimeoutSeconds.
+    .DESCRIPTION
+        --kill hard-kills the VM process instead of sending the power-off event,
+        so the qcow2 write lock is released without waiting on an ACPI shutdown
+        that a busy or mid-reboot guest may ignore. The whole call is bounded by
+        -StopTimeoutSeconds (and by -Deadline when one is given). $true only for
+        a call that completed, exited 0 and printed no Apple Event failure:
+        utmctl exits 0 on a denial, so the exit code alone would report a kill
+        that never reached UTM.
+    .PARAMETER StopTimeoutSeconds
+        Cap for the whole call, clamped to 1..600. The dialog-watchdog stop that
+        precedes the kill gets a short slice of it -- two seconds at most, half
+        the cap at most -- and the kill the whole seconds that remain, never
+        fewer than one: a kill that is never attempted helps nobody, so the call
+        can end up to a fraction of a second past the cap, not twice the cap.
+    .PARAMETER Deadline
+        Optional shared deadline (New-YurunaDeadline).
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -4166,11 +4170,12 @@ function Stop-VMForce {
     return [bool]($kill.OutcomeKnown -and $kill.ExitCode -eq 0 -and $kill.FailureKind -eq 'none')
 }
 
-<#
-.SYNOPSIS
-    Remove a guest VM and its on-disk artifacts.
-#>
+# --- REGION: Remove-VM
 function Remove-VM {
+    <#
+    .SYNOPSIS
+        Remove a guest VM and its on-disk artifacts.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -4178,38 +4183,39 @@ function Remove-VM {
     return [bool](Remove-UtmTestVM -VMName $VMName -Confirm:$false)
 }
 
-<#
-.SYNOPSIS
-    Return the names of every VM registered with UTM, optionally filtered
-    to those starting with one of $Prefix.
-.DESCRIPTION
-    Host-neutral inventory call (see the contract's VM inventory block).
-    Every VM UTM knows about is returned regardless of run state, so a
-    caller sweeping by prefix removes stopped leftovers as well as
-    running ones.
-
-    THROWS when utmctl cannot reach UTM.app rather than returning an
-    empty list. utmctl exits 0 and prints its error to stderr when Apple
-    Events are denied (OSStatus -1743, typical from an SSH session or a
-    process without Automation access), when a request times out (-1712),
-    and for other Apple Event faults besides -- so an exit-code check alone
-    reads "cannot ask" as "nothing registered". A sweep that accepted that
-    empty list would report a clean host, and the orphan-file pass behind
-    it would delete bundles UTM still has registered.
-
-    Matched on ANY Apple Event wording the driver recognizes -- any OSStatus
-    code, a denial, a timeout, an SSH session -- rather than an enumerated
-    few. The set that can appear here is open, the consequence of missing one
-    is deleting a VM's disk, and there is no OSStatus value whose correct
-    reading is "believe the empty list". A listing that did not finish
-    draining or was cut at the capture cap is incomplete and throws too.
-.PARAMETER Prefix
-    Zero or more name prefixes. A VM is returned when its name starts
-    with any of them. Omit (or pass none) to return every VM.
-.OUTPUTS
-    [string[]] matching VM names; empty when none match.
-#>
+# --- REGION: Get-VMName
 function Get-VMName {
+    <#
+    .SYNOPSIS
+        Return the names of every VM registered with UTM, optionally filtered
+        to those starting with one of $Prefix.
+    .DESCRIPTION
+        Host-neutral inventory call (see the contract's VM inventory block).
+        Every VM UTM knows about is returned regardless of run state, so a
+        caller sweeping by prefix removes stopped leftovers as well as
+        running ones.
+
+        THROWS when utmctl cannot reach UTM.app rather than returning an
+        empty list. utmctl exits 0 and prints its error to stderr when Apple
+        Events are denied (OSStatus -1743, typical from an SSH session or a
+        process without Automation access), when a request times out (-1712),
+        and for other Apple Event faults besides -- so an exit-code check alone
+        reads "cannot ask" as "nothing registered". A sweep that accepted that
+        empty list would report a clean host, and the orphan-file pass behind
+        it would delete bundles UTM still has registered.
+
+        Matched on ANY Apple Event wording the driver recognizes -- any OSStatus
+        code, a denial, a timeout, an SSH session -- rather than an enumerated
+        few. The set that can appear here is open, the consequence of missing one
+        is deleting a VM's disk, and there is no OSStatus value whose correct
+        reading is "believe the empty list". A listing that did not finish
+        draining or was cut at the capture cap is incomplete and throws too.
+    .PARAMETER Prefix
+        Zero or more name prefixes. A VM is returned when its name starts
+        with any of them. Omit (or pass none) to return every VM.
+    .OUTPUTS
+        [string[]] matching VM names; empty when none match.
+    #>
     [CmdletBinding()]
     [OutputType([string[]])]
     param([string[]]$Prefix)
@@ -4233,24 +4239,25 @@ function Get-VMName {
     return Select-NameByPrefix -Name @($parsed.Row | ForEach-Object { $_.Name }) -Prefix $Prefix
 }
 
-<#
-.SYNOPSIS
-    Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
-.DESCRIPTION
-    'unknown' covers everything that is not a positively recognized answer:
-    no utmctl on PATH or in the UTM bundle, a launch failure, a timeout, a
-    denied Apple Event, "does not work from SSH", output that did not finish
-    draining, or any other unrecognized answer. Only a completed response
-    that names the VM as not found is 'absent'. Callers treat 'absent' as
-    license to build or reuse a name (Start-CachingProxyServiceVM.ps1,
-    Debug-TestSequence.ps1, Test.Orchestrator, Test.SnapshotManifest,
-    Rename-VM's preconditions, Remove-UtmVMRegistration) and
-    Restore-YurunaServiceVM treats it as "not built on this host" -- a probe
-    UTM merely refused to answer must never produce that, least of all on a
-    host whose UTM has stopped answering. Get-VMStateRecord returns the same
-    answer with its reason.
-#>
+# --- REGION: Get-VMState
 function Get-VMState {
+    <#
+    .SYNOPSIS
+        Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
+    .DESCRIPTION
+        'unknown' covers everything that is not a positively recognized answer:
+        no utmctl on PATH or in the UTM bundle, a launch failure, a timeout, a
+        denied Apple Event, "does not work from SSH", output that did not finish
+        draining, or any other unrecognized answer. Only a completed response
+        that names the VM as not found is 'absent'. Callers treat 'absent' as
+        license to build or reuse a name (Start-CachingProxyServiceVM.ps1,
+        Debug-TestSequence.ps1, Test.Orchestrator, Test.SnapshotManifest,
+        Rename-VM's preconditions, Remove-UtmVMRegistration) and
+        Restore-YurunaServiceVM treats it as "not built on this host" -- a probe
+        UTM merely refused to answer must never produce that, least of all on a
+        host whose UTM has stopped answering. Get-VMStateRecord returns the same
+        answer with its reason.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -4309,60 +4316,61 @@ function Get-VMStateRecord {
     }
 }
 
-<#
-.SYNOPSIS
-    Bounded, structured probe of UTM's control channel (record v1).
-.DESCRIPTION
-    Evaluated in order, each step bounded by the probe's own deadline (the
-    smaller of -TimeoutSeconds and what -Deadline has left):
-      1. utmctl on PATH or in the UTM bundle; none -> Undetermined/missing-client.
-      2. the GUI session; anything but Aqua -> Undetermined/no-session, and
-         utmctl is not invoked (from SSH it can only fail, or hang on a
-         consent dialog nobody can see).
-      3. the same-user UTM process census, with no Apple Event; positively
-         no UTM and no helper -> Unresponsive/app-stopped, and utmctl is not
-         invoked (an Apple Event to a UTM that is not running launches it).
-      4. `utmctl list`: a recognized listing -> Responsive; Apple Event
-         denial (-1743) -> Undetermined/permission-denied; an SSH refusal ->
-         no-session; another OSStatus failure -> provider-error; output not
-         fully drained or cut at the cap -> invalid-response even at exit 0;
-         anything unrecognized -> invalid-response; a cap hit or -1712 -> a
-         timeout candidate.
-    A timeout is not, by itself, evidence that UTM is hung: an unanswered
-    Automation consent dialog blocks the sender and looks exactly like one.
-    Without -Corroborate a timeout is Undetermined/timeout. With
-    -Corroborate the probe waits out -DialogWindowSeconds, re-reads the
-    process census, and probes once more; only a second timeout, with UTM
-    positively still running, no Apple Event denial, and this process's
-    Automation subject among -RecordedAutomationSubject, is
-    Unresponsive/timeout with corroborated=$true. A later denial, a missing
-    session or an unclassified answer on the second probe invalidates the
-    first. When the deadline cannot fit the window plus one probe the result
-    stays Undetermined/timeout.
-
-    Read-only: never writes, never repairs the utmctl link, never throws.
-    Diagnostic text goes only to the private 'diagnostic' field.
-.PARAMETER TimeoutSeconds
-    Cap for each utmctl call.
-.PARAMETER Deadline
-    Optional shared deadline (New-YurunaDeadline).
-.PARAMETER Corroborate
-    Qualify a timeout as described above.
-.PARAMETER DialogWindowSeconds
-    How long a consent dialog is given to be answered before the second probe.
-.PARAMETER RecordedAutomationSubject
-    Automation subjects previously seen to complete a responsive round trip.
-.PARAMETER IncludeInventory
-    With a Responsive result, attach the parsed listing as 'inventory'.
-.OUTPUTS
-    [pscustomobject] PSTypeName 'Yuruna.VirtualizationProbe': schemaVersion,
-    hostType, state, reason, started, timedOut, deadlineExhausted,
-    corroborated, observedUtc, observedTick, elapsedMs, evidence
-    {utmctlSource; sessionKind; appState; automationGrant; exitCode;
-    drainTimedOut; outputTruncated}, diagnostic, automationSubject,
-    inventory.
-#>
+# --- REGION: Test-VirtualizationResponsive
 function Test-VirtualizationResponsive {
+    <#
+    .SYNOPSIS
+        Bounded, structured probe of UTM's control channel (record v1).
+    .DESCRIPTION
+        Evaluated in order, each step bounded by the probe's own deadline (the
+        smaller of -TimeoutSeconds and what -Deadline has left):
+          1. utmctl on PATH or in the UTM bundle; none -> Undetermined/missing-client.
+          2. the GUI session; anything but Aqua -> Undetermined/no-session, and
+             utmctl is not invoked (from SSH it can only fail, or hang on a
+             consent dialog nobody can see).
+          3. the same-user UTM process census, with no Apple Event; positively
+             no UTM and no helper -> Unresponsive/app-stopped, and utmctl is not
+             invoked (an Apple Event to a UTM that is not running launches it).
+          4. `utmctl list`: a recognized listing -> Responsive; Apple Event
+             denial (-1743) -> Undetermined/permission-denied; an SSH refusal ->
+             no-session; another OSStatus failure -> provider-error; output not
+             fully drained or cut at the cap -> invalid-response even at exit 0;
+             anything unrecognized -> invalid-response; a cap hit or -1712 -> a
+             timeout candidate.
+        A timeout is not, by itself, evidence that UTM is hung: an unanswered
+        Automation consent dialog blocks the sender and looks exactly like one.
+        Without -Corroborate a timeout is Undetermined/timeout. With
+        -Corroborate the probe waits out -DialogWindowSeconds, re-reads the
+        process census, and probes once more; only a second timeout, with UTM
+        positively still running, no Apple Event denial, and this process's
+        Automation subject among -RecordedAutomationSubject, is
+        Unresponsive/timeout with corroborated=$true. A later denial, a missing
+        session or an unclassified answer on the second probe invalidates the
+        first. When the deadline cannot fit the window plus one probe the result
+        stays Undetermined/timeout.
+
+        Read-only: never writes, never repairs the utmctl link, never throws.
+        Diagnostic text goes only to the private 'diagnostic' field.
+    .PARAMETER TimeoutSeconds
+        Cap for each utmctl call.
+    .PARAMETER Deadline
+        Optional shared deadline (New-YurunaDeadline).
+    .PARAMETER Corroborate
+        Qualify a timeout as described above.
+    .PARAMETER DialogWindowSeconds
+        How long a consent dialog is given to be answered before the second probe.
+    .PARAMETER RecordedAutomationSubject
+        Automation subjects previously seen to complete a responsive round trip.
+    .PARAMETER IncludeInventory
+        With a Responsive result, attach the parsed listing as 'inventory'.
+    .OUTPUTS
+        [pscustomobject] PSTypeName 'Yuruna.VirtualizationProbe': schemaVersion,
+        hostType, state, reason, started, timedOut, deadlineExhausted,
+        corroborated, observedUtc, observedTick, elapsedMs, evidence
+        {utmctlSource; sessionKind; appState; automationGrant; exitCode;
+        drainTimedOut; outputTruncated}, diagnostic, automationSubject,
+        inventory.
+    #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
@@ -4481,37 +4489,38 @@ function Test-VirtualizationResponsive {
     }
 }
 
-<#
-.SYNOPSIS
-    Launch UTM for this user only when it is positively not running (the
-    start-if-stopped repair for macOS), result record v1.
-.DESCRIPTION
-    Runs its own detection immediately before acting and never trusts an
-    earlier probe: a GUI (Aqua) session, a known non-root uid, and a
-    same-user process census that shows neither UTM nor its helpers. UTM
-    already running for this user is 'already-running'; anything that cannot
-    be established refuses and launches nothing. The launch is
-    Start-UtmApplication -RequireGuiSession, whose outcomes map as
-    launched -> started, already-running -> already-running, launch-failed
-    -> failed, not-observed -> unknown, refused -> refused.
-
-    Under -WhatIf only the bounded read-only detection runs and the outcome
-    is 'preview'. Never prompts and never throws. -DependentVMName is
-    accepted for the shared signature; UTM has no separate network service
-    for it to decide on.
-.PARAMETER TimeoutSeconds
-    Budget for detection plus the launch wait.
-.PARAMETER Deadline
-    Optional shared deadline (New-YurunaDeadline).
-.PARAMETER DependentVMName
-    Guests whose restoration depends on this hypervisor; unused on macOS.
-.OUTPUTS
-    [pscustomobject] PSTypeName 'Yuruna.VirtualizationStartResult':
-    schemaVersion, hostType, outcome ('started' | 'already-running' |
-    'refused' | 'failed' | 'unknown' | 'unavailable' | 'preview'), reason,
-    layout ('not-applicable'), actions [object[]], observedUtc, elapsedMs.
-#>
+# --- REGION: Start-VirtualizationServiceIfStopped
 function Start-VirtualizationServiceIfStopped {
+    <#
+    .SYNOPSIS
+        Launch UTM for this user only when it is positively not running (the
+        start-if-stopped repair for macOS), result record v1.
+    .DESCRIPTION
+        Runs its own detection immediately before acting and never trusts an
+        earlier probe: a GUI (Aqua) session, a known non-root uid, and a
+        same-user process census that shows neither UTM nor its helpers. UTM
+        already running for this user is 'already-running'; anything that cannot
+        be established refuses and launches nothing. The launch is
+        Start-UtmApplication -RequireGuiSession, whose outcomes map as
+        launched -> started, already-running -> already-running, launch-failed
+        -> failed, not-observed -> unknown, refused -> refused.
+
+        Under -WhatIf only the bounded read-only detection runs and the outcome
+        is 'preview'. Never prompts and never throws. -DependentVMName is
+        accepted for the shared signature; UTM has no separate network service
+        for it to decide on.
+    .PARAMETER TimeoutSeconds
+        Budget for detection plus the launch wait.
+    .PARAMETER Deadline
+        Optional shared deadline (New-YurunaDeadline).
+    .PARAMETER DependentVMName
+        Guests whose restoration depends on this hypervisor; unused on macOS.
+    .OUTPUTS
+        [pscustomobject] PSTypeName 'Yuruna.VirtualizationStartResult':
+        schemaVersion, hostType, outcome ('started' | 'already-running' |
+        'refused' | 'failed' | 'unknown' | 'unavailable' | 'preview'), reason,
+        layout ('not-applicable'), actions [object[]], observedUtc, elapsedMs.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
     param(
@@ -4742,59 +4751,60 @@ function Resume-YurunaServiceVM {
     return $failed.ToArray()
 }
 
-<#
-.SYNOPSIS
-    Rename a stopped UTM VM by editing its .utm bundle and UTM's Registry
-    plist while UTM.app is quit.
-.DESCRIPTION
-    UTM exposes no rename verb in utmctl, and macOS 26 builds mark the
-    AppleScript `name` property of `virtual machine` as read-only
-    (osascript fails with -10006). The reliable workaround is on-disk
-    surgery while UTM is offline:
-
-      1. Quit UTM.app through Stop-UtmApplication (UTM and its QEMUHelper
-         children, this user only) so cfprefsd flushes the in-memory
-         Registry to its plist on disk, then flush cfprefsd's cache so our
-         subsequent edits aren't clobbered.
-      2. Rename `<guest.nosync>/<VMName>.utm` -> `<guest.nosync>/<NewName>.utm`.
-         The qcow2 disks (including snapshots written by Save-VMDiskSnapshot)
-         move with the bundle.
-      3. PlistBuddy: set `:Information:Name` in the new bundle's
-         config.plist to NewName.
-      4. PlistBuddy: set `:Registry:<UUID>:Name` and
-         `:Registry:<UUID>:Package:Path` inside
-         `~/Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist`.
-      5. Relaunch through Start-UtmApplication, flushing cfprefsd first so
-         UTM re-reads our edited plist.
-      6. Resume the service VMs that step 1 took down (see below), then poll
-         until the new name surfaces.
-
-    Step 1 is not free for the rest of the host. UTM saves the state of
-    every VM still running as it terminates, so any service VM that was up
-    -- the caching proxy, the stash service, pool-control -- returns as
-    `suspended` and stays there. Guests consume those services for the
-    whole cycle, so the running set is captured before the quit and
-    resumed after the relaunch, exactly once on every path out of this
-    function that follows the quit. The capture must be a listing that was
-    actually read: when it cannot be read, UTM is not quit at all, because
-    quitting with an empty capture would strand every service suspended.
-    Services are resumed only after a CONFIRMED relaunch (the launch was
-    acknowledged and UTM observed for this user); an unconfirmed relaunch
-    names the services left suspended and the commands that resume them.
-
-    The stop passes -AllowHardStop: UTM and helpers that ignore the quit
-    are signaled, UTM first and helpers last, each identity revalidated
-    right before its signal. A stop that still is not confirmed ends the
-    rename before any edit.
-
-    The Package.Bookmark blob is left untouched: macOS file bookmarks
-    resolve via catalog inode + volume UUID, so a directory rename within
-    the same volume continues to resolve to the new path.
-
-    Requires the VM to be stopped (UTM holds an exclusive lock on the
-    bundle while running). Caller (Save-VMDiskSnapshot) handles the stop.
-#>
+# --- REGION: Rename-VM
 function Rename-VM {
+    <#
+    .SYNOPSIS
+        Rename a stopped UTM VM by editing its .utm bundle and UTM's Registry
+        plist while UTM.app is quit.
+    .DESCRIPTION
+        UTM exposes no rename verb in utmctl, and macOS 26 builds mark the
+        AppleScript `name` property of `virtual machine` as read-only
+        (osascript fails with -10006). The reliable workaround is on-disk
+        surgery while UTM is offline:
+
+          1. Quit UTM.app through Stop-UtmApplication (UTM and its QEMUHelper
+             children, this user only) so cfprefsd flushes the in-memory
+             Registry to its plist on disk, then flush cfprefsd's cache so our
+             subsequent edits aren't clobbered.
+          2. Rename `<guest.nosync>/<VMName>.utm` -> `<guest.nosync>/<NewName>.utm`.
+             The qcow2 disks (including snapshots written by Save-VMDiskSnapshot)
+             move with the bundle.
+          3. PlistBuddy: set `:Information:Name` in the new bundle's
+             config.plist to NewName.
+          4. PlistBuddy: set `:Registry:<UUID>:Name` and
+             `:Registry:<UUID>:Package:Path` inside
+             `~/Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist`.
+          5. Relaunch through Start-UtmApplication, flushing cfprefsd first so
+             UTM re-reads our edited plist.
+          6. Resume the service VMs that step 1 took down (see below), then poll
+             until the new name surfaces.
+
+        Step 1 is not free for the rest of the host. UTM saves the state of
+        every VM still running as it terminates, so any service VM that was up
+        -- the caching proxy, the stash service, pool-control -- returns as
+        `suspended` and stays there. Guests consume those services for the
+        whole cycle, so the running set is captured before the quit and
+        resumed after the relaunch, exactly once on every path out of this
+        function that follows the quit. The capture must be a listing that was
+        actually read: when it cannot be read, UTM is not quit at all, because
+        quitting with an empty capture would strand every service suspended.
+        Services are resumed only after a CONFIRMED relaunch (the launch was
+        acknowledged and UTM observed for this user); an unconfirmed relaunch
+        names the services left suspended and the commands that resume them.
+
+        The stop passes -AllowHardStop: UTM and helpers that ignore the quit
+        are signaled, UTM first and helpers last, each identity revalidated
+        right before its signal. A stop that still is not confirmed ends the
+        rename before any edit.
+
+        The Package.Bookmark blob is left untouched: macOS file bookmarks
+        resolve via catalog inode + volume UUID, so a directory rename within
+        the same volume continues to resolve to the new path.
+
+        Requires the VM to be stopped (UTM holds an exclusive lock on the
+        bundle while running). Caller (Save-VMDiskSnapshot) handles the stop.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -5051,6 +5061,7 @@ function Test-UtmDiskHasSnapshot {
     return [bool]([regex]::IsMatch($probe.StdOut, '(?m)^\s*\d+\s+' + [regex]::Escape($Id) + '\s'))
 }
 
+# --- REGION: Save-VMDiskSnapshot
 function Save-VMDiskSnapshot {
     <# .SYNOPSIS
         Creates a snapshot on every stopped UTM bundle disk.
@@ -5105,15 +5116,16 @@ function Save-VMDiskSnapshot {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Returns $true when snapshot $Id is present on every qcow2 disk of
-    the UTM bundle for $VMName. False on missing bundle, missing
-    qemu-img, or any disk lacking the snapshot. Used by Debug-TestSequence's
-    requiresSnapshot warm-path probe before deciding whether to walk
-    the baseline chain.
-#>
+# --- REGION: Test-VMDiskSnapshot
 function Test-VMDiskSnapshot {
+    <#
+    .SYNOPSIS
+        Returns $true when snapshot $Id is present on every qcow2 disk of
+        the UTM bundle for $VMName. False on missing bundle, missing
+        qemu-img, or any disk lacking the snapshot. Used by Debug-TestSequence's
+        requiresSnapshot warm-path probe before deciding whether to walk
+        the baseline chain.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -5131,6 +5143,7 @@ function Test-VMDiskSnapshot {
     return $true
 }
 
+# --- REGION: Restore-VMDiskSnapshot
 function Restore-VMDiskSnapshot {
     <#
     .SYNOPSIS
@@ -5185,11 +5198,12 @@ function Restore-VMDiskSnapshot {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Returns true when a console window is open for the given VM.
-#>
+# --- REGION: Test-VMConsoleOpen
 function Test-VMConsoleOpen {
+    <#
+    .SYNOPSIS
+        Returns true when a console window is open for the given VM.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -5200,11 +5214,12 @@ function Test-VMConsoleOpen {
     return [bool](Get-Process -Name 'UTM' -ErrorAction SilentlyContinue)
 }
 
-<#
-.SYNOPSIS
-    Refresh or re-open the host-side console window for the given VM.
-#>
+# --- REGION: Restart-VMConsole
 function Restart-VMConsole {
+    <#
+    .SYNOPSIS
+        Refresh or re-open the host-side console window for the given VM.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -5213,6 +5228,7 @@ function Restart-VMConsole {
 }
 
 # --- REGION: Image
+# --- REGION: Get-Image
 function Get-Image {
     <#
     .SYNOPSIS
@@ -5233,11 +5249,12 @@ function Get-Image {
     Invoke-GetImage -HostSubdir 'host/macos.utm' -ResolveImagePath (Get-Command Get-ImagePath) @PSBoundParameters
 }
 
-<#
-.SYNOPSIS
-    Return the expected on-disk path of the base image for a guest.
-#>
+# --- REGION: Get-ImagePath
 function Get-ImagePath {
+    <#
+    .SYNOPSIS
+        Return the expected on-disk path of the base image for a guest.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$GuestKey)
@@ -5256,6 +5273,7 @@ function Get-ImagePath {
 }
 
 # --- REGION: VM I/O
+# --- REGION: Send-Text
 function Send-Text {
     <#
     .SYNOPSIS
@@ -5303,11 +5321,12 @@ function Send-Text {
     return $false
 }
 
-<#
-.SYNOPSIS
-    Send a named key to the guest VM via gui or ssh mechanism.
-#>
+# --- REGION: Send-Key
 function Send-Key {
+    <#
+    .SYNOPSIS
+        Send a named key to the guest VM via gui or ssh mechanism.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -5334,11 +5353,12 @@ function Send-Key {
     return $false
 }
 
-<#
-.SYNOPSIS
-    Send a mouse click at the given pixel coordinate.
-#>
+# --- REGION: Send-Click
 function Send-Click {
+    <#
+    .SYNOPSIS
+        Send a mouse click at the given pixel coordinate.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -5350,11 +5370,12 @@ function Send-Click {
     return $false
 }
 
-<#
-.SYNOPSIS
-    Capture a PNG of the VM display from frame or window source.
-#>
+# --- REGION: Get-VMScreenshot
 function Get-VMScreenshot {
+    <#
+    .SYNOPSIS
+        Capture a PNG of the VM display from frame or window source.
+    #>
     [CmdletBinding()]
     [OutputType([object])]
     param(
@@ -5373,11 +5394,12 @@ function Get-VMScreenshot {
     return Get-UtmScreenshot -VMName $VMName -OutputPath $OutFile
 }
 
-<#
-.SYNOPSIS
-    Return a host-specific handle for the VM console window.
-#>
+# --- REGION: Get-VMConsoleHandle
 function Get-VMConsoleHandle {
+    <#
+    .SYNOPSIS
+        Return a host-specific handle for the VM console window.
+    #>
     [CmdletBinding()]
     [OutputType([object])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -5542,6 +5564,7 @@ function Get-VMConsoleSecondOpinion {
 }
 
 # --- REGION: Discovery
+# --- REGION: Wait-VMIp
 function Wait-VMIp {
     <#
     .SYNOPSIS
@@ -5562,45 +5585,46 @@ function Wait-VMIp {
     Invoke-WaitVmIp @PSBoundParameters -ResolveVmIp (Get-Command Get-VMIp)
 }
 
-<#
-.SYNOPSIS
-    Return the guest's host-side IPv4, or null if not yet discoverable.
-
-.DESCRIPTION
-    Three rungs, cheapest first. Each answers for a different class of
-    guest, and the order is part of the contract: a rung runs only when
-    every rung above it declined, so a Shared-NAT guest -- which the lease
-    file answers for in milliseconds -- never pays for the LAN sweep a
-    bridged guest needs.
-
-      1. utmctl ip-address -- the guest's own report, via qemu-guest-agent.
-         Free when it answers and silent for every guest this repo seeds,
-         because the seeds do not install the agent.
-      2. /var/db/dhcpd_leases -- the lease file of the macOS SHARED-NAT
-         DHCP server. Authoritative for a Shared guest, and structurally
-         blind to a bridged one, which leases from the LAN router and
-         never appears in it.
-      3. The bundle's MAC in the host ARP table. The only rung that can see
-         a bridged guest, and the reason this chain has three rungs: with
-         just the first two, a healthy bridged guest serving traffic is
-         indistinguishable from a VM that does not exist, and every caller
-         waits out its whole budget against $null.
-
-    Each decline is narrated to the verbose stream naming the rung and why
-    it could not answer. Three sources that all return $null otherwise
-    report "no address yet" in exactly the same words as "no such VM",
-    which is the difference between a 30-second diagnosis and a 30-minute
-    one when a run is examined afterwards.
-
-    Safe to call from a polling loop, which is what rung 3 is shaped
-    around. A guest that is up and has exchanged traffic with the host
-    answers from the ARP table in well under a second; a guest that is
-    not running is declined for the cost of one state query; and the ICMP
-    sweep -- the only part measured in seconds -- runs at most once per
-    minute per VM, so no caller can turn its poll interval into a sweep
-    interval.
-#>
+# --- REGION: Get-VMIp
 function Get-VMIp {
+    <#
+    .SYNOPSIS
+        Return the guest's host-side IPv4, or null if not yet discoverable.
+
+    .DESCRIPTION
+        Three rungs, cheapest first. Each answers for a different class of
+        guest, and the order is part of the contract: a rung runs only when
+        every rung above it declined, so a Shared-NAT guest -- which the lease
+        file answers for in milliseconds -- never pays for the LAN sweep a
+        bridged guest needs.
+
+          1. utmctl ip-address -- the guest's own report, via qemu-guest-agent.
+             Free when it answers and silent for every guest this repo seeds,
+             because the seeds do not install the agent.
+          2. /var/db/dhcpd_leases -- the lease file of the macOS SHARED-NAT
+             DHCP server. Authoritative for a Shared guest, and structurally
+             blind to a bridged one, which leases from the LAN router and
+             never appears in it.
+          3. The bundle's MAC in the host ARP table. The only rung that can see
+             a bridged guest, and the reason this chain has three rungs: with
+             just the first two, a healthy bridged guest serving traffic is
+             indistinguishable from a VM that does not exist, and every caller
+             waits out its whole budget against $null.
+
+        Each decline is narrated to the verbose stream naming the rung and why
+        it could not answer. Three sources that all return $null otherwise
+        report "no address yet" in exactly the same words as "no such VM",
+        which is the difference between a 30-second diagnosis and a 30-minute
+        one when a run is examined afterwards.
+
+        Safe to call from a polling loop, which is what rung 3 is shaped
+        around. A guest that is up and has exchanged traffic with the host
+        answers from the ARP table in well under a second; a guest that is
+        not running is declined for the cost of one state query; and the ICMP
+        sweep -- the only part measured in seconds -- runs at most once per
+        minute per VM, so no caller can turn its poll interval into a sweep
+        interval.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -5882,15 +5906,16 @@ function Get-UtmBridgedGuestIp {
     return $null
 }
 
-<#
-.SYNOPSIS
-    Return the guest's MAC address, or null if not available.
-.DESCRIPTION
-    utmctl exposes no MAC, so the bundle is the source: it is where UTM
-    records the address the VM boots with, and it is readable whether or
-    not the VM is running.
-#>
+# --- REGION: Get-VMMac
 function Get-VMMac {
+    <#
+    .SYNOPSIS
+        Return the guest's MAC address, or null if not available.
+    .DESCRIPTION
+        utmctl exposes no MAC, so the bundle is the source: it is where UTM
+        records the address the VM boots with, and it is readable whether or
+        not the VM is running.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -5907,19 +5932,20 @@ function Get-VMMac {
     return ([string]$bundleNetwork.MacAddress).ToUpperInvariant()
 }
 
-<#
-.SYNOPSIS
-    Refresh the host neighbor cache so a passive MAC lookup can succeed.
-.DESCRIPTION
-    Contract verb, and deliberately a no-op here. This driver's bridged rung
-    already escalates to its own ICMP sweep from inside Get-VMIp, where the
-    cooldown memo and the running-state check bound it. Sweeping again from
-    outside would duplicate that work while bypassing both guards, so the
-    honest implementation is to decline and say why.
-.PARAMETER VMName
-    Accepted for contract symmetry; unused.
-#>
+# --- REGION: Update-GuestNeighborCache
 function Update-GuestNeighborCache {
+    <#
+    .SYNOPSIS
+        Refresh the host neighbor cache so a passive MAC lookup can succeed.
+    .DESCRIPTION
+        Contract verb, and deliberately a no-op here. This driver's bridged rung
+        already escalates to its own ICMP sweep from inside Get-VMIp, where the
+        cooldown memo and the running-state check bound it. Sweeping again from
+        outside would duplicate that work while bypassing both guards, so the
+        honest implementation is to decline and say why.
+    .PARAMETER VMName
+        Accepted for contract symmetry; unused.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -6515,6 +6541,7 @@ function Resolve-UtmGuestIpByMac {
 }
 
 # --- REGION: Networking
+# --- REGION: Get-ExternalNetwork
 function Get-ExternalNetwork {
     <#
     .SYNOPSIS
@@ -6576,11 +6603,12 @@ function Test-MacUplinkNotBridgeable {
     return ($wifiDevices -contains $iface)
 }
 
-<#
-.SYNOPSIS
-    Create the host-side External-type vSwitch or network if missing.
-#>
+# --- REGION: New-ExternalNetwork
 function New-ExternalNetwork {
+    <#
+    .SYNOPSIS
+        Create the host-side External-type vSwitch or network if missing.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param()
@@ -6588,33 +6616,30 @@ function New-ExternalNetwork {
     return 'vmnet-shared'
 }
 
-<#
-.SYNOPSIS
-    Returns true if the caching-proxy-service VM is on an External-type network.
-.DESCRIPTION
-    On macOS the cache VM is built with UTM's QEMU bridged networking on
-    an Ethernet default route (see
-    host/macos.utm/guest.caching-proxy-service/config.plist.template; Wi-Fi
-    hosts fall back to Shared NAT + host forwarders), so it
-    rides the host's physical LAN with its own DHCP-assigned IP. That
-    is the macOS analog of Hyper-V's Yuruna-External vSwitch path: the
-    caller's "no host portproxy needed" fast path applies unconditionally
-    on this host. VMName is accepted for cross-host parity (Hyper-V
-    consults Get-VMNetworkAdapter); we never look at the VM here.
-#>
+# --- REGION: Test-CacheVMOnExternalNetwork
 function Test-CacheVMOnExternalNetwork {
+    <#
+    .SYNOPSIS
+        Returns true if the caching-proxy-service VM is on an External-type network.
+    .DESCRIPTION
+        Inspect the built VM's network attachment. Shared NAT needs host
+        forwarders even when the host's current default route is Ethernet.
+        Missing or unreadable bundle configuration cannot prove LAN access.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$VMName = 'yuruna-caching-proxy-service')
-    Write-Debug "Test-CacheVMOnExternalNetwork on host.macos.utm: returning `$true for '$VMName' (cache VM is QEMU-bridged to the host's physical NIC)."
-    return $true
+    # See https://yuruna.link/42e220c4-0004
+    $network = Get-UtmBundleNetwork -VMName $VMName
+    return [bool]($network -and $network.Readable -and $network.Mode -eq 'Bridged')
 }
 
-<#
-.SYNOPSIS
-    Install host to VM port forwarders for the caching-proxy service.
-#>
+# --- REGION: Add-PortMap
 function Add-PortMap {
+    <#
+    .SYNOPSIS
+        Install host to VM port forwarders for the caching-proxy service.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -6672,11 +6697,12 @@ function Add-PortMap {
     return ($attempted -gt 0 -and $launched.Count -eq $attempted)
 }
 
-<#
-.SYNOPSIS
-    Tear down all yuruna caching-proxy-service port forwarders.
-#>
+# --- REGION: Remove-PortMap
 function Remove-PortMap {
+    <#
+    .SYNOPSIS
+        Tear down all yuruna caching-proxy-service port forwarders.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
@@ -6685,11 +6711,12 @@ function Remove-PortMap {
     return (@($stopped | Where-Object { $_ }).Count -gt 0)
 }
 
-<#
-.SYNOPSIS
-    Return the host's best LAN-routable IPv4 for browser-facing URLs.
-#>
+# --- REGION: Get-BestHostIp
 function Get-BestHostIp {
+    <#
+    .SYNOPSIS
+        Return the host's best LAN-routable IPv4 for browser-facing URLs.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -6785,36 +6812,37 @@ function Resolve-UtmNetworkMode {
     return 'Bridged'
 }
 
-<#
-.SYNOPSIS
-    Returns the host IP a UTM guest reaches the host at, for the network mode
-    that guest is attached to.
-
-.DESCRIPTION
-    On Apple Virtualization shared NAT -- the mode every install guest uses,
-    and the default here -- guests always reach the host at 192.168.64.1, the
-    VZ gateway IP set by the framework and not configurable per VM.
-
-    A Bridged guest sits on the LAN instead and cannot reach that gateway at
-    all, so it reaches the host at the host's own LAN address. Callers that
-    build Bridged VMs (the service VMs, via Resolve-UtmNetworkMode) must pass
-    -NetworkMode Bridged or they bake an address the guest cannot route to.
-    Returns $null when Bridged is asked for and the host has no LAN address:
-    there is no correct answer to fall back to, and an empty value makes the
-    caller degrade honestly rather than bake the wrong gateway.
-
-.PARAMETER SwitchName
-    Accepted for cross-host contract parity (Hyper-V uses it to choose
-    Default Switch vs. External vSwitch); unused on macOS.
-
-.PARAMETER NetworkMode
-    The mode the consuming guest is attached to. Defaults to 'Shared', which
-    is what every caller that does not build a Bridged VM wants.
-
-.OUTPUTS
-    [string] the VZ gateway address, the host's LAN IPv4, or $null.
-#>
+# --- REGION: Get-GuestReachableHostIp
 function Get-GuestReachableHostIp {
+    <#
+    .SYNOPSIS
+        Returns the host IP a UTM guest reaches the host at, for the network mode
+        that guest is attached to.
+
+    .DESCRIPTION
+        On Apple Virtualization shared NAT -- the mode every install guest uses,
+        and the default here -- guests always reach the host at 192.168.64.1, the
+        VZ gateway IP set by the framework and not configurable per VM.
+
+        A Bridged guest sits on the LAN instead and cannot reach that gateway at
+        all, so it reaches the host at the host's own LAN address. Callers that
+        build Bridged VMs (the service VMs, via Resolve-UtmNetworkMode) must pass
+        -NetworkMode Bridged or they bake an address the guest cannot route to.
+        Returns $null when Bridged is asked for and the host has no LAN address:
+        there is no correct answer to fall back to, and an empty value makes the
+        caller degrade honestly rather than bake the wrong gateway.
+
+    .PARAMETER SwitchName
+        Accepted for cross-host contract parity (Hyper-V uses it to choose
+        Default Switch vs. External vSwitch); unused on macOS.
+
+    .PARAMETER NetworkMode
+        The mode the consuming guest is attached to. Defaults to 'Shared', which
+        is what every caller that does not build a Bridged VM wants.
+
+    .OUTPUTS
+        [string] the VZ gateway address, the host's LAN IPv4, or $null.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -6834,6 +6862,7 @@ function Get-GuestReachableHostIp {
 }
 
 # --- REGION: Caching-proxy service
+# --- REGION: Get-HostLanPrefix
 function Get-HostLanPrefix {
     <#
     .SYNOPSIS
@@ -6867,56 +6896,50 @@ function Get-HostLanPrefix {
     return ($matches[1] + '.')
 }
 
-<#
-.SYNOPSIS
-    Probe and return the caching-proxy-service URL, or null if none is reachable.
-.DESCRIPTION
-    Discovery is intentionally narrow -- only caches this host owns,
-    or a remote cache the operator explicitly named, are returned:
-      1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote cache override.
-      2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
-         LAN IP written by Start-CachingProxyServiceVM.ps1 Step 4 (our own VM).
-
-    No LAN scan, no ARP discovery. The previous /24 subnet scan would
-    happily lock onto a sibling host's yuruna-caching-proxy-service on the same
-    LAN and even persist its IP back into the state file, so Stop-
-    CachingProxyService could not actually take the local host out of the
-    "cache available" state when a peer was still serving on :3128.
-    LAN-wide cache discovery is a separate future feature.
-
-    Returns the cache VM's LAN URL directly -- no host-side forwarder
-    layer to fail in between, no VZ-gateway URL gymnastics. This is the
-    macOS equivalent of the Hyper-V Yuruna-External vSwitch path: squid
-    sees real client IPs at TCP level, remote operators set
-    YURUNA_CACHING_PROXY_SERVICE_IP=<cache-lan-ip> and reach the cache directly,
-    and other UTM guests on shared-NAT reach the LAN IP through the
-    VMnet outbound NAT (same path they use to reach Ubuntu mirrors).
-#>
+# --- REGION: Test-CachingProxyServiceAvailable
 function Test-CachingProxyServiceAvailable {
+    <#
+    .SYNOPSIS
+        Probe and return the caching-proxy-service URL, or null if none is reachable.
+    .DESCRIPTION
+        Discovery is intentionally narrow -- only caches this host owns,
+        or a remote cache the operator explicitly named, are returned:
+          1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote cache override.
+          2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
+             LAN IP written by Start-CachingProxyServiceVM.ps1 Step 4 (our own VM).
+
+        No LAN scan, no ARP discovery. The previous /24 subnet scan would
+        happily lock onto a sibling host's yuruna-caching-proxy-service on the same
+        LAN and even persist its IP back into the state file, so Stop-
+        CachingProxyService could not actually take the local host out of the
+        "cache available" state when a peer was still serving on :3128.
+        LAN-wide cache discovery is a separate future feature.
+
+        Returns the cache VM's LAN URL directly -- no host-side forwarder
+        layer to fail in between, no VZ-gateway URL gymnastics. This is the
+        macOS equivalent of the Hyper-V Yuruna-External vSwitch path: squid
+        sees real client IPs at TCP level, remote operators set
+        YURUNA_CACHING_PROXY_SERVICE_IP=<cache-lan-ip> and reach the cache directly,
+        and other UTM guests on shared-NAT reach the LAN IP through the
+        VMnet outbound NAT (same path they use to reach Ubuntu mirrors).
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([switch]$Quiet)
-    # Thin wrapper over the shared probe; the only platform variable is the
-    # operator verify-command template embedded in the unreachable-cache
-    # warning (nc on macOS). The kvm driver keeps its own probe (it omits
-    # Format-IpUrlHost's IPv6 bracketing the guests rely on). -Quiet drops the
-    # "no cache" diagnostics to verbose for callers that only decorate with a
-    # cache URL when one exists.
+    # Keep platform-specific verification advice in the shared discovery probe.
+    # See https://yuruna.link/42e220c4-0004
     Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'nc -G 2 -z {0} {1}' -Quiet:$Quiet
 }
 
-<#
-.SYNOPSIS
-    Return the cache VM's LAN IP, or $null when none is recorded yet.
-.DESCRIPTION
-    With Apple Virtualization bridged networking the cache VM gets its
-    own DHCP-assigned LAN IP (no VZ-gateway indirection), so the URL
-    Test-CachingProxyServiceAvailable returns already carries the real IP. This
-    helper exists for callers that want JUST the IP (status service's
-    portproxy IP target on Windows; on macOS the result feeds into
-    summary lines and YURUNA_CACHING_PROXY_SERVICE_IP hints).
-#>
+# --- REGION: Get-CachingProxyServiceVmIp
 function Get-CachingProxyServiceVmIp {
+    <#
+    .SYNOPSIS
+        Return the cache VM's recorded IPv4, or $null when none is valid.
+    .DESCRIPTION
+        The saved guest address is the port-forwarder target for Shared NAT
+        and remains useful for directly bridged guests.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -6926,6 +6949,7 @@ function Get-CachingProxyServiceVmIp {
 }
 
 # --- REGION: Host config
+# --- REGION: Set-HostProxy
 function Set-HostProxy {
     <#
     .SYNOPSIS
@@ -6954,11 +6978,12 @@ function Set-HostProxy {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Restore the host proxy from the saved backup, or disable if none.
-#>
+# --- REGION: Clear-HostProxy
 function Clear-HostProxy {
+    <#
+    .SYNOPSIS
+        Restore the host proxy from the saved backup, or disable if none.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
@@ -6981,11 +7006,12 @@ function Clear-HostProxy {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Aggressively wipe every host-proxy reference and the backup file.
-#>
+# --- REGION: Remove-HostProxy
 function Remove-HostProxy {
+    <#
+    .SYNOPSIS
+        Aggressively wipe every host-proxy reference and the backup file.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([string]$NetworkService)
@@ -7023,22 +7049,24 @@ function Remove-HostProxy {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Return the path of the host-proxy backup JSON.
-#>
+# --- REGION: Get-HostProxyBackupPath
 function Get-HostProxyBackupPath {
+    <#
+    .SYNOPSIS
+        Return the path of the host-proxy backup JSON.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
     return Yuruna.Common\Get-HostProxyBackupPath
 }
 
-<#
-.SYNOPSIS
-    Returns true if the host hypervisor is installed and ready.
-#>
+# --- REGION: Assert-Virtualization
 function Assert-Virtualization {
+    <#
+    .SYNOPSIS
+        Returns true if the host hypervisor is installed and ready.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param()
@@ -7049,7 +7077,7 @@ function Assert-Virtualization {
     return [bool](Test-Path '/Applications/UTM.app')
 }
 
-# --- REGION: Exports
+# --- REGION: Write-UtmBundleConfiguration
 function Write-UtmBundleConfiguration {
     <#
     .SYNOPSIS
@@ -7077,6 +7105,7 @@ function Write-UtmBundleConfiguration {
     Write-Verbose "config.plist validated OK: $path"
 }
 
+# --- REGION: New-UtmServiceBundleConfiguration
 function New-UtmServiceBundleConfiguration {
     <#
     .SYNOPSIS
@@ -7103,6 +7132,7 @@ function New-UtmServiceBundleConfiguration {
     Write-UtmBundleConfiguration -TemplatePath $TemplatePath -BundlePath $BundlePath -Replacement $values -NetworkMode $NetworkMode -BridgeInterface $bridge -Confirm:$false
 }
 
+# --- REGION: Exports
 Export-ModuleMember -Function Write-UtmBundleConfiguration, New-UtmServiceBundleConfiguration, Get-MacDefaultRouteInterface, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
@@ -7152,13 +7182,8 @@ $null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' `
     'Test-VirtualizationResponsive','Start-VirtualizationServiceIfStopped'
 )
 
-# Load-time guard for the cache-download wrapper precedence. The image helpers
-# (Save-ImageWithChecksum / Save-UbuntuServerImage) feature-detect Save-CachedHttpUri
-# BY NAME and invoke it with only -Uri/-OutFile, so this driver's 2-param wrapper
-# must win the command-table slot over the shared 3-param
-# Yuruna.HostDownload\Save-CachedHttpUri. If an import-order change flips that
-# precedence the cache-discovery closure is dropped and downloads silently bypass
-# the squid cache (direct, no error) -- surface that regression loudly here.
+# The driver wrapper must retain cache discovery when shared modules load.
+# See https://yuruna.link/42e220c4-0003
 $__yurunaCacheDownloadCmd = Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue
 if (-not $__yurunaCacheDownloadCmd) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_9cd70c93af7ab7e6')

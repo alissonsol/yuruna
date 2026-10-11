@@ -121,6 +121,7 @@ const DataheILremediation = `{
   ],
   "remediation.operator_443019dfa8dbce7c": "פתחו את ⁦last-fetch-and-execute.log⁩ שבתיקיית המחזור",
   "remediation.operator_4fccd2ceaaf44c3a": "בדקו אם יש ב-project⁦/test/test.runner.yml⁩ רשומות כפולות או פגומות",
+  "remediation.operator_52e8af97f6901f58": "הפקודה המוכנה מעולם לא רצה, ולכן הניסיון הבא לא יחזור על שום עבודה באורח",
   "remediation.operator_54b0e080b8e528c6": [
     "plan_invalid אצל ",
     {
@@ -162,6 +163,7 @@ const DataheILremediation = `{
       "trust": "external"
     }
   ],
+  "remediation.operator_6072d4a9739b1fee": "הרץ את השלב שוב: הוא יקליד את הפקודה מחדש מההתחלה על אותו אורח",
   "remediation.operator_6097b95aeee20519": [
     "במסוף המארח, בדקו את ",
     {
@@ -358,6 +360,15 @@ const DataheILremediation = `{
   ],
   "remediation.operator_ae1a107543e2b1da": "רשמו מטפל באמצעות ⁦Register-RecoveryHandler⁩",
   "remediation.operator_b0efdbb198fceec5": "בדקו את ⁦default.psm1⁩ + .⁦contract.yml⁩ של תחום זה",
+  "remediation.operator_b40349f16bf6efc1": [
+    "input_lost אצל ",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": הפקודה שהוקלדה מעולם לא נסגרה בתוך ה-shell של האורח, ולכן ה-payload לא הורץ, ואין שאלה לגבי מה שהיה אמור לבצע. האורח עדיין נגיש, והקלט שהוקלד הוא שנכשל, ולכן הרצה חוזרת של השלב בטוחה."
+  ],
   "remediation.operator_b4f9634c3488c4e9": "סווגו את אופן הכשל ושקלו להוסיף FailureClass לפועל הפקודה",
   "remediation.operator_b51fc0ab27411fec": [
     "dhcp_identity_unbounded אצל ",

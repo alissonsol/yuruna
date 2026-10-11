@@ -28,9 +28,9 @@ pwsh ./New-VM.ps1                   # default hostname
 pwsh ./New-VM.ps1 -VMName myhost
 ```
 
-Double-click `HOSTNAME.utm` in `~/yuruna/guest.nosync/` to
-import and start. At `Press any key to boot from CD or DVD`, press one.
-Installer runs unattended (~15 min).
+The script imports `HOSTNAME.utm` into UTM, starts the VM, and sends the
+initial DVD boot key through its local VNC connection. The installer runs
+unattended (~15 min); the UTM window does not need keyboard focus.
 
 After install:
 
@@ -70,6 +70,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../../../README.md)

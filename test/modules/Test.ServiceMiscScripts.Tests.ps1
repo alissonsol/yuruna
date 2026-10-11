@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 424533be-1c51-4584-9728-27ea5064d2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -613,11 +613,7 @@ function Resolve-LifecycleScript {
 
 function Get-ScriptAst {
     param([string]$Path)
-    Assert-True (Test-Path -LiteralPath $Path) "script exists: $Path"
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($Path): $($errs[0].Message)" }
-    return $ast
+    return Get-YurunaTestFileAst -Path $Path
 }
 
 # Names of every .Method(...) / [Type]::Method(...) invocation in the tree (AST

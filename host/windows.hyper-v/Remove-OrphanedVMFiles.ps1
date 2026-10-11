@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 420effcb-c2e1-4c95-b3b0-ddb550aecce4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -291,6 +291,7 @@ if ($protectedFiles.Count -gt 0) {
 }
 
 # --- REGION: Strip stale per-VM ACEs from kept base images
+$errors = 0
 # See https://yuruna.link/429f3d06-0093
 # Runs every invocation, before the deletion prompt -- safe maintenance that
 # only removes access for VMs that no longer exist.
@@ -302,13 +303,14 @@ foreach ($filePath in $protectedFiles) {
         }
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a2a687435a04d1fc' -Arguments @{ filePath = "$filePath"; value = "$_" })
+        $errors++
     }
 }
 
 # --- REGION: Delete orphaned VM artifacts
 if ($orphanedFiles.Count -eq 0) {
     Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_516e847dc1888e9f')
-    exit 0
+    exit ([int]($errors -gt 0))
 }
 
 Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_bda747e61af2936d')
@@ -334,11 +336,10 @@ if ($Force) {
     $confirmation = Read-Host (Format-YurunaOperatorMessage -Key 'host.operator_67b2df91dc3bcc59')
     if ($confirmation -ne "YES") {
         Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_ac15f0cb601d9a5f')
-        exit 0
+        exit ([int]($errors -gt 0))
     }
 }
 
-$errors = 0
 foreach ($filePath in $orphanedFiles) {
     try {
         Remove-Item -LiteralPath $filePath -Force -ErrorAction Stop
@@ -380,3 +381,4 @@ if ($errors -eq 0) {
 } else {
     Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_42dbc0a404948dc9' -Arguments @{ errors = "$errors" })
 }
+exit ([int]($errors -gt 0))

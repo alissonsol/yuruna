@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4241d9f0-ad34-48bf-acbd-de2cff3f7bf7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@
 .DESCRIPTION
     Behavioral tests for Get-YurunaHostId (Test.YurunaDir); AST guards for the
     create-exclusive Move and for the atomic config-rewrite routing in
-    Test.ConfigSync. The throw-free Should assertions run under Pester 4.10.1.
+    Test.ConfigSync. The throw-free Should assertions run under Pester 5.x.
 #>
 
 BeforeAll {

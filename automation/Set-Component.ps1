@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 422b5978-3d42-4072-9818-eeacacbe29ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,35 +54,38 @@ param (
     [string]$logLevel='Error'
 )
 
-# logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+# --- REGION: Log level
+# See https://yuruna.link/42e220c4-0019
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
-# Resolve yuruna/project/config roots (+ Env:) before evicting Yuruna.* -- the resolver
-# lives in the Yuruna.LogLevel leaf imported above, which the eviction then sweeps up.
+# --- REGION: Resolve roots
+# See https://yuruna.link/42e220c4-0019
 $roots = Resolve-YurunaRootSet -ScriptRoot $PSScriptRoot -ProjectRoot $project_root -ConfigSubfolder $config_subfolder
 if (-not $roots) {
-    # `exit 1`, never `return $false`: a bare `return` at script scope leaves the
-    # PROCESS exit code at 0, and the guest wrappers run this entrypoint under
-    # `set -euo pipefail` -- a zero exit reads as "built" and the sequence marches
-    # on. Same contract as Complete-YurunaRun's failure tail.
+    # A missing prerequisite must return a nonzero process exit.
     Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_d040472089a90429')
     exit 1
 }
 $yuruna_root = $roots.YurunaRoot
 $project_root = $roots.ProjectRoot
-# The transcript path is decided here, beside the root set and before the
-# Yuruna.* eviction sweeps up the leaf that resolves it. A caller can name
-# the file it will read afterwards; see Resolve-YurunaTranscriptPath.
+# --- REGION: Transcript path
+# See https://yuruna.link/42e220c4-0019
 $transcriptFileName = Resolve-YurunaTranscriptPath
+# --- REGION: Import operation modules
 Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $componentsModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Component.psm1"
 Import-Module -Name $componentsModulePath -Force
 
+# --- REGION: Start transcript
 $null = Start-Transcript $transcriptFileName
 
+# --- REGION: Run operation
 $result = Publish-ComponentList $project_root $config_subfolder
 
+# --- REGION: Stop transcript
 $null = Stop-Transcript
+
+# --- REGION: Completion
 Complete-YurunaRun -Result $result -TranscriptFile $transcriptFileName

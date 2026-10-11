@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42059317-b175-4928-938e-8776d088f5e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -312,10 +312,13 @@ Describe 'Invoke-YurunaHostScript' {
     }
 
     It 'refuses an Administrator-only target instead of letting the child die on its #requires' {
-        if (-not ($IsWindows -and -not (Test-IsAdministrator))) {
-            Set-ItResult -Skipped -Because 'requires a non-elevated Windows session'
+        if (-not $IsWindows) {
+            Set-ItResult -Skipped -Because 'the refusal exists on Windows only; elsewhere the per-host scripts ask for sudo themselves'
             return
         }
+        # The module's own answer about elevation is replaced, so the refusal
+        # is exercised from an elevated session as well as from a plain one.
+        Mock Test-IsAdministrator -ModuleName Yuruna.HostRedirect { $false }
         $fx = New-RedirectFixture
         $startLocation = (Get-Location).Path
         try {

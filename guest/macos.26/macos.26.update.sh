@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.04
+# Version: 2026.10.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -51,7 +51,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
   else
     tr -d '\r' < "$PWSH_TMP/hashes.sha256" > "$PWSH_TMP/hashes.norm"
   fi
-  PS_WANT=$(LC_ALL=C awk -v p="$PKG_NAME" '$2 == p || $2 == "*" p {print $1; exit}' "$PWSH_TMP/hashes.norm")
+  PS_WANT=$(LC_ALL=C awk -v p="$PKG_NAME" '$2 == p || $2 == "*" p {print $1; exit}' "$PWSH_TMP/hashes.norm" | tr 'A-F' 'a-f')
   PS_GOT=$(shasum -a 256 "$PKG_PATH" | awk '{print $1}')
   if [[ ! "$PS_WANT" =~ ^[0-9a-fA-F]{64}$ ]] || [[ "$PS_GOT" != "$PS_WANT" ]]; then
     echo "PowerShell package checksum verification failed for $PKG_NAME" >&2
@@ -73,13 +73,10 @@ for attempt in 1 2 3; do
   echo "powershell-yaml install attempt $attempt failed"
   [ $attempt -lt 3 ] && sleep 60
 done
-sudo pwsh -NoProfile -Command "Import-Module powershell-yaml; ConvertFrom-Yaml 'k: v' | Out-Null"
+sudo pwsh -NoProfile -Command "\$ErrorActionPreference = 'Stop'; Import-Module powershell-yaml -ErrorAction Stop; if ((ConvertFrom-Yaml 'k: v').k -cne 'v') { throw 'powershell-yaml smoke check failed' }"
 
-# The retry lib's host probe, restated with curl because macOS has no wget and
-# this script loads no lib: four 2s asks, 3s apart. The host status service
-# answers one request at a time, so a single ask that lands behind a slow
-# request reads as a dead host. Every request to the host goes --noproxy: it is
-# on the LAN, whatever proxy the guest's other downloads use.
+# See https://yuruna.link/4220a755-004d
+# Match the retry library's four spaced host probes; LAN requests bypass proxies.
 yuruna_host_livecheck() {
     local livecheck_url="http://${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}/livecheck"
     local rounds=4 gap=3 round=1
@@ -102,7 +99,15 @@ yuruna_host_livecheck() {
 echo ""
 echo -e "\e[1;36m==== Early yuruna framework extraction ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(dscl . -read "/Users/$REAL_USER" NFSHomeDirectory | awk '/^NFSHomeDirectory:/ {print $2}')
+# Account home paths can contain spaces; strip only Directory Services' key.
+REAL_HOME=$(dscl . -read "/Users/$REAL_USER" NFSHomeDirectory | sed -n 's/^NFSHomeDirectory: //p')
+case "$REAL_HOME" in
+  /*) ;;
+  *) echo "Cannot resolve an absolute home directory for $REAL_USER." >&2; exit 1 ;;
+esac
+# macOS accounts commonly use staff rather than a same-named private group.
+REAL_GROUP=$(id -gn "$REAL_USER")
+[ -n "$REAL_GROUP" ] || { echo "Cannot resolve the primary group for $REAL_USER." >&2; exit 1; }
 if [ -r /etc/yuruna/host.env ]; then
   # shellcheck disable=SC1091
   . /etc/yuruna/host.env
@@ -113,8 +118,8 @@ if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:
     mkdir -p "$REAL_HOME/yuruna"
     # --- REGION: https://yuruna.link/42e220c4-0005
     if curl -fsSL --noproxy '*' --connect-timeout 30 --speed-limit 1024 --speed-time 60 \
-         "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
-      sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
+         "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
+      sudo chown -R "$REAL_USER:$REAL_GROUP" "$REAL_HOME/yuruna" 2>/dev/null || true
       echo -e "\e[1;32m---- Yuruna framework available at $REAL_HOME/yuruna (early extract). ----\e[0m"
     else
       rm -rf "$REAL_HOME/yuruna"
@@ -151,13 +156,17 @@ if ! xcode-select -p >/dev/null 2>&1; then
   PROD=$(softwareupdate -l 2>/dev/null \
     | grep -E 'Label: Command Line Tools' \
     | tail -1 \
-    | sed -E 's/.*Label: //')
+    | sed -E 's/.*Label: //' || true)
   if [ -n "$PROD" ]; then
     sudo softwareupdate -i "$PROD" --verbose --agree-to-license || true
   fi
   sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
 fi
-xcode-select -p || true
+if ! xcode-select -p; then
+  echo 'Command Line Developer Tools are unavailable; Git cannot run noninteractively.' >&2
+  exit 1
+fi
+git --version
 
 # --- REGION: Resolve framework and project URLs
 # See https://yuruna.link/42fa6f45-000c
@@ -193,7 +202,7 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
       if curl -fsSL --noproxy '*' --connect-timeout 30 --speed-limit 1024 --speed-time 60 \
-           "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
+           "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
         HOST_OK=true
       else
         echo "yuruna: tarball fetch/extract failed - falling back to git clone"
@@ -207,12 +216,12 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       exit 1
     fi
     for attempt in 1 2 3; do
-      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ] && break
       echo "git clone attempt $attempt failed"
       rm -rf "$REAL_HOME/yuruna"
       [ $attempt -lt 3 ] && sleep 60
     done
-    if [ ! -d "$REAL_HOME/yuruna" ]; then
+    if [ ! -f "$REAL_HOME/yuruna/VERSION" ] || [ ! -s "$REAL_HOME/yuruna/VERSION" ]; then
       echo "git clone failed after 3 attempts" >&2
       exit 1
     fi
@@ -253,8 +262,9 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
   fi
 fi
 
+# --- REGION: Restore operator file ownership
 # Tarball extraction and any sudo'd cleanup may have left root-owned files.
-sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
+sudo chown -R "$REAL_USER:$REAL_GROUP" "$REAL_HOME/yuruna" 2>/dev/null || true
 
 echo ""
 # --- REGION: https://yuruna.link/42e220c4-0005

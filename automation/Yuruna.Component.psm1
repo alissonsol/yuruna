@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42eaea7b-b54f-495c-bbdc-838c8758fced
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,7 +46,7 @@ function Publish-ComponentList {
 
     # Split the inner scriptblock's pipeline: hashtables become the manifest
     # (via $state, which the ForEach-Object child scope can mutate), and every
-    # other line routes to the host via Out-Default so replayed phase output
+    # other line routes to the host via Out-Default so phase output
     # cannot array-wrap the manifest returned to callers.
     # --- REGION: https://yuruna.link/42d69dfa-003d
     $state = @{ manifest = $null }
@@ -78,8 +78,8 @@ function Publish-ComponentList {
     }
 
     # Verbatim to env (-NoExpand): layering is done at the YAML level.
-    Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -NoExpand -EmitDebug
-    Set-ExpandedVariableHashtable -Variables $componentsYaml.globalVariables -NoExpand -DebugLabel 'globalVariables'
+    Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -NoExpand
+    Set-ExpandedVariableHashtable -Variables $componentsYaml.globalVariables -NoExpand
 
     $componentsPath = Join-Path -Path $project_root -ChildPath "components/"
 
@@ -95,41 +95,179 @@ function Publish-ComponentList {
     Remove-Item -LiteralPath $dockerLogFile -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $dockerRcFile  -Force -ErrorAction SilentlyContinue
 
-    function Invoke-ComponentCommand {
-        # Run a build-pipeline command, capture all streams into the per-
-        # environment docker.stderr.log with a "== [$Phase] <cmd> (exit=N)
-        # ==" header, rewrite docker.rc with the latest exit code, and
-        # replay the captured output onto the parent stdout so the test
-        # runner's transcript still shows what docker did. Sets the global
-        # $LASTEXITCODE so the caller's `if (-Not (0 -eq $LASTEXITCODE))`
-        # checks see this phase's exit code.
-        param([string]$Phase, [string]$Command, [switch]$Sensitive)
-        $out = Invoke-DynamicExpression -Command $Command *>&1
-        # Pure-PowerShell command sequences (no native exe in the chain)
-        # leave $LASTEXITCODE at its prior value -- $null in a freshly-
-        # started pwsh process. The caller's `if (-Not (0 -eq $LASTEXITCODE))`
-        # then evaluates `0 -eq $null` to $false and treats the phase as a
-        # tool failure. Coerce so "no native command ran" reads as success.
-        $rc  = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-        $loggedCommand = if ($Sensitive) { '<command withheld>' } else { $Command }
-        if ($Sensitive) {
-            $out = @($out | ForEach-Object {
-                $line = [string]$_
-                foreach ($secret in @($env:YURUNA_REGISTRY_PASSWORD, $env:YURUNA_DOCKER_HUB_PASSWORD)) {
-                    if (-not [string]::IsNullOrEmpty($secret)) { $line = $line.Replace($secret, '<redacted>') }
-                }
-                $line
-            })
+    function Protect-ComponentCommandText {
+        param([string]$Text)
+        foreach ($entry in Get-ChildItem Env: | Where-Object { $_.Name -match '(?i)password|token|secret' -and $_.Value }) {
+            $Text = $Text.Replace($entry.Value, '<redacted>')
         }
-        Add-Content -LiteralPath $dockerLogFile -Value "== [$Phase] $loggedCommand (exit=$rc) =="
-        $logLines = @($out | ForEach-Object { [string]$_ })
-        if ($logLines.Count -gt 0) { Add-Content -LiteralPath $dockerLogFile -Value $logLines }
-        Set-Content -LiteralPath $dockerRcFile -Value $rc -NoNewline
-        $out | ForEach-Object { Write-Output ([string]$_) }
-        $global:LASTEXITCODE = $rc
+        return $Text
+    }
+
+    function Invoke-ComponentCommand {
+        # Each phase has its own supervised process so a stuck native child is
+        # bounded without terminating the publisher. A private state sidecar
+        # preserves environment changes made by PowerShell preprocessors.
+        param([string]$Phase, [string]$Command, [switch]$Sensitive)
+        $phaseWatch = [Diagnostics.Stopwatch]::StartNew()
+        $secrets = @(Get-ChildItem Env: | Where-Object { $_.Name -match '(?i)password|token|secret' -and $_.Value } |
+            Select-Object -ExpandProperty Value -Unique | Sort-Object { $_.Length } -Descending)
+        function Protect-ComponentText {
+            param([string]$Text)
+            foreach ($secret in $secrets) { $Text = $Text.Replace($secret, '<redacted>') }
+            return $Text
+        }
+        function Write-ComponentRecord {
+            param([string]$Text)
+            $text = Protect-ComponentText $Text
+            Add-Content -LiteralPath $dockerLogFile -Value $text -ErrorAction Stop
+            Write-Information $text -InformationAction Continue
+        }
+        $loggedCommand = if ($Sensitive) { '<command withheld>' } else { Protect-ComponentText $Command }
+        Write-ComponentRecord "== [$Phase] $loggedCommand == phase=begin utc=$([DateTime]::UtcNow.ToString('o')) timeoutSeconds=$commandTimeout"
+        $native = $null
+        $stateFolder = $null
+        $rc = 1
+        $outcome = 'launch_failed'
+        $buffers = @{ stdout = ''; stderr = '' }
+        try {
+            $stateFolder = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-component-' + [guid]::NewGuid().ToString('N'))
+            if ($IsWindows) {
+                $null = [IO.Directory]::CreateDirectory($stateFolder)
+                $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User
+                $acl = [Security.AccessControl.DirectorySecurity]::new()
+                $acl.SetAccessRuleProtection($true, $false)
+                $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+                Set-Acl -LiteralPath $stateFolder -AclObject $acl -ErrorAction Stop
+            } else {
+                $null = [IO.Directory]::CreateDirectory($stateFolder, [IO.UnixFileMode]'UserRead,UserWrite,UserExecute')
+            }
+            $stateFile = Join-Path $stateFolder 'environment.json'
+            $childScript = @'
+$ErrorActionPreference = 'Stop'
+$InformationPreference = 'Continue'
+$ProgressPreference = 'SilentlyContinue'
+$global:LASTEXITCODE = 0
+[Console]::Out.WriteLine("[command pid=$PID utc=$([DateTime]::UtcNow.ToString('o'))]")
+$comparer = if ($IsWindows) { [StringComparer]::OrdinalIgnoreCase } else { [StringComparer]::Ordinal }
+$initial = [Collections.Generic.Dictionary[string,string]]::new($comparer)
+foreach ($entry in Get-ChildItem Env:) { $initial[$entry.Name] = $entry.Value }
+$code = 1
+try {
+    & ([scriptblock]::Create($env:YURUNA_COMPONENT_COMMAND)) *>&1 | ForEach-Object { [Console]::Out.WriteLine([string]$_) }
+    $code = $global:LASTEXITCODE
+} catch {
+    [Console]::Error.WriteLine($_.ToString())
+} finally {
+    $changed = [Collections.Generic.List[object]]::new()
+    foreach ($entry in Get-ChildItem Env:) {
+        if (-not $initial.ContainsKey($entry.Name) -or $initial[$entry.Name] -cne $entry.Value) { $changed.Add(@{ name = $entry.Name; value = $entry.Value }) }
+        [void]$initial.Remove($entry.Name)
+    }
+    @{ changed = @($changed.ToArray()); removed = @($initial.Keys); location = $ExecutionContext.SessionState.Path.CurrentFileSystemLocation.Path } | ConvertTo-Json -Depth 3 -Compress |
+        Set-Content -LiteralPath $env:YURUNA_COMPONENT_STATE -Encoding utf8 -ErrorAction Stop
+}
+exit $code
+'@
+            function Write-ComponentOutput {
+                param([string]$Text)
+                if (-not $Text) { return }
+                Add-Content -LiteralPath $dockerLogFile -Value $Text -NoNewline -ErrorAction Stop
+                $message = [Management.Automation.HostInformationMessage]::new()
+                $message.Message = $Text
+                $message.NoNewLine = $true
+                Write-Information $message -InformationAction Continue
+            }
+            function Send-ComponentOutput {
+                param([string]$Stream, [switch]$Final)
+                $text = $buffers[$Stream]
+                if (-not $text) { return }
+                # Keep only a suffix that could become a secret after the next
+                # read. This also protects partial credentials at a capture cap.
+                $hold = 0
+                foreach ($secret in $secrets) {
+                    for ($length = [Math]::Min($text.Length, $secret.Length - 1); $length -gt $hold; $length--) {
+                        if ($text.EndsWith($secret.Substring(0, $length), [StringComparison]::Ordinal)) { $hold = $length; break }
+                    }
+                }
+                $emit = if ($Final) { $text.Length } else { $text.Length - $hold }
+                $masked = [bool[]]::new($emit)
+                foreach ($secret in $secrets) {
+                    $offset = 0
+                    while ($offset -lt $text.Length) {
+                        $index = $text.IndexOf($secret, $offset, [StringComparison]::Ordinal)
+                        if ($index -lt 0 -or $index -ge $emit) { break }
+                        [Array]::Fill[bool]($masked, $true, $index, [Math]::Min($secret.Length, $emit - $index))
+                        $offset = $index + 1
+                    }
+                }
+                if ($Final -and $hold -gt 0) { [Array]::Fill[bool]($masked, $true, $text.Length - $hold, $hold) }
+                $safe = [Text.StringBuilder]::new()
+                $insideSecret = $false
+                for ($offset = 0; $offset -lt $emit; $offset++) {
+                    if ($masked[$offset]) {
+                        if (-not $insideSecret) { [void]$safe.Append('<redacted>') }
+                        $insideSecret = $true
+                    } else {
+                        [void]$safe.Append($text[$offset])
+                        $insideSecret = $false
+                    }
+                }
+                Write-ComponentOutput $safe.ToString()
+                $buffers[$Stream] = $text.Substring($emit)
+            }
+            $handler = {
+                param($Chunk, $Stream)
+                $buffers[$Stream] += $Chunk
+                Send-ComponentOutput -Stream $Stream
+            }
+            $native = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) `
+                -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $childScript) `
+                -WorkingDirectory $ExecutionContext.SessionState.Path.CurrentFileSystemLocation.Path -TimeoutSeconds $commandTimeout `
+                -Environment @{ YURUNA_COMPONENT_COMMAND = $Command; YURUNA_COMPONENT_STATE = $stateFile } `
+                -MaxCapturedChars 1048576 -OutputHandler $handler
+            $rc = $native.ExitCode
+            $outcome = if (-not $native.Started) { 'launch_failed' } elseif ($native.KillFailed) { 'kill_failed' } elseif ($native.TimedOut) { 'timed_out' } elseif ($native.DrainTimedOut) { 'drain_incomplete' } else { 'completed' }
+            foreach ($stream in 'stdout', 'stderr') {
+                Send-ComponentOutput -Stream $stream -Final
+            }
+            if ($native.OutputTruncated) { Write-ComponentRecord '[output truncated at 1048576 characters per stream]' }
+            if ($native.OutputHandlerError) { throw "Component evidence writer failed: $($native.OutputHandlerError)" }
+            if ($native.StartError) { Write-ComponentRecord "[launch error] $($native.StartError)" }
+            if ($native.Started -and -not $native.TimedOut -and -not $native.DrainTimedOut) {
+                if (-not (Test-Path -LiteralPath $stateFile) -or (Get-Item -LiteralPath $stateFile).Length -gt 1048576) {
+                    throw 'Component environment state is missing or exceeds its bound.'
+                }
+                $environmentState = Get-Content -Raw -LiteralPath $stateFile | ConvertFrom-Json -AsHashtable
+                foreach ($name in $environmentState.removed) { [Environment]::SetEnvironmentVariable($name, $null) }
+                foreach ($entry in $environmentState.changed) { [Environment]::SetEnvironmentVariable($entry.name, $entry.value) }
+                Set-Location -LiteralPath $environmentState.location -ErrorAction Stop
+            }
+            if ($native.DrainTimedOut -or $native.KillFailed) { $rc = 124 }
+        } catch {
+            $rc = 1
+            if ($outcome -eq 'completed') { $outcome = 'evidence_failed' }
+            Write-ComponentRecord "[phase error] $($_.Exception.Message)"
+        } finally {
+            $processId = if ($native) { $native.ProcessId } else { 0 }
+            $killFailed = if ($native) { $native.KillFailed } else { $false }
+            try {
+                Write-ComponentRecord "`n== [$Phase] phase=end utc=$([DateTime]::UtcNow.ToString('o')) pid=$processId exit=$rc outcome=$outcome killFailed=$killFailed elapsedMs=$($phaseWatch.ElapsedMilliseconds) =="
+            } finally {
+                try { Set-Content -LiteralPath $dockerRcFile -Value $rc -NoNewline }
+                finally {
+                    if ($stateFolder) { Remove-Item -LiteralPath $stateFolder -Recurse -Force -ErrorAction SilentlyContinue }
+                    $global:LASTEXITCODE = $rc
+                }
+            }
+        }
     }
 
     foreach ($component in $componentsYaml.components) {
+        $commandTimeout = 600
+        $configuredTimeout = if ($component.Contains('commandTimeoutSeconds')) { $component['commandTimeoutSeconds'] } else { $componentsYaml.globalVariables['commandTimeoutSeconds'] }
+        if ($null -ne $configuredTimeout -and (-not [int]::TryParse([string]$configuredTimeout, [ref]$commandTimeout) -or $commandTimeout -lt 1 -or $commandTimeout -gt 3600)) {
+            return (New-YurunaResultManifest -Success $false -ErrorMessage 'commandTimeoutSeconds must be an integer between 1 and 3600.' -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds)
+        }
         $projectName = $component['project']
         if ([string]::IsNullOrEmpty($projectName)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_c6903487e18366b6' -Arguments @{ componentsFile = "$componentsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "component.project cannot be null or empty in file: $componentsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         $projectNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($projectName)
@@ -153,7 +291,7 @@ function Publish-ComponentList {
         $componentVars = [ordered]@{}
         Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -Sink $componentVars -NoExpand
         Set-ExpandedVariableHashtable -Variables $componentsYaml.globalVariables -Sink $componentVars -NoExpand
-        Set-ExpandedVariableHashtable -Variables $component.variables -Sink $componentVars -NoExpand -DebugLabel 'componentVariables'
+        Set-ExpandedVariableHashtable -Variables $component.variables -Sink $componentVars -NoExpand
 
         $buildCommand = $component['buildCommand']
         if ([string]::IsNullOrEmpty($buildCommand)) { $buildCommand = $componentsYaml.globalVariables['buildCommand'] }
@@ -171,7 +309,7 @@ function Publish-ComponentList {
             $value = $componentVars[$key]
             if ([string]::IsNullOrEmpty($value)) { Write-Debug "WARNING: empty value for $key" }
             Set-Item -Path Env:$key -Value ${value}
-            Write-Debug "$projectName[Env:$key] is $(Get-Content -Path Env:$key)"
+            Write-Debug (Protect-ComponentCommandText "$projectName[Env:$key] is $(Get-Content -Path Env:$key)")
         }
 
         Push-Location $componentsPath -ErrorAction Stop
@@ -180,37 +318,40 @@ function Publish-ComponentList {
         if ([string]::IsNullOrEmpty($preProcessor)) { $preProcessor = $componentsYaml.globalVariables['preProcessor'] }
         if (-Not ([string]::IsNullOrEmpty($preProcessor))) {
             $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($preProcessor)
-            Write-Information "preProcessor: $executionCommand"
+        $displayCommand = Protect-ComponentCommandText $executionCommand
+            Write-Information "preProcessor: $displayCommand"
             Invoke-ComponentCommand -Phase "preProcessor[$projectName]" -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
-                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_69144d64953b7a98' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$executionCommand" })
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_69144d64953b7a98' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
                 # A non-zero tool exit is a failure: report success=$false so a
                 # consumer keying on `success` (Complete-YurunaRun, diagnostics)
                 # catches it. The exit code + failureClass carry the triage
                 # detail. Deriving success from the ambient $ErrorActionPreference
                 # instead would let a failed build/tag/push masquerade as a pass
                 # at the framework defaults (EAP stays 'Continue').
-                return (New-YurunaResultManifest -Success $false -ErrorMessage "preProcessor[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "preProcessor[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
 
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($buildCommand)
-        Write-Debug "Build: $executionCommand"
+        $displayCommand = Protect-ComponentCommandText $executionCommand
+        Write-Debug "Build: $displayCommand"
         Invoke-ComponentCommand -Phase "build[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
-            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_04b616b009d4b902' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$executionCommand" })
-            return (New-YurunaResultManifest -Success $false -ErrorMessage "build[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_04b616b009d4b902' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
+            return (New-YurunaResultManifest -Success $false -ErrorMessage "build[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
 
         $postProcessor = $componentVars['postProcessor']
         if ([string]::IsNullOrEmpty($postProcessor)) { $postProcessor = $componentsYaml.globalVariables['postProcessor'] }
         if (-Not ([string]::IsNullOrEmpty($postProcessor))) {
             $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($postProcessor)
-            Write-Information "postProcessor: $executionCommand"
+        $displayCommand = Protect-ComponentCommandText $executionCommand
+            Write-Information "postProcessor: $displayCommand"
             Invoke-ComponentCommand -Phase "postProcessor[$projectName]" -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
-                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_1976f6226f942cc8' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$executionCommand" })
-                return (New-YurunaResultManifest -Success $false -ErrorMessage "postProcessor[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_1976f6226f942cc8' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "postProcessor[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
         }
@@ -225,11 +366,12 @@ function Publish-ComponentList {
         if ([string]::IsNullOrEmpty($pushCommand)) { $pushCommand = $componentsYaml.globalVariables['pushCommand']; }
         if ([string]::IsNullOrEmpty($pushCommand)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_59d1126624ee215b' -Arguments @{ componentsFile = "$componentsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "pushCommand cannot be null or empty in $componentsFile (both globalVariables and component level)" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($tagCommand)
-        Write-Debug "Tag: $executionCommand"
+        $displayCommand = Protect-ComponentCommandText $executionCommand
+        Write-Debug "Tag: $displayCommand"
         Invoke-ComponentCommand -Phase "tag[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
-            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_134bb283b64fa9b9' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$executionCommand" })
-            return (New-YurunaResultManifest -Success $false -ErrorMessage "tag[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_134bb283b64fa9b9' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
+            return (New-YurunaResultManifest -Success $false -ErrorMessage "tag[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
 
         # Registry login dispatched through Yuruna.Component.Registry
@@ -252,11 +394,12 @@ function Publish-ComponentList {
         }
 
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($pushCommand)
-        Write-Debug "Push: $executionCommand"
+        $displayCommand = Protect-ComponentCommandText $executionCommand
+        Write-Debug "Push: $displayCommand"
         Invoke-ComponentCommand -Phase "push[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
-            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_a15f59ef0d1479f4' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$executionCommand" })
-            return (New-YurunaResultManifest -Success $false -ErrorMessage "push[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_a15f59ef0d1479f4' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
+            return (New-YurunaResultManifest -Success $false -ErrorMessage "push[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
     }
 

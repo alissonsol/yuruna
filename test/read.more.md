@@ -16,7 +16,7 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 | `testCycle.cycleDelaySeconds` | `300` | Pause between cycles |
 | `testCycle.stopOnFailure` | `false` | `true` = stop on first failure and preserve VM; `false` = clean up and continue. Failure artifacts always copied to `status/log/` |
 | `testCycle.recentDisplayCount` | `30` | Runs kept in status history |
-| `testCycle.stepTimeoutSeconds` | `2700` | Watchdog bound: kill the inner runner when a single step's heartbeat is older than this |
+| `testCycle.stepTimeoutSeconds` | `3600` (template), `2700` (fallback) | Watchdog bound: kill the inner runner when a single step's heartbeat is older than this |
 | `testCycle.autoRemediation.enabled` | `false` | Let the runner apply bounded repairs after a failed cycle (stale git lock, project re-clone, early end of the failure pause) before the next spawn |
 | `testCycle.autoRemediation.maxAttemptsPerCycle` | `2` | Repair attempts per failure fingerprint and repair, counted in the recovery ledger across runner restarts; a passing cycle or 24 hours re-arms it |
 | `vmStart.startTimeoutSeconds` | `120` | Wait for VM to reach running state |
@@ -45,10 +45,11 @@ the nested node layout above -- for example a checkout still using the flat
 layout -- the runner does **not** silently migrate it. Instead it:
 
 1. Copies the current file to `test.config.yml.backup`.
-2. Resets `test.config.yml` to the template defaults.
-3. Warns and stops the test.
+2. Rewrites `test.config.yml` from the template, carrying over every value
+   that still maps to the same key.
+3. Warns and stops the test when a populated value no longer maps.
 
-Copy any custom values from `test.config.yml.backup` into the new
+Copy the values the warning lists from `test.config.yml.backup` into the new
 `test.config.yml` by hand, then restart.
 
 ### Guest ordering and skipping
@@ -155,7 +156,7 @@ each entry can reference earlier entries and the built-ins
 ### Username cascade + corporate identity mapping
 
 A top-level workload's `variables.username` propagates down through its
-entire dependency chain. Example:
+entire dependency chain. Hypothetical example:
 
   - `start.guest.ubuntu.server.26.yml` declares `username: yuuser26`
     (the baseline default for any chain rooted here).
@@ -166,7 +167,7 @@ entire dependency chain. Example:
   - Cloud-init creates a local OS account named `webuser`, **not**
     `yuuser26`. Every `${username}` substitution in every sequence
     of the chain renders as `webuser`. The baseline `start.*.yml`
-    keeps its `username: yuuser26` line as the stand-alone-invocation
+    keeps its `username: yuuser26` line as the standalone-invocation
     default (used only by `Debug-TestSequence.ps1` runs outside a
     workload context).
 
@@ -205,7 +206,7 @@ webuser:
 
 Inside sequences, use:
 
-  - `${username}` -- logical/local-OS user name (cascade-resolved).
+  - `${username}` -- logical/local-OS username (cascade-resolved).
     Use this for shell-side references (`/home/${username}`, `whoami`).
   - `${loginUser}` -- rendered corporate identity from `users.yml`
     (`CORP\alisson.sol` or `user@upn.domain`); falls back to
@@ -297,7 +298,7 @@ each sequence in the chain; `-StopStep` leaves the VM running.
 
 Parameters: `-SequenceName` (required), `-StartStep` (default 1),
 `-StopStep`, `-ConfigPath`, `-VMName`, `-GuestKey`, `-ShowSensitive`,
-`-NoConfigGate`, `-logLevel`.
+`-NoConfigGate`, `-NoStatusService`, `-NoProjectClone`, `-logLevel`.
 
 ## Logging knobs
 
@@ -318,7 +319,7 @@ lifetime of the runner) > `logLevel` in `test.config.yml` >
 
 ## Status page details
 
-`http://localhost:8080/status/` polls `status.json` every 30s and
+`http://localhost:8080/status/` polls `status.json` every 60s and
 shows pass/fail, per-guest step status (New-VM, Start-VM,
 New-VM.Resource, Start-GuestOS, Screenshots, Start-GuestWorkload),
 history, and clickable cycle-start timestamps. Stop
@@ -338,6 +339,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

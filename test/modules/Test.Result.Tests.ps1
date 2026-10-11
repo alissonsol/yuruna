@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42e5fde7-cab7-4b20-91da-c9100d967e2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@
     Asserts (1) every automation failureClass maps to a value, (2) every mapped
     failure value is a member of the canonical FailureClass enum AND has a
     registered remediation handler, and (3) an unrecognized input falls back to
-    'unknown'. Throw-based assertions. Runs under Pester 4.10.1.
+    'unknown'. Throw-based assertions. Runs under Pester 5.x.
 #>
 
 BeforeAll {

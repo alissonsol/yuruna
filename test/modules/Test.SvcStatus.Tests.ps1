@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4285ea0b-cf26-4402-b8af-aa598d20d4c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     status.json served to the browser dashboard and the Go aggregator carries no leading
     BOM regardless of PowerShell edition (5.1's -Encoding utf8 emits a BOM). An
     encoding-semantics test confirms a BOM-less UTF8Encoding writes no BOM and round-trips,
-    while utf8BOM prefixes one. Pester 4.10.1.
+    while utf8BOM prefixes one. Pester 5.x.
 #>
 
 BeforeAll {

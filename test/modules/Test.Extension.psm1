@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42f9c779-1132-4dfb-9658-60cfc646620d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -162,6 +162,40 @@ function Assert-ExtensionContractCoverage {
 
 <#
 .SYNOPSIS
+    Returns the loaded module that came from the module file $Path, or
+    nothing when no loaded module came from that file.
+.DESCRIPTION
+    Matches by file, never by module name: every area may ship a
+    default.psm1, they all register under the module name 'default', and
+    a name filter answers with whichever one the module table lists first.
+
+    The comparison is -eq, so it ignores letter case on every platform. A
+    loaded module keeps the spelling it was imported with (a lower-case
+    drive letter, a differently cased folder); a case-sensitive match
+    would report it missing, and the caller's Import-Module -Force would
+    then discard the state the loaded module holds.
+
+    It only looks: it never imports, and a miss is an empty answer, not an
+    error. Whether a miss means "import the file" or "fail" is the
+    caller's decision.
+.PARAMETER Path
+    Full path of the module file, as [System.IO.Path]::GetFullPath returns
+    it. It is compared as given.
+.OUTPUTS
+    [System.Management.Automation.PSModuleInfo] the first loaded module
+    from that file, or nothing.
+#>
+function Find-LoadedExtensionModule {
+    [CmdletBinding()]
+    [OutputType([System.Management.Automation.PSModuleInfo])]
+    param([Parameter(Mandatory)][string]$Path)
+    Get-Module | Where-Object {
+        $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $Path)
+    } | Select-Object -First 1
+}
+
+<#
+.SYNOPSIS
     Imports the active extension(s) for $Area into the global scope.
     Authentication uses exactly one; notification iterates the list.
 #>
@@ -180,9 +214,7 @@ function Import-Extension {
         if (-not (Test-Path $path)) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_3045e8dd4d3523e0' -Arguments @{ area = "$Area"; n = "$n"; path = "$path" }) }
         # See https://yuruna.link/4213a0b3-0055
         $absPath = [System.IO.Path]::GetFullPath($path)
-        $existing = Get-Module | Where-Object {
-            $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $absPath)
-        } | Select-Object -First 1
+        $existing = Find-LoadedExtensionModule -Path $absPath
         if (-not $existing) {
             Import-Module -Name $path -Global -Force
         }
@@ -190,9 +222,7 @@ function Import-Extension {
         # module is missing a verb declared in <Area>.contract.yml. A
         # stale or partial extension surfaces here, before the first
         # cycle step references it.
-        $loaded = Get-Module | Where-Object {
-            $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $absPath)
-        } | Select-Object -First 1
+        $loaded = Find-LoadedExtensionModule -Path $absPath
         if ($loaded) {
             $exportedNames = @($loaded.ExportedCommands.Keys)
             [void](Assert-ExtensionContractCoverage -Area $Area -ExtensionName $n -ExportedFunction $exportedNames)
@@ -239,9 +269,7 @@ function Resolve-ExtensionMethod {
     )
     $dir     = Resolve-ExtensionAreaDir -Area $Area
     $modPath = [System.IO.Path]::GetFullPath((Join-Path $dir "$ExtensionName.psm1"))
-    $mod = Get-Module | Where-Object {
-        $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $modPath)
-    } | Select-Object -First 1
+    $mod = Find-LoadedExtensionModule -Path $modPath
     if (-not $mod) {
         throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_4600bf42e8f5c6cb' -Arguments @{ area = "$Area"; modPath = "$modPath" })
     }
@@ -491,4 +519,4 @@ function Get-ExtensionHostAddress {
     return [string[]]$addresses.ToArray()
 }
 
-Export-ModuleMember -Function Resolve-ExtensionAreaDir, Read-ExtensionConfig, Get-ActiveExtensionName, Import-Extension, Resolve-ExtensionMethod, Assert-ExtensionContractCoverage, Get-ExtensionAreaName, Import-ConfiguredExtension, Get-ExtensionHostAddress
+Export-ModuleMember -Function Resolve-ExtensionAreaDir, Read-ExtensionConfig, Get-ActiveExtensionName, Import-Extension, Resolve-ExtensionMethod, Assert-ExtensionContractCoverage, Get-ExtensionAreaName, Import-ConfiguredExtension, Get-ExtensionHostAddress, Find-LoadedExtensionModule

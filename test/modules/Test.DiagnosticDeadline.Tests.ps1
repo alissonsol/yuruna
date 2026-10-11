@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 425737dc-81c1-4d1d-8e15-006de1ba8931
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -672,6 +672,83 @@ Describe 'password diagnostics use a bounded native client with a child-only cre
         Assert-False $result.success
         Assert-True $result.drainTimedOut
         Assert-Equal 'partial stdout' $result.output
+    }
+
+    Context 'the argument list handed to sshpass' {
+        BeforeAll {
+            # sshpass and ssh read every element by position, so the list is
+            # compared element for element and case-sensitively.
+            function Confirm-ArgumentSequence {
+                param([string[]]$Expected, [string[]]$Actual)
+                Assert-Equal $Expected.Count $Actual.Count "The runner must receive $($Expected.Count) arguments: $($Actual -join ' ')"
+                for ($i = 0; $i -lt $Expected.Count; $i++) {
+                    Assert-True ($Actual[$i] -ceq $Expected[$i]) "Argument $i must be '$($Expected[$i])' but was '$($Actual[$i])'."
+                }
+            }
+        }
+
+        BeforeEach {
+            $script:passwordArguments = $null
+            Mock Invoke-BoundedNativeCommand -ModuleName Test.Diagnostic {
+                param($ArgumentList)
+                $script:passwordArguments = $ArgumentList
+                return @{ Started = $true; ExitCode = 0; StdOut = ''; StdErr = '' }
+            }
+        }
+
+        It 'is the same sshpass and ssh sequence, option for option' {
+            $null = & $script:diagnosticModule {
+                Invoke-RemoteDiagnosticsPasswordSsh -User fixture -Address 192.0.2.10 -Password fixture-value `
+                    -SshpassPath fixture-sshpass -TimeoutSeconds 1
+            }
+
+            Confirm-ArgumentSequence -Actual $script:passwordArguments -Expected @(
+                '-e', 'ssh',
+                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'UserKnownHostsFile=/dev/null',
+                '-o', 'GlobalKnownHostsFile=/dev/null',
+                '-o', 'PreferredAuthentications=password',
+                '-o', 'PubkeyAuthentication=no',
+                '-o', 'ConnectTimeout=10',
+                '-o', 'ServerAliveInterval=30',
+                '-o', 'LogLevel=ERROR',
+                'fixture@192.0.2.10',
+                'pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1 -CheckoutRoot "$HOME/yuruna"')
+        }
+
+        It 'carries the host-key options the shared SSH helper returns, right after the ssh command word' {
+            $null = & $script:diagnosticModule {
+                Invoke-RemoteDiagnosticsPasswordSsh -User fixture -Address 192.0.2.10 -Password fixture-value `
+                    -SshpassPath fixture-sshpass -TimeoutSeconds 1
+            }
+            $hostKeyOptions = @(& $script:diagnosticModule { Test.Ssh\Get-YurunaSshHostKeyOption })
+
+            Assert-Equal 6 $hostKeyOptions.Count 'The helper must answer from inside the diagnostic module without another import.'
+            Confirm-ArgumentSequence -Actual $script:passwordArguments[2..7] -Expected $hostKeyOptions
+        }
+
+        It 'takes the host-key options from the shared SSH helper instead of a copy of its own' {
+            # The two tests above hold for a hand-written copy of the options as
+            # well; only a substituted helper shows where they really come from.
+            Mock Get-YurunaSshHostKeyOption -ModuleName Test.Diagnostic { return [string[]]@('-o', 'FixtureHostKeyOption=fixture') }
+
+            $null = & $script:diagnosticModule {
+                Invoke-RemoteDiagnosticsPasswordSsh -User fixture -Address 192.0.2.10 -Password fixture-value `
+                    -SshpassPath fixture-sshpass -TimeoutSeconds 1
+            }
+
+            Should -Invoke Get-YurunaSshHostKeyOption -ModuleName Test.Diagnostic -Times 1 -Exactly
+            Confirm-ArgumentSequence -Actual $script:passwordArguments -Expected @(
+                '-e', 'ssh',
+                '-o', 'FixtureHostKeyOption=fixture',
+                '-o', 'PreferredAuthentications=password',
+                '-o', 'PubkeyAuthentication=no',
+                '-o', 'ConnectTimeout=10',
+                '-o', 'ServerAliveInterval=30',
+                '-o', 'LogLevel=ERROR',
+                'fixture@192.0.2.10',
+                'pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1 -CheckoutRoot "$HOME/yuruna"')
+        }
     }
 }
 

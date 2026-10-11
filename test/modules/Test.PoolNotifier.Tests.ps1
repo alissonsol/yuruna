@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4295c2e6-31ed-4bb7-902e-162727b73349
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,9 +36,7 @@ function New-TempDir {
         Justification = 'Test fixture: creates a throwaway temp directory, removed in finally; not user-facing state.')]
     [CmdletBinding()]
     param()
-    $d = Join-Path ([System.IO.Path]::GetTempPath()) ("pn-" + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Force -Path $d | Out-Null
-    return $d
+    return New-YurunaTestTempDir -Prefix 'pn'
 }
 
 # Pure value fixtures belong at file scope, above the first Describe: a Describe body is

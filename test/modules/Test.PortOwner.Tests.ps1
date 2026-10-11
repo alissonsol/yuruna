@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 422c5625-91a1-43b2-91dd-a1303b05e3a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,33 +37,13 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 
 }
 
-# This block has to stay at FILE scope, above the first Describe, because -Skip
-# is evaluated during discovery and BeforeAll has not run then. Computing the
-# capability in BeforeAll leaves every -Skip reading $null, and `-not $null` is
-# true, so the whole capability-gated set skips on every host including the ones
-# that can run it -- an unconditional skip wearing the costume of a probe, which
-# reports as "skipped" exactly like an honest gate. $script: on the port matters
-# for the other direction: the It bodies read it in the run phase, which a plain
-# file-scope assignment does not survive.
-# A high port unlikely to collide with a real listener on a test host.
+# --- REGION: Port reservation fixture
+# See https://yuruna.link/42e220c4-0014
+# Capability and skip state must exist during discovery; retain the port at script scope.
 $script:FreePort = 54219
 
-# Can this shell actually make the reservation the module probes with?
-#
-# Test-PortListenerFree deliberately binds `http://*:<port>/` rather than
-# localhost: a wildcard reservation is what reveals a holder owned by ANOTHER
-# user, which lsof/netsh cannot show without elevation. On Windows that same
-# wildcard is an HTTP.sys URL reservation and needs admin (or a `netsh http add
-# urlacl`), so from an ordinary shell every bind returns "Access is denied" --
-# which the module cannot distinguish from "someone else holds the port", and a
-# genuinely free port then classifies as Conflict. The product path is unaffected
-# (the runner requires Administrator), but this suite cannot produce a verdict
-# from a non-elevated shell.
-#
-# So probe the capability instead of guessing at it, and tell the two causes
-# apart: localhost binds without privilege, the wildcard does not. localhost
-# binding while the wildcard is denied means "not allowed", not "port busy" --
-# only then is skipping honest. Skipping (not passing) keeps the gap visible.
+# See https://yuruna.link/42e220c4-0014
+# Skip only when localhost binds but the required wildcard reservation is denied.
 function Test-CanBindPrefix {
     [CmdletBinding()] [OutputType([bool])]
     param([Parameter(Mandatory)][string]$Prefix)

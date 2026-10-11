@@ -2248,6 +2248,11 @@
       "origin": "machine",
       "message": "  צילום מסך של הכשל נשמר: .⁦/status/log/⁩{cycleBase}/{destSeqName}/ ({copied} פריימים שקדמו לכשל)"
     },
+    "runner.operator_d8507ccd68520716": {
+      "sourceHash": "94fe950e7989de005c7566097d19ac87e030e6a1ed704fb8bcc2ffd6bcc03b0b",
+      "origin": "machine",
+      "message": "  הפריימים המוקדמים ביותר של המסוף נשמרו: .⁦/status/log/⁩{cycleBase}/{destSeqName}⁦/earliest/⁩ ({count} פריימים מתחילת האורח הזה)"
+    },
     "runner.operator_144c4b5176e7c3c4": {
       "sourceHash": "0fa82a0332120da9c1ac8a5911dbc34d42cf70e514be20b81e2e49c37bf36194",
       "origin": "machine",
@@ -3808,6 +3813,11 @@
       "origin": "machine",
       "message": "  לכידת DHCP נשמרה: .⁦/status/log/⁩{cycleBase}/{destSeqName}⁦/dhcp.capture.txt⁩"
     },
+    "runner.operator_e653bdc981ca5464": {
+      "sourceHash": "d39791f76f5c912d6fd8f2d924141ec208bfeced83cf71ae6d404bdeb599c5d0",
+      "origin": "machine",
+      "message": "  סיכום לכידת DHCP עבור {guestMac}: האורח שלח {sent} מנות, {replies} תשובות unicast הגיעו אליו, {others} מנות הגיעו מ-{clients} לקוחות אחרים"
+    },
     "runner.operator_42325e069d98407d": {
       "sourceHash": "c66556e4837c3d4319f5a3f87312f3d4c85d21b90488c877ba59d06e8f55e702",
       "origin": "machine",
@@ -4707,6 +4717,16 @@
       "sourceHash": "cbdeb52695d4642bbb153372fc3aa3e317587a3e898d1c517cb8fbf388cd131a",
       "origin": "machine",
       "message": "הטקסט '{patternLabel}' לא נמצא בתוך {timeoutSeconds}s"
+    },
+    "runner.operator_7e0c2dd4aa0c5981": {
+      "sourceHash": "80d382255581a01c3532436023d6ef2af1719809da209c84253b7f832be421f9",
+      "origin": "machine",
+      "message": "      ההיפרוויזור מדווח שהאורח תקוע ב-livelock: {detail}"
+    },
+    "runner.operator_6d4042dbe6943c27": {
+      "sourceHash": "4e63fa767cbd91bba69f3b7693c2e728a95349d830e65dd85636a86733b183a9",
+      "origin": "machine",
+      "message": "ההמתנה לטקסט '{patternLabel}' הסתיימה אחרי ~{waited}s מתוך {timeoutSeconds}s: ההיפרוויזור מדווח שהאורח תקוע ב-livelock ({detail})"
     },
     "runner.operator_557ad99d1ffd4409": {
       "sourceHash": "db73d48750929866a850cecc23a80fa09fcc56deaf0281f97f37f1deff7daf7a",
@@ -7879,9 +7899,9 @@
       "message": "  בוצע דילוג על אבחון המארח: הסקריפט לא נמצא בנתיב {hostDiagScript}"
     },
     "runner.operator_966231fe730b28ff": {
-      "sourceHash": "321d0076f04571e895a504cf250eb76bbfa22a24bed8b5034a64b8d37ee73160",
+      "sourceHash": "0814851fbfe84d70ea628caf2402b06f1804230c4cc02dc2ad62e070fe35e053",
       "origin": "machine",
-      "message": "⁦Send-TextKvm⁩: הפקודה virsh send-key נכשלה בתו '{ch}' (codes={join}): {trim}"
+      "message": "⁦Send-TextKvm⁩: הפקודה send-key נכשלה בתו '{ch}' (codes={join}): {trim}"
     },
     "runner.operator_96766746c16f798c": {
       "sourceHash": "9eedc0fc7145965dc665494c295a84238086a5b7a61564889169f73ab82816ae",
@@ -9127,6 +9147,11 @@
       "sourceHash": "9347a1109a256f5d31fd85849dc77b790a1d75bb26f336a3bb7020fc9e4f456a",
       "origin": "machine",
       "message": "      חוות דעת נוספת מהמסוף ({verdict}): {detail}"
+    },
+    "runner.operator_33a0b7c1e1b2be21": {
+      "sourceHash": "5a46a3369ad0c170ce7b33a9a10bfc94a1c8cdfd772f14fde07391ea634b8d7a",
+      "origin": "machine",
+      "message": "{processors} מעבדים וירטואליים עם {guestPercent}% זמן ריצה של האורח ו-{hypervisorPercent}% של ההיפרוויזור, {interceptsPerSecond} יירוטים/s, לאורך {seconds}s"
     },
     "runner.operator_b3e21ed4f09c30ff": {
       "sourceHash": "be1ca53b837d8c35c20ea6c547557616c8d026e706f09d39a0d761f790fb1253",

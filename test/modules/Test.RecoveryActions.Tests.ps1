@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 428b7f5c-e722-4d67-858d-b11427a01f39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@ param()
 BeforeAll {
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $here 'Test.RecoveryContract.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.RecoveryActions.psm1') -Force -DisableNameChecking
 
@@ -56,9 +57,7 @@ function New-ScratchDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: creates a temporary directory that AfterEach removes.')]
     param()
-    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('recactions-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    return $dir
+    return New-YurunaTestTempDir -Prefix 'recactions' -ErrorAction Stop
 }
 
 function Initialize-TestRepo {

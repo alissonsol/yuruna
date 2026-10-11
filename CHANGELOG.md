@@ -4,6 +4,22 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.11
+
+- **ARM64 stall diagnostics.** Hyper-V CPU restarts now keep thread inventories,
+  guest source hashes, and clock samples. A bounded kernel uploader and journal
+  retain evidence when SSH stops, and `stopOnFailure` holds the failed VM across
+  runner restarts until released.
+- **VM and snapshot safety.** UTM, KVM, and Hyper-V operations confirm power-off,
+  locks, and registration before deleting storage or changing checkpoints. Prior
+  snapshots are kept when state cannot be confirmed.
+- **Also in this release.** Installers and setup scripts verify outcomes for
+  Windows JDK and .NET, winget, macOS Git, and Kubernetes certificate exports.
+  Guests require a nonempty VERSION file, and service seeds validate sources.
+  Compressed GUI input and Docker snapshot reuse improve performance. Workload
+  and standalone diagnostics stream redacted logs, bound execution, and expand
+  consistency checks.
+
 ## 2026.10.04
 
 - **Host dashboard history recovery.** A rebuilt caching-proxy-service VM no longer
@@ -560,6 +576,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](README.md)

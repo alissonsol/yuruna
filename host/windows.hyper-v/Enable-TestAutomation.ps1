@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 4256c18e-dd7e-400d-aa57-445e74e55994
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,9 +53,7 @@ $ErrorActionPreference = "Stop"
 # changed.
 $InformationPreference = 'Continue'
 # --- REGION: Initialize host setup
-# Shared bootstrap (Test.HostContract import + powershell-yaml +
-# PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
-# Rationale + ordering are documented there.
+# See https://yuruna.link/42e5cdfd-000b
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
 Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters
@@ -83,10 +81,7 @@ $unmetCount = @($conditionResult | Where-Object { $_ -is [int] } | Select-Object
 $unmetCount = if ($unmetCount.Count) { [int]$unmetCount[0] } else { 0 }
 
 # --- REGION: Pool storage and host identity
-# Offer to configure networkStorage pool (NAS replication) and, on a host with no local
-# pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
-# Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
-# loads its own sibling dependencies (config/vault/mount). See docs/pool-storage.md.
+# See https://yuruna.link/428405a0-0009
 if ($SkipPoolStorage) {
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_07d790b607ee2b44')
 } elseif (-not $WhatIfPreference) {

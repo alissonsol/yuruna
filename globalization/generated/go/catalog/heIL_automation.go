@@ -7,6 +7,8 @@ package catalog
 // DataheILautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataheILautomation = `{
+  "automation.diagnostic_checkout_unavailable": "(לא רלוונטי: הראיות מתיקיית המאגר אינן זמינות; יש להעביר -CheckoutRoot כדי להשתמש בעותק קיים של Yuruna)",
+  "automation.diagnostic_phase_log_limits": "סריקת יומני השלבים מוגבלת ל-100 קבצים, 12 רמות תיקייה ו-10 שניות; כל יומן מציג לכל היותר את 64 KiB האחרונים שלו.",
   "automation.host_setup_module_install_skipped": [
     {
       "arg": "module",

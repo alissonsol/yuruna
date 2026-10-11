@@ -3,6 +3,21 @@
   "domain": "remediation",
   "locale": "zh-CN",
   "messages": {
+    "remediation.operator_52e8af97f6901f58": {
+      "sourceHash": "54d287732593a0c5253cf6ed05adf7b2e3c38acbdc8a32914413e3334f084325",
+      "origin": "machine",
+      "message": "暂存的命令从未在客户机中运行，因此下一次尝试不会在客户机上重复任何工作"
+    },
+    "remediation.operator_b40349f16bf6efc1": {
+      "sourceHash": "adb6dc89682563671ae7314be5271c96404620362c832c07e819ab6208003866",
+      "origin": "machine",
+      "message": "{vmName}发生input_lost：键入的命令未能在客户机 shell 中闭合，因此载荷未执行，它本应完成的任何操作都不存在疑问。客户机仍可访问，失败的是键入的输入，因此重复该步骤是安全的。"
+    },
+    "remediation.operator_6072d4a9739b1fee": {
+      "sourceHash": "c339843f08235ff38585b66f199f3568078dcbf16dc511a164901d589461f72b",
+      "origin": "machine",
+      "message": "重试该步骤：在同一客户机上从头重新键入命令"
+    },
     "remediation.operator_cc703ba747623c88": {
       "sourceHash": "d3663dc8eeb8e48096be195a1f53d0b6eaa821a47d1aa71f8b7ed7e74b729d7e",
       "origin": "machine",

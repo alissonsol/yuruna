@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,18 +99,13 @@ function Resolve-HostTag {
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
-# Shared squid download / TLS-bump stack -- single source of truth across host
-# drivers. The X509 chain-validation callback lives there verbatim; this driver's
-# cache-host discovery is injected via the -ResolveCacheHostIp scriptblock (see the
-# Save-CachedHttpUri wrapper below). This also puts Test-DownloadAlreadyCurrent /
-# Write-ImageSentinel on the table for the per-guest Get-Image.ps1 scripts.
+# --- REGION: Shared host modules
+# See https://yuruna.link/42ec97cd-0018
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
-# Download-agent client. The Get-Image hooks feature-detect its two functions by
-# name, so this import is what decides whether the agent path exists at all on
-# this host; without it the agent is silently never consulted.
+# Get-Image discovers the agent by name, so its import must be global.
+# See https://yuruna.link/42ec97cd-001a
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.DownloadAgent.psm1') -Force -DisableNameChecking -Global
-# Shared per-guest provisioning helper (the New-VM.ps1 child-runner) common to
-# all three drivers.
+# See https://yuruna.link/42ec97cd-0017
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 
 # Per-guest base image paths -- single table keeps Get-ImagePath, Get-Image,
@@ -124,6 +119,7 @@ $script:ImagePathTable = @{
 }
 
 # --- REGION: KVM host helpers
+# --- REGION: Invoke-Virsh
 function Invoke-Virsh {
     <#
     .SYNOPSIS
@@ -229,6 +225,7 @@ function Format-VirtualizationProbeDiagnostic {
 }
 
 # --- REGION: VM lifecycle
+# --- REGION: New-VM
 function New-VM {
     <#
     .SYNOPSIS
@@ -243,29 +240,17 @@ function New-VM {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VMName,
         [string]$CachingProxyServiceUrl,
-        # Planner-cascaded username override; forwarded only when the
-        # per-guest script declares -Username (introspected below).
+        # Forward bound overrides only when the per-guest script declares them.
+        # See https://yuruna.link/42ec97cd-0017
         [string]$Username,
-        # Planner-cascaded guest hostname (variables.hostname); same
-        # declare-or-drop forwarding rule as -Username.
         [string]$Hostname,
-        # Planner-cascaded VM sizing (variables.memoryStartupBytes /
-        # variables.cores); same declare-or-drop forwarding rule as -Username.
         [string]$MemoryStartupBytes,
         [string]$Cores,
-        # Planner-cascaded nested-virtualization request
-        # (variables.exposeVirtualizationExtensions); same declare-or-drop
-        # forwarding rule as -Username. Declared for host-contract parity: no
-        # KVM guest script consumes it today (KVM nested virtualization is a
-        # host-level kernel-module setting), so the dispatcher drops it on the
-        # Verbose stream.
+        # KVM nested virtualization is configured on the host kernel module.
         [string]$ExposeVirtualizationExtensions
     )
-    # Thin wrapper over the shared per-guest runner; the host subdir is the
-    # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores/
-    # -ExposeVirtualizationExtensions
-    # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
+    # Preserve bound overrides and -WhatIf/-Confirm in the shared runner.
+    # See https://yuruna.link/42ec97cd-0017
     $result = Invoke-PerGuestNewVm -HostSubdir 'host/ubuntu.kvm' @PSBoundParameters
     # See https://yuruna.link/42e5cdfd-0010
     $newVmExitCode = $LASTEXITCODE
@@ -276,11 +261,12 @@ function New-VM {
     return $result
 }
 
-<#
-.SYNOPSIS
-    Start a guest VM previously created by New-VM.
-#>
+# --- REGION: Start-VM
 function Start-VM {
+    <#
+    .SYNOPSIS
+        Start a guest VM previously created by New-VM.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -306,11 +292,12 @@ function Start-VM {
     return @{ success = $true; errorMessage = $null }
 }
 
-<#
-.SYNOPSIS
-    Stop a running guest VM (graceful by default; -Force uses Stop-VMForce).
-#>
+# --- REGION: Stop-VM
 function Stop-VM {
+    <#
+    .SYNOPSIS
+        Stop a running guest VM (graceful by default; -Force uses Stop-VMForce).
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -434,34 +421,35 @@ function Test-KvmDomainPoweredOff {
     return ($read.State -eq 'absent' -or $read.Raw -in @('shut off', 'crashed'))
 }
 
-<#
-.SYNOPSIS
-    Force-stop a guest VM via virsh destroy, escalating to a verified qemu
-    process kill when libvirtd cannot destroy it.
-.DESCRIPTION
-    StopTimeoutSeconds bounds the whole call. The destroy gets two thirds of
-    it; the state reads, the escalation and the wait for the process to go
-    share the rest, and each native call is capped by what remains, so a
-    wedged libvirtd costs at most the budget rather than an unbounded wait.
-
-    Escalation reads the domain's qemu process id from libvirt's pidfile and
-    signals it only after revalidating, immediately before the signal, that
-    the id still names that domain's qemu process: a stale pidfile or a reused
-    id must never kill an unrelated process. The signal goes through
-    `sudo -n /bin/kill -9`, which fails at once instead of waiting on a
-    password prompt nobody can answer; a refusal is reported with the exact
-    remedy. The absolute /bin/kill path keeps the call away from PowerShell's
-    own kill alias.
-
-    Success means libvirt reports the domain absent, 'shut off' or 'crashed',
-    or the verified process no longer exists -- the latter proves the guest is
-    down even while libvirtd itself is too wedged to say so.
-.PARAMETER StopTimeoutSeconds
-    Wall-clock budget for the whole call.
-.OUTPUTS
-    [bool] $true when the domain is positively stopped.
-#>
+# --- REGION: Stop-VMForce
 function Stop-VMForce {
+    <#
+    .SYNOPSIS
+        Force-stop a guest VM via virsh destroy, escalating to a verified qemu
+        process kill when libvirtd cannot destroy it.
+    .DESCRIPTION
+        StopTimeoutSeconds bounds the whole call. The destroy gets two thirds of
+        it; the state reads, the escalation and the wait for the process to go
+        share the rest, and each native call is capped by what remains, so a
+        wedged libvirtd costs at most the budget rather than an unbounded wait.
+
+        Escalation reads the domain's qemu process id from libvirt's pidfile and
+        signals it only after revalidating, immediately before the signal, that
+        the id still names that domain's qemu process: a stale pidfile or a reused
+        id must never kill an unrelated process. The signal goes through
+        `sudo -n /bin/kill -9`, which fails at once instead of waiting on a
+        password prompt nobody can answer; a refusal is reported with the exact
+        remedy. The absolute /bin/kill path keeps the call away from PowerShell's
+        own kill alias.
+
+        Success means libvirt reports the domain absent, 'shut off' or 'crashed',
+        or the verified process no longer exists -- the latter proves the guest is
+        down even while libvirtd itself is too wedged to say so.
+    .PARAMETER StopTimeoutSeconds
+        Wall-clock budget for the whole call.
+    .OUTPUTS
+        [bool] $true when the domain is positively stopped.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -533,11 +521,12 @@ function Stop-VMForce {
     }
 }
 
-<#
-.SYNOPSIS
-    Remove a guest VM and its on-disk artifacts.
-#>
+# --- REGION: Remove-VM
 function Remove-VM {
+    <#
+    .SYNOPSIS
+        Remove a guest VM and its on-disk artifacts.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -566,21 +555,18 @@ function Remove-VM {
     $undefineArgs = @('undefine', '--nvram', '--managed-save',
                       '--snapshots-metadata', '--checkpoints-metadata', $VMName)
     $undefineOut = Invoke-Virsh -VirshArgs $undefineArgs
-    $undefined = ($LASTEXITCODE -eq 0)
+    # --- REGION: https://yuruna.link/42e220c4-0004
+    # Undefine can succeed while a failed stop leaves an active transient domain.
+    # Only a successful full inventory proving absence permits disk deletion.
+    try {
+        $domainNames = @(Get-VMName)
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b63de47809d76147' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)" })
+        return $false
+    }
+    $undefined = ($domainNames -cnotcontains $VMName)
     if (-not $undefined) {
-        # --- REGION: https://yuruna.link/42e220c4-0004
-        # Only a successful inventory can distinguish an absent VM from failed discovery.
-        try {
-            $domainNames = @(Get-VMName)
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b63de47809d76147' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)" })
-            return $false
-        }
-        if ($domainNames -contains $VMName) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_94ae6ac85570e806' -Arguments @{ vMName = "$VMName"; join = "$($undefineOut -join '; ')" })
-        } else {
-            $undefined = $true
-        }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_94ae6ac85570e806' -Arguments @{ vMName = "$VMName"; join = "$($undefineOut -join '; ')" })
     }
 
     # See https://yuruna.link/42e5cdfd-0012
@@ -596,27 +582,28 @@ function Remove-VM {
     return ($undefined -and $filesRemoved)
 }
 
-<#
-.SYNOPSIS
-    Return the names of every defined libvirt domain, optionally filtered
-    to those starting with one of $Prefix.
-.DESCRIPTION
-    Host-neutral inventory call (see the contract's VM inventory block).
-    `list --all` covers running, paused and shut-off domains, so a caller
-    sweeping by prefix removes stopped leftovers as well as running ones.
-
-    THROWS when virsh cannot be reached rather than returning an empty
-    list: a missing binary, a stopped libvirtd, or a shell whose group set
-    lacks libvirt all fail the query, and a caller that read that as
-    "nothing defined" would report a clean host and let the orphan-file
-    pass delete storage still owned by a defined domain.
-.PARAMETER Prefix
-    Zero or more name prefixes. A domain is returned when its name starts
-    with any of them. Omit to return every domain.
-.OUTPUTS
-    [string[]] matching domain names; empty when none match.
-#>
+# --- REGION: Get-VMName
 function Get-VMName {
+    <#
+    .SYNOPSIS
+        Return the names of every defined libvirt domain, optionally filtered
+        to those starting with one of $Prefix.
+    .DESCRIPTION
+        Host-neutral inventory call (see the contract's VM inventory block).
+        `list --all` covers running, paused and shut-off domains, so a caller
+        sweeping by prefix removes stopped leftovers as well as running ones.
+
+        THROWS when virsh cannot be reached rather than returning an empty
+        list: a missing binary, a stopped libvirtd, or a shell whose group set
+        lacks libvirt all fail the query, and a caller that read that as
+        "nothing defined" would report a clean host and let the orphan-file
+        pass delete storage still owned by a defined domain.
+    .PARAMETER Prefix
+        Zero or more name prefixes. A domain is returned when its name starts
+        with any of them. Omit to return every domain.
+    .OUTPUTS
+        [string[]] matching domain names; empty when none match.
+    #>
     [CmdletBinding()]
     [OutputType([string[]])]
     param([string[]]$Prefix)
@@ -693,23 +680,24 @@ function Get-KvmDomainState {
     return (& $emit $state $raw $reason)
 }
 
-<#
-.SYNOPSIS
-    Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
-.DESCRIPTION
-    A bounded read through Get-KvmDomainState, capped at
-    $script:VirshQueryTimeoutSeconds, so a wedged libvirtd answers 'unknown'
-    instead of holding the caller. Only a completed response naming the domain
-    as not found is 'absent': a missing client, a timeout, truncated output,
-    denied permission or any unrecognized failure is 'unknown'. That precedence
-    matters because callers (Restore-YurunaServiceVM among them) treat 'absent'
-    as permission to build or reuse a name, and a provider fault read that way
-    would rebuild over a VM that still exists.
-
-    Get-VirshDomState keeps its raw-passthrough-or-empty contract for the call
-    sites and mocks that depend on it.
-#>
+# --- REGION: Get-VMState
 function Get-VMState {
+    <#
+    .SYNOPSIS
+        Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
+    .DESCRIPTION
+        A bounded read through Get-KvmDomainState, capped at
+        $script:VirshQueryTimeoutSeconds, so a wedged libvirtd answers 'unknown'
+        instead of holding the caller. Only a completed response naming the domain
+        as not found is 'absent': a missing client, a timeout, truncated output,
+        denied permission or any unrecognized failure is 'unknown'. That precedence
+        matters because callers (Restore-YurunaServiceVM among them) treat 'absent'
+        as permission to build or reuse a name, and a provider fault read that way
+        would rebuild over a VM that still exists.
+
+        Get-VirshDomState keeps its raw-passthrough-or-empty contract for the call
+        sites and mocks that depend on it.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -777,56 +765,57 @@ function Get-KvmLibvirtGroupEvidence {
     return 'not-member'
 }
 
-<#
-.SYNOPSIS
-    Bounded, read-only probe of the libvirt control channel. Returns the
-    versioned Yuruna.VirtualizationProbe record (schema version 1).
-.DESCRIPTION
-    One `virsh list --name` round trip over the connection and locale pin every
-    other virsh call in this driver uses (qemu:///system, LC_MESSAGES=C, LC_ALL
-    cleared): without the URI an unprivileged user reaches qemu:///session, a
-    different daemon, and without the pin the error text the classifier reads
-    arrives translated. The call runs through Invoke-BoundedNativeCommand, so a
-    wedged libvirtd is reported as a classified timeout instead of holding the
-    caller, and the whole probe fits inside min(TimeoutSeconds, -Deadline).
-
-    Classification, first match wins:
-      * virsh missing or not launchable        -> Undetermined/missing-client
-      * less than one second of budget left    -> Undetermined/deadline-exhausted
-                                                   (nothing is launched)
-      * no answer inside the cap               -> Unresponsive/timeout
-      * output not drained or truncated        -> Undetermined/invalid-response
-      * exit 0                                 -> Responsive/responsive
-      * permission, authentication or polkit   -> Undetermined/permission-denied,
-        refusal                                   with the libvirt group standing
-                                                  (a stale login session is not a
-                                                  daemon fault)
-      * the control socket is missing or       -> Unresponsive/app-stopped only when
-        refuses connections                       the daemon's service and socket
-                                                  units are both positively not
-                                                  running; otherwise
-                                                  Undetermined/provider-error
-      * any other failure                      -> Undetermined/provider-error
-    Unresponsive is never inferred from an exit code alone: app-stopped needs
-    the missing socket plus unit state that agrees, and only a timeout is
-    otherwise treated as an unanswered hypervisor.
-
-    Evidence keys, always present: connection, localePinned, client (present|
-    missing), socket (reachable|absent|refused|denied|unknown), libvirtGroup
-    (active|stale-session|not-member|unknown|not-probed), exitCode,
-    drainTimedOut, outputTruncated. The diagnostic field is private: it may go
-    to a private log and never to a public projection.
-
-    Never throws, never prompts, changes nothing.
-.PARAMETER TimeoutSeconds
-    Upper bound for the probe.
-.PARAMETER Deadline
-    Optional shared deadline (New-YurunaDeadline / New-YurunaDeadlineFromExpiry);
-    the probe never outlives it.
-.OUTPUTS
-    [pscustomobject] Yuruna.VirtualizationProbe
-#>
+# --- REGION: Test-VirtualizationResponsive
 function Test-VirtualizationResponsive {
+    <#
+    .SYNOPSIS
+        Bounded, read-only probe of the libvirt control channel. Returns the
+        versioned Yuruna.VirtualizationProbe record (schema version 1).
+    .DESCRIPTION
+        One `virsh list --name` round trip over the connection and locale pin every
+        other virsh call in this driver uses (qemu:///system, LC_MESSAGES=C, LC_ALL
+        cleared): without the URI an unprivileged user reaches qemu:///session, a
+        different daemon, and without the pin the error text the classifier reads
+        arrives translated. The call runs through Invoke-BoundedNativeCommand, so a
+        wedged libvirtd is reported as a classified timeout instead of holding the
+        caller, and the whole probe fits inside min(TimeoutSeconds, -Deadline).
+
+        Classification, first match wins:
+          * virsh missing or not launchable        -> Undetermined/missing-client
+          * less than one second of budget left    -> Undetermined/deadline-exhausted
+                                                       (nothing is launched)
+          * no answer inside the cap               -> Unresponsive/timeout
+          * output not drained or truncated        -> Undetermined/invalid-response
+          * exit 0                                 -> Responsive/responsive
+          * permission, authentication or polkit   -> Undetermined/permission-denied,
+            refusal                                   with the libvirt group standing
+                                                      (a stale login session is not a
+                                                      daemon fault)
+          * the control socket is missing or       -> Unresponsive/app-stopped only when
+            refuses connections                       the daemon's service and socket
+                                                      units are both positively not
+                                                      running; otherwise
+                                                      Undetermined/provider-error
+          * any other failure                      -> Undetermined/provider-error
+        Unresponsive is never inferred from an exit code alone: app-stopped needs
+        the missing socket plus unit state that agrees, and only a timeout is
+        otherwise treated as an unanswered hypervisor.
+
+        Evidence keys, always present: connection, localePinned, client (present|
+        missing), socket (reachable|absent|refused|denied|unknown), libvirtGroup
+        (active|stale-session|not-member|unknown|not-probed), exitCode,
+        drainTimedOut, outputTruncated. The diagnostic field is private: it may go
+        to a private log and never to a public projection.
+
+        Never throws, never prompts, changes nothing.
+    .PARAMETER TimeoutSeconds
+        Upper bound for the probe.
+    .PARAMETER Deadline
+        Optional shared deadline (New-YurunaDeadline / New-YurunaDeadlineFromExpiry);
+        the probe never outlives it.
+    .OUTPUTS
+        [pscustomobject] Yuruna.VirtualizationProbe
+    #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
@@ -980,33 +969,34 @@ function Get-GuestMacFromDomainXml {
     return $m.Value
 }
 
-<#
-.SYNOPSIS
-    Rename a stopped libvirt domain and relocate its on-disk artifacts.
-.DESCRIPTION
-    libvirt 1.2.19+ ships `virsh domrename` which mutates the domain
-    name atomically in the registry; that's the fast path. We follow up
-    by renaming the per-VM artifact directory (~/yuruna/vms/<old> ->
-    ~/yuruna/vms/<new>) and rewriting the XML's <disk source file=...>
-    paths to point at the new dir, then re-defining the domain so the
-    new XML is canonical. Without the dir+XML rewrite the qcow2 still
-    lives under the old path and the next cycle's
-    Remove-OrphanedVMFiles.ps1 would reclaim it on the
-    "directory-named-after-an-absent-VM" heuristic.
-
-    The same rewrite moves the NIC address, but only for a domain still
-    sitting on the address the OLD name derives: that one belongs to the
-    name being vacated, and the next build under it is refused outright
-    while a domain still holds it. A domain on any other address was
-    pinned at build time to the identity its guest keeps for life and is
-    left alone -- see Set-GuestMacInDomainXml.
-
-    Requires the domain to be positively powered off (virsh domstate
-    'shut off') and the destination name positively absent; the caller
-    (Save-VMDiskSnapshot) handles the stop. Returns $false on any sub-step
-    failure.
-#>
+# --- REGION: Rename-VM
 function Rename-VM {
+    <#
+    .SYNOPSIS
+        Rename a stopped libvirt domain and relocate its on-disk artifacts.
+    .DESCRIPTION
+        libvirt 1.2.19+ ships `virsh domrename` which mutates the domain
+        name atomically in the registry; that's the fast path. We follow up
+        by renaming the per-VM artifact directory (~/yuruna/vms/<old> ->
+        ~/yuruna/vms/<new>) and rewriting the XML's <disk source file=...>
+        paths to point at the new dir, then re-defining the domain so the
+        new XML is canonical. Without the dir+XML rewrite the qcow2 still
+        lives under the old path and the next cycle's
+        Remove-OrphanedVMFiles.ps1 would reclaim it on the
+        "directory-named-after-an-absent-VM" heuristic.
+
+        The same rewrite moves the NIC address, but only for a domain still
+        sitting on the address the OLD name derives: that one belongs to the
+        name being vacated, and the next build under it is refused outright
+        while a domain still holds it. A domain on any other address was
+        pinned at build time to the identity its guest keeps for life and is
+        left alone -- see Set-GuestMacInDomainXml.
+
+        Requires the domain to be positively powered off (virsh domstate
+        'shut off') and the destination name positively absent; the caller
+        (Save-VMDiskSnapshot) handles the stop. Returns $false on any sub-step
+        failure.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -1101,33 +1091,34 @@ function Rename-VM {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Rename the VM to $Id (relocating its storage) so it persists across
-    test-cycle cleanup, then save a disk-only snapshot of it.
-.DESCRIPTION
-    Rename-VM moves ~/yuruna/vms/<old> -> .../<Id> and rewrites the XML
-    disk sources so the next cycle's Remove-TestVMFiles.ps1 leaves the
-    persisted domain alone.
-
-    The rename MUST happen before the snapshot. libvirt freezes a full
-    copy of the domain XML inside the snapshot metadata, and neither
-    `virsh domrename` nor a later `virsh define` rewrites that frozen
-    copy. A snapshot taken under the old name therefore keeps the old
-    <name> and the old <disk source file=...> paths forever; when
-    Restore-VMDiskSnapshot later runs `snapshot-revert`, libvirt tries
-    to reinstate a domain whose disks live at a directory the rename
-    already moved away, and fails with the unhelpful "An error
-    occurred, but the cause is unknown". Snapshotting after the rename
-    keeps the frozen copy consistent with the live domain.
-
-    The snapshot itself uses `virsh snapshot-create-as --atomic`
-    against an offline domain. With the guest stopped there is no
-    runtime state to capture, so the snapshot is purely a disk-level
-    point. The --atomic flag rolls back partially-created snapshots on
-    failure.
-#>
+# --- REGION: Save-VMDiskSnapshot
 function Save-VMDiskSnapshot {
+    <#
+    .SYNOPSIS
+        Rename the VM to $Id (relocating its storage) so it persists across
+        test-cycle cleanup, then save a disk-only snapshot of it.
+    .DESCRIPTION
+        Rename-VM moves ~/yuruna/vms/<old> -> .../<Id> and rewrites the XML
+        disk sources so the next cycle's Remove-TestVMFiles.ps1 leaves the
+        persisted domain alone.
+
+        The rename MUST happen before the snapshot. libvirt freezes a full
+        copy of the domain XML inside the snapshot metadata, and neither
+        `virsh domrename` nor a later `virsh define` rewrites that frozen
+        copy. A snapshot taken under the old name therefore keeps the old
+        <name> and the old <disk source file=...> paths forever; when
+        Restore-VMDiskSnapshot later runs `snapshot-revert`, libvirt tries
+        to reinstate a domain whose disks live at a directory the rename
+        already moved away, and fails with the unhelpful "An error
+        occurred, but the cause is unknown". Snapshotting after the rename
+        keeps the frozen copy consistent with the live domain.
+
+        The snapshot itself uses `virsh snapshot-create-as --atomic`
+        against an offline domain. With the guest stopped there is no
+        runtime state to capture, so the snapshot is purely a disk-level
+        point. The --atomic flag rolls back partially-created snapshots on
+        failure.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -1135,10 +1126,16 @@ function Save-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$Id
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_cf6c53f788458edb' -Arguments @{ id = "$Id" }))) { return $false }
-    if ((Get-VMState -VMName $VMName) -eq 'running') {
+    # Normalized stopped states can still hold QEMU and its disk locks.
+    # See https://yuruna.link/42e220c4-0004
+    $state = Get-KvmDomainState -VMName $VMName -TimeoutSeconds $script:VirshQueryTimeoutSeconds
+    if ($state.State -in @('absent', 'unknown')) { return $false }
+    if ($state.Raw -ne 'shut off') {
         if (-not (Stop-VM -VMName $VMName)) {
-            [void](Stop-VMForce -VMName $VMName)
+            if (-not (Stop-VMForce -VMName $VMName)) { return $false }
         }
+        $state = Get-KvmDomainState -VMName $VMName -TimeoutSeconds $script:VirshQueryTimeoutSeconds
+        if ($state.State -ne 'stopped' -or $state.Raw -ne 'shut off') { return $false }
     }
     if ($VMName -ne $Id) {
         if (-not (Rename-VM -VMName $VMName -NewName $Id -Confirm:$false)) {
@@ -1158,14 +1155,15 @@ function Save-VMDiskSnapshot {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Returns $true when snapshot $Id is present on $VMName, $false
-    otherwise (including when the domain does not exist). Used by
-    Debug-TestSequence.ps1's requiresSnapshot warm-path probe before
-    deciding whether to walk the baseline chain.
-#>
+# --- REGION: Test-VMDiskSnapshot
 function Test-VMDiskSnapshot {
+    <#
+    .SYNOPSIS
+        Returns $true when snapshot $Id is present on $VMName, $false
+        otherwise (including when the domain does not exist). Used by
+        Debug-TestSequence.ps1's requiresSnapshot warm-path probe before
+        deciding whether to walk the baseline chain.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -1177,17 +1175,19 @@ function Test-VMDiskSnapshot {
     return ($LASTEXITCODE -eq 0)
 }
 
+# --- REGION: Restore-VMDiskSnapshot
 function Restore-VMDiskSnapshot {
     <#
     .SYNOPSIS
         Revert $VMName to libvirt snapshot $Id via `virsh snapshot-revert`.
     .DESCRIPTION
         Verifies the snapshot exists with `snapshot-info` first so a
-        typo'd Id does not bounce a healthy guest, stops the VM if it
-        is running, then runs `snapshot-revert`. Returns the virsh exit
-        status as a bool so callers can branch on success.
+        typo'd Id does not bounce a healthy guest, force-stops any active
+        domain, then confirms it is powered off before `snapshot-revert`.
+        Returns the virsh exit status as a bool so callers can branch on success.
     .OUTPUTS
-        [bool] $true on success; $false on missing snapshot or virsh failure.
+        [bool] $true on success; $false on missing snapshot, unconfirmed
+        power-off or virsh failure.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -1203,10 +1203,16 @@ function Restore-VMDiskSnapshot {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_22ea2e011669030a' -Arguments @{ id = "$Id"; vMName = "$VMName" })
         return $false
     }
-    if ((Get-VMState -VMName $VMName) -eq 'running') {
-        if (-not (Stop-VM -VMName $VMName)) {
-            [void](Stop-VMForce -VMName $VMName)
-        }
+    $state = Get-KvmDomainState -VMName $VMName -TimeoutSeconds $script:VirshQueryTimeoutSeconds
+    if ($state.State -in @('absent', 'unknown')) { return $false }
+    # Rollback discards the current guest's disk contents, so waiting for a
+    # graceful flush adds latency without preserving any data. Snapshot saves
+    # retain their graceful shutdown policy. Use the raw state here: paused,
+    # in-shutdown and crashed domains can still retain QEMU and hold the disk.
+    if ($state.Raw -ne 'shut off') {
+        if (-not (Stop-VMForce -VMName $VMName -Confirm:$false)) { return $false }
+        $state = Get-KvmDomainState -VMName $VMName -TimeoutSeconds $script:VirshQueryTimeoutSeconds
+        if ($state.Raw -ne 'shut off') { return $false }
     }
     $out = Invoke-Virsh -VirshArgs @('snapshot-revert', '--domain', $VMName, '--snapshotname', $Id)
     if ($LASTEXITCODE -ne 0) {
@@ -1216,11 +1222,12 @@ function Restore-VMDiskSnapshot {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Returns true when a console window is open for the given VM.
-#>
+# --- REGION: Test-VMConsoleOpen
 function Test-VMConsoleOpen {
+    <#
+    .SYNOPSIS
+        Returns true when a console window is open for the given VM.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -1232,34 +1239,35 @@ function Test-VMConsoleOpen {
     return ($LASTEXITCODE -eq 0 -and "$hits".Trim() -ne '')
 }
 
-<#
-.SYNOPSIS
-    Refresh or re-open the host-side console window for the given VM.
-.DESCRIPTION
-    Mirrors the Hyper-V `Restart-HyperVConnect` behavior: kill any
-    existing viewer for THIS VM, then launch a fresh one. The operator
-    sees a console window for every guest under test, same as on
-    Hyper-V's vmconnect and on macOS UTM's display window.
-
-    Detachment: a naive `Start-Process virt-viewer` inherits the parent
-    pwsh's stdout/stderr FDs, so the test harness's upstream
-    `ForEach-Object` pipe never EOFs after the sequence parent exits and
-    the harness hangs indefinitely after "Sequence complete." We invoke
-    virt-viewer through `setsid -f` with </dev/null >/dev/null 2>&1 so
-    the child runs in its own session with no inherited stdio FDs --
-    closing the harness's pipe behaves the same as on the other hosts.
-
-    GDK_BACKEND=x11: forces virt-viewer (a GTK app) to use the X11
-    backend even on Wayland sessions, so it goes through XWayland and
-    grabs the keyboard via the legacy XGrabKeyboard API instead of the
-    Wayland xdg-desktop-portal Inhibit interface. The portal path
-    triggers GNOME's "Allow inhibiting shortcuts? [Allow] [Deny]" modal
-    on every fresh viewer launch -- which would block the test runner
-    every cycle. XWayland keyboard grab is silent, has no side effects
-    on the rest of the desktop session, and the per-process env var
-    leaves other GTK apps on the host untouched.
-#>
+# --- REGION: Restart-VMConsole
 function Restart-VMConsole {
+    <#
+    .SYNOPSIS
+        Refresh or re-open the host-side console window for the given VM.
+    .DESCRIPTION
+        Mirrors the Hyper-V `Restart-HyperVConnect` behavior: kill any
+        existing viewer for THIS VM, then launch a fresh one. The operator
+        sees a console window for every guest under test, same as on
+        Hyper-V's vmconnect and on macOS UTM's display window.
+
+        Detachment: a naive `Start-Process virt-viewer` inherits the parent
+        pwsh's stdout/stderr FDs, so the test harness's upstream
+        `ForEach-Object` pipe never EOFs after the sequence parent exits and
+        the harness hangs indefinitely after "Sequence complete." We invoke
+        virt-viewer through `setsid -f` with </dev/null >/dev/null 2>&1 so
+        the child runs in its own session with no inherited stdio FDs --
+        closing the harness's pipe behaves the same as on the other hosts.
+
+        GDK_BACKEND=x11: forces virt-viewer (a GTK app) to use the X11
+        backend even on Wayland sessions, so it goes through XWayland and
+        grabs the keyboard via the legacy XGrabKeyboard API instead of the
+        Wayland xdg-desktop-portal Inhibit interface. The portal path
+        triggers GNOME's "Allow inhibiting shortcuts? [Allow] [Deny]" modal
+        on every fresh viewer launch -- which would block the test runner
+        every cycle. XWayland keyboard grab is silent, has no side effects
+        on the rest of the desktop session, and the per-process env var
+        leaves other GTK apps on the host untouched.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -1276,6 +1284,7 @@ function Restart-VMConsole {
 }
 
 # --- REGION: Image
+# --- REGION: Get-Image
 function Get-Image {
     <#
     .SYNOPSIS
@@ -1299,11 +1308,12 @@ function Get-Image {
     Invoke-GetImage -HostSubdir 'host/ubuntu.kvm' -ResolveImagePath (Get-Command Get-ImagePath) -WriteLine (Get-Command Write-Information) @PSBoundParameters
 }
 
-<#
-.SYNOPSIS
-    Return the expected on-disk path of the base image for a guest.
-#>
+# --- REGION: Get-ImagePath
 function Get-ImagePath {
+    <#
+    .SYNOPSIS
+        Return the expected on-disk path of the base image for a guest.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$GuestKey)
@@ -1311,6 +1321,7 @@ function Get-ImagePath {
 }
 
 # --- REGION: VM I/O
+# --- REGION: Send-Text
 function Send-Text {
     <#
     .SYNOPSIS
@@ -1363,11 +1374,12 @@ function Send-Text {
     return $false
 }
 
-<#
-.SYNOPSIS
-    Send a named key to the guest VM via gui or ssh mechanism.
-#>
+# --- REGION: Send-Key
 function Send-Key {
+    <#
+    .SYNOPSIS
+        Send a named key to the guest VM via gui or ssh mechanism.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -1400,11 +1412,12 @@ function Send-Key {
     return $false
 }
 
-<#
-.SYNOPSIS
-    Send a mouse click at the given pixel coordinate.
-#>
+# --- REGION: Send-Click
 function Send-Click {
+    <#
+    .SYNOPSIS
+        Send a mouse click at the given pixel coordinate.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -1416,11 +1429,12 @@ function Send-Click {
     return $false
 }
 
-<#
-.SYNOPSIS
-    Capture a PNG of the VM display from frame or window source.
-#>
+# --- REGION: Get-VMScreenshot
 function Get-VMScreenshot {
+    <#
+    .SYNOPSIS
+        Capture a PNG of the VM display from frame or window source.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -1450,7 +1464,10 @@ function Get-VMScreenshot {
         return $null
     }
     if (Get-Command convert -ErrorAction SilentlyContinue) {
-        & convert $ppm $OutFile 2>$null | Out-Null
+        # Date/time chunks change even when every pixel is identical. Exclude
+        # those volatile fields so OCR's exact-frame cache can reuse its answer;
+        # retain color profiles, gamma and all image data.
+        & convert $ppm -define 'png:exclude-chunk=date,time' $OutFile 2>$null | Out-Null
     } elseif (Get-Command pamtopng -ErrorAction SilentlyContinue) {
         & pamtopng $ppm > $OutFile 2>$null
     } else {
@@ -1462,11 +1479,12 @@ function Get-VMScreenshot {
     return $null
 }
 
-<#
-.SYNOPSIS
-    Return a host-specific handle for the VM console window.
-#>
+# --- REGION: Get-VMConsoleHandle
 function Get-VMConsoleHandle {
+    <#
+    .SYNOPSIS
+        Return a host-specific handle for the VM console window.
+    #>
     [CmdletBinding()]
     [OutputType([int])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -1484,6 +1502,7 @@ function Get-VMConsoleHandle {
 }
 
 # --- REGION: Discovery
+# --- REGION: Wait-KvmGuestIp
 function Wait-KvmGuestIp {
     <#
     .SYNOPSIS
@@ -1524,6 +1543,7 @@ function Wait-KvmGuestIp {
     return $null
 }
 
+# --- REGION: Wait-VMIp
 function Wait-VMIp {
     <#
     .SYNOPSIS
@@ -1788,27 +1808,28 @@ function Get-KvmNeighborIp {
     return [string]$ordered[0].Ip
 }
 
-<#
-.SYNOPSIS
-    Refresh the host neighbor cache so a passive MAC lookup can succeed.
-.DESCRIPTION
-    Contract verb. `--source arp` and the neighbor rung above are both passive
-    reads: they answer only for addresses the kernel already has an entry for,
-    and nothing in a normal cycle makes a guest talk to this host often enough
-    to keep one alive. This is the active half -- one bounded ICMP sweep of the
-    host's own subnet, which populates the cache for everything answering on it.
-
-    Three guards, in cost order, because the sweep is the expensive thing here:
-    a per-VM cooldown so a polling caller cannot turn its poll interval into a
-    sweep interval; a running-state check so a stopped or absent domain never
-    pays for one; and a /24 ceiling, since a wider prefix turns this from a
-    lookup into a scan of the operator's network.
-.PARAMETER VMName
-    Guest whose cooldown slot this sweep consumes.
-.PARAMETER CooldownSeconds
-    Minimum gap between sweeps for one VM.
-#>
+# --- REGION: Update-GuestNeighborCache
 function Update-GuestNeighborCache {
+    <#
+    .SYNOPSIS
+        Refresh the host neighbor cache so a passive MAC lookup can succeed.
+    .DESCRIPTION
+        Contract verb. `--source arp` and the neighbor rung above are both passive
+        reads: they answer only for addresses the kernel already has an entry for,
+        and nothing in a normal cycle makes a guest talk to this host often enough
+        to keep one alive. This is the active half -- one bounded ICMP sweep of the
+        host's own subnet, which populates the cache for everything answering on it.
+
+        Three guards, in cost order, because the sweep is the expensive thing here:
+        a per-VM cooldown so a polling caller cannot turn its poll interval into a
+        sweep interval; a running-state check so a stopped or absent domain never
+        pays for one; and a /24 ceiling, since a wider prefix turns this from a
+        lookup into a scan of the operator's network.
+    .PARAMETER VMName
+        Guest whose cooldown slot this sweep consumes.
+    .PARAMETER CooldownSeconds
+        Minimum gap between sweeps for one VM.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -1862,24 +1883,25 @@ function Update-GuestNeighborCache {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Return the guest's host-side IPv4, or null if not yet discoverable.
-.DESCRIPTION
-    Rungs are tried cheapest-first and every decline is narrated, because a
-    silent $null here is indistinguishable at the call site from "this guest
-    does not exist" -- and the caller turns that into an ssh target built from
-    the VM name, which fails as a name-resolution error naming nothing about
-    the real cause.
-
-    Which rungs can answer is a property of the host's configuration, not of
-    this code: `lease` needs libvirt to be the DHCP server, so it is silent for
-    a guest on a bridge-forward network with no <dhcp> element; `agent` needs
-    qemu-guest-agent inside the guest. Where both are silent the arp and
-    neighbor rungs are the whole of discovery, and they are passive reads of a
-    cache that decays -- hence the active refresh as the last resort.
-#>
+# --- REGION: Get-VMIp
 function Get-VMIp {
+    <#
+    .SYNOPSIS
+        Return the guest's host-side IPv4, or null if not yet discoverable.
+    .DESCRIPTION
+        Rungs are tried cheapest-first and every decline is narrated, because a
+        silent $null here is indistinguishable at the call site from "this guest
+        does not exist" -- and the caller turns that into an ssh target built from
+        the VM name, which fails as a name-resolution error naming nothing about
+        the real cause.
+
+        Which rungs can answer is a property of the host's configuration, not of
+        this code: `lease` needs libvirt to be the DHCP server, so it is silent for
+        a guest on a bridge-forward network with no <dhcp> element; `agent` needs
+        qemu-guest-agent inside the guest. Where both are silent the arp and
+        neighbor rungs are the whole of discovery, and they are passive reads of a
+        cache that decays -- hence the active refresh as the last resort.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -1955,11 +1977,12 @@ function Get-VMIp {
     }
 }
 
-<#
-.SYNOPSIS
-    Return the guest's MAC address, or null if not available.
-#>
+# --- REGION: Get-VMMac
 function Get-VMMac {
+    <#
+    .SYNOPSIS
+        Return the guest's MAC address, or null if not available.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -1981,6 +2004,7 @@ function Get-VMMac {
 }
 
 # --- REGION: Networking
+# --- REGION: Get-ExternalNetwork
 function Get-ExternalNetwork {
     <#
     .SYNOPSIS
@@ -2004,11 +2028,12 @@ function Get-ExternalNetwork {
     return 'default'
 }
 
-<#
-.SYNOPSIS
-    Create the host-side External-type vSwitch or network if missing.
-#>
+# --- REGION: New-ExternalNetwork
 function New-ExternalNetwork {
+    <#
+    .SYNOPSIS
+        Create the host-side External-type vSwitch or network if missing.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param()
@@ -2125,19 +2150,24 @@ function Get-YurunaLibvirtNetworkBridge {
     return $null
 }
 
-# Internal. True iff the libvirt network attaches guests to a HOST
-# bridge (<forward mode='bridge'/>). NAT/routed/isolated networks also
-# carry a <bridge name='virbrN'/> element, but that bridge is
-# libvirt-owned and legitimately has no physical uplink -- libvirt's own
-# dnsmasq serves DHCP on it directly -- so bridge-health probes and
-# rebuilds must never touch it.
+# --- REGION: Test-YurunaLibvirtNetworkIsBridgeMode
 function Test-YurunaLibvirtNetworkIsBridgeMode {
+    <#
+    .SYNOPSIS
+        Return true only when a readable libvirt network uses host bridging.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$NetworkName)
+    # NAT, routed, and isolated networks also have a libvirt-owned bridge.
+    # See https://yuruna.link/42e220c4-0004
     $xmlLines = Invoke-Virsh -VirshArgs @('net-dumpxml', $NetworkName)
-    foreach ($line in $xmlLines) {
-        if ($line -match "<forward\s+mode='bridge'") { return $true }
+    if ($LASTEXITCODE -ne 0) { return $false }
+    try {
+        $network = [xml]([string]::Join("`n", @($xmlLines)))
+        return [bool]($network.network.forward.mode -eq 'bridge')
+    } catch {
+        Write-Debug "Test-YurunaLibvirtNetworkIsBridgeMode: could not read '$NetworkName': $($_.Exception.Message)"
     }
     return $false
 }
@@ -2442,7 +2472,8 @@ function Wait-YurunaBridgeUplink {
     }
 }
 
-# --- REGION: https://yuruna.link/42d69dfa-001f
+# See https://yuruna.link/42d69dfa-001f
+# --- REGION: Repair-YurunaExternalBridgeSlave
 function Repair-YurunaExternalBridgeSlave {
     <#
     .SYNOPSIS
@@ -3359,12 +3390,13 @@ function New-YurunaBridgeViaNetplan {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Returns true if the caching-proxy-service VM is on a bridged libvirt network
-    (LAN-routable IP, no host portproxy needed).
-#>
+# --- REGION: Test-CacheVMOnExternalNetwork
 function Test-CacheVMOnExternalNetwork {
+    <#
+    .SYNOPSIS
+        Returns true if the caching-proxy-service VM is on a bridged libvirt network
+        (LAN-routable IP, no host portproxy needed).
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$VMName = 'yuruna-caching-proxy-service')
@@ -3373,45 +3405,52 @@ function Test-CacheVMOnExternalNetwork {
     if (-not $state) { return $false }
     $xml = Invoke-Virsh -VirshArgs @('dumpxml', $VMName)
     if ($LASTEXITCODE -ne 0) { return $false }
-    $joined = [string]::Join("`n", $xml)
-    # Pull the first source network name from the dumpxml output.
-    # Domains may have multiple interfaces; the first one is what the
-    # cache VM lands on per our New-VM.ps1 (only one --network spec).
-    if ($joined -notmatch "<source\s+network='([^']+)'") { return $false }
-    $srcNet = $Matches[1]
-    return ($srcNet -ne 'default')
+    # The configured first NIC determines exposure, not the network's name.
+    # See https://yuruna.link/42e220c4-0004
+    try {
+        $domain = [xml]([string]::Join("`n", @($xml)))
+        $interface = @($domain.domain.devices.interface)[0]
+        if (-not $interface) { return $false }
+        if ($interface.type -eq 'bridge') { return [bool]$interface.source.bridge }
+        if ($interface.type -ne 'network' -or -not $interface.source.network) { return $false }
+        return (Test-YurunaLibvirtNetworkIsBridgeMode -NetworkName $interface.source.network)
+    } catch {
+        Write-Debug "Test-CacheVMOnExternalNetwork: could not read '$VMName': $($_.Exception.Message)"
+        return $false
+    }
 }
 
-<#
-.SYNOPSIS
-    Expose the caching-proxy-service VM's ports on the host's LAN IP so LAN
-    clients reach the NAT-networked cache at http://<host-lan-ip>:<port>.
-.DESCRIPTION
-    The cache VM sits on libvirt's NAT 'default' network, so its
-    192.168.122/24 address is reachable from this host only. To make it
-    LAN-reachable WITHOUT reconfiguring host networking or NetworkManager,
-    this installs one socket-activated systemd unit pair per port:
-
-      yuruna-cacheproxy-p<hostport>.socket   ListenStream=0.0.0.0:<hostport>
-      yuruna-cacheproxy-p<hostport>.service  systemd-socket-proxyd <vmip>:<vmport>
-
-    Why socket-activated forwarding and not nftables DNAT: a DNAT rule
-    into the NAT subnet is dropped by libvirt's OWN forward chain --
-    libvirt installs an `oifname virbr0 ... reject` rule for unsolicited
-    inbound traffic to its guests. Making DNAT work means overriding
-    libvirt's firewall rules, which is firewall-backend-specific and is
-    regenerated every time libvirt restarts. systemd-socket-proxyd
-    instead connects to the VM as a host-LOCAL process; host<->guest
-    traffic is not subject to that forward filtering, so it works
-    regardless of libvirt's backend. systemd runs the proxy as root (so
-    a privileged :80 bind succeeds) and the enabled .socket units are
-    restored on boot -- fixing both fatal flaws of the previous pwsh
-    Start-Process forwarders, which could not bind :80 and did not
-    survive a reboot.
-.OUTPUTS
-    [bool] $true when at least one forwarder socket is listening.
-#>
+# --- REGION: Add-PortMap
 function Add-PortMap {
+    <#
+    .SYNOPSIS
+        Expose the caching-proxy-service VM's ports on the host's LAN IP so LAN
+        clients reach the NAT-networked cache at http://<host-lan-ip>:<port>.
+    .DESCRIPTION
+        The cache VM sits on libvirt's NAT 'default' network, so its
+        192.168.122/24 address is reachable from this host only. To make it
+        LAN-reachable WITHOUT reconfiguring host networking or NetworkManager,
+        this installs one socket-activated systemd unit pair per port:
+
+          yuruna-cacheproxy-p<hostport>.socket   ListenStream=0.0.0.0:<hostport>
+          yuruna-cacheproxy-p<hostport>.service  systemd-socket-proxyd <vmip>:<vmport>
+
+        Why socket-activated forwarding and not nftables DNAT: a DNAT rule
+        into the NAT subnet is dropped by libvirt's OWN forward chain --
+        libvirt installs an `oifname virbr0 ... reject` rule for unsolicited
+        inbound traffic to its guests. Making DNAT work means overriding
+        libvirt's firewall rules, which is firewall-backend-specific and is
+        regenerated every time libvirt restarts. systemd-socket-proxyd
+        instead connects to the VM as a host-LOCAL process; host<->guest
+        traffic is not subject to that forward filtering, so it works
+        regardless of libvirt's backend. systemd runs the proxy as root (so
+        a privileged :80 bind succeeds) and the enabled .socket units are
+        restored on boot -- fixing both fatal flaws of the previous pwsh
+        Start-Process forwarders, which could not bind :80 and did not
+        survive a reboot.
+    .OUTPUTS
+        [bool] $true when at least one forwarder socket is listening.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -3527,13 +3566,14 @@ ExecStart=$proxyd ${VMIp}:$vmPort
     return ($up -gt 0)
 }
 
-<#
-.SYNOPSIS
-    Tear down every yuruna caching-proxy-service forwarder: the systemd
-    socket-proxy units, plus any legacy pwsh Start-Process forwarders.
-    Idempotent -- "nothing installed" is still success.
-#>
+# --- REGION: Remove-PortMap
 function Remove-PortMap {
+    <#
+    .SYNOPSIS
+        Tear down every yuruna caching-proxy-service forwarder: the systemd
+        socket-proxy units, plus any legacy pwsh Start-Process forwarders.
+        Idempotent -- "nothing installed" is still success.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
@@ -3577,11 +3617,12 @@ function Remove-PortMap {
 # processes do not survive a host reboot. Add-PortMap installs systemd
 # socket-activated forwarders instead -- see its .DESCRIPTION above.
 
-<#
-.SYNOPSIS
-    Return the host's best LAN-routable IPv4 for browser-facing URLs.
-#>
+# --- REGION: Get-BestHostIp
 function Get-BestHostIp {
+    <#
+    .SYNOPSIS
+        Return the host's best LAN-routable IPv4 for browser-facing URLs.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -3598,11 +3639,12 @@ function Get-BestHostIp {
     return $null
 }
 
-<#
-.SYNOPSIS
-    Return the host IP a guest reaches the host at (per SwitchName).
-#>
+# --- REGION: Get-GuestReachableHostIp
 function Get-GuestReachableHostIp {
+    <#
+    .SYNOPSIS
+        Return the host IP a guest reaches the host at (per SwitchName).
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([string]$SwitchName)
@@ -3657,6 +3699,7 @@ function Resolve-GuestHostBinding {
 }
 
 # --- REGION: Caching-proxy service
+# --- REGION: Test-CachingProxyServiceAvailable
 function Test-CachingProxyServiceAvailable {
     <#
     .SYNOPSIS
@@ -3683,11 +3726,12 @@ function Test-CachingProxyServiceAvailable {
     Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'nc -z {0} {1}' -NoBracketHost -ConnectAttempts 3 -Quiet:$Quiet
 }
 
-<#
-.SYNOPSIS
-    Return the cache VM's real IP for downstream port-forwarder setup.
-#>
+# --- REGION: Get-CachingProxyServiceVmIp
 function Get-CachingProxyServiceVmIp {
+    <#
+    .SYNOPSIS
+        Return the cache VM's real IP for downstream port-forwarder setup.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -3757,6 +3801,7 @@ function Save-CachedHttpUri {
 }
 
 # --- REGION: Host config
+# --- REGION: Set-HostProxy
 function Set-HostProxy {
     <#
     .SYNOPSIS
@@ -3777,11 +3822,12 @@ function Set-HostProxy {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Restore the host proxy from the saved backup, or disable if none.
-#>
+# --- REGION: Clear-HostProxy
 function Clear-HostProxy {
+    <#
+    .SYNOPSIS
+        Restore the host proxy from the saved backup, or disable if none.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
@@ -3799,11 +3845,12 @@ function Clear-HostProxy {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Aggressively wipe every host-proxy reference and the backup file.
-#>
+# --- REGION: Remove-HostProxy
 function Remove-HostProxy {
+    <#
+    .SYNOPSIS
+        Aggressively wipe every host-proxy reference and the backup file.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
@@ -3882,22 +3929,24 @@ rm -f /etc/apt/apt.conf.d/99yuruna-host-proxy
     return ($LASTEXITCODE -eq 0)
 }
 
-<#
-.SYNOPSIS
-    Return the path of the host-proxy backup JSON.
-#>
+# --- REGION: Get-HostProxyBackupPath
 function Get-HostProxyBackupPath {
+    <#
+    .SYNOPSIS
+        Return the path of the host-proxy backup JSON.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
     return Yuruna.Common\Get-HostProxyBackupPath
 }
 
-<#
-.SYNOPSIS
-    Returns true if the host hypervisor is installed and ready.
-#>
+# --- REGION: Assert-Virtualization
 function Assert-Virtualization {
+    <#
+    .SYNOPSIS
+        Returns true if the host hypervisor is installed and ready.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param()
@@ -4279,50 +4328,51 @@ function Get-KvmNetworkActiveWord {
     return 'unknown'
 }
 
-<#
-.SYNOPSIS
-    Start the libvirt daemon units that this function positively observes as
-    stopped, and the 'default' network a dependent VM needs; refuse on anything
-    it cannot establish. Returns a Yuruna.VirtualizationStartResult.
-.DESCRIPTION
-    Runs its own detection immediately before acting and never trusts an
-    earlier probe: one bounded `systemctl show` of every libvirt unit decides
-    the layout (monolithic, modular, mixed or unknown) and each unit's state.
-    Only a qualified layout recipe is acted on; the modular recipe is declared
-    but unqualified and returns 'unavailable/layout-unqualified'.
-
-    Every recipe unit is evaluated before any is started, so a refusal changes
-    nothing: a unit that is not loaded, masked, disabled (an operator's choice
-    this must not override), failed, or still transitioning after a bounded
-    settle wait refuses the whole rung. An active unit is already running; an
-    inactive service behind an active activation socket is idle by design and
-    is not started (socket-live). Only an inactive/dead unit with no live
-    socket is started, in recipe order, with
-    `sudo -n systemctl --no-ask-password start <unit>`, which fails at once
-    rather than prompting. A sudo refusal on the first start refuses the rung
-    and the action's command carries the exact vector a sudoers rule must
-    allow. Each start is confirmed by a fresh unit read; a start whose outcome
-    cannot be confirmed is reported as unknown, never as started.
-
-    The 'default' network step runs only for -DependentVMName guests and only
-    once the daemon is running; see Start-KvmDefaultNetworkIfRequired.
-
-    -WhatIf runs only the bounded read-only detection (and, when the daemon is
-    already up, the read-only network lookups) and reports the planned starts
-    as 'preview'. Every native call is capped by the remaining time of
-    min(TimeoutSeconds, -Deadline); with less than one second left nothing is
-    launched. Never throws and never prompts.
-.PARAMETER TimeoutSeconds
-    Upper bound for the whole call.
-.PARAMETER Deadline
-    Optional shared deadline; the call never outlives it.
-.PARAMETER DependentVMName
-    Guests whose restoration depends on this hypervisor; decides whether the
-    'default' network is required.
-.OUTPUTS
-    [pscustomobject] Yuruna.VirtualizationStartResult
-#>
+# --- REGION: Start-VirtualizationServiceIfStopped
 function Start-VirtualizationServiceIfStopped {
+    <#
+    .SYNOPSIS
+        Start the libvirt daemon units that this function positively observes as
+        stopped, and the 'default' network a dependent VM needs; refuse on anything
+        it cannot establish. Returns a Yuruna.VirtualizationStartResult.
+    .DESCRIPTION
+        Runs its own detection immediately before acting and never trusts an
+        earlier probe: one bounded `systemctl show` of every libvirt unit decides
+        the layout (monolithic, modular, mixed or unknown) and each unit's state.
+        Only a qualified layout recipe is acted on; the modular recipe is declared
+        but unqualified and returns 'unavailable/layout-unqualified'.
+
+        Every recipe unit is evaluated before any is started, so a refusal changes
+        nothing: a unit that is not loaded, masked, disabled (an operator's choice
+        this must not override), failed, or still transitioning after a bounded
+        settle wait refuses the whole rung. An active unit is already running; an
+        inactive service behind an active activation socket is idle by design and
+        is not started (socket-live). Only an inactive/dead unit with no live
+        socket is started, in recipe order, with
+        `sudo -n systemctl --no-ask-password start <unit>`, which fails at once
+        rather than prompting. A sudo refusal on the first start refuses the rung
+        and the action's command carries the exact vector a sudoers rule must
+        allow. Each start is confirmed by a fresh unit read; a start whose outcome
+        cannot be confirmed is reported as unknown, never as started.
+
+        The 'default' network step runs only for -DependentVMName guests and only
+        once the daemon is running; see Start-KvmDefaultNetworkIfRequired.
+
+        -WhatIf runs only the bounded read-only detection (and, when the daemon is
+        already up, the read-only network lookups) and reports the planned starts
+        as 'preview'. Every native call is capped by the remaining time of
+        min(TimeoutSeconds, -Deadline); with less than one second left nothing is
+        launched. Never throws and never prompts.
+    .PARAMETER TimeoutSeconds
+        Upper bound for the whole call.
+    .PARAMETER Deadline
+        Optional shared deadline; the call never outlives it.
+    .PARAMETER DependentVMName
+        Guests whose restoration depends on this hypervisor; decides whether the
+        'default' network is required.
+    .OUTPUTS
+        [pscustomobject] Yuruna.VirtualizationStartResult
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
     param(
@@ -4826,7 +4876,7 @@ function Save-VMDhcpCapture {
     }
 }
 
-# --- REGION: Exports
+# --- REGION: Remove-KvmDomainDefinition
 function Remove-KvmDomainDefinition {
     <#
     .SYNOPSIS
@@ -4850,6 +4900,7 @@ function Remove-KvmDomainDefinition {
     }
 }
 
+# --- REGION: Resolve-KvmOsVariant
 function Resolve-KvmOsVariant {
     <#
     .SYNOPSIS
@@ -4867,6 +4918,7 @@ function Resolve-KvmOsVariant {
     return 'linux2022'
 }
 
+# --- REGION: New-KvmServiceDomain
 function New-KvmServiceDomain {
     <#
     .SYNOPSIS
@@ -4928,6 +4980,7 @@ function New-KvmServiceDomain {
     return $true
 }
 
+# --- REGION: Exports
 Export-ModuleMember -Function Remove-KvmDomainDefinition, Resolve-KvmOsVariant, New-KvmServiceDomain, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
@@ -4960,13 +5013,8 @@ $null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' `
     'Test-VirtualizationResponsive','Start-VirtualizationServiceIfStopped'
 )
 
-# Load-time guard for the cache-download wrapper precedence. The image helpers
-# (Save-ImageWithChecksum / Save-UbuntuServerImage) feature-detect Save-CachedHttpUri
-# BY NAME and invoke it with only -Uri/-OutFile, so this driver's 2-param wrapper
-# must win the command-table slot over the shared 3-param
-# Yuruna.HostDownload\Save-CachedHttpUri. If an import-order change flips that
-# precedence the cache-discovery closure is dropped and downloads silently bypass
-# the squid cache (direct, no error) -- surface that regression loudly here.
+# The driver wrapper must retain cache discovery when shared modules load.
+# See https://yuruna.link/42e220c4-0003
 $__yurunaCacheDownloadCmd = Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue
 if (-not $__yurunaCacheDownloadCmd) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_905958f7fa20b7bf')

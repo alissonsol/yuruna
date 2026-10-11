@@ -55,6 +55,20 @@ APT_PROXY_BLOCK_PLACEHOLDER
       TCPKeepAlive yes
       EOF
       chmod 0644 /target/etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
+    # --- REGION: Persistent diagnostic journal
+    - |
+      mkdir -p /target/etc/systemd/journald.conf.d /target/var/log/journal
+      cat > /target/etc/systemd/journald.conf.d/60-yuruna-diagnostic.conf << 'EOF'
+      # --- REGION: [Journal]
+      [Journal]
+      Storage=persistent
+      SystemMaxUse=32M
+      SystemKeepFree=256M
+      RuntimeMaxUse=8M
+      SyncIntervalSec=30s
+      ForwardToConsole=no
+      EOF
+      chmod 0644 /target/etc/systemd/journald.conf.d/60-yuruna-diagnostic.conf
     # --- REGION: https://yuruna.link/429f3d06-0013
     - |
       if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then

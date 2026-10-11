@@ -7,10 +7,10 @@
   },
   "totals": {
     "domains": 16,
-    "files": 539,
-    "candidates": 7570,
-    "fragments": 1714,
-    "catalogCalls": 5391,
+    "files": 545,
+    "candidates": 7679,
+    "fragments": 1715,
+    "catalogCalls": 5390,
     "pages": 15,
     "markdown": 122,
     "yamlFields": 178
@@ -94,7 +94,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 16,
-      "candidates": 585,
+      "candidates": 589,
       "fragments": 283,
       "catalogCalls": 90,
       "pages": 0,
@@ -349,10 +349,10 @@
       "domain": "runner",
       "repository": "yuruna",
       "present": true,
-      "files": 128,
-      "candidates": 1810,
-      "fragments": 262,
-      "catalogCalls": 2320,
+      "files": 130,
+      "candidates": 1892,
+      "fragments": 270,
+      "catalogCalls": 2336,
       "pages": 0,
       "markdown": 1,
       "yamlFields": 0,
@@ -362,20 +362,20 @@
           "candidates": 108
         },
         {
+          "file": "test/modules/Test.SequenceHandler.psm1",
+          "candidates": 97
+        },
+        {
           "file": "test/modules/Test.HostCondition.Mac.psm1",
           "candidates": 86
         },
         {
-          "file": "test/modules/Test.SequenceHandler.psm1",
-          "candidates": 85
+          "file": "test/modules/Test.Diagnostic.psm1",
+          "candidates": 84
         },
         {
           "file": "test/modules/Test.RunnerInnerLoop.psm1",
-          "candidates": 75
-        },
-        {
-          "file": "test/modules/Test.Diagnostic.psm1",
-          "candidates": 73
+          "candidates": 76
         }
       ]
     },
@@ -383,24 +383,24 @@
       "domain": "host-drivers",
       "repository": "yuruna",
       "present": true,
-      "files": 79,
-      "candidates": 749,
-      "fragments": 102,
-      "catalogCalls": 1748,
+      "files": 83,
+      "candidates": 736,
+      "fragments": 95,
+      "catalogCalls": 1724,
       "pages": 0,
       "markdown": 28,
       "yamlFields": 0,
       "topFiles": [
         {
           "file": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-          "candidates": 110
-        },
-        {
-          "file": "host/macos.utm/modules/Yuruna.Host.psm1",
-          "candidates": 105
+          "candidates": 112
         },
         {
           "file": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
+          "candidates": 108
+        },
+        {
+          "file": "host/macos.utm/modules/Yuruna.Host.psm1",
           "candidates": 104
         },
         {
@@ -418,16 +418,16 @@
       "repository": "yuruna",
       "present": true,
       "files": 39,
-      "candidates": 326,
+      "candidates": 339,
       "fragments": 16,
-      "catalogCalls": 655,
+      "catalogCalls": 662,
       "pages": 0,
       "markdown": 0,
       "yamlFields": 0,
       "topFiles": [
         {
           "file": "automation/Get-SystemDiagnostic.ps1",
-          "candidates": 80
+          "candidates": 87
         },
         {
           "file": "automation/Yuruna.Common.psm1",
@@ -438,12 +438,12 @@
           "candidates": 37
         },
         {
-          "file": "automation/Yuruna.Resource.psm1",
-          "candidates": 18
+          "file": "automation/Yuruna.Component.psm1",
+          "candidates": 22
         },
         {
-          "file": "automation/Yuruna.Component.psm1",
-          "candidates": 16
+          "file": "automation/Yuruna.Resource.psm1",
+          "candidates": 18
         }
       ]
     },
@@ -452,7 +452,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 5,
-      "candidates": 503,
+      "candidates": 526,
       "fragments": 125,
       "catalogCalls": 84,
       "pages": 0,
@@ -469,15 +469,15 @@
         },
         {
           "file": "guest/windows.11/windows.11.update.ps1",
-          "candidates": 33
+          "candidates": 38
         },
         {
           "file": "guest/windows.11/windows.11.k8s.ps1",
-          "candidates": 26
+          "candidates": 33
         },
         {
           "file": "guest/windows.11/windows.11.code.ps1",
-          "candidates": 5
+          "candidates": 16
         }
       ]
     },

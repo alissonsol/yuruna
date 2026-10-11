@@ -2,11 +2,11 @@
 
 # Extensions API
 
-The harness defers eight classes of swappable behavior to **extension
+The harness defers nine classes of swappable behavior to **extension
 areas** under [`test/extension/`](../test/extension/) -- authentication,
 notification transports, caching-proxy-service log parsing, caching-proxy
 management, host-side artifact stashing, multi-host pool aggregation, pool
-configuration, and pool-wide guest-image downloading. An area is a directory
+configuration, pool-wide guest-image downloading, and guest payload integrity. An area is a directory
 with one or more `.psm1` files plus a YAML config naming the active set.
 
 Loader: [`test/modules/Test.Extension.psm1`](../test/modules/Test.Extension.psm1).
@@ -49,7 +49,7 @@ test/extension/
 |   +-- authentication.config.yml       # active: ['default']
 |   +-- authentication.contract.yml     # methods + parameter shape this area exports
 |   +-- users.yml.template              # vault seed: harness copies on first cycle
-|   +-- default.psm1                    # 11 exports: the vault read/write pair, the credential
+|   +-- default.psm1                    # 13 exports: the vault read/write pair, the credential
 |                                       # resolvers, and the users.yml reader + its cache reset
 +-- notification/
 |   +-- notification.config.yml         # active: ['default']
@@ -91,8 +91,9 @@ test/extension/
 |   |                                   # (hostedIn, no vmName -- it runs in the proxy VM)
 |   +-- pool-aggregator-service.contract.yml    # requiredFunction: Get-PoolAggregatorServiceManifest
 |   +-- pool-aggregator-service.service         # systemd unit for the proxy-host Go daemon
-|   +-- go.mod, main.go                 # stdlib-only Go daemon source, one file
-|   +-- *_test.go                       # 17 test files beside it
+|   +-- go.mod, main.go                 # stdlib-only Go daemon source: main.go plus handover.go,
+|   |                                   # mcp.go, localization.go, backfill*.go and internal/catalog/
+|   +-- *_test.go                       # 32 test files beside it
 |   +-- grafana-pool-dashboard.json     # companion Grafana dashboard
 |   +-- README.md
 |   +-- default.psm1                    # host-side wrapper
@@ -106,6 +107,12 @@ test/extension/
 |   +-- download-agent-service.contract.yml     # requiredFunction: Get-DownloadAgentServiceInfo
 |   +-- server/                         # Go daemon (main.go + internal/{...}, incl. imagestore)
 |   +-- default.psm1                    # host-side status stub + /healthz preflight
++-- digest/
+|   +-- digest.config.yml               # active: ['default']
+|   +-- digest.contract.yml             # requiredFunction: the three Get-*Sha256 readers + Publish-GuestFileSha256
+|   +-- README.md
+|   +-- default.psm1                    # 4 exports: Get-FileSha256, Get-ArchiveSha256,
+|                                       # Get-PublishedSha256, Publish-GuestFileSha256
 +-- extension-sdk/                      # the shared Go SDK, staged beside each server/
     +-- go.mod, README.md               # at build time -- never copied into one
     +-- beacon/                         # POST /announce presence
@@ -177,7 +184,7 @@ area's exports unambiguous.
 
 ## The extension interface
 
-Four service extensions exist, and each new one used to mean copying the same
+Five extension areas declare service manifests, and each new one used to mean copying the same
 five things: a presence beacon, an aggregator read client, a write gate, a
 runtime marker, and an entry in three hardcoded lists inside the framework. Each
 copy drifted from the others, which is how one service ended up with a weaker
@@ -435,7 +442,7 @@ reported-never-fatal. Under `Stop` each of those designed outcomes ends the
 bring-up instead, and its reason is left on a console that is gone by the time
 anyone reads the run log.
 
-Where a condition really must stop the script, it says so itself with an
+Where a condition must stop the script, it says so itself with an
 explicit `Write-Error` followed by `exit`, the way the preflight hard gates do.
 That keeps every stopping decision at the point that makes it, instead of
 spreading it across every helper the script happens to call.
@@ -444,10 +451,12 @@ spreading it across every helper the script happens to call.
 
 ### A service that never served fails loudly
 
-A bring-up that ends with no daemon serving exits non-zero. Warning-plus-zero is
-not an option: the caller records the script's exit code as the step's outcome,
-so a zero puts `<service>: PASS` in a run summary for a VM whose daemon does not
-exist.
+A bring-up that ends with no daemon serving exits non-zero unless SSH confirms
+cloud-init is still running or has not started: that unfinished build is the
+nonfatal `StillBuilding` outcome described above, with an inactive marker.
+Otherwise warning-plus-zero would put `<service>: PASS` in a run summary for
+a failed service, because the caller records the script's exit code as the
+step's outcome.
 
 **An IP is not readiness.** `New-VM` confirms the VM has an address, but the
 daemon still has to build INSIDE the guest -- apt, the Go toolchain, the build
@@ -508,8 +517,8 @@ the guest:
 All three default to **2700** seconds and take a positive integer; anything
 else is ignored with a verbose note rather than failing the bring-up. The value
 is a floor, not a ceiling: the wait extends itself beyond it -- to at most twice
-the value -- for as long as the guest ITSELF answers over SSH that cloud-init is
-still running, so a slow host is not failed for a build that was progressing.
+the value -- while the guest ITSELF answers over SSH that cloud-init is running
+or has not started, so a slow host is not failed for a build that was progressing.
 The usual reason to set one is the opposite case: a short value for a quick
 re-check against a VM already up.
 
@@ -625,11 +634,12 @@ The annotation on each tool is the same claim its route makes:
   `caching-proxy-remote-readonly`, the same string its `501` body carries, so an
   operator who knows one knows the other.
 
-Only four daemons mount a mutating tool at all, and three of them mount none.
-That is a decision per service rather than an oversight: the aggregator's
-mutations are a telemetry firehose and a route that deletes evidence an
-operator may be mid-way through reading; pool-control's each commit and push
-the pool intent store; stash's `DELETE` reaches every host's stash on the shared
+Four of the five daemons that mount MCP offer mutating tools; the aggregator
+offers none. Each service also withholds particular mutations: the
+aggregator's are a telemetry firehose and a route that deletes evidence an
+operator may be mid-way through reading; pool-control withholds pool creation,
+pool deletion (which commits and pushes the pool intent store), and network
+scans; stash's `DELETE` reaches every host's stash on the shared
 mount, not just its own; and the download agent's `ensure` route is
 **deliberately ungated** on the HTTP side, so a tool for it could not both
 mirror its route's gate and honor the rule that a mutating tool takes the lab
@@ -988,8 +998,9 @@ Containment instead:
 5. **Confirmed before it is answered** -- the handler probes a newly
    announced address at `/healthz` (see
    [above](#only-an-address-the-pool-has-reached-is-answered)), and the poll
-   re-confirms it; an entry that stays unanswered for 5 minutes is removed
-   as if it had said goodbye. An announce is a claim to be checked, not a
+   re-confirms it; an entry that stays unanswered for 5 minutes is suppressed
+   until a new announce restores it or the announce TTL reaps it. An announce
+   is a claim to be checked, not a
    fact to be republished.
 
 **`2xx` means recorded, not merely received.** The entry itself lives in the
@@ -1054,8 +1065,9 @@ address, not on the rebuild:
   *registration*-sourced row takes longer: a rebuilt proxy starts with an empty
   Squid log and an empty Loki, so the owning host is re-discovered only once it
   next pulls through the proxy.
-- **New address** -- no. Every rebuild draws a fresh MAC and therefore a new DHCP
-  lease, and the beacon keeps posting to the address that is gone. Either pin the
+- **New address** -- no. Rebuilds keep a deterministic MAC unless overridden,
+  but DHCP can still assign a new address; the beacon keeps posting to the
+  address that is gone. Either pin the
   proxy's MAC to a DHCP reservation
   ([caching.md](caching.md#pinning-the-cache-vms-ip-stable-mac--dhcp-reservation))
   so the rebuild keeps its address, or re-run the service's
@@ -1106,7 +1118,7 @@ that served a *different* hostId. `503` when `-announce-ttl` is `0`. As with
 
 ## POST /api/v1/lab-token (pool-aggregator-service)
 
-The enrollment exchange: a host redeems the 6-character lab connection
+The enrollment exchange: a host redeems the 6-character Lab
 token shown on the dashboard's "Lab token" tile (body
 `{"labToken":"<6 chars>"}`) and receives the internal authentication key --
 `200 {"ok":true,"v":1,"salt":...,"nonce":...,"ciphertext":...,"tag":...}`;
@@ -1155,6 +1167,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.04
+Last review: 2026.10.11
 
 Back to [Yuruna](../README.md)

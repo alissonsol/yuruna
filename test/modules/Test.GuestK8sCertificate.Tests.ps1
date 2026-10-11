@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42df5581-572e-4f0e-9e2c-5cfd797e9fbf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,14 +57,15 @@ $script:guestScripts = @{
     windows11 = Join-Path $repoRoot 'guest/windows.11/windows.11.k8s.ps1'
 }
 $script:regionMarker = '# --- REGION: Create the HTTPS development certificate'
+$script:ubuntuRegionEnd = 'chown -R "$REAL_USER:$REAL_USER" "$PFX_DIR"'
 $script:windowsRegionEnd = 'Write-Output "<<< HTTPS development certificate complete."'
 
 function Get-RegionText {
     <#
         The text from the certificate region marker to the line before the next
         region marker. With -Through, to and including the first line that holds
-        that text: the Windows region goes on to trust the mkcert root CA, which
-        no test may run.
+        that text. This excludes later Kubernetes readiness checks on Ubuntu
+        and mkcert root CA trust on Windows; no fixture may run those steps.
     #>
     param([string]$Path, [string]$Through)
     $collected = [System.Collections.Generic.List[string]]::new()
@@ -182,6 +183,80 @@ function Test-PfxOpensWithDotNet {
         return $false
     }
 }
+
+function Invoke-WindowsCertificateGateFixture {
+    <# Runs the shipped Windows certificate block with file-producing command substitutes. #>
+    param([string]$Mode)
+    $fixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+    $guestProfile = Join-Path $fixture "guest's profile"
+    $https = Join-Path $guestProfile '.aspnet/https'
+    $null = New-Item -ItemType Directory -Path $https -Force
+    foreach ($name in @('aspnetapp.key', 'aspnetapp.crt', 'aspnetapp.pfx', 'aspnetapp.pfx.password')) {
+        [IO.File]::WriteAllText((Join-Path $https $name), 'stale artifact')
+    }
+    $conflict = switch ($Mode) {
+        existing-key-directory { Join-Path $https 'aspnetapp.key' }
+        existing-export-directory { Join-Path $https 'aspnetapp.pfx' }
+    }
+    if ($conflict) {
+        Remove-Item -LiteralPath $conflict -Force
+        $null = New-Item -ItemType Directory -Path $conflict
+        [IO.File]::WriteAllText((Join-Path $conflict 'preserved.txt'), 'unrelated directory content')
+    }
+    $prefix = @'
+$ErrorActionPreference = 'Stop'
+$script:Mode = $env:YURUNA_CERT_MODE
+$global:LASTEXITCODE = 0
+if ($script:Mode -like '*command-missing') { $ErrorActionPreference = 'Continue' }
+$script:Calls = @{ mkcert=0; export=0; pathsParsed=$false; oldExportRemoved=$false }
+function mkcert {
+    $script:Calls.mkcert++
+    if ($script:Mode -eq 'generation-command-missing') { & $env:YURUNA_CERT_MISSING_TOOL; return }
+    if ($script:Mode -eq 'generation-exception') { throw 'fixture generation failed' }
+    if ($script:Mode -eq 'generation-noop') { $global:LASTEXITCODE = 0; return }
+    if ($script:Mode -ne 'missing-key') { [IO.File]::WriteAllText($args[1], $(if ($script:Mode -eq 'empty-key') { '' } else { 'fresh key' })) }
+    if ($script:Mode -ne 'missing-cert') { [IO.File]::WriteAllText($args[3], $(if ($script:Mode -eq 'empty-cert') { '' } else { 'fresh cert' })) }
+    $global:LASTEXITCODE = if ($script:Mode -eq 'generation-error') { 9 } else { 0 }
+}
+function pwsh {
+    param([switch]$NoProfile, [string]$Command)
+    if (-not $NoProfile) { throw 'The export child must ignore profiles' }
+    $script:Calls.export++
+    $script:Calls.oldExportRemoved = -not (Test-Path -LiteralPath $pfxFile) -and -not (Test-Path -LiteralPath $pfxPasswordFile)
+    if (-not $script:Calls.oldExportRemoved) { throw 'An earlier PFX pair reached the export child' }
+    $ast = [scriptblock]::Create($Command).Ast
+    $literals = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.StringConstantExpressionAst] }, $true) | ForEach-Object Value)
+    foreach ($path in @($certKey, $certFile, $pfxFile, $pfxPasswordFile)) {
+        if ($literals -cnotcontains $path) { throw "The export command changed a literal path: $path" }
+    }
+    $script:Calls.pathsParsed = $true
+    if ($script:Mode -eq 'export-command-missing') { & $env:YURUNA_CERT_MISSING_TOOL; return }
+    if ($script:Mode -ne 'missing-pfx') { [IO.File]::WriteAllText($pfxFile, $(if ($script:Mode -eq 'empty-pfx') { '' } else { 'fresh PFX' })) }
+    if ($script:Mode -ne 'missing-sidecar') { [IO.File]::WriteAllText($pfxPasswordFile, $(if ($script:Mode -eq 'empty-sidecar') { '' } else { 'fixture sidecar' })) }
+    if ($script:Mode -eq 'export-exception') { throw 'fixture export failed' }
+    $global:LASTEXITCODE = if ($script:Mode -eq 'export-error') { 7 } else { 0 }
+}
+try {
+'@
+    $suffix = @'
+
+} finally {
+    $script:Calls | ConvertTo-Json -Compress | Set-Content -LiteralPath $env:YURUNA_CERT_CALLS
+}
+'@
+    $driver = Join-Path $fixture 'fixture.ps1'
+    $calls = Join-Path $fixture 'calls.json'
+    $region = Get-RegionText -Path $script:guestScripts.windows11 -Through $script:windowsRegionEnd
+    [IO.File]::WriteAllText($driver, ($prefix + "`n" + $region + $suffix), [Text.UTF8Encoding]::new($false))
+    $process = Invoke-ChildProcess -FileName (Get-Command pwsh -ErrorAction Stop).Source -Arguments @('-NoProfile', '-File', $driver) `
+        -Environment @{ USERPROFILE=$guestProfile; YURUNA_CERT_MODE=$Mode; YURUNA_CERT_CALLS=$calls; YURUNA_CERT_MISSING_TOOL=(Join-Path $fixture 'missing-executable') } -TimeoutSeconds 15
+    return [pscustomobject]@{
+        Process=$process
+        Calls=(Get-Content -LiteralPath $calls -Raw | ConvertFrom-Json)
+        Directory=$https
+        Files=@(Get-ChildItem -LiteralPath $https -Force | ForEach-Object Name | Sort-Object)
+    }
+}
 }
 
 Describe 'The guest k8s scripts carry no fixed certificate password' {
@@ -208,11 +283,17 @@ Describe 'The guest k8s scripts carry no fixed certificate password' {
 
 Describe 'The Ubuntu certificate region' {
     BeforeAll {
-        $script:region24 = Get-RegionText -Path $script:guestScripts.ubuntu24
-        $script:region26 = Get-RegionText -Path $script:guestScripts.ubuntu26
+        $script:region24 = Get-RegionText -Path $script:guestScripts.ubuntu24 -Through $script:ubuntuRegionEnd
+        $script:region26 = Get-RegionText -Path $script:guestScripts.ubuntu26 -Through $script:ubuntuRegionEnd
     }
     It 'is the same in the 24.04 and 26.04 scripts' {
         $script:region26 | Should -BeExactly $script:region24
+    }
+    It 'ends the executable fixture at certificate ownership before cluster readiness' {
+        foreach ($region in @($script:region24, $script:region26)) {
+            $region.TrimEnd().EndsWith($script:ubuntuRegionEnd) | Should -BeTrue
+            $region | Should -Not -Match '(?m)^wait_for_kubernetes_network$|\bkubectl\b'
+        }
     }
     It 'draws a random 32-byte password and hands it to openssl through the environment of that one command' {
         $script:region24 | Should -Match '(?m)^PFX_PASSWORD="\$\(openssl rand -hex 32\)"$'
@@ -294,6 +375,67 @@ Describe 'The Windows certificate region' {
     }
 }
 
+Describe 'The Windows certificate success gate with portable command substitutes' {
+    It 'rejects <Mode> before starting PFX export despite stale output files' -ForEach @(
+        @{ Mode='generation-error'; Detail='mkcert exit code 9' }
+        @{ Mode='generation-exception'; Detail='fixture generation failed' }
+        @{ Mode='generation-command-missing'; Detail='missing-executable' }
+        @{ Mode='generation-noop'; Detail='nonempty PEM file' }
+        @{ Mode='missing-key'; Detail='nonempty PEM file' }
+        @{ Mode='empty-key'; Detail='nonempty PEM file' }
+        @{ Mode='missing-cert'; Detail='nonempty PEM file' }
+        @{ Mode='empty-cert'; Detail='nonempty PEM file' }
+    ) {
+        $state = Invoke-WindowsCertificateGateFixture -Mode $Mode
+        $state.Process.ExitCode | Should -Not -Be 0
+        (($state.Process.Error -replace '(?m)^\s*\|\s*', '') -replace '\s+', ' ') | Should -Match ([regex]::Escape($Detail))
+        $state.Process.Output | Should -Not -Match 'HTTPS development certificate (created|complete)'
+        $state.Calls.mkcert | Should -Be 1
+        $state.Calls.export | Should -Be 0
+        [IO.File]::ReadAllText((Join-Path $state.Directory 'aspnetapp.pfx')) | Should -Be 'stale artifact'
+    }
+    It 'rejects <Mode> and removes incomplete PFX output' -ForEach @(
+        @{ Mode='export-error'; Detail='pwsh exit code 7' }
+        @{ Mode='export-exception'; Detail='fixture export failed' }
+        @{ Mode='export-command-missing'; Detail='missing-executable' }
+        @{ Mode='missing-pfx'; Detail='nonempty file' }
+        @{ Mode='empty-pfx'; Detail='nonempty file' }
+        @{ Mode='missing-sidecar'; Detail='nonempty file' }
+        @{ Mode='empty-sidecar'; Detail='nonempty file' }
+    ) {
+        $state = Invoke-WindowsCertificateGateFixture -Mode $Mode
+        $state.Process.ExitCode | Should -Not -Be 0
+        (($state.Process.Error -replace '(?m)^\s*\|\s*', '') -replace '\s+', ' ') | Should -Match ([regex]::Escape($Detail))
+        $state.Process.Output | Should -Not -Match 'HTTPS development certificate (created|complete)'
+        $state.Calls.export | Should -Be 1
+        $state.Calls.oldExportRemoved | Should -BeTrue
+        $state.Calls.pathsParsed | Should -BeTrue
+        ($state.Files -join ',') | Should -Be 'aspnetapp.crt,aspnetapp.key'
+    }
+    It 'accepts a fresh export, preserves apostrophes and spaces in paths, and removes PEM files' {
+        $state = Invoke-WindowsCertificateGateFixture -Mode healthy
+        $state.Process.ExitCode | Should -Be 0 -Because (Get-PrintableText $state.Process.Error)
+        $state.Calls.mkcert | Should -Be 1
+        $state.Calls.export | Should -Be 1
+        $state.Calls.oldExportRemoved | Should -BeTrue
+        $state.Calls.pathsParsed | Should -BeTrue
+        ($state.Files -join ',') | Should -Be 'aspnetapp.pfx,aspnetapp.pfx.password'
+        $state.Process.Output | Should -Match '<<< HTTPS development certificate complete\.'
+    }
+    It 'fails without prompting or recursively removing an unexpected <Name> directory' -ForEach @(
+        @{ Mode='existing-key-directory'; Name='aspnetapp.key'; GenerationCalls=0 }
+        @{ Mode='existing-export-directory'; Name='aspnetapp.pfx'; GenerationCalls=1 }
+    ) {
+        $state = Invoke-WindowsCertificateGateFixture -Mode $Mode
+        $state.Process.ExitCode | Should -Not -Be 0
+        $state.Process.Error | Should -Match 'Expected a certificate file'
+        $state.Calls.mkcert | Should -Be $GenerationCalls
+        $state.Calls.export | Should -Be 0
+        [IO.File]::ReadAllText((Join-Path $state.Directory "$Name/preserved.txt")) | Should -Be 'unrelated directory content'
+        $state.Process.Output | Should -Not -Match 'HTTPS development certificate (created|complete)'
+    }
+}
+
 Describe 'The Ubuntu certificate region, run under bash' {
     BeforeAll {
         $script:bashRan = $false
@@ -314,7 +456,7 @@ set -euo pipefail
 chown() { printf '%s\n' "$*" >> "$CHOWN_LOG"; }
 '@
         $driver = Join-Path $script:work 'region.sh'
-        $script:bashRegion = Get-RegionText -Path $script:guestScripts.ubuntu24
+        $script:bashRegion = Get-RegionText -Path $script:guestScripts.ubuntu24 -Through $script:ubuntuRegionEnd
         $driverText = ($prelude + "`n" + $script:bashRegion + "`n").Replace("`r`n", "`n")
         [IO.File]::WriteAllText($driver, $driverText, [Text.UTF8Encoding]::new($false))
         $posix = { param($path) $path.Replace('\', '/') }
@@ -438,7 +580,7 @@ if ($IsWindows) {
             foreach ($shell in @('powershell.exe', 'pwsh')) {
                 $command = Get-Command $shell -ErrorAction SilentlyContinue | Select-Object -First 1
                 if (-not $command) { continue }
-                $profileDirectory = Join-Path $script:windowsWork ($shell -replace '\W', '-')
+                $profileDirectory = Join-Path $script:windowsWork (($shell -replace '\W', '-') + "'s profile")
                 $null = New-Item -ItemType Directory -Path $profileDirectory -Force
                 $run = Invoke-ChildProcess -FileName $command.Source -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $driver) `
                     -Environment @{ USERPROFILE = $profileDirectory; YURUNA_TEST_OPENSSL = $script:openssl; PATH = $script:toolPath }

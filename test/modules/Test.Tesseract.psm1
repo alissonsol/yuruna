@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42570333-9ac2-4031-a0fd-695d1459461e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -158,6 +158,46 @@ function Assert-TesseractInstalled {
     return $false
 }
 
+# The OCR process gets its own OpenMP budget. Changing $env: in the runner
+# would race other children and override an operator's explicit tuning.
+function Invoke-TesseractNative {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter(Mandatory)][string]$ImagePath,
+        [switch]$WordBoxes
+    )
+    if (-not (Get-Command Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -Force -Verbose:$false
+    }
+    $childEnvironment = @{}
+    if ($null -eq [Environment]::GetEnvironmentVariable('OMP_THREAD_LIMIT') -and
+        $null -eq [Environment]::GetEnvironmentVariable('OMP_NUM_THREADS')) {
+        $childEnvironment.OMP_THREAD_LIMIT = '2'
+    }
+    $arguments = @($ImagePath, 'stdout', '--psm', '6')
+    if ($WordBoxes) { $arguments += 'tsv' }
+    # Slow ARM hosts retain a generous allowance. An incomplete capture must
+    # fail rather than become an empty screen or a cached partial OCR result.
+    $result = Invoke-BoundedNativeCommand -FilePath $FilePath -ArgumentList $arguments -TimeoutSeconds 300 `
+        -Environment $childEnvironment -MaxCapturedChars 4194304 -StreamEncoding ([Console]::OutputEncoding)
+    $complete = $result.Started -eq $true -and $result.TimedOut -eq $false -and
+        $result.DrainTimedOut -eq $false -and $result.OutputTruncated -eq $false -and $result.KillFailed -eq $false
+    $exitCode = if ($complete) { $result.ExitCode } else { -1 }
+    $stderr = [string]$result.StdErr
+    if (-not $complete) {
+        $stderr += " [Started=$($result.Started); TimedOut=$($result.TimedOut); DrainTimedOut=$($result.DrainTimedOut); OutputTruncated=$($result.OutputTruncated); KillFailed=$($result.KillFailed); StartError=$($result.StartError)]"
+    }
+    # PowerShell's native pipeline removes one final line terminator and joins
+    # the remaining lines with LF. Preserve that text/TSV contract here.
+    $stdout = [string]$result.StdOut -replace "`r`n|`r", "`n"
+    if ($stdout.EndsWith("`n")) { $stdout = $stdout.Substring(0, $stdout.Length - 1) }
+    $stderr = $stderr -replace "`r`n|`r", "`n"
+    if ($stderr.EndsWith("`n")) { $stderr = $stderr.Substring(0, $stderr.Length - 1) }
+    return @{ ExitCode = $exitCode; StdOut = $stdout; StdErr = $stderr }
+}
+
 # --- REGION: Run OCR
 function Invoke-TesseractOcr {
     <#
@@ -186,21 +226,18 @@ function Invoke-TesseractOcr {
     $pathHandle = Resolve-OcrImagePath -ImagePath $ImagePath
     $absPath = [string]$pathHandle.Path
 
-    # See https://yuruna.link/4213a0b3-0182
-    $PSNativeCommandUseErrorActionPreference = $false
     try {
-        $merged = & $tesseractExe $absPath stdout --psm 6 2>&1
-        $exitCode = $LASTEXITCODE
+        $result = Invoke-TesseractNative -FilePath $tesseractExe -ImagePath $absPath
+        $exitCode = $result.ExitCode
         if ($exitCode -ne 0) {
-            $errOutput = $merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
-            $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
+            $errMsg = $result.StdErr
             throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_a6e757fc71fd4874' -Arguments @{ exitCode = "$exitCode"; errMsg = "$errMsg" })
         }
+        $text = $result.StdOut
     } finally {
         Clear-OcrImagePath -Handle $pathHandle
     }
 
-    $text = ($merged | Where-Object { $_ -is [string] }) -join "`n"
     return $text
 }
 
@@ -232,29 +269,17 @@ function Get-TesseractWordBox {
     $pathHandle = Resolve-OcrImagePath -ImagePath $ImagePath
     $absPath = [string]$pathHandle.Path
 
-    # `tesseract <img> stdout tsv` prints TSV with columns:
-    #   level page_num block_num par_num line_num word_num left top width height conf text
-    # --psm 6 matches Invoke-TesseractOcr above so word boxes line up with
-    # the text output (otherwise word ordering and line grouping diverge).
-    # Single invocation with merged stderr (see Invoke-TesseractOcr): a TSV
-    # failure carries tesseract's own stderr into the thrown message, and the
-    # EAP pin keeps the exit-code branch reachable on PS 7.4+.
-    $PSNativeCommandUseErrorActionPreference = $false
     try {
-        $merged = & $tesseractExe $absPath stdout --psm 6 tsv 2>&1
-        $exitCode = $LASTEXITCODE
+        $result = Invoke-TesseractNative -FilePath $tesseractExe -ImagePath $absPath -WordBoxes
+        $exitCode = $result.ExitCode
         if ($exitCode -ne 0) {
-            $errOutput = $merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
-            $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
+            $errMsg = $result.StdErr
             throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_073ccaf1b0a8e98d' -Arguments @{ exitCode = "$exitCode"; errMsg = "$errMsg" })
         }
+        $output = $result.StdOut -split "`n"
     } finally {
         Clear-OcrImagePath -Handle $pathHandle
     }
-    # A successful run can still emit stderr chatter (e.g. resolution warnings)
-    # as ErrorRecords; keep only stdout strings so they are not mis-parsed as
-    # TSV rows below.
-    $output = $merged | Where-Object { $_ -is [string] }
 
     $boxes = [System.Collections.Generic.List[hashtable]]::new()
     foreach ($line in $output) {

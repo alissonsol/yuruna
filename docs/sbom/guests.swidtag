@@ -1,9 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
-<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-guests" tagId="urn:uuid:3100edd0-7695-5fa0-b445-17a78011f182" version="2026.10.04" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-guests" tagId="urn:uuid:afaad136-9622-5c9b-abad-d24ac0479dc4" version="2026.10.11" versionScheme="alphanumeric" tagVersion="0" corpus="true">
   <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
   <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="guests" sbom:inventory-kind="declared-source" />
   <Link rel="requires" href="swid/guests-a6e384e9893fef1dfd09.swidtag" />
-  <Link rel="requires" href="swid/guests-b0c196f6782bdef6d197.swidtag" />
+  <Link rel="requires" href="swid/guests-65f5f8046b863a4b8d15.swidtag" />
   <Link rel="requires" href="swid/guests-e3c956ac67ad9eca28b7.swidtag" />
   <Link rel="requires" href="swid/guests-08fdc0ba6cba18f7aa54.swidtag" />
   <Link rel="requires" href="swid/guests-371023a2bec8717b74c8.swidtag" />
@@ -11,6 +11,7 @@
   <Link rel="requires" href="swid/guests-1d9ab23e6968a548d223.swidtag" />
   <Link rel="requires" href="swid/guests-0d1ddaa941c237203a80.swidtag" />
   <Link rel="requires" href="swid/guests-0f9b8057b0fe50d77dc1.swidtag" />
+  <Link rel="requires" href="swid/guests-1b17f860327f22108e56.swidtag" />
   <Link rel="requires" href="swid/guests-9aeb1463104ba2d20372.swidtag" />
   <Link rel="requires" href="swid/guests-815e916eb1d1c13acab6.swidtag" />
   <Link rel="requires" href="swid/guests-ec1b6a5391df989feadf.swidtag" />
@@ -76,14 +77,31 @@
   <Link rel="requires" href="swid/guests-47e5a4c162fcb1f29da9.swidtag" />
   <Link rel="requires" href="swid/guests-2ad9aa4eb26ad6fc7416.swidtag" />
   <Link rel="requires" href="swid/guests-fadd2bc6a39f92020800.swidtag" />
-  <Link rel="requires" href="swid/guests-2f54d03811b060ffc59c.swidtag" />
+  <Link rel="requires" href="swid/guests-8c9d326825665d6feea3.swidtag" />
   <Link rel="requires" href="swid/guests-d386d8c57f09018d8f15.swidtag" />
   <Link rel="requires" href="swid/guests-fadabfd2fc203781e0b0.swidtag" />
   <Link rel="requires" href="swid/guests-a375beee0325c307bb80.swidtag" />
+  <Link rel="requires" href="swid/guests-e9a84a6797df4eb90502.swidtag" />
+  <Link rel="requires" href="swid/guests-90c53ac717f5a85e98bf.swidtag" />
+  <Link rel="requires" href="swid/guests-3c760dd2c18e9ecf6ee9.swidtag" />
+  <Link rel="requires" href="swid/guests-7e33f5933e9931cb24e4.swidtag" />
   <Link rel="requires" href="swid/guests-0dbcfc924660c1f098fe.swidtag" />
   <Link rel="requires" href="swid/guests-d53a4139ff5cac4af752.swidtag" />
   <Link rel="requires" href="swid/guests-38be3ea584a6873de8df.swidtag" />
+  <Link rel="requires" href="swid/guests-2f6bfe1ffcf4ba361f8d.swidtag" />
+  <Link rel="requires" href="swid/guests-f2b5169a11f39b58e020.swidtag" />
   <Link rel="requires" href="swid/guests-21caed0f5f09538e99b9.swidtag" />
+  <Link rel="requires" href="swid/guests-757a0bf1a9e0038f3ff3.swidtag" />
+  <Link rel="requires" href="swid/guests-164348621433b6f49527.swidtag" />
+  <Link rel="requires" href="swid/guests-74d34abfcd31bedf777d.swidtag" />
   <Link rel="requires" href="swid/guests-623a79724605de2ddce8.swidtag" />
+  <Link rel="requires" href="swid/guests-4b6149e6e24e861c30be.swidtag" />
+  <Link rel="requires" href="swid/guests-2531875fa33bf8c43b97.swidtag" />
+  <Link rel="requires" href="swid/guests-8349a1aeeb2c0219d225.swidtag" />
+  <Link rel="requires" href="swid/guests-69efec200d9e74ddeeb9.swidtag" />
+  <Link rel="requires" href="swid/guests-bec018ae61e87a9f602d.swidtag" />
+  <Link rel="requires" href="swid/guests-ce3dd2d578e768e6f5d8.swidtag" />
   <Link rel="requires" href="swid/guests-f66aece12acf506469ab.swidtag" />
+  <Link rel="requires" href="swid/guests-d04291559a2d7fa82f02.swidtag" />
+  <Link rel="requires" href="swid/guests-2d62f391e338f674ddbc.swidtag" />
 </SoftwareIdentity>

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.04
+.VERSION 2026.10.11
 .GUID 42322a4d-f414-3c38-3588-7ad936bc7aa9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,8 @@
 # locale: he-IL  domain: automation
 
 @{
+    'automation.diagnostic_checkout_unavailable' = '(לא רלוונטי: הראיות מתיקיית המאגר אינן זמינות; יש להעביר -CheckoutRoot כדי להשתמש בעותק קיים של Yuruna)'
+    'automation.diagnostic_phase_log_limits' = 'סריקת יומני השלבים מוגבלת ל-100 קבצים, 12 רמות תיקייה ו-10 שניות; כל יומן מציג לכל היותר את 64 KiB האחרונים שלו.'
     'automation.host_setup_module_install_skipped' = @(
         @{
             'arg' = 'module'

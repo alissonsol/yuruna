@@ -893,8 +893,9 @@
       "message": "(ss retornado saída {ssExit}: {join})"
     },
     "automation.operator_5376c9efd7b38f35": {
-      "sourceHash": "d9d8604849b77177b59d2f1000e0bc572e5c55d0795d33920ebe0e3ae40a345c",
-      "message": "REGISTRO: o cache mantém {held} de imagens {total} no {set} definir um cliente puxa. Cada imagem em falta é copiada a montante enquanto o convidado aguarda o seu pedido manifesto, que custa minutos cada um e sobrevive a um orçamento de passo de provisionamento -- enquanto cada vida e leitura manifesta acima permanece verde."
+      "sourceHash": "07754f6659a515065e28a10a4c469bb7b3f97371bcd9e4f3a137a311a0e10909",
+      "origin": "machine",
+      "message": "REGISTRY: o cache mantém {held} de {total} imagens do conjunto {set} que um convidado baixa e ainda precisa copiar {cold} da origem. O convidado espera por cada cópia na própria requisição de manifesto, o que leva minutos por imagem e excede o limite de tempo de uma etapa de provisionamento -- enquanto todas as leituras de disponibilidade e de manifesto acima continuam verdes."
     },
     "automation.operator_538dbbedc6313351": {
       "sourceHash": "753a141b4d5149b9fb7764c8146db7279c9e854badd8911064da3cccf78ee582",
@@ -2865,6 +2866,16 @@
       "sourceHash": "410f6bf1667685d826d78c56f61a3ed885843fa3f3d7e6bc91e8393085f22c0d",
       "origin": "machine",
       "message": "  utmctl list não retornou uma resposta completa em {seconds} segundos; a listagem acima pode estar incompleta (o UTM pode não estar respondendo a Apple Events)."
+    },
+    "automation.system_diagnostic_registry_images_refused": {
+      "sourceHash": "e88f678654789eace45ac8d42b67667a8be121d0be4246bcab1116422ce93b6c",
+      "origin": "machine",
+      "message": "REGISTRY: o cache recusou {refused} de {total} imagens do conjunto {set} que um convidado baixa (HTTP {statuses}). Uma recusa é uma resposta, não uma cópia em andamento: todo convidado que pedir essas imagens recebe a mesma resposta até que a causa seja corrigida. O log de sincronização do zot informa a causa no painel \"Sync / upstream lines\" do dashboard de saúde do cache."
+    },
+    "automation.system_diagnostic_registry_images_refused_status_unknown": {
+      "sourceHash": "507f812c9edd94b8771a86180ef34d3e0cfd9ad95191b57724a260a081728ee9",
+      "origin": "machine",
+      "message": "REGISTRY: o cache recusou {refused} de {total} imagens do conjunto {set} que um convidado baixa. Uma recusa é uma resposta, não uma cópia em andamento: todo convidado que pedir essas imagens recebe a mesma resposta até que a causa seja corrigida. O log de sincronização do zot informa a causa no painel \"Sync / upstream lines\" do dashboard de saúde do cache."
     }
   }
 }

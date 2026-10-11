@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -818,27 +818,32 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
             function Get-GuestLivelockVerdict {
                 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
                     Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
-                param($VMName)
+                param($VMName, $Since)
                 $script:TextProbe.VerdictReads++
+                $script:TextProbe.Since = $Since
+                $script:TextProbe.SinceSeen += @(,$Since)
                 return $script:TextProbe.Livelock
             }
             function Reset-LivelockProbeState {
                 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                     Justification = 'Test stub helper: reseeds an in-memory recording bag; no external state.')]
                 param([string]$ScreenDir, [string[]]$Frames, $Livelock)
-                $script:TextProbe = @{ ScreenDir = $ScreenDir; Poll = 0; Frames = $Frames; Livelock = $Livelock; VerdictReads = 0 }
+                $script:TextProbe = @{ ScreenDir = $ScreenDir; Poll = 0; Frames = $Frames; Livelock = $Livelock; VerdictReads = 0; Since = $null; SinceSeen = @() }
             }
         }
         $script:livelocked = [pscustomobject]@{ Verdict = 'livelocked'; LivelockedSeconds = 420; Detail = '1 virtual processor(s) pinned' }
         function Invoke-ScriptedWait {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                 Justification = 'Test helper: drives the function under test against scripted frames.')]
-            param([string[]]$Frames, $Livelock, [int]$TimeoutSeconds, [switch]$EndOnGuestLivelock)
+            param([string[]]$Frames, $Livelock, [int]$TimeoutSeconds, [switch]$EndOnGuestLivelock, $GuestLivelockSinceUtc)
             & (Get-Module Test.SequenceEngine) { param($d, $f, $l) Reset-LivelockProbeState -ScreenDir $d -Frames $f -Livelock $l } $script:probeDir $Frames $Livelock
             Clear-CarriedConsoleBaseline
+            $bound = @{}
+            if ($null -ne $GuestLivelockSinceUtc) { $bound.GuestLivelockSinceUtc = $GuestLivelockSinceUtc }
             return [bool](Wait-ForText -VMName 'vm-01' -Pattern @('Continue with autoinstall?') -TimeoutSeconds $TimeoutSeconds -PollSeconds 1 `
-                -EndOnGuestLivelock:$EndOnGuestLivelock -WarningAction SilentlyContinue -InformationAction SilentlyContinue)
+                -EndOnGuestLivelock:$EndOnGuestLivelock -WarningAction SilentlyContinue -InformationAction SilentlyContinue @bound)
         }
+        function Get-ProbeSinceSeen { & (Get-Module Test.SequenceEngine) { , @($script:TextProbe.SinceSeen) } }
         function Get-ProbeFailSlot { param([string]$Name) & (Get-Module Test.SequenceEngine) { param($n) $script:Fail[$n] } $Name }
     }
     BeforeEach {
@@ -855,12 +860,33 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
         (Get-ProbeFailSlot 'WaitForTextGuestLivelock').LivelockedSeconds | Should -Be 420
         & (Get-Module Test.SequenceEngine) { $script:TextProbe.Poll } | Should -Be 0
     }
+    It 'reads the verdict only for readings taken since this wait began' {
+        $before = [DateTime]::UtcNow
+        Invoke-ScriptedWait -Frames @('') -Livelock $script:livelocked -TimeoutSeconds 60 -EndOnGuestLivelock | Should -BeFalse
+        $since = & (Get-Module Test.SequenceEngine) { $script:TextProbe.Since }
+        $since | Should -BeGreaterOrEqual $before -Because 'a previous boot in the recording must not end this wait'
+    }
+    It 'records on timeout the verdict its early-end checks judged' {
+        $running = [pscustomobject]@{ Verdict = 'not-livelocked'; LivelockedSeconds = 0; Detail = 'running' }
+        $before = [DateTime]::UtcNow
+        Invoke-ScriptedWait -Frames @('booting') -Livelock $running -TimeoutSeconds 3 -EndOnGuestLivelock | Should -BeFalse
+        $seen = Get-ProbeSinceSeen
+        $seen.Count | Should -Be 2 -Because 'one check at the start and one when the wait times out'
+        $seen[0] | Should -BeGreaterOrEqual $before
+        $seen[1] | Should -Be $seen[0] -Because 'the recorded verdict must judge the same readings the early end did'
+    }
+    It 'takes the caller''s livelock bound when a step waits in several calls' {
+        $stepStart = [DateTime]::UtcNow.AddSeconds(-120)
+        Invoke-ScriptedWait -Frames @('') -Livelock $script:livelocked -TimeoutSeconds 60 -EndOnGuestLivelock -GuestLivelockSinceUtc $stepStart | Should -BeFalse
+        & (Get-Module Test.SequenceEngine) { $script:TextProbe.Since } | Should -Be $stepStart
+    }
     It 'waits out its budget without the switch and still records the verdict' {
         $clock = [Diagnostics.Stopwatch]::StartNew()
         Invoke-ScriptedWait -Frames @('booting') -Livelock $script:livelocked -TimeoutSeconds 3 | Should -BeFalse
         $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 2.5
         (Get-ProbeFailSlot 'WaitForTextGuestLivelocked') | Should -BeTrue
         & (Get-Module Test.SequenceEngine) { $script:TextProbe.VerdictReads } | Should -Be 1 -Because 'a caller that did not ask is never polled, only told at the end'
+        & (Get-Module Test.SequenceEngine) { $script:TextProbe.Since } | Should -BeNullOrEmpty -Because 'a wait that does not act on the verdict records the whole recording window'
     }
     It 'does not end early on a guest the hypervisor sees running' {
         $running = [pscustomobject]@{ Verdict = 'not-livelocked'; LivelockedSeconds = 0; Detail = 'running' }

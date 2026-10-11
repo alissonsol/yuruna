@@ -1177,9 +1177,9 @@
       "message": "(ss החזיר קוד יציאה {ssExit}: {join})"
     },
     "automation.operator_5376c9efd7b38f35": {
-      "sourceHash": "d9d8604849b77177b59d2f1000e0bc572e5c55d0795d33920ebe0e3ae40a345c",
+      "sourceHash": "07754f6659a515065e28a10a4c469bb7b3f97371bcd9e4f3a137a311a0e10909",
       "origin": "machine",
-      "message": "REGISTRY: המטמון מכיל {held} מתוך {total} דמויות בקבוצה {set} שאורח מושך. כל דמות חסרה מועתקת ממקור ההפצה בזמן שהאורח ממתין למענה לבקשת המניפסט שלה, מה שגוזל דקות לכל דמות וחורג מהזמן המוקצב לשלב ההקצאה -- בעוד שכל בדיקות החיות והמניפסט שלעיל ממשיכות להצביע על תקינות."
+      "message": "REGISTRY: המטמון מכיל {held} מתוך {total} תמונות בקבוצה {set} שאורח מושך, ועדיין עליו להעתיק {cold} ממקור ההפצה. האורח ממתין לכל העתקה בבקשת המניפסט שלו, מה שגוזל דקות לכל תמונה וחורג מהזמן המוקצב לשלב ההקצאה -- בעוד שכל בדיקות החיות והמניפסט שלעיל ממשיכות להצביע על תקינות."
     },
     "automation.operator_538dbbedc6313351": {
       "sourceHash": "753a141b4d5149b9fb7764c8146db7279c9e854badd8911064da3cccf78ee582",
@@ -3561,6 +3561,16 @@
       "sourceHash": "3a664b00f9c92c8ea00d7bdec9501bae20d8049099cbd47380ebb43c3db77f42",
       "origin": "machine",
       "message": "      מתבצעת ידנית), וכונן מערכת מלא משבית את המחשב כולו,"
+    },
+    "automation.system_diagnostic_registry_images_refused": {
+      "sourceHash": "e88f678654789eace45ac8d42b67667a8be121d0be4246bcab1116422ce93b6c",
+      "origin": "machine",
+      "message": "REGISTRY: המטמון סירב ל־{refused} מתוך {total} תמונות בקבוצה {set} שאורח מושך (HTTP {statuses}). סירוב הוא תשובה ולא העתקה שמתבצעת: כל אורח שמבקש את התמונות האלה יקבל אותה שוב עד שהסיבה תתוקן. יומן הסנכרון של zot מציין את הסיבה בחלונית \"Sync / upstream lines\" בלוח המחוונים של תקינות המטמון."
+    },
+    "automation.system_diagnostic_registry_images_refused_status_unknown": {
+      "sourceHash": "507f812c9edd94b8771a86180ef34d3e0cfd9ad95191b57724a260a081728ee9",
+      "origin": "machine",
+      "message": "REGISTRY: המטמון סירב ל־{refused} מתוך {total} תמונות בקבוצה {set} שאורח מושך. סירוב הוא תשובה ולא העתקה שמתבצעת: כל אורח שמבקש את התמונות האלה יקבל אותה שוב עד שהסיבה תתוקן. יומן הסנכרון של zot מציין את הסיבה בחלונית \"Sync / upstream lines\" בלוח המחוונים של תקינות המטמון."
     }
   }
 }

@@ -1723,13 +1723,19 @@ const DataheILautomation = `{
       "type": "detail",
       "trust": "external"
     },
-    " דמויות בקבוצה ",
+    " תמונות בקבוצה ",
     {
       "arg": "set",
       "type": "detail",
       "trust": "external"
     },
-    " שאורח מושך. כל דמות חסרה מועתקת ממקור ההפצה בזמן שהאורח ממתין למענה לבקשת המניפסט שלה, מה שגוזל דקות לכל דמות וחורג מהזמן המוקצב לשלב ההקצאה -- בעוד שכל בדיקות החיות והמניפסט שלעיל ממשיכות להצביע על תקינות."
+    " שאורח מושך, ועדיין עליו להעתיק ",
+    {
+      "arg": "cold",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ממקור ההפצה. האורח ממתין לכל העתקה בבקשת המניפסט שלו, מה שגוזל דקות לכל תמונה וחורג מהזמן המוקצב לשלב ההקצאה -- בעוד שכל בדיקות החיות והמניפסט שלעיל ממשיכות להצביע על תקינות."
   ],
   "automation.operator_538dbbedc6313351": "  -> לאחר מכן נסו שוב את הבדיקה הזו.",
   "automation.operator_53d63125deb58dff": "  - מכונה זו היא כעת נקודת הכשל היחידה של אחסון המאגר;",
@@ -5203,6 +5209,54 @@ const DataheILautomation = `{
       "trust": "internal"
     },
     ")"
+  ],
+  "automation.system_diagnostic_registry_images_refused": [
+    "REGISTRY: המטמון סירב ל־",
+    {
+      "arg": "refused",
+      "type": "detail",
+      "trust": "external"
+    },
+    " מתוך ",
+    {
+      "arg": "total",
+      "type": "detail",
+      "trust": "external"
+    },
+    " תמונות בקבוצה ",
+    {
+      "arg": "set",
+      "type": "detail",
+      "trust": "external"
+    },
+    " שאורח מושך (HTTP ",
+    {
+      "arg": "statuses",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). סירוב הוא תשובה ולא העתקה שמתבצעת: כל אורח שמבקש את התמונות האלה יקבל אותה שוב עד שהסיבה תתוקן. יומן הסנכרון של zot מציין את הסיבה בחלונית \"Sync / upstream lines\" בלוח המחוונים של תקינות המטמון."
+  ],
+  "automation.system_diagnostic_registry_images_refused_status_unknown": [
+    "REGISTRY: המטמון סירב ל־",
+    {
+      "arg": "refused",
+      "type": "detail",
+      "trust": "external"
+    },
+    " מתוך ",
+    {
+      "arg": "total",
+      "type": "detail",
+      "trust": "external"
+    },
+    " תמונות בקבוצה ",
+    {
+      "arg": "set",
+      "type": "detail",
+      "trust": "external"
+    },
+    " שאורח מושך. סירוב הוא תשובה ולא העתקה שמתבצעת: כל אורח שמבקש את התמונות האלה יקבל אותה שוב עד שהסיבה תתוקן. יומן הסנכרון של zot מציין את הסיבה בחלונית \"Sync / upstream lines\" בלוח המחוונים של תקינות המטמון."
   ],
   "automation.system_diagnostic_utmctl_list_incomplete": [
     "  utmctl list לא החזיר תשובה מלאה בתוך ",

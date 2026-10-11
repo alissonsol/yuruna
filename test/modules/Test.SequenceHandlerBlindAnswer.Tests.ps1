@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 42d9a6c1-58b7-4f0e-9a2e-7c1f6b0d4e33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,13 +68,14 @@ Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameC
 
     function Wait-ForText {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-            Justification = 'Stub: the signature has to match the real function so the caller binds; only Pattern and TimeoutSeconds are recorded.')]
+            Justification = 'Stub: the signature has to match the real function so the caller binds; only Pattern, TimeoutSeconds and the livelock bound are recorded.')]
         param($HostType, $VMName, $Pattern, $TimeoutSeconds, $PollSeconds, $FreshMatch,
               $FreshMatchTailLines, $FailurePattern, [bool]$SinceStepStart, [switch]$NoSegmentMatch,
-              $NudgeKey, $NudgeIntervalSeconds)
+              $NudgeKey, $NudgeIntervalSeconds, [switch]$EndOnGuestLivelock, $GuestLivelockSinceUtc)
         $script:BlindStub.WaitPatterns += @(,@($Pattern))
         $script:BlindStub.WaitTimeouts += @([int]$TimeoutSeconds)
         $script:BlindStub.WaitNoSegmentMatch += @([bool]$NoSegmentMatch)
+        $script:BlindStub.WaitLivelockSince += @(,$GuestLivelockSinceUtc)
         if ($null -ne $script:BlindStub.WaitText) {
             foreach ($candidate in $Pattern) {
                 if (Test-OCRMatch -Text $script:BlindStub.WaitText -Pattern $candidate -NoSegmentMatch:$NoSegmentMatch) { return $true }
@@ -102,6 +103,7 @@ Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameC
             WaitPatterns   = @()
             WaitTimeouts   = @()
             WaitNoSegmentMatch = @()
+            WaitLivelockSince = @()
             WaitText       = $null
             WaitResults    = @()
             ChangeVerdict  = @{
@@ -482,6 +484,34 @@ Describe 'waitForAndEnter spends its budget around the blind answer' {
         Assert-True ($stub.WaitTimeouts[1] -gt 700) `
             "the resumed wait gets what is left of the budget; got $($stub.WaitTimeouts[1])s"
         Assert-Equal -Expected 1 -Actual $stub.Typed.Count -Because 'the normal path types the answer once, after the match'
+    }
+
+    It 'judges the livelock verdict of both windows from the step start' {
+        # Both windows watch the same boot. A resumed window that took its own
+        # start as the bound would drop what the first window recorded and end
+        # later on a guest that is already pinned.
+        $stub = Reset-BlindState
+        $stub.Verdict.ConsoleStaticSeconds = 0
+        $stub.WaitResults = @($false, $true)
+        $handler = (Get-SequenceAction -Name 'waitForAndEnter').Handler
+        $ctx = Get-BlindContext -Step @{ pattern = 'Continue with autoinstall?'; text = 'yes'; timeoutSeconds = 900; blindAfterSeconds = 120; noSegmentMatch = $true; endWaitOnGuestLivelock = $true }
+        $before = [DateTime]::UtcNow
+        $result = & $handler $ctx
+        Assert-Equal -Expected $true -Actual $result
+        Assert-Equal -Expected 2 -Actual $stub.WaitLivelockSince.Count
+        Assert-True ($stub.WaitLivelockSince[0] -is [datetime] -and $stub.WaitLivelockSince[0] -ge $before) 'a wait that ends on a livelock is bounded by the step start'
+        Assert-Equal -Expected $stub.WaitLivelockSince[0] -Actual $stub.WaitLivelockSince[1] -Because 'the resumed window keeps the bound of the first'
+    }
+
+    It 'leaves the livelock bound to the wait when the step does not end on a livelock' {
+        $stub = Reset-BlindState
+        $stub.Verdict.ConsoleStaticSeconds = 0
+        $stub.WaitResults = @($false, $true)
+        $handler = (Get-SequenceAction -Name 'waitForAndEnter').Handler
+        $ctx = Get-BlindContext -Step @{ pattern = 'Continue with autoinstall?'; text = 'yes'; timeoutSeconds = 900; blindAfterSeconds = 120; noSegmentMatch = $true }
+        $null = & $handler $ctx
+        Assert-Equal -Expected 2 -Actual $stub.WaitLivelockSince.Count
+        Assert-True ($null -eq $stub.WaitLivelockSince[0] -and $null -eq $stub.WaitLivelockSince[1]) 'no bound is passed to a wait that never acts on the verdict'
     }
 
     It 'runs one wait for the whole budget when blindAfterSeconds is not set' {

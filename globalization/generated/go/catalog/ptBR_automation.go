@@ -1713,25 +1713,31 @@ const DataptBRautomation = `{
     ")"
   ],
   "automation.operator_5376c9efd7b38f35": [
-    "REGISTRO: o cache mantém ",
+    "REGISTRY: o cache mantém ",
     {
       "arg": "held",
       "type": "detail",
       "trust": "external"
     },
-    " de imagens ",
+    " de ",
     {
       "arg": "total",
       "type": "detail",
       "trust": "external"
     },
-    " no ",
+    " imagens do conjunto ",
     {
       "arg": "set",
       "type": "detail",
       "trust": "external"
     },
-    " definir um cliente puxa. Cada imagem em falta é copiada a montante enquanto o convidado aguarda o seu pedido manifesto, que custa minutos cada um e sobrevive a um orçamento de passo de provisionamento -- enquanto cada vida e leitura manifesta acima permanece verde."
+    " que um convidado baixa e ainda precisa copiar ",
+    {
+      "arg": "cold",
+      "type": "detail",
+      "trust": "external"
+    },
+    " da origem. O convidado espera por cada cópia na própria requisição de manifesto, o que leva minutos por imagem e excede o limite de tempo de uma etapa de provisionamento -- enquanto todas as leituras de disponibilidade e de manifesto acima continuam verdes."
   ],
   "automation.operator_538dbbedc6313351": "- Então tente novamente este cheque.",
   "automation.operator_53d63125deb58dff": "- esta máquina é agora o único ponto de falha para o armazenamento do grupo;",
@@ -5193,6 +5199,54 @@ const DataptBRautomation = `{
       "trust": "internal"
     },
     ")"
+  ],
+  "automation.system_diagnostic_registry_images_refused": [
+    "REGISTRY: o cache recusou ",
+    {
+      "arg": "refused",
+      "type": "detail",
+      "trust": "external"
+    },
+    " de ",
+    {
+      "arg": "total",
+      "type": "detail",
+      "trust": "external"
+    },
+    " imagens do conjunto ",
+    {
+      "arg": "set",
+      "type": "detail",
+      "trust": "external"
+    },
+    " que um convidado baixa (HTTP ",
+    {
+      "arg": "statuses",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Uma recusa é uma resposta, não uma cópia em andamento: todo convidado que pedir essas imagens recebe a mesma resposta até que a causa seja corrigida. O log de sincronização do zot informa a causa no painel \"Sync / upstream lines\" do dashboard de saúde do cache."
+  ],
+  "automation.system_diagnostic_registry_images_refused_status_unknown": [
+    "REGISTRY: o cache recusou ",
+    {
+      "arg": "refused",
+      "type": "detail",
+      "trust": "external"
+    },
+    " de ",
+    {
+      "arg": "total",
+      "type": "detail",
+      "trust": "external"
+    },
+    " imagens do conjunto ",
+    {
+      "arg": "set",
+      "type": "detail",
+      "trust": "external"
+    },
+    " que um convidado baixa. Uma recusa é uma resposta, não uma cópia em andamento: todo convidado que pedir essas imagens recebe a mesma resposta até que a causa seja corrigida. O log de sincronização do zot informa a causa no painel \"Sync / upstream lines\" do dashboard de saúde do cache."
   ],
   "automation.system_diagnostic_utmctl_list_incomplete": [
     "  utmctl list não retornou uma resposta completa em ",

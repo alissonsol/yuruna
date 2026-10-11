@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 42782448-e44d-4353-957b-a836ffda43e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -363,12 +363,12 @@ Describe 'The cache-address derivation resolves each topology correctly' -Skip:(
             param($ScriptPath, $ProxyValue, $HostEnvContent, $CurlExit)
 
             $text = Get-Content -LiteralPath $ScriptPath -Raw
-            $startAt = $text.IndexOf('CACHE_HOST=$(echo "${http_proxy:-}"')
-            $endMark = 'image pulls go to the upstreams directly."'
-            $endAt   = $text.IndexOf($endMark)
+            $startMark = '# --- REGION: Locate caching proxy'
+            $endMark   = '# --- REGION: Bound image pulls'
+            $startAt   = $text.IndexOf($startMark)
+            $endAt     = $text.IndexOf($endMark, [Math]::Max(0, $startAt))
             if ($startAt -lt 0 -or $endAt -lt 0) { return $null }
-            $endAt   = $text.IndexOf("fi", $endAt)
-            $prologue = $text.Substring($startAt, ($endAt + 2) - $startAt)
+            $prologue = $text.Substring($startAt, $endAt - $startAt)
 
             $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
             New-Item -ItemType Directory -Path $tmp -Force | Out-Null

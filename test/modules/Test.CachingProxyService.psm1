@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -421,6 +421,122 @@ function Invoke-CachingProxyServiceProbe {
     }
 }
 
+function Test-SequenceRequiresCacheRegistry {
+    <#
+    .SYNOPSIS
+        Returns true when any sequence name identifies Kubernetes guest work.
+    .DESCRIPTION
+        Kubernetes sequences use a dotted `k8s` segment in their stable file
+        names. Those guests configure containerd to use the caching proxy's
+        registry when a cache is selected, so accepting Squid alone is not a
+        sufficient cycle-start readiness verdict.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowNull()][AllowEmptyCollection()][string[]]$SequenceName)
+    foreach ($candidate in @($SequenceName)) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        $leaf = [IO.Path]::GetFileNameWithoutExtension($candidate)
+        if ($leaf -match '(?i)(^|\.)k8s(\.|$)') { return $true }
+    }
+    return $false
+}
+
+function Test-CachingProxyRegistryReady {
+    <#
+    .SYNOPSIS
+        Probes the registry's required image path instead of treating an open
+        port or its root endpoint as ready.
+    .DESCRIPTION
+        Zot can return 200 from `/v2/` while required manifests still return
+        503 during a rebuild. The cache publishes its machine-readable warm-set
+        state at `/zot-meta`; this probe requires complete Kubernetes and CNI
+        sets, then GETs one held Kubernetes manifest with the same `ns=` query
+        containerd uses. This catches a live registry whose sync path is not
+        ready for guest work.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$MetadataPort = 80,
+        [ValidateRange(1, 30)][int]$TimeoutSeconds = 3
+    )
+    $rootUri = [UriBuilder]::new('http', $CacheIp, $Port, '/v2/').Uri.AbsoluteUri
+    try {
+        $response = Invoke-WebRequest -Uri $rootUri -Method Get -NoProxy -UseBasicParsing `
+            -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck -ErrorAction Stop -Verbose:$false
+        $statusCode = [int]$response.StatusCode
+        if ($statusCode -lt 200 -or $statusCode -ge 300) {
+            return @{ Ready = $false; Reason = "registry root HTTP $statusCode"; StatusCode = $statusCode; Uri = $rootUri }
+        }
+    } catch {
+        return @{ Ready = $false; Reason = $_.Exception.Message; StatusCode = 0; Uri = $rootUri }
+    }
+
+    $metadataUri = [UriBuilder]::new('http', $CacheIp, $MetadataPort, '/zot-meta').Uri.AbsoluteUri
+    try {
+        $metadataResponse = Invoke-WebRequest -Uri $metadataUri -Method Get -NoProxy -UseBasicParsing `
+            -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck -ErrorAction Stop -Verbose:$false
+        $metadataStatus = [int]$metadataResponse.StatusCode
+        if ($metadataStatus -lt 200 -or $metadataStatus -ge 300) {
+            return @{ Ready = $false; Reason = "warm-set metadata HTTP $metadataStatus"; StatusCode = $metadataStatus; Uri = $metadataUri }
+        }
+        $metadata = if ($metadataResponse.Content -is [byte[]]) {
+            [Text.Encoding]::UTF8.GetString($metadataResponse.Content)
+        } else { [string]$metadataResponse.Content }
+    } catch {
+        return @{ Ready = $false; Reason = $_.Exception.Message; StatusCode = 0; Uri = $metadataUri }
+    }
+
+    if ($metadata -notmatch '(?m)^yuruna_prewarm_state_available\s+1(?:\.0+)?\s*$') {
+        return @{ Ready = $false; Reason = 'required image warm set is not available'; StatusCode = 200; Uri = $metadataUri }
+    }
+    foreach ($setName in 'k8s', 'cni') {
+        $totalMatch = [regex]::Match($metadata, "(?m)^yuruna_prewarm_images_total\{set=`"$setName`"\}\s+(?<value>\d+(?:\.\d+)?)\s*$")
+        $heldMatch = [regex]::Match($metadata, "(?m)^yuruna_prewarm_images_resident\{set=`"$setName`"\}\s+(?<value>\d+(?:\.\d+)?)\s*$")
+        if (-not $totalMatch.Success -or -not $heldMatch.Success) {
+            return @{ Ready = $false; Reason = "warm-set metadata is missing the $setName counts"; StatusCode = 200; Uri = $metadataUri }
+        }
+        $total = [int][double]::Parse($totalMatch.Groups['value'].Value, [Globalization.CultureInfo]::InvariantCulture)
+        $held = [int][double]::Parse($heldMatch.Groups['value'].Value, [Globalization.CultureInfo]::InvariantCulture)
+        if ($total -le 0 -or $held -ne $total) {
+            return @{ Ready = $false; Reason = "$setName warm set holds $held of $total required images"; StatusCode = 200; Uri = $metadataUri }
+        }
+        $refused = @([regex]::Matches($metadata, "(?m)^yuruna_prewarm_images_refused\{[^}\r\n]*set=`"$setName`"[^}\r\n]*\}\s+(?<value>\d+(?:\.\d+)?)\s*$"))
+        $refusedCount = ($refused | ForEach-Object { [double]::Parse($_.Groups['value'].Value, [Globalization.CultureInfo]::InvariantCulture) } | Measure-Object -Sum).Sum
+        if ($refusedCount -gt 0) {
+            return @{ Ready = $false; Reason = "$setName warm set records $refusedCount refused image(s)"; StatusCode = 200; Uri = $metadataUri }
+        }
+    }
+
+    $imageMatch = [regex]::Match($metadata, '(?m)^yuruna_prewarm_manifest_seconds\{set="k8s",image="(?<image>[^"]+)",state="(?:resident|cold)"\}\s+[0-9.]+\s*$')
+    $referenceMatch = if ($imageMatch.Success) {
+        [regex]::Match($imageMatch.Groups['image'].Value, '^(?<upstream>[^/]+)/(?<repo>.+):(?<reference>[^/:]+)$')
+    } else { $null }
+    if (-not $referenceMatch -or -not $referenceMatch.Success) {
+        return @{ Ready = $false; Reason = 'warm-set metadata names no held Kubernetes manifest'; StatusCode = 200; Uri = $metadataUri }
+    }
+    $manifest = [UriBuilder]::new('http', $CacheIp, $Port, "/v2/$($referenceMatch.Groups['repo'].Value)/manifests/$($referenceMatch.Groups['reference'].Value)")
+    $manifest.Query = 'ns=' + [Uri]::EscapeDataString($referenceMatch.Groups['upstream'].Value)
+    $manifestUri = $manifest.Uri.AbsoluteUri
+    $manifestHeaders = @{ Accept = 'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' }
+    try {
+        $manifestResponse = Invoke-WebRequest -Uri $manifestUri -Method Get -Headers $manifestHeaders -NoProxy -UseBasicParsing `
+            -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck -ErrorAction Stop -Verbose:$false
+        $manifestStatus = [int]$manifestResponse.StatusCode
+        return @{
+            Ready      = ($manifestStatus -ge 200 -and $manifestStatus -lt 300)
+            Reason     = "required manifest HTTP $manifestStatus"
+            StatusCode = $manifestStatus
+            Uri        = $manifestUri
+        }
+    } catch {
+        return @{ Ready = $false; Reason = $_.Exception.Message; StatusCode = 0; Uri = $manifestUri }
+    }
+}
+
 function Wait-PortConsecutiveSuccess {
     <#
     .SYNOPSIS
@@ -437,17 +553,25 @@ function Wait-PortConsecutiveSuccess {
         Delay between attempts.
     .PARAMETER Classify
         Optional TCP outcome command used for diagnostics.
+    .PARAMETER Probe
+        Optional application-level probe. It receives address and port and
+        returns a hashtable with Ready and Reason. When supplied it replaces
+        the TCP-only probe.
     .PARAMETER OnFirstMiss
         Callback for the leg's once-only waiting announcement.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([string]$Address, [int]$Port, [datetime]$Deadline, [int]$Required, [int]$IntervalSeconds, $Classify, [scriptblock]$OnFirstMiss)
+    param([string]$Address, [int]$Port, [datetime]$Deadline, [int]$Required, [int]$IntervalSeconds, $Classify, [scriptblock]$Probe, [scriptblock]$OnFirstMiss)
     $probes = 0; $consecutive = 0; $reason = ''; $announced = $false
     while ($true) {
         if ($probes -gt 0) { Start-Sleep -Seconds $IntervalSeconds }
         $probes++
-        if ($Classify) {
+        if ($Probe) {
+            $probeResult = & $Probe $Address $Port
+            $ok = [bool]$probeResult.Ready
+            if (-not $ok) { $reason = [string]$probeResult.Reason }
+        } elseif ($Classify) {
             $outcome = & $Classify -IpAddress $Address -Port $Port -TimeoutMs 3000
             $ok = [bool]$outcome.Reachable
             if (-not $ok) { $reason = "$($outcome.Outcome) after $($outcome.ElapsedMs) ms" }
@@ -481,17 +605,17 @@ function Wait-CachingProxyServiceSettled {
         against the freshly minted CA. A cycle that probes in the moment before
         that restart pins the address as accepted, then spends its next steps
         reporting the cache as lost -- and every guest created in that window is
-        seeded with a proxy URL that refuses, so it silently downloads direct.
+        seeded with a proxy URL that refuses, so package fetches wait or fail.
 
         Consecutive successes are what separates "up" from "up just then". The
         restart window is tens of seconds, far wider than the spacing here, so a
         restart in progress misses every probe instead of slipping between two.
 
-        This never fails the caller. A cache that will not settle inside the
-        budget is still handed back: it answered at least once, guests degrade to
-        direct downloads on their own, and stalling a cycle over its cache is
-        worse than running the cycle without one. The verdict rides in the
-        returned lines so the operator sees why the cycle went ahead anyway.
+        A caller that does not require the registry can keep the cache optional
+        and use the returned verdict for diagnostics. A Kubernetes caller sets
+        RequireRegistry and must stop before guest work when Ready is false:
+        once a selected cache is written into containerd's mirror configuration,
+        the guest deliberately does not fall through to rate-limited upstreams.
     .PARAMETER RequiredConsecutive
         Successes in a row before the cache is called settled.
     .PARAMETER IntervalSeconds
@@ -499,9 +623,14 @@ function Wait-CachingProxyServiceSettled {
         relative to a restart, and it is charged to every cycle.
     .PARAMETER TimeoutSeconds
         Total budget. Generous relative to a service restart, because the
-        alternative to waiting is a whole cycle of direct downloads.
+        alternative is spending a guest step budget on an unavailable service.
+    .PARAMETER RequireRegistry
+        Makes readiness require both the proxy port and the registry's required
+        manifest path. The caller must stop Kubernetes guest work when Ready is
+        false.
     .OUTPUTS
-        [hashtable] @{ Settled = [bool]; Consecutive = [int]; Lines = [string[]] }
+        [hashtable] @{ Ready = [bool]; Settled = [bool];
+        RegistrySettled = [Nullable[bool]]; Lines = [string[]] }
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -525,7 +654,8 @@ function Wait-CachingProxyServiceSettled {
         # on would charge every registry-less lab the full budget on every
         # cycle, to wait for something that is never coming. The caller that
         # knows the lab builds Kubernetes guests is the one that can say.
-        [int]$RegistryTimeoutSeconds = 0
+        [int]$RegistryTimeoutSeconds = 0,
+        [switch]$RequireRegistry
     )
     $lines       = [System.Collections.Generic.List[string]]::new()
     $consecutive = 0
@@ -544,7 +674,12 @@ function Wait-CachingProxyServiceSettled {
     if ($settled -and $announced) {
         $lines.Add("  Cache settled after $probes probe(s); continuing.")
     } elseif (-not $settled) {
-        $lines.Add("  Cache at ${CacheIp}:${Port} never accepted $RequiredConsecutive probes in a row within ${TimeoutSeconds}s (last: $lastReason). Proceeding anyway -- guests fall back to direct downloads whenever it refuses.")
+        $suffix = if ($RequireRegistry) {
+            'Kubernetes guest work was not started.'
+        } else {
+            'Proceeding anyway because this sequence does not require the cache registry.'
+        }
+        $lines.Add("  Cache at ${CacheIp}:${Port} never accepted $RequiredConsecutive probes in a row within ${TimeoutSeconds}s (last: $lastReason). $suffix")
     }
 
     # Registry leg. Only attempted once the proxy itself is up: if squid never
@@ -553,18 +688,30 @@ function Wait-CachingProxyServiceSettled {
     $registrySettled = $null
     if ($settled -and $RegistryPort -gt 0 -and $RegistryTimeoutSeconds -gt 0) {
         $regDeadline = (Get-Date).AddSeconds($RegistryTimeoutSeconds)
-        $result = Wait-PortConsecutiveSuccess -Address $CacheIp -Port $RegistryPort -Deadline $regDeadline -Required $RequiredConsecutive -IntervalSeconds $IntervalSeconds -Classify $classify -OnFirstMiss {
+        $result = Wait-PortConsecutiveSuccess -Address $CacheIp -Port $RegistryPort -Deadline $regDeadline -Required $RequiredConsecutive -IntervalSeconds $IntervalSeconds -Probe {
+            param($address, $port)
+            Test-CachingProxyRegistryReady -CacheIp $address -Port $port -TimeoutSeconds 3
+        } -OnFirstMiss {
             param($reason)
-            $lines.Add("  Cache registry at ${CacheIp}:${RegistryPort} is not up yet ($reason) -- waiting up to ${RegistryTimeoutSeconds}s. A guest that starts before it is ready spends its whole step budget discovering that and then fails the cycle.")
+            $lines.Add("  Cache registry required-image path is not ready yet ($reason) -- waiting up to ${RegistryTimeoutSeconds}s. A guest that starts before it is ready spends its whole step budget discovering that and then fails the cycle.")
         }
         $registrySettled = $result.Settled; $regProbes = $result.Probes; $regReason = $result.Reason; $regAnnounced = $result.Announced
         if ($registrySettled -and $regAnnounced) {
-            $lines.Add("  Cache registry settled after $regProbes probe(s); continuing.")
+            $lines.Add("  Cache registry required-image path settled after $regProbes probe(s); continuing.")
         } elseif (-not $registrySettled) {
-            $lines.Add("  Cache registry at ${CacheIp}:${RegistryPort} never accepted $RequiredConsecutive probes in a row within ${RegistryTimeoutSeconds}s (last: $regReason). Proceeding anyway -- a guest that needs it will report it against its own step.")
+            $suffix = if ($RequireRegistry) {
+                'Kubernetes guest work was not started.'
+            } else {
+                'Proceeding anyway because this sequence does not require the cache registry.'
+            }
+            $lines.Add("  Cache registry required-image path did not return success for $RequiredConsecutive consecutive probes within ${RegistryTimeoutSeconds}s (last: $regReason). $suffix")
         }
+    } elseif ($RequireRegistry -and $settled) {
+        $registrySettled = $false
+        $lines.Add('  Cache registry readiness is required for Kubernetes guest work, but no positive registry wait budget was supplied. Kubernetes guest work was not started.')
     }
-    return @{ Settled = $settled; Consecutive = $consecutive; RegistrySettled = $registrySettled; Lines = $lines.ToArray() }
+    $ready = $settled -and (-not $RequireRegistry -or $registrySettled -eq $true)
+    return @{ Ready = $ready; Settled = $settled; Consecutive = $consecutive; RegistrySettled = $registrySettled; Lines = $lines.ToArray() }
 }
 
 function Resolve-CachingProxyServiceEndpoint {
@@ -1383,4 +1530,4 @@ function Resolve-CachingProxyServiceCaCertPem {
     return @{ Pem = ''; Source = 'none' }
 }
 
-Export-ModuleMember -Function Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Wait-CachingProxyServiceSettled, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolIntentSeedUrl, Sync-PoolIntentAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem
+Export-ModuleMember -Function Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Test-SequenceRequiresCacheRegistry, Test-CachingProxyRegistryReady, Wait-CachingProxyServiceSettled, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolIntentSeedUrl, Sync-PoolIntentAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem

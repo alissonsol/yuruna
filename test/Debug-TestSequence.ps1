@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -507,8 +507,13 @@ $configCacheIp = ''
 if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIp')) {
     $configCacheIp = "$($Config.vmStart.cachingProxyIp)".Trim()
 }
+$requiresCacheRegistry = Test-SequenceRequiresCacheRegistry -SequenceName @(
+    @($ChainEntries | ForEach-Object { [string]$_.name }) + $SequenceName
+)
+$cacheEndpoint = $null
 if (($envCacheIp -or $configCacheIp) -and (Get-Command Resolve-CachingProxyServiceEndpoint -ErrorAction SilentlyContinue)) {
     $endpoint = Resolve-CachingProxyServiceEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
+    $cacheEndpoint = $endpoint
     foreach ($line in $endpoint.Lines) { Write-Output $line }
     # Committing to this address for the guests below -- confirm it stays up
     # rather than trusting the single accept the probe saw. See the same call in
@@ -722,6 +727,23 @@ Write-Output ""
 
 # --- REGION: Run each chain entry that overlaps the requested step range
 # See https://yuruna.link/42010605-0002
+$regWait = 900
+if ($Config -and $Config.vmStart -is [System.Collections.IDictionary] -and
+    $Config.vmStart.Contains('cachingProxyRegistryWaitSeconds')) {
+    $regWait = [int]$Config.vmStart.cachingProxyRegistryWaitSeconds
+}
+if ($requiresCacheRegistry -and $cacheEndpoint -and $cacheEndpoint.EffectiveIp) {
+    # VM preparation can overlap a cache rebuild. Check the required manifest
+    # path at the last boundary before this direct sequence starts.
+    $entryCache = Wait-CachingProxyServiceSettled -CacheIp $cacheEndpoint.EffectiveIp `
+        -Port $cacheEndpoint.HttpPort -RegistryTimeoutSeconds $regWait -RequireRegistry
+    foreach ($line in $entryCache.Lines) { Write-Output $line }
+    if (-not $entryCache.Ready) {
+        Write-Error ([string]$entryCache.Lines[-1])
+        Save-SequenceRecoveryResult -ExitCode $ExitFailure
+        exit $ExitFailure
+    }
+}
 $script:TestSequenceOutcome = 'unknown'
 $script:TestSequenceReason  = ''
 try {

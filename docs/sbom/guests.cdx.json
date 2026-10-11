@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:afaad136-9622-5c9b-abad-d24ac0479dc4",
+  "serialNumber": "urn:uuid:f7f123cf-0126-5489-a4bc-3e5bb0a8703f",
   "version": 1,
   "metadata": {
     "component": {
@@ -11,14 +11,14 @@
       "properties": [
         {
           "name": "yuruna:source-inputs-sha256",
-          "value": "3d3a3c4bd2ab5c0ba44f5432a725576a10099876132691ea6097bc96a5ae2f77"
+          "value": "92d3a4acc556f0aa6fa8ab305101e67c62164ddb55c77dbe9276c41f961ade9a"
         },
         {
           "name": "yuruna:inventory-kind",
           "value": "declared-source"
         }
       ],
-      "version": "2026.10.11"
+      "version": "2026.10.11.1"
     }
   },
   "components": [
@@ -465,7 +465,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-server-24; action=apt-get install; requested=mkcert; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 730, \"path\": \"guest/ubuntu.server.24/ubuntu.server.24.k8s.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=apt-get install; requested=mkcert; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 730, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.k8s.sh\"}], \"groups\": [\"yuruna:guests:ubuntu-server-24\", \"yuruna:guests:ubuntu-server-26\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-server-24; action=apt-get install; requested=mkcert; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 776, \"path\": \"guest/ubuntu.server.24/ubuntu.server.24.k8s.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=apt-get install; requested=mkcert; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 776, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.k8s.sh\"}], \"groups\": [\"yuruna:guests:ubuntu-server-24\", \"yuruna:guests:ubuntu-server-26\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ]
     },
@@ -640,7 +640,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=apt-get install; requested=squid-openssl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 3873, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}, {\"detail\": \"target=ubuntu-service-seed; action=cloud-init packages; OS package dependency resolution deferred\", \"line\": 83, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=apt-get install; requested=squid-openssl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 3961, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}, {\"detail\": \"target=ubuntu-service-seed; action=cloud-init packages; OS package dependency resolution deferred\", \"line\": 83, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-service-seed"
@@ -838,7 +838,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-server-24; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 658, \"path\": \"guest/ubuntu.server.24/ubuntu.server.24.k8s.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 658, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.k8s.sh\"}], \"groups\": [\"yuruna:guests:ubuntu-server-24\", \"yuruna:guests:ubuntu-server-26\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-server-24; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 704, \"path\": \"guest/ubuntu.server.24/ubuntu.server.24.k8s.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 704, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.k8s.sh\"}], \"groups\": [\"yuruna:guests:ubuntu-server-24\", \"yuruna:guests:ubuntu-server-26\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ]
     },
@@ -849,7 +849,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-server-24; action=downloaded provisioning artifact; source=https://get.opentofu.org/install-opentofu.sh; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 684, \"path\": \"guest/ubuntu.server.24/ubuntu.server.24.k8s.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=downloaded provisioning artifact; source=https://get.opentofu.org/install-opentofu.sh; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 684, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.k8s.sh\"}], \"groups\": [\"yuruna:guests:ubuntu-server-24\", \"yuruna:guests:ubuntu-server-26\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-server-24; action=downloaded provisioning artifact; source=https://get.opentofu.org/install-opentofu.sh; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 730, \"path\": \"guest/ubuntu.server.24/ubuntu.server.24.k8s.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=downloaded provisioning artifact; source=https://get.opentofu.org/install-opentofu.sh; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 730, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.k8s.sh\"}], \"groups\": [\"yuruna:guests:ubuntu-server-24\", \"yuruna:guests:ubuntu-server-26\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ]
     },
@@ -896,7 +896,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/v2.1.22/zot-linux-amd64; installed payload dependencies unresolved\", \"line\": 4406, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}, {\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/v2.1.22/zot-linux-arm64; installed payload dependencies unresolved\", \"line\": 4406, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/v2.1.22/zot-linux-amd64; installed payload dependencies unresolved\", \"line\": 4500, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}, {\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/v2.1.22/zot-linux-arm64; installed payload dependencies unresolved\", \"line\": 4500, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "2.1.22",

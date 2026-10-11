@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 429e84c5-0bc5-487b-b851-b34fccf102c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,6 +93,8 @@ $setup = if ($loopIndex -gt 0 -and $statements[$loopIndex - 1] -is [System.Manag
     $statements[$loopIndex - 1].Extent.Text
 } else { '' }
 $script:ResidencyCollection = $setup + "`nforeach (`$short in $($registryLoop.Condition.Extent.Text)) { `$captured.Add(`$short) }"
+# The report loop itself, so which problems a reading raises is observed.
+$script:ResidencyReport = $setup + "`n" + $registryLoop.Extent.Text
 
 # Drives the shipped reader over a published document.
 function Get-ResidencyShortfall {
@@ -102,6 +104,20 @@ function Get-ResidencyShortfall {
 $reading = Get-PrometheusReading -Text $args[0]
 $captured = [Collections.Generic.List[object]]::new()
 '@ + "`n" + $script:ResidencyCollection + "`nreturn , @(`$captured.ToArray())")
+    return , (& $run $MetricText)
+}
+
+# Runs the shipped report loop with the problem sink and the message lookup
+# stubbed, and returns '<class>|<message key>' per problem raised.
+function Get-ResidencyProblem {
+    param([string]$MetricText)
+    $run = [scriptblock]::Create($script:ResidencyReader + @'
+
+function Format-YurunaOperatorMessage { param([string]$Key, $Arguments, $FormatValues, $FormatBindings) $Key }
+$raised = [Collections.Generic.List[string]]::new()
+function Add-Problem { param([string]$Message, [string]$Class) $raised.Add("$Class|$Message") }
+$reading = Get-PrometheusReading -Text $args[0]
+'@ + "`n" + $script:ResidencyReport + "`nreturn , @(`$raised.ToArray())")
     return , (& $run $MetricText)
 }
 
@@ -160,6 +176,21 @@ $script:coldMetrics = $script:warmMetrics -replace 'yuruna_prewarm_images_reside
 # absent rather than zero.
 $script:unwarmedMetrics = $script:warmMetrics -replace 'yuruna_prewarm_state_available 1',
     'yuruna_prewarm_state_available 0'
+# Per-image warm rows as every exporter publishes them; state "failed" is an
+# HTTP error the cache answered with.
+function Get-FailedRow {
+    param([int]$Count)
+    (1..$Count | ForEach-Object { "yuruna_prewarm_manifest_seconds{set=""k8s"",image=""registry.k8s.io/image$($_):v1"",state=""failed""} 0.1" }) -join "`n"
+}
+# Every control-plane image answered with an error, as a cache does that
+# cannot store what its upstream serves -- read from an exporter that does
+# not publish the statuses, and from one that does.
+$script:refusedUnlabeledMetrics = ($script:warmMetrics -replace 'yuruna_prewarm_images_resident\{set="k8s"\} 7',
+    'yuruna_prewarm_images_resident{set="k8s"} 0') + "`n" + (Get-FailedRow 7) + "`n"
+$script:refusedMetrics = $script:refusedUnlabeledMetrics + "yuruna_prewarm_images_refused{set=""k8s"",status=""503""} 7`n"
+# Three held, two refused under two statuses, two still to copy.
+$script:mixedMetrics = $script:coldMetrics + "`n" + (Get-FailedRow 2) + "`nyuruna_prewarm_images_refused{set=""k8s"",status=""404""} 1`n" +
+    "yuruna_prewarm_images_refused{set=""k8s"",status=""503""} 1`n"
 
 }
 
@@ -215,6 +246,55 @@ Describe 'A shortfall reaches the problems summary and a warm cache does not' {
     }
 }
 
+Describe 'A refused image is reported as refused, not as a copy a guest waits on' {
+    It 'counts the refusals of a set apart from the copies still owed' {
+        $found = Get-ResidencyShortfall -MetricText $script:refusedMetrics
+        $found.Count | Should -Be 1
+        $found[0].Refused  | Should -Be 7
+        $found[0].Copying  | Should -Be 0
+        $found[0].Statuses | Should -Be '503'
+    }
+    It 'splits a set that is partly refused and partly still to copy' {
+        $found = Get-ResidencyShortfall -MetricText $script:mixedMetrics
+        $found[0].Held     | Should -Be 3
+        $found[0].Refused  | Should -Be 2
+        $found[0].Copying  | Should -Be 2
+        $found[0].Statuses | Should -Be '404, 503'
+    }
+    It 'reads a cache that publishes no refusals as one that refused nothing' {
+        $found = Get-ResidencyShortfall -MetricText $script:coldMetrics
+        $found[0].Refused | Should -Be 0
+        $found[0].Copying | Should -Be 4
+    }
+    It 'counts refusals from an exporter that does not publish their statuses' {
+        # The per-image rows predate the status series, so a cache built from
+        # an older seed still reads as refusing rather than as copying.
+        $found = Get-ResidencyShortfall -MetricText $script:refusedUnlabeledMetrics
+        $found[0].Refused  | Should -Be 7
+        $found[0].Copying  | Should -Be 0
+        $found[0].Statuses | Should -BeNullOrEmpty
+        $raised = Get-ResidencyProblem -MetricText $script:refusedUnlabeledMetrics
+        $raised.Count | Should -Be 1
+        $raised[0] | Should -Be 'REGISTRY.image-set-refused|automation.system_diagnostic_registry_images_refused_status_unknown'
+    }
+    It 'raises only the refusal when nothing is left to copy' {
+        $raised = Get-ResidencyProblem -MetricText $script:refusedMetrics
+        $raised.Count | Should -Be 1
+        $raised[0] | Should -Be 'REGISTRY.image-set-refused|automation.system_diagnostic_registry_images_refused'
+    }
+    It 'raises both when a set is short for both reasons' {
+        $raised = Get-ResidencyProblem -MetricText $script:mixedMetrics
+        $raised.Count | Should -Be 2
+        $raised[0] | Should -Be 'REGISTRY.image-set-refused|automation.system_diagnostic_registry_images_refused'
+        $raised[1] | Should -Be 'REGISTRY.image-set-incomplete|automation.operator_5376c9efd7b38f35'
+    }
+    It 'raises only the copy wait when nothing was refused' {
+        $raised = Get-ResidencyProblem -MetricText $script:coldMetrics
+        $raised.Count | Should -Be 1
+        $raised[0] | Should -Be 'REGISTRY.image-set-incomplete|automation.operator_5376c9efd7b38f35'
+    }
+}
+
 Describe 'The health page is decoded rather than cast' {
     It 'tests the response body for byte[] before using it' {
         $diagText = Get-Content -LiteralPath $diagPath -Raw
@@ -245,9 +325,10 @@ Describe 'Every warm request names the upstream it belongs to' {
         $script:seedText | Should -Match '/manifests/\$\{W_TAG\}\?ns=\$\{W_UPSTREAM\}'
     }
     It 'the guest-side warm request carries ns=' {
+        # One request line serves the tag and then the guest's platform child.
         foreach ($g in $script:guestPaths) {
             (Get-Content -LiteralPath $g -Raw) |
-                Should -Match '/manifests/\$\{_wr_tag\}\?ns=\$\{_wr_upstream\}'
+                Should -Match '/manifests/\$\{_wr_reference\}\?ns=\$\{_wr_upstream\}'
         }
     }
 }

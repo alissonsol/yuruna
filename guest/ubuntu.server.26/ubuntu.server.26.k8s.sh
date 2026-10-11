@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11
+# Version: 2026.10.11.1
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -405,6 +405,20 @@ YURUNA_IMAGE_WARM_BUDGET="${YURUNA_IMAGE_WARM_BUDGET:-900}"
 # Capture one HTTP status per attempt; the shared wrapper would concatenate them.
 YURUNA_IMAGE_WARM_ATTEMPTS="${YURUNA_IMAGE_WARM_ATTEMPTS:-3}"
 YURUNA_IMAGE_WARM_RETRY_PAUSE="${YURUNA_IMAGE_WARM_RETRY_PAUSE:-2}"
+# The digest of this guest's platform in a manifest index; nothing for a
+# single-platform manifest, an error body, or a body that does not parse.
+yuruna_warm_child() {
+    python3 -c 'import json, sys
+try:
+    manifests = json.load(open(sys.argv[1])).get("manifests") or []
+except Exception:
+    manifests = []
+for entry in manifests:
+    platform = entry.get("platform") or {}
+    if platform.get("os") == "linux" and platform.get("architecture") == sys.argv[2]:
+        print(entry.get("digest", ""))
+        break' "$1" "$_wr_arch" 2>/dev/null || true
+}
 yuruna_warm_refs() {
     _wr_label=$1
     shift
@@ -419,6 +433,8 @@ yuruna_warm_refs() {
     _wr_deadline=$(( _wr_start + YURUNA_IMAGE_WARM_BUDGET ))
     # Preserve curl transport text for per-reference diagnostics.
     _wr_errlog=$(mktemp)
+    _wr_body=$(mktemp)
+    _wr_arch=$(dpkg --print-architecture 2>/dev/null || echo amd64)
     # See https://yuruna.link/42f6b05f-0020
     # Request image indexes and manifests explicitly so the warm pass covers real pulls.
     _wr_accept='application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
@@ -440,27 +456,47 @@ yuruna_warm_refs() {
         # Exclude intentional retry sleeps from measured cache latency.
         _wr_slept=0
         : > "$_wr_errlog"
-        _wr_attempt=0
-        _wr_code=''
-        _wr_rc=0
-        while [ "$_wr_attempt" -lt "$YURUNA_IMAGE_WARM_ATTEMPTS" ]; do
-            _wr_attempt=$((_wr_attempt + 1))
-            # Recomputed every attempt, so the ladder is charged against the
-            # same budget the caller was promised and cannot outlive it.
-            _wr_left=$(( _wr_deadline - $(date +%s) ))
-            if [ "$_wr_left" -le 0 ]; then break; fi
+        # First the tag, then this guest's platform in it. On-demand sync
+        # stores a multi-arch tag as its index alone and copies a platform's
+        # manifest and layers only when that child is asked for by digest, so
+        # an answered tag says nothing about the layers kubeadm pulls next.
+        _wr_reference=$_wr_tag
+        _wr_leg=''
+        _wr_attempt_max=0
+        while :; do
+            : > "$_wr_body"
+            _wr_attempt=0
+            _wr_code=''
             _wr_rc=0
-            # --- REGION: https://yuruna.link/42e220c4-0005
-            _wr_code=$(curl -sS -o /dev/null --max-time "$_wr_left" -w '%{http_code}' \
-                -H "Accept: ${_wr_accept}" \
-                "http://${CACHE_HOST}:5000/v2/${_wr_repo}/manifests/${_wr_tag}?ns=${_wr_upstream}" 2>>"$_wr_errlog") || _wr_rc=$?
-            # Retry only silent transport failures; a received status is definitive.
-            if [ -n "$_wr_code" ] && [ "$_wr_code" != "000" ]; then break; fi
-            if [ "$_wr_attempt" -ge "$YURUNA_IMAGE_WARM_ATTEMPTS" ]; then break; fi
-            _wr_left=$(( _wr_deadline - $(date +%s) ))
-            if [ "$_wr_left" -le "$YURUNA_IMAGE_WARM_RETRY_PAUSE" ]; then break; fi
-            sleep "$YURUNA_IMAGE_WARM_RETRY_PAUSE"
-            _wr_slept=$(( _wr_slept + YURUNA_IMAGE_WARM_RETRY_PAUSE ))
+            while [ "$_wr_attempt" -lt "$YURUNA_IMAGE_WARM_ATTEMPTS" ]; do
+                _wr_attempt=$((_wr_attempt + 1))
+                # Recomputed every attempt, so the ladder is charged against the
+                # same budget the caller was promised and cannot outlive it.
+                _wr_left=$(( _wr_deadline - $(date +%s) ))
+                if [ "$_wr_left" -le 0 ]; then break; fi
+                _wr_rc=0
+                # --- REGION: https://yuruna.link/42e220c4-0005
+                _wr_code=$(curl -sS -o "$_wr_body" --max-time "$_wr_left" -w '%{http_code}' \
+                    -H "Accept: ${_wr_accept}" \
+                    "http://${CACHE_HOST}:5000/v2/${_wr_repo}/manifests/${_wr_reference}?ns=${_wr_upstream}" 2>>"$_wr_errlog") || _wr_rc=$?
+                # Retry only silent transport failures; a received status is definitive.
+                if [ -n "$_wr_code" ] && [ "$_wr_code" != "000" ]; then break; fi
+                if [ "$_wr_attempt" -ge "$YURUNA_IMAGE_WARM_ATTEMPTS" ]; then break; fi
+                _wr_left=$(( _wr_deadline - $(date +%s) ))
+                if [ "$_wr_left" -le "$YURUNA_IMAGE_WARM_RETRY_PAUSE" ]; then break; fi
+                sleep "$YURUNA_IMAGE_WARM_RETRY_PAUSE"
+                _wr_slept=$(( _wr_slept + YURUNA_IMAGE_WARM_RETRY_PAUSE ))
+            done
+            if [ "$_wr_attempt" -gt "$_wr_attempt_max" ]; then _wr_attempt_max=$_wr_attempt; fi
+            if [ -z "$_wr_leg" ] && [ "$_wr_code" = "200" ]; then
+                _wr_child=$(yuruna_warm_child "$_wr_body")
+                if [ -n "$_wr_child" ]; then
+                    _wr_reference=$_wr_child
+                    _wr_leg="linux/${_wr_arch} manifest "
+                    continue
+                fi
+            fi
+            break
         done
         _wr_el=$(( $(date +%s) - _wr_t0 - _wr_slept ))
         if [ "$_wr_code" = "200" ]; then
@@ -469,7 +505,7 @@ yuruna_warm_refs() {
             if [ "$_wr_el" -lt 5 ]; then _wr_state="already cached"; else _wr_state="cold, now cached"; fi
             # See https://yuruna.link/42f6b05f-0020
             # Report recovered transport failures beside successful cache results.
-            if [ "$_wr_attempt" -gt 1 ]; then _wr_state="${_wr_state}, answered on attempt ${_wr_attempt}"; fi
+            if [ "$_wr_attempt_max" -gt 1 ]; then _wr_state="${_wr_state}, answered on attempt ${_wr_attempt_max}"; fi
             printf '  %-52s %5ss (%s)\n' "${_wr_repo}:${_wr_tag}" "$_wr_el" "$_wr_state"
         else
             yuruna_warm_missing=$((yuruna_warm_missing + 1))
@@ -477,13 +513,13 @@ yuruna_warm_refs() {
             # See https://yuruna.link/42f6b05f-0020
             # Keep a missing status distinct from curl reporting HTTP 000.
             if [ -z "$_wr_code" ]; then
-                _wr_status="no status captured"
+                _wr_status="${_wr_leg}no status captured"
                 yuruna_warm_silent=$((yuruna_warm_silent + 1))
             elif [ "$_wr_code" = "000" ]; then
-                _wr_status="HTTP 000 (no response)"
+                _wr_status="${_wr_leg}HTTP 000 (no response)"
                 yuruna_warm_silent=$((yuruna_warm_silent + 1))
             else
-                _wr_status="HTTP ${_wr_code}"
+                _wr_status="${_wr_leg}HTTP ${_wr_code}"
             fi
             printf '  %-52s %5ss (NOT CACHED -- %s, curl exit %s, %s attempt(s))\n' "${_wr_repo}:${_wr_tag}" "$_wr_el" "$_wr_status" "$_wr_rc" "$_wr_attempt"
         fi
@@ -494,7 +530,7 @@ yuruna_warm_refs() {
             done < "$_wr_errlog"
         fi
     done
-    rm -f "$_wr_errlog"
+    rm -f "$_wr_errlog" "$_wr_body"
     yuruna_warm_spent=$(( $(date +%s) - _wr_start ))
     echo "== ${_wr_label}: $((yuruna_warm_total - yuruna_warm_missing)) of ${yuruna_warm_total} images cached =="
 }
@@ -509,11 +545,15 @@ elif [ "${#_k8s_refs[@]}" -eq 0 ]; then
 else
     yuruna_warm_refs "control-plane" "${_k8s_refs[@]}"
     if [ "$yuruna_warm_missing" -gt 0 ]; then
+        # An HTTP error status is the cache's answer, not a copy in progress.
+        yuruna_warm_refused=$((yuruna_warm_errored - yuruna_warm_silent))
         # See https://yuruna.link/42f6b05f-0020
         # A silent transport failure leaves cache contents unmeasured.
         if [ "$yuruna_warm_errored" -gt 0 ] && [ "$yuruna_warm_errored" -eq "$yuruna_warm_silent" ] && [ "$yuruna_warm_unattempted" -eq 0 ]; then
             echo "ERROR: the cache was not reached -- ${yuruna_warm_missing} of ${yuruna_warm_total} control-plane requests got no HTTP status back, so what the cache holds is unmeasured." >&2
             echo "       Look at this guest's path to it first: name resolution for ${CACHE_HOST}, a route to port 5000, and the curl exit codes in the column above." >&2
+        elif [ "$yuruna_warm_refused" -eq "$yuruna_warm_missing" ]; then
+            echo "ERROR: the cache refused ${yuruna_warm_refused} of ${yuruna_warm_total} control-plane images -- each answered with an HTTP error (column above)." >&2
         else
             echo "ERROR: the cache is still cold -- ${yuruna_warm_missing} of ${yuruna_warm_total} control-plane images did not reach the cache." >&2
         fi
@@ -526,7 +566,13 @@ else
         fi
         echo "       kubeadm would spend its entire step budget re-requesting them and end as a bare" >&2
         echo "       timeout naming no image, so stop here while the cause is still on screen." >&2
-        echo "       The cache continues each interrupted sync in the background, so a re-run lands warm." >&2
+        if [ "$yuruna_warm_silent" -gt 0 ] || [ "$yuruna_warm_unattempted" -gt 0 ]; then
+            echo "       The cache continues each interrupted sync in the background, so a re-run lands warm." >&2
+        fi
+        if [ "$yuruna_warm_refused" -gt 0 ]; then
+            echo "       A refused image is not an interrupted copy: a re-run lands warm only if the" >&2
+            echo "       refusal was transient upstream trouble. The cache's sync log names the cause." >&2
+        fi
         echo "       Cache condition: http://${CACHE_HOST}/cache-health" >&2
         exit 1
     fi

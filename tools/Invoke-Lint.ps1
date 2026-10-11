@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 42bd51d4-c3b9-4fa3-ae75-af2ab0905275
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,10 @@
     PSD1 files are normalized UTF-8 without BOM because their byte hashes are
     release authority and PowerShell 7 is their reader, while
     PSUseBOMForUnicodeEncodedFile asks all non-ASCII PowerShell files for a BOM.
-    No other path or analyzer rule is suppressed.
+    No other path or analyzer rule is suppressed. Command-binding findings
+    are confirmed in a fresh process with that rule alone: concurrent rules
+    can corrupt the analyzer's shared command metadata. Other findings stay
+    intact, and an unsuccessful confirmation fails the scan.
 .PARAMETER Path
     Optional literal repo-relative PowerShell file or directory to scan (e.g.
     'test/modules/Test.Locale.psm1' or 'test/modules'). Leading './' and either
@@ -55,7 +58,8 @@ param(
     [string]$Path,
     [switch]$Quiet,
     [Parameter(DontShow)][string]$AnalyzerIsolatePath,
-    [Parameter(DontShow)][string]$AnalyzerBatchFile
+    [Parameter(DontShow)][string]$AnalyzerBatchFile,
+    [Parameter(DontShow)][switch]$AnalyzerCommandBindingOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,7 +82,11 @@ if ($AnalyzerIsolatePath) {
     $lastError = ''
     foreach ($attempt in 1..3) {
         try {
-            $isolated = @(Invoke-ScriptAnalyzer -Path $AnalyzerIsolatePath -Settings $Settings)
+            $analyzerArguments = @{ Path = $AnalyzerIsolatePath; ErrorAction = 'Stop' }
+            if ($AnalyzerCommandBindingOnly) {
+                $analyzerArguments.Settings = @{ IncludeRules = @('PSUseCmdletCorrectly') }
+            } else { $analyzerArguments.Settings = $Settings }
+            $isolated = @(Invoke-ScriptAnalyzer @analyzerArguments)
             $payload = [ordered]@{
                 success = $true
                 findings = @($isolated | ForEach-Object {
@@ -100,6 +108,58 @@ if ($AnalyzerIsolatePath) {
                 success = $false; error = $lastError; findings = @()
             }) -Compress)
     exit 2
+}
+
+# --- REGION: Invoke-IsolatedLintAnalysis
+function Invoke-IsolatedLintAnalysis {
+    <#
+    .SYNOPSIS
+        Obtain checked analyzer evidence from a fresh PowerShell process.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$ToolPath,
+        [switch]$CommandBindingOnly
+    )
+
+    $arguments = @('-NoProfile', '-NonInteractive', '-File', $ToolPath, '-AnalyzerIsolatePath', $Path)
+    if ($CommandBindingOnly) { $arguments += '-AnalyzerCommandBindingOnly' }
+    $shell = (Get-Process -Id $PID).Path
+    $output = & $shell @arguments 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    $result = $null
+    try { $result = ConvertFrom-Json -InputObject $output -ErrorAction Stop }
+    catch { throw "Isolated analyzer returned invalid JSON (exit ${code}): $($output.Trim())" }
+    if ($code -ne 0 -or $result.success -isnot [bool] -or -not $result.success -or
+        'findings' -notin @($result.PSObject.Properties.Name) -or $result.findings -isnot [Array]) {
+        throw "Isolated analyzer failed (exit ${code}): $($output.Trim())"
+    }
+    return $result
+}
+
+# --- REGION: Confirm-LintCommandBindingFinding
+function Confirm-LintCommandBindingFinding {
+    <#
+    .SYNOPSIS
+        Recheck command-binding diagnostics without concurrent analyzer rules.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]], [Array])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Finding,
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$ToolPath
+    )
+
+    if (-not @($Finding | Where-Object RuleName -EQ 'PSUseCmdletCorrectly').Count) {
+        return $Finding
+    }
+    # Only this rule's evidence is replaced. A clean confirmation must not
+    # discard an unrelated security, syntax, or style finding from the scan.
+    $confirmed = Invoke-IsolatedLintAnalysis -Path $Path -ToolPath $ToolPath -CommandBindingOnly
+    @($Finding | Where-Object RuleName -NE 'PSUseCmdletCorrectly')
+    @($confirmed.findings)
 }
 
 # The scan worker. PSScriptAnalyzer keeps state for a whole process and is not
@@ -125,21 +185,18 @@ if ($AnalyzerBatchFile) {
             try { $results = @(Invoke-ScriptAnalyzer -Path $absolute -Settings $Settings); break }
             catch {
                 if ($attempt -eq 2) {
-                    $isolatedOutput = & pwsh -NoProfile -File $PSCommandPath `
-                        -AnalyzerIsolatePath $absolute 2>&1 | Out-String
-                    $isolatedCode = $LASTEXITCODE
-                    $isolatedResult = $null
-                    try { $isolatedResult = ConvertFrom-Json -InputObject $isolatedOutput }
-                    catch { $isolatedResult = $null }
-                    if ($isolatedCode -eq 0 -and $isolatedResult -and $isolatedResult.success) {
+                    try {
+                        $isolatedResult = Invoke-IsolatedLintAnalysis -Path $absolute -ToolPath $PSCommandPath
                         $results = @($isolatedResult.findings)
-                    } else {
-                        $why = if ($isolatedResult -and $isolatedResult.error) {
-                            [string]$isolatedResult.error
-                        } else { $isolatedOutput.Trim() }
-                    }
+                    } catch { $why = $_.Exception.Message }
                 }
             }
+        }
+        if (-not $why) {
+            try {
+                $results = @(Confirm-LintCommandBindingFinding -Finding @($results) `
+                        -Path $absolute -ToolPath $PSCommandPath)
+            } catch { $why = $_.Exception.Message }
         }
         [ordered]@{
             file = $relative

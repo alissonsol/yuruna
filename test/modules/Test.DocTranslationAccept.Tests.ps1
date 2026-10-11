@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 42717e9e-cb41-455c-9848-aef41009bf87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -227,20 +227,20 @@ Describe 'accepting a translation against its English source' {
     }
 
     It 'a footer-only edit leaves the row current' {
-        $run = Invoke-EditedSourceCheck -Name 'footer-only' -SourceBody "# Template`n`nLast review: 2026.10.11`n" `
-            -Edit { param($text) $text.Replace('Last review: 2026.10.11', 'Last review: 2026.10.11') }
+        $run = Invoke-EditedSourceCheck -Name 'footer-only' -SourceBody "# Template`n`nLast review: 2099.01.02`n" `
+            -Edit { param($text) $text.Replace('Last review: 2099.01.02', 'Last review: 2099.01.09') }
         Assert-Equal -Expected 0 -Actual $run.Code 'a review-footer sweep made the translation look stale'
     }
 
     It 'a release-tag-only edit leaves the row current' {
-        $body = "# Template`n`nhttps://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.11/install/ubuntu.kvm.sh`n"
+        $body = "# Template`n`nhttps://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2099.01.02/install/ubuntu.kvm.sh`n"
         $run = Invoke-EditedSourceCheck -Name 'tag-only' -SourceBody $body `
-            -Edit { param($text) $text.Replace('refs/tags/2026.10.11/', 'refs/tags/2026.10.11.1/') }
+            -Edit { param($text) $text.Replace('refs/tags/2099.01.02/', 'refs/tags/2099.01.02.27/') }
         Assert-Equal -Expected 0 -Actual $run.Code 'a release-tag sweep made the translation look stale'
     }
 
     It 'a prose edit stales the row' {
-        $run = Invoke-EditedSourceCheck -Name 'prose-edit' -SourceBody "# Template`n`nLast review: 2026.10.11`n" `
+        $run = Invoke-EditedSourceCheck -Name 'prose-edit' -SourceBody "# Template`n`nLast review: 2026.10.11.1`n" `
             -Edit { param($text) $text + "A new sentence the translation does not have.`n" }
         Assert-Equal -Expected 1 -Actual $run.Code 'an English prose edit left the translation current'
         Assert-Match -Pattern 'changed since' -Actual $run.Output 'the stale document is not named'

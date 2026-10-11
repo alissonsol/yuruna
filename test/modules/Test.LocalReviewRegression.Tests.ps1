@@ -1,7 +1,7 @@
 <#PSScriptInfo
 .GUID 42be47e1-a8ca-4869-85bf-16e98c15bb5d
 .LICENSEURI https://yuruna.link/license
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .BUILD 260927
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.

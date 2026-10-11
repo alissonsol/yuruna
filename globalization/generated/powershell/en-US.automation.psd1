@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 42c500e1-53a2-2a0c-075b-981a925571bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1671,7 +1671,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' set a guest pulls. Each missing image is copied from upstream while the guest waits on its manifest request, which costs minutes apiece and outlasts a provisioning step''s budget -- while every liveness and manifest reading above stays green.'
+        ' set a guest pulls and still has '
+        @{
+            'arg' = 'cold'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' to copy from upstream. A guest waits on each copy through its manifest request, which costs minutes apiece and outlasts a provisioning step''s budget -- while every liveness and manifest reading above stays green.'
     )
     'automation.operator_538dbbedc6313351' = '  -> Then retry this check.'
     'automation.operator_53d63125deb58dff' = '  - this machine is now the single point of failure for the pool storage;'
@@ -5069,6 +5075,54 @@
             'trust' = 'internal'
         }
         ')'
+    )
+    'automation.system_diagnostic_registry_images_refused' = @(
+        'REGISTRY: the cache refused '
+        @{
+            'arg' = 'refused'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' of '
+        @{
+            'arg' = 'total'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' images in the '
+        @{
+            'arg' = 'set'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' set a guest pulls (HTTP '
+        @{
+            'arg' = 'statuses'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). A refusal is an answer, not a copy in progress: every guest that asks for those images gets it again until the cause is fixed. zot''s sync log names the cause in the "Sync / upstream lines" panel of the cache-health dashboard.'
+    )
+    'automation.system_diagnostic_registry_images_refused_status_unknown' = @(
+        'REGISTRY: the cache refused '
+        @{
+            'arg' = 'refused'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' of '
+        @{
+            'arg' = 'total'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' images in the '
+        @{
+            'arg' = 'set'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' set a guest pulls. A refusal is an answer, not a copy in progress: every guest that asks for those images gets it again until the cause is fixed. zot''s sync log names the cause in the "Sync / upstream lines" panel of the cache-health dashboard.'
     )
     'automation.system_diagnostic_utmctl_list_incomplete' = @(
         '  utmctl list did not return a complete answer within '

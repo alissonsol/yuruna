@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 4219b525-eda6-4092-a1ab-0224926173fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,10 +79,20 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         # and the services stay suspended. The inventory record distinguishes
         # a failed listing from an empty one before anything is quit.
         $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
-        $captureAt = $body.IndexOf('Get-UtmRunningVmInventory')
-        $quitAt    = $body.IndexOf('Stop-UtmApplication')
-        Assert-True ($captureAt -ge 0) 'the running set is captured'
-        Assert-True ($quitAt -ge 0) 'UTM is quit'
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($body, [ref]$null, [ref]$null)
+        $commands = {
+            param($name)
+            $wanted = $name
+            @($ast.FindAll({ param($node)
+                $node -is [System.Management.Automation.Language.CommandAst] -and
+                $node.GetCommandName() -eq $wanted }.GetNewClosure(), $true))
+        }
+        $capture = @(& $commands 'Get-UtmRunningVmInventory')
+        $quit = @(& $commands 'Stop-UtmApplication')
+        Assert-True ($capture.Count -eq 1) "the running set is captured once (found $($capture.Count))"
+        Assert-True ($quit.Count -eq 1) "UTM is quit once (found $($quit.Count))"
+        $captureAt = $capture[0].Extent.StartOffset
+        $quitAt = $quit[0].Extent.StartOffset
         Assert-True ($captureAt -lt $quitAt) 'and the capture happens while UTM can still answer'
         $refuseAt = $body.IndexOf('host.rename_vm_inventory_unavailable')
         Assert-True ($refuseAt -gt $captureAt -and $refuseAt -lt $quitAt) 'a listing that could not be read refuses before the quit'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 420bd99b-9a43-48a6-9d05-9d19abdacd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,7 @@ Describe 'status-service shared-state writes are atomic and collision-free' {
         foreach ($m in [regex]::Matches($script:txt, 'Move-Item[^\r\n]*')) {
             Assert-True ($m.Value -match 'serverLogFile') "non-atomic Move-Item on shared state: $($m.Value.Trim())"
         }
-        $atomic = [regex]::Matches($script:txt, '\[System\.IO\.File\]::Move\(').Count
+        $atomic = [regex]::Matches($script:txt, '\[(?:System\.)?IO\.File\]::Move\(').Count
         Assert-True ($atomic -ge 4) "expected >= 4 atomic [IO.File]::Move publishes (test-config, perf-ckpt, the pause status.json rewrite, diagnostics); found $atomic"
     }
 

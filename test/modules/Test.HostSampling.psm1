@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 42d6d3a9-02a1-4fb8-87ed-a2137333c910
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -516,18 +516,32 @@ function ConvertTo-YurunaVmRunSample {
         if (-not $machines[$vm].ContainsKey($vp)) { $machines[$vm][$vp] = @{} }
         $machines[$vm][$vp][$name] = [double]$counter.Value
     }
+    # Get-VM's listing of the guests running when the sample was taken, or
+    # $null when the record carries no successful listing. A powered-off guest
+    # and a running one whose counters failed to read both leave the sample
+    # without the VM's processors; only this listing tells them apart.
+    $running = $null
+    if ($Record.Vm -and [string]$Record.Vm.Status -eq 'present') {
+        $running = @{}
+        foreach ($machine in @($Record.Vm.VMs)) {
+            if ($machine -and ([string]$machine.State) -like 'Running*') { $running[([string]$machine.Name).ToLowerInvariant()] = $true }
+        }
+    }
     $utc = if ($Record.Utc -is [datetime]) { $Record.Utc.ToUniversalTime() } else {
         [datetime]::Parse([string]$Record.Utc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
     }
-    [pscustomobject]@{ Utc = $utc; VMs = $machines; CounterCapabilities = @($Record.Capabilities | Where-Object Object -EQ 'Hyper-V Hypervisor Virtual Processor' | Select-Object Counter, Status, Reason) }
+    [pscustomobject]@{ Utc = $utc; VMs = $machines; Running = $running; CounterCapabilities = @($Record.Capabilities | Where-Object Object -EQ 'Hyper-V Hypervisor Virtual Processor' | Select-Object Counter, Status, Reason) }
 }
 
 function Read-YurunaHostVmRunSample {
     <# .SYNOPSIS
-        Return the virtual-processor readings the live host recording holds for a recent window.
+        Return the samples the live host recording holds for a recent window.
     .DESCRIPTION
         Reads the recording the outer runner's sampler is writing, so the inner
         runner learns what the hypervisor saw without a PDH query of its own.
+        Every sample in the window is returned, including samples without
+        virtual-processor readings, which Get-YurunaVmLivelockVerdict needs to
+        see a power cycle.
         Returns nothing when no recording exists, which is every host but
         Windows and any host with sampling turned off.
     #>
@@ -580,7 +594,6 @@ function Read-YurunaHostVmRunSample {
         if ($end -lt 0) { continue }
         $cache.Offsets[$file.Name] = $offset + $end + 1
         foreach ($line in [Text.Encoding]::UTF8.GetString($bytes, 0, $end).Split("`n")) {
-            if ($line.IndexOf(':hv vp ', [StringComparison]::OrdinalIgnoreCase) -lt 0) { continue }
             $stamp = $timestamp.Match($line)
             if ($stamp.Success) {
                 $lineUtc = [datetime]::MinValue
@@ -590,7 +603,9 @@ function Read-YurunaHostVmRunSample {
             try { $record = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
             if ($record.Kind -ne 'sample') { continue }
             $sample = ConvertTo-YurunaVmRunSample -Record $record
-            if ($sample.VMs.Count -and $sample.Utc -ge $cutoff) { $cache.Samples.Add($sample) }
+            # Samples without virtual-processor readings are kept: one taken while
+            # the guest was powered off is what ends a pinned run at the power cycle.
+            if ($sample.Utc -ge $cutoff) { $cache.Samples.Add($sample) }
         }
     }
     foreach ($name in @($cache.Offsets.Keys)) {
@@ -689,6 +704,14 @@ function Get-YurunaVmLivelockVerdict {
         100% (the counter's first sample after a VM starts) neither extends nor
         ends the run, and a gap in the recording ends it, because the run must
         be observed rather than assumed.
+
+        A run never spans a power cycle the sampler saw: a sample whose Get-VM
+        listing shows the VM not running ends it, and the next boot is judged
+        on its own readings. A sample with no readings for a VM the host still
+        listed as running is a failed counter read, a hole the gap limit judges
+        like any other. The sampler can miss a restart that completes between
+        two samples, so a caller that must not inherit a previous boot's run
+        passes Since: readings taken before that instant are not judged.
     .OUTPUTS
         [pscustomobject] Verdict 'livelocked' | 'not-livelocked' | 'unavailable',
         LivelockedSeconds, the run's averages, InterceptBreakdown (mean per-cause
@@ -703,7 +726,8 @@ function Get-YurunaVmLivelockVerdict {
         [AllowEmptyCollection()][object[]]$Sample = @(),
         [datetime]$NowUtc = [datetime]::UtcNow,
         [ValidateRange(30, 86400)][int]$MinimumSeconds = 300,
-        [ValidateRange(5, 300)][int]$IntervalSeconds = 15
+        [ValidateRange(5, 300)][int]$IntervalSeconds = 15,
+        [datetime]$Since = [datetime]::MinValue
     )
     $key = $VMName.ToLowerInvariant()
     $result = [ordered]@{
@@ -712,15 +736,28 @@ function Get-YurunaVmLivelockVerdict {
         InterceptBreakdown = [ordered]@{}; DominantIntercept = ''; SampleCount = 0; NewestSampleUtc = ''
         Detail = ''; Reason = ''; ProcessorWindow = $null
     }
-    $readings = @($Sample | Where-Object { $_ -and $_.VMs -and $_.VMs.ContainsKey($key) } | Sort-Object Utc)
+    # Compared as instants, the same way NowUtc is: a Local-kind value would
+    # otherwise move the bound by the host's UTC offset.
+    $sinceUtc = $Since.ToUniversalTime()
+    $timeline = @($Sample | Where-Object { $_ -and $null -ne $_.VMs -and $_.Utc -ge $sinceUtc } | Sort-Object Utc)
+    $readings = @($timeline | Where-Object { $_.VMs.ContainsKey($key) })
     if ($readings.Count -eq 0) {
         $result.Reason = 'The host recording holds no virtual-processor readings for this VM.'
         $result.Detail = $result.Reason
         return [pscustomobject]$result
     }
+    # Only readings after the newest sample that lists the VM as not running
+    # belong to the current boot. A sample without readings for a VM still
+    # listed as running is left out and judged by the gap limit, like any hole.
+    $stopped = @($timeline | Where-Object { -not $_.VMs.ContainsKey($key) -and $null -ne $_.Running -and -not $_.Running.ContainsKey($key) })
+    if ($stopped.Count) { $readings = @($readings | Where-Object { $_.Utc -gt $stopped[-1].Utc }) }
     $gapLimit = [math]::Max(45, 3 * $IntervalSeconds)
-    $result.ProcessorWindow = Get-YurunaVmProcessorWindow -Reading $readings -VMKey $key -WindowSeconds $MinimumSeconds -GapLimit $gapLimit
-    $newest = $readings[-1].Utc
+    if ($readings.Count) {
+        $result.ProcessorWindow = Get-YurunaVmProcessorWindow -Reading $readings -VMKey $key -WindowSeconds $MinimumSeconds -GapLimit $gapLimit
+    }
+    # With no reading since the VM was last listed as stopped, that listing is
+    # the newest word on the guest: recent, it means no run is in progress.
+    $newest = if ($readings.Count) { $readings[-1].Utc } else { $stopped[-1].Utc }
     $result.NewestSampleUtc = $newest.ToString('o')
     if (($NowUtc.ToUniversalTime() - $newest).TotalSeconds -gt $gapLimit) {
         $result.Reason = 'The newest host reading for this VM is too old to describe the guest now.'
@@ -813,11 +850,13 @@ function Get-YurunaVmLivelockState {
     param(
         [Parameter(Mandatory)][string]$VMName,
         [string]$RuntimeDirectory = $env:YURUNA_RUNTIME_DIR,
-        [ValidateRange(30, 86400)][int]$MinimumSeconds = 300
+        [ValidateRange(30, 86400)][int]$MinimumSeconds = 300,
+        # Readings older than this are not judged; a wait passes its own start.
+        [datetime]$Since = [datetime]::MinValue
     )
     $samples = @(Read-YurunaHostVmRunSample -RuntimeDirectory $RuntimeDirectory -WindowSeconds ([math]::Max(3600, 2 * $MinimumSeconds)))
     if (-not $script:VmRunCache.Directory) { return $null }
-    Get-YurunaVmLivelockVerdict -VMName $VMName -Sample $samples -MinimumSeconds $MinimumSeconds -IntervalSeconds (Get-YurunaHostSamplingSetting).IntervalSeconds
+    Get-YurunaVmLivelockVerdict -VMName $VMName -Sample $samples -MinimumSeconds $MinimumSeconds -IntervalSeconds (Get-YurunaHostSamplingSetting).IntervalSeconds -Since $Since
 }
 
 Export-ModuleMember -Function Invoke-YurunaHostBoundedCommand, Get-YurunaHostSamplingSetting, Get-YurunaHostCounterSpecification, Resolve-YurunaHostCounterCapability, Get-YurunaHostCounterInventory, Get-YurunaHostPowerStatus, Get-YurunaHostVmSnapshot, Get-YurunaHostSampleInfo, ConvertTo-YurunaHostCounterSample, Write-YurunaHostSampleRecord, Invoke-YurunaHostSampling, Start-YurunaHostSampling, Stop-YurunaHostSampling, Save-YurunaHostSampleSnapshot, ConvertTo-YurunaVmRunSample, Read-YurunaHostVmRunSample, Get-YurunaVmLivelockVerdict, Get-YurunaVmLivelockState

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -391,8 +391,10 @@ function Invoke-OrchestrationSequence {
     if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIp')) {
         $configCacheIp = "$($Config.vmStart.cachingProxyIp)".Trim()
     }
+    $cacheEndpoint = $null
     if (($envCacheIp -or $configCacheIp) -and (Get-Command Resolve-CachingProxyServiceEndpoint -ErrorAction SilentlyContinue)) {
         $endpoint = Resolve-CachingProxyServiceEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
+        $cacheEndpoint = $endpoint
         foreach ($line in $endpoint.Lines) { Write-OrchestratorLine $line }
         # The probe above proves the port answered ONCE; this is the moment the
         # cycle commits to that address for every guest it is about to build, so
@@ -400,16 +402,11 @@ function Invoke-OrchestrationSequence {
         # still provisioning, and the restart that applies its ssl-bump config
         # lands after the ports have already opened -- a cycle that probed in the
         # gap pins the address, then reports the cache lost for the next several
-        # steps while the guests it seeded fall back to direct downloads.
+        # steps. Kubernetes guests pinned to its registry cannot use upstreams
+        # as a fallback, so their registry gate below is mandatory.
         if ($endpoint.EffectiveIp -and (Get-Command Wait-CachingProxyServiceSettled -ErrorAction SilentlyContinue)) {
             # See https://yuruna.link/4213a0b3-00b8
-            $regWait = 120
-            if ($Config -and $Config.vmStart -is [System.Collections.IDictionary] -and
-                $Config.vmStart.Contains('cachingProxyRegistryWaitSeconds')) {
-                $regWait = [int]$Config.vmStart.cachingProxyRegistryWaitSeconds
-            }
-            $settle = Wait-CachingProxyServiceSettled -CacheIp $endpoint.EffectiveIp -Port $endpoint.HttpPort `
-                -RegistryTimeoutSeconds $regWait
+            $settle = Wait-CachingProxyServiceSettled -CacheIp $endpoint.EffectiveIp -Port $endpoint.HttpPort
             foreach ($line in $settle.Lines) { Write-OrchestratorLine $line }
         }
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = $endpoint.EffectiveIp
@@ -620,13 +617,36 @@ function Invoke-OrchestrationSequence {
                     $ok = ($exit -eq 0)
                     if (-not $ok) { $reason = (Format-YurunaOperatorMessage -Key 'runner.operator_8d9e40dd307d47d9' -Arguments @{ name = "$($e.name)"; exit = "$exit" }) }
                 } elseif ($e.kind -eq 'guest') {
-                    $run = Invoke-OrchestratorGuestRun -Sequence $e.sequence -SequencePath $e.path -Name $e.name `
-                        -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Config $Config `
-                        -CachingProxyServiceUrl $cachingProxyUrl -ShowSensitive:$ShowSensitive
-                    $ok = [bool]$run.ok
-                    if ($run.vmName) { $entryVmName = [string]$run.vmName }
-                    if ($run.vmName -and -not $orchNested) { Set-GuestVMName -GuestKey $e.name -VMName $run.vmName -Confirm:$false }
-                    if (-not $ok) { $reason = $run.reason }
+                    $entryCacheReady = $true
+                    if ((Test-SequenceRequiresCacheRegistry -SequenceName ([string]$e.name)) -and
+                        $cacheEndpoint -and $cacheEndpoint.EffectiveIp) {
+                        # A cache rebuild can begin after an earlier chain entry,
+                        # so the required manifest path is checked at the last
+                        # boundary before this guest starts.
+                        $regWait = 900
+                        if ($Config -and $Config.vmStart -is [System.Collections.IDictionary] -and
+                            $Config.vmStart.Contains('cachingProxyRegistryWaitSeconds')) {
+                            $regWait = [int]$Config.vmStart.cachingProxyRegistryWaitSeconds
+                        }
+                        $entryCache = Wait-CachingProxyServiceSettled -CacheIp $cacheEndpoint.EffectiveIp `
+                            -Port $cacheEndpoint.HttpPort -RegistryTimeoutSeconds $regWait -RequireRegistry
+                        foreach ($line in $entryCache.Lines) { Write-OrchestratorLine $line }
+                        if (-not $entryCache.Ready) {
+                            $entryCacheReady = $false
+                            $reason = [string]$entryCache.Lines[-1]
+                        }
+                    }
+                    if ($entryCacheReady) {
+                        $run = Invoke-OrchestratorGuestRun -Sequence $e.sequence -SequencePath $e.path -Name $e.name `
+                            -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Config $Config `
+                            -CachingProxyServiceUrl $cachingProxyUrl -ShowSensitive:$ShowSensitive
+                        $ok = [bool]$run.ok
+                        if ($run.vmName) { $entryVmName = [string]$run.vmName }
+                        if ($run.vmName -and -not $orchNested) { Set-GuestVMName -GuestKey $e.name -VMName $run.vmName -Confirm:$false }
+                        if (-not $ok) { $reason = $run.reason }
+                    } else {
+                        $ok = $false
+                    }
                 } else {
                     $ok = $false
                     $reason = (Format-YurunaOperatorMessage -Key 'runner.operator_e2e4c1d2a97c7116' -Arguments @{ name = "$($e.name)" })

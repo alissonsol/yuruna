@@ -789,7 +789,8 @@ Guests reach `zot` at `http://<cache-vm>:5000` and configure
 `guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` at provision
 time). Plain HTTP (no TLS) -- intra-LAN, same trust boundary as the
 SSL-bump CA the guests already trust. The `zot` binary is fetched
-from GitHub releases by `runcmd`.
+from GitHub releases by `runcmd` and installed only when its SHA-256
+matches the value the seed pins beside `ZOT_VERSION`.
 
 <a id="42f6b05f-001f"></a>
 
@@ -797,7 +798,9 @@ from GitHub releases by `runcmd`.
 
 The order of `registries[]` **is** the routing table, and the JSON cannot say
 so itself. `zot` walks the list in file order and syncs from the first upstream
-whose content filter matches the repository, so a pull that arrives without an
+whose content filter matches the repository. When that sync fails it tries the
+next matching entry, so every failed sync ends with a lookup against the
+catch-all. A pull that arrives without an
 `ns=` parameter -- which is every pull a `dockerd` registry-mirror sends --
 resolves against whichever entry claims it first. When every entry claims `**`,
 Docker Hub answers for images it never hosted, putting each `dotnet`, `flannel`
@@ -808,6 +811,15 @@ but only after every scoped upstream has declined.
 Prefixes are **gobwas globs** where `/` is a separator: `*` stops at a path
 element, `**` crosses it, and a bare name matches exactly.
 
+`http.compat` lists `docker2s2`. zot 2.1.22 and later store a Docker manifest
+as the upstream served it instead of converting it to OCI, and refuse to sync
+one unless this compatibility mode is on. registry.k8s.io and
+mcr.microsoft.com serve Docker manifest lists, so without it every image from
+them answers HTTP 503 in under a second while `GET /v2/` stays up, and zot's
+log records `docker media type requires http.compat docker2s2`. Keeping the
+served form also keeps the upstream digest, so a reference by digest resolves
+against the cache.
+
 Retry budgets differ by whether a client is blocked on the path:
 
 | Entry kind | `maxRetries` / `retryDelay` | Why |
@@ -815,15 +827,13 @@ Retry budgets differ by whether a client is blocked on the path:
 | `onDemand` | 1 / 2s | A caller is waiting. A slow retry against an unreachable upstream spends the caller's entire response-header budget and turns a slow pull into a failed one; failing fast returns the caller to a cache that is by then warming. |
 | scheduled (`pollInterval`) | 3 / 15s | Nobody is waiting on a poll. |
 
-The scheduled `mirror.gcr.io` entry pins `library/registry:2`, the only Docker
-Hub image the workloads depend on. A poll does not suppress the on-demand
-revalidation a client request still triggers, but it keeps the content
-resident, so that revalidation settles as a fast no-op instead of a full
-multi-arch fetch. Nothing broader is scheduled here, because k8s and flannel
-tags float with version and an unpinned poll would mirror far more than the lab
-pulls -- those sets are kept warm by
-[the warm sets](#warm-sets-and-the-cold-sync-reading) instead, which can resolve
-the exact versions in use.
+`mirror.gcr.io` does not implement `/v2/_catalog`, which Zot must enumerate
+before every periodic sync even when `content` names one exact repository.
+The mirror therefore has an on-demand entry only. The explicit warm set asks
+for `mirror.gcr.io/library/registry:2`, the one Docker Hub image the workloads
+depend on, and follows its `linux/amd64` and `linux/arm64` children. Kubernetes
+and flannel tags also stay in that warm set, which resolves the exact versions
+in use instead of polling broad, floating prefixes.
 
 That residency is also the reason the manifest canary is labeled
 **`zot resident-tag revalidation`** rather than as a reading about pulls. It
@@ -856,22 +866,44 @@ through the proxy would time a path no real pull takes, and the proxy
 refuses `CONNECT` to that port anyway, which reads as a dead cache rather
 than a routing mismatch.
 
+The test harness applies that distinction immediately before every Kubernetes
+guest entry. It requires `GET /v2/`, complete non-refused Kubernetes and CNI
+counts from `/zot-meta`, and one held Kubernetes manifest through the same
+`?ns=registry.k8s.io` route containerd uses. A rebuild can begin after the
+cycle itself starts, so a cycle-start probe alone is insufficient. The harness
+waits up to 900 seconds for the required path to settle; set
+`vmStart.cachingProxyRegistryWaitSeconds` to override that bound. Other guest
+types retain the optional cache behavior.
+
 <a id="42f6b05f-0020"></a>
 
 ### Warm sets and the cold-sync reading
 
-A tag request the cache cannot answer from storage copies the whole multi-arch
-index before the manifest is returned. On a control-plane set that is minutes
-per image, against a guest step budget sized for a warm cache -- and because
-containerd abandons a pull at its response-header deadline and retries, the
-result reads as a bare step timeout naming no image.
+A tag request the cache cannot answer from storage copies the tag's index. A
+platform's manifest and layers are copied when a client then asks for that
+child by digest, and the client waits on that request while they copy. On a
+control-plane set that can be minutes per image, against a guest step budget
+sized for a warm cache -- and because containerd abandons a pull at its
+response-header deadline and retries, the result reads as a bare step timeout
+naming no image.
+
+During that first tag request Zot logs `skipping missing manifest blob in image
+index, continuing sync with other manifests` for the children it intentionally
+did not copy. That warning describes the sparse on-demand index; it does not
+mean the stored index is corrupt. The following child requests populate the
+platform manifests and layers and are the requests whose status determines
+whether the warm completed.
 
 `zot-prewarm.service` (timer: `OnBootSec=3min`, then every 6h) keeps those sets
-resident and times every fetch. The versions are resolved, never pinned in the
-seed:
+resident and times every fetch. It asks for each tag and then for the tag's
+`linux/amd64` and `linux/arm64` children, the platforms the lab's guests run:
+a warm that asked only for the tag would hold the index and none of the
+layers. The workload support image follows the fixed example-workload
+contract; the dynamic guest versions are resolved instead of pinned here:
 
 | Set | Resolved from |
 |---|---|
+| Workload support | fixed cache route `mirror.gcr.io/library/registry:2`; direct requests are required because that upstream has no catalog |
 | Kubernetes control plane | `YURUNA_K8S_MINOR` fetched from `automation/yuruna-versions.sh` -> `dl.k8s.io/release/stable-<minor>.txt` -> `kubeadm config images list` run from the matching release binary |
 | CNI (flannel) | the `releases/latest` redirect, then the `image:` names in the `kube-flannel.yml` that tag publishes |
 
@@ -891,6 +923,10 @@ the live resolver and will differ by run):
 
 ```
 Warm sets, last warmed <UTC timestamp> (versions resolved via local host status service):
+  Workload support image set (mirror.gcr.io/library/registry:2):
+    resident                 : 1 of 1 held
+      answered from storage  : 1
+      copied in by that run  : 0
   Kubernetes image set (<resolved Kubernetes version>, pinned minor <YURUNA_K8S_MINOR>):
     resident                 : 7 of 7 held
       answered from storage  : 3
@@ -906,20 +942,37 @@ The held count includes both images answered from storage and images whose
 cold synchronization completed during that run. A completed cold fetch is
 available to the next guest; only timeout/failed rows remain missing. The split
 also preserves whether a guest arriving during the run would have waited.
+An image counts as copied in when one of its platform children was missing
+from storage before the run asked for it, however quickly the copy finished.
+An image the cache answered with an error status is listed as
+`refused (HTTP <code>)` rather than counted as a cold sync a guest will pay:
+a refusal is the answer every guest gets again, and zot's sync log -- the
+**Sync / upstream lines** panel of the cache-health dashboard -- names its
+cause.
 The **cold-sync watermark** is the
 slowest fetch that actually moved content at the currently resolved versions,
 carried across runs and reset when a version moves. Once a set is warm every
 later reading is sub-second, so the watermark is the only place the cold cost
 survives. `Get-SystemDiagnostic.ps1` lifts any shortfall into the problems
-summary, since every other reading on the page stays green through it.
+summary, since every other reading on the page stays green through it. It
+counts refused images from the per-image warm rows (`state="failed"`), names
+their HTTP statuses from the `yuruna_prewarm_images_refused` series when the
+exporter publishes it, and reports them as `REGISTRY.image-set-refused` apart
+from the ones still to copy, `REGISTRY.image-set-incomplete`.
 
 Guests warm the same way before they pull -- `yuruna_warm_refs` in the
-`*.k8s.sh` scripts issues one patient request per image, prints what it waited
-on, and stops the run with a diagnosable message if the control-plane set has
-not arrived inside `YURUNA_IMAGE_WARM_BUDGET` (default 900s). Stopping is the
-point: the alternative is spending the whole step budget on retries and failing
-as a timeout that names nothing. Interrupted syncs continue in the cache, so a
-re-run lands warm.
+`*.k8s.sh` scripts asks for each tag and then for the guest's own
+`linux/<arch>` child by digest, prints what it waited on, and stops the run
+with a diagnosable message if the control-plane set has not arrived inside
+`YURUNA_IMAGE_WARM_BUDGET` (default 900s). Stopping is the point: the
+alternative is spending the whole step budget on retries and failing as a
+timeout that names nothing. Asking for the child is what makes the check cover
+the layers kubeadm pulls next, and a refused child is reported with the
+platform it belongs to (`linux/amd64 manifest HTTP 503`). Interrupted syncs
+continue in the cache, so a re-run lands warm. A refusal is different, and the
+guest reports it as one: an image answered with an HTTP error is not being
+copied, and a re-run meets the same answer unless the cause was transient
+upstream trouble.
 
 Guests **read** the published reading rather than measuring it. The liveness
 gate a guest runs first proves only that the registry process is alive, which it
@@ -941,10 +994,10 @@ upstream a repository belongs to. Dropping it puts the lookup on the Docker Hub
 catch-all described below, spending metered quota on images Docker Hub never
 served.
 
-The cost is real and not reducible in the registry's configuration: sync copies
-every platform in the index, so the lab stores roughly five architectures to run
-one. Prewarming does not remove that; it moves it off the path a guest is
-waiting on.
+On-demand sync copies only the platforms a client asks for, so the warm sets
+hold `linux/amd64` and `linux/arm64` and nothing else. The scheduled polls are
+the exception: a poll copies every platform in the index unless its entry lists
+`platforms`. Prewarming moves the copy off the path a guest is waiting on.
 
 <a id="42f6b05f-0021"></a>
 
@@ -987,10 +1040,10 @@ Five things keep that off the meter, in descending order of effect:
    the namespace the workloads pull hardest. `mirror.gcr.io` is a
    pull-through of Docker Hub over identical `library/...` paths, so a
    `library/**` entry ahead of the catch-all needs no repository rewriting
-   and takes the largest metered consumer to zero. The cost is that the
-   match is first-wins with **no fallthrough**: an entry placed ahead of the
-   catch-all owns its glob outright, and a repository that upstream cannot
-   serve is reported missing rather than retried against Hub. This is a
+   and takes the largest metered consumer to zero. The limit is that routing
+   is first-success, not first-match: a repository `mirror.gcr.io` cannot
+   serve falls through to the catch-all and is retried against Hub, so the
+   mirror keeps only the images it serves off the meter. This is a
    different move from pinning a mirror at the *caller*, which the workload
    scripts deliberately do not do -- see [Workload registry
    pull-through](#workload-registry-pull-through).
@@ -1021,7 +1074,8 @@ Token responses are excluded separately from manifest caching. Registries in the
 ### Optional Docker Hub account for the sync
 
 `zot` syncs from the first `registries[]` entry whose content filter
-claims the repository. Every `onDemand` entry but one is scoped to the
+claims the repository, and asks the next one only when that sync fails.
+Every `onDemand` entry but one is scoped to the
 namespaces that upstream really serves; `registry-1.docker.io` sits
 last among them with `prefix: **`, answering for anything nothing else
 claimed. (The two `pollInterval` entries follow it in the file, but
@@ -1054,10 +1108,9 @@ takes no login.
 
 ### Upstreams that appear twice
 
-Two upstreams are declared twice in the zot `registries[]` block, and both
-do it for the same structural reason: an `onDemand` entry serves the
-client-blocking path, and a separate `pollInterval` entry prewarms the
-handful of tags a cold pull would otherwise stall on. The two entry kinds
+MCR is declared twice in the zot `registries[]` block because an `onDemand`
+entry serves the client-blocking path and a separate `pollInterval` entry
+prewarms the tags a cold pull would otherwise stall on. The two entry kinds
 carry different retry budgets and cannot be collapsed into one.
 
 `mcr.microsoft.com`:
@@ -1081,9 +1134,10 @@ carry different retry budgets and cannot be collapsed into one.
 1. `onDemand: true` + `library/**` -- takes Docker Hub's official-image
    namespace off the metered catch-all. Same paths as Hub, so nothing is
    rewritten.
-2. `pollInterval: 6h` + `library/registry:2` -- keeps the workload's
-   registry image resident, so the revalidation a client request still
-   triggers settles as a fast no-op.
+2. The separate `zot-prewarm` warm set requests `library/registry:2` directly.
+   A second `registries[]` entry with `pollInterval` cannot do this job because
+   Zot starts a poll by listing `/v2/_catalog`, which this upstream answers
+   with HTTP 405.
 
 <a id="42f6b05f-0024"></a>
 
@@ -2469,7 +2523,7 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11
+Last review: 2026.10.11.1
 
 Back to [Yuruna](../README.md)
 

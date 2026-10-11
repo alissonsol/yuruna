@@ -3,8 +3,8 @@
   "recordedUtc": "2026-09-30T17:16:40.8543919Z",
   "pesterVersion": "5.9.0",
   "totals": {
-    "suites": 388,
-    "tests": 8662,
+    "suites": 389,
+    "tests": 8689,
     "failed": 0,
     "skipped": 39
   },
@@ -95,7 +95,7 @@
       "seconds": 28.71
     },
     "test/modules/Test.CacheWarmSet.Tests.ps1": {
-      "total": 18,
+      "total": 25,
       "skipped": 0,
       "seconds": 2.75
     },
@@ -1963,6 +1963,11 @@
       "total": 7,
       "skipped": 0,
       "seconds": 4.78
+    },
+    "test/modules/Test.ZotSyncContract.Tests.ps1": {
+      "total": 20,
+      "skipped": 0,
+      "seconds": 1.88
     }
   },
   "registrations": [
@@ -2340,6 +2345,17 @@
       "sourceSha256": {
         "test/modules/Test.PrivateStateRepair.Tests.ps1": "A7B1ABA9F8D72094F3B713839384D2A30C5BE4FE7E5F6861C9A1E28F1808EE7E",
         "test/modules/Test.StatusServicePrivateState.Tests.ps1": "27385A47218C5A692168483DDFB0B879E906C98D541AA10BF31303315B15E07B"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-11T15:40:05.0154411Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.ZotSyncContract.Tests.ps1"
+      ],
+      "tests": 14,
+      "sourceSha256": {
+        "test/modules/Test.ZotSyncContract.Tests.ps1": "DE31C064E80A6EBDB5BED97CCC5AA6DB80F1E2B9547449C9F5A0920C56406A9C"
       }
     }
   ]

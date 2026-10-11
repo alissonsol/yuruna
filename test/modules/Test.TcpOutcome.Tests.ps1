@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 425dfdd4-fd92-4c1a-9012-e60152b4c11b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,9 +33,9 @@
 
     The settle cases cover the other half: one accept is not readiness. The gate
     requires consecutive accepts, so a restart in progress -- tens of seconds
-    wide -- fails every probe instead of slipping between two, and it never
-    fails the caller, because stalling a cycle over its cache is worse than
-    running the cycle without one.
+    wide -- fails every probe instead of slipping between two. Cache use stays
+    optional for ordinary sequences; Kubernetes sequences also require the
+    registry HTTP API because their container runtime is pinned to that mirror.
 
     Real sockets on loopback, no mocks: a listener that is bound gives a genuine
     accept, an unbound loopback port a genuine RST. Nothing here touches the LAN
@@ -160,9 +160,9 @@ Describe 'A cache is confirmed to stay up before a cycle commits to it' {
         Assert-True (($r.Lines -join ' ') -match 'refused') 'and names the refusal rather than a generic miss'
     }
 
-    It 'gives up inside its budget and lets the cycle proceed' {
-        # Never fails the caller: guests degrade to direct downloads by
-        # themselves, and stalling a cycle over its cache is the worse outcome.
+    It 'gives up inside its budget and lets a non-Kubernetes cycle proceed' {
+        # A sequence that does not depend on the registry can still decide that
+        # running without the optional cache is preferable to stopping.
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $r = Wait-CachingProxyServiceSettled -CacheIp '127.0.0.1' -Port (Get-ClosedLoopbackPort) `
                 -RequiredConsecutive 3 -IntervalSeconds 0 -TimeoutSeconds 2
@@ -187,6 +187,116 @@ Describe 'A cache is confirmed to stay up before a cycle commits to it' {
     }
 }
 
+Describe 'Kubernetes cache readiness uses the registry HTTP API' {
+
+    It 'recognizes only a dotted k8s sequence-name segment' {
+        Assert-True (Test-SequenceRequiresCacheRegistry -SequenceName @(
+            'start.guest.ubuntu.server.24',
+            'workload.guest.ubuntu.server.24.k8s.website'
+        )) 'a Kubernetes workload requires registry readiness'
+        Assert-True (-not (Test-SequenceRequiresCacheRegistry -SequenceName @(
+            'workload.guest.ubuntu.server.24',
+            'workload.guest.ubuntu.server.24.notk8s.website'
+        ))) 'an unrelated name containing the letters k8s does not opt in'
+    }
+
+    It 'accepts complete warm sets and an actual required manifest' {
+        Mock Invoke-WebRequest -ModuleName Test.CachingProxyService {
+            if ($Uri -like '*/zot-meta') {
+                [pscustomobject]@{ StatusCode = 200; Content = @'
+yuruna_prewarm_state_available 1
+yuruna_prewarm_images_total{set="k8s"} 7
+yuruna_prewarm_images_resident{set="k8s"} 7
+yuruna_prewarm_images_total{set="cni"} 2
+yuruna_prewarm_images_resident{set="cni"} 2
+yuruna_prewarm_manifest_seconds{set="k8s",image="registry.k8s.io/kube-apiserver:v1.37.1",state="resident"} 0.032
+'@ }
+            } else { [pscustomobject]@{ StatusCode = 200; Content = '' } }
+        }
+        $r = Test-CachingProxyRegistryReady -CacheIp '2001:db8::42' -Port 5000
+        Assert-True $r.Ready 'the warm-set verdict and real manifest are both ready'
+        Assert-StringEqual -Expected 'http://[2001:db8::42]:5000/v2/kube-apiserver/manifests/v1.37.1?ns=registry.k8s.io' -Actual $r.Uri -Because 'UriBuilder brackets IPv6 on every host OS'
+    }
+
+    It 'rejects a manifest 503 even when the registry root returns 200' {
+        Mock Invoke-WebRequest -ModuleName Test.CachingProxyService {
+            if ($Uri -like '*/zot-meta') {
+                [pscustomobject]@{ StatusCode = 200; Content = @'
+yuruna_prewarm_state_available 1
+yuruna_prewarm_images_total{set="k8s"} 7
+yuruna_prewarm_images_resident{set="k8s"} 7
+yuruna_prewarm_images_total{set="cni"} 2
+yuruna_prewarm_images_resident{set="cni"} 2
+yuruna_prewarm_manifest_seconds{set="k8s",image="registry.k8s.io/kube-apiserver:v1.37.1",state="resident"} 0.032
+'@ }
+            } elseif ($Uri -like '*/manifests/*') {
+                [pscustomobject]@{ StatusCode = 503; Content = '' }
+            } else { [pscustomobject]@{ StatusCode = 200; Content = '' } }
+        }
+        $r = Test-CachingProxyRegistryReady -CacheIp '127.0.0.1' -Port 5000
+        Assert-True (-not $r.Ready) 'root liveness cannot hide a required-manifest failure'
+        Assert-StringEqual -Expected 'required manifest HTTP 503' -Actual $r.Reason
+    }
+
+    It 'rejects an incomplete Kubernetes warm set before probing a manifest' {
+        Mock Invoke-WebRequest -ModuleName Test.CachingProxyService {
+            if ($Uri -like '*/zot-meta') {
+                [pscustomobject]@{ StatusCode = 200; Content = @'
+yuruna_prewarm_state_available 1
+yuruna_prewarm_images_total{set="k8s"} 7
+yuruna_prewarm_images_resident{set="k8s"} 0
+yuruna_prewarm_images_total{set="cni"} 2
+yuruna_prewarm_images_resident{set="cni"} 2
+'@ }
+            } else { [pscustomobject]@{ StatusCode = 200; Content = '' } }
+        }
+        $r = Test-CachingProxyRegistryReady -CacheIp '127.0.0.1' -Port 5000
+        Assert-True (-not $r.Ready) 'zero of seven held images is not readiness'
+        Assert-StringEqual -Expected 'k8s warm set holds 0 of 7 required images' -Actual $r.Reason
+    }
+
+    It 'keeps a non-Kubernetes caller optional and does not probe the registry' {
+        Mock Test-CachingProxyRegistryReady -ModuleName Test.CachingProxyService {
+            throw 'the optional path must not call the registry probe'
+        }
+        $l = New-LoopbackListener
+        try {
+            $r = Wait-CachingProxyServiceSettled -CacheIp '127.0.0.1' -Port $l.LocalEndpoint.Port `
+                -RequiredConsecutive 2 -IntervalSeconds 0 -TimeoutSeconds 20
+            Assert-True $r.Ready 'the healthy proxy is enough for an ordinary sequence'
+            Assert-True ($null -eq $r.RegistrySettled) 'the optional registry was not evaluated'
+            Should -Invoke Test-CachingProxyRegistryReady -ModuleName Test.CachingProxyService -Times 0 -Exactly
+        } finally { $l.Stop() }
+    }
+
+    It 'blocks Kubernetes work when the required manifest keeps returning 503' {
+        Mock Test-CachingProxyRegistryReady -ModuleName Test.CachingProxyService {
+            @{ Ready = $false; Reason = 'required manifest HTTP 503'; StatusCode = 503; Uri = 'http://127.0.0.1:5000/v2/kube-apiserver/manifests/v1.37.1?ns=registry.k8s.io' }
+        }
+        $l = New-LoopbackListener
+        try {
+            $r = Wait-CachingProxyServiceSettled -CacheIp '127.0.0.1' -Port $l.LocalEndpoint.Port `
+                -RegistryPort 5000 -RegistryTimeoutSeconds 1 -RequireRegistry `
+                -RequiredConsecutive 2 -IntervalSeconds 1 -TimeoutSeconds 20
+            Assert-True $r.Settled 'the proxy itself stayed up'
+            Assert-True (-not $r.RegistrySettled) 'the HTTP registry did not settle'
+            Assert-True (-not $r.Ready) 'the aggregate Kubernetes verdict is not ready'
+            Assert-True (($r.Lines -join ' ') -match 'manifest HTTP 503') 'the reason preserves the application-level failure'
+            Assert-True (($r.Lines -join ' ') -match 'Kubernetes guest work was not started') 'the result does not claim a direct-download fallback'
+        } finally { $l.Stop() }
+    }
+
+    It 'fails closed when a required registry has no wait budget' {
+        $l = New-LoopbackListener
+        try {
+            $r = Wait-CachingProxyServiceSettled -CacheIp '127.0.0.1' -Port $l.LocalEndpoint.Port `
+                -RequireRegistry -RequiredConsecutive 2 -IntervalSeconds 0 -TimeoutSeconds 20
+            Assert-True (-not $r.Ready) 'required readiness cannot silently disable its own probe'
+            Assert-True (-not $r.RegistrySettled) 'the missing budget is an explicit failed registry verdict'
+        } finally { $l.Stop() }
+    }
+}
+
 Describe 'The cycle-start commit is gated, the diagnostic is not' {
 
     It 'the orchestrator waits before pinning the address for the cycle' {
@@ -196,6 +306,25 @@ Describe 'The cycle-start commit is gated, the diagnostic is not' {
         Assert-True ($waitAt -ge 0) 'the orchestrator confirms the cache'
         Assert-True ($pinAt -ge 0) 'and pins the resolved address'
         Assert-True ($waitAt -lt $pinAt) 'confirmation happens BEFORE the address is committed'
+    }
+
+    It 'rechecks inside every orchestrator guest entry immediately before its run' {
+        $body = Get-Content -Raw (Join-Path $TcpRepoRoot 'test/modules/Test.Orchestrator.psm1')
+        $guestBranchAt = $body.IndexOf("} elseif (`$e.kind -eq 'guest') {")
+        $waitAt = $body.IndexOf('Wait-CachingProxyServiceSettled', $guestBranchAt)
+        $runAt = $body.IndexOf('$run = Invoke-OrchestratorGuestRun', $guestBranchAt)
+        Assert-True ($guestBranchAt -ge 0) 'the guest entry branch exists'
+        Assert-True ($waitAt -gt $guestBranchAt -and $waitAt -lt $runAt) 'the registry is rechecked inside the entry before the guest invocation'
+        Assert-True ($body.Substring($guestBranchAt, $runAt - $guestBranchAt) -match 'Test-SequenceRequiresCacheRegistry') 'the per-entry check applies only to Kubernetes sequence names'
+    }
+
+    It 'rechecks the direct debug path immediately before running the chain' {
+        $body = Get-Content -Raw (Join-Path $TcpRepoRoot 'test/Debug-TestSequence.ps1')
+        $runAt = $body.IndexOf('$result = Invoke-TestSequenceChain')
+        $gateAt = $body.LastIndexOf('if ($requiresCacheRegistry', $runAt)
+        $waitAt = $body.LastIndexOf('Wait-CachingProxyServiceSettled', $runAt)
+        Assert-True ($gateAt -ge 0 -and $gateAt -lt $waitAt -and $waitAt -lt $runAt) 'the direct path rechecks Kubernetes work after VM preparation and before the sequence chain'
+        Assert-True ($body.Substring($waitAt, $runAt - $waitAt) -match '\-RequireRegistry') 'the direct recheck requires the full registry verdict'
     }
 
     It 'the resolver itself does no waiting' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1185,6 +1185,94 @@ Describe 'an explicit lint scope actually selects source' {
             Assert-Match '2 finding\(s\) across 3 tracked/new' $result.Output
             Assert-False ($result.Output -match 'hidden\.ps1') 'an ignored PowerShell file entered source discovery'
         }
+    }
+}
+
+Describe 'lint command-binding confirmation' {
+    BeforeAll {
+        . ([scriptblock]::Create((Get-LintFunction -Name 'Invoke-IsolatedLintAnalysis')))
+        . ([scriptblock]::Create((Get-LintFunction -Name 'Confirm-LintCommandBindingFinding')))
+        $script:BindingFinding = [pscustomobject]@{ RuleName = 'PSUseCmdletCorrectly'; Message = 'binding'; Line = 1 }
+        $script:OtherFinding = [pscustomobject]@{ RuleName = 'PSAvoidUsingWriteHost'; Message = 'style'; Line = 2 }
+    }
+
+    It 'does not launch a confirmation for clean scans or unrelated findings' {
+        Mock Invoke-IsolatedLintAnalysis { throw 'Unexpected confirmation' }
+        @(Confirm-LintCommandBindingFinding -Finding @() -Path 'source.ps1' -ToolPath 'tool.ps1').Count | Should -Be 0
+        $result = @(Confirm-LintCommandBindingFinding -Finding @($script:OtherFinding) -Path 'source.ps1' -ToolPath 'tool.ps1')
+        $result.Count | Should -Be 1
+        $result[0].RuleName | Should -Be 'PSAvoidUsingWriteHost'
+        Should -Invoke Invoke-IsolatedLintAnalysis -Times 0 -Exactly
+    }
+
+    It 'removes unconfirmed binding findings while retaining unrelated diagnostics' {
+        Mock Invoke-IsolatedLintAnalysis { [pscustomobject]@{ success = $true; findings = @() } }
+        $result = @(Confirm-LintCommandBindingFinding -Finding @($script:BindingFinding, $script:OtherFinding, $script:BindingFinding) -Path 'source file.ps1' -ToolPath 'tool file.ps1')
+        $result.Count | Should -Be 1
+        $result[0].Message | Should -Be 'style'
+        Should -Invoke Invoke-IsolatedLintAnalysis -Times 1 -Exactly -ParameterFilter {
+            $Path -eq 'source file.ps1' -and $ToolPath -eq 'tool file.ps1' -and $CommandBindingOnly
+        }
+    }
+
+    It 'retains confirmed binding errors and unrelated diagnostics' {
+        Mock Invoke-IsolatedLintAnalysis { [pscustomobject]@{ success = $true; findings = @($script:BindingFinding) } }
+        $result = @(Confirm-LintCommandBindingFinding -Finding @($script:BindingFinding, $script:OtherFinding) -Path 'source.ps1' -ToolPath 'tool.ps1')
+        $result.Count | Should -Be 2
+        @($result.RuleName) | Should -Contain 'PSUseCmdletCorrectly'
+        @($result.RuleName) | Should -Contain 'PSAvoidUsingWriteHost'
+    }
+
+    It 'fails when confirmation cannot produce evidence' {
+        Mock Invoke-IsolatedLintAnalysis { throw 'Analyzer unavailable' }
+        { Confirm-LintCommandBindingFinding -Finding @($script:BindingFinding) -Path 'source.ps1' -ToolPath 'tool.ps1' } |
+            Should -Throw '*Analyzer unavailable*'
+    }
+
+    It 'rejects unsuccessful or malformed child results: <Payload>, exit <Code>' -ForEach @(
+        @{ Payload = 'not JSON'; Code = 0 }
+        @{ Payload = '{"success":false,"findings":[]}'; Code = 0 }
+        @{ Payload = '{"success":true,"findings":[]}'; Code = 2 }
+        @{ Payload = '{"success":true}'; Code = 0 }
+        @{ Payload = '{"success":true,"findings":null}'; Code = 0 }
+        @{ Payload = '{"success":true,"findings":"not evidence"}'; Code = 0 }
+        @{ Payload = '{"success":"true","findings":[]}'; Code = 0 }
+    ) {
+        $child = Join-Path $TestDrive 'child analyzer.ps1'
+        [IO.File]::WriteAllText($child, "param(`$AnalyzerIsolatePath, [switch]`$AnalyzerCommandBindingOnly)`n'$Payload'`nexit $Code`n")
+        { Invoke-IsolatedLintAnalysis -Path 'source file.ps1' -ToolPath $child -CommandBindingOnly } |
+            Should -Throw '*Isolated analyzer*'
+    }
+
+    It 'accepts an explicitly successful empty child result' {
+        $child = Join-Path $TestDrive 'clean analyzer.ps1'
+        [IO.File]::WriteAllText($child, "param(`$AnalyzerIsolatePath)`n'{`"success`":true,`"findings`":[]}'`n")
+        $result = Invoke-IsolatedLintAnalysis -Path 'source file.ps1' -ToolPath $child
+        @($result.findings).Count | Should -Be 0
+    }
+
+    It 'checks valid and invalid cmdlets in a fresh process with paths containing spaces' {
+        $fixture = New-LintScopeFixture
+        $source = Join-Path $fixture.Root 'src/command binding.ps1'
+        [IO.File]::WriteAllText($source, "Pop-Location`nWrite-Host 'style'`n")
+        $result = Invoke-IsolatedLintAnalysis -Path $source -ToolPath $fixture.Tool -CommandBindingOnly
+        @($result.findings).Count | Should -Be 0
+        [IO.File]::WriteAllText($source, "ConvertFrom-Json`n")
+        $result = Invoke-IsolatedLintAnalysis -Path $source -ToolPath $fixture.Tool -CommandBindingOnly
+        @($result.findings).Count | Should -Be 1
+        $result.findings[0].RuleName | Should -Be 'PSUseCmdletCorrectly'
+    }
+
+    It 'keeps the complete wrapper failing for genuine binding and style errors' {
+        $fixture = New-LintScopeFixture
+        [IO.File]::WriteAllText((Join-Path $fixture.Root 'PSScriptAnalyzerSettings.psd1'),
+            "@{ IncludeRules = @('PSUseCmdletCorrectly', 'PSAvoidUsingWriteHost') }")
+        [IO.File]::WriteAllText((Join-Path $fixture.Root 'src/tracked.ps1'), "ConvertFrom-Json`nWrite-Host 'style'`n")
+        $result = Invoke-FixtureLint -Fixture $fixture -Scope 'src/tracked.ps1'
+        $result.Code | Should -Be 1
+        $result.Output | Should -Match 'PSUseCmdletCorrectly'
+        $result.Output | Should -Match 'PSAvoidUsingWriteHost'
+        $result.Output | Should -Match '2 finding\(s\) across 1 tracked/new'
     }
 }
 

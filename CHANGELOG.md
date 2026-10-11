@@ -4,6 +4,18 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.11.1
+
+- **Same-day hotfix for the caching proxy.** The zot 2.1.22 that 2026.10.11
+  installs refused the Docker-format manifests of Kubernetes images, stalling
+  every Kubernetes guest. A same-day patch release, instead of a wait for the next
+  weekly cycle, ships the fix: the seed enables zot's `docker2s2` mode and
+  diagnostics report refused images. Rebuild caching-proxy-service VMs built from
+  2026.10.11.
+- **Patch-version publishing.** Version updates encode same-day CalVer patches as
+  SemVer build metadata in Helm charts, so Helm can lint and install the project
+  workloads while their application version retains the full release number.
+
 ## 2026.10.11
 
 - **ARM64 stall diagnostics.** Hyper-V CPU restarts now keep thread inventories,
@@ -576,6 +588,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11
+Last review: 2026.10.11.1
 
 Back to [Yuruna](README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1167,6 +1167,13 @@ Register-SequenceAction -Name 'waitForAndEnter' -ReplaySafety 'input' -HostIOReq
         $firstWindow = $useBlind ? $blindAfter : $p.timeout
         Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s$(if ($useBlind) { ", blind answer after ${blindAfter}s" }))"
         $waitStartUtc = [DateTime]::UtcNow
+        # Both windows watch the same boot, so a resumed window keeps judging the
+        # livelock verdict from the step's start instead of dropping what the
+        # first window recorded.
+        if ($livelockExit.Count) {
+            $livelockExit = $livelockExit.Clone()
+            $livelockExit['GuestLivelockSinceUtc'] = $waitStartUtc
+        }
         $ok = Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $firstWindow -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `

@@ -1733,7 +1733,7 @@ The guest-path canary sends the same `?ns=registry.k8s.io` manifest request that
 
 `zot-prewarm.sh`, driven by `zot-prewarm.timer`, keeps the image sets a Kubernetes guest pulls resident in this cache and times every fetch, so the health page can report the path a real pull walks. Operator-facing detail -- the resolved sets, the published reading, and the cold-sync watermark -- is in [caching.md](caching.md#warm-sets-and-the-cold-sync-reading); what follows is why the unit is shaped this way.
 
-**Why warm at all.** zot resolves a TAG by re-running the on-demand upstream sync BEFORE any local-storage check, and when the content is not already held that sync copies the whole multi-arch index before the manifest request is answered. A guest meeting that cold pays minutes per image inside a step budget sized for a warm cache. Warming on a timer moves the cost off the path a guest is waiting on; it does not remove it.
+**Why warm at all.** zot resolves a TAG by re-running the on-demand upstream sync BEFORE any local-storage check. When the content is not already held, that sync stores the tag's index, and each platform's manifest and layers are copied when a client asks for that child by digest, with the client waiting on that request. A guest meeting that cold pays minutes per image inside a step budget sized for a warm cache, so the run asks for the `linux/amd64` and `linux/arm64` children as well as the tag: asking for the tag alone would hold the index and none of the layers. Warming on a timer moves the cost off the path a guest is waiting on; it does not remove it.
 
 **Why the timing lives here.** This is the only reading that can show the cold path. A tag that a scheduled poll keeps resident answers from local storage in milliseconds however badly a cold sync is behaving, so a canary pinned to such a tag reports green by construction -- it measures the upstream leg and nothing about how long an image the lab does not hold takes to arrive. The prewarm run is fetching content that is genuinely absent, so its own elapsed time is the honest number.
 
@@ -2230,7 +2230,7 @@ Confirm the timers that drive the 24-hour cadence are armed. If the apt package'
 
 ### zot install binary and activation
 
-zot install (binary fetch + systemd activation). ZOT_VERSION is pinned for reproducibility. To bump: read https://github.com/project-zot/zot/releases, verify the asset names still match `zot-linux-{amd64,arm64}` (NOT `-minimal` -- the sync extension is required for on-demand pull-through caching), then change ZOT_VERSION here. The binary download goes DIRECT to GitHub (not through this VM's own squid -- chicken-and-egg) and is one-shot per VM build, so the ~220 MB transfer doesn't recur.
+zot install (binary fetch + systemd activation). ZOT_VERSION is pinned for reproducibility, and the downloaded binary is installed only when its SHA-256 matches `ZOT_SHA256_AMD64` or `ZOT_SHA256_ARM64`; a mismatch leaves no file behind. The hashes are pinned in the seed rather than fetched beside the binary, so a replaced release asset cannot vouch for itself. To bump: read https://github.com/project-zot/zot/releases, including its sync and compat changes, verify the asset names still match `zot-linux-{amd64,arm64}` (NOT `-minimal` -- the sync extension is required for on-demand pull-through caching), change ZOT_VERSION and copy both hashes from the release's `checksums.sha256.txt`, then run `ZOT_BINARY=<new zot-linux binary> python3 host/vmconfig/tests/test_collector_seed.py`: it checks the binary against its pin and syncs a Docker manifest list through the seed's routing table. The binary download goes DIRECT to GitHub (not through this VM's own squid -- chicken-and-egg) and is one-shot per VM build, so the ~220 MB transfer doesn't recur.
 
 With no Docker Hub account configured, remove `credentialsFile` from zot's JSON before deleting the credential file. An interrupted sequence then leaves an unused file rather than a configuration naming a missing file that prevents zot from starting. JSON rewriting must preserve `registries[]` order because that array is the upstream routing table. Arm prewarming after activation instead of waiting for the first cold set during cloud-init.
 
@@ -2581,6 +2581,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11
+Last review: 2026.10.11.1
 
 Back to [Yuruna](../README.md)

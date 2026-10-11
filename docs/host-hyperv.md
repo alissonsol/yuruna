@@ -611,6 +611,13 @@ minute, including a vCPU parked in a spin wait while its sibling works.
 Wedged boots hold it until they are powered off. Every OCR wait that times
 out records the verdict in `causeDetail.guestLivelock` (see the
 [failure schema](failure-schema.md)). A run of 300 seconds is a livelock.
+A sample whose Get-VM listing shows the VM not running, such as one taken
+while it is powered off, also ends the run. A sample with no readings for a
+VM the host still lists as running is a failed counter read instead: a hole
+that ends the run only when the gap between readings exceeds 45 seconds or
+three sampling intervals, whichever is longer. The sampler can miss a
+restart that completes between two samples, so a wait that ends on the
+verdict judges only the readings taken since it began.
 On native ARM64 Hyper-V, the cold-restart retry modes end their wait as soon
 as the verdict holds, rather than spending the rest of a 30- or 40-minute
 budget (see [test sequences](test-sequences.md)). A host without a recording
@@ -711,6 +718,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11
+Last review: 2026.10.11.1
 
 Back to [Yuruna](../README.md)

@@ -1595,7 +1595,13 @@ const DatazhCNautomation = `{
       "type": "detail",
       "trust": "external"
     },
-    "个。每个缺失的镜像都会在客户机等待其清单请求响应时从上游复制，每个耗时数分钟，超出预配步骤的时间预算——而上方所有存活状态和清单读数仍显示正常。"
+    "个，仍有",
+    {
+      "arg": "cold",
+      "type": "detail",
+      "trust": "external"
+    },
+    "个需要从上游复制。客户机会在清单请求上等待每次复制，每个耗时数分钟，超出预配步骤的时间预算——而上方所有存活状态和清单读数仍显示正常。"
   ],
   "automation.operator_538dbbedc6313351": "  -> 然后请重试此检查。",
   "automation.operator_53d63125deb58dff": "  - 此计算机现在是池存储的单点故障源；",
@@ -4925,6 +4931,54 @@ const DatazhCNautomation = `{
       "trust": "internal"
     },
     "）"
+  ],
+  "automation.system_diagnostic_registry_images_refused": [
+    "REGISTRY：客户机拉取的",
+    {
+      "arg": "set",
+      "type": "detail",
+      "trust": "external"
+    },
+    "集合共有",
+    {
+      "arg": "total",
+      "type": "detail",
+      "trust": "external"
+    },
+    "个镜像，缓存拒绝了其中",
+    {
+      "arg": "refused",
+      "type": "detail",
+      "trust": "external"
+    },
+    "个（HTTP ",
+    {
+      "arg": "statuses",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。拒绝是缓存给出的答复，而不是正在进行的复制：在原因修复之前，每个请求这些镜像的客户机都会再次得到同样的答复。zot的同步日志会说明原因，见缓存健康仪表板中的“Sync / upstream lines”面板。"
+  ],
+  "automation.system_diagnostic_registry_images_refused_status_unknown": [
+    "REGISTRY：客户机拉取的",
+    {
+      "arg": "set",
+      "type": "detail",
+      "trust": "external"
+    },
+    "集合共有",
+    {
+      "arg": "total",
+      "type": "detail",
+      "trust": "external"
+    },
+    "个镜像，缓存拒绝了其中",
+    {
+      "arg": "refused",
+      "type": "detail",
+      "trust": "external"
+    },
+    "个。拒绝是缓存给出的答复，而不是正在进行的复制：在原因修复之前，每个请求这些镜像的客户机都会再次得到同样的答复。zot的同步日志会说明原因，见缓存健康仪表板中的“Sync / upstream lines”面板。"
   ],
   "automation.system_diagnostic_utmctl_list_incomplete": [
     "  utmctl list未在",

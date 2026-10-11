@@ -763,7 +763,11 @@ On native ARM64 Hyper-V, both cold-restart modes also end their wait early:
 the installer confirmation wait here, and the `waitForTextWithNudge` login
 wait under `arm64HyperVColdPowerCycle`. Each ends as soon as the livelock
 verdict holds, rather than after the remainder of its 1800- or 2400-second
-budget. The retry hands the wait a copy of its step marked
+budget. Such a wait judges the verdict only on readings taken after it began,
+for the early end and for the verdict it records on timeout alike, so the
+pinned run of the previous boot can neither end the next wait nor be recorded
+against it. Both windows of a blind-answer wait count from the step's start.
+The retry hands the wait a copy of its step marked
 `endWaitOnGuestLivelock`. The sequence file is unchanged, and other hosts keep
 the declared wait.
 This is a bounded recovery from a confirmed boot stall, not a fix for the
@@ -1461,6 +1465,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11
+Last review: 2026.10.11.1
 
 Back to [Yuruna](../README.md)

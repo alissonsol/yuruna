@@ -918,12 +918,18 @@ write_files:
       # Machine-written by zot-prewarm.sh alone; no operator free text reaches it.
       [ -r "$PW_META" ] && . "$PW_META" 2>/dev/null
       PW_HAVE=0
-      K8S_TOTAL=0; K8S_HELD=0; CNI_TOTAL=0; CNI_HELD=0
-      K8S_LOCAL=0; K8S_COLDSYNC=0; CNI_LOCAL=0; CNI_COLDSYNC=0
+      WORKLOAD_TOTAL=0; WORKLOAD_HELD=0; K8S_TOTAL=0; K8S_HELD=0; CNI_TOTAL=0; CNI_HELD=0
+      WORKLOAD_LOCAL=0; WORKLOAD_COLDSYNC=0; K8S_LOCAL=0; K8S_COLDSYNC=0; CNI_LOCAL=0; CNI_COLDSYNC=0
+      WORKLOAD_REFUSED=0; K8S_REFUSED=0; CNI_REFUSED=0
+      WORKLOAD_REFUSED_CODES=""; K8S_REFUSED_CODES=""; CNI_REFUSED_CODES=""
       PW_SLOW_SEC=""; PW_SLOW_REF=""
       if [ -r "$PW_ROWS" ]; then
           PW_HAVE=1
           # --- REGION: https://yuruna.link/42f6b05f-0020
+          WORKLOAD_TOTAL=$(awk -F'\t' '$1=="workload"{n++} END{print n+0}' "$PW_ROWS")
+          WORKLOAD_HELD=$(awk  -F'\t' '$1=="workload" && ($5=="resident"||$5=="cold"){n++} END{print n+0}' "$PW_ROWS")
+          WORKLOAD_LOCAL=$(awk -F'\t' '$1=="workload" && $5=="resident"{n++} END{print n+0}' "$PW_ROWS")
+          WORKLOAD_COLDSYNC=$(awk -F'\t' '$1=="workload" && $5=="cold"{n++} END{print n+0}' "$PW_ROWS")
           K8S_TOTAL=$(awk -F'\t' '$1=="k8s"{n++} END{print n+0}' "$PW_ROWS")
           K8S_HELD=$(awk  -F'\t' '$1=="k8s" && ($5=="resident"||$5=="cold"){n++} END{print n+0}' "$PW_ROWS")
           K8S_LOCAL=$(awk -F'\t' '$1=="k8s" && $5=="resident"{n++} END{print n+0}' "$PW_ROWS")
@@ -932,6 +938,14 @@ write_files:
           CNI_HELD=$(awk  -F'\t' '$1=="cni" && ($5=="resident"||$5=="cold"){n++} END{print n+0}' "$PW_ROWS")
           CNI_LOCAL=$(awk -F'\t' '$1=="cni" && $5=="resident"{n++} END{print n+0}' "$PW_ROWS")
           CNI_COLDSYNC=$(awk -F'\t' '$1=="cni" && $5=="cold"{n++} END{print n+0}' "$PW_ROWS")
+          # A refusal is an answer, not a copy in progress: the next request
+          # gets it again, so it is counted apart from the cold shortfall.
+          WORKLOAD_REFUSED=$(awk -F'\t' '$1=="workload" && $5=="failed"{n++} END{print n+0}' "$PW_ROWS")
+          K8S_REFUSED=$(awk -F'\t' '$1=="k8s" && $5=="failed"{n++} END{print n+0}' "$PW_ROWS")
+          CNI_REFUSED=$(awk -F'\t' '$1=="cni" && $5=="failed"{n++} END{print n+0}' "$PW_ROWS")
+          WORKLOAD_REFUSED_CODES=$(awk -F'\t' '$1=="workload" && $5=="failed"{print $3}' "$PW_ROWS" | sort -u | paste -sd, -)
+          K8S_REFUSED_CODES=$(awk -F'\t' '$1=="k8s" && $5=="failed"{print $3}' "$PW_ROWS" | sort -u | paste -sd, -)
+          CNI_REFUSED_CODES=$(awk -F'\t' '$1=="cni" && $5=="failed"{print $3}' "$PW_ROWS" | sort -u | paste -sd, -)
           PW_SLOW=$(awk -F'\t' 'BEGIN{m=-1}
               ($5=="resident"||$5=="cold") && ($4+0)>m { m=$4+0; r=$2 }
               END{ if (m>=0) printf "%.3f\t%s", m, r }' "$PW_ROWS")
@@ -941,7 +955,11 @@ write_files:
           awk -F'\t' '{ printf "yuruna_prewarm_manifest_seconds{set=\"%s\",image=\"%s\",state=\"%s\"} %s\n", $1, $2, $5, $4 }' \
               "$PW_ROWS" >> "$TMP_PW"
       fi
-      PW_MISSING=$(( (K8S_TOTAL - K8S_HELD) + (CNI_TOTAL - CNI_HELD) ))
+      WORKLOAD_COLD_LEFT=$(( WORKLOAD_TOTAL - WORKLOAD_HELD - WORKLOAD_REFUSED ))
+      K8S_COLD_LEFT=$(( K8S_TOTAL - K8S_HELD - K8S_REFUSED ))
+      CNI_COLD_LEFT=$(( CNI_TOTAL - CNI_HELD - CNI_REFUSED ))
+      PW_MISSING=$(( WORKLOAD_COLD_LEFT + K8S_COLD_LEFT + CNI_COLD_LEFT ))
+      PW_REFUSED=$(( WORKLOAD_REFUSED + K8S_REFUSED + CNI_REFUSED ))
       # A run in flight is worth naming: an operator looking at residency while
       # the cache is mid-sync would otherwise read a complete set as proof that
       # a guest failing right now met a warm cache.
@@ -1053,16 +1071,19 @@ write_files:
       # HELP yuruna_prewarm_state_available 1 if a warm run has recorded residency for the image sets a guest pulls; 0 means the counts below are absent, not zero
       # TYPE yuruna_prewarm_state_available gauge
       yuruna_prewarm_state_available $PW_HAVE
-      # HELP yuruna_prewarm_images_total Images in a set a guest pulls, resolved from the guest's own sources (kubeadm's own list, flannel's applied manifest)
+      # HELP yuruna_prewarm_images_total Images in each warm set: the fixed workload support image and the guest sets resolved from kubeadm and flannel
       # TYPE yuruna_prewarm_images_total gauge
+      yuruna_prewarm_images_total{set="workload"} $WORKLOAD_TOTAL
       yuruna_prewarm_images_total{set="k8s"} $K8S_TOTAL
       yuruna_prewarm_images_total{set="cni"} $CNI_TOTAL
       # HELP yuruna_prewarm_images_resident Images of that set the cache HOLDS -- those that answered from local storage plus those the last warm run copied in; every shortfall is an upstream copy a guest waits out inside its own step budget
       # TYPE yuruna_prewarm_images_resident gauge
+      yuruna_prewarm_images_resident{set="workload"} $WORKLOAD_HELD
       yuruna_prewarm_images_resident{set="k8s"} $K8S_HELD
       yuruna_prewarm_images_resident{set="cni"} $CNI_HELD
       # HELP yuruna_prewarm_images_cold_synced Images of that set the last warm run had to copy from upstream rather than find in storage; they are held now, but the cache was cold for them when that run started and a guest pulling during it waited out each copy
       # TYPE yuruna_prewarm_images_cold_synced gauge
+      yuruna_prewarm_images_cold_synced{set="workload"} $WORKLOAD_COLDSYNC
       yuruna_prewarm_images_cold_synced{set="k8s"} $K8S_COLDSYNC
       yuruna_prewarm_images_cold_synced{set="cni"} $CNI_COLDSYNC
       # HELP yuruna_prewarm_cold_sync_watermark_seconds Slowest fetch that moved content at the currently resolved versions -- what a guest pays per image when the set is not held
@@ -1079,6 +1100,17 @@ write_files:
       EOF_METRICS2
 
       cat "$TMP_PW" >> "$TMP"
+
+      # One series per set and status, so a reader can name what the cache
+      # answered without parsing the page. No series means nothing was refused.
+      {
+          echo '# HELP yuruna_prewarm_images_refused Images of that set the last warm run got an HTTP error status for, by status; a refusal is not a copy in progress, and every guest asking for one gets the same answer'
+          echo '# TYPE yuruna_prewarm_images_refused gauge'
+          if [ "$PW_HAVE" = 1 ]; then
+              awk -F'\t' '$5=="failed"{n[$1 "\t" $3]++}
+                  END{for (k in n) {split(k, a, "\t"); printf "yuruna_prewarm_images_refused{set=\"%s\",status=\"%s\"} %d\n", a[1], a[2], n[k]}}' "$PW_ROWS"
+          fi
+      } >> "$TMP"
 
       install -m 0644 "$TMP" /var/www/html/zot-meta
 
@@ -1097,6 +1129,11 @@ write_files:
           # --- REGION: https://yuruna.link/429f3d06-004b
           if [ "$MANIFEST_UNDER_PATIENCE" = 1 ]; then
               echo "zot resident-tag revalidation: OK -- answered inside the ${CLIENT_PATIENCE}s a pull waits for response headers"
+          elif [ "$MANIFEST_CODE" != "200" ] && [ "$MANIFEST_CODE" != "0" ]; then
+              # An error status is the cache's verdict, whatever its latency;
+              # blaming the header deadline would send the reader after speed.
+              echo "zot resident-tag revalidation: FAILING -- refused with HTTP ${MANIFEST_CODE}; a pull gets the same refusal"
+              echo "  zot's sync log names the cause: panel \"Sync / upstream lines\" at :3000/d/yuruna-cache-health on this host."
           else
               echo "zot resident-tag revalidation: FAILING -- a pull gives up after ${CLIENT_PATIENCE}s, whatever the cache answers later"
           fi
@@ -1117,6 +1154,8 @@ write_files:
           if [ "$GP_HAVE" = 1 ]; then
               if [ "$GP_UNDER_PATIENCE" = 1 ]; then
                   echo "  OK -- answered inside the ${CLIENT_PATIENCE}s a pull waits for response headers."
+              elif [ "$GP_CODE" != "200" ] && [ "$GP_CODE" != "0" ]; then
+                  echo "  FAILING -- refused with HTTP ${GP_CODE}; a pull of that image gets the same refusal."
               else
                   echo "  FAILING -- a pull of that image gives up after ${CLIENT_PATIENCE}s, whatever the cache answers later."
               fi
@@ -1128,7 +1167,7 @@ write_files:
           echo "  What a COLD image costs is the warm-set section below."
           echo
           # The cold path, measured on the images the lab actually pulls.
-          if [ "$PW_HAVE" = 1 ] && [ "$K8S_TOTAL" = 0 ] && [ "$CNI_TOTAL" = 0 ]; then
+          if [ "$PW_HAVE" = 1 ] && [ "$WORKLOAD_TOTAL" = 0 ] && [ "$K8S_TOTAL" = 0 ] && [ "$CNI_TOTAL" = 0 ]; then
               # A run that resolved no set at all is a different state from a run
               # that found every image held, and "0 of 0" reads as the latter.
               echo "Warm sets                    : the last run resolved no image set."
@@ -1136,24 +1175,44 @@ write_files:
               echo "  nothing is being kept warm and a guest pulling now meets a cold cache."
           elif [ "$PW_HAVE" = 1 ]; then
               echo "Warm sets, last warmed ${YURUNA_PREWARM_LAST_RUN:-never} (versions resolved via ${YURUNA_PREWARM_RESOLVE_SRC:-unknown}):"
+              echo "  Workload support image set (mirror.gcr.io/library/registry:2):"
+              if [ "$WORKLOAD_COLD_LEFT" -gt 0 ]; then
+                  echo "    resident                 : ${WORKLOAD_HELD} of ${WORKLOAD_TOTAL} held   <-- an example workload pays ${WORKLOAD_COLD_LEFT} cold sync(s)"
+              else
+                  echo "    resident                 : ${WORKLOAD_HELD} of ${WORKLOAD_TOTAL} held"
+              fi
+              echo "      answered from storage  : ${WORKLOAD_LOCAL}"
+              echo "      copied in by that run  : ${WORKLOAD_COLDSYNC}"
+              if [ "$WORKLOAD_REFUSED" -gt 0 ]; then
+                  printf '      %-23s: %s   <-- an example workload gets the same refusal\n' \
+                      "refused (HTTP ${WORKLOAD_REFUSED_CODES})" "$WORKLOAD_REFUSED"
+              fi
               echo "  Kubernetes image set (${YURUNA_PREWARM_K8S_PATCH:-unresolved}, pinned minor ${YURUNA_PREWARM_K8S_MINOR:-unknown}):"
               # --- REGION: https://yuruna.link/42f6b05f-0020
-              if [ "$K8S_TOTAL" -gt 0 ] && [ "$K8S_HELD" -lt "$K8S_TOTAL" ]; then
-                  echo "    resident                 : ${K8S_HELD} of ${K8S_TOTAL} held   <-- a kubeadm init pays $((K8S_TOTAL - K8S_HELD)) cold sync(s)"
+              if [ "$K8S_COLD_LEFT" -gt 0 ]; then
+                  echo "    resident                 : ${K8S_HELD} of ${K8S_TOTAL} held   <-- a kubeadm init pays ${K8S_COLD_LEFT} cold sync(s)"
               else
                   echo "    resident                 : ${K8S_HELD} of ${K8S_TOTAL} held"
               fi
               echo "      answered from storage  : ${K8S_LOCAL}"
               echo "      copied in by that run  : ${K8S_COLDSYNC}"
+              if [ "$K8S_REFUSED" -gt 0 ]; then
+                  printf '      %-23s: %s   <-- a kubeadm init gets the same refusal\n' \
+                      "refused (HTTP ${K8S_REFUSED_CODES})" "$K8S_REFUSED"
+              fi
               echo "  CNI image set (flannel ${YURUNA_PREWARM_FLANNEL_TAG:-unresolved}):"
-              if [ "$CNI_TOTAL" -gt 0 ] && [ "$CNI_HELD" -lt "$CNI_TOTAL" ]; then
-                  echo "    resident                 : ${CNI_HELD} of ${CNI_TOTAL} held   <-- the CNI rollout pays $((CNI_TOTAL - CNI_HELD)) cold sync(s)"
+              if [ "$CNI_COLD_LEFT" -gt 0 ]; then
+                  echo "    resident                 : ${CNI_HELD} of ${CNI_TOTAL} held   <-- the CNI rollout pays ${CNI_COLD_LEFT} cold sync(s)"
               else
                   echo "    resident                 : ${CNI_HELD} of ${CNI_TOTAL} held"
               fi
               echo "      answered from storage  : ${CNI_LOCAL}"
               echo "      copied in by that run  : ${CNI_COLDSYNC}"
-              if [ "$((K8S_COLDSYNC + CNI_COLDSYNC))" -gt 0 ]; then
+              if [ "$CNI_REFUSED" -gt 0 ]; then
+                  printf '      %-23s: %s   <-- the CNI rollout gets the same refusal\n' \
+                      "refused (HTTP ${CNI_REFUSED_CODES})" "$CNI_REFUSED"
+              fi
+              if [ "$((WORKLOAD_COLDSYNC + K8S_COLDSYNC + CNI_COLDSYNC))" -gt 0 ]; then
                   echo "  A copied-in image was NOT held when that run asked for it -- the run paid the cold"
                   echo "  sync itself. It is held now, but a guest pulling during that window waited it out."
               fi
@@ -1175,6 +1234,11 @@ write_files:
               if [ "$PW_MISSING" -gt 0 ]; then
                   echo "  A guest step budgeted at 1800s will not finish while a set is short: each"
                   echo "  missing image is copied from upstream while the guest waits on its manifest."
+              fi
+              if [ "$PW_REFUSED" -gt 0 ]; then
+                  echo "  A refused image is not being copied: the cache answered with an error, every"
+                  echo "  guest asking for it gets that answer, and zot's sync log names the cause --"
+                  echo "  panel \"Sync / upstream lines\" at :3000/d/yuruna-cache-health on this host."
               fi
           else
               echo "Warm sets                    : no warm run has recorded residency yet."
@@ -1262,8 +1326,18 @@ write_files:
       # request stating no preference gets the registry's default, which for a
       # multi-arch tag is not the index a real pull resolves.
       ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
+      # Platforms the lab's guests run. On-demand sync stores a multi-arch tag
+      # as its index alone and copies a platform's manifest and layers only when
+      # that child is asked for by digest, so warming the tag holds no layers.
+      WARM_PLATFORMS='linux/amd64 linux/arm64'
+      ZOT_ROOT=/var/lib/zot
+      # mirror.gcr.io deliberately has no /v2/_catalog, so zot cannot poll it.
+      # Ask for the one fixed workload support image directly instead.
+      WORKLOAD_REFS='mirror.gcr.io/library/registry:2'
 
       install -d -m 0755 "$STATE_DIR" 2>/dev/null
+      command -v jq >/dev/null 2>&1 || \
+          echo "zot-prewarm: jq is missing -- warming tags only; platform layers stay cold until a guest pulls them"
 
       # Serialize. Two overlapping runs would race on the state files and double
       # the upstream work for no benefit; a long cold run overlapping the next
@@ -1358,10 +1432,12 @@ write_files:
       SET_TMP=$(mktemp)
       ROWS_TMP=$(mktemp)
       META_TMP=$(mktemp)
+      BODY_TMP=$(mktemp)
       PROGRESS_FILE="$STATE_DIR/prewarm-progress"
       # See https://yuruna.link/42f6b05f-0020
       # Remove stale progress on exit so operators do not wait for a finished run.
-      trap 'rm -f "$SET_TMP" "$ROWS_TMP" "$META_TMP" "$PROGRESS_FILE"' EXIT
+      trap 'rm -f "$SET_TMP" "$ROWS_TMP" "$META_TMP" "$BODY_TMP" "$PROGRESS_FILE"' EXIT
+      for r in $WORKLOAD_REFS; do printf 'workload\t%s\n' "$r" >> "$SET_TMP"; done
       for r in $K8S_REFS; do printf 'k8s\t%s\n' "$r" >> "$SET_TMP"; done
       for r in $CNI_REFS; do printf 'cni\t%s\n' "$r" >> "$SET_TMP"; done
       [ -s "$SET_TMP" ] && install -m 0644 "$SET_TMP" "$SET_FILE"
@@ -1377,15 +1453,31 @@ write_files:
           # --- REGION: https://yuruna.link/429f3d06-004c
           printf '%s\t%s\n' "$(date +%s)" "$W_REF" > "$PROGRESS_FILE"
           W_T0=$(date +%s.%N)
-          W_CODE=$(curl -s -o /dev/null --noproxy '*' -m "$PREWARM_MAX" \
+          W_CODE=$(curl -s -o "$BODY_TMP" --noproxy '*' -m "$PREWARM_MAX" \
                         -H "Accept: ${ACCEPT}" -w '%{http_code}' \
                         "${ZOT}/v2/${W_REPO}/manifests/${W_TAG}?ns=${W_UPSTREAM}" 2>/dev/null)
+          # A child missing from storage before its request is content this run
+          # copied, however fast the copy was.
+          W_COPIED=0
+          if [ "$W_CODE" = "200" ]; then
+              for W_CHILD in $(jq -r --arg want "$WARM_PLATFORMS" '
+                      ($want | split(" ")) as $w | .manifests[]?
+                      | select(((.platform.os // "") + "/" + (.platform.architecture // "")) as $p
+                               | any($w[]; . == $p))
+                      | .digest' "$BODY_TMP" 2>/dev/null); do
+                  [ -e "${ZOT_ROOT}/${W_REPO}/blobs/${W_CHILD%%:*}/${W_CHILD#*:}" ] || W_COPIED=1
+                  W_CODE=$(curl -s -o /dev/null --noproxy '*' -m "$PREWARM_MAX" \
+                                -H "Accept: ${ACCEPT}" -w '%{http_code}' \
+                                "${ZOT}/v2/${W_REPO}/manifests/${W_CHILD}?ns=${W_UPSTREAM}" 2>/dev/null)
+                  [ "$W_CODE" = "200" ] || break
+              done
+          fi
           W_T1=$(date +%s.%N)
           W_SEC=$(awk -v a="$W_T0" -v b="$W_T1" 'BEGIN{printf "%.3f", b-a}')
           if [ "$W_CODE" = "200" ]; then
               # Compared in awk because the elapsed time is fractional and the
               # shell's test builtin errors outright on a non-integer operand.
-              if awk -v s="$W_SEC" -v f="$COLD_FLOOR" 'BEGIN{exit !(s<f)}'; then
+              if [ "$W_COPIED" = 0 ] && awk -v s="$W_SEC" -v f="$COLD_FLOOR" 'BEGIN{exit !(s<f)}'; then
                   W_STATE=resident
               else
                   W_STATE=cold
@@ -1400,6 +1492,7 @@ write_files:
 
       for r in $K8S_REFS; do warm_one k8s "$r"; done
       for r in $CNI_REFS; do warm_one cni "$r"; done
+      for r in $WORKLOAD_REFS; do warm_one workload "$r"; done
       rm -f "$PROGRESS_FILE"
       install -m 0644 "$ROWS_TMP" "$ROWS_FILE"
 
@@ -1448,7 +1541,7 @@ write_files:
     content: |
       # --- REGION: [Unit]
       [Unit]
-      Description=Yuruna zot prewarm (keep the guest image sets resident, and time the cold path)
+      Description=Yuruna zot prewarm (keep workload and guest image sets resident, and time the cold path)
       After=network-online.target zot.service apache2.service
       Wants=network-online.target
       # --- REGION: [Service]
@@ -1465,7 +1558,7 @@ write_files:
     content: |
       # --- REGION: [Unit]
       [Unit]
-      Description=Warm the guest image sets in zot every 6 hours
+      Description=Warm the workload and guest image sets in zot every 6 hours
       # --- REGION: [Timer]
       [Timer]
       # --- REGION: https://yuruna.link/429f3d06-004c
@@ -3540,8 +3633,13 @@ write_files:
         ]
       }
   # See https://yuruna.link/42f6b05f-001f
-  # ORDER IS THE ROUTING TABLE and the match is first-wins with NO fallthrough:
-  # anything ahead of the Docker Hub "**" catch-all owns its glob outright.
+  # ORDER IS THE ROUTING TABLE: zot tries each entry whose content matches, in
+  # file order, until one syncs. A failed sync falls through to later matching
+  # entries and ends at the Docker Hub "**" catch-all.
+  # docker2s2: zot 2.1.22 and later keep a Docker manifest as served instead of
+  # converting it to OCI, and refuse to sync one without this compat mode.
+  # registry.k8s.io and mcr.microsoft.com serve Docker manifest lists, so
+  # without it every image from them answers HTTP 503 at once.
   - path: /etc/zot/config.json
     permissions: '0644'
     owner: root:root
@@ -3556,7 +3654,8 @@ write_files:
         },
         "http": {
           "address": "0.0.0.0",
-          "port": "5000"
+          "port": "5000",
+          "compat": ["docker2s2"]
         },
         "log": {
           "level": "info",
@@ -3675,17 +3774,6 @@ write_files:
                 "content": [
                   { "prefix": "dotnet/sdk",    "tags": { "regex": "^10\\.0$" } },
                   { "prefix": "dotnet/aspnet", "tags": { "regex": "^10\\.0$" } }
-                ]
-              },
-              {
-                "urls": ["https://mirror.gcr.io"],
-                "onDemand": false,
-                "tlsVerify": true,
-                "pollInterval": "6h",
-                "maxRetries": 3,
-                "retryDelay": "15s",
-                "content": [
-                  { "prefix": "library/registry", "tags": { "regex": "^2$" } }
                 ]
               }
             ]
@@ -4396,16 +4484,28 @@ runcmd:
     # unauthenticated GitHub releases API, which 403s when many guests
     # share one NAT egress IP -- same rationale as YURUNA_OPENTOFU_VERSION.
     ZOT_VERSION="v2.1.22"
+    # SHA-256 of each release binary as the release's checksums.sha256.txt
+    # lists it. Pinned here rather than fetched beside the binary, so a
+    # replaced release asset fails the check instead of vouching for itself.
+    # A version bump changes these lines with it.
+    ZOT_SHA256_AMD64="33b9b5bfe05d6788c076de951a01920477dbd6395c330146e23cc2340073e52e"
+    ZOT_SHA256_ARM64="abc9bab13c144a4ee2f9067a6bbbe70ca1c018c49dbf521db28975514ea705da"
     ARCH=$(uname -m)
     case "$ARCH" in
-      x86_64)  ZOT_ARCH="amd64" ;;
-      aarch64) ZOT_ARCH="arm64" ;;
+      x86_64)  ZOT_ARCH="amd64"; ZOT_SHA256=$ZOT_SHA256_AMD64 ;;
+      aarch64) ZOT_ARCH="arm64"; ZOT_SHA256=$ZOT_SHA256_ARM64 ;;
       *) echo "yuruna: zot install skipped -- unsupported arch '$ARCH'"; exit 0 ;;
     esac
     if [ ! -x /usr/local/bin/zot ]; then
       curl -fsSL --retry 3 --retry-delay 10 \
         "https://github.com/project-zot/zot/releases/download/${ZOT_VERSION}/zot-linux-${ZOT_ARCH}" \
         -o /usr/local/bin/zot.tmp
+      ZOT_GOT=$(sha256sum /usr/local/bin/zot.tmp | awk '{print $1}')
+      if [ "$ZOT_GOT" != "$ZOT_SHA256" ]; then
+        rm -f /usr/local/bin/zot.tmp
+        echo "yuruna: zot ${ZOT_VERSION} (${ZOT_ARCH}) failed its SHA-256 check (want ${ZOT_SHA256}, got ${ZOT_GOT:-nothing}); not installed"
+        exit 1
+      fi
       chmod 0755 /usr/local/bin/zot.tmp
       mv /usr/local/bin/zot.tmp /usr/local/bin/zot
     fi
@@ -4454,7 +4554,7 @@ runcmd:
     done
     # --- REGION: https://yuruna.link/429f3d06-0083
     if [ -r /var/www/html/cache-health ]; then
-      grep -E '^zot (/v2/|manifest|resident-tag|guest-path)|^ +resident ' /var/www/html/cache-health | sed 's/^/  /'
+      grep -E '^zot (/v2/|manifest|resident-tag|guest-path)|^ +resident |^ +refused ' /var/www/html/cache-health | sed 's/^/  /'
     fi
     for hp in 3128 3129 80 3000 9090 3100 5000 9302 9400 9310; do
       if ss -ltn 2>/dev/null | grep -q ":$hp "; then st=listening; else st="NOT LISTENING"; fi

@@ -1214,13 +1214,37 @@
     },
     {
       "path": "automation/Get-SystemDiagnostic.ps1",
-      "line": 2236,
+      "line": 3433,
+      "sink": "Add-Problem",
+      "key": "automation.system_diagnostic_registry_images_refused",
+      "arguments": [
+        "refused",
+        "total",
+        "set",
+        "statuses"
+      ]
+    },
+    {
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "line": 3437,
+      "sink": "Add-Problem",
+      "key": "automation.system_diagnostic_registry_images_refused_status_unknown",
+      "arguments": [
+        "refused",
+        "total",
+        "set"
+      ]
+    },
+    {
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "line": 3442,
       "sink": "Add-Problem",
       "key": "automation.operator_5376c9efd7b38f35",
       "arguments": [
         "held",
         "total",
-        "set"
+        "set",
+        "cold"
       ]
     },
     {

@@ -163,6 +163,12 @@
     },
     {
       "wireCode": "host_refresh.failed",
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "matchCount": 1,
+      "reason": "Warm-run row state the cache exporter publishes on yuruna_prewarm_manifest_seconds (resident, cold, timeout, failed), read to count images the cache refused; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
       "path": "host/macos.utm/guest.windows.11/Get-Image.ps1",
       "matchCount": 1,
       "reason": "Download-agent fetch outcome for the Windows image; not a host-refresh verdict."
@@ -190,6 +196,12 @@
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
       "matchCount": 9,
       "reason": "KVM driver virtualization start-action result and systemd unit state; the refresh module folds driver results into its own rung outcomes, so this is not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "host/vmconfig/caching-proxy-service.base.user-data",
+      "matchCount": 7,
+      "reason": "Warm-run row state (resident, cold, timeout, failed) the cache-health exporter counts and publishes as an image the cache refused; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.failed",

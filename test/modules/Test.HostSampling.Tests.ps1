@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 42d3bc19-cf65-4604-a69f-39ddfab7231d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -309,6 +309,63 @@ Describe 'guest livelock verdict from host samples' {
         $verdict.HypervisorRunPercent | Should -Be 94.1
         $verdict.Detail | Should -Match '300'
     }
+    It 'ends the run at a sample that lists the VM as not running' {
+        $samples = @(New-RunSampleSeries -Count 21 -Processors { @{ '0' = (New-Processor -Guest 7.7 -Hypervisor 91.2) } })
+        $powerOff = $script:LivelockNow.AddSeconds(15)
+        $samples += [pscustomobject]@{ Utc = $powerOff; VMs = @{}; Running = @{} }
+        $verdict = Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $script:LivelockNow.AddSeconds(20)
+        $verdict.Verdict | Should -Be 'not-livelocked'
+        $verdict.LivelockedSeconds | Should -Be 0
+        $verdict.NewestSampleUtc | Should -Be $powerOff.ToString('o') -Because 'the power-off listing is the newest word on the guest'
+    }
+    It 'judges a boot after a power cycle on its own readings' {
+        $previous = @(New-RunSampleSeries -Count 41 -Processors { @{ '0' = (New-Processor -Guest 7.7 -Hypervisor 91.2) } })
+        $powerOff = $script:LivelockNow.AddSeconds(15)
+        $samples = @($previous) + [pscustomobject]@{ Utc = $powerOff; VMs = @{}; Running = @{} }
+        foreach ($index in 1..21) {
+            $samples += [pscustomobject]@{ Utc = $powerOff.AddSeconds(15 * $index); VMs = @{ $script:LivelockVm = @{ '0' = (New-Processor -Guest 7.7 -Hypervisor 91.2) } } }
+        }
+        $verdict = Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $powerOff.AddSeconds(320)
+        $verdict.Verdict | Should -Be 'livelocked'
+        $verdict.LivelockedSeconds | Should -Be 300 -Because 'the 600 seconds before the power cycle must not count toward the new boot'
+    }
+    It 'keeps the run across a failed counter read while the host lists the guest as running' {
+        $samples = @(New-RunSampleSeries -Count 21 -Processors { @{ '0' = (New-Processor -Guest 7.7 -Hypervisor 91.2) } })
+        $samples[10] = [pscustomobject]@{ Utc = $samples[10].Utc; VMs = @{}; Running = @{ $script:LivelockVm = $true } }
+        $verdict = Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $script:LivelockNow
+        $verdict.Verdict | Should -Be 'livelocked' -Because 'a counter read that failed is a hole in the recording, not a power cycle'
+        $verdict.LivelockedSeconds | Should -Be 300
+    }
+    It 'still ends the run when failed reads leave a hole past the gap limit' {
+        $samples = @(New-RunSampleSeries -Count 21 -Processors { @{ '0' = (New-Processor -Guest 7.7 -Hypervisor 91.2) } })
+        foreach ($index in 9..11) { $samples[$index] = [pscustomobject]@{ Utc = $samples[$index].Utc; VMs = @{}; Running = @{ $script:LivelockVm = $true } } }
+        $verdict = Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $script:LivelockNow
+        $verdict.Verdict | Should -Be 'not-livelocked'
+        $verdict.LivelockedSeconds | Should -Be 120 -Because 'the 60 seconds without readings exceed the 45 second gap limit'
+    }
+    It 'refuses to judge when the newest listing of a stopped VM is too old' {
+        $samples = @(New-RunSampleSeries -Count 21 -Processors { @{ '0' = (New-Processor -Guest 7.7 -Hypervisor 91.2) } })
+        $samples += [pscustomobject]@{ Utc = $script:LivelockNow.AddSeconds(15); VMs = @{}; Running = @{} }
+        $verdict = Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $script:LivelockNow.AddMinutes(10)
+        $verdict.Verdict | Should -Be 'unavailable' -Because 'a power-off seen ten minutes ago says nothing about the guest now'
+    }
+    It 'judges only the readings at or after Since' {
+        $samples = @(New-RunSampleSeries -Count 21 -Processors { @{ '0' = (New-Processor -Guest 4.8 -Hypervisor 94.1) } })
+        $verdict = Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $script:LivelockNow -Since $script:LivelockNow.AddSeconds(-120)
+        $verdict.Verdict | Should -Be 'not-livelocked'
+        $verdict.LivelockedSeconds | Should -Be 120
+    }
+    It 'reads Since as an instant whatever Kind the caller passed' {
+        $samples = @(New-RunSampleSeries -Count 21 -Processors { @{ '0' = (New-Processor -Guest 4.8 -Hypervisor 94.1) } })
+        $local = $script:LivelockNow.AddSeconds(-120).ToLocalTime()
+        $verdict = Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $script:LivelockNow -Since $local
+        $verdict.LivelockedSeconds | Should -Be 120 -Because 'the host time zone must not move the bound'
+    }
+    It 'reports unavailable when no reading for the VM falls after Since' {
+        $samples = @(New-RunSampleSeries -Count 21 -Processors { @{ '0' = (New-Processor -Guest 4.8 -Hypervisor 94.1) } })
+        $verdict = Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $script:LivelockNow -Since $script:LivelockNow.AddSeconds(30)
+        $verdict.Verdict | Should -Be 'unavailable'
+    }
     It 'keeps a pinned run shorter than the window below the verdict' {
         $samples = @(New-RunSampleSeries -Count 10 -Processors { @{ '0' = (New-Processor -Guest 5 -Hypervisor 94) } })
         $verdict = Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $script:LivelockNow
@@ -469,6 +526,13 @@ Describe 'reading the live host recording' {
                 )
             }
         }
+        function New-VmListing {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: builds an in-memory fixture; changes no state.')]
+            param([string]$State)
+            # The Get-VM listing the sampler writes into every sample record.
+            @{ Status = 'present'; RunningCount = [int]($State -eq 'Running'); VMs = @(@{ Name = 'test-guest.ubuntu.server.26-01'; State = $State }) }
+        }
     }
     It 'returns $null, not a verdict, on a host that keeps no recording' {
         $runtime = Join-Path $TestDrive 'no-recording'
@@ -492,5 +556,56 @@ Describe 'reading the live host recording' {
         @(Read-YurunaHostVmRunSample -RuntimeDirectory $runtime).Count | Should -Be 23
         $verdict = Get-YurunaVmLivelockState -VMName 'TEST-GUEST.ubuntu.server.26-01' -RuntimeDirectory $runtime
         $verdict.Verdict | Should -Be 'livelocked' -Because 'PDH lowercases instance names, so the VM name must match regardless of case'
+    }
+    It 'keeps a power-off sample, so the reading after it starts a new run' {
+        $runtime = Join-Path $TestDrive 'power-cycle'
+        $directory = Join-Path $runtime 'host-sampling/owned'
+        $null = New-Item -ItemType Directory $directory -Force
+        @{ Directory = $directory } | ConvertTo-Json | Set-Content (Join-Path $runtime 'host-sampling.current.json')
+        $start = [datetime]::UtcNow.AddSeconds(-40)
+        $before = New-RecordingRecord -Utc $start -Guest 5 -Hypervisor 94
+        $before.Vm = New-VmListing -State 'Running'
+        # As the sampler writes a powered-off guest: host rows only, the VM listed Off.
+        $off = New-RecordingRecord -Utc $start.AddSeconds(15) -Guest 5 -Hypervisor 94
+        $off.Counters = @($off.Counters | Where-Object Instance -EQ 'root vp 0')
+        $off.Vm = New-VmListing -State 'Off'
+        $after = New-RecordingRecord -Utc $start.AddSeconds(30) -Guest 5 -Hypervisor 94
+        $after.Vm = New-VmListing -State 'Running'
+        foreach ($record in @($before, $off, $after)) { Write-YurunaHostSampleRecord -Directory $directory -Record $record }
+        $samples = @(Read-YurunaHostVmRunSample -RuntimeDirectory $runtime)
+        $samples.Count | Should -Be 3
+        $samples[1].VMs -is [hashtable] | Should -BeTrue
+        $samples[1].VMs.Count | Should -Be 0
+        $samples[1].Running.ContainsKey('test-guest.ubuntu.server.26-01') | Should -BeFalse
+        (Get-YurunaVmLivelockState -VMName 'test-guest.ubuntu.server.26-01' -RuntimeDirectory $runtime).LivelockedSeconds | Should -Be 0 -Because 'the reading after the power-off belongs to a new boot'
+    }
+    It 'keeps a failed counter read inside the run while the guest is listed as running' {
+        $runtime = Join-Path $TestDrive 'failed-read'
+        $directory = Join-Path $runtime 'host-sampling/owned'
+        $null = New-Item -ItemType Directory $directory -Force
+        @{ Directory = $directory } | ConvertTo-Json | Set-Content (Join-Path $runtime 'host-sampling.current.json')
+        $start = [datetime]::UtcNow.AddSeconds(-40)
+        $before = New-RecordingRecord -Utc $start -Guest 5 -Hypervisor 94
+        $before.Vm = New-VmListing -State 'Running'
+        # As PDH reports invalid data: every virtual-processor row kept, none of them present.
+        $failed = New-RecordingRecord -Utc $start.AddSeconds(15) -Guest 5 -Hypervisor 94
+        $failed.Counters = @($failed.Counters | ForEach-Object {
+            if ($_.Instance -like '*:hv vp *') { [pscustomobject]@{ Path = $_.Path; Instance = $_.Instance; Status = 'absent'; Value = $null } } else { $_ }
+        })
+        $failed.Vm = New-VmListing -State 'Running'
+        $after = New-RecordingRecord -Utc $start.AddSeconds(30) -Guest 5 -Hypervisor 94
+        $after.Vm = New-VmListing -State 'Running'
+        foreach ($record in @($before, $failed, $after)) { Write-YurunaHostSampleRecord -Directory $directory -Record $record }
+        $samples = @(Read-YurunaHostVmRunSample -RuntimeDirectory $runtime)
+        $samples.Count | Should -Be 3
+        $samples[1].VMs.Count | Should -Be 0
+        $samples[1].Running.ContainsKey('test-guest.ubuntu.server.26-01') | Should -BeTrue
+        (Get-YurunaVmLivelockState -VMName 'test-guest.ubuntu.server.26-01' -RuntimeDirectory $runtime).LivelockedSeconds | Should -Be 30 -Because 'a failed read while the guest runs is a hole, not a power cycle'
+    }
+    It 'records no listing when Get-VM failed, so the sample cannot end a run' {
+        $record = New-RecordingRecord -Utc ([datetime]::UtcNow) -Guest 5 -Hypervisor 94
+        $record.Vm = @{ Status = 'absent'; RunningCount = $null; VMs = @(); Reason = 'Hyper-V module unavailable' }
+        (ConvertTo-YurunaVmRunSample -Record $record).Running | Should -BeNullOrEmpty
+        (ConvertTo-YurunaVmRunSample -Record (New-RecordingRecord -Utc ([datetime]::UtcNow) -Guest 5 -Hypervisor 94)).Running | Should -BeNullOrEmpty
     }
 }

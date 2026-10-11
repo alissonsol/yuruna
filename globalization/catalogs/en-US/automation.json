@@ -2311,8 +2311,8 @@
       }
     },
     "automation.operator_5376c9efd7b38f35": {
-      "message": "REGISTRY: the cache holds {held} of {total} images in the {set} set a guest pulls. Each missing image is copied from upstream while the guest waits on its manifest request, which costs minutes apiece and outlasts a provisioning step's budget -- while every liveness and manifest reading above stays green.",
-      "description": "Whole Add-Problem message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "message": "REGISTRY: the cache holds {held} of {total} images in the {set} set a guest pulls and still has {cold} to copy from upstream. A guest waits on each copy through its manifest request, which costs minutes apiece and outlasts a provisioning step's budget -- while every liveness and manifest reading above stays green.",
+      "description": "Whole Add-Problem message in automation/Get-SystemDiagnostic.ps1 for an image set the cache holds incompletely. {cold} counts only the missing images the cache did not refuse; refused ones get their own message. Preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "held": {
@@ -2329,6 +2329,11 @@
           "type": "detail",
           "trust": "external",
           "example": "$short.Set"
+        },
+        "cold": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$short.Copying"
         }
       }
     },
@@ -7309,6 +7314,55 @@
           "type": "token",
           "trust": "internal",
           "example": "timeout"
+        }
+      }
+    },
+    "automation.system_diagnostic_registry_images_refused": {
+      "message": "REGISTRY: the cache refused {refused} of {total} images in the {set} set a guest pulls (HTTP {statuses}). A refusal is an answer, not a copy in progress: every guest that asks for those images gets it again until the cause is fixed. zot's sync log names the cause in the \"Sync / upstream lines\" panel of the cache-health dashboard.",
+      "description": "Add-Problem message in automation/Get-SystemDiagnostic.ps1 when the cache's last warm run got an HTTP error status for images of a set a guest pulls. {statuses} is a comma-separated list of HTTP status codes. Keep REGISTRY, HTTP, zot and the Grafana panel title \"Sync / upstream lines\" in English: the operator finds them on screen in that form.",
+      "lifecycle": "active",
+      "placeholders": {
+        "refused": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$short.Refused"
+        },
+        "total": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$short.Total"
+        },
+        "set": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$short.Set"
+        },
+        "statuses": {
+          "type": "detail",
+          "trust": "external",
+          "example": "503"
+        }
+      }
+    },
+    "automation.system_diagnostic_registry_images_refused_status_unknown": {
+      "message": "REGISTRY: the cache refused {refused} of {total} images in the {set} set a guest pulls. A refusal is an answer, not a copy in progress: every guest that asks for those images gets it again until the cause is fixed. zot's sync log names the cause in the \"Sync / upstream lines\" panel of the cache-health dashboard.",
+      "description": "Add-Problem message in automation/Get-SystemDiagnostic.ps1 when the cache's last warm run got an HTTP error status for images of a set a guest pulls, from a cache that does not publish which statuses. Keep REGISTRY, zot and the Grafana panel title \"Sync / upstream lines\" in English: the operator finds them on screen in that form.",
+      "lifecycle": "active",
+      "placeholders": {
+        "refused": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$short.Refused"
+        },
+        "total": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$short.Total"
+        },
+        "set": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$short.Set"
         }
       }
     },

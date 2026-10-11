@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 4227f6df-0fe0-4a7d-b85b-64c7c2f5ede7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,7 +81,17 @@ BeforeAll {
         Copy-Item -LiteralPath (Join-Path $tree 'test/test.config.yml.template') -Destination $f.Config
         [System.IO.File]::WriteAllText((Join-Path $f.Bin 'git'), "#!/bin/bash`nprintf '%s\n' ""`$*"" >> '$($f.GitLog)'`nexit 0`n")
         [System.IO.File]::WriteAllText((Join-Path $f.Bin 'sudo'), "#!/bin/bash`nexit 0`n")
-        foreach ($name in @('git', 'sudo')) { [IO.File]::SetUnixFileMode((Join-Path $f.Bin $name), [IO.UnixFileMode]'UserRead, UserWrite, UserExecute') }
+        [System.IO.File]::WriteAllText((Join-Path $f.Bin 'getent'), @'
+#!/bin/bash
+if [ "$1" = passwd ] && [ "$2" = "$(id -u)" ]; then
+    entry=$("$YURUNA_TEST_REAL_GETENT" "$@") || exit $?
+    IFS=: read -r name password uid gid gecos _ shell <<< "$entry"
+    printf '%s:%s:%s:%s:%s:%s:%s\n' "$name" "$password" "$uid" "$gid" "$gecos" "$YURUNA_TEST_ACCOUNT_HOME" "$shell"
+    exit 0
+fi
+exec "$YURUNA_TEST_REAL_GETENT" "$@"
+'@)
+        foreach ($name in @('getent', 'git', 'sudo')) { [IO.File]::SetUnixFileMode((Join-Path $f.Bin $name), [IO.UnixFileMode]'UserRead, UserWrite, UserExecute') }
         if ($StubInner) {
             $innerPath = Join-Path $tree 'test/modules/Invoke-TestRunnerInnerLoop.ps1'
             $real = Get-YurunaTestFileAst -Path (Join-Path $script:RepoRoot 'test/modules/Invoke-TestRunnerInnerLoop.ps1')
@@ -134,6 +144,8 @@ exit 0
         $psi.Environment['PATH'] = "$($F.Bin):$(Split-Path -Parent $script:Pwsh):$($env:PATH)"
         $psi.Environment['HOME'] = $F.Home
         $psi.Environment['PSModulePath'] = $env:PSModulePath
+        $psi.Environment['YURUNA_TEST_ACCOUNT_HOME'] = $F.Home
+        $psi.Environment['YURUNA_TEST_REAL_GETENT'] = (Get-Command getent -CommandType Application -ErrorAction Stop).Source
         $psi.Environment['YURUNA_SG_RELAUNCH'] = '1'
         $psi.Environment['YURUNA_RUNTIME_DIR'] = $F.Runtime
         $psi.Environment['YURUNA_LOG_DIR'] = $F.Log

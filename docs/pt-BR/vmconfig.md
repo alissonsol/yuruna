@@ -1884,7 +1884,7 @@ A consulta do caminho do convidado envia a mesma requisição de manifesto `?ns=
 
 `zot-prewarm.sh`, controlado por `zot-prewarm.timer`, mantém neste cache os conjuntos de imagens obtidos por um convidado Kubernetes e mede cada obtenção, para que a página de saúde informe o caminho percorrido por um pull real. Os detalhes para o operador -- os conjuntos resolvidos, a leitura publicada e o limiar de sincronização fria -- estão em [caching.md](../caching.md#warm-sets-and-the-cold-sync-reading); o que vem a seguir explica por que a unidade tem essa forma.
 
-**Por que aquecer.** zot resolve uma TAG executando novamente a sincronização sob demanda com a origem ANTES de qualquer verificação de armazenamento local e, quando o conteúdo ainda não está armazenado, essa sincronização copia o índice multiarch inteiro antes de responder à requisição de manifesto. Um convidado que encontra esse estado frio paga minutos por imagem dentro de um limite de tempo de etapa dimensionado para um cache aquecido. Aquecer por temporizador tira o custo do caminho em que um convidado espera; não o elimina.
+**Por que aquecer.** zot resolve uma TAG executando novamente a sincronização sob demanda com a origem ANTES de qualquer verificação de armazenamento local. Quando o conteúdo ainda não está armazenado, essa sincronização guarda o índice da tag, e o manifesto e as camadas de cada plataforma são copiados quando um cliente pede esse filho pelo digest, com o cliente esperando nessa requisição. Um convidado que encontra esse estado frio paga minutos por imagem dentro de um limite de tempo de etapa dimensionado para um cache aquecido, por isso a execução pede os filhos `linux/amd64` e `linux/arm64` além da tag: pedir só a tag guardaria o índice e nenhuma das camadas. Aquecer por temporizador tira o custo do caminho em que um convidado espera; não o elimina.
 
 **Por que a medição de tempo fica aqui.** Esta é a única leitura que mostra o caminho frio. Uma tag mantida no armazenamento por uma consulta programada responde localmente em milissegundos, qualquer que seja o comportamento da sincronização fria; portanto uma consulta fixada nessa tag informa saúde por construção -- mede o trecho até a origem e nada sobre quanto demora para chegar uma imagem que o laboratório não armazena. A execução de pré-aquecimento obtém conteúdo realmente ausente, portanto seu próprio tempo decorrido é o número correto.
 
@@ -2490,7 +2490,7 @@ Confirme que os temporizadores que controlam a frequência de 24 horas estão at
 
 ### Instalação do binário zot e ativação
 
-Instalação do zot (obtenção do binário + ativação systemd). ZOT_VERSION é fixado para reprodutibilidade. Para atualizar: leia https://github.com/project-zot/zot/releases, verifique se os nomes dos artefatos ainda correspondem a `zot-linux-{amd64,arm64}` (NÃO `-minimal` -- a extensão sync é necessária para cache pull-through sob demanda) e depois altere ZOT_VERSION aqui. O download do binário vai DIRETAMENTE ao GitHub (não pelo próprio squid desta VM -- dependência circular) e ocorre uma vez por construção de VM, portanto a transferência de ~220 MB não se repete.
+Instalação do zot (obtenção do binário + ativação systemd). ZOT_VERSION é fixado para reprodutibilidade, e o binário baixado só é instalado quando o seu SHA-256 corresponde a `ZOT_SHA256_AMD64` ou `ZOT_SHA256_ARM64`; uma divergência não deixa nenhum arquivo para trás. Os hashes ficam fixados no seed em vez de baixados junto com o binário, para que um artefato de release substituído não possa atestar a si mesmo. Para atualizar: leia https://github.com/project-zot/zot/releases, inclusive as mudanças de sync e compat, verifique se os nomes dos artefatos ainda correspondem a `zot-linux-{amd64,arm64}` (NÃO `-minimal` -- a extensão sync é necessária para cache pull-through sob demanda), altere ZOT_VERSION e copie os dois hashes do `checksums.sha256.txt` da release, depois execute `ZOT_BINARY=<novo binário zot-linux> python3 host/vmconfig/tests/test_collector_seed.py`: ele confere o binário com o seu hash fixado e sincroniza uma manifest list Docker pela tabela de roteamento do seed. O download do binário vai DIRETAMENTE ao GitHub (não pelo próprio squid desta VM -- dependência circular) e ocorre uma vez por construção de VM, portanto a transferência de ~220 MB não se repete.
 
 Sem uma conta Docker Hub configurada, remova `credentialsFile` do JSON do zot antes de excluir o arquivo de credencial. Uma sequência interrompida então deixa um arquivo não usado, em vez de uma configuração que referencia um arquivo ausente e impede o zot de iniciar. A reescrita do JSON deve preservar a ordem de `registries[]`, pois esse vetor é a tabela de roteamento das origens. Ative o pré-aquecimento após a ativação, em vez de esperar pelo primeiro conjunto frio durante cloud-init.
 
@@ -2891,6 +2891,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11
+Last review: 2026.10.11.1
 
 Back to [Yuruna](../../README.md)

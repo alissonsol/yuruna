@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11
+.VERSION 2026.10.11.1
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -971,12 +971,16 @@ function Get-GuestLivelockVerdict {
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param([Parameter(Mandatory)][string]$VMName)
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        # Readings older than this are not judged; a wait passes its own start.
+        [datetime]$Since = [datetime]::MinValue
+    )
     try {
         if (-not (Get-Command Get-YurunaVmLivelockState -ErrorAction SilentlyContinue)) {
             Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop -Verbose:$false
         }
-        return (Get-YurunaVmLivelockState -VMName $VMName)
+        return (Get-YurunaVmLivelockState -VMName $VMName -Since $Since)
     } catch {
         Write-Verbose "      Host livelock verdict unavailable for '$VMName': $($_.Exception.Message)"
         return $null
@@ -1043,7 +1047,13 @@ function Wait-ForText {
         # (see Get-YurunaVmLivelockVerdict). Callers can then diagnose or cold
         # restart at a safe boundary; a partially executed payload must not be
         # replayed merely because its completion wait ended early.
-        [switch]$EndOnGuestLivelock
+        [switch]$EndOnGuestLivelock,
+        # Where a wait that ends on a livelock starts judging the verdict, for the
+        # early end and for the verdict it records on timeout alike: a cold restart
+        # just before the wait must not hand it the previous boot's run. Defaults
+        # to this call's start; a step that waits in several calls passes its own
+        # start so every call judges the same stretch of one boot.
+        [datetime]$GuestLivelockSinceUtc = [datetime]::MinValue
     )
     # Reset the cross-function signals so a prior call can't leak into the next
     # Wait-ForText invocation. Like WaitForTextMatchedFailurePattern, the cause
@@ -1090,6 +1100,7 @@ function Wait-ForText {
     $patternLabel = $Pattern[0]
     # See https://yuruna.link/4213a0b3-0127
     $startUtc    = [DateTime]::UtcNow
+    $livelockSinceUtc = if ($PSBoundParameters.ContainsKey('GuestLivelockSinceUtc')) { $GuestLivelockSinceUtc.ToUniversalTime() } else { $startUtc }
     $deadlineUtc = $startUtc.AddSeconds($TimeoutSeconds)
     $elapsed     = 0
     $nudgeEnabled = (-not [string]::IsNullOrWhiteSpace($NudgeKey) -and $NudgeIntervalSeconds -gt 0)
@@ -1227,7 +1238,7 @@ function Wait-ForText {
             # not depend on the console path at all.
             if ($EndOnGuestLivelock -and [DateTime]::UtcNow -ge $nextLivelockCheckUtc) {
                 $nextLivelockCheckUtc = [DateTime]::UtcNow.AddSeconds(60)
-                $livelockVerdict = Get-GuestLivelockVerdict -VMName $VMName
+                $livelockVerdict = Get-GuestLivelockVerdict -VMName $VMName -Since $livelockSinceUtc
                 if ($livelockVerdict -and $livelockVerdict.Verdict -eq 'livelocked') {
                     $endedOnLivelock = $true
                     break
@@ -1560,7 +1571,11 @@ function Wait-ForText {
         # host recording exists: it is the one reading that separates a guest
         # still working from one whose processors are trapping in place, and
         # neither the console nor the capture path can tell those apart.
-        if (-not $endedOnLivelock) { $livelockVerdict = Get-GuestLivelockVerdict -VMName $VMName }
+        # A wait that acts on the verdict records the one its early end judged;
+        # any other wait records the whole recording window.
+        if (-not $endedOnLivelock) {
+            $livelockVerdict = if ($EndOnGuestLivelock) { Get-GuestLivelockVerdict -VMName $VMName -Since $livelockSinceUtc } else { Get-GuestLivelockVerdict -VMName $VMName }
+        }
         if ($livelockVerdict) {
             $script:Fail.WaitForTextGuestLivelock = $livelockVerdict
             $script:Fail.WaitForTextGuestLivelocked = ($livelockVerdict.Verdict -eq 'livelocked')

@@ -3,6 +3,26 @@
   "domain": "status",
   "locale": "he-IL",
   "messages": {
+    "status.runner_attempt_failed": {
+      "sourceHash": "7a69b47ccd1e2f997ec3eccecbde42dc8b9e58777428046dca0ded05d4003526",
+      "message": "ניסיון ההרצה נכשל: {failureClass}"
+    },
+    "status.runner_attempt_started": {
+      "sourceHash": "946039c1eb8b30285025f3a07716b73513bdf660721299fe6fc7c96ea4f1ff2f",
+      "message": "תחילת הניסיון: {startedAt}"
+    },
+    "status.runner_failure_record": {
+      "sourceHash": "51f7244903464379b708b6d7a67d2500f559dc08a81dd0ffab5395614ef95239",
+      "message": "רשומת הכשל"
+    },
+    "status.runner_failure_transcript": {
+      "sourceHash": "5a33e9ba6cb717cef9964d17e8eb06fd3149800557539df8530b2150800685ed",
+      "message": "תמליל בדיקת התצורה"
+    },
+    "status.runner_framework_commit": {
+      "sourceHash": "b1bd6b3503ae1d57782436d56992bb25f636eb5481c4bf6b37d0e26e7194ab5a",
+      "message": "קומיט של המסגרת: {commit}"
+    },
     "status.timing_kind": {
       "sourceHash": "ce46993a6c4a47ed5faee2e76d326f4c72946cf55951d3f517386e0b1b659878",
       "origin": "machine",
@@ -2109,8 +2129,8 @@
       "origin": "machine",
       "message": "הזנה ראשונית אוטומטית"
     },
-    "status.config_field_intentgiturl": {
-      "sourceHash": "d9ad5ee571acfcb0cc0085597b0c4263b0ec4ecb9207e482f2dcad295b520b92",
+    "status.config_field_configurationgiturl": {
+      "sourceHash": "ac9565b481637f7acf24127525da76871af6c5be17a012ad0ff6873689105ee2",
       "origin": "machine",
       "message": "כתובת URL של Git עבור הכוונה"
     },

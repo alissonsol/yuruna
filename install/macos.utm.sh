@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -49,35 +49,17 @@ yuruna_require_install_mode() {
 }
 
 # --- REGION: Refresh dispatch (fail-safe, before any destructive step)
-# --refresh hands off to the already-installed checkout's own host-refresh
-# entry script instead of running the installer. It sits here, ahead of every
-# gate and mutation below (Homebrew, the checkout rewrite, VM cleanup), so a
-# malformed or partial refresh signal terminates on the spot rather than
-# falling through into an ordinary install run under a misread intent.
-#
-# Convenience form (the "_" is the $0 placeholder bash -c gives its script
-# text; --refresh then lands in "$@", not $0):
-#   YURUNA_REFRESH=1 /bin/bash -c "$(curl -fsSL '<pinned-release-bootstrap-url>')" _ --refresh
-# Verified-download form: YURUNA_REFRESH=1 bash "$t/$(basename "$S")" --refresh
-#
-# Both the --refresh token (checked in $0 too: a copy-pasted one-liner that
-# drops the "_" placeholder puts it there instead of in "$@") and
-# YURUNA_REFRESH=1 are required together. Either alone refuses: a stray
-# leftover env var must not silently switch an ordinary install into refresh,
-# and a token with no env var must not either.
+# --refresh hands off to the installed checkout's own refresh entry script, ahead of
+# every gate and mutation so a malformed signal ends the run. The --refresh token and
+# YURUNA_REFRESH=1 are both required; either alone refuses.
+# See https://yuruna.link/4213a0b3-019b
 YURUNA_REFRESH_PROTOCOL_VERSION=1
 
 yuruna_pwsh_candidates() {
-  # In resolution order, without assuming a login shell ran `brew shellenv`:
-  # PATH, the arm64 Homebrew prefix (this installer requires Apple Silicon),
-  # the fixed Intel-era Homebrew location some docs/scripts still assume,
-  # PATH_LINK_DIR, which is where this installer's own version-floor
-  # promotion (bring_tools_to_required_versions) links the newest pwsh it
-  # finds so a stale copy earlier on PATH stops winning by name, and the
-  # location Microsoft's PowerShell package installs to, which that same
-  # promotion step names explicitly because no package manager reports it. A
-  # host whose only pwsh is that package, reached over `ssh host command`
-  # before any link was made, still resolves one here.
+  # In resolution order, without assuming a login shell ran `brew shellenv`: a host
+  # whose only pwsh is the Microsoft package, reached over ssh before any link was made,
+  # still resolves one.
+  # See https://yuruna.link/4213a0b3-019c
   command -v pwsh 2>/dev/null || true
   printf '%s\n' "/opt/homebrew/bin/pwsh"
   printf '%s\n' "/usr/local/bin/pwsh"
@@ -158,12 +140,9 @@ YURUNA_INSTALL_MODE=0
 yuruna_refresh_dispatch "$0" "$@"
 
 # --- REGION: Deferred issues
-# Every non-fatal problem is recorded here as well as printed where it happens.
-# An installer prints hundreds of lines; a package that failed to upgrade
-# scrolls past long before the operator reads the closing instructions, and the
-# only thing that survives to the end is a summary. Nothing here stops the run:
-# the operator is mid-install, and a package-manager hiccup should not end it --
-# but it must not pass unmentioned either.
+# Every non-fatal problem is recorded here as well as printed where it happens:
+# hundreds of lines scroll past, and the closing summary is what survives.
+# Nothing here stops the run, but a problem must not pass unmentioned either.
 YURUNA_ISSUES=()
 note_issue() { YURUNA_ISSUES+=("$*"); warn "$*"; }
 
@@ -363,13 +342,10 @@ if [[ -z "$BREW_PREFIX" ]]; then
   fi
 fi
 
-# HOMEBREW_NO_AUTO_UPDATE=1 silences the "fatal: not in a git directory" +
-# "update-report should not be called directly!" cascade that fires INSIDE
-# every `brew install` / `brew upgrade` when the prefix isn't a proper git
-# checkout -- ~10 lines of noise before each per-package op does its work,
-# indistinguishable from a real error. The explicit `brew update` step below
-# still runs when the prefix IS a git checkout, so per-op auto-update is
-# redundant with that one call.
+# HOMEBREW_NO_AUTO_UPDATE=1 silences the git-checkout errors that brew install and
+# brew upgrade print when the prefix is not a git checkout, which would look like real
+# failures. The explicit brew update step below still runs when it is, so per-operation
+# auto-update is redundant.
 export HOMEBREW_NO_AUTO_UPDATE=1
 # HOMEBREW_NO_ENV_HINTS=1 suppresses the "Homebrew is run entirely by unpaid
 # volunteers" donations banner and similar one-shot hints that accumulate
@@ -573,26 +549,19 @@ stop_yuruna_processes() {
 
 # --- REGION: Preserve running service VMs
 # See https://yuruna.link/429fb30b-000c
-# Quitting UTM is never confined to the VM the installer cares about: UTM
-# saves the state of EVERY running VM on its way out, and they come back
-# suspended rather than started. That makes any running service VM -- the
-# caching proxy, the stash service, pool-control, the download agent -- a
-# reason not to quit, not just the proxy whose spool would also be at risk
-# from the orphaned-bundle sweep.
+# Quitting UTM suspends every running VM it owns, not only the one the installer
+# cares about, so any running service VM is a reason not to quit.
 SERVICE_VM_DETECT_REASON=""
 YURUNA_SERVICE_VM_NAME=(yuruna-caching-proxy-service yuruna-stash-service yuruna-pool-control-service yuruna-download-agent-service)
 # The same cap the macOS host driver gives one `utmctl status` call.
 UTMCTL_STATUS_TIMEOUT_SECONDS=20
 
-# One `utmctl status` call that cannot outlive UTMCTL_STATUS_TIMEOUT_SECONDS.
-# utmctl asks UTM over Apple Events, and the first time a terminal does that
-# macOS raises an Automation consent dialog. Until someone answers it the call
-# neither fails nor returns: it waits out the Apple Events timeout (-1712,
-# about two minutes) before anything the caller could classify comes back.
-# Prints what the call printed and returns 0 when it finished; returns 124 when
-# it was stopped at the cap and 125 when it could not be started, printing
-# nothing in either case. The answer goes through a private file rather than a
-# pipe so a stopped call cannot leave a reader waiting on it.
+# One `utmctl status` call that cannot outlive UTMCTL_STATUS_TIMEOUT_SECONDS (an
+# unanswered Automation consent dialog otherwise holds it for about two minutes). Prints
+# what the call printed and returns 0 when it finished; returns 124 when it was stopped
+# at the cap and 125 when it could not be started, printing nothing in either case. The
+# answer goes through a private file so a stopped call cannot leave a reader waiting.
+# See https://yuruna.link/4213a0b3-01b4
 yuruna_utmctl_status() {
   local bin="$1" vm="$2" out pid ticks=0
   local limit_ticks=$((UTMCTL_STATUS_TIMEOUT_SECONDS * 10))
@@ -627,13 +596,10 @@ is_service_vm_running() {
     fi
   fi
 
-  # utmctl reaches UTM over Apple Events, so it answers for a host where UTM is
-  # RUNNING and misreports one where it is not: on a Mac that has never granted
-  # Automation to this terminal the call comes back -1743, which the caution arm
-  # below reads as "cannot confirm" and turns into a permanent skip of the UTM
-  # upgrade. No VM executes without UTM, so an absent UTM process settles the
-  # question before Apple Events are involved. Only a pgrep that RAN and said no
-  # short-circuits; where pgrep is unavailable the probe below still decides.
+  # utmctl answers through Apple Events, so it misreports a UTM that is not running and
+  # cannot be trusted to say "stopped" from a Mac that never granted Automation. No VM runs
+  # without UTM, so an absent UTM process settles the question first.
+  # See https://yuruna.link/429fb30b-000c
   if command -v pgrep >/dev/null 2>&1 && ! pgrep -x UTM >/dev/null 2>&1; then
     SERVICE_VM_DETECT_REASON=""
     return 1
@@ -712,13 +678,9 @@ if [[ $PRESERVE_SERVICE_VM -eq 0 ]]; then
 fi
 
 # --- REGION: Install platform packages
-# `brew ... | grep -v <noise>` reports GREP's exit status, not brew's, and grep
-# exits 1 when it filters away every line -- so the `|| true` that keeps a
-# fully-filtered SUCCESS from killing the script under `set -e` also discards
-# brew's verdict and brew's error text along with it. A cask that failed then
-# reads in the terminal and in the install log exactly like one that worked.
-# Capture instead: brew's status is read directly, and its output is replayed in
-# full when it fails and filtered only when it did not.
+# A pipe into `grep -v` reports grep's exit status, not brew's, and `|| true` then hides
+# brew's verdict and its error text: a failed cask reads exactly like a successful one.
+# Capture brew's status directly and replay its output in full when it fails.
 brew_run() {
   local what="$1"; shift
   local out status=0
@@ -805,14 +767,10 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 
 # --- REGION: .NET runtime location for a framework-dependent PowerShell
-# The Homebrew powershell FORMULA depends on brew's dotnet and finds its runtime
-# through DOTNET_ROOT, exported by the wrapper on PATH. Any pwsh started WITHOUT
-# that environment -- notably a nested `sudo pwsh`, whose env_reset strips it --
-# then fails to locate libhostfxr and exits 131 before running a line of script.
-# /etc/dotnet/install_location_<arch> is the runtime's own machine-wide fallback,
-# read no matter who starts pwsh or with what environment, so writing it once
-# here removes the whole class instead of guarding each call site. Harmless for a
-# cask/.pkg PowerShell, which is self-contained and never consults it.
+# A nested `sudo pwsh` strips DOTNET_ROOT and exits 131 before running any script. The
+# runtime's machine-wide fallback file is written once here instead of at each call site.
+# The cask and .pkg builds are self-contained and never read it.
+# See https://yuruna.link/42885ada-0006
 if command -v pwsh >/dev/null 2>&1 && dotnet_libexec="$(brew --prefix dotnet 2>/dev/null)/libexec" \
    && [[ -d "$dotnet_libexec" ]]; then
   dotnet_location_file="/etc/dotnet/install_location_$(uname -m)"
@@ -1067,13 +1025,10 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
   if [[ $skip_pull -eq 0 ]]; then
     use_dev_branch_if_needed "$remote_basename"
     YURUNA_BRANCH="$(resolve_yuruna_ref "$actual_remote" "$YURUNA_BRANCH")"
-    # --force so a remote-moved release tag overwrites the stale local one. A
-    # CalVer tag (YYYY.MM.DD) can point at different commits in the public vs
-    # development repo, so a plain `fetch --tags` hits "would clobber existing
-    # tag", which makes git exit non-zero -- and unguarded under `set -e` that
-    # aborts the whole installer before checkout/pull. The guard degrades any
-    # remaining fetch error to a warning so the pull --ff-only fallback below
-    # still gets to run.
+    # --force so a remote-moved release tag overwrites the stale local one: a plain
+    # `fetch --tags` exits non-zero when a CalVer tag points at a different commit in the
+    # public and development repos, and under `set -e` that aborts before checkout. Any
+    # remaining fetch error degrades to a warning so the pull --ff-only fallback still runs.
     if ! git -C "$YURUNA_DIR" fetch --tags --force origin; then
       warn "git fetch reported rejected/partial tag updates -- continuing; checkout/pull below will surface anything fatal."
     fi
@@ -1533,7 +1488,7 @@ if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn "========"
 fi
 
-# --- REGION: Install summary
+# --- REGION: Installation summary
 # The last thing printed. Everything above scrolls; this does not.
 if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
   warn ""

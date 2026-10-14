@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -259,17 +259,7 @@ function Close-FakeAgent {
     param([AllowNull()][hashtable]$Agent)
     if ($null -eq $Agent) { return }
 
-    # Order matters, and getting it wrong aborts the whole process rather than
-    # failing a test. The responder runs on a thread job; an exception that
-    # escapes there is unhandled by definition, and .NET tears the process down
-    # (SIGABRT, no Pester result file). Disposing the listener underneath a live
-    # responder is exactly such an escape -- ObjectDisposedException from inside
-    # GetContext or the write path.
-    #
-    # So: Stop() first, which unblocks the pending GetContext and lets the loop
-    # break on its own; WAIT for the thread to actually exit; only then dispose.
-    # Under parallel suite execution the thread is descheduled long enough for
-    # the old Stop-Close-Remove order to lose this race about one run in three.
+    # See https://yuruna.link/42e220c4-0014
     try { $Agent.Listener.Stop() } catch { Write-Verbose "Close-FakeAgent: stop failed ($($_.Exception.Message))." }
 
     if ($Agent.Job) {

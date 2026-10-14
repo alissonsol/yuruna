@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42737e44-4d56-4bc8-a429-c72432343f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -491,22 +491,7 @@ uses, so a captured child gets the manual commands instead of a hidden prompt.
 
 Describe 'sudo refusal matchers recognize every sudo in the fleet' {
     It 'pairs the C-sudo refusal wording with the sudo-rs wording' {
-        # A refusal has to be told apart from an ordinary command failure on TEXT:
-        # sudo exits 1 for "I will not run this unprompted" and the commands it
-        # runs exit 1 for their own reasons. That text is implementation-specific.
-        # The C sudo says "a password is required" / "no tty present"; sudo-rs --
-        # the default sudo on Ubuntu from 25.10 on -- says "interactive
-        # authentication is required".
-        #
-        # A matcher that knows only one of them does not fail loudly on a host
-        # running the other. It quietly reclassifies every refusal as a command
-        # result, and the caller then reports its fallback cause -- a stale NAS
-        # password, an absent directory -- for as long as that host lives. So the
-        # two spellings have to travel together, in whatever expression tests for
-        # one of them.
-        #
-        # The phrases are held in variables so this scan does not flag its own
-        # source: the literals below never share a line with a match operator.
+        # See https://yuruna.link/42e220c4-0014
         $classic = @('a password is required', 'no tty present', 'is not in the sudoers file')
         $modern  = 'interactive authentication is required'
         $stale = @()

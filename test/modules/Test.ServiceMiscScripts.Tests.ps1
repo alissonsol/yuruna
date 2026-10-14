@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 424533be-1c51-4584-9728-27ea5064d2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -307,7 +307,7 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
         $removals = @(Get-CommandCallAst -Ast $ast -Name 'Remove-VM') | Sort-Object { $_.Extent.StartOffset }
         $reads = @(Get-CommandCallAst -Ast $ast -Name 'Get-VMState') | Sort-Object { $_.Extent.StartOffset }
         Assert-True ($reads[-1].Extent.StartOffset -gt $removals[-1].Extent.StartOffset) 'the last state read follows the last removal'
-        $regionAt = $ast.Extent.Text.IndexOf('# --- REGION: Report the service state', [StringComparison]::Ordinal)
+        $regionAt = $ast.Extent.Text.IndexOf('# --- REGION: Verify the final VM state', [StringComparison]::Ordinal)
         Assert-True ($regionAt -ge 0 -and $reads[-1].Extent.StartOffset -gt $regionAt) 'the final read sits in the closing region'
     }
 }

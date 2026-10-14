@@ -1,0 +1,28 @@
+{
+  "zotVersion": "v2.1.22",
+  "sha256": {
+    "amd64": "33b9b5bfe05d6788c076de951a01920477dbd6395c330146e23cc2340073e52e",
+    "arm64": "abc9bab13c144a4ee2f9067a6bbbe70ca1c018c49dbf521db28975514ea705da"
+  },
+  "fingerprint": "2bcd27c0c3d84ae3934f67c87365864fdfb58aa9526adb4c6e0ced4b0c0a3ed9",
+  "qualifiedOn": "2026-10-12",
+  "qualifiedWith": "zot-linux-amd64",
+  "probes": [
+    {
+      "image": "registry.k8s.io/pause:3.10.2",
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json"
+    },
+    {
+      "image": "mcr.microsoft.com/dotnet/runtime-deps:10.0",
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json"
+    },
+    {
+      "image": "ghcr.io/flannel-io/flannel:v0.28.10",
+      "mediaType": "application/vnd.oci.image.index.v1+json"
+    },
+    {
+      "image": "mirror.gcr.io/library/registry:2",
+      "mediaType": "application/vnd.oci.image.index.v1+json"
+    }
+  ]
+}

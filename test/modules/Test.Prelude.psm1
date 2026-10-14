@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -155,10 +155,10 @@ function Initialize-YurunaEntryPointModuleSet {
             # events they emit have a writer.
             'Test.RecoveryContract.psm1', 'Test.RecoveryLedger.psm1', 'Test.RecoveryActions.psm1',
             'Test.RunnerOuterLoop.psm1',
-            # Test.PoolSync: the optional, default-off pool-intent PULL the outer
+            # Test.PoolSync: the optional, default-off pool-configuration PULL the outer
             # loop calls (Get-Command-gated) at each cycle start. Leaf; loaded so
-            # Invoke-RunnerOuterLoop resolves Sync-YurunaPoolIntent /
-            # Resolve-YurunaPoolDesiredState when a pool is configured.
+            # Invoke-RunnerOuterLoop resolves Sync-YurunaPoolConfiguration /
+            # Resolve-YurunaPoolConfiguredState when a pool is configured.
             'Test.PoolSync.psm1'
         )
         Inner    = @(
@@ -320,7 +320,7 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.HostContract.psm1'
         )
         PoolAdmin = @(
-            # The pool admin CLI (New-Pool / Add-HostToPool / ... / Test-PoolIntent):
+            # The pool admin CLI (New-Pool / Add-HostToPool / ... / Test-PoolConfiguration):
             # Test.YurunaDir for the runtime dir (default clone path), Test.Config
             # for Read-TestConfig (Get-YurunaPoolConfig path resolution),
             # Test.ConfigValidator for Test-AgainstSchema (it pulls Test.Output +

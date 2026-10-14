@@ -1,8 +1,8 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # See https://yuruna.link/429f3d06-0002
-# Fixed identity keeps per-instance setup tied to this persistent service VM.
 # --- REGION: instance-id
+# Fixed identity keeps per-instance setup tied to this persistent service VM.
 instance-id: yuruna-caching-proxy-service
 # --- REGION: local-hostname
 local-hostname: yuruna-caching-proxy-service

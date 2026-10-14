@@ -159,6 +159,8 @@ const DatazhCNpool = `{
     },
     "。"
   ],
+  "pool.configuration_git_url": "配置 git URL",
+  "pool.configuration_read_raw_invocation": "读取配置 — 原始调用",
   "pool.continue": "继续",
   "pool.control": "控制",
   "pool.cores": "核心数",
@@ -259,22 +261,11 @@ const DatazhCNpool = `{
   ],
   "pool.detail": "详情",
   "pool.diagnostic_auto_enrollment_assignment": "宿主机自动加入此处，并继续运行各自的项目。",
-  "pool.diagnostic_configure_repo": "传入--repo-dir，使其指向yuruna框架的检出目录。",
-  "pool.diagnostic_git_not_found": [
-    "在PATH中未找到：",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.diagnostic_install_git": "pool-admin命令行工具会克隆和推送池意图；请在客户机中安装git。",
-  "pool.diagnostic_install_pwsh": "在客户机中安装PowerShell。packages.microsoft.com未提供适用于此Ubuntu版本的powershell软件包；请使用GitHub发行版中的tar归档包，然后重启pool-control-service.service。",
-  "pool.diagnostic_intent_absent": "没有可检查的意图URL",
-  "pool.diagnostic_intent_configure": "客户机初始化时，若池NAS上没有可写存储库，则会创建一个；此处为空表示初始化时未挂载NAS。请在/etc/yuruna/pool-control-service.env中设置POOL_CONTROL_INTENT_GIT_URL（每次请求时重新读取，无需重启），或在重新构建前设置test/test.config.yml中的pool.intentGitUrl。",
-  "pool.diagnostic_intent_empty": "为空：未从启动参数或配置文件中解析出意图存储库",
-  "pool.diagnostic_intent_initialize": "池NAS存储库在客户机初始化时创建；若NAS挂载较晚，请重新运行初始化脚本，或对该存储库执行git init --bare。",
-  "pool.diagnostic_intent_not_bare": [
+  "pool.diagnostic_configuration_absent": "没有可检查的配置URL",
+  "pool.diagnostic_configuration_configure": "客户机初始化时，若池NAS上没有可写存储库，则会创建一个；此处为空表示初始化时未挂载NAS。请在/etc/yuruna/pool-control-service.env中设置POOL_CONTROL_CONFIGURATION_GIT_URL（每次请求时重新读取，无需重启），或在重新构建前设置test/test.config.yml中的pool.configurationGitUrl。",
+  "pool.diagnostic_configuration_empty": "为空：未从启动参数或配置文件中解析出配置存储库",
+  "pool.diagnostic_configuration_initialize": "池NAS存储库在客户机初始化时创建；若NAS挂载较晚，请重新运行初始化脚本，或对该存储库执行git init --bare。",
+  "pool.diagnostic_configuration_not_bare": [
     {
       "arg": "path",
       "type": "detail",
@@ -288,7 +279,7 @@ const DatazhCNpool = `{
     },
     "）"
   ],
-  "pool.diagnostic_intent_not_writable": [
+  "pool.diagnostic_configuration_not_writable": [
     {
       "arg": "path",
       "type": "detail",
@@ -301,7 +292,7 @@ const DatazhCNpool = `{
       "trust": "external"
     }
   ],
-  "pool.diagnostic_intent_override": [
+  "pool.diagnostic_configuration_override": [
     "  （配置文件覆盖启动参数",
     {
       "arg": "flag",
@@ -310,10 +301,10 @@ const DatazhCNpool = `{
     },
     "）"
   ],
-  "pool.diagnostic_intent_permission": "写入会在推送时失败。请检查池NAS挂载的uid/gid是否与服务用户匹配。",
-  "pool.diagnostic_intent_pull_only": "除非服务器运行git-http-backend，否则http(s)意图存储库仅支持拉取：读取可正常进行，但所有写入都会在推送时失败。可写存储库是池NAS上的裸仓库。",
-  "pool.diagnostic_intent_remote": "远程URL；可达性由intent-read检查",
-  "pool.diagnostic_intent_writable": [
+  "pool.diagnostic_configuration_permission": "写入会在推送时失败。请检查池NAS挂载的uid/gid是否与服务用户匹配。",
+  "pool.diagnostic_configuration_pull_only": "除非服务器运行git-http-backend，否则http(s)配置存储库仅支持拉取：读取可正常进行，但所有写入都会在推送时失败。可写存储库是池NAS上的裸仓库。",
+  "pool.diagnostic_configuration_remote": "远程 URL；可访问性由 configuration-read 检查",
+  "pool.diagnostic_configuration_writable": [
     {
       "arg": "path",
       "type": "detail",
@@ -321,6 +312,17 @@ const DatazhCNpool = `{
     },
     "：裸仓库，可写"
   ],
+  "pool.diagnostic_configure_repo": "传入--repo-dir，使其指向yuruna框架的检出目录。",
+  "pool.diagnostic_git_not_found": [
+    "在PATH中未找到：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "pool.diagnostic_install_git": "pool-admin命令行工具会克隆和推送池配置；请在客户机中安装git。",
+  "pool.diagnostic_install_pwsh": "在客户机中安装PowerShell。packages.microsoft.com未提供适用于此Ubuntu版本的powershell软件包；请使用GitHub发行版中的tar归档包，然后重启pool-control-service.service。",
   "pool.diagnostic_no_output": "无输出",
   "pool.diagnostic_not_configured": "未配置",
   "pool.diagnostic_persistence_configure": "传入Options.Store时一并传入Options.StateDir，以便此检查探测实际路径。",
@@ -876,8 +878,6 @@ const DatazhCNpool = `{
     }
   },
   "pool.hosts_yuruna_pool_control": "宿主机 — Yuruna Pool Control",
-  "pool.intent_git_url": "意图git URL",
-  "pool.intent_read_raw_invocation": "意图读取 — 原始调用",
   "pool.ips": "IP地址：",
   "pool.it_will_also_be_excluded_from_auto_enrollment_so_the_sweep_will_n": "\n\n它也将被排除在自动注册之外，因此扫描不会将其重新添加。",
   "pool.lab_token": "实验室令牌",
@@ -1054,6 +1054,7 @@ const DatazhCNpool = `{
   "pool.pools": "池",
   "pool.pools_yuruna_pool_control": "池 — Yuruna Pool Control",
   "pool.process": "进程",
+  "pool.process_environment": "进程环境",
   "pool.progress": "进度",
   "pool.project": "项目",
   "pool.project_url": "项目URL",
@@ -1197,7 +1198,6 @@ const DatazhCNpool = `{
   "pool.row_number": "行号",
   "pool.running": "正在运行：",
   "pool.running_checks": "正在运行检查……",
-  "pool.runtime_environment": "运行时环境",
   "pool.save_failed_value1": [
     "保存失败：",
     {

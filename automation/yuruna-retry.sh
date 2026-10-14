@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -57,7 +57,6 @@ _yuruna_retry() {
     esac
     # See https://yuruna.link/4220a755-0004
     # Only real commands can be bounded; hoist foreground timeout inside sudo.
-    # --- REGION: https://yuruna.link/4220a755-0004
     local bound_mode=none
     if [ "$stall" -gt 0 ] \
         && [ "$(type -t "$1")" != "function" ] \

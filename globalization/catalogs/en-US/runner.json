@@ -3,6 +3,30 @@
   "domain": "runner",
   "locale": "en-US",
   "messages": {
+    "runner.config_gate_attempt_failed": {
+      "message": "The runner attempt exited {exitCode} because configuration validation failed. No new test cycle started. Correct the configuration before retrying.",
+      "description": "Runner attempt failure notification; configuration rejection precedes a new test cycle.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 1
+        }
+      }
+    },
+    "runner.config_naming_backup": {
+      "message": "Back up configuration to {backupPath}",
+      "description": "Configuration migration persistence and backup diagnostics. Preserve paths and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "backupPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "test/test.config.yml.pre-renaming"
+        }
+      }
+    },
     "runner.fetch_context_rejected": {
       "message": "Fetch context rejected before guest execution ({reason}); detail: {detail}.",
       "description": "Host-side fetch preparation failure. The reason is an invariant YFE_ code and detail is a path, identifier, or numeric bound; neither is translated.",
@@ -168,6 +192,18 @@
           "type": "token",
           "trust": "internal",
           "example": "armed"
+        }
+      }
+    },
+    "runner.gate_evidence_save_failed": {
+      "message": "Configuration gate evidence could not be saved: {detail}",
+      "description": "Runner-attempt diagnostics and configuration migration. Preserve machine identifiers and untrusted detail placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "disk full"
         }
       }
     },
@@ -1785,6 +1821,18 @@
       "description": "Information line from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 for a verified healthy no-op; preserve command names, parameter names, codes and paths.",
       "lifecycle": "active"
     },
+    "runner.inner_attempt_exited": {
+      "message": "The runner attempt exited {exitCode} before reporting a cycle result. Review the runner logs before retrying.",
+      "description": "Runner attempt failure notification; configuration rejection precedes a new test cycle.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 1
+        }
+      }
+    },
     "runner.inner_guest_folder_missing": {
       "message": "Guest folder not found for '{guest}' on {host} (inner '{name}').",
       "description": "Whole operator report; all condition decisions use the separate status and failure-class fields.",
@@ -1807,8 +1855,8 @@
         }
       }
     },
-    "runner.inner_sequence_baseline_missing": {
-      "message": "Inner sequence '{name}' has no 'baseline:' OS key; not a runnable guest sequence.",
+    "runner.inner_sequence_resource_missing": {
+      "message": "Inner sequence '{name}' has no 'resource:' OS key; not a runnable guest sequence.",
       "description": "Whole operator report; all condition decisions use the separate status and failure-class fields.",
       "lifecycle": "active",
       "placeholders": {
@@ -2516,7 +2564,7 @@
       "lifecycle": "active"
     },
     "runner.operator_051583e964e5ccb5": {
-      "message": "pool-intent repository under the storage root are left exactly as they are;",
+      "message": "pool-configuration repository under the storage root are left exactly as they are;",
       "description": "Whole Write-Information message in test/pool/Convert-ToPoolWorker.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -3842,7 +3890,7 @@
       }
     },
     "runner.operator_11155c290bdca317": {
-      "message": "pool block not present -- pool intent sync is off (optional).",
+      "message": "pool block not present -- pool configuration sync is off (optional).",
       "description": "Whole Write-Info message in test/Test-Config.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -5194,7 +5242,7 @@
       "lifecycle": "tombstone"
     },
     "runner.operator_1d0efcf0a84c0f0f": {
-      "message": "pool: intent store reachable ({plUrl}).",
+      "message": "pool: configuration store reachable ({plUrl}).",
       "description": "Whole Write-Pass message in test/Test-Config.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -5499,7 +5547,7 @@
       }
     },
     "runner.operator_205f4d4b991b0dd3": {
-      "message": "pool: intent store '{plUrl}' not reachable right now ({why}) -- fine if the proxy is intentionally offline; the runner degrades to single-host. Otherwise check the URL / apache / network.",
+      "message": "pool: configuration store '{plUrl}' not reachable right now ({why}) -- fine if the proxy is intentionally offline; the runner degrades to single-host. Otherwise check the URL / apache / network.",
       "description": "Whole Write-Warn message in test/Test-Config.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -5558,7 +5606,7 @@
       "lifecycle": "active"
     },
     "runner.operator_214ed60f2015cca4": {
-      "message": "[outer cycle {cycle}] pool desiredState=paused -- holding (no cycle spawned).",
+      "message": "[outer cycle {cycle}] pool configuredState=paused -- holding (no cycle spawned).",
       "description": "Whole Write-OuterLog message in test/modules/Test.RunnerOuterLoop.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -7069,7 +7117,7 @@
       }
     },
     "runner.operator_2d47f583d26c79d3": {
-      "message": "pool sync: intent fetch failed ({why}); using the last-good cached pools.yml ({poolsPath}).",
+      "message": "pool sync: configuration fetch failed ({why}); using the last-good cached pools.yml ({poolsPath}).",
       "description": "Whole Write-Warning message in test/modules/Test.PoolSync.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -7640,7 +7688,7 @@
     },
     "runner.operator_331c67920b1a4f01": {
       "message": "FAIL  target-pool-no-repositories: '{targetPoolId}' is the auto-enrollment target pool and must not carry repositories (they would repoint every auto-enrolled host). Clear them with Set-PoolRepository.ps1 -PoolId {targetPoolId} -Clear, or point autoEnrollment.targetPoolId at a different pool.",
-      "description": "Whole Write-Warning message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "description": "Whole Write-Warning message in test/pool/Test-PoolConfiguration.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "targetPoolId": {
@@ -8200,7 +8248,7 @@
       }
     },
     "runner.operator_37c6d3d1e44ac68b": {
-      "message": "Seed the pool-intent store",
+      "message": "Seed the pool-configuration store",
       "description": "Whole ShouldProcess-prompt message in test/modules/Test.PoolAdmin.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -8836,7 +8884,7 @@
       }
     },
     "runner.operator_3ee74fe8c9b60225": {
-      "message": "pool.enabled is true but pool.intentGitUrl is empty; pool intent sync disabled.",
+      "message": "pool.enabled is true but pool.configurationGitUrl is empty; pool configuration sync disabled.",
       "description": "Whole Write-Warning message in test/modules/Test.PoolSync.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -8962,7 +9010,7 @@
       }
     },
     "runner.operator_3f91d27857293eb6": {
-      "message": "  3. Stand up pool-control service; it serves the intent repo and that URL becomes pool.intentGitUrl.",
+      "message": "  3. Stand up pool-control service; it serves the configuration repo and that URL becomes pool.configurationGitUrl.",
       "description": "Whole Write-Output message in test/lab/New-Lab.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -9111,7 +9159,7 @@
       "lifecycle": "active"
     },
     "runner.operator_413f257dbbf2120b": {
-      "message": "Could not seed pool.intentGitUrl ({message}); the token is stored. Set pool.enabled/pool.intentGitUrl by hand to join the pool.",
+      "message": "Could not seed pool.configurationGitUrl ({message}); the token is stored. Set pool.enabled/pool.configurationGitUrl by hand to join the pool.",
       "description": "Whole Write-Warning message in test/lab/Set-LabToken.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -9123,7 +9171,7 @@
       }
     },
     "runner.operator_4154b8f8b4c44fe5": {
-      "message": "[2/3] adopted the existing pool-intent store: {legacyIntentPath} -> {intentPath}",
+      "message": "[2/3] adopted the existing pool-configuration store: {legacyIntentPath} -> {configurationPath}",
       "description": "Whole Write-Output message in test/lab/New-Lab.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -9132,15 +9180,15 @@
           "trust": "external",
           "example": "$legacyIntentPath"
         },
-        "intentPath": {
+        "configurationPath": {
           "type": "detail",
           "trust": "external",
-          "example": "$intentPath"
+          "example": "$configurationPath"
         }
       }
     },
     "runner.operator_416973ff9c4b82f2": {
-      "message": "pool.intentGitUrl already set ({existingUrl}); leaving it unchanged.",
+      "message": "pool.configurationGitUrl already set ({existingUrl}); leaving it unchanged.",
       "description": "Whole Write-Information message in test/lab/Set-LabToken.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -9598,7 +9646,7 @@
       }
     },
     "runner.operator_45a07fd31e96a1d6": {
-      "message": "Top-level sequence has no baseline (no supported guest OS declared): {topName}",
+      "message": "Top-level sequence has no resource prerequisites (no supported guest OS declared): {topName}",
       "description": "Whole Write-Warning message in test/modules/Test.SequencePlanner.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -9851,7 +9899,7 @@
       }
     },
     "runner.operator_47955cec68775797": {
-      "message": "pool sync: host {hostId} is not in any pool's members[] though pools.yml lists members; check the hostId spelling/case in the intent repo. Cycling as a single host.",
+      "message": "pool sync: host {hostId} is not in any pool's members[] though pools.yml lists members; check the hostId spelling/case in the configuration repo. Cycling as a single host.",
       "description": "Whole Write-Warning message in test/modules/Test.PoolSync.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -9968,7 +10016,7 @@
       }
     },
     "runner.operator_488c8abbe599cfff": {
-      "message": "  and the pool-intent repository all live under it. When you are satisfied:",
+      "message": "  and the pool-configuration repository all live under it. When you are satisfied:",
       "description": "Whole Write-Information message in test/lab/Clear-LocalLabStorage.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -10368,7 +10416,7 @@
     },
     "runner.operator_4b7f2e4a23f336a0": {
       "message": "FAIL  member-uniqueness: could not parse pools.yml -- {message}",
-      "description": "Whole Write-Warning message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "description": "Whole Write-Warning message in test/pool/Test-PoolConfiguration.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "message": {
@@ -10822,12 +10870,12 @@
       }
     },
     "runner.operator_4f719f0639145301": {
-      "message": "Write pool intent file",
+      "message": "Write pool configuration file",
       "description": "Whole ShouldProcess-prompt message in test/modules/Test.PoolAdmin.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
     "runner.operator_4f741864aba4d1fd": {
-      "message": "Create bare pool-intent repository",
+      "message": "Create bare pool-configuration repository",
       "description": "Whole ShouldProcess-prompt message in test/modules/Test.PoolAdmin.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -10951,14 +10999,14 @@
       "lifecycle": "active"
     },
     "runner.operator_5080fa98b3c9b51c": {
-      "message": "Could not open the intent store ({intentGitUrl}): {error}",
-      "description": "Whole Write-Error message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "message": "Could not open the configuration store ({configurationGitUrl}): {error}",
+      "description": "Whole Write-Error message in test/pool/Test-PoolConfiguration.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "intentGitUrl": {
+        "configurationGitUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "$($t.IntentGitUrl)"
+          "example": "$($t.ConfigurationGitUrl)"
         },
         "error": {
           "type": "detail",
@@ -11803,7 +11851,7 @@
       "lifecycle": "active"
     },
     "runner.operator_57d386e54fe5ebcf": {
-      "message": "Chain: {fullChain} (no baseline prereqs declared)",
+      "message": "Chain: {fullChain} (no resource prerequisites declared)",
       "description": "Whole Write-Information message in test/modules/Test.SequenceRunner.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -12024,8 +12072,8 @@
       }
     },
     "runner.operator_59650e3f07b2342b": {
-      "message": "Pool '{poolId}' desiredState set to '{state}'. Members reconcile on their next cycle pull.",
-      "description": "Whole Write-Information message in test/pool/Set-PoolDesiredState.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "message": "Pool '{poolId}' configuredState set to '{state}'. Members reconcile on their next cycle pull.",
+      "description": "Whole Write-Information message in test/pool/Set-PoolConfiguredState.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "poolId": {
@@ -12087,7 +12135,7 @@
       }
     },
     "runner.operator_5a025273229840cf": {
-      "message": "Host {hostId} is a member of multiple pools ({join}); a host must belong to at most one. Using '{poolId}'. Fix the intent (Remove-HostFromPool / Test-PoolIntent).",
+      "message": "Host {hostId} is a member of multiple pools ({join}); a host must belong to at most one. Using '{poolId}'. Fix the configuration (Remove-HostFromPool / Test-PoolConfiguration).",
       "description": "Whole Write-Warning message in test/modules/Test.PoolSync.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -12167,7 +12215,7 @@
       "lifecycle": "active"
     },
     "runner.operator_5a5cc38a18508944": {
-      "message": "and pool-intent repository under the storage root are left exactly as they are;",
+      "message": "and pool-configuration repository under the storage root are left exactly as they are;",
       "description": "Whole Write-Information message in test/lab/Clear-LocalLabStorage.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -12689,7 +12737,7 @@
       }
     },
     "runner.operator_5e1b22dd0ff54c65": {
-      "message": "[outer cycle {cycle}] pool desiredState=drain -- shutting down at the cycle boundary.",
+      "message": "[outer cycle {cycle}] pool configuredState=drain -- shutting down at the cycle boundary.",
       "description": "Whole Write-OuterLog message in test/modules/Test.RunnerOuterLoop.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -12759,14 +12807,14 @@
       }
     },
     "runner.operator_5e931217fd513630": {
-      "message": "The pool-intent store ({intentGitUrl}) does not exist and could not be created: {reason}",
+      "message": "The pool-configuration store ({configurationGitUrl}) does not exist and could not be created: {reason}",
       "description": "Whole Write-Error message in test/pool/New-Pool.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "intentGitUrl": {
+        "configurationGitUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "$($t.IntentGitUrl)"
+          "example": "$($t.ConfigurationGitUrl)"
         },
         "reason": {
           "type": "detail",
@@ -13927,7 +13975,7 @@
       }
     },
     "runner.operator_68683a605e32c8b4": {
-      "message": "Point /pool-intent.git at {storePath}",
+      "message": "Point /pool-configuration.git at {storePath}",
       "description": "Whole ShouldProcess-prompt message in test/modules/Test.CachingProxyService.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -14036,7 +14084,7 @@
       }
     },
     "runner.operator_68f76316350291c3": {
-      "message": "Pool '{poolId}' is the auto-enrollment target pool and must not carry repositories; ignoring them and keeping this host's own repositories. Fix the intent store (Test-PoolIntent.ps1 reports this).",
+      "message": "Pool '{poolId}' is the auto-enrollment target pool and must not carry repositories; ignoring them and keeping this host's own repositories. Fix the configuration store (Test-PoolConfiguration.ps1 reports this).",
       "description": "Whole Write-Warning message in test/modules/Test.PoolSync.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -14136,14 +14184,14 @@
       }
     },
     "runner.operator_6a59b18694397dbf": {
-      "message": "pool sync: could not reach the intent store ({intentGitUrl}) ({why}); cycling as a single host.",
+      "message": "pool sync: could not reach the configuration store ({configurationGitUrl}) ({why}); cycling as a single host.",
       "description": "Whole Write-Warning message in test/modules/Test.PoolSync.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "intentGitUrl": {
+        "configurationGitUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "$($pcfg.IntentGitUrl)"
+          "example": "$($pcfg.ConfigurationGitUrl)"
         },
         "why": {
           "type": "detail",
@@ -15934,7 +15982,7 @@
       "lifecycle": "active"
     },
     "runner.operator_7b4a4d46bf482437": {
-      "message": "[outer cycle {cycle}] pool desiredState=paused -- holding; re-checking intent shortly.",
+      "message": "[outer cycle {cycle}] pool configuredState=paused -- holding; re-checking configuration shortly.",
       "description": "Whole Write-Output message in test/modules/Test.RunnerOuterLoop.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -16177,14 +16225,14 @@
       "lifecycle": "active"
     },
     "runner.operator_7d60c40c2ee69f28": {
-      "message": "membership: could not open the intent store ({intentGitUrl}): {error}. NAS records removed; memberships NOT touched.",
+      "message": "membership: could not open the configuration store ({configurationGitUrl}): {error}. NAS records removed; memberships NOT touched.",
       "description": "Whole Write-Warning message in test/pool/Remove-PoolHost.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "intentGitUrl": {
+        "configurationGitUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "$($t.IntentGitUrl)"
+          "example": "$($t.ConfigurationGitUrl)"
         },
         "error": {
           "type": "detail",
@@ -16301,8 +16349,8 @@
       }
     },
     "runner.operator_7dd0aa845d3a93ea": {
-      "message": "No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.",
-      "description": "Whole Write-Error message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "message": "No configuration store URL. Pass -ConfigurationGitUrl or set pool.configurationGitUrl in test.config.yml.",
+      "description": "Whole Write-Error message in test/pool/Test-PoolConfiguration.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
     "runner.operator_7dd6240c15d45471": {
@@ -16668,14 +16716,14 @@
       }
     },
     "runner.operator_811a9975fa1a2df7": {
-      "message": "Open pool intent clone of {intentGitUrl}",
+      "message": "Open pool configuration clone of {configurationGitUrl}",
       "description": "Whole ShouldProcess-prompt message in test/modules/Test.PoolAdmin.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "intentGitUrl": {
+        "configurationGitUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "$IntentGitUrl"
+          "example": "$ConfigurationGitUrl"
         }
       }
     },
@@ -17633,7 +17681,7 @@
       "lifecycle": "tombstone"
     },
     "runner.operator_8a85c0a98b2cb1af": {
-      "message": "[outer cycle {cycle}] pool desiredState=drain -- requesting shutdown at the cycle boundary.",
+      "message": "[outer cycle {cycle}] pool configuredState=drain -- requesting shutdown at the cycle boundary.",
       "description": "Whole Write-OuterLog message in test/modules/Test.RunnerOuterLoop.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -17730,14 +17778,14 @@
       }
     },
     "runner.operator_8b14250671a04bd9": {
-      "message": "  intent repo : {intentPath}",
+      "message": "  configuration repo : {configurationPath}",
       "description": "Whole Write-Output message in test/lab/New-Lab.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "intentPath": {
+        "configurationPath": {
           "type": "detail",
           "trust": "external",
-          "example": "$intentPath"
+          "example": "$configurationPath"
         }
       }
     },
@@ -18156,7 +18204,7 @@
       }
     },
     "runner.operator_8e8fecb6ffc7d3d6": {
-      "message": "test.config.yml not found; pool.intentGitUrl was not seeded. Re-run after Sync-HostConfiguration.ps1 to join the lab pool.",
+      "message": "test.config.yml not found; pool.configurationGitUrl was not seeded. Re-run after Sync-HostConfiguration.ps1 to join the lab pool.",
       "description": "Whole Write-Warning message in test/lab/Set-LabToken.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -18375,14 +18423,14 @@
       }
     },
     "runner.operator_8fcfdcefeec6d978": {
-      "message": "[2/3] pool-intent store seeded at {intentPath}",
+      "message": "[2/3] pool-configuration store seeded at {configurationPath}",
       "description": "Whole Write-Output message in test/lab/New-Lab.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "intentPath": {
+        "configurationPath": {
           "type": "detail",
           "trust": "external",
-          "example": "$intentPath"
+          "example": "$configurationPath"
         }
       }
     },
@@ -18918,7 +18966,7 @@
       "lifecycle": "active"
     },
     "runner.operator_93ef9f12e66f06e9": {
-      "message": "pool.enabled = false and pool.intentGitUrl is empty -- pool intent sync is off (optional). Populate intentGitUrl to pre-validate the store before enabling.",
+      "message": "pool.enabled = false and pool.configurationGitUrl is empty -- pool configuration sync is off (optional). Populate configurationGitUrl to pre-validate the store before enabling.",
       "description": "Whole Write-Info message in test/Test-Config.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -18985,7 +19033,7 @@
     },
     "runner.operator_945821c2fef42ae6": {
       "message": "Pool '{poolId}' not found. Create it first: ./New-Pool.ps1 -PoolId {poolId}",
-      "description": "Whole Write-Error message in the pool-admin CLIs test/pool/Set-PoolRepository.ps1, test/pool/Add-HostToPool.ps1 and test/pool/Set-PoolDesiredState.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "description": "Whole Write-Error message in the pool-admin CLIs test/pool/Set-PoolRepository.ps1, test/pool/Add-HostToPool.ps1 and test/pool/Set-PoolConfiguredState.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "poolId": {
@@ -19736,7 +19784,7 @@
       }
     },
     "runner.operator_9b3ed84eefe28021": {
-      "message": "Chain prereq not found: {name} (referenced via baseline of {sequenceName})",
+      "message": "Chain prerequisite not found: {name} (referenced through resource in {sequenceName})",
       "description": "Whole Write-Error message in test/modules/Test.SequenceRunner.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -20784,14 +20832,14 @@
       }
     },
     "runner.operator_a57aeed80b0cf28a": {
-      "message": "[2/3] pool-intent store already present at {intentPath} ({reason})",
+      "message": "[2/3] pool-configuration store already present at {configurationPath} ({reason})",
       "description": "Whole Write-Output message in test/lab/New-Lab.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "intentPath": {
+        "configurationPath": {
           "type": "detail",
           "trust": "external",
-          "example": "$intentPath"
+          "example": "$configurationPath"
         },
         "reason": {
           "type": "detail",
@@ -21030,7 +21078,7 @@
       "lifecycle": "active"
     },
     "runner.operator_a7d432e9c0cf6e77": {
-      "message": "Pool '{poolId}' already exists (desiredState={desiredState}); left unchanged (-IfMissing).",
+      "message": "Pool '{poolId}' already exists (configuredState={configuredState}); left unchanged (-IfMissing).",
       "description": "Whole Write-Information message in test/pool/New-Pool.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -21039,10 +21087,10 @@
           "trust": "external",
           "example": "$PoolId"
         },
-        "desiredState": {
+        "configuredState": {
           "type": "detail",
           "trust": "external",
-          "example": "$($pool['desiredState'])"
+          "example": "$($pool['configuredState'])"
         }
       }
     },
@@ -21788,7 +21836,7 @@
       "lifecycle": "active"
     },
     "runner.operator_af0aca34836ac8bb": {
-      "message": "pool.enabled is true but pool.intentGitUrl is empty -- the runner cannot pull intent. Set the LAN bare-repo URL. See docs/pool-storage.md.",
+      "message": "pool.enabled is true but pool.configurationGitUrl is empty -- the runner cannot pull configuration. Set the LAN bare-repo URL. See docs/pool-storage.md.",
       "description": "Whole Write-Fail message in test/Test-Config.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -21981,8 +22029,8 @@
       "lifecycle": "active"
     },
     "runner.operator_b11e32378aff0234": {
-      "message": "Pool intent: all files schema-valid.",
-      "description": "Whole Write-Information message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "message": "Pool configuration: all files schema-valid.",
+      "description": "Whole Write-Information message in test/pool/Test-PoolConfiguration.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
     "runner.operator_b12fd41a06f7b780": {
@@ -22559,7 +22607,7 @@
       }
     },
     "runner.operator_b5e4a53c200e2211": {
-      "message": "pool.intentGitUrl pointed at a previous caching-proxy address ({existingUrl}); re-pointing it at {intentUrl}.",
+      "message": "pool.configurationGitUrl pointed at a previous caching-proxy address ({existingUrl}); re-pointing it at {configurationUrl}.",
       "description": "Whole Write-Information message in test/lab/Set-LabToken.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -22568,10 +22616,10 @@
           "trust": "external",
           "example": "$existingUrl"
         },
-        "intentUrl": {
+        "configurationUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "$intentUrl"
+          "example": "$configurationUrl"
         }
       }
     },
@@ -22708,7 +22756,7 @@
       }
     },
     "runner.operator_b752ee38cb8d2c81": {
-      "message": "membership: no pool.intentGitUrl (and no -IntentGitUrl) -- removed the NAS records only; pool memberships were not touched.",
+      "message": "membership: no pool.configurationGitUrl (and no -ConfigurationGitUrl) -- removed the NAS records only; pool memberships were not touched.",
       "description": "Whole Write-Warning message in test/pool/Remove-PoolHost.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -22806,8 +22854,8 @@
       "lifecycle": "active"
     },
     "runner.operator_b85e68a82dd79259": {
-      "message": "Pool intent: {failures} file(s) FAILED validation.",
-      "description": "Whole Write-Warning message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "message": "Pool configuration: {failures} file(s) FAILED validation.",
+      "description": "Whole Write-Warning message in test/pool/Test-PoolConfiguration.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "failures": {
@@ -22869,14 +22917,14 @@
       }
     },
     "runner.operator_b8e126357db609a2": {
-      "message": "Seeded a new pool-intent store at {intentGitUrl}.",
+      "message": "Seeded a new pool-configuration store at {configurationGitUrl}.",
       "description": "Whole Write-Information message in test/pool/New-Pool.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "intentGitUrl": {
+        "configurationGitUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "$($t.IntentGitUrl)"
+          "example": "$($t.ConfigurationGitUrl)"
         }
       }
     },
@@ -24983,7 +25031,7 @@
       "lifecycle": "active"
     },
     "runner.operator_ccfb3b8777922241": {
-      "message": "pool [{plState}]: intent store '{plUrl}'.",
+      "message": "pool [{plState}]: configuration store '{plUrl}'.",
       "description": "Whole Write-Pass message in test/Test-Config.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -25005,7 +25053,7 @@
       "lifecycle": "active"
     },
     "runner.operator_cd4a2a8be6258515": {
-      "message": "pool (intent sync)",
+      "message": "pool (configuration sync)",
       "description": "Whole Write-Section message in test/Test-Config.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -27425,14 +27473,14 @@
       }
     },
     "runner.operator_e178d69f96491585": {
-      "message": "Joined the lab pool: pool.enabled = true, pool.intentGitUrl = {intentUrl}. This host now pulls pool intent read-only each cycle.",
+      "message": "Joined the lab pool: pool.enabled = true, pool.configurationGitUrl = {configurationUrl}. This host now pulls pool configuration read-only each cycle.",
       "description": "Whole Write-Information message in test/lab/Set-LabToken.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
-        "intentUrl": {
+        "configurationUrl": {
           "type": "detail",
           "trust": "external",
-          "example": "$intentUrl"
+          "example": "$configurationUrl"
         }
       }
     },
@@ -27702,7 +27750,7 @@
       }
     },
     "runner.operator_e2e4c1d2a97c7116": {
-      "message": "inner '{name}' is neither a guest sequence (baseline + steps) nor a host action (host:).",
+      "message": "inner '{name}' is neither a guest sequence (resource prerequisites and steps) nor a host action (host:).",
       "description": "Whole display-assignment-$reason message in test/modules/Test.Orchestrator.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -28476,7 +28524,7 @@
       "lifecycle": "active"
     },
     "runner.operator_eb75165c27011726": {
-      "message": "[outer cycle {cycle}] pool desiredState=drain -- stopping (no further cycles).",
+      "message": "[outer cycle {cycle}] pool configuredState=drain -- stopping (no further cycles).",
       "description": "Whole Write-Output message in test/modules/Test.RunnerOuterLoop.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -28506,7 +28554,7 @@
     },
     "runner.operator_eb9468440861e598": {
       "message": "PASS  member-uniqueness: no host is in more than one pool.",
-      "description": "Whole Write-Information message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "description": "Whole Write-Information message in test/pool/Test-PoolConfiguration.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
     "runner.operator_eb97d7107fd767ed": {
@@ -29105,7 +29153,7 @@
       }
     },
     "runner.operator_efd4f169b13d993c": {
-      "message": "Commit + push pool intent: {message}",
+      "message": "Commit + push pool configuration: {message}",
       "description": "Whole ShouldProcess-prompt message in test/modules/Test.PoolAdmin.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -29713,7 +29761,7 @@
     },
     "runner.operator_f4ce3623f58ca8ac": {
       "message": "PASS  target-pool-no-repositories: '{targetPoolId}' carries no repositories.",
-      "description": "Whole Write-Information message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "description": "Whole Write-Information message in test/pool/Test-PoolConfiguration.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "targetPoolId": {
@@ -30328,7 +30376,7 @@
       }
     },
     "runner.operator_fac625745e7555e3": {
-      "message": "Set-RunnerState: '{fromState}' -> '{to}' is not in the canonical adjacency map; recording anyway so the drift is visible.",
+      "message": "Set-RunnerState: '{fromState}' -> '{to}' is not in the canonical adjacency map; recording anyway so the unexpected transition is visible.",
       "description": "Whole Write-Warning message in test/modules/Test.RunnerState.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -30603,7 +30651,7 @@
     },
     "runner.operator_fe2c5d57673db03c": {
       "message": "FAIL  member-uniqueness: host {h} is in both '{h2}' and '{thisPool}' (a host belongs to at most one pool).",
-      "description": "Whole Write-Warning message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+      "description": "Whole Write-Warning message in test/pool/Test-PoolConfiguration.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "h": {
@@ -30687,7 +30735,7 @@
       }
     },
     "runner.operator_fe92e0ad4340efe9": {
-      "message": "Pool {poolId} [{else}] ({else2})  desiredState={run}",
+      "message": "Pool {poolId} [{else}] ({else2})  configuredState={run}",
       "description": "Whole Write-Information message in test/pool/Get-PoolStatus.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -30709,7 +30757,7 @@
         "run": {
           "type": "detail",
           "trust": "external",
-          "example": "$(if ($p['desiredState']) { $p['desiredState'] } else { 'run' })"
+          "example": "$(if ($p['configuredState']) { $p['configuredState'] } else { 'run' })"
         }
       }
     },
@@ -30918,6 +30966,11 @@
         }
       }
     },
+    "runner.outer_attempt_failed": {
+      "message": "runner attempt failed",
+      "description": "Runner attempt failure notification; configuration rejection precedes a new test cycle.",
+      "lifecycle": "active"
+    },
     "runner.outer_log_runtime_dir_unset": {
       "message": "Write-OuterLog: YURUNA_RUNTIME_DIR is not set, so outer.log cannot be located; this line and later lines are not written to it: {message}",
       "description": "Write-Warning in test/modules/Test.OuterLog.psm1, emitted once per process when Write-OuterLog runs without a runtime directory; preserve the command name and the environment variable name.",
@@ -30930,14 +30983,14 @@
         }
       }
     },
-    "runner.pool_intent_library_removed": {
-      "message": "Removed test-sets.yml from the intent store; nothing reads it.",
-      "description": "Whole Write-Information message in test/pool/Update-PoolIntentSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
+    "runner.pool_configuration_library_removed": {
+      "message": "Removed test-sets.yml from the configuration store; nothing reads it.",
+      "description": "Whole Write-Information message in test/pool/Update-PoolConfigurationSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
-    "runner.pool_intent_schema_already_current": {
-      "message": "Pool intent is already at schemaVersion {version}; nothing to migrate.",
-      "description": "Whole Write-Information message in test/pool/Update-PoolIntentSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
+    "runner.pool_configuration_schema_already_current": {
+      "message": "Pool configuration is already at schemaVersion {version}; nothing to migrate.",
+      "description": "Whole Write-Information message in test/pool/Update-PoolConfigurationSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "version": {
@@ -30947,9 +31000,9 @@
         }
       }
     },
-    "runner.pool_intent_schema_migrated": {
-      "message": "Pool intent migrated from schemaVersion {from} to {to}, committed and pushed.",
-      "description": "Whole Write-Information message in test/pool/Update-PoolIntentSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
+    "runner.pool_configuration_schema_migrated": {
+      "message": "Pool configuration migrated from schemaVersion {from} to {to}, committed and pushed.",
+      "description": "Whole Write-Information message in test/pool/Update-PoolConfigurationSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "from": {
@@ -30964,9 +31017,9 @@
         }
       }
     },
-    "runner.pool_intent_schema_outdated": {
-      "message": "FAIL  schema-version: pools.yml is schemaVersion {found}, but this checkout reads schemaVersion {expected}. Run test/pool/Update-PoolIntentSchema.ps1 once to migrate the intent store.",
-      "description": "Whole Write-Warning message in test/pool/Test-PoolIntent.ps1; preserve command names, paths, codes, and argument boundaries.",
+    "runner.pool_configuration_schema_outdated": {
+      "message": "FAIL  schema-version: pools.yml is schemaVersion {found}, but this checkout reads schemaVersion {expected}. Run test/pool/Update-PoolConfigurationSchema.ps1 once to migrate the configuration store.",
+      "description": "Whole Write-Warning message in test/pool/Test-PoolConfiguration.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "found": {
@@ -30981,9 +31034,9 @@
         }
       }
     },
-    "runner.pool_intent_schema_unsupported": {
-      "message": "pools.yml is schemaVersion {version}, which is newer than this checkout reads ({expected}). Update this checkout before changing pool intent.",
-      "description": "Whole Write-Error message in test/pool/Update-PoolIntentSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
+    "runner.pool_configuration_schema_unsupported": {
+      "message": "pools.yml is schemaVersion {version}, which is newer than this checkout reads ({expected}). Update this checkout before changing pool configuration.",
+      "description": "Whole Write-Error message in test/pool/Update-PoolConfigurationSchema.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
         "version": {
@@ -32547,6 +32600,77 @@
         "failClass": { "type": "token", "trust": "internal", "example": "bootstrap_sync" },
         "attempt": { "type": "integer", "trust": "internal", "example": "1" }
       }
+    },
+    "runner.mc7190c5d2b": {
+      "message": "stopVm: requested a guest shutdown of '{vMName}'; waiting up to {timeoutSeconds}s for the host to report it stopped.",
+      "description": "Whole Write-Information message in test/modules/Test.SequenceHandler.psm1 (stopVm); preserve the verb name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": { "type": "detail", "trust": "external", "example": "test-guest.ubuntu.server.26-01" },
+        "timeoutSeconds": { "type": "integer", "trust": "internal", "example": "120" }
+      }
+    },
+    "runner.m1ff7f8f2d1": {
+      "message": "{action}: '{vMName}' was still '{observedState}' after {waitedSeconds}s. The console frame, OCR text, and hypervisor counters at that moment are recorded; see causeDetail.vmState in last_failure.json.",
+      "description": "Whole Write-Warning message in test/modules/Test.SequenceHandler.psm1 (Save-VmNotStoppedEvidence). action is a verb name, observedState a host state token; both stay untranslated, as do the field name causeDetail.vmState and the file name last_failure.json.",
+      "lifecycle": "active",
+      "placeholders": {
+        "action": { "type": "token", "trust": "internal", "example": "startVm" },
+        "vMName": { "type": "detail", "trust": "external", "example": "test-guest.ubuntu.server.26-01" },
+        "observedState": { "type": "token", "trust": "internal", "example": "running" },
+        "waitedSeconds": { "type": "integer", "trust": "internal", "example": "180" }
+      }
+    },
+    "runner.mb985d466db": {
+      "message": "stopVm: forcing '{vMName}' off after the guest ignored the shutdown request for {waitedSeconds}s; the cycle continues in a degraded mode.",
+      "description": "Whole Write-Warning message in test/modules/Test.SequenceHandler.psm1 (stopVm, forceOnTimeout); preserve the verb name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": { "type": "detail", "trust": "external", "example": "test-guest.ubuntu.server.26-01" },
+        "waitedSeconds": { "type": "integer", "trust": "internal", "example": "120" }
+      }
+    },
+    "runner.maa7a51f878": {
+      "message": "stopVm: '{vMName}' could not be forced off after it ignored the shutdown request; the step fails.",
+      "description": "Whole Write-Warning message in test/modules/Test.SequenceHandler.psm1 (stopVm); preserve the verb name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": { "type": "detail", "trust": "external", "example": "test-guest.ubuntu.server.26-01" }
+      }
+    },
+    "runner.m38857d4ae5": {
+      "message": "{action}: the console of '{vMName}' did not change within {seconds}s after typing; the keystrokes were not acknowledged.",
+      "description": "Whole Write-Warning message in test/modules/Test.SequenceHandler.psm1 (inputTextAndEnter, acknowledgeWithinSeconds). action is a verb name and stays untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "action": { "type": "token", "trust": "internal", "example": "inputTextAndEnter" },
+        "vMName": { "type": "detail", "trust": "external", "example": "test-guest.ubuntu.server.26-01" },
+        "seconds": { "type": "integer", "trust": "internal", "example": "20" }
+      }
+    },
+    "runner.mf99bdf2253": {
+      "message": "Guest '{vMName}' first went silent at {sinceUtc} ({source}); later failures in this sequence may stem from it.",
+      "description": "Whole Write-Information message in test/modules/Test.SequenceHandler.psm1 (Set-GuestSilenceMarker). source is a verb-qualified reason and stays untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": { "type": "detail", "trust": "external", "example": "test-guest.ubuntu.server.26-01" },
+        "sinceUtc": { "type": "detail", "trust": "internal", "example": "2026-10-12T21:53:53Z" },
+        "source": { "type": "detail", "trust": "internal", "example": "sshExec: transport dropped mid-command" }
+      }
+    },
+    "runner.m60d80be676": {
+      "message": "Serial console log saved: {cycleBase}/{destSeqName}/serial-console.log",
+      "description": "Cycle-log line in test/modules/Test.RunnerInnerLoop.psm1 after the guest serial console capture is copied into the failure folder; the path is relative to the status log root.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycleBase": { "type": "detail", "trust": "external", "example": "000498.2026-10-12.21-37-15.42076a79abbb492e9d3a4cb06a7c5405" },
+        "destSeqName": { "type": "detail", "trust": "external", "example": "test-guest.ubuntu.server.26-01" }
+      }
+    },
+    "runner.ma32a33811f": {
+      "message": "Request a guest shutdown through the host driver and wait for the VM to report stopped",
+      "description": "Verb description registered for stopVm in test/modules/Test.SequenceHandler.psm1, shown beside the step in status surfaces.",
+      "lifecycle": "active"
     }
   }
 }

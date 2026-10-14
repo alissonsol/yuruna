@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42a44cb3-b163-4c40-bb54-44dd8119924a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,18 +50,18 @@ $script:LookupDoc = [ordered]@{ schemaVersion = 1; pools = @(
 
 Describe 'Test-YurunaPoolDocValid (schema validation)' {
     It 'accepts a valid pools doc' {
-        $doc = [ordered]@{ schemaVersion = 3; pools = @(
-            [ordered]@{ poolId = 'lab'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; members = @('42abcdef0123456789abcdef01234567'); desiredState = 'run' }
+        $doc = [ordered]@{ schemaVersion = 4; pools = @(
+            [ordered]@{ poolId = 'lab'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; members = @('42abcdef0123456789abcdef01234567'); configuredState = 'run' }
         ) }
         $r = Test-YurunaPoolDocValid -Doc $doc -SchemaName 'pools.schema.yml'
         Assert-True $r.Ok "valid doc should pass: $($r.Errors -join '; ')"
     }
-    It 'rejects a bad poolId and an unknown desiredState' {
-        $bad = [ordered]@{ schemaVersion = 3; pools = @([ordered]@{ poolId = 'NOT VALID'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; desiredState = 'banana' }) }
+    It 'rejects a bad poolId and an unknown configuredState' {
+        $bad = [ordered]@{ schemaVersion = 4; pools = @([ordered]@{ poolId = 'NOT VALID'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; configuredState = 'banana' }) }
         $r = Test-YurunaPoolDocValid -Doc $bad -SchemaName 'pools.schema.yml'
         # Only assert when Test-Json is present (older PS degrades to parse-only Ok).
         if (Get-Command Test-Json -ErrorAction SilentlyContinue) {
-            Assert-False $r.Ok 'bad poolId / desiredState must fail'
+            Assert-False $r.Ok 'bad poolId / configuredState must fail'
         }
     }
     It 'rejects a missing required field (schemaVersion)' {
@@ -71,28 +71,32 @@ Describe 'Test-YurunaPoolDocValid (schema validation)' {
             Assert-False $r.Ok 'missing schemaVersion must fail'
         }
     }
-    It 'validates a v3 pool doc with a repositories pair' {
-        $good = [ordered]@{ schemaVersion = 3; pools = @([ordered]@{
+    It 'validates a v4 pool doc with a repositories pair' {
+        $good = [ordered]@{ schemaVersion = 4; pools = @([ordered]@{
             poolId = 'lab'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'
             members = @(); repositories = [ordered]@{ frameworkUrl = 'https://x/f'; projectUrl = 'https://x/p' }
         }) }
         $r = Test-YurunaPoolDocValid -Doc $good -SchemaName 'pools.schema.yml'
-        Assert-True $r.Ok "valid v3 pool should pass: $($r.Errors -join '; ')"
+        Assert-True $r.Ok "valid v4 pool should pass: $($r.Errors -join '; ')"
     }
-    It 'rejects a v3 pool doc with a testSet, a half pair, an empty URL or schemaVersion 2' {
+    It 'rejects a v4 pool doc with a testSet, a half pair, an empty URL or schemaVersion 2' {
         if (-not (Get-Command Test-Json -ErrorAction SilentlyContinue)) { return }
         $guid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'
         $badPools = [ordered]@{
             'testSet'        = [ordered]@{ poolId = 'lab'; poolGuid = $guid; testSet = [ordered]@{ name = 'p'; frameworkUrl = 'https://x/f'; projectUrl = 'https://x/p' } }
             'half pair'      = [ordered]@{ poolId = 'lab'; poolGuid = $guid; repositories = [ordered]@{ frameworkUrl = 'https://x/f' } }
             'empty URL'      = [ordered]@{ poolId = 'lab'; poolGuid = $guid; repositories = [ordered]@{ frameworkUrl = 'https://x/f'; projectUrl = '' } }
+            'legacy state'   = [ordered]@{ poolId = 'lab'; poolGuid = $guid; desiredState = 'paused' }
+            'dual state'     = [ordered]@{ poolId = 'lab'; poolGuid = $guid; desiredState = 'paused'; configuredState = 'paused' }
             'extra property' = [ordered]@{ poolId = 'lab'; poolGuid = $guid; repositories = [ordered]@{ name = 'p'; frameworkUrl = 'https://x/f'; projectUrl = 'https://x/p' } }
         }
         foreach ($name in @($badPools.Keys)) {
-            $bad = [ordered]@{ schemaVersion = 3; pools = @($badPools[$name]) }
+            $bad = [ordered]@{ schemaVersion = 4; pools = @($badPools[$name]) }
             Assert-False (Test-YurunaPoolDocValid -Doc $bad -SchemaName 'pools.schema.yml').Ok "$name must fail"
         }
-        Assert-False (Test-YurunaPoolDocValid -Doc ([ordered]@{ schemaVersion = 2; pools = @() }) -SchemaName 'pools.schema.yml').Ok 'schemaVersion 2 must fail'
+        foreach ($version in @(2, 3)) {
+            Assert-False (Test-YurunaPoolDocValid -Doc ([ordered]@{ schemaVersion = $version; pools = @() }) -SchemaName 'pools.schema.yml').Ok "schemaVersion $version must fail"
+        }
     }
 }
 
@@ -100,18 +104,18 @@ Describe 'Read-YurunaPoolsDoc (default-empty)' {
     It 'returns a fresh empty doc when pools.yml is absent' {
         $d = New-TempDir
         try {
-            $doc = Read-YurunaPoolsDoc -IntentDir $d
-            Assert-Equal -Expected 3 -Actual $doc['schemaVersion'] -Because 'default schemaVersion'
+            $doc = Read-YurunaPoolsDoc -ConfigurationDir $d
+            Assert-Equal -Expected 4 -Actual $doc['schemaVersion'] -Because 'default schemaVersion'
             Assert-Equal -Expected 0 -Actual @($doc['pools']).Count -Because 'default empty pools'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'round-trips a written pools.yml' {
         $d = New-TempDir
         try {
-            $doc = [ordered]@{ schemaVersion = 1; pools = @([ordered]@{ poolId = 'lab'; members = @(); desiredState = 'run' }) }
+            $doc = [ordered]@{ schemaVersion = 1; pools = @([ordered]@{ poolId = 'lab'; members = @(); configuredState = 'run' }) }
             $yaml = ConvertTo-Yaml $doc
             [System.IO.File]::WriteAllText((Join-Path $d 'pools.yml'), $yaml, [System.Text.UTF8Encoding]::new($false))
-            $back = Read-YurunaPoolsDoc -IntentDir $d
+            $back = Read-YurunaPoolsDoc -ConfigurationDir $d
             Assert-Equal -Expected 'lab' -Actual (Get-YurunaPoolFromDoc -Doc $back -PoolId 'lab').poolId -Because 'lab present after round-trip'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
@@ -123,10 +127,10 @@ Describe 'Get-YurunaPoolFromDoc (lookup by id)' {
 }
 
 Describe 'Resolve-YurunaPoolAdminTarget (defaults)' {
-    It 'defaults IntentDir under the runtime dir' {
-        $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl 'http://p/i.git' -IntentDir ''
-        Assert-Equal -Expected 'http://p/i.git' -Actual $t.IntentGitUrl -Because 'url passthrough'
-        Assert-True ($t.IntentDir -match 'pool-intent-admin$') 'default clone dir'
+    It 'defaults ConfigurationDir under the runtime dir' {
+        $t = Resolve-YurunaPoolAdminTarget -ConfigurationGitUrl 'http://p/i.git' -ConfigurationDir ''
+        Assert-Equal -Expected 'http://p/i.git' -Actual $t.ConfigurationGitUrl -Because 'url passthrough'
+        Assert-True ($t.ConfigurationDir -match 'pool-configuration-admin$') 'default clone dir'
     }
 }
 
@@ -157,28 +161,27 @@ Describe 'ConvertTo-YurunaHostId (operator input normalization)' {
     }
 }
 
-Describe 'Initialize-YurunaPoolIntentStorePath (seed a writable store that was never created)' {
+Describe 'Initialize-YurunaPoolConfigurationStorePath (seed a writable store that was never created)' {
     It 'seeds a bare store at a local path that carries none' {
         $work = New-TempDir
         try {
-            $store = Join-Path $work 'pool-intent.git'
-            $r = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $store -Confirm:$false
+            $store = Join-Path $work 'pool-configuration.git'
+            $r = Initialize-YurunaPoolConfigurationStorePath -ConfigurationGitUrl $store -Confirm:$false
             Assert-True $r.Ok 'reports success'
             Assert-True $r.Created 'created the store'
             Assert-True (Test-Path -LiteralPath (Join-Path $store 'refs')) 'a bare repository is on disk'
-            # The seeded pools.yml is what makes the store openable AND writable:
-            # a store seeded at an older schemaVersion reads fine and fails every write.
+            # A fresh store starts with the current writable schema.
             $doc = & git -C $store show 'main:pools.yml' 2>$null
-            Assert-True ("$doc" -match 'schemaVersion:\s*3') 'seeded at schemaVersion 3'
+            Assert-True ("$doc" -match 'schemaVersion:\s*4') 'seeded at schemaVersion 4'
         } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'leaves an existing store untouched' {
         $work = New-TempDir
         try {
-            $store = Join-Path $work 'pool-intent.git'
-            $null = New-YurunaPoolIntentStore -Path $store -Confirm:$false
+            $store = Join-Path $work 'pool-configuration.git'
+            $null = New-YurunaPoolConfigurationStore -Path $store -Confirm:$false
             $before = (& git -C $store rev-parse main 2>$null)
-            $r = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $store -Confirm:$false
+            $r = Initialize-YurunaPoolConfigurationStorePath -ConfigurationGitUrl $store -Confirm:$false
             Assert-True $r.Ok 'reports success'
             Assert-False $r.Created 'did not recreate'
             Assert-Equal -Expected "$before" -Actual "$(& git -C $store rev-parse main 2>$null)" -Because 'history preserved'
@@ -187,23 +190,23 @@ Describe 'Initialize-YurunaPoolIntentStorePath (seed a writable store that was n
     It 'never tries to create a remote the host does not own' {
         # Ok WITHOUT Created: the caller proceeds to its own clone, whose failure is
         # the honest report for a remote this side cannot reach.
-        foreach ($remote in @('http://proxy/pool-intent.git', 'https://git.example.com/team/intent.git',
-                              'ssh://git@example/pool-intent.git', 'git@github.com:owner/intent.git')) {
-            $r = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $remote -Confirm:$false
+        foreach ($remote in @('http://proxy/pool-configuration.git', 'https://git.example.com/team/configuration.git',
+                              'ssh://git@example/pool-configuration.git', 'git@github.com:owner/configuration.git')) {
+            $r = Initialize-YurunaPoolConfigurationStorePath -ConfigurationGitUrl $remote -Confirm:$false
             Assert-True  $r.Ok      "remote tolerated: $remote"
             Assert-False $r.Created "nothing created for: $remote"
         }
     }
     It 'reports a blank url rather than seeding somewhere unintended' {
-        $r = Initialize-YurunaPoolIntentStorePath -IntentGitUrl '   ' -Confirm:$false
+        $r = Initialize-YurunaPoolConfigurationStorePath -ConfigurationGitUrl '   ' -Confirm:$false
         Assert-False $r.Ok 'a blank target is not a store'
         Assert-False $r.Created 'nothing created'
     }
     It 'honors -WhatIf' {
         $work = New-TempDir
         try {
-            $store = Join-Path $work 'pool-intent.git'
-            $r = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $store -WhatIf
+            $store = Join-Path $work 'pool-configuration.git'
+            $r = Initialize-YurunaPoolConfigurationStorePath -ConfigurationGitUrl $store -WhatIf
             Assert-False $r.Created 'a preview creates nothing'
             Assert-False (Test-Path -LiteralPath $store) 'nothing on disk'
         } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }

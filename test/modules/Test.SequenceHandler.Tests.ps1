@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -275,11 +275,36 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
             Assert-True $restarted 'a fully confirmed stop/start/console path must succeed'
             Assert-Equal -Expected 'stop,start,console,ring' -Actual ($script:coldRestartCall -join ',') `
                 -Because 'cold recovery order is stop, start, fresh console, fresh screenshot ring'
+
+            # An unfinished install restarts from the installer DVD, chosen
+            # while the guest is stopped; the restart requires that choice.
+            $script:coldRestartCall.Clear()
+            Assert-True (-not (Invoke-Arm64HyperVColdPowerCycle -Context @{ VMName = 'test-vm' } -BootInstallerMedia)) `
+                'a host without Set-VMInstallerMediaFirstBoot must refuse an installer-media restart'
+            Assert-Equal -Expected '' -Actual ($script:coldRestartCall -join ',') `
+                -Because 'the capability check must run before the VM is touched'
+            $script:installerBootResult = $true
+            Set-Item -LiteralPath Function:\Set-VMInstallerMediaFirstBoot -Value {
+                param([string]$VMName, [switch]$Confirm)
+                $null = $VMName, $Confirm
+                $script:coldRestartCall.Add('dvd'); return $script:installerBootResult
+            }
+            Assert-True (Invoke-Arm64HyperVColdPowerCycle -Context @{ VMName = 'test-vm' } -BootInstallerMedia) `
+                'an installer-media restart must succeed when the DVD is selected'
+            Assert-Equal -Expected 'stop,dvd,start,console,ring' -Actual ($script:coldRestartCall -join ',') `
+                -Because 'the boot device is chosen after the stop is confirmed and before the start'
+            $script:coldRestartCall.Clear()
+            $script:installerBootResult = $false
+            Assert-True (-not (Invoke-Arm64HyperVColdPowerCycle -Context @{ VMName = 'test-vm' } -BootInstallerMedia)) `
+                'an unselectable installer DVD must fail the restart'
+            Assert-Equal -Expected 'stop,dvd' -Actual ($script:coldRestartCall -join ',') `
+                -Because 'the guest must not start into a target that lacks its late-commands'
         } finally {
-            foreach ($functionName in 'Get-VMState', 'Stop-VMForce', 'Start-VM', 'Restart-VMConsole', 'Repair-ScreenshotRing', 'Invoke-Arm64HyperVColdPowerCycle') {
+            foreach ($functionName in 'Get-VMState', 'Stop-VMForce', 'Start-VM', 'Restart-VMConsole', 'Repair-ScreenshotRing',
+                'Set-VMInstallerMediaFirstBoot', 'Invoke-Arm64HyperVColdPowerCycle') {
                 Remove-Item -LiteralPath "Function:\$functionName" -ErrorAction SilentlyContinue
             }
-            Remove-Variable -Name coldRestartCall -Scope Script -ErrorAction SilentlyContinue
+            Remove-Variable -Name coldRestartCall, installerBootResult -Scope Script -ErrorAction SilentlyContinue
         }
 
         # Capability preflight must walk the recovery-only branch too. Exercise
@@ -360,9 +385,9 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
         }
         Set-Item -LiteralPath Function:\Test-Arm64HyperVColdPowerCycleMode -Value { return $true }
         Set-Item -LiteralPath Function:\Invoke-Arm64HyperVColdPowerCycle -Value {
-            param([hashtable]$Context)
+            param([hashtable]$Context, [switch]$BootInstallerMedia)
             $null = $Context
-            $script:retryCall.Add('cold'); return $true
+            $script:retryCall.Add($(if ($BootInstallerMedia) { 'cold-dvd' } else { 'cold' })); return $true
         }
         Set-Item -LiteralPath Function:\Get-SequenceAction -Value {
             param([string]$Name)
@@ -377,6 +402,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
         }
         Set-Item -LiteralPath Function:\Send-CycleEventSafely -Value { param($EventRecord) $null = $EventRecord }
         $script:failWithPattern = $false
+        $script:failOcrTail = $null
         $invokeStepBlock = {
             param($Steps, $ParentOrdinal, $ParentAction, $ParentAttempt)
             $null = $ParentOrdinal, $ParentAction, $ParentAttempt
@@ -392,6 +418,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
                 $script:Fail.LastFailedAction = 'waitForTextWithNudge'
                 $script:Fail.LastFailureLabel = 'login wait'
                 $script:Fail.WaitForTextMatchedFailurePattern = $script:failWithPattern ? 'install_fail.crash' : $null
+                $script:Fail.WaitForTextOcrTail = $script:failOcrTail
                 return $false
             }
             return $true
@@ -426,6 +453,16 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
             Assert-True (-not (& $retryHandler $retryContext)) 'two matched installer failures must exhaust the retry'
             Assert-Equal -Expected 'attempt,attempt' -Actual ($script:retryCall -join ',') `
                 -Because 'an explicit installer failure must never power-cycle the VM'
+
+            # A login wait that timed out with the live installer still on
+            # screen must restart from the installer DVD, OCR's g-for-q included.
+            $script:retryCall.Clear()
+            $script:failWithPattern = $false
+            $script:Fail.WaitForTextMatchedFailurePattern = $null
+            $script:failOcrTail = "finish: subiguity/Install/install/postinstall/install_console-setup`nstart: subiquity/Network/_send_update: CHANGE eth0"
+            Assert-True (& $retryHandler $retryContext) 'the attempt after an installer-media restart should pass'
+            Assert-Equal -Expected 'attempt,cold-dvd,recovery,attempt' -Actual ($script:retryCall -join ',') `
+                -Because 'an unfinished install must not boot its partly installed target disk'
         } finally {
             foreach ($functionName in 'Test-Arm64HyperVColdPowerCycleMode', 'Invoke-Arm64HyperVColdPowerCycle',
                 'Get-SequenceAction', 'Get-PollDelay', 'Format-YurunaOperatorMessage', 'Send-CycleEventSafely') {
@@ -433,7 +470,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
             }
             $env:YURUNA_RUNTIME_DIR = $savedRuntimeDir
             Remove-Item -LiteralPath $runtimeFixture -Recurse -Force -ErrorAction SilentlyContinue
-            Remove-Variable -Name retryCall, failWithPattern, recoverySteps -Scope Script -ErrorAction SilentlyContinue
+            Remove-Variable -Name retryCall, failWithPattern, failOcrTail, recoverySteps -Scope Script -ErrorAction SilentlyContinue
             if ($savedFailVariable) { $script:Fail = $savedFailValue }
             else { Remove-Variable -Name Fail -Scope Script -ErrorAction SilentlyContinue }
         }
@@ -768,5 +805,116 @@ Describe 'ARM64 Hyper-V login-wait recovery ends a livelocked wait early' {
         $context.Step.Remove('endWaitOnGuestLivelock')
         $p = & $script:loginHandlerModule { param($c) Resolve-WaitForTextStepParam -Context $c } $context
         $p.livelockExit.Count | Should -Be 0
+    }
+}
+
+Describe 'stopVm requests the shutdown through the host and observes it' {
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking -Global
+        $script:stopStub = @{ State = 'running'; StopAfterRequest = $false; Calls = [Collections.Generic.List[string]]::new() }
+        # Dot-sourced into the module so the stubs shadow the host contract for
+        # this module only and die with it in AfterAll; a global stub would
+        # outlive the file in the shared runspace.
+        . (Get-Module Test.SequenceHandler) {
+            function Get-VMState {
+                param([string]$VMName)
+                $null = $VMName
+                return $script:StopStub.State
+            }
+            function Stop-VM {
+                [CmdletBinding(SupportsShouldProcess)]
+                param([string]$VMName, [switch]$Force, [int]$ShutdownTimeoutSeconds, [switch]$NoForce)
+                if (-not $PSCmdlet.ShouldProcess($VMName, 'stub shutdown request')) { return $false }
+                $null = $ShutdownTimeoutSeconds
+                $call = 'stop'
+                if ($Force) { $call = 'stop-force' } elseif ($NoForce) { $call = 'stop-noforce' }
+                $script:StopStub.Calls.Add($call)
+                if ($script:StopStub.StopAfterRequest) {
+                    $script:StopStub.State = 'stopped'
+                    return $true
+                }
+                return $false
+            }
+            function Stop-VMForce {
+                [CmdletBinding(SupportsShouldProcess)]
+                param([string]$VMName, [int]$StopTimeoutSeconds)
+                if (-not $PSCmdlet.ShouldProcess($VMName, 'stub forced stop')) { return $false }
+                $null = $StopTimeoutSeconds
+                $script:StopStub.Calls.Add('force')
+                $script:StopStub.State = 'stopped'
+                return $true
+            }
+        }
+        & (Get-Module Test.SequenceHandler) { $script:StopStub = $args[0] } $script:stopStub
+        $script:stopHandler = (Get-SequenceAction -Name stopVm).Handler
+        $script:stopContext = @{
+            Step = @{ timeoutSeconds = 1; frameIntervalSeconds = 0 }
+            StepNum = 15; StepCount = 19; Description = 'Power off after provisioning'
+            VMName = 'test-vm'; HostType = 'host.windows.hyper-v'; GuestKey = 'guest.ubuntu.server.26'
+            LogDir = $TestDrive; ScreenshotDir = $TestDrive
+            ExpandVariable = { param($v) $v }; Vars = @{}
+        }
+    }
+    BeforeEach {
+        $script:stopStub.State = 'running'; $script:stopStub.StopAfterRequest = $false; $script:stopStub.Calls.Clear()
+        $script:stopContext.Step = @{ timeoutSeconds = 1; frameIntervalSeconds = 0 }
+        $state = Get-SequenceFailureState
+        $state.StepVmNotStopped = $null; $state.FirstGuestSilenceUtc = $null; $state.FirstGuestSilenceSource = $null
+    }
+    AfterAll { Remove-Module Test.SequenceHandler -Force }
+
+    It 'is registered as a state-changing verb that times out rather than failing provisioning' {
+        $entry = Get-SequenceAction -Name stopVm
+        $entry.ReplaySafety | Should -BeExactly 'state-changing'
+        $entry.FailureClass | Should -BeExactly 'wait_timeout'
+        $entry.SuggestedRecoveries | Should -Not -Contain 'retry_immediately' -Because 'waiting again for an ignored shutdown changes nothing'
+    }
+    It 'passes once the host reports the VM stopped, without forcing it' {
+        $script:stopStub.StopAfterRequest = $true
+        (& $script:stopHandler $script:stopContext) | Should -BeTrue
+        ($script:stopStub.Calls -join ',') | Should -BeExactly 'stop-noforce'
+        (Get-SequenceFailureState).StepVmNotStopped | Should -BeNullOrEmpty
+    }
+    It 'fails with the observed state when the guest ignores the request and forcing is not allowed' {
+        (& $script:stopHandler $script:stopContext) | Should -BeFalse
+        $script:stopStub.Calls | Should -Not -Contain 'force'
+        $state = Get-SequenceFailureState
+        $state.StepVmNotStopped.observedState | Should -BeExactly 'running'
+        $state.StepVmNotStopped.action | Should -BeExactly 'stopVm'
+        [int]$state.StepVmNotStopped.waitedSeconds | Should -BeGreaterOrEqual 1
+        $state.FirstGuestSilenceUtc | Should -Not -BeNullOrEmpty -Because 'an ignored shutdown is the first sign the guest stopped answering'
+        $state.FirstGuestSilenceSource | Should -Match '^stopVm:'
+    }
+    It 'records the evidence, forces the VM off, and continues when forceOnTimeout is set' {
+        $script:stopContext.Step.forceOnTimeout = $true
+        (& $script:stopHandler $script:stopContext) | Should -BeTrue
+        ($script:stopStub.Calls -join ',') | Should -BeExactly 'stop-noforce,force'
+        $state = Get-SequenceFailureState
+        $state.StepVmNotStopped | Should -BeNullOrEmpty -Because 'a later failure must not be attributed to a wait that was resolved'
+        $state.FirstGuestSilenceUtc | Should -Not -BeNullOrEmpty -Because 'the silence marker outlives the forced recovery'
+    }
+    It 'passes at once for a VM that is already stopped' {
+        $script:stopStub.State = 'stopped'
+        (& $script:stopHandler $script:stopContext) | Should -BeTrue
+        $script:stopStub.Calls.Count | Should -Be 0
+    }
+}
+
+Describe 'startVm and inputTextAndEnter leave evidence when the guest goes quiet' {
+    It 'startVm observes the stopped boundary through the shared wait and records a timeout as not stopped' {
+        $h = Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'startVm'
+        $h.Extent.Text | Should -Match 'Wait-VmStopped' -Because 'the wait captures console frames while it runs'
+        $h.Extent.Text | Should -Match 'Save-VmNotStoppedEvidence' -Because 'a guest that never stops must leave its state, frame and counters behind'
+        $h.Extent.Text | Should -Match 'Set-HyperVArm64LinuxGuestProcessorCount'
+    }
+    It 'inputTextAndEnter can require the console to acknowledge what was typed' {
+        $h = Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'inputTextAndEnter'
+        $h.Extent.Text | Should -Match 'acknowledgeWithinSeconds'
+        $h.Extent.Text | Should -Match 'StepInputLost\s*=\s*\$true' -Because 'an unacknowledged command is an input_lost failure, not a pass'
+        $h.Extent.Text | Should -Match 'Set-GuestSilenceMarker'
+    }
+    It 'sshExec marks the first silence when its transport drops mid-command' {
+        $h = Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'sshExec'
+        $h.Extent.Text | Should -Match 'transportLost[\s\S]*Set-GuestSilenceMarker'
     }
 }

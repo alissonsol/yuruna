@@ -3,6 +3,14 @@
   "domain": "runner",
   "locale": "pt-BR",
   "messages": {
+    "runner.config_gate_attempt_failed": {
+      "sourceHash": "dfe83cd8b5988a985ad32d3947c60f072b424ac48d11494c12c7912154e72816",
+      "message": "A tentativa do executor terminou com código {exitCode} porque a validação da configuração falhou. Nenhum novo ciclo de testes foi iniciado. Corrija a configuração antes de tentar novamente."
+    },
+    "runner.config_naming_backup": {
+      "sourceHash": "09b1dd67cd409cdf44458eb072bee871b6590426666cf45beaf0244417b75b5e",
+      "message": "Fazer backup da configuração em {backupPath}"
+    },
     "runner.fetch_context_rejected": {
       "sourceHash": "4d72d0fd8e41a1db46ac72b1b63d68a05b1022aab9c11f7c03567b39bd7cf298",
       "origin": "machine",
@@ -32,6 +40,10 @@
         }
       }
     },
+    "runner.gate_evidence_save_failed": {
+      "sourceHash": "3f8d00fb4def0ebce10f1f38700416336edbdd4de79f4c845d6a759cf69ed1c5",
+      "message": "Não foi possível salvar as evidências da verificação de configuração: {detail}"
+    },
     "runner.git_recovery_command": {
       "sourceHash": "598ba54b325537706364840fa3f8b33c827c530d1758c98ef59e10cdec5087e1",
       "message": "Recuperar com: git -C '{repoRoot}' checkout --theirs . ; git -C '{repoRoot}' reset --hard '{upstreamReference}' (edições locais permanecem na lista git stash)."
@@ -44,13 +56,18 @@
       "sourceHash": "e01154f04568354cdbbd051101b64cf7b8d4a4112377e9c1434e18ca02279818",
       "message": "Diagnósticos do hospedeiro cronometraram após 120s; veja a amostra anterior do hospedeiro."
     },
+    "runner.inner_attempt_exited": {
+      "sourceHash": "86fede6ea88da6e5509574193d72af08ced078a965988a82ce34ffdc1ada71d3",
+      "message": "A tentativa do executor terminou com código {exitCode} antes de informar um resultado de ciclo. Revise os logs do executor antes de tentar novamente."
+    },
     "runner.inner_guest_folder_missing": {
       "sourceHash": "c6c674f34837f918c6d93cf581dddc08f74b8ed28a065412eeb5e2fb3e124955",
       "message": "A pasta de visitas não foi encontrada para '{guest}' no {host} (inner '{name}')."
     },
-    "runner.inner_sequence_baseline_missing": {
-      "sourceHash": "30a7fc42f30b4be9b6d3583c17fd2fea80978372dfcda9b2850c20764c205fa0",
-      "message": "Sequência interna '{name}' não tem 'baseline:' chave OS; não uma sequência de convidado executável."
+    "runner.inner_sequence_resource_missing": {
+      "sourceHash": "f1cb60b8d73e061271a9bc5bb44e11976d8473e19fa7d89014d3ae4f62921ac1",
+      "message": "A sequência interna '{name}' não tem uma chave de sistema operacional em 'resource:'; não é uma sequência executável de convidado.",
+      "origin": "machine"
     },
     "runner.mac_automation_utm_title": {
       "sourceHash": "257fdbdb09b6e49e2c06f2971c87f361435ad42a31487e4a4a66fb9d78accf80",
@@ -297,8 +314,9 @@
       "message": "o invólucro de sudo compartilhado não está disponível nesta sessão."
     },
     "runner.operator_051583e964e5ccb5": {
-      "sourceHash": "376a52ab747efe0e5789e6497e27b63394fc9a1c9fe379cb190ed6e00429d94c",
-      "message": "o repositório de intenção de pool sob a raiz de armazenamento são deixados exatamente como são;"
+      "sourceHash": "eca8a53405f77221ee1ec1bb9bd189cfb41430202a3d0caa2afca04cafe8f6c1",
+      "message": "o repositório pool-configuration sob a raiz de armazenamento permanecem exatamente como estão;",
+      "origin": "machine"
     },
     "runner.operator_051a02c281a0d2b2": {
       "sourceHash": "acd0111096377fe5bc0403ce14b36992709ee29e1381f93ba64fa805ff725e54",
@@ -773,8 +791,9 @@
       "message": "Deficiência esperada: {value}"
     },
     "runner.operator_11155c290bdca317": {
-      "sourceHash": "636a5599926efe6054345a19ade9f4b20c2a58b0eb98e0d7a2d533ddda340894",
-      "message": "bloco de grupo não presente -- sincronia de intenção de grupo está desligada (opcional)."
+      "sourceHash": "0a85278dceb9b11dc32d5b425a48428af6e0bb34abd50944c775c0aff42c0142",
+      "message": "O bloco pool não está presente -- a sincronização da configuração do grupo está desativada (opcional).",
+      "origin": "machine"
     },
     "runner.operator_112839be6c0da628": {
       "sourceHash": "109d2be9f84dd6ffca16ae59f7c903b78ff54dd6efb4bad7a9af7c6259fe7a78",
@@ -1266,8 +1285,9 @@
       "message": "Send-YurunaNotification falhou: {value}"
     },
     "runner.operator_1d0efcf0a84c0f0f": {
-      "sourceHash": "4048e425525c4bc697c2220257c03b2e4ce76f0f8226714c58a520cd3448c0aa",
-      "message": "pool: intention store atingable ({plUrl})."
+      "sourceHash": "f15e26380124812428e71a8caf50188a8b107741cee69f69185c6762e8b0b6b6",
+      "message": "Grupo: repositório de configuração acessível ({plUrl}).",
+      "origin": "machine"
     },
     "runner.operator_1d4e7f0d61957110": {
       "sourceHash": "3e59aa5a32682fb4ef2160a4eebb53a50dcd6b51a2ce7e8460a9f642e2a06f4c",
@@ -1370,8 +1390,9 @@
       "message": "Invoke-GuestSsh: Processo.Iniciar('ssh') lançado: {message}"
     },
     "runner.operator_205f4d4b991b0dd3": {
-      "sourceHash": "63b9d42adeed3a44df321859874920c52f5ff3c2dd4f1e18e5e8fe170b052793",
-      "message": "pool: intention store '{plUrl}' não acessível no momento ({why}) -- tudo bem se o proxy estiver intencionalmente offline; o corredor se degrada para um único host. Caso contrário, verifique o URL / apache / rede."
+      "sourceHash": "fe1515685f50027e63bd4abe8c53143ddba878b71fa88c35b98f96dd798467b9",
+      "message": "Grupo: o repositório de configuração '{plUrl}' não está acessível agora ({why}) -- isso é esperado se o proxy estiver intencionalmente offline; o executor passa a operar com um único hospedeiro. Caso contrário, verifique a URL / apache / rede.",
+      "origin": "machine"
     },
     "runner.operator_209d040d216b9f8c": {
       "sourceHash": "499add7a2dd7035b3188ba8fbd7828c97c10217f7c265a2da5c5f764d8f9aafb",
@@ -1402,8 +1423,9 @@
       "message": "As configurações de bloqueio de tela / exibição de sono irão em branco o display VM."
     },
     "runner.operator_214ed60f2015cca4": {
-      "sourceHash": "fe5fed867bd3ddfaacfeb41f0954d01ace4b6a73a4842e0be06f61036c5fd85f",
-      "message": "[ciclo externo {cycle}] pool desejedState=paused -- holding (sem ciclo gerado)."
+      "sourceHash": "00f48cb44cb3bc16e8758b26ba1a26b49ef8376ac07174be97064d2d2e1b77e5",
+      "message": "[ciclo externo {cycle}] grupo configuredState=paused -- aguardando (nenhum ciclo iniciado).",
+      "origin": "machine"
     },
     "runner.operator_218ebb2c80a76597": {
       "sourceHash": "9429b9adaf33cd0f3a033babd3e3d13e72ea0aba88bb31a3a29d8794945226be",
@@ -1938,8 +1960,9 @@
       "message": "O envio de texto do VNC falhou: {value}"
     },
     "runner.operator_2d47f583d26c79d3": {
-      "sourceHash": "57bcdfe9c88098fa22874fd101eed95c072cc0c3c79c6d6956eb53257a2c70f2",
-      "message": "Sincronização do pool: a captura de intenção falhou ({why}); usando o último bom pools.yml ({poolsPath})."
+      "sourceHash": "a5db73ffd6d061d41fe1e58cde628daa3f0d29e681df351255abcc35cd20908c",
+      "message": "Sincronização do grupo: falha ao buscar a configuração ({why}); usando a última cópia válida de pools.yml em cache ({poolsPath}).",
+      "origin": "machine"
     },
     "runner.operator_2d5291a7b88f3857": {
       "sourceHash": "f5d748e56938c0ee4729484a09521b244161f3c34e9845af6f18af697c6a144c",
@@ -2174,7 +2197,7 @@
       "message": "Configurações de nível superior"
     },
     "runner.operator_331c67920b1a4f01": {
-      "sourceHash": "b37059283d93c3954d6da86d46abac4a0a6d826e6f3f4f8636cc32b676076b10",
+      "sourceHash": "f4a9001340286782d55c0f78ebf938ed2f33b06788bc225ab8662da877944b6a",
       "origin": "machine",
       "message": "FAIL  target-pool-no-repositories: '{targetPoolId}' é o grupo de destino da autoinscrição e não deve conter repositórios (eles redirecionariam todos os hospedeiros autoinscritos). Limpe-os com Set-PoolRepository.ps1 -PoolId {targetPoolId} -Clear ou aponte autoEnrollment.targetPoolId para outro grupo."
     },
@@ -2375,8 +2398,9 @@
       "message": "O provisionamento interno da chave de autenticação não foi verificado após o {took} (keyChanged={keyChanged}, verificado={verified}). A chave não é utilizável para as provas de controlo nesta máquina."
     },
     "runner.operator_37c6d3d1e44ac68b": {
-      "sourceHash": "122e770e780ee6284cb8ae27d073a9c5ed622c115c91c9105d1c87471f94e165",
-      "message": "Semente da loja de grupo"
+      "sourceHash": "57e9a3b184d8d93d239ee442d1e37a12b2240913bde688224183841ea38151a8",
+      "message": "Inicializar o repositório pool-configuration",
+      "origin": "machine"
     },
     "runner.operator_37ec87c9e9d924bd": {
       "sourceHash": "8ef78f3164acbad1e05350094ff6ccb8ca80c3665b58069d65b937c52bc91915",
@@ -2603,8 +2627,9 @@
       "message": "A conta foi apagada, mas {path} não pôde ser removida: {message}"
     },
     "runner.operator_3ee74fe8c9b60225": {
-      "sourceHash": "9af4f9909c92b65bf961d53909a2fbd8fdf785c0a2b13196a831f9c7e4d7d4d9",
-      "message": "pool.enabled é verdadeiro, mas pool.intentGitUrl está vazio; pool intention sync desabilitado."
+      "sourceHash": "ec90d97562c787a0f7715e6289d836d1c8f91694cac2b5759e5cfe471f794776",
+      "message": "pool.enabled é true, mas pool.configurationGitUrl está vazio; a sincronização da configuração do grupo foi desativada.",
+      "origin": "machine"
     },
     "runner.operator_3ef003e468ca0535": {
       "sourceHash": "6874c38f688635407a3db3c71fc046ec6c6a5e6f72b03f84a5398162ad50232c",
@@ -2643,8 +2668,9 @@
       "message": "Criando o usuário do sistema operacional local '{accountName}' ({fullName}) ..."
     },
     "runner.operator_3f91d27857293eb6": {
-      "sourceHash": "c551824990f547b3123d97ce32eafdce1cd54348c7b4616fd88279957e30f60c",
-      "message": "3. Stand up pool-control service; serve o repo intenção e que URL torna-se pool.intentGitUrl."
+      "sourceHash": "602884af3bee70908007e46b5cfd96002a04f5ac4bdecccb43cec2910eb4848c",
+      "message": "  3. Inicie o serviço pool-control; ele disponibiliza o repositório de configuração, e essa URL passa a ser pool.configurationGitUrl.",
+      "origin": "machine"
     },
     "runner.operator_3f965b8f770b8f1a": {
       "sourceHash": "3664fb37c8be4735a754fd29b61c8f9646b02a93dd0c948f1e1a22cbfc635c63",
@@ -2699,16 +2725,19 @@
       "message": "armazenamento completo"
     },
     "runner.operator_413f257dbbf2120b": {
-      "sourceHash": "aa49b1bf4b42f73bd8f030eb225fcbdfdd16c1905bbc5249b98af18d25353c61",
-      "message": "Não foi possível criar o pool.intentGitUrl ({message}); o token é armazenado. Defina o pool.enabled/pool.intentGitUrl à mão para se juntar ao pool."
+      "sourceHash": "897d72f24fb7ad1ae5975b9fe4a9103331a6d7a2549ace5de449bc56e254ea9e",
+      "message": "Não foi possível preencher pool.configurationGitUrl ({message}); o token foi armazenado. Defina pool.enabled/pool.configurationGitUrl manualmente para ingressar no grupo.",
+      "origin": "machine"
     },
     "runner.operator_4154b8f8b4c44fe5": {
-      "sourceHash": "169f32733a133a5fc0c7f270d76a58c6066672c84fb0dd81909a0c634054f36a",
-      "message": "[2/3] adoptou o actual armazém de reserva: {legacyIntentPath} -> {intentPath}"
+      "sourceHash": "dd274168c37c126f2d5c538cb57dc21f9c6daaee30a4130e24199fe2d6bf53b0",
+      "message": "[2/3] repositório pool-configuration existente adotado: {legacyIntentPath} -> {configurationPath}",
+      "origin": "machine"
     },
     "runner.operator_416973ff9c4b82f2": {
-      "sourceHash": "a479f744c979a10d2c00aa3671e8b58cf69f981a8c09148b722b62305c990529",
-      "message": "pool.intentGitUrl já está definido ({existingUrl}); deixando-o inalterado."
+      "sourceHash": "25701fa37e4a1272830f26f78279488ba42ecc24bf18bdafed9820fb9bb9cbd4",
+      "message": "pool.configurationGitUrl já está definido ({existingUrl}); deixando-o inalterado.",
+      "origin": "machine"
     },
     "runner.operator_41856668e101e1fc": {
       "sourceHash": "cc496475399ca73a686c0cc67378e02a3a426bcaf2a73c7f91ad0da0d2f2ad50",
@@ -2869,8 +2898,9 @@
       "message": "{title} NÃO é concedido ao {app}."
     },
     "runner.operator_45a07fd31e96a1d6": {
-      "sourceHash": "502447ba40599e6c05403f7d404604f1e1d05354e63ccfa5a18648a43df3bcf0",
-      "message": "Sequência de nível superior não tem linha de base (sem OS convidado suportado declarado): {topName}"
+      "sourceHash": "1fc3a6869f798914bd373733033af31766c4d10fb12588a49abfc12a6b505689",
+      "message": "A sequência de nível superior não tem pré-requisitos em resource (nenhum sistema operacional de convidado compatível foi declarado): {topName}",
+      "origin": "machine"
     },
     "runner.operator_45ccb6a97d894430": {
       "sourceHash": "0c3c7ea3e8d6ffe5da2de61956e3a94736525f02885a1da535679cc3e9a2866d",
@@ -2965,8 +2995,9 @@
       "message": "{label}: '{tool}' não respondeu dentro do {timeoutSeconds}s e foi parado. O serviço por trás dele não está respondendo, então esta verificação é indeterminada em vez de falhar."
     },
     "runner.operator_47955cec68775797": {
-      "sourceHash": "90ecd815f03657af0e52c85d2857e13b63f14ec081d805f49196f7155d14ae86",
-      "message": "pool sync: host {hostId} não está em nenhum membro do pool[] embora pools.yml lista membros; verifique o hostId ortografia/caso no repo de intenção. Ciclismo como um único host."
+      "sourceHash": "69650e71a6718f52c75a2fe89dfc57ff9811d492d0ee4184a342e4488caa2a18",
+      "message": "Sincronização do grupo: o hospedeiro {hostId} não está em members[] de nenhum grupo, embora pools.yml liste membros; verifique a grafia e as maiúsculas/minúsculas de hostId no repositório de configuração. Os ciclos serão executados com um único hospedeiro.",
+      "origin": "machine"
     },
     "runner.operator_479872781526f6ad": {
       "sourceHash": "8bc4d6360a888d3f3c73c7ba9611c5e21184d65868656b1f54017fcee9187d4c",
@@ -3009,8 +3040,9 @@
       "message": "Regra de Firewall do Windows garantida '{ruleName}'."
     },
     "runner.operator_488c8abbe599cfff": {
-      "sourceHash": "040c5c4cc4612e68c43baa432f82bdb57b3c45503f37142c9e2c350ed57b5c0a",
-      "message": "e o repositório de intenção de pool está todo sob ele. Quando você estiver satisfeito:"
+      "sourceHash": "288f44fca6926991989dff400d3f4c50e7921cc5c8f30a53dce1b82b4c8c4349",
+      "message": "  e o repositório pool-configuration ficam todos sob essa raiz. Quando estiver satisfeito:",
+      "origin": "machine"
     },
     "runner.operator_489224a7c60c2a6e": {
       "sourceHash": "adc31188e6221cad0b8a2d8795b08a771c2fe8b9fe3f3f150a90b531698b1109",
@@ -3157,8 +3189,9 @@
       "message": "===== Conjunto de convidados para este ciclo: {guestNames}"
     },
     "runner.operator_4b7f2e4a23f336a0": {
-      "sourceHash": "8757c8fa049c8c1020b18ccbd862f948a473aa34e76aa3ea1e0b41e930fcc1e9",
-      "message": "Unicidade de membro FAIL: não foi possível processar pools.yml -- {message}"
+      "sourceHash": "8fd4750822b36279a0b4b19cecb25a2c3602a416bd1de527d642bdd2bb7e507b",
+      "message": "Unicidade de membro FAIL: não foi possível processar pools.yml -- {message}",
+      "origin": "machine"
     },
     "runner.operator_4b8efe5b303a9b93": {
       "sourceHash": "8bba8ac7866093033be41c55a68cf1eb8641af4545c68cd0e54483e563858526",
@@ -3317,12 +3350,14 @@
       "message": "utmctl faltando no PATH -- O UTM o mantém dentro do pacote de aplicativos. Corrija com: pwsh test/lab/Enable-TestAutomation.ps1 -- ou -- {utmctlFix}"
     },
     "runner.operator_4f719f0639145301": {
-      "sourceHash": "484117ca11b2e3088f828ced2cb16dce9eef9c0143f5ff3b103a7ee352892c9c",
-      "message": "Gravar o arquivo de intenção do pool"
+      "sourceHash": "96c10cca503ccca363df92797b26001ac45c62fe46f785f3cc8cc0ad448c21ae",
+      "message": "Gravar o arquivo de configuração do grupo",
+      "origin": "machine"
     },
     "runner.operator_4f741864aba4d1fd": {
-      "sourceHash": "74199b7a48398ce9bbd83e8354377dab68f869e1367a13b4be7120a7b4b0dd29",
-      "message": "Criar repositório de intenção de conjunto desprotegido"
+      "sourceHash": "3f171259a051a1f413769a5d3a4620ad91594adba33ff6333eeaf678375799ae",
+      "message": "Criar o repositório bare pool-configuration",
+      "origin": "machine"
     },
     "runner.operator_4f7e838f26c3bf54": {
       "sourceHash": "05edf532c296e3dd70f5cd3c1db4db70fccd552fef1b0a2903de562fd029bde8",
@@ -3365,8 +3400,9 @@
       "message": "Execução: não foi possível determinar"
     },
     "runner.operator_5080fa98b3c9b51c": {
-      "sourceHash": "6f93307dcb9c2e31eca97ea4b5e64305c10d0e6986a15daee2c2b48dee9c9879",
-      "message": "Não foi possível abrir o armazenamento de intenções ({intentGitUrl}): {error}"
+      "sourceHash": "d5d7014d9cb7286e076957fb2029119c3d6fe2c46ebae1a5fb7a4246032a0d81",
+      "message": "Não foi possível abrir o repositório de configuração ({configurationGitUrl}): {error}",
+      "origin": "machine"
     },
     "runner.operator_5085bed43884280d": {
       "sourceHash": "605ab691980cb38e4b039da4f2e8d5e344982223af3eb0d5298b1e4724b6ae16",
@@ -3667,8 +3703,9 @@
       "message": "Registro Test.HostCondition"
     },
     "runner.operator_57d386e54fe5ebcf": {
-      "sourceHash": "1f8af1e2f8ebc34347cd223b087f08c6fdf3022ca28ba2cfdc1386292b6ba3e0",
-      "message": "Cadeia: {fullChain} (sem pré-requisitos de base declarados)"
+      "sourceHash": "ed9de7767f400087fe79fc03b1c1489e9eb41ced00fbf46ab6f5b0b832193d93",
+      "message": "Cadeia: {fullChain} (nenhum pré-requisito declarado em resource)",
+      "origin": "machine"
     },
     "runner.operator_57f365ecb6da1349": {
       "sourceHash": "fedbbcb15953d4edd753b9170ad87bd3ef8f5f722b1eadc0db846d0573470ef2",
@@ -3751,8 +3788,9 @@
       "message": "Get-ExtensionHostAddress: o pool não pôde ser perguntado sobre '{hostType}' ({outcome}: {detail}). Trate isto como 'desconhecido', não como 'nenhuma máquina {hostType} existe'."
     },
     "runner.operator_59650e3f07b2342b": {
-      "sourceHash": "3a7ce8efd46fdcacd220552bc161bb726d16d14866bf1bd42b6b4a27c0291e05",
-      "message": "Pool '{poolId}' desejedState set to '{state}'. Os membros se reconciliam em seu próximo ciclo."
+      "sourceHash": "80d787f5831fd34f89eba30bc0e9ece2b59bf616c4e6c6088deb7877a71dbdc9",
+      "message": "configuredState do grupo '{poolId}' definido como '{state}'. Os membros reconciliam o estado ao buscar a configuração no próximo ciclo.",
+      "origin": "machine"
     },
     "runner.operator_597096826951b442": {
       "sourceHash": "65a1a505a0b8513b357640c82b97e75e1f94e1b3f68d673110938ea1a85612ae",
@@ -3767,8 +3805,9 @@
       "message": "instalado {file}: '{user}' pode agora montar/mkdir/umount sem senha."
     },
     "runner.operator_5a025273229840cf": {
-      "sourceHash": "c807efa98e14934e383092112aa255f141308717121848a11f1a14d7066acb00",
-      "message": "A máquina {hostId} é um membro de vários pools ({join}); uma máquina deve pertencer no máximo a um. Usando '{poolId}'. Corrija a intenção (Remove-HostFromPool / Test-PoolIntent)."
+      "sourceHash": "2642997cf5aab8e042e807fdc0662be5ae4c915b0f6b83178f932a0fbe01d9a1",
+      "message": "O hospedeiro {hostId} pertence a vários grupos ({join}); cada hospedeiro deve pertencer a no máximo um. Usando '{poolId}'. Corrija a configuração (Remove-HostFromPool / Test-PoolConfiguration).",
+      "origin": "machine"
     },
     "runner.operator_5a198f884eed15db": {
       "sourceHash": "4d292c6631254f0b2acb84701491f3e02550ebbe423753a0513792407160d562",
@@ -3795,8 +3834,9 @@
       "message": "O caminho do disco rígido virtual Hyper-V não pôde ser lido, então nada pode ser dito sobre o que filtra."
     },
     "runner.operator_5a5cc38a18508944": {
-      "sourceHash": "76bcef54d79a7d2cc6c3859da588e15a87e99cb468506f9ea408bc0c72a57be6",
-      "message": "e o repositório pool-intent sob a raiz de armazenamento são deixados exatamente como são;"
+      "sourceHash": "50b1cfc248eaed9bd7f66a94727bbe1fdfb7fd748b9bd3467c20e1157d2de78d",
+      "message": "e o repositório pool-configuration sob a raiz de armazenamento permanecem exatamente como estão;",
+      "origin": "machine"
     },
     "runner.operator_5acc85b3d32caa00": {
       "sourceHash": "9788cf086dea04cc724b3d7dc8d12aa1367a0d8b7d284c23439d761bbc083679",
@@ -3975,8 +4015,9 @@
       "message": "[{stepNum}/{stepCount}] tentativa de repetição {attempt}/{maxAttempts} falhou; reiniciar a partir do passo 1 do {count}"
     },
     "runner.operator_5e1b22dd0ff54c65": {
-      "sourceHash": "ede8d7b31ed9e33f672ad09d09d166804ca44d53e74631117ef8e7364bc54825",
-      "message": "[ciclo externo {cycle}] pool desejedState=drain -- desligando no limite do ciclo."
+      "sourceHash": "c86860c31d2685bf58def53805f13f2debf92a18234d3f2fc475e1667a54ef33",
+      "message": "[ciclo externo {cycle}] grupo configuredState=drain -- encerrando no limite do ciclo.",
+      "origin": "machine"
     },
     "runner.operator_5e254220c82bfee1": {
       "sourceHash": "e476c5704ec7bc4352a864924e3a6effedccdf65e7b48b2e15aaffb2268b01dd",
@@ -3995,8 +4036,9 @@
       "message": "vault: '{user}' tem uma credencial armazenada; mantendo-a (sem chave de autenticação interna disponível para verificá-la contra {referenceHost})."
     },
     "runner.operator_5e931217fd513630": {
-      "sourceHash": "377a822a4ecdee09c65e6afa8452ec8e565b9a0e30a805a7ecd3a1b8dfdcb229",
-      "message": "A loja de intenção de grupo ({intentGitUrl}) não existe e não pôde ser criada: {reason}"
+      "sourceHash": "f71052a876c4eef720db9e1e906a7af2b5f7efaeb8361192f4e8d27387279772",
+      "message": "O repositório pool-configuration ({configurationGitUrl}) não existe e não pôde ser criado: {reason}",
+      "origin": "machine"
     },
     "runner.operator_5ea26e2a1f29b25e": {
       "sourceHash": "5ba9ce5101178658b5e129826e8ceeb5c15e9478c47ce83d0aa61c30e88841d9",
@@ -4431,8 +4473,9 @@
       "message": "{label}: nenhum ramo de rastreamento upstream -- pulando para frente/atrás."
     },
     "runner.operator_68683a605e32c8b4": {
-      "sourceHash": "749bc6ab9e83be12c3dc0839bbc28a177e7cb6dd739d4aed089e6859dcc54f19",
-      "message": "Ponto /pool-intent.git em {storePath}"
+      "sourceHash": "59a1242be9a53a914e57d1f3a7f3c11ee6022e07e956984a4bb6697e500648fe",
+      "message": "Apontar /pool-configuration.git para {storePath}",
+      "origin": "machine"
     },
     "runner.operator_686b7e0d1a7de64a": {
       "sourceHash": "64a1955782ef42ab8fabf1465a72e12ecd7077fcf5bc57c9727b039c7065d1d3",
@@ -4467,9 +4510,9 @@
       "message": "Verificar manualmente com: grupo local líquido \"{name}\""
     },
     "runner.operator_68f76316350291c3": {
-      "sourceHash": "23bfc420ad7e8b635ca875f11af25ee92b674880eb11bf0fcd44f5908a1345ce",
+      "sourceHash": "a6145ed1dedd8430f7105ff120ff94ab7c82ba39c3a57f69bbba7989f3c09872",
       "origin": "machine",
-      "message": "O grupo '{poolId}' é o grupo de destino da autoinscrição e não deve conter repositórios; eles serão ignorados e os repositórios próprios deste hospedeiro serão mantidos. Corrija o repositório de intenções (Test-PoolIntent.ps1 informa isso)."
+      "message": "O grupo '{poolId}' é o destino da autoinscrição e não deve conter repositórios; eles serão ignorados, e os repositórios próprios deste hospedeiro serão mantidos. Corrija o repositório de configuração (Test-PoolConfiguration.ps1 informa isso)."
     },
     "runner.operator_69026426aeb39009": {
       "sourceHash": "c3b966a85df8946665854828cf6916a3683e2987973ac6356dda31b0c20fee44",
@@ -4500,8 +4543,9 @@
       "message": "Invoke-Remediation: manipulador para '{failureClass}' retornou Recomendação '{recommendation}' fora do vocabulário de recuperação; coerção para operator intervention required."
     },
     "runner.operator_6a59b18694397dbf": {
-      "sourceHash": "92b28b91d5ef9ac68c978c670a9c2c07da2374091513f02f11ae9f63b77a20af",
-      "message": "Sincronização do pool: não foi possível alcançar a loja de intenções ({intentGitUrl}) ({why}); ciclismo como uma única máquina."
+      "sourceHash": "037140ccbda34dbe8c2e516a3a97c823077a300413444a0c328905a7b3640a5f",
+      "message": "Sincronização do grupo: não foi possível acessar o repositório de configuração ({configurationGitUrl}) ({why}); os ciclos serão executados com um único hospedeiro.",
+      "origin": "machine"
     },
     "runner.operator_6a63d02d5ebb8e7d": {
       "sourceHash": "833a6c5ba2c66e2d0420378530cf0d9bfc2637575fb3a28e511f898284954583",
@@ -5192,8 +5236,9 @@
       "message": "Nada para se reformar."
     },
     "runner.operator_7b4a4d46bf482437": {
-      "sourceHash": "a7cbd9d956def8f37fcaaffe6ac0cc811ce63b4eeee277379f789856aba8b90b",
-      "message": "[ciclo externo {cycle}] pool desejedState=paused -- holding; re-checking intention em breve."
+      "sourceHash": "5a37d73ce56715cde8476f6402bfab447c49a18aec9d46ddda1925689e7507b9",
+      "message": "[ciclo externo {cycle}] grupo configuredState=paused -- aguardando; a configuração será verificada novamente em breve.",
+      "origin": "machine"
     },
     "runner.operator_7b5b47de81fd0974": {
       "sourceHash": "a3f7c0f0dbc73d845ef931449e03b08507dc2786ef3f99625022a943b52dad08",
@@ -5284,8 +5329,9 @@
       "message": "Os requisitos de host verificação rápida passou."
     },
     "runner.operator_7d60c40c2ee69f28": {
-      "sourceHash": "3c216fd2ec6e1b7fafc073a7af280f18efb9aebb74311d309e37e4c42cbf3377",
-      "message": "associação: não foi possível abrir a loja de intenções ({intentGitUrl}): {error}. Registros NAS removidos; membros NÃO tocados."
+      "sourceHash": "8a2dab95b07c2f91258297dc3b8c0390b6f5a43dce31f87ce9f2c9b3c6d3272b",
+      "message": "Associação: não foi possível abrir o repositório de configuração ({configurationGitUrl}): {error}. Os registros do NAS foram removidos; as associações NÃO foram alteradas.",
+      "origin": "machine"
     },
     "runner.operator_7d74f75db443e9e2": {
       "sourceHash": "3c9cdc59540d9aee5a3e886c9c65938a803d998e8c7ee6a4cc7c92b15d59d643",
@@ -5332,8 +5378,9 @@
       "message": "[ciclo externo {cycle}] prestes a invocar o pwsh interno"
     },
     "runner.operator_7dd0aa845d3a93ea": {
-      "sourceHash": "900f9472db816a9bbf3e0c48e091a598037616531564b165af7563dc20dcf96e",
-      "message": "Sem intenção armazenar URL. Passe -IntentGitUrl ou definir pool.intentGitUrl em test.config.yml."
+      "sourceHash": "1e4fa0bb384617f7d1be5c736b07003ef815be854518dba4599257b760407e05",
+      "message": "Nenhuma URL de repositório de configuração. Passe -ConfigurationGitUrl ou defina pool.configurationGitUrl em test.config.yml.",
+      "origin": "machine"
     },
     "runner.operator_7dd6240c15d45471": {
       "sourceHash": "3a0506f91fd5b5d835622e0dd48a35a7b9213b89d03962b4e73cb02cfd4a68e3",
@@ -5464,8 +5511,9 @@
       "message": "A ramificação local está atrás do remoto pelo( s) commit( s) {behind}. Puxando..."
     },
     "runner.operator_811a9975fa1a2df7": {
-      "sourceHash": "10d290c89661d39c195807267d91181b7b8ad1407033731872f0db591f47eeb4",
-      "message": "Clone de intenção de conjunto aberto de {intentGitUrl}"
+      "sourceHash": "5c8622564c1e14bf3a1b5bc90304a21a7724255baf9b4fc302f73db01ea1aee1",
+      "message": "Abrir o clone da configuração do grupo em {configurationGitUrl}",
+      "origin": "machine"
     },
     "runner.operator_813ca315e92dc542": {
       "sourceHash": "e30046c6911431e973daa3961fc76362b57ccda7a996d7023aa229c8c1fb361e",
@@ -5828,8 +5876,9 @@
       "message": "[ciclo externo {cycle}] pool sync error (não fatal): {message}"
     },
     "runner.operator_8a85c0a98b2cb1af": {
-      "sourceHash": "055e0171f7c8e190d8b2993fb4dae6cbadac23dc93740e0fab96b648760d8162",
-      "message": "[ciclo externo {cycle}] pool desejedState=drain -- solicitando desligamento no limite do ciclo."
+      "sourceHash": "e2b1c60d341d4c0021ecc17a3ebe0b7e537f98f14aad6e0d5da2683c895d3053",
+      "message": "[ciclo externo {cycle}] grupo configuredState=drain -- solicitando encerramento no limite do ciclo.",
+      "origin": "machine"
     },
     "runner.operator_8a8eb73bf7a84874": {
       "sourceHash": "6a4b1b8ffd7d4f452512d46e0409c05820b0d99a25f62fc0c32c0337c4480b6c",
@@ -5864,8 +5913,9 @@
       "message": "A parada da tela está definida como {join} minute(s)."
     },
     "runner.operator_8b14250671a04bd9": {
-      "sourceHash": "7a5bd0e0efb8f0a7d9bd387596cc5f4d20b72ee9c99110334674e17a389ee52e",
-      "message": "repo de intenção : {intentPath}"
+      "sourceHash": "28112e43b8ddb5813140d299a8711b6ed9e3f79712ee141dcfd6b9b02a8bc3de",
+      "message": "  repositório de configuração : {configurationPath}",
+      "origin": "machine"
     },
     "runner.operator_8b51a0ee51bec50b": {
       "sourceHash": "32682fda40e51ed4f8178728beb62110a8e21aca8daf2e1e3be794cae6b708da",
@@ -6016,8 +6066,9 @@
       "message": "Configurando o sono da tela para Never{aC}..."
     },
     "runner.operator_8e8fecb6ffc7d3d6": {
-      "sourceHash": "31fa2365da80ea826fa29e9f7ab8263bc8daf948d7681c3471accad125b2739b",
-      "message": "test.config.yml não foi encontrado; pool.intentGitUrl não foi semeado. Re-run after Sync-HostConfiguration.ps1 to join the lab pool."
+      "sourceHash": "507702c14ee4729791ade9fe90388c66811e05563baa2c555b9263d199285f52",
+      "message": "test.config.yml não foi encontrado; pool.configurationGitUrl não foi preenchido. Execute novamente após Sync-HostConfiguration.ps1 para ingressar no grupo do laboratório.",
+      "origin": "machine"
     },
     "runner.operator_8e99318e4c9efaea": {
       "sourceHash": "265d15743fccd5bcbf2f37d7fcd641fce35a21c7d816d948a873b9544902353f",
@@ -6088,8 +6139,9 @@
       "message": "Ação desconhecida '{action}' -- tratando como falha."
     },
     "runner.operator_8fcfdcefeec6d978": {
-      "sourceHash": "8a717e66c800ce6c8155b3b1adff0442943087026f653639d963b985b2c4f2f2",
-      "message": "[2/3] armazém de reserva semeado em {intentPath}"
+      "sourceHash": "188983ea8acc7cc8973d232b92a38662f1e12e0a23e14652e44170537c73387d",
+      "message": "[2/3] repositório pool-configuration inicializado em {configurationPath}",
+      "origin": "machine"
     },
     "runner.operator_8fd5ad229615ab0d": {
       "sourceHash": "148dba6feb41b93bd42d82ef9de92ed6401ca936ee57e81449cd7fae6db5a641",
@@ -6296,8 +6348,9 @@
       "message": "o comando que recupera esse disco é impresso no final para você executar."
     },
     "runner.operator_93ef9f12e66f06e9": {
-      "sourceHash": "00263391b7fa5b2fd847e92837f5836f8cbc9991bb151d2012cc7562d17a3353",
-      "message": "pool.enabled = false and pool.intentGitUrl está vazio -- pool intention sync is off (opcional). Popule intentionGitUrl para pré-validar o store antes de habilitar."
+      "sourceHash": "47eb5630ea78063029c6ccd15315c06d449d9bdca3ad1f251575456b3c35ed7b",
+      "message": "pool.enabled = false e pool.configurationGitUrl está vazio -- a sincronização da configuração do grupo está desativada (opcional). Preencha configurationGitUrl para validar o repositório antes de ativar.",
+      "origin": "machine"
     },
     "runner.operator_94158729db31acff": {
       "sourceHash": "a7302b24da668ef505266bbaf3fdf2e7970b8e163d42d0670f8a0a5007969b1a",
@@ -6316,8 +6369,9 @@
       "message": "Não foi possível ler {usersPath} para resolver a chave do cofre: {message}"
     },
     "runner.operator_945821c2fef42ae6": {
-      "sourceHash": "7e73d2715ed7a1c3a64afc3caf8b4e3fa1f11c2e8c7f2c13cb39639fbfdab9d0",
-      "message": "O grupo '{poolId}' não foi encontrado. Crie-o primeiro: ./New-Pool.ps1 -PoolId {poolId}"
+      "sourceHash": "4c79588a67cfbb3c9b4b012ff7c7ac8a6cb820c832225c3fc66337008248bb95",
+      "message": "O grupo '{poolId}' não foi encontrado. Crie-o primeiro: ./New-Pool.ps1 -PoolId {poolId}",
+      "origin": "machine"
     },
     "runner.operator_945bb3e94bf9f06d": {
       "sourceHash": "89a5e6981873b3469f4394e98030056c3ff8aad574c9a755ed5a168e5064842b",
@@ -6612,8 +6666,9 @@
       "message": "Clonagem {projectUrl} -> {projectDir}"
     },
     "runner.operator_9b3ed84eefe28021": {
-      "sourceHash": "d03865099a89817a5382f103f9661d66200d536d401b26c02a547970c5fa68a1",
-      "message": "Prereq da cadeia não encontrado: {name} (referenciado através da linha de base de {sequenceName})"
+      "sourceHash": "fac5a406eec8a66972d25407884de7610a572063d08e337270a59b574db4d766",
+      "message": "Pré-requisito da cadeia não encontrado: {name} (referenciado em resource de {sequenceName})",
+      "origin": "machine"
     },
     "runner.operator_9b5f387caf6f42bd": {
       "sourceHash": "a8b09ec1d469d3884b88c80011f4ec4702086bfbcea02e2bf09e7be1c1602e3b",
@@ -6956,8 +7011,9 @@
       "message": "'testCycle.recentDisplayCount' é {rdc} -- deve ser um inteiro positivo."
     },
     "runner.operator_a57aeed80b0cf28a": {
-      "sourceHash": "f362074d33a4f759d272b0550e90abe0fe48f2b085d7562bca3295d845a134b7",
-      "message": "[2/3] armazém já presente em {intentPath} ({reason})"
+      "sourceHash": "a283f8b7c920fa08c1a93417f4aef4d0c06038231a1795951d6a226300b3af59",
+      "message": "[2/3] repositório pool-configuration já presente em {configurationPath} ({reason})",
+      "origin": "machine"
     },
     "runner.operator_a581e70e444c9b39": {
       "sourceHash": "cd17e6f9c3e092cd8561e2e483280e9d39863fe46a522309f2872b513bb68146",
@@ -7044,8 +7100,9 @@
       "message": "(ou use 'Configurações do sistema > Usuários e Grupos')"
     },
     "runner.operator_a7d432e9c0cf6e77": {
-      "sourceHash": "ccbe008071e342154f12b57ac3a9a108fd3e28d25d213d07fce1bbcad1565063",
-      "message": "O grupo '{poolId}' já existe (desiredState={desiredState}); permanece inalterado (-IfMissing)."
+      "sourceHash": "1379c4c5c5a275d3fbc3cd4465a8c21c7c6a05e4d2662106337f048d74bb88cc",
+      "message": "O grupo '{poolId}' já existe (configuredState={configuredState}); permanece inalterado (-IfMissing).",
+      "origin": "machine"
     },
     "runner.operator_a80e5f25687bd914": {
       "sourceHash": "d725900d59c37822155fc6294f1f9f7ab481b2d50eba8f6ea9bdf538297ccbff",
@@ -7328,8 +7385,9 @@
       "message": "registro do pool: este agregador antecede a listagem por serviço; apenas as áreas que ele resolve são relatadas. Reconstrua o serviço de cache-proxy VM para ver registros recusados aqui."
     },
     "runner.operator_af0aca34836ac8bb": {
-      "sourceHash": "ad218287f8b3a18e88c191492a69644f3775ae3d245ce8375c89d322afbab022",
-      "message": "pool.enabled é true, mas pool.intentGitUrl está vazio -- o runner não pode buscar a intenção. Defina a URL do repositório bare na LAN. Veja docs/pool-storage.md."
+      "sourceHash": "9339f5911d7d45e993918955f7849b02541eb4088ced421318f534e70dc630f5",
+      "message": "pool.enabled é true, mas pool.configurationGitUrl está vazio -- o executor não pode buscar a configuração. Defina a URL do repositório bare na LAN. Veja docs/pool-storage.md.",
+      "origin": "machine"
     },
     "runner.operator_af33f0960f92ab46": {
       "sourceHash": "747de04ed44ca190d9a2bc938bb8ad3055d47ed365489eb96a3d779499210b40",
@@ -7400,8 +7458,9 @@
       "message": "Quadro / atraso do projecto"
     },
     "runner.operator_b11e32378aff0234": {
-      "sourceHash": "b21af560f1f571a03273cd03f6fb63aeb7e378939b22dedca871d0e734e10c4b",
-      "message": "Intenção de conjunto: todos os arquivos esquemático-válido."
+      "sourceHash": "24a06d965bd24368fcc06765d0115b75838736a6f6815de6bb9e7eab417c06db",
+      "message": "Configuração do grupo: todos os arquivos são válidos conforme o esquema.",
+      "origin": "machine"
     },
     "runner.operator_b12fd41a06f7b780": {
       "sourceHash": "8532ad904847c62dfa3ae9413f1c2167debe3de146fddb3561514d06a791b46a",
@@ -7609,8 +7668,9 @@
       "message": "{guestKey} Start-GuestOS: PASS"
     },
     "runner.operator_b5e4a53c200e2211": {
-      "sourceHash": "7704f2f8833204e2fca8c5504a60176aaf007ce827c714928abd3bca5b0b3557",
-      "message": "pool.intentGitUrl apontou para um endereço de cache-proxy anterior ({existingUrl}); apontando-o novamente para {intentUrl}."
+      "sourceHash": "06a6e3272377f02d0ea0eb78f1806a09d48d8c5ec6e746e35e0765c0703d6fe5",
+      "message": "pool.configurationGitUrl apontou para um endereço de cache-proxy anterior ({existingUrl}); apontando-o novamente para {configurationUrl}.",
+      "origin": "machine"
     },
     "runner.operator_b609983c1c6bbb53": {
       "sourceHash": "4e681e3d3311c84546db019781852fd845a77f2abf8043e155132ceb5ba3d60c",
@@ -7673,8 +7733,9 @@
       "message": "Não foi possível apagar a conta local '{name}'; remova-a da Configuração do Sistema > Usuários & Grupos."
     },
     "runner.operator_b752ee38cb8d2c81": {
-      "sourceHash": "c23cb723ab7614978265bc2adb60f3e84f110024814d76c8b1f981e90e5ebad4",
-      "message": "associação: nenhum pool.intentGitUrl (e nenhum -IntentGitUrl) -- removeu apenas os registros do NAS; os membros do pool não foram tocados."
+      "sourceHash": "42232638da5f310aaa20cb9349326ff989562fe4779586df871de090cd9bceb6",
+      "message": "associação: nenhum pool.configurationGitUrl (e nenhum -ConfigurationGitUrl) -- removeu apenas os registros do NAS; os membros do pool não foram tocados.",
+      "origin": "machine"
     },
     "runner.operator_b767a43bc1c25bbd": {
       "sourceHash": "924e84c9bcf545f118f5bd4bc0512d038a1d2729b65aa7b6b0624c687d278b61",
@@ -7701,8 +7762,9 @@
       "message": "Remover mapeamento SMB antigo"
     },
     "runner.operator_b85e68a82dd79259": {
-      "sourceHash": "570ddaf3a029a79d1a5f98dc4489e92132d67ecc6ba2715dd9298e13933f98d2",
-      "message": "Intenção de conjunto: {failures} arquivo(s) validação FALADA."
+      "sourceHash": "15ff0718c3a490333bc629801044412f6b4f470e41238f072c5373a021e78390",
+      "message": "Configuração do grupo: {failures} arquivo(s) FALHARAM na validação.",
+      "origin": "machine"
     },
     "runner.operator_b85fb226033e3953": {
       "sourceHash": "25a9ed507067c2bec993f74c6b9684ba638a0307d0957660ab8a62d318d87345",
@@ -7729,8 +7791,9 @@
       "message": "Instale o drop-in sem senha do corredor para '{user}'"
     },
     "runner.operator_b8e126357db609a2": {
-      "sourceHash": "9ed97b4ec7de5c1458ae9d6360113cb349cc3b30cf390b36bb3baffa56e04621",
-      "message": "Sementes de uma nova loja de pool-intent no {intentGitUrl}."
+      "sourceHash": "45681d7eb403d75a9b3f6491462b8b711d05f38ac7b901986e03eb322a080820",
+      "message": "Novo repositório pool-configuration inicializado em {configurationGitUrl}.",
+      "origin": "machine"
     },
     "runner.operator_b8e59ada0f2a685a": {
       "sourceHash": "7be747af20409d5f2ac68a69f4f8e5ba1f530764437330616cb9b454b50f0366",
@@ -8543,16 +8606,18 @@
       "message": "Definir a escala de exibição para 100% (ao vivo)"
     },
     "runner.operator_ccfb3b8777922241": {
-      "sourceHash": "c7d97e122d7137b1265af46f6eac266679fecfb893068c72389e4d5edabf1092",
-      "message": "pool [{plState}]: intention store '{plUrl}'."
+      "sourceHash": "a57673d3b1410b9c91dcb2d44198e42d2b3225956b71fff6caa3805901ea3b35",
+      "message": "Grupo [{plState}]: repositório de configuração '{plUrl}'.",
+      "origin": "machine"
     },
     "runner.operator_cd0c45e03e65ccc2": {
       "sourceHash": "e57bdb1c293fe47bff1a874a5b02e05347ed94bd3ce09a7b9cb86bda030f66dc",
       "message": "Uma identidade da máquina anterior corresponde a este hardware:"
     },
     "runner.operator_cd4a2a8be6258515": {
-      "sourceHash": "ffa8b52c75d4904742ab531c5023d0feded0433f3e85669c03afd2ea9fb4d5be",
-      "message": "pool (sincronização de intenção)"
+      "sourceHash": "534a51168a7a8de20f24cc68b7677a3d294f6f4cb76fb572badfe65b501db9b4",
+      "message": "grupo (sincronização da configuração)",
+      "origin": "machine"
     },
     "runner.operator_cd4f83e57e569958": {
       "sourceHash": "07be6beb8cebaa85d65e1b70a0989755f23539ad096c171f7d2864372a74860e",
@@ -9375,8 +9440,9 @@
       "message": "'{patternDisplay}' nunca apareceu e o console não mudou para {staticSecs}s de {elapsed}s -- um prompt impresso antes desta espera começar seria exatamente assim. Enviando '{masked}' para o console e observando para que seja consumido."
     },
     "runner.operator_e178d69f96491585": {
-      "sourceHash": "b84d95fcc5c15625bea688b3900a940d6dc619674c18cfb77234c8a6e023cb7f",
-      "message": "Ingressou no pool de laboratório: pool.enabled = true, pool.intentGitUrl = {intentUrl}. Este host agora puxa a intenção de pool somente para leitura em cada ciclo."
+      "sourceHash": "e5e5f3710032c6aaaef6d523dc4c1b47cbaf49c2c2af3f8c1a8ef9aa64c0c65a",
+      "message": "Ingresso no grupo do laboratório concluído: pool.enabled = true, pool.configurationGitUrl = {configurationUrl}. Este hospedeiro agora busca a configuração do grupo somente para leitura a cada ciclo.",
+      "origin": "machine"
     },
     "runner.operator_e1a14bbdcff651de": {
       "sourceHash": "aa60b5934f61bd3e00573354f2a198cd4ba226b73f2898f7b870c6d353edfbd3",
@@ -9463,8 +9529,9 @@
       "message": "forget-host: o agregador não removeu {shownHostId} ({reason}). O painel se atualizará após o TTL do host no agregador (-host-ttl, padrão de 24 h)."
     },
     "runner.operator_e2e4c1d2a97c7116": {
-      "sourceHash": "ba5a4f4c3a133c9ac07486b0888919cbc740998b3beb22f5f6489798f8392e24",
-      "message": "inner '{name}' não é uma sequência de convidados (baseline + passos) nem uma ação host (host:)."
+      "sourceHash": "429c979776ac1fee9cab605b57b32bc9d5d94a1a1bac37892fa902aed0e66362",
+      "message": "A entrada interna '{name}' não é uma sequência de convidado (pré-requisitos em resource e etapas) nem uma ação de host (host:).",
+      "origin": "machine"
     },
     "runner.operator_e2e9e0a96208388d": {
       "sourceHash": "db3f6fe7027589844ed3c8b8fba42260a02a5407a00bf54a4310edbf89cce300",
@@ -9779,16 +9846,18 @@
       "message": "Limpar o buffer do anel de captura de tela"
     },
     "runner.operator_eb75165c27011726": {
-      "sourceHash": "aa4a080b1a8810b92f3ecf68caad2dc428858302b9b5d68df4bcb6eec6cc41c2",
-      "message": "[ciclo externo {cycle}] pool desejedState=drain -- parando (sem ciclos adicionais)."
+      "sourceHash": "12f4472b2ff8b7786a877a802b405b84890bf93523d69d444f2ee90f34332713",
+      "message": "[ciclo externo {cycle}] grupo configuredState=drain -- encerrando (sem novos ciclos).",
+      "origin": "machine"
     },
     "runner.operator_eb8238e1e37a921c": {
       "sourceHash": "592d5b8268f347c1ff8ec07ec2c6df66bc8714b70ab96fc3aeea76c337b8bb53",
       "message": "[ciclo externo {cycle}] nenhum commit novo, nenhuma edição de configuração; {remainingMinutes} min permanecem em pausa."
     },
     "runner.operator_eb9468440861e598": {
-      "sourceHash": "056a398a0df8969254ebac33bf8d6a0df9ded662622034accc8973be20f27096",
-      "message": "PASS associação exclusiva: nenhum host pertence a mais de um grupo."
+      "sourceHash": "7c19ded18be95199ca314f89c78202e739b745a0bd08c654b9fad09cf9e28fe8",
+      "message": "PASS associação exclusiva: nenhum host pertence a mais de um grupo.",
+      "origin": "machine"
     },
     "runner.operator_eb97d7107fd767ed": {
       "sourceHash": "7a77c1e74e38dbf08964a0808ce6efe0d5835f534934c36b69eff99916f162d0",
@@ -10003,8 +10072,9 @@
       "message": "Não pedindo novamente para '{name}': a elevação para o apelido anterior não foi concedida. Mapeá-la manualmente com '{target} {name}' em /etc/hosts."
     },
     "runner.operator_efd4f169b13d993c": {
-      "sourceHash": "900e539b6377adb17a125b379cc889e16e4e95574215d51da04f9224a7667109",
-      "message": "Commit + push pool intention: {message}"
+      "sourceHash": "b67f69683493a285bc719b6e349cf2d9888d0062a16cffa25517f45b531a9468",
+      "message": "Fazer commit e push da configuração do grupo: {message}",
+      "origin": "machine"
     },
     "runner.operator_efeaf16e6d9784b0": {
       "sourceHash": "8eda459ebb563e95292543a81648127b9a976a9ee740ec57f8ef050df066a8cc",
@@ -10200,7 +10270,7 @@
       "message": "projetoUrl='{projectUrlConfigured}': lançamento remoto -- {message}"
     },
     "runner.operator_f4ce3623f58ca8ac": {
-      "sourceHash": "840cd64470be476d9ae69a87be18dba1d148de141f356af63f0b424d492fc3fc",
+      "sourceHash": "3f06f818fc18b1fb602ef0380d30d7d1daa63c0931a085bc34fd372eff9e9c2a",
       "origin": "machine",
       "message": "PASS  target-pool-no-repositories: '{targetPoolId}' não contém repositórios."
     },
@@ -10429,8 +10499,9 @@
       "message": "perfil de busca e execução salvo: ./status/log/{cycleBase}/{destSeqName}/fetch-and-execute-profile.log"
     },
     "runner.operator_fac625745e7555e3": {
-      "sourceHash": "fae3f84427d6cc234c69cf923b96e6aa8328ee5cc0c12a6732c9a0e8adc6276f",
-      "message": "Set-RunnerState: '{fromState}' -> '{to}' não está no mapa de adjacência canônica; gravando de qualquer forma, então a deriva é visível."
+      "sourceHash": "3365cd378676194880c62626649abae284f1b4bc3444b27ae1f298fe64ea103b",
+      "message": "Set-RunnerState: '{fromState}' -> '{to}' não está no mapa canônico de adjacência; o registro será mantido para que a transição inesperada fique visível.",
+      "origin": "machine"
     },
     "runner.operator_fad7deaf725b8e6e": {
       "sourceHash": "cc5150ed7f907be28e84df9ac5646077e3129a0de8a33ef75dd6a1e6bfa2e105",
@@ -10537,8 +10608,9 @@
       "message": "Write-StatusJson: não foi possível gravar o documento de estado para {file}"
     },
     "runner.operator_fe2c5d57673db03c": {
-      "sourceHash": "bd96ab3b87a804e76bd022ed48e57ae9b5b15200ea1a36c623fe90b8353c0103",
-      "message": "FAIL associação exclusiva: o host {h} está em '{h2}' e '{thisPool}' (cada host pertence a no máximo um grupo)."
+      "sourceHash": "d54fe510ffdd209dc27927afd6a5e1a526005c55589364a13d81d317c2eccc66",
+      "message": "FAIL associação exclusiva: o host {h} está em '{h2}' e '{thisPool}' (cada host pertence a no máximo um grupo).",
+      "origin": "machine"
     },
     "runner.operator_fe40f9dec8593d1a": {
       "sourceHash": "74d62cf69c6102a7417a77318d4d992ae441db60be5dfaa51703800972db8242",
@@ -10561,8 +10633,9 @@
       "message": "networkStorage server '{name}' resolve para {localIp} aqui; a máquina de referência não forneceu um endereço, então o mapeamento local é mantido."
     },
     "runner.operator_fe92e0ad4340efe9": {
-      "sourceHash": "03e3e1258ff30738f90b68512a08a09285f995b1266b5b05433dcff1b9b76002",
-      "message": "Pool {poolId} [{else}] ({else2}) DesejedState={run}"
+      "sourceHash": "1805d90f25d081c3e1c5506e0c61e6cbd283710bf0aa24dd2f5b1bf3eb4ef8a1",
+      "message": "Grupo {poolId} [{else}] ({else2})  configuredState={run}",
+      "origin": "machine"
     },
     "runner.operator_fe959a3beaa79700": {
       "sourceHash": "b98f37a61ab019e4c66efe7f149c1b0318008f01747b26d279e6ecbfac7e9551",
@@ -10643,6 +10716,10 @@
     "runner.operator_fffaa1debcc46863": {
       "sourceHash": "fe8aff9c3372f01010ee581a943cf53ba0bf28fb261ded3ca300a332453b2fa9",
       "message": "'testCycle.autoRefreshAfterStalls' é {arasVal} -- deve ser 0 (desativado) ou um inteiro positivo."
+    },
+    "runner.outer_attempt_failed": {
+      "sourceHash": "67c5a5bd41904537a222690cf0edd9f7d034c9d1663e289ba7b81270a99c9b04",
+      "message": "a tentativa do executor falhou"
     },
     "runner.prior_runner_cleanup_action": {
       "sourceHash": "ee10928d58c5b0b5614484f46b54af576bf89bf58283c52a9e93d1b0753fb84c",
@@ -11791,30 +11868,30 @@
       "origin": "machine",
       "message": "Não foi possível concluir a captura de diagnóstico da VM {vmName} (código de saída {exitCode})."
     },
-    "runner.pool_intent_library_removed": {
-      "sourceHash": "8b5fbe91e444d74e0c9668ac19738c10751759309bb9bd0dda43de4cc2407f27",
+    "runner.pool_configuration_library_removed": {
+      "sourceHash": "d735cb54a20ad889857901980045a4f4dd5373e020064f1f917f5673b6065fee",
       "origin": "machine",
-      "message": "test-sets.yml removido do repositório de intenções; nada o lê."
+      "message": "test-sets.yml removido do repositório de configuração; nada o lê."
     },
-    "runner.pool_intent_schema_already_current": {
-      "sourceHash": "933cdad0654bdc22f40984a3e64354f38f2cb9f8778ebb52db752a732b5a0a3d",
+    "runner.pool_configuration_schema_already_current": {
+      "sourceHash": "38c70b38e664081d1f80fb878ff5b631fd8b0fd7012a9bcd126447cb6f40050a",
       "origin": "machine",
-      "message": "A intenção do grupo já está em schemaVersion {version}; nada a migrar."
+      "message": "A configuração do grupo já está em schemaVersion {version}; nada a migrar."
     },
-    "runner.pool_intent_schema_migrated": {
-      "sourceHash": "726b5eb0e80e1f40acd1d2bcc3744580425d32229f4bd88b4ee316685fd7952c",
+    "runner.pool_configuration_schema_migrated": {
+      "sourceHash": "eea43a57cb45539ff2c164fdff5c0454e9ed77d3541c15fa1895b299021a1549",
       "origin": "machine",
-      "message": "Intenção do grupo migrada de schemaVersion {from} para {to}, com commit e push realizados."
+      "message": "Configuração do grupo migrada de schemaVersion {from} para {to}, com commit e push realizados."
     },
-    "runner.pool_intent_schema_outdated": {
-      "sourceHash": "070a4902f23022f1ddd52a110648b70efc0e324a8ac79c23b37b6056ba8f688d",
+    "runner.pool_configuration_schema_outdated": {
+      "sourceHash": "a7ba1c35a1391102a4c0080a4295729dc0b71630f4c1287b7a65524ce892d0d2",
       "origin": "machine",
-      "message": "FAIL  schema-version: pools.yml está em schemaVersion {found}, mas este checkout lê schemaVersion {expected}. Execute test/pool/Update-PoolIntentSchema.ps1 uma vez para migrar o repositório de intenções."
+      "message": "FAIL  schema-version: pools.yml está em schemaVersion {found}, mas este checkout lê schemaVersion {expected}. Execute test/pool/Update-PoolConfigurationSchema.ps1 uma vez para migrar o repositório de configuração."
     },
-    "runner.pool_intent_schema_unsupported": {
-      "sourceHash": "04195b778b65f59f17b9e8e71fbf9d81cd8de107f8b890ad1ba426efe2284c9d",
+    "runner.pool_configuration_schema_unsupported": {
+      "sourceHash": "6716cbeb7a8bf0fee6fbfc19fcdefa0c698dfc46d106869e3c72eb5f845db896",
       "origin": "machine",
-      "message": "pools.yml está em schemaVersion {version}, mais recente do que este checkout lê ({expected}). Atualize este checkout antes de alterar a intenção do grupo."
+      "message": "pools.yml está em schemaVersion {version}, mais recente do que este checkout lê ({expected}). Atualize este checkout antes de alterar a configuração do grupo."
     },
     "runner.pool_repositories_cleared": {
       "sourceHash": "78a6c077f136f16db4c7028aec97a338eb23cad75db5f3b386a2fa4c073eae91",
@@ -11895,6 +11972,46 @@
       "sourceHash": "cd85e83e74e84ad1db4d6754c26ac92a29f18431b6ebf06decf7e368dbbdb7fb",
       "origin": "machine",
       "message": "Não foi possível registrar o resultado da recuperação em {path} ({reason}). O resultado do ciclo não é afetado."
+    },
+    "runner.mc7190c5d2b": {
+      "message": "stopVm: desligamento do convidado '{vMName}' solicitado; aguardando até {timeoutSeconds}s para o hospedeiro informar que ele parou.",
+      "origin": "machine",
+      "sourceHash": "36829dc786d0659c878fb59c78ee6e9bacbf67685236680b9d6743da3a4f353a"
+    },
+    "runner.m1ff7f8f2d1": {
+      "message": "{action}: '{vMName}' ainda estava '{observedState}' após {waitedSeconds}s. O quadro do console, o texto OCR e os contadores do hipervisor desse momento foram registrados; veja causeDetail.vmState em last_failure.json.",
+      "origin": "machine",
+      "sourceHash": "e4605a254901bbc5c541070b53031d2f69eb45dc18ed7d7cf71be92b0a83b78a"
+    },
+    "runner.mb985d466db": {
+      "message": "stopVm: forçando o desligamento de '{vMName}' depois que o convidado ignorou a solicitação por {waitedSeconds}s; o ciclo continua em modo degradado.",
+      "origin": "machine",
+      "sourceHash": "4ee9afe648620d1b78b2aa5b3b138148669aaf7e19cf67a3ba2462f97d8c384a"
+    },
+    "runner.maa7a51f878": {
+      "message": "stopVm: não foi possível forçar o desligamento de '{vMName}' depois que ele ignorou a solicitação; a etapa falha.",
+      "origin": "machine",
+      "sourceHash": "b9b86a02c9652d85f081908e1c11c19f60fefa5f6b94dbfb4329c76f0d6c2de1"
+    },
+    "runner.m38857d4ae5": {
+      "message": "{action}: o console de '{vMName}' não mudou em {seconds}s após a digitação; as teclas não foram reconhecidas.",
+      "origin": "machine",
+      "sourceHash": "f52117c1c7801149021b33583a2569795e294307ff5857e1291c7e4ed2a5a334"
+    },
+    "runner.mf99bdf2253": {
+      "message": "O convidado '{vMName}' ficou em silêncio pela primeira vez em {sinceUtc} ({source}); falhas posteriores nesta sequência podem derivar disso.",
+      "origin": "machine",
+      "sourceHash": "de767b106b555764160f0978673a7a9ef560cee9bd9ab0ef85f9ea3150969f8f"
+    },
+    "runner.m60d80be676": {
+      "message": "Log do console serial salvo: {cycleBase}/{destSeqName}/serial-console.log",
+      "origin": "machine",
+      "sourceHash": "8a1b9f9e18210837c6c0eba1482ef2a244831268c2bfd103dca3166974f48ed5"
+    },
+    "runner.ma32a33811f": {
+      "message": "Solicitar o desligamento do convidado pelo driver do hospedeiro e aguardar a VM informar que parou",
+      "origin": "machine",
+      "sourceHash": "6b613cda17e48d3b6d5d324a2cd9ef816a8b7c71a914b34e65d94a4139497414"
     }
   }
 }

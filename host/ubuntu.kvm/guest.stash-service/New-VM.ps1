@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 428fd107-ddcf-4d18-a2a8-6763e5534b41
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,6 +89,8 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 $virshUri = 'qemu:///system'
 Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
@@ -116,6 +118,13 @@ if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 256GB -Format 'qcow2'
     exit 1
 }
 
+# --- REGION: Stage the cloud-init seed directory
+# Staged beside the disk, not under a temp root: the per-VM directory is
+# private to this build and the plaintext source is removed once seed.iso exists.
+$seedDir = Join-Path $vmDir 'seed.src'
+if (Test-Path -LiteralPath $seedDir) { Remove-Item -LiteralPath $seedDir -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
+
 # --- REGION: Yuruna harness SSH key
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
@@ -129,7 +138,7 @@ if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
-# --- REGION: Render user-data / meta-data
+# Check the shared seed templates before the guest network is resolved.
 $baseUserData     = Join-Path $repoRoot 'host/vmconfig/stash-service.base.user-data'
 $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/stash-service.kvm.overlay.yml'
 $metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/stash-service.meta-data'
@@ -139,6 +148,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
         exit 1
     }
 }
+
 # --- REGION: Select the guest network
 # See https://yuruna.link/42e220c4-0004
 # Resolve the network and reachable host address together before rendering the seed.
@@ -184,6 +194,8 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')       -Globa
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 $YurunaHostIp = $guestBinding.HostIp
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
@@ -195,6 +207,7 @@ $ystashNas = Get-YurunaStashSeedValue -Config $tc -GuestReachableAddress $Yuruna
 $null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 
+# --- REGION: Render user-data / meta-data
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
 # stash-service.*). New-CloudInitUserData resolves placeholders with literal
 # .Replace(), so values carrying regex-special chars are safe.
@@ -219,8 +232,6 @@ $userData = New-CloudInitUserData `
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 
-$seedDir = Join-Path $vmDir 'seed.src'
-New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b

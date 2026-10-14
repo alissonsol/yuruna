@@ -158,6 +158,8 @@ const DataheILpool = `{
     },
     "."
   ],
+  "pool.configuration_git_url": "כתובת git של התצורה",
+  "pool.configuration_read_raw_invocation": "קריאת תצורה — הפעלה גולמית",
   "pool.continue": "המשיכו",
   "pool.control": "בקרה",
   "pool.cores": "ליבות",
@@ -258,22 +260,11 @@ const DataheILpool = `{
   ],
   "pool.detail": "פירוט",
   "pool.diagnostic_auto_enrollment_assignment": "מארחים מצורפים לכאן אוטומטית וממשיכים להריץ את הפרויקט שלהם.",
-  "pool.diagnostic_configure_repo": "העבירו את --repo-dir כך שיצביע על עותק העבודה של תשתית yuruna.",
-  "pool.diagnostic_git_not_found": [
-    "לא נמצא בנתיבי PATH: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.diagnostic_install_git": "כלי שורת הפקודה של pool-admin משכפלים ודוחפים את המצב הרצוי של המאגר; התקינו git באורח.",
-  "pool.diagnostic_install_pwsh": "התקינו את PowerShell באורח. באתר ⁦packages.microsoft.com⁩ אין חבילת powershell לגרסת Ubuntu זו; השתמשו בארכיון tar של המהדורה באתר GitHub, ואז הפעילו מחדש את ⁦pool-control-service.service⁩.",
-  "pool.diagnostic_intent_absent": "אין כתובת URL של המצב הרצוי לבדיקה",
-  "pool.diagnostic_intent_configure": "תהליך ההקמה של האורח יוצר אחסון שניתן לכתוב אליו בהתקן NAS של המאגר אם אין כזה; ערך ריק כאן מציין שהתקן NAS לא היה מעוגן בעת ההקמה. הגדירו את POOL_CONTROL_INTENT_GIT_URL בקובץ ⁦/etc/yuruna/pool-control-service.env⁩ (נקרא מחדש בכל בקשה, אין צורך בהפעלה מחדש), או את ⁦pool.intentGitUrl⁩ בקובץ test⁦/test.config.yml⁩ לפני בנייה מחדש.",
-  "pool.diagnostic_intent_empty": "ריק: לא אותר אחסון למצב הרצוי דרך דגל ההפעלה או קובץ התצורה",
-  "pool.diagnostic_intent_initialize": "האחסון בהתקן NAS של המאגר נוצר בתהליך ההקמה של האורח; אם התקן NAS עוגן באיחור, הריצו שוב את סקריפט ההקמה או אתחלו את האחסון באמצעות git init --bare.",
-  "pool.diagnostic_intent_not_bare": [
+  "pool.diagnostic_configuration_absent": "אין כתובת URL של התצורה לבדיקה",
+  "pool.diagnostic_configuration_configure": "תהליך ההקמה של האורח יוצר אחסון שניתן לכתוב אליו בהתקן NAS של המאגר אם אין כזה; ערך ריק כאן מציין שהתקן NAS לא היה מעוגן בעת ההקמה. הגדירו את POOL_CONTROL_CONFIGURATION_GIT_URL בקובץ ⁦/etc/yuruna/pool-control-service.env⁩ (נקרא מחדש בכל בקשה, אין צורך בהפעלה מחדש), או את ⁦pool.configurationGitUrl⁩ בקובץ test⁦/test.config.yml⁩ לפני בנייה מחדש.",
+  "pool.diagnostic_configuration_empty": "ריק: לא אותר מאגר תצורה דרך דגל ההפעלה או קובץ התצורה",
+  "pool.diagnostic_configuration_initialize": "האחסון בהתקן NAS של המאגר נוצר בתהליך ההקמה של האורח; אם התקן NAS עוגן באיחור, הריצו שוב את סקריפט ההקמה או אתחלו את האחסון באמצעות git init --bare.",
+  "pool.diagnostic_configuration_not_bare": [
     {
       "arg": "path",
       "type": "detail",
@@ -287,7 +278,7 @@ const DataheILpool = `{
     },
     ")"
   ],
-  "pool.diagnostic_intent_not_writable": [
+  "pool.diagnostic_configuration_not_writable": [
     {
       "arg": "path",
       "type": "detail",
@@ -300,7 +291,7 @@ const DataheILpool = `{
       "trust": "external"
     }
   ],
-  "pool.diagnostic_intent_override": [
+  "pool.diagnostic_configuration_override": [
     "  (קובץ התצורה גובר על דגל ההפעלה ",
     {
       "arg": "flag",
@@ -309,10 +300,10 @@ const DataheILpool = `{
     },
     ")"
   ],
-  "pool.diagnostic_intent_permission": "פעולות כתיבה ייכשלו בעת דחיפה. בדקו את ערכי uid⁦/gid⁩ של עיגון התקן NAS של המאגר מול המשתמש של השירות.",
-  "pool.diagnostic_intent_pull_only": "אחסון המצב הרצוי דרך http(s) מאפשר משיכה בלבד, אלא אם השרת מפעיל git-http-backend: קריאות יצליחו וכל כתיבה תיכשל בעת דחיפה. האחסון שניתן לכתוב אליו הוא מאגר הקוד ללא עותק עבודה בהתקן NAS של המאגר.",
-  "pool.diagnostic_intent_remote": "כתובת URL מרוחקת; הנגישות נבדקת באמצעות intent-read",
-  "pool.diagnostic_intent_writable": [
+  "pool.diagnostic_configuration_permission": "פעולות כתיבה ייכשלו בעת דחיפה. בדקו את ערכי uid⁦/gid⁩ של עיגון התקן NAS של המאגר מול המשתמש של השירות.",
+  "pool.diagnostic_configuration_pull_only": "אחסון התצורה דרך http(s) מאפשר משיכה בלבד, אלא אם השרת מפעיל git-http-backend: קריאות יצליחו וכל כתיבה תיכשל בעת דחיפה. האחסון שניתן לכתוב אליו הוא מאגר הקוד ללא עותק עבודה בהתקן NAS של המאגר.",
+  "pool.diagnostic_configuration_remote": "כתובת URL מרוחקת; הנגישות נבדקת באמצעות configuration-read",
+  "pool.diagnostic_configuration_writable": [
     {
       "arg": "path",
       "type": "detail",
@@ -320,6 +311,17 @@ const DataheILpool = `{
     },
     ": מאגר ללא עץ עבודה, ניתן לכתיבה"
   ],
+  "pool.diagnostic_configure_repo": "העבירו את --repo-dir כך שיצביע על עותק העבודה של תשתית yuruna.",
+  "pool.diagnostic_git_not_found": [
+    "לא נמצא בנתיבי PATH: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "pool.diagnostic_install_git": "כלי שורת הפקודה של pool-admin משכפלים ודוחפים את תצורת המאגר; התקינו git באורח.",
+  "pool.diagnostic_install_pwsh": "התקינו את PowerShell באורח. באתר ⁦packages.microsoft.com⁩ אין חבילת powershell לגרסת Ubuntu זו; השתמשו בארכיון tar של המהדורה באתר GitHub, ואז הפעילו מחדש את ⁦pool-control-service.service⁩.",
   "pool.diagnostic_no_output": "אין פלט",
   "pool.diagnostic_not_configured": "לא מוגדר",
   "pool.diagnostic_persistence_configure": "העבירו את ⁦Options.StateDir⁩ לצד ⁦Options.Store⁩ כדי שבדיקה זו תוכל לבדוק את הנתיב בפועל.",
@@ -963,8 +965,6 @@ const DataheILpool = `{
     }
   },
   "pool.hosts_yuruna_pool_control": "מארחים — Yuruna Pool Control",
-  "pool.intent_git_url": "כתובת git של המצב הרצוי",
-  "pool.intent_read_raw_invocation": "קריאת המצב הרצוי — הפקודה כפי שהופעלה",
   "pool.ips": "כתובות IP:",
   "pool.it_will_also_be_excluded_from_auto_enrollment_so_the_sweep_will_n": "\n\nהוא גם יוחרג מהרישום האוטומטי, כך שהסריקה לא תוסיף אותו שוב.",
   "pool.lab_token": "אסימון מעבדה",
@@ -1140,6 +1140,7 @@ const DataheILpool = `{
   "pool.pools": "מאגרים",
   "pool.pools_yuruna_pool_control": "מאגרים — Yuruna Pool Control",
   "pool.process": "תהליך",
+  "pool.process_environment": "סביבת התהליך",
   "pool.progress": "התקדמות",
   "pool.project": "פרויקט",
   "pool.project_url": "כתובת הפרויקט",
@@ -1279,7 +1280,6 @@ const DataheILpool = `{
   "pool.row_number": "מספר שורה",
   "pool.running": "בהרצה: ",
   "pool.running_checks": "הבדיקות מתבצעות...",
-  "pool.runtime_environment": "סביבת זמן ריצה",
   "pool.save_failed_value1": [
     "השמירה נכשלה: ",
     {

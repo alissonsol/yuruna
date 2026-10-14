@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 429cc804-7b62-2db1-9091-f5ab5410d797
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -315,6 +315,7 @@
     'status.config_field_chardelayms' = 'charDelayMs'
     'status.config_field_cleanupvmnameprefixes' = 'cleanupVmNamePrefixes'
     'status.config_field_configservice' = 'configService'
+    'status.config_field_configurationgiturl' = 'configurationGitUrl'
     'status.config_field_cycledelayseconds' = 'cycleDelaySeconds'
     'status.config_field_discoveryintervalseconds' = 'discoveryIntervalSeconds'
     'status.config_field_downloadagentservice' = 'downloadAgentService'
@@ -326,7 +327,6 @@
     'status.config_field_ghtoken' = 'ghToken'
     'status.config_field_guestquarantine' = 'guestQuarantine'
     'status.config_field_guestsequence' = 'guestSequence'
-    'status.config_field_intentgiturl' = 'intentGitUrl'
     'status.config_field_labhealth' = 'labHealth'
     'status.config_field_language' = 'language'
     'status.config_field_localclonepath' = 'localClonePath'
@@ -1326,6 +1326,32 @@
         ' to start a test cycle.'
     )
     'status.run_start_testrunner_ps1_to_start_a_test_cycle' = 'Run Start-TestRunner.ps1 to start a test cycle.'
+    'status.runner_attempt_failed' = @(
+        'Runner attempt failed: '
+        @{
+            'arg' = 'failureClass'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'status.runner_attempt_started' = @(
+        'Attempt started: '
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'status.runner_failure_record' = 'Failure record'
+    'status.runner_failure_transcript' = 'Configuration gate transcript'
+    'status.runner_framework_commit' = @(
+        'Framework commit: '
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'status.save' = 'Save'
     'status.save_and_start_cycle' = 'Save and start cycle'
     'status.save_and_start_cycle_failed_value1' = @(

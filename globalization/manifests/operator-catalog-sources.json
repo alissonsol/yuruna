@@ -14583,6 +14583,13 @@
     },
     {
       "path": "host/windows.hyper-v/Enable-TestAutomation.ps1",
+      "line": 58,
+      "sink": "Write-Error",
+      "key": "exceptions.host_ffd2efb19a40de43",
+      "arguments": []
+    },
+    {
+      "path": "host/windows.hyper-v/Enable-TestAutomation.ps1",
       "line": 69,
       "sink": "Write-Information",
       "key": "host.operator_18ab1c2a314eaf6a",
@@ -20344,7 +20351,7 @@
       "key": "runner.operator_4154b8f8b4c44fe5",
       "arguments": [
         "legacyIntentPath",
-        "intentPath"
+        "configurationPath"
       ]
     },
     {
@@ -20353,7 +20360,7 @@
       "sink": "Write-Output",
       "key": "runner.operator_8fcfdcefeec6d978",
       "arguments": [
-        "intentPath"
+        "configurationPath"
       ]
     },
     {
@@ -20362,7 +20369,7 @@
       "sink": "Write-Output",
       "key": "runner.operator_a57aeed80b0cf28a",
       "arguments": [
-        "intentPath",
+        "configurationPath",
         "reason"
       ]
     },
@@ -20409,7 +20416,7 @@
       "sink": "Write-Output",
       "key": "runner.operator_8b14250671a04bd9",
       "arguments": [
-        "intentPath"
+        "configurationPath"
       ]
     },
     {
@@ -21084,7 +21091,7 @@
       "key": "runner.operator_b5e4a53c200e2211",
       "arguments": [
         "existingUrl",
-        "intentUrl"
+        "configurationUrl"
       ]
     },
     {
@@ -21093,7 +21100,7 @@
       "sink": "Write-Information",
       "key": "runner.operator_e178d69f96491585",
       "arguments": [
-        "intentUrl"
+        "configurationUrl"
       ]
     },
     {
@@ -30195,7 +30202,7 @@
       "sink": "ShouldProcess-prompt",
       "key": "runner.operator_811a9975fa1a2df7",
       "arguments": [
-        "intentGitUrl"
+        "configurationGitUrl"
       ]
     },
     {
@@ -30275,7 +30282,7 @@
       "sink": "Write-Error",
       "key": "runner.operator_5080fa98b3c9b51c",
       "arguments": [
-        "intentGitUrl",
+        "configurationGitUrl",
         "error"
       ]
     },
@@ -31162,7 +31169,7 @@
       "sink": "Write-Warning",
       "key": "runner.operator_6a59b18694397dbf",
       "arguments": [
-        "intentGitUrl",
+        "configurationGitUrl",
         "why"
       ]
     },
@@ -40489,7 +40496,7 @@
       "key": "runner.operator_a7d432e9c0cf6e77",
       "arguments": [
         "poolId",
-        "desiredState"
+        "configuredState"
       ]
     },
     {
@@ -40689,7 +40696,7 @@
       ]
     },
     {
-      "path": "test/pool/Set-PoolDesiredState.ps1",
+      "path": "test/pool/Set-PoolConfiguredState.ps1",
       "line": 67,
       "sink": "Write-Error",
       "key": "runner.operator_945821c2fef42ae6",
@@ -40698,7 +40705,7 @@
       ]
     },
     {
-      "path": "test/pool/Set-PoolDesiredState.ps1",
+      "path": "test/pool/Set-PoolConfiguredState.ps1",
       "line": 74,
       "sink": "Write-Information",
       "key": "runner.operator_59650e3f07b2342b",
@@ -40955,17 +40962,17 @@
       "arguments": []
     },
     {
-      "path": "test/pool/Test-PoolIntent.ps1",
+      "path": "test/pool/Test-PoolConfiguration.ps1",
       "line": 96,
       "sink": "Write-Warning",
-      "key": "runner.pool_intent_schema_outdated",
+      "key": "runner.pool_configuration_schema_outdated",
       "arguments": [
         "found",
         "expected"
       ]
     },
     {
-      "path": "test/pool/Test-PoolIntent.ps1",
+      "path": "test/pool/Test-PoolConfiguration.ps1",
       "line": 114,
       "sink": "Write-Warning",
       "key": "runner.operator_fe2c5d57673db03c",
@@ -40976,14 +40983,14 @@
       ]
     },
     {
-      "path": "test/pool/Test-PoolIntent.ps1",
+      "path": "test/pool/Test-PoolConfiguration.ps1",
       "line": 119,
       "sink": "Write-Information",
       "key": "runner.operator_eb9468440861e598",
       "arguments": []
     },
     {
-      "path": "test/pool/Test-PoolIntent.ps1",
+      "path": "test/pool/Test-PoolConfiguration.ps1",
       "line": 138,
       "sink": "Write-Warning",
       "key": "runner.operator_331c67920b1a4f01",
@@ -40992,7 +40999,7 @@
       ]
     },
     {
-      "path": "test/pool/Test-PoolIntent.ps1",
+      "path": "test/pool/Test-PoolConfiguration.ps1",
       "line": 142,
       "sink": "Write-Information",
       "key": "runner.operator_f4ce3623f58ca8ac",
@@ -41001,7 +41008,7 @@
       ]
     },
     {
-      "path": "test/pool/Test-PoolIntent.ps1",
+      "path": "test/pool/Test-PoolConfiguration.ps1",
       "line": 146,
       "sink": "Write-Warning",
       "key": "runner.operator_4b7f2e4a23f336a0",
@@ -41010,14 +41017,14 @@
       ]
     },
     {
-      "path": "test/pool/Test-PoolIntent.ps1",
+      "path": "test/pool/Test-PoolConfiguration.ps1",
       "line": 153,
       "sink": "Write-Information",
       "key": "runner.operator_b11e32378aff0234",
       "arguments": []
     },
     {
-      "path": "test/pool/Test-PoolIntent.ps1",
+      "path": "test/pool/Test-PoolConfiguration.ps1",
       "line": 156,
       "sink": "Write-Warning",
       "key": "runner.operator_b85e68a82dd79259",
@@ -41026,7 +41033,7 @@
       ]
     },
     {
-      "path": "test/pool/Update-PoolIntentSchema.ps1",
+      "path": "test/pool/Update-PoolConfigurationSchema.ps1",
       "line": 97,
       "sink": "Write-Error",
       "key": "runner.operator_c1ccd779c5d89baf",
@@ -41036,7 +41043,7 @@
       ]
     },
     {
-      "path": "test/pool/Update-PoolIntentSchema.ps1",
+      "path": "test/pool/Update-PoolConfigurationSchema.ps1",
       "line": 103,
       "sink": "Write-Error",
       "key": "runner.operator_e0674b7efa2de0b5",
@@ -41046,36 +41053,36 @@
       ]
     },
     {
-      "path": "test/pool/Update-PoolIntentSchema.ps1",
+      "path": "test/pool/Update-PoolConfigurationSchema.ps1",
       "line": 112,
       "sink": "Write-Error",
-      "key": "runner.pool_intent_schema_unsupported",
+      "key": "runner.pool_configuration_schema_unsupported",
       "arguments": [
         "version",
         "expected"
       ]
     },
     {
-      "path": "test/pool/Update-PoolIntentSchema.ps1",
+      "path": "test/pool/Update-PoolConfigurationSchema.ps1",
       "line": 118,
       "sink": "Write-Information",
-      "key": "runner.pool_intent_schema_already_current",
+      "key": "runner.pool_configuration_schema_already_current",
       "arguments": [
         "version"
       ]
     },
     {
-      "path": "test/pool/Update-PoolIntentSchema.ps1",
+      "path": "test/pool/Update-PoolConfigurationSchema.ps1",
       "line": 136,
       "sink": "Write-Information",
-      "key": "runner.pool_intent_library_removed",
+      "key": "runner.pool_configuration_library_removed",
       "arguments": []
     },
     {
-      "path": "test/pool/Update-PoolIntentSchema.ps1",
+      "path": "test/pool/Update-PoolConfigurationSchema.ps1",
       "line": 137,
       "sink": "Write-Information",
-      "key": "runner.pool_intent_schema_migrated",
+      "key": "runner.pool_configuration_schema_migrated",
       "arguments": [
         "from",
         "to"

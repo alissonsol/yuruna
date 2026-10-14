@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4277fa63-7e99-d75f-2e10-e83578213d12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -486,7 +486,7 @@
         }
         ').'
     )
-    'configsync.operator_9e1f86637c4a7e09' = 'left it empty (defaults to <runtime>/pool-intent)'
+    'configsync.operator_9e1f86637c4a7e09' = 'left it empty (defaults to <runtime>/pool-configuration)'
     'configsync.operator_9e44a801c5e38eb2' = ' (dropped -- the current spelling was already present)'
     'configsync.operator_a01d26f897759fcf' = @(
         @{
@@ -503,7 +503,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' in -NonInteractive mode. Re-run with -AllowStaleReference to accept the drift, or bring the reference host up to date first.'
+        ' in -NonInteractive mode. Re-run with -AllowStaleReference to accept the outdated configuration, or bring the reference host up to date first.'
     )
     'configsync.operator_a610cd0fd716e5f9' = 'Sync-HostConfiguration: unsupported platform.'
     'configsync.operator_a693215e036db1c5' = @(

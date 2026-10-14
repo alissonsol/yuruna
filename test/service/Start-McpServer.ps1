@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42483736-4c90-4f3e-b602-9b7c1511b13e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,13 +183,7 @@ function Invoke-McpEntryPoint {
     if (-not (Test-Path -LiteralPath $path)) {
         return @{ ExitCode = 127; Stdout = ''; Stderr = (Format-YurunaOperatorMessage -Key 'runner.mcp_missing_entry' -Arguments @{ path = $path }); TranscriptPath = '' }
     }
-    # Most of these scripts have no [CmdletBinding()], and a script without it
-    # absorbs an unknown -Name into $args and runs anyway. So an argument the
-    # target does not declare is not refused by PowerShell -- it is silently
-    # dropped, and the run proceeds against defaults while the caller believes
-    # its input was honored. Refusing here is the only place that reads as a
-    # failure. The check is over the declared parameter names, not over any
-    # message, so it holds on a host in any language.
+    # See https://yuruna.link/42e220c4-0019
     $undeclared = @(Get-UnboundParameterName -ScriptPath $path -Argument $ScriptArgument)
     if ($undeclared.Count) {
         return @{ ExitCode = 126; Stdout = ''; TranscriptPath = ''; Refused = $true

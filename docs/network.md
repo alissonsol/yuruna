@@ -1023,6 +1023,16 @@ per guest -- the domain UUID, or a MAC allocated at creation and registered unde
 the final name once `saveDiskSnapshot` assigns it. Until then this stays
 disconnected.
 
+**`host/ubuntu.kvm/modules/Yuruna.GuestRail.psm1`.**
+
+A second, stable libvirt-NAT address per guest, for guests that must reach
+EACH OTHER. KVM-only: every consumer treats a rail address as an optimization
+that may be absent, never as a dependency.
+NOTHING CALLS THIS. Get-GuestRailAddress keys on the transient VM name, so
+wiring it back as it stands breaks VM creation on the second guest of every
+cycle. It is kept for the derivation and its tests --
+https://yuruna.link/4220a755-001a
+
 <a id="4220a755-001b"></a>
 
 ## Cache-VM seed host binding
@@ -1544,6 +1554,19 @@ A netplan-managed bridge is reported, never changed: fixing that one means
 rewriting `/etc/netplan` and running `netplan apply`, which re-plumbs the
 host's IP stack -- an operator action with eyes on the console.
 
+The unattended remedy needs root for one `nmcli` call, and
+`host/ubuntu.kvm/yuruna-bridge-pin.sudoers` grants exactly that call. The rule
+spells out the whole argument vector rather than ending in `nmcli connection
+modify yuruna-br0 *`: a trailing wildcard would permit any property on that
+connection, including `ipv4.method`, `ipv4.addresses` and
+`connection.autoconnect` -- enough to take the host off the network
+permanently. Matching the exact vector grants the three identity properties
+and nothing else, and it is the same vector `Set-HostBridgeDhcpIdentity`
+builds, so a change to either has to be a change to both; a test holds them
+equal. The neighboring `test/lab/yuruna-churn.sudoers` grants `connection up`,
+which does reactivate the connection. The two are separate grants on purpose,
+and neither implies the other.
+
 <a id="4220a755-0028"></a>
 
 ### When the address moves anyway
@@ -1630,6 +1653,12 @@ Where the lease is too long to produce changes on demand,
 test does not depend on the router's mood. It needs permission to activate the
 connection -- `test/lab/yuruna-churn.sudoers` grants exactly that -- and refuses
 to start without it, rather than running all cycle and injecting nothing.
+That grant is two spelled-out commands on one named connection: the version
+probe the injector uses to check its own privilege, and the activation itself.
+A wildcard such as `nmcli *` would also permit `nmcli connection modify`,
+`nmcli connection delete` and `nmcli device disconnect`, any of which can take
+the host off the network permanently rather than for the second a renewal
+costs.
 
 <a id="4220a755-002b"></a>
 
@@ -2510,6 +2539,12 @@ cloning, as belt to the seed's braces. They run under `sudo` and through
 non-login shells, either of which drops what `/etc/profile.d` exported,
 and a guest built from an older seed has no such export to drop in the
 first place.
+
+Private repository credentials reach Ubuntu and Amazon Linux guests through
+the seed ISO, never through OCR console input or HTTP. When a token is set,
+the seed writes it to `/etc/profile.d` for login shells and `~/.bashrc` for
+the runner's interactive shell. An unset token omits that credential block
+while preserving the independent prompt-suppression settings.
 
 <a id="4220a755-0050"></a>
 

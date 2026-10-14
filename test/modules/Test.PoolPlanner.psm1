@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b8932c-aa15-4760-a06d-b3037804847c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,7 +110,7 @@ function Select-RunnableGuestList {
 
 # --- REGION: I/O readers (best-effort; $null on any miss so the caller degrades)
 # Read-YurunaPoolManifest reads runtime/pool.manifest.json (written by the outer
-# loop's Sync-YurunaPoolIntent). $null when absent/unparseable (the inner then
+# loop's Sync-YurunaPoolConfiguration). $null when absent/unparseable (the inner then
 # runs single-host).
 function Read-YurunaPoolManifest {
     <#

@@ -150,6 +150,10 @@ func TestStatusLabelPaused(t *testing.T) {
 	}
 	parked := func(hv *hostView) *hostView { hv.StepPauseReached = true; return hv }
 	dead := func(hv *hostView) *hostView { hv.RunnerStopped = true; return hv }
+	fault := func(hv *hostView) *hostView {
+		hv.Status.RunnerFault = &runnerFault{FailureClass: "config_gate_failed", Severity: "fatal"}
+		return hv
+	}
 	cases := []struct {
 		name      string
 		hv        *hostView
@@ -169,6 +173,11 @@ func TestStatusLabelPaused(t *testing.T) {
 		{"stopped runner outranks an armed pause", dead(mk(true, &hostStatus{OverallStatus: "running", StepPaused: true})), "stopped", 8},
 		{"stopped runner with no cycle data", dead(&hostView{Reachable: true}), "stopped", 8},
 		{"unreachable outranks stopped", dead(mk(false, &hostStatus{OverallStatus: "pass"})), "unreachable", 0},
+		{"attempt failure above passing cycle", fault(mk(true, &hostStatus{OverallStatus: "pass"})), "fail", 3},
+		{"attempt failure before first cycle", fault(mk(true, &hostStatus{})), "fail", 3},
+		{"attempt failure above armed pause", fault(mk(true, &hostStatus{OverallStatus: "pass", CyclePaused: true})), "fail", 3},
+		{"stopped above attempt failure", dead(fault(mk(true, &hostStatus{OverallStatus: "pass"}))), "stopped", 8},
+		{"unreachable above attempt failure", fault(mk(false, &hostStatus{OverallStatus: "pass"})), "unreachable", 0},
 	}
 	for _, c := range cases {
 		if got := c.hv.statusLabel(); got != c.wantLabel {

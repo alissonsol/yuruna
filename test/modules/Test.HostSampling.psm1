@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d6d3a9-02a1-4fb8-87ed-a2137333c910
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,17 +36,7 @@ function Get-YurunaHostCounterSpecification {
     #>
     [CmdletBinding()]
     param()
-    # The per-cause rates after the scheduling counters split Total
-    # Intercepts/sec by source, so a virtual processor trapping millions of
-    # times a second names what it is trapping on: a timer or interrupt-
-    # controller register loop, an interrupt storm, hypercalls, device
-    # memory, or (ARM64) a secure-monitor call. SysReg and SMC are the
-    # ARM64 traps, MSR/IO the x64 ones; capability resolution drops
-    # whichever this host does not publish. This list is deliberately not
-    # exhaustive -- Hyper-V Hypervisor Virtual Processor carries dozens of
-    # narrower sub-counters -- so the livelock verdict also reports what
-    # these named causes leave unaccounted for, rather than reading a gap
-    # in this list as zero cause.
+    # See https://yuruna.link/42e220c4-0004
     $groups = [ordered]@{
         'Hyper-V Hypervisor Virtual Processor' = @('% Guest Run Time','% Hypervisor Run Time','% Total Run Time','Total Intercepts/sec','Other Intercepts/sec','Total Intercepts Cost','CPU Wait Time Per Dispatch','Logical Processor Dispatches/sec','CPU Wake Up Time Per Dispatch','CPU Contention Time Per Dispatch',
             'Hypercalls/sec','SysReg Accesses/sec','MSR Accesses/sec','IO Instructions/sec','Virtual Interrupts/sec','Synthetic Interrupts/sec','Hardware Interrupts/sec','Pending Interrupts/sec','Memory Intercept Messages/sec','Nested Page Fault Intercepts/sec',

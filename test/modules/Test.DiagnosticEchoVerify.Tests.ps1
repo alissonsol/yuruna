@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42776ad5-c21e-492b-ad50-e619b059f990
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -215,17 +215,7 @@ Describe 'Test-ConsoleEchoIntact - equality-style checks are excluded by constru
     }
 
     It 'judges the line as a whole rather than asking whether fragments appear somewhere' {
-        # Test-OCRMatch is the module's other text predicate and is NOT
-        # usable here: it answers "is this prompt on screen", splitting its
-        # pattern on whitespace and punctuation and requiring only that each
-        # fragment appear somewhere in the text. On a screen that still shows
-        # the command plus a wall of garbage, every fragment is present.
-        #
-        # The check below is the structural version of that argument, stated
-        # without depending on Test-OCRMatch's internals: the corrupt sample
-        # CONTAINS the healthy one verbatim, so any predicate satisfied by
-        # "the expected content is present" passes it. Only a predicate that
-        # also weighs what is present in EXCESS can tell them apart.
+        # See https://yuruna.link/42e220c4-0014
         Assert-True -Condition ($script:EchoCorrupt.StartsWith($EchoHealthy)) 'Corrupt sample must contain the healthy one intact.'
         Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $EchoHealthy)
         Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $script:EchoCorrupt)

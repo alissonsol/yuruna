@@ -14,9 +14,9 @@ import (
 	"net/http"
 	"time"
 
+	"pool-control-service/internal/configuration"
 	"pool-control-service/internal/discovery"
 	"pool-control-service/internal/hostctl"
-	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
 	"yuruna.com/test/extension/extension-sdk/hostrefresh"
 	"yuruna.com/test/extension/extension-sdk/i18n"
@@ -29,18 +29,18 @@ import (
 // the numbers out rather than hang the page.
 const aggregatorTimeout = 15 * time.Second
 
-// IntentAPI is the write/read surface the handlers call; intent.Runner
+// ConfigurationAPI is the write/read surface the handlers call; configuration.Runner
 // satisfies it, and tests inject a fake.
-type IntentAPI interface {
-	State(ctx context.Context) intent.Result
-	NewPool(ctx context.Context, poolID, displayName, desiredState string) intent.Result
-	RemovePool(ctx context.Context, poolID string, force bool) intent.Result
-	SetDesiredState(ctx context.Context, poolID, state string) intent.Result
-	AddHost(ctx context.Context, poolID, hostID string, moveExisting ...bool) intent.Result
-	RemoveHost(ctx context.Context, poolID, hostID string, exclude ...bool) intent.Result
-	MoveHostIdentity(ctx context.Context, oldID, newID string) intent.Result
-	SetPoolRepositories(ctx context.Context, poolID, frameworkURL, projectURL string) intent.Result
-	ClearPoolRepositories(ctx context.Context, poolID string) intent.Result
+type ConfigurationAPI interface {
+	State(ctx context.Context) configuration.Result
+	NewPool(ctx context.Context, poolID, displayName, configuredState string) configuration.Result
+	RemovePool(ctx context.Context, poolID string, force bool) configuration.Result
+	SetConfiguredState(ctx context.Context, poolID, state string) configuration.Result
+	AddHost(ctx context.Context, poolID, hostID string, moveExisting ...bool) configuration.Result
+	RemoveHost(ctx context.Context, poolID, hostID string, exclude ...bool) configuration.Result
+	MoveHostIdentity(ctx context.Context, oldID, newID string) configuration.Result
+	SetPoolRepositories(ctx context.Context, poolID, frameworkURL, projectURL string) configuration.Result
+	ClearPoolRepositories(ctx context.Context, poolID string) configuration.Result
 }
 
 // Options configures the server.
@@ -51,15 +51,15 @@ type Options struct {
 	// (host-side launcher / tests run without a NAS).
 	Store *state.Store
 	// The launch values below are carried purely so /diagnostics can report the
-	// daemon's own view of its dependencies. The intent layer holds its own
+	// daemon's own view of its dependencies. The configuration layer holds its own
 	// copies; these are for the report, which is why they are plain strings
 	// rather than a second source of truth.
-	PwshPath      string
-	RepoDir       string
-	StateDir      string
-	AggregatorURL string
-	HostID        string
-	IntentGitURL  string
+	PwshPath            string
+	RepoDir             string
+	StateDir            string
+	AggregatorURL       string
+	HostID              string
+	ConfigurationGitURL string
 	// AuthToken is the internal authentication key accepted as a bearer on
 	// the routes that change pool configuration. Empty leaves the dashboard's
 	// lab token as the only way in; it never leaves those routes open.
@@ -108,11 +108,11 @@ type Options struct {
 type Server struct {
 	// assets is built once during New and read-only thereafter: a handler
 	// never rereads embed.FS, recompresses a body, or rebuilds a map.
-	assets assetStore
-	intent IntentAPI
-	state  *state.Store
-	opts   Options
-	gate   *labgate.Gate
+	assets        assetStore
+	configuration ConfigurationAPI
+	state         *state.Store
+	opts          Options
+	gate          *labgate.Gate
 	// localeNegotiator is narrowed to this binary's embedded catalogs once in
 	// New. Request handlers read it but never rebuild or mutate its maps.
 	localeNegotiator *i18n.Negotiator
@@ -138,9 +138,9 @@ type Server struct {
 	started    time.Time
 }
 
-// New builds a Server over the given intent API.
-func New(api IntentAPI, opts Options) *Server {
-	s := &Server{intent: api, state: opts.Store, opts: opts, started: time.Now()}
+// New builds a Server over the given configuration API.
+func New(api ConfigurationAPI, opts Options) *Server {
+	s := &Server{configuration: api, state: opts.Store, opts: opts, started: time.Now()}
 	s.localeNegotiator = newServiceNegotiator(opts.Language, opts.AllowPseudoLocale)
 	s.assets.preparePages(s.localeNegotiator)
 	s.gate = labgate.New(labgate.Options{

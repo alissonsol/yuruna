@@ -16,7 +16,7 @@ import (
 
 // The operator board's server side. See
 // ../../../../../../docs/pool-admin.md#architecture for why the join between
-// Loki cycle counts and intent-store membership lives here rather than in the
+// Loki cycle counts and configuration-store membership lives here rather than in the
 // aggregator. -- board.go
 
 // boardRanges is the closed set of windows the board offers, mirroring the
@@ -63,8 +63,8 @@ type boardCard struct {
 	Blocked []string `json:"blocked"`
 }
 
-// intentDoc is the shape Get-PoolIntent.ps1 emits.
-type intentDoc struct {
+// configurationDoc is the shape Get-PoolConfiguration.ps1 emits.
+type configurationDoc struct {
 	OK    bool `json:"ok"`
 	Pools []struct {
 		PoolID   string   `json:"poolId"`
@@ -119,10 +119,10 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Intent first: it is the authority for which cards exist and what each
+	// Configuration first: it is the authority for which cards exist and what each
 	// pool runs, and the board is still useful when the aggregator is
 	// unreachable.
-	doc, err := s.readIntentDoc(r.Context())
+	doc, err := s.readConfigurationDoc(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -130,7 +130,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 
 	// Stats are best-effort. A dead aggregator grays the NUMBERS; it must never
 	// hide the cards, because which pools exist and which repositories they run
-	// come from the intent store, with no aggregator dependency at all.
+	// come from the configuration store, with no aggregator dependency at all.
 	var stats aggPoolStats
 	statsErr := ""
 	if err := s.pool.Get(r.Context(), "/api/v1/pool-stats?range="+url.QueryEscape(window), &stats); err != nil {
@@ -353,7 +353,7 @@ func preferredHost(a, b pool.Host) bool {
 // LAN through the aggregator; a machine name is not -- the pool view drops it by
 // design, and this page renders on the same kind of unattended wall display.
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
-	doc, err := s.readIntentDoc(r.Context())
+	doc, err := s.readConfigurationDoc(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -483,7 +483,7 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "hostId is required")
 		return
 	}
-	doc, err := s.readIntentDoc(r.Context())
+	doc, err := s.readConfigurationDoc(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -497,9 +497,9 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if body.PoolID == "" {
-		// Membership and exclusion are one durable intent write, including for
+		// Membership and exclusion are one durable configuration write, including for
 		// hosts already unassigned or when no enrollment target exists yet.
-		s.relay(w, "move-host", body.HostID, s.intent.RemoveHost(r.Context(), "", body.HostID, true))
+		s.relay(w, "move-host", body.HostID, s.configuration.RemoveHost(r.Context(), "", body.HostID, true))
 		return
 	}
 	if current == body.PoolID {
@@ -508,7 +508,7 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 	}
 	// Destination validation, old membership removal and destination insertion
 	// share one pools.yml publication. A failed add cannot publish a removal.
-	s.relay(w, "move-host", body.HostID, s.intent.AddHost(r.Context(), body.PoolID, body.HostID, true))
+	s.relay(w, "move-host", body.HostID, s.configuration.AddHost(r.Context(), body.PoolID, body.HostID, true))
 }
 
 // handleAdoptRekey hands membership to the live ID, persists an identity alias,
@@ -516,7 +516,7 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 //
 // A host mints its id into its runtime directory, so a reimage or a re-clone
 // leaves the machine running under a new one. Pool membership is keyed by id in
-// the intent store, so it stays on the id that went quiet: the pool loses a
+// the configuration store, so it stays on the id that went quiet: the pool loses a
 // member that is sitting right there doing work, and the operator sees two rows
 // where there is one machine. Repairing that by hand means reading two ids off
 // a table, removing one member and adding the other, in the right pool -- an
@@ -587,7 +587,7 @@ func (s *Server) handleAdoptRekey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doc, err := s.readIntentDoc(r.Context())
+	doc, err := s.readConfigurationDoc(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -604,10 +604,10 @@ func (s *Server) handleAdoptRekey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// One intent-store write replaces both IDs. Separate remove/add commits
+	// One configuration-store write replaces both IDs. Separate remove/add commits
 	// could leave the machine unassigned if the second write failed.
-	if res := s.intent.MoveHostIdentity(r.Context(), oldID, newID); !res.OK {
-		writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "the host identities could not be moved in the intent store"))
+	if res := s.configuration.MoveHostIdentity(r.Context(), oldID, newID); !res.OK {
+		writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "the host identities could not be moved in the configuration store"))
 		return
 	}
 	// The new id keeps the pool it is already in: it is the live host, and an
@@ -647,7 +647,7 @@ func (s *Server) handleAdoptRekey(w http.ResponseWriter, r *http.Request) {
 	// The scan's own list is keyed by id too, so the retired id would go on
 	// showing there as a host of its own. Best-effort: it may never have been
 	// discovered, and a monitored-list entry is not worth failing a repair the
-	// intent store has already accepted.
+	// configuration store has already accepted.
 	forgot := s.discovered.Forget(oldID)
 
 	s.auditScan("adopt-rekey", oldID+" -> "+newID)

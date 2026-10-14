@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -211,12 +211,21 @@ function Invoke-Arm64HyperVColdPowerCycle {
         The caller owns the platform/architecture policy. This helper is
         deliberately fail-closed: a retry must not continue when the VM's
         stopped/running postconditions or its console transport are ambiguous.
+        -BootInstallerMedia reselects the installer DVD while the guest is
+        stopped. Once curtin has installed the bootloader, the target disk
+        outranks the DVD, so restarting an install that never reached its
+        late-commands would otherwise boot a partly installed guest.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param([Parameter(Mandatory)][hashtable]$Context)
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [switch]$BootInstallerMedia
+    )
 
-    foreach ($commandName in 'Get-VMState', 'Stop-VMForce', 'Start-VM', 'Restart-VMConsole') {
+    $requiredCommand = @('Get-VMState', 'Stop-VMForce', 'Start-VM', 'Restart-VMConsole')
+    if ($BootInstallerMedia) { $requiredCommand += 'Set-VMInstallerMediaFirstBoot' }
+    foreach ($commandName in $requiredCommand) {
         if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) { return $false }
     }
 
@@ -224,6 +233,7 @@ function Invoke-Arm64HyperVColdPowerCycle {
         if ([string](Get-VMState -VMName $Context.VMName) -ne 'running') { return $false }
         if (-not (Stop-VMForce -VMName $Context.VMName -StopTimeoutSeconds 20 -Confirm:$false)) { return $false }
         if ([string](Get-VMState -VMName $Context.VMName) -ne 'stopped') { return $false }
+        if ($BootInstallerMedia -and -not (Set-VMInstallerMediaFirstBoot -VMName $Context.VMName -Confirm:$false)) { return $false }
 
         $startResult = Start-VM -VMName $Context.VMName -Confirm:$false
         $startRecord = @($startResult) | Where-Object { $_ -is [System.Collections.IDictionary] } | Select-Object -Last 1
@@ -499,6 +509,216 @@ function Save-SequenceCpuRestartEvidence {
     } catch { Write-Verbose "CPU restart evidence unavailable: $($_.Exception.Message)" }
 }
 
+# --- REGION: Guest silence and stopped-wait evidence
+# See https://yuruna.link/42e220c4-0007
+# Record the earliest moment the guest stopped answering, once per sequence.
+# Every mechanism that can notice silence calls this: a dropped SSH transport,
+# typed input the console never acknowledged, a diagnostic no rung could reach,
+# and a shutdown request the guest ignored. The first caller wins, so the
+# failure record names the first symptom rather than the last.
+function Set-GuestSilenceMarker {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Records an observation in the in-memory failure state and the event stream; it changes no system state.')]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][string]$Source
+    )
+    if ($script:Fail.FirstGuestSilenceUtc) { return $false }
+    $now = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    $script:Fail.FirstGuestSilenceUtc = $now
+    $script:Fail.FirstGuestSilenceSource = $Source
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.mf99bdf2253' -Arguments @{ vMName = "$($Context.VMName)"; sinceUtc = "$now"; source = "$Source" }) -InformationAction Continue
+    if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+        Send-YurunaDegradation -Dependency 'guest-responsiveness' -Primary $Source -Fallback 'evidence-only' `
+            -Reason "guest '$($Context.VMName)' stopped answering ($Source)" -Severity soft
+    }
+    return $true
+}
+# Capture one console frame with its OCR sidecar into the cycle's screens
+# folder, the same files and names Wait-ForText writes, so a step that polls
+# no text still leaves a dated picture of the console. Returns the frame path,
+# the recognized text, and a content hash, or $null when the host cannot
+# capture. Evidence gathering never fails the step it serves.
+function Save-GuestConsoleFrame {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [string]$Label = 'frame'
+    )
+    try {
+        if (-not (Get-Command Get-VMScreenshot -ErrorAction SilentlyContinue)) { return $null }
+        $screensDir = if (Get-Command Get-CycleScreenDir -ErrorAction SilentlyContinue) {
+            Get-CycleScreenDir -VMName $Context.VMName -WhatIf:$false
+        } else { $Context.ScreenshotDir }
+        if (-not $screensDir) { return $null }
+        if (-not (Test-Path -LiteralPath $screensDir)) { New-Item -ItemType Directory -Force -Path $screensDir | Out-Null }
+        $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')
+        $framePath = Join-Path $screensDir "raw_${stamp}.png"
+        $captured = Get-VMScreenshot -VMName $Context.VMName -OutFile $framePath
+        if (-not $captured -or -not (Test-Path -LiteralPath $framePath)) { return $null }
+        $text = ''
+        $sections = [Collections.Generic.List[string]]::new()
+        if (Get-Command Invoke-AllEnabledOcr -ErrorAction SilentlyContinue) {
+            $results = Invoke-AllEnabledOcr -ImagePath $framePath
+            foreach ($provider in @($results.Keys)) {
+                $providerText = [string]$results[$provider]
+                $sections.Add("== $provider ($Label) ==")
+                $sections.Add($providerText)
+                if ($providerText.Trim() -and -not $text) { $text = $providerText }
+            }
+        }
+        if ($sections.Count -eq 0) { $sections.Add("== none ($Label) ==") }
+        Set-Content -LiteralPath ([IO.Path]::ChangeExtension($framePath, '.txt')) -Value ($sections -join "`n") -Encoding utf8 -ErrorAction SilentlyContinue
+        $hash = (Get-FileHash -LiteralPath $framePath -Algorithm SHA256).Hash
+        return @{ Path = $framePath; Text = $text; Hash = $hash }
+    } catch {
+        Write-Verbose "      console frame unavailable for '$($Context.VMName)': $($_.Exception.Message)"
+        return $null
+    }
+}
+# Poll the host for the VM to report stopped, capturing a console frame every
+# -FrameIntervalSeconds so a guest that ignores the request leaves a dated
+# record of what its console showed meanwhile. Returns @{ Stopped;
+# ObservedState; WaitedSeconds }.
+function Wait-VmStopped {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][int]$TimeoutSeconds,
+        [int]$FrameIntervalSeconds = 30
+    )
+    $started = [DateTime]::UtcNow
+    $deadline = $started.AddSeconds($TimeoutSeconds)
+    $nextFrame = if ($FrameIntervalSeconds -gt 0) { $started.AddSeconds($FrameIntervalSeconds) } else { [DateTime]::MaxValue }
+    $state = 'unknown'
+    do {
+        try { $state = [string](Get-VMState -VMName $Context.VMName) } catch { $state = 'unknown' }
+        $waited = [int]([DateTime]::UtcNow - $started).TotalSeconds
+        if ($state -eq 'stopped') { return @{ Stopped = $true; ObservedState = $state; WaitedSeconds = $waited } }
+        if ($state -eq 'absent' -or [DateTime]::UtcNow -ge $deadline) {
+            return @{ Stopped = $false; ObservedState = $state; WaitedSeconds = $waited }
+        }
+        if ([DateTime]::UtcNow -ge $nextFrame) {
+            [void](Save-GuestConsoleFrame -Context $Context -Label 'waiting for stopped')
+            $nextFrame = [DateTime]::UtcNow.AddSeconds($FrameIntervalSeconds)
+        }
+        Start-Sleep -Seconds 1
+    } while ($true)
+}
+# What a stopped-wait leaves behind when it gives up: the frame and OCR text
+# of the console at that moment, the host sampler's livelock verdict, the
+# observed state and the time waited, all on the failure record, plus the
+# first-silence marker. Called by stopVm and startVm.
+function Save-VmNotStoppedEvidence {
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][hashtable]$Wait,
+        [Parameter(Mandatory)][string]$Action,
+        [Parameter(Mandatory)][string]$RequestedAtUtc
+    )
+    $frame = Save-GuestConsoleFrame -Context $Context -Label "$Action gave up"
+    if ($frame -and $frame.Text) {
+        $tail = [string]$frame.Text
+        $script:Fail.WaitForTextOcrTail = if ($tail.Length -le 1200) { $tail } else { $tail.Substring($tail.Length - 1200) }
+        try {
+            $logDir = $Context.LogDir
+            if ($logDir) {
+                Copy-Item -LiteralPath $frame.Path -Destination (Join-Path $logDir "failure_screenshot_$($Context.VMName).png") -Force -ErrorAction SilentlyContinue
+                Set-Content -LiteralPath (Join-Path $logDir "failure_ocr_$($Context.VMName).txt") -Value $tail -Force -ErrorAction SilentlyContinue
+            }
+        } catch { Write-Verbose "      failure frame copy skipped: $($_.Exception.Message)" }
+    }
+    if (Get-Command Get-GuestLivelockVerdict -ErrorAction SilentlyContinue) {
+        $verdict = Get-GuestLivelockVerdict -VMName $Context.VMName -Since ([DateTime]::UtcNow.AddSeconds(-1 * [Math]::Max(60, $Wait.WaitedSeconds)))
+        if ($verdict) {
+            $script:Fail.WaitForTextGuestLivelock = $verdict
+            $script:Fail.WaitForTextGuestLivelocked = ($verdict.Verdict -eq 'livelocked')
+        }
+    }
+    $script:Fail.StepVmNotStopped = @{
+        observedState  = [string]$Wait.ObservedState
+        waitedSeconds  = [int]$Wait.WaitedSeconds
+        requestedAtUtc = $RequestedAtUtc
+        action         = $Action
+    }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.m1ff7f8f2d1' -Arguments @{ action = "$Action"; vMName = "$($Context.VMName)"; observedState = "$($Wait.ObservedState)"; waitedSeconds = "$($Wait.WaitedSeconds)" })
+    [void](Set-GuestSilenceMarker -Context $Context -Source "${Action}: shutdown request ignored")
+}
+# Request a guest shutdown from the host and observe it, instead of typing a
+# power-off command into a console that may no longer be listening. A guest
+# that ignores the request leaves frames, OCR text, and hypervisor counters
+# behind; with forceOnTimeout the step then turns the VM off and the cycle
+# continues in a degraded mode, which the event stream and the first-silence
+# marker both record.
+Register-SequenceAction -Name 'stopVm' -ReplaySafety 'state-changing' -HostIORequirement @() -OcrRequired $false `
+    -FailureClass 'wait_timeout' -Severity 'hard' -SuggestedRecoveries @('retry_with_backoff', 'pause_and_inspect') `
+    -Description (Format-YurunaOperatorMessage -Key 'runner.ma32a33811f') `
+    -FailureLabel { param($c) "stopVm: `"$($c.VMName)`"" } `
+    -Handler {
+        param([hashtable]$c)
+        foreach ($commandName in @('Get-VMState', 'Stop-VM')) {
+            if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) { return $false }
+        }
+        $timeoutSeconds = 120
+        if ($null -ne $c.Step.timeoutSeconds) {
+            try { $timeoutSeconds = [int]$c.Step.timeoutSeconds } catch { return $false }
+        }
+        if ($timeoutSeconds -lt 1) { return $false }
+        $frameInterval = if ($null -ne $c.Step.frameIntervalSeconds) { [int]$c.Step.frameIntervalSeconds } else { 30 }
+        $forceOnTimeout = ($c.Step.forceOnTimeout -eq $true)
+        $state = 'unknown'
+        try { $state = [string](Get-VMState -VMName $c.VMName) } catch { $state = 'unknown' }
+        if ($state -eq 'stopped') { return $true }
+        if ($state -ne 'running') { return $false }
+        [void](Save-GuestConsoleFrame -Context $c -Label 'before shutdown request')
+        $requestedAt = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.mc7190c5d2b' -Arguments @{ vMName = "$($c.VMName)"; timeoutSeconds = "$timeoutSeconds" }) -InformationAction Continue
+        # A short driver-side wait: the request itself is asynchronous on every
+        # provider, and the polling loop below owns the deadline so frames can
+        # be captured while the guest decides. -NoForce keeps the driver from
+        # turning the VM off on its own; the force path below records why.
+        try {
+            [void](Stop-VM -VMName $c.VMName -ShutdownTimeoutSeconds 5 -NoForce -Confirm:$false)
+        } catch {
+            if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
+            Write-Verbose "      stopVm: shutdown request failed: $($_.Exception.Message)"
+        }
+        $wait = Wait-VmStopped -Context $c -TimeoutSeconds $timeoutSeconds -FrameIntervalSeconds $frameInterval
+        if ($wait.Stopped) { return $true }
+        Save-VmNotStoppedEvidence -Context $c -Wait $wait -Action 'stopVm' -RequestedAtUtc $requestedAt
+        if (-not $forceOnTimeout) { return $false }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.mb985d466db' -Arguments @{ vMName = "$($c.VMName)"; waitedSeconds = "$($wait.WaitedSeconds)" })
+        if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+            Send-YurunaDegradation -Dependency 'guest-shutdown' -Primary 'guest-honored-shutdown' -Fallback 'host-forced-off' `
+                -Reason "'$($c.VMName)' still $($wait.ObservedState) after $($wait.WaitedSeconds)s" -Severity soft
+        }
+        $forced = $false
+        try {
+            if (Get-Command Stop-VMForce -ErrorAction SilentlyContinue) {
+                $forced = [bool](Stop-VMForce -VMName $c.VMName -StopTimeoutSeconds 20 -Confirm:$false)
+            } else {
+                $forced = [bool](Stop-VM -VMName $c.VMName -Force -Confirm:$false)
+            }
+        } catch {
+            if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
+            $forced = $false
+        }
+        if ($forced -and ([string](Get-VMState -VMName $c.VMName) -eq 'stopped')) {
+            # The guest is off and the next step can proceed; the evidence stays
+            # on disk and in the event stream, and the step-level signal is
+            # cleared so a later failure is not misattributed to this wait.
+            $script:Fail.StepVmNotStopped = $null
+            return $true
+        }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.maa7a51f878' -Arguments @{ vMName = "$($c.VMName)" })
+        return $false
+    }
 Register-SequenceAction -Name 'startVm' -ReplaySafety 'state-changing' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'provisioning_failure' -Severity 'hard' -SuggestedRecoveries @('retry_immediately') `
     -Description (Format-YurunaOperatorMessage -Key 'host.operator_5115fc3aa0fb34ef') `
@@ -515,13 +735,19 @@ Register-SequenceAction -Name 'startVm' -ReplaySafety 'state-changing' -HostIORe
             try { $timeoutSeconds = [int]$c.Step.timeoutSeconds } catch { return $false }
         }
         if ($timeoutSeconds -lt 1) { return $false }
-        $deadline = [DateTime]::UtcNow.AddSeconds($timeoutSeconds)
-        do {
-            try { $state = [string](Get-VMState -VMName $c.VMName) } catch { return $false }
-            if ($state -eq 'stopped') { break }
-            if ($state -eq 'absent' -or [DateTime]::UtcNow -ge $deadline) { return $false }
-            Start-Sleep -Seconds 1
-        } while ($true)
+        $frameInterval = if ($null -ne $c.Step.frameIntervalSeconds) { [int]$c.Step.frameIntervalSeconds } else { 30 }
+        $requestedAt = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        # The stopped boundary is observed through the host, never assumed from
+        # a typed command. A guest that never gets there leaves its console,
+        # OCR text, hypervisor counters, and observed state on the record, and
+        # the class says the wait timed out rather than that a start failed.
+        $wait = Wait-VmStopped -Context $c -TimeoutSeconds $timeoutSeconds -FrameIntervalSeconds $frameInterval
+        if (-not $wait.Stopped) {
+            if ($wait.ObservedState -ne 'absent') {
+                Save-VmNotStoppedEvidence -Context $c -Wait $wait -Action 'startVm' -RequestedAtUtc $requestedAt
+            }
+            return $false
+        }
 
         if ($c.HostType -eq 'host.windows.hyper-v' -and $null -ne $c.Step.arm64HyperVProcessorCount) {
             $processorCount = 0
@@ -1059,7 +1285,26 @@ Register-SequenceAction -Name 'inputTextAndEnter' -ReplaySafety 'input' -HostIOR
         $delaySeconds = ($null -ne $c.Step.delaySeconds) ? [double]$c.Step.delaySeconds : 2
         $charDelay = (Resolve-SequenceCharDelay -Context $c)
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
-        return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'inputTextAndEnter' -ShellEscape)
+        # acknowledgeWithinSeconds: a typed command is only known to have reached
+        # the guest when its console changes. The host reports keystrokes as
+        # delivered even when the guest has stopped servicing its keyboard, and
+        # a step that passed on that report leaves the next step to fail under
+        # an unrelated label. A frame before and frames after the typing settle
+        # the question within this step instead.
+        $ackSeconds = if ($null -ne $c.Step.acknowledgeWithinSeconds) { [int]$c.Step.acknowledgeWithinSeconds } else { 0 }
+        $before = if ($ackSeconds -gt 0) { Save-GuestConsoleFrame -Context $c -Label 'before typing' } else { $null }
+        $typed = Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'inputTextAndEnter' -ShellEscape
+        if (-not $typed -or $ackSeconds -le 0 -or -not $before) { return $typed }
+        $deadline = [DateTime]::UtcNow.AddSeconds($ackSeconds)
+        do {
+            Start-Sleep -Seconds 1
+            $after = Save-GuestConsoleFrame -Context $c -Label 'after typing'
+            if ($after -and $after.Hash -ne $before.Hash) { return $true }
+        } while ([DateTime]::UtcNow -lt $deadline)
+        $script:Fail.StepInputLost = $true
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.m38857d4ae5' -Arguments @{ action = 'inputTextAndEnter'; vMName = "$($c.VMName)"; seconds = "$ackSeconds" })
+        [void](Set-GuestSilenceMarker -Context $c -Source 'inputTextAndEnter: console did not acknowledge typed input')
+        return $false
     }
 
 Register-SequenceAction -Name 'networkRelease' -ReplaySafety 'state-changing' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $false `
@@ -1758,15 +2003,11 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.fetch_context_deadline' -Arguments @{ timeoutSeconds = "$timeout" })
                 return $false
             }
-            # The CGEvent fallback's ShellEscape wrapper evaluates each input
-            # independently. Continuation lines must reach the shell literally.
             # Intermediate lines only assemble data in a deferred subshell, so
-            # a settle between them is not needed for ordering. UTM is the
-            # exception: its keystrokes are delivered one osascript call at a
-            # time, and with no settle the staged subshell has stalled before
-            # its guard line arrived. Retain the paced keystrokes and 800ms
-            # drain, the final launch delay, and any explicit operator delay.
-            # The final digest rejects corrupted input.
+            # they need no settle between them. UTM is the exception: it types
+            # each line through its own osascript call. Continuation lines must
+            # reach the shell literally, so only a single send is shell-escaped.
+            # See https://yuruna.link/428e4df6-0014
             $settleBetweenLines = $c.HostType -eq 'host.macos.utm'
             $drainSeconds = if ($null -eq $c.Step.delaySeconds -and $inputIndex -lt $typedCommands.Count - 1 -and -not $settleBetweenLines) { 0 } else { $delaySeconds }
             if (-not (Invoke-TypeDrainEnter -Context $c -Text $typedCommand -DelaySeconds $drainSeconds -CharDelayMs $charDelay -Activity 'fetchAndExecute' -ShellEscape:($typedCommands.Count -eq 1))) { return $false }
@@ -2010,7 +2251,10 @@ Register-SequenceAction -Name 'sshExec' -ReplaySafety 'state-changing' -HostIORe
                 return $true
             }
             if (-not $result.addressResolved) { $script:Fail.StepGuestAddressUnresolved = $true }
-            if ($result.transportLost) { $script:Fail.StepGuestTransportLost = $true }
+            if ($result.transportLost) {
+                $script:Fail.StepGuestTransportLost = $true
+                [void](Set-GuestSilenceMarker -Context $c -Source 'sshExec: transport dropped mid-command')
+            }
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1bfdeecd0b234a34' -Arguments @{ exitCode = "$($result.exitCode)"; masked = "$masked" })
             if ($result.output) { Write-Warning "      output: $($result.output)" }
             return $false
@@ -2210,6 +2454,11 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                 $evidenceRel = $null
             }
 
+            # Subiquity's event lines print only from the live installer, never
+            # from an installed guest, so any of them in the failed wait's tail
+            # means the install had not finished. OCR often renders the q as g.
+            $installerRunning = ([string]$script:Fail.WaitForTextOcrTail -match '(?i)\bsubi[qg]uity/')
+
             # Structured per-attempt record so a flaky retry is queryable in the
             # cycle NDJSON stream, not just the human log. evidencePath carries
             # the capture above so a consumer can reach the frames without
@@ -2230,6 +2479,9 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                     # attempt failed, so restarts it justified are queryable.
                     guestLivelocked        = [bool]$script:Fail.WaitForTextGuestLivelocked
                     guestLivelockedSeconds = [int]$(if ($script:Fail.WaitForTextGuestLivelock) { $script:Fail.WaitForTextGuestLivelock.LivelockedSeconds } else { 0 })
+                    # Whether the live installer was still on screen, which
+                    # decides whether a cold restart must boot the installer DVD.
+                    installerRunning       = [bool]$installerRunning
                     ok           = $false
                 }
             }
@@ -2242,16 +2494,7 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                     } elseif ($script:Fail.WaitForTextConsoleFlood) {
                         'console flood prevents a safe restart'
                     } elseif ($script:Fail.WaitForTextGuestLivelocked) {
-                        # The hypervisor's verdict stands in for both screen
-                        # proofs below. A boot can wedge before the console
-                        # prints anything -- a blank framebuffer has no casper
-                        # line to read and no text to call unchanged -- yet
-                        # every processor trapping in place is a stall no
-                        # wait outlasts. Before the confirmation nothing is
-                        # written to the target disk, so the restart costs
-                        # only time. An installed system's login prompt is the
-                        # one screen that says the boot phase is long past;
-                        # the later login wait owns that guest.
+                        # See https://yuruna.link/4213a0b3-0163
                         if ([string]$script:Fail.WaitForTextOcrTail -match '(?im)\blogin:') {
                             'installed guest login is visible'
                         } else { '' }
@@ -2289,7 +2532,12 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                     -not $script:Fail.WaitForTextConsoleFlood
                 )
                 if ($nativeArm64HyperV -and ($restartableLoginOcrTimeout -or $installerBootRetry)) {
-                    if (-not (Invoke-Arm64HyperVColdPowerCycle -Context $c)) {
+                    # An unfinished install must restart from the DVD: its target
+                    # may already outrank the DVD while lacking its late-commands.
+                    # The installer-confirmation retry runs before curtin, while
+                    # the DVD still boots first.
+                    $bootInstallerMedia = $installerRunning -and -not $installerBootRetry
+                    if (-not (Invoke-Arm64HyperVColdPowerCycle -Context $c -BootInstallerMedia:$bootInstallerMedia)) {
                         $script:Fail.LastFailureLabel = "retry VM cold restart failed after attempt $attempt"
                         $script:Fail.LastFailureDescription = $c.Description
                         $script:Fail.LastFailedAction = 'retry'

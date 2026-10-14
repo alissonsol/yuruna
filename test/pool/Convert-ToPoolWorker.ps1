@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 423d3dd4-8e4d-441b-9914-81735aaf24c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,7 +103,8 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# --- REGION: https://yuruna.link/42162449-0004
+# --- REGION: Log level from environment
+# See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default. $InformationPreference
 # is re-read afterwards because the script-scoped assignment above shadows the
@@ -163,7 +164,7 @@ function Write-ConvertStep {
     Write-Information "[$script:step/$script:StepCount] $Title" -InformationAction Continue
 }
 
-# --- REGION: 1. Pre-flight against the reference host
+# --- REGION: 1. Preflight against the reference host
 # Everything that can refuse the run is asked BEFORE the first change. A
 # conversion that syncs the configuration and then discovers it has no token has
 # already repointed this host at a lab it cannot authenticate to, which is a

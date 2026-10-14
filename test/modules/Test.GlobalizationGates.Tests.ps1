@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -276,6 +276,7 @@ function New-LintScopeFixture {
     }
     $tool = Join-Path $root 'tools/Invoke-Lint.ps1'
     [IO.File]::Copy((Join-Path $script:RepoRoot 'tools/Invoke-Lint.ps1'), $tool)
+    [IO.File]::Copy((Join-Path $script:RepoRoot 'tools/Gate.Scope.psm1'), (Join-Path $root 'tools/Gate.Scope.psm1'))
     [IO.File]::WriteAllText((Join-Path $root 'PSScriptAnalyzerSettings.psd1'),
         "@{ IncludeRules = @('PSAvoidUsingWriteHost') }", [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $root '.gitignore'),
@@ -378,21 +379,7 @@ Describe 'one registry names every browser source' {
             $full = Join-Path $script:RepoRoot $relative
             if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
             $text = [IO.File]::ReadAllText($full)
-            # Two triggers, because one is not enough. A custom property is the
-            # obvious one, but a producer that styles only with literal colors
-            # has none -- and the floor rules this registry feeds are about flex
-            # gap, grid, logical properties and safe-area units, none of which
-            # need a custom property either. Selecting on var(--) alone is how a
-            # whole shipped page stayed outside every floor gate: it is a page
-            # that carries a stylesheet, not a page that carries a token.
-            # Both tags, anywhere in the file. A producer that assembles its
-            # document in pieces writes the open and the close from separate
-            # statements, so they are not adjacent in the source and the body
-            # between them is code rather than CSS -- matching an opening tag
-            # followed by a declaration would miss exactly that shape. A bare
-            # mention (a comment saying a page carries no inline style, a CSP
-            # note naming the tag) has the open and no close, so requiring both
-            # separates a producer from a sentence about one.
+            # See https://yuruna.link/42e220c4-0014
             $carriesStyle = ($relative -match '\.css$') -or
                 (($text -match '(?i)<style[\s>]') -and ($text -match '(?i)</style\s*>'))
             if (-not $carriesStyle -and $text.IndexOf('var(--') -lt 0) { continue }
@@ -1078,17 +1065,7 @@ Describe 'the generated artifacts match their sources' {
     }
 
     It 'keeps the private development repository out of every generated artifact' {
-        # These artifacts are written by a generator that copies shipped text
-        # verbatim, so a sentence naming the private repository arrives in one
-        # of them without anybody typing it there. Unlike a document or an
-        # installer it cannot earn a reviewed exception either: the publisher's
-        # allowlist names source paths that point at the private source on
-        # purpose, and a generated file is never one of them. The result is a
-        # published artifact sending a reader to a repository they cannot clone,
-        # reported against the generated file at release time rather than
-        # against the source line that has to change. Failing here names that
-        # line instead. The repair is to interpolate the name at the call site
-        # rather than write it into the sentence.
+        # See https://yuruna.link/42e220c4-0014
         $private = 'yurunadev'
         $offender = [Collections.Generic.List[string]]::new()
         foreach ($dir in @('globalization/manifests', 'globalization/catalogs', 'globalization/generated')) {
@@ -1110,40 +1087,67 @@ Describe 'the generated artifacts match their sources' {
 }
 
 Describe 'an explicit lint scope actually selects source' {
-
-    It 'normalizes relative slash styles and dot components without turning file scope into directory scope' {
-        $function = Get-LintFunction -Name 'ConvertTo-LintScope'
-        Assert-True ([bool]$function) 'the lint scope normalizer is absent'
-        $normalize = [scriptblock]::Create($function + "`nConvertTo-LintScope -Value `$args[0]")
-
-        foreach ($value in @('src/file.ps1', './src/file.ps1', '.\src\file.ps1', '././src//./file.ps1')) {
-            Assert-StringEqual 'src/file.ps1' ([string](& $normalize $value))
-        }
-        Assert-StringEqual 'src' ([string](& $normalize './src/'))
-        Assert-StringEqual '' ([string](& $normalize '.'))
-        Assert-StringEqual '' ([string](& $normalize './'))
+    BeforeAll {
+        Import-Module (Join-Path $script:RepoRoot 'tools/Gate.Scope.psm1') -Force -Global -DisableNameChecking
     }
 
-    It 'rejects blank, rooted, or parent-traversing explicit scopes' {
-        $function = Get-LintFunction -Name 'ConvertTo-LintScope'
-        $normalize = [scriptblock]::Create($function + "`nConvertTo-LintScope -Value `$args[0]")
+    It 'normalizes relative slash styles and dot components without turning file scope into directory scope' {
+        foreach ($value in @('src/file.ps1', './src/file.ps1', '.\src\file.ps1', '././src//./file.ps1')) {
+            Assert-StringEqual 'src/file.ps1' ([string](ConvertTo-GateScope -Value $value))
+        }
+        Assert-StringEqual 'src' ([string](ConvertTo-GateScope -Value './src/'))
+        Assert-StringEqual '' ([string](ConvertTo-GateScope -Value '.'))
+        Assert-StringEqual '' ([string](ConvertTo-GateScope -Value './'))
+    }
+
+    It 'the repository-relative normalizer rejects blank, rooted, or parent-traversing input' {
         foreach ($value in @('', ' ', '/src', '\src', 'C:\src', '../src', 'src/../other')) {
-            Assert-Throw { & $normalize $value } -Match 'scope' `
+            Assert-Throw { ConvertTo-GateScope -Value $value } -Match 'scope' `
                 -Because "invalid explicit scope '$value' must not silently become a whole-tree scan"
         }
     }
 
     It 'matches exact files or directory descendants but not prefix-collision siblings' {
-        $function = Get-LintFunction -Name 'Test-LintPathInScope'
-        Assert-True ([bool]$function) 'the source selector is absent'
-        $matchPath = [scriptblock]::Create($function +
-            "`nTest-LintPathInScope -RelativePath `$args[0] -Scope `$args[1]")
+        Assert-True ([bool](Test-GateScopeMatch -RelativePath 'src/file.ps1' -Scope 'src/file.ps1'))
+        Assert-True ([bool](Test-GateScopeMatch -RelativePath 'src/nested/file.ps1' -Scope 'src'))
+        Assert-True ([bool](Test-GateScopeMatch -RelativePath 'src/file.ps1' -Scope ''))
+        Assert-False ([bool](Test-GateScopeMatch -RelativePath 'src-other/file.ps1' -Scope 'src'))
+        Assert-False ([bool](Test-GateScopeMatch -RelativePath 'src/file.ps1.extra.ps1' -Scope 'src/file.ps1'))
+    }
 
-        Assert-True ([bool](& $matchPath 'src/file.ps1' 'src/file.ps1'))
-        Assert-True ([bool](& $matchPath 'src/nested/file.ps1' 'src'))
-        Assert-True ([bool](& $matchPath 'src/file.ps1' ''))
-        Assert-False ([bool](& $matchPath 'src-other/file.ps1' 'src'))
-        Assert-False ([bool](& $matchPath 'src/file.ps1.extra.ps1' 'src/file.ps1'))
+    It 'resolves an absolute path inside the repository to the same repository-relative scope' {
+        $root = Join-Path $TestDrive ('resolve-' + [Guid]::NewGuid().ToString('n'))
+        $null = New-Item -ItemType Directory -Path (Join-Path $root 'src') -Force
+        $inside = Resolve-GateTarget -Value (Join-Path $root 'src/file.ps1') -RepoRoot $root
+        Assert-StringEqual 'Repository' $inside.Kind
+        Assert-StringEqual 'src/file.ps1' $inside.Scope
+        $whole = Resolve-GateTarget -Value $root -RepoRoot $root
+        Assert-StringEqual 'Repository' $whole.Kind
+        Assert-StringEqual '' $whole.Scope
+    }
+
+    It 'treats an absolute file or directory outside the repository as an external target' {
+        $root = Join-Path $TestDrive ('repo-' + [Guid]::NewGuid().ToString('n'))
+        $outside = Join-Path $TestDrive ('outside-' + [Guid]::NewGuid().ToString('n'))
+        $null = New-Item -ItemType Directory -Path $root, $outside -Force
+        $file = Join-Path $outside 'probe.ps1'
+        [IO.File]::WriteAllText($file, "Write-Output 'probe'", [Text.UTF8Encoding]::new($false))
+
+        $fileTarget = Resolve-GateTarget -Value $file -RepoRoot $root
+        Assert-StringEqual 'External' $fileTarget.Kind
+        Assert-StringEqual $file $fileTarget.Path
+        Assert-StringEqual $file (@(Get-GateExternalFile -Path $fileTarget.Path) -join '')
+
+        $dirTarget = Resolve-GateTarget -Value $outside -RepoRoot $root
+        Assert-StringEqual 'External' $dirTarget.Kind
+        Assert-True (@(Get-GateExternalFile -Path $dirTarget.Path) -contains $file) 'the external directory did not list its PowerShell file'
+    }
+
+    It 'refuses an absolute scope that names nothing' {
+        $root = Join-Path $TestDrive ('missing-' + [Guid]::NewGuid().ToString('n'))
+        $null = New-Item -ItemType Directory -Path $root -Force
+        $missing = Join-Path $TestDrive 'nowhere/absent.ps1'
+        Assert-Throw { Resolve-GateTarget -Value $missing -RepoRoot $root } -Match 'does not exist'
     }
 
     It 'scans an exact tracked file and reports a real finding in an exact new file' {
@@ -1165,6 +1169,18 @@ Describe 'an explicit lint scope actually selects source' {
         Assert-Equal 1 $result.Code $result.Output
         Assert-Match '1 finding\(s\) across 2 tracked/new' $result.Output
         Assert-False ($result.Output -match 'neighbor\.ps1') 'the directory scan included a prefix-collision sibling'
+    }
+
+    It 'lints an absolute file outside the fixture repository with the fixture rules' {
+        $fixture = New-LintScopeFixture
+        $outside = Join-Path $TestDrive ('external-' + [Guid]::NewGuid().ToString('n'))
+        $null = New-Item -ItemType Directory -Path $outside -Force
+        $external = Join-Path $outside 'external.ps1'
+        [IO.File]::WriteAllText($external, "Write-Host 'external'", [Text.UTF8Encoding]::new($false))
+        $result = Invoke-FixtureLint -Fixture $fixture -Scope $external
+        Assert-Equal 1 $result.Code $result.Output
+        Assert-Match 'PSAvoidUsingWriteHost' $result.Output
+        Assert-Match '1 finding\(s\) across 1 tracked/new' $result.Output
     }
 
     It 'fails explicit missing, ignored, non-PowerShell, and empty-directory scopes' {
@@ -1297,17 +1313,7 @@ Describe 'the generated catalogs are lintable, with one bounded exception' {
     }
 
     It 'produces nothing the analyzer objects to except the BOM it cannot have' {
-        # PSUseBOMForUnicodeEncodedFile wants a byte-order mark on the mirrored
-        # pseudo catalog, which carries non-ASCII text. This project will not
-        # write one: a BOM is invisible in every editor, rides into hashes, and
-        # breaks byte-for-byte consumers -- and the drift check for these very
-        # files compares their bytes. The renderer that reads them requires
-        # PowerShell 7, which decodes UTF-8 without a mark correctly, so the
-        # condition the rule protects against does not arise here.
-        #
-        # The exception is bounded rather than waved through: any OTHER analyzer
-        # finding in generated output is a real defect in the emitter, and this
-        # is what would notice one.
+        # See https://yuruna.link/42e220c4-0014
         $generated = Join-Path $script:RepoRoot 'globalization/generated/powershell'
         $files = @(Get-ChildItem -LiteralPath $generated -File -Filter '*.psd1')
         Assert-True ($files.Count -ge 3) 'the generated catalogs are missing, so this checks nothing'

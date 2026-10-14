@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42aeab54-8f84-4752-b632-c84283524072
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,6 +71,8 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
+# --- REGION: Import host modules
+# Loaded before the environment checks: Assert-HyperVEnabled comes from this driver.
 $ScriptDir = $GuestScriptRoot
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
@@ -103,12 +105,7 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
-# Nested virtualization is opt-in and AMD64-only: ARM64 Hyper-V rejects a VM
-# with virtualization extensions exposed at start time ("this platform does
-# not support nested virtualization"), so an impossible ask fails here,
-# before any VM state is created. OSArchitecture rather than
-# $env:PROCESSOR_ARCHITECTURE, which reports AMD64 for an x64 pwsh under
-# emulation on an ARM64 host.
+# See https://yuruna.link/42e220c4-0004
 $exposeVirt = $false
 if ($ExposeVirtualizationExtensions) {
     if (-not [bool]::TryParse($ExposeVirtualizationExtensions, [ref]$exposeVirt)) {
@@ -305,7 +302,8 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $GuestScriptRoot)))
 $YurunaHostPort = $_statusSeed.Port
 
-# --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
+# --- REGION: Fetch caching-proxy-service CA cert
+# Embedded in the seed as base64.
 # See https://yuruna.link/4220a755-0015
 # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 $CaCertBase64 = ""
@@ -359,7 +357,7 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 # --- REGION: Create and configure the Hyper-V VM
 # See https://yuruna.link/42fa6f45-0016
 # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
-# distorts a cycle -- see docs/vmconfig.md#disable-swap.
+# distorts a cycle -- see https://yuruna.link/429f3d06-001b.
 try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
 if ($vmMemoryBytes -le 0) { $vmMemoryBytes = 12288MB }
 Write-Verbose "VM memory: $([math]::Round($vmMemoryBytes / 1GB, 2)) GB ($vmMemoryBytes bytes)."
@@ -383,6 +381,16 @@ if (-not (Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue)) {
 Set-VM -Name $VMName -MemoryStartupBytes $vmMemoryBytes -MemoryMinimumBytes $vmMemoryBytes -MemoryMaximumBytes $vmMemoryBytes -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
+# --- REGION: Serial console pipe
+# See https://yuruna.link/42e220c4-0007
+# COM1 to a named pipe the host reads during the cycle: the one guest-side
+# record that survives a guest whose VMBus devices stop answering. Harmless
+# when the guest never opens the port.
+try {
+    Hyper-V\Set-VMComPort -VMName $VMName -Number 1 -Path "\\.\pipe\yuruna-serial-$VMName" -ErrorAction Stop
+} catch {
+    Write-Verbose "Serial console pipe not configured for '$VMName': $($_.Exception.Message)"
+}
 
 # --- REGION: https://yuruna.link/42dc5bb9-0005
 # No-op on AMD64. Disabling Heartbeat helped affected ARM64 boots pass early

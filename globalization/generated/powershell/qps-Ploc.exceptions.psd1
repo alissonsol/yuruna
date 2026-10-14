@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42bb7615-cee4-a88b-8802-0ac4f598abc0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,72 @@
 # locale: qps-Ploc  domain: exceptions
 
 @{
+    'exceptions.config_naming_blocked_path' = @(
+        '[Çáññóţ ɱíğřáţé '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ţó '''
+        @{
+            'arg' = 'replacement'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': á šçáļář ƀļóçķš ţħé řéƥļáçéɱéñţ ƥáţħ. Ţħé ƒíļé ŵáš ñóţ çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.config_naming_conflict' = @(
+        '[Çóñƒíğúřáţíóñ ñáɱíñğ çóñƒļíçţ: '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' áñď '''
+        @{
+            'arg' = 'replacement'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' çóñţáíñ ďíƒƒéřéñţ ƥóƥúļáţéď ṽáļúéš. Ķééƥ óñé ṽáļúé ƀéƒóřé řéţřýíñğ. Ţħé ƒíļé ŵáš ñóţ çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.config_naming_duplicate_parked' = @(
+        '[Çóñƒļíçţíñğ óƀšóļéţé çóñƒíğúřáţíóñ éñţříéš ƒóř '''
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. Ķééƥ óñé ṽáļúé ƀéƒóřé řéţřýíñğ. Ţħé ƒíļé ŵáš ñóţ çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.config_naming_invalid_duration' = @(
+        '[Çáññóţ ɱíğřáţé çóñƒíğúřáţíóñ ķéý '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': éẋƥéçţéď á ñúɱéříç ďúřáţíóñ. Ţħé ƒíļé ŵáš ñóţ çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.config_naming_invalid_parked_scalar' = @(
+        '[Çáññóţ ɱíğřáţé óƀšóļéţé çóñƒíğúřáţíóñ ķéý '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': éẋƥéçţéď á ṽáļíď ÝÁⱮĻ šçáļář. Ţħé ƒíļé ŵáš ñóţ çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.config_naming_save_failed' = @(
+        '[Çóúļď ñóţ šáṽé çóñƒíğúřáţíóñ ñáɱíñğ ɱíğřáţíóñ ţó '''
+        @{
+            'arg' = 'configPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''; ţħé óříğíñáļ ƒíļé áñď ƀáçķúƥ řéɱáíñ áṽáíļáƀļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'exceptions.host_1568d9e12a12e190' = '[Ţħíš íš ţħé Úƀúñţú ĶṼⱮ ṽáříáñţ; řúñ ħóšţ/<type>/Sync-HostConfiguration.ps1 ƒóř ţħíš ƥļáţƒóřɱ íñšţéáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'exceptions.host_1c714189825ec0e2' = @(
         '[Ħýƥéř-Ṽ\Řéɱóṽé-ṼⱮ ƒáíļéď ƒóř '''
@@ -628,6 +694,7 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'exceptions.host_ffd2efb19a40de43' = '[Enable-TestAutomation.ps1 (ħóšţ/windows.hyper-v) óñļý řúñš óñ Ŵíñďóŵš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'exceptions.host_refresh_auth_authority_incomplete' = @(
         '[Ŵřóţé '
         @{
@@ -787,6 +854,24 @@
             'trust' = 'internal'
         }
         '''. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.pool_configuration_legacy_state' = @(
+        '[Ƥóóļ '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' úšéš ďéšířéďŠţáţé íñ šçħéɱáṼéřšíóñ 4; úšé çóñƒíğúřéďŠţáţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.pool_configuration_state_conflict' = @(
+        '[Ƥóóļ '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ďéçļářéš çóñƒļíçţíñğ ďéšířéďŠţáţé áñď çóñƒíğúřéďŠţáţé ṽáļúéš; řéɱóṽé ţħé óƀšóļéţé ƒíéļď áƒţéř çħóóšíñğ ţħé íñţéñďéď çóñƒíğúřéďŠţáţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'exceptions.runner_037f5a478339db90' = @(
         '[Řúññéř çóñƒíğ ħáš ñó ''šéʠúéñçéš'' éñţříéš: '

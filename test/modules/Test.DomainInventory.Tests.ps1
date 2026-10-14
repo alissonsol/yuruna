@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42fa3c81-6d07-4b29-95e8-1c04a7b6f2d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,9 +25,9 @@
     somebody can commit to. Two things make it worth trusting, and both are
     checked here rather than asserted in a comment.
 
-    The extraction reads real string literals. An earlier version scanned for
-    quotes with a regex, which desynchronized on the first apostrophe inside a
-    comment and then counted the gaps BETWEEN literals as literals -- fragments
+    The extraction reads real string literals. Scanning for quotes with a regex
+    would desynchronize on the first apostrophe inside a comment and then count the
+    gaps BETWEEN literals as literals -- fragments
     like ", { text: what + " arriving in a schedule as operator-facing prose.
     PowerShell literals now come from the parser and the rest from a scan that
     tracks which quote opened, so a stray apostrophe is harmless.

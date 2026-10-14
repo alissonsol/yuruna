@@ -525,7 +525,7 @@ const DataheILautomation = `{
       "trust": "external"
     }
   ],
-  "automation.operator_159f23f7bbf09a33": "  1. הוסיפו autoEnrollment: { enabled: true, targetPoolId: default } לקובץ ⁦pools.yml⁩ במאגר הכוונות",
+  "automation.operator_159f23f7bbf09a33": "  1. הוסיפו ⁦autoEnrollment: { enabled: true, targetPoolId: default }⁩ לקובץ ⁦pools.yml⁩ במאגר התצורה",
   "automation.operator_163577cbcc97e68e": [
     "'",
     {
@@ -1357,7 +1357,7 @@ const DataheILautomation = `{
     " למערכת ההפעלה, למנהל המכונות הווירטואליות ולהרצה זו"
   ],
   "automation.operator_45ac4b861def17e9": "כלל אצבע 4: דמות במאגר הדמויות המקומי ששום pod אינו מפנה אליה",
-  "automation.operator_47229a44b80ae93b": "(אין צמתים במצב Ready -- האשכול אינו פעיל; אין זה פער בפריסה, ראו סעיף KUBE)",
+  "automation.operator_47229a44b80ae93b": "(אין צמתים במצב Ready -- האשכול אינו פעיל; בדיקות הפריסה אינן זמינות, ראו סעיף KUBE)",
   "automation.operator_4788a5c9b68d9b0a": [
     {
       "arg": "problemTag",
@@ -1543,19 +1543,19 @@ const DataheILautomation = `{
     }
   },
   "automation.operator_4b5000e2da8b0a45": [
-    "GAP: מספר הדמויות שנדחפו למאגר הדמויות המקומי אך שום pod אינו מפנה אליהן: ",
+    "תצפית אבחונית: ",
     {
       "arg": "count",
       "type": "detail",
       "trust": "external"
     },
-    " -- ",
+    " דמויות נדחפו למאגר הדמויות המקומי אך שום pod אינו מפנה אליהן -- ",
     {
       "arg": "join",
       "type": "detail",
       "trust": "external"
     },
-    ". שלב עומסי העבודה לא פרס תרשים המשתמש בדמויות אלה, או שהתרשים רונדר עם קידומת שונה של מאגר דמויות (בדקו את ⁦componentsRegistry.registryLocation⁩ בקובץ ⁦resources.output.yml⁩). דמות המשמשת רק כשלב בנייה צפויה להופיע כאן ואינה כשלעצמה פער בפריסה."
+    ". ייתכן ששלב עומסי העבודה לא פרס תרשים המשתמש בדמויות האלה, או שהתרשים רונדר עם קידומת שונה של מאגר דמויות (בדקו את ⁦componentsRegistry.registryLocation⁩ בקובץ ⁦resources.output.yml⁩). דמות המשמשת רק בשלב בנייה צפויה להופיע כאן ואינה מוכיחה כשלעצמה אי־התאמה בתצורה."
   ],
   "automation.operator_4ba3081aa0af2a76": "(כל חלון הזמן כולל רק תשאול מחזורי של מערך הבדיקות עצמו -- לא נרשם דבר נוסף ביומן)",
   "automation.operator_4bcda64ddc713b3c": [
@@ -1946,7 +1946,7 @@ const DataheILautomation = `{
     " -- לא נלכדות ראיות מתעבורת הרשת לכשלי DHCP של האורח."
   ],
   "automation.operator_6026e7f1ae4f2ef0": [
-    "GAP: מרחב השמות '",
+    "אי־התאמה בתצורה: מרחב השמות '",
     {
       "arg": "name",
       "type": "detail",
@@ -1958,7 +1958,7 @@ const DataheILautomation = `{
       "type": "detail",
       "trust": "external"
     },
-    " אך אינו קיים באשכול -- שלב עומסי העבודה מעולם לא יצר אותו (helm install / kubectl create namespace לא הורצו, או נכשלו)."
+    " אך אינו קיים באשכול. בדקו אם שלב עומסי העבודה יצר אותו ואם ⁦helm install⁩ / ⁦kubectl create namespace⁩ הצליחו."
   ],
   "automation.operator_6036ef007d775983": [
     "זמין%: ",
@@ -2288,13 +2288,13 @@ const DataheILautomation = `{
   ],
   "automation.operator_726f2fd533779220": "(helm אינו בנתיב PATH -- עומסי עבודה המבוססים על תרשימי Helm לא נפרסו)",
   "automation.operator_72c1075973a89231": [
-    "פער: קיימים ",
+    "תצפית אבחונית: קיימים ",
     {
       "arg": "tfStateCount",
       "type": "detail",
       "trust": "external"
     },
-    " קובצי ⁦tofu.tfstate⁩ אך ל־helm יש 0 מהדורות בכל מרחבי השמות -- נראה ששלב עומסי העבודה דולג או הסתיים בקוד 0 ללא קריאה ל־⁦Set-Workload⁩. בדקו את קובצי ⁦helm.stderr.log⁩ לעיל ואת השורות האחרונות של סקריפט המעטפת."
+    " קובצי ⁦tofu.tfstate⁩ אך ל־helm אין מהדורות באף מרחב שמות. ייתכן ששלב עומסי העבודה דולג או הסתיים בקוד 0 בלי לקרוא ל־⁦Set-Workload⁩. בדקו את קובצי ⁦helm.stderr.log⁩ לעיל ואת השורות האחרונות של סקריפט המעטפת."
   ],
   "automation.operator_72e28a58e0301f9b": "  -> פריסות של תרשימי Helm אינן יכולות לפעול בלעדיו.",
   "automation.operator_72e2cb646e4c4115": "רשת: ל־tcpdump חסרה ההרשאה CAP_NET_RAW, ולכן אורח שלא מצליח לקבל חכירת DHCP אינו משאיר תיעוד של תעבורת הרשת. העניקו אותה: sudo setcap cap_net_raw,cap_net_admin=eip $(command -v tcpdump)",
@@ -2512,7 +2512,7 @@ const DataheILautomation = `{
       "type": "detail",
       "trust": "external"
     },
-    " -- מדלגים על בדיקות משוערות לזיהוי פערים)"
+    " -- מדלגים על בדיקות הפריסה)"
   ],
   "automation.operator_7f64bfad9ab853d4": "המאמת docker-generic: ממשק שורת הפקודה 'docker' אינו בנתיב PATH.",
   "automation.operator_7fcfb4c365b13187": "המאגר המעגלי של הליבה (dmesg -- דורש root; אחרת sudo log show)",
@@ -3470,7 +3470,7 @@ const DataheILautomation = `{
       "type": "detail",
       "trust": "external"
     },
-    ". הוסיפו אותם ל-⁦-Replacement⁩ (עם ערך ריק אם זו הכוונה) או העבירו ⁦-AllowedUnresolved⁩."
+    ". הוסיפו אותם ל-⁦-Replacement⁩ (עם ערך ריק אם זו התצורה) או העבירו ⁦-AllowedUnresolved⁩."
   ],
   "automation.operator_add466496962fbf6": [
     "YURUNA: ",
@@ -3522,13 +3522,13 @@ const DataheILautomation = `{
     }
   ],
   "automation.operator_b2e83136c96ad810": [
-    "GAP: באשכול יש ",
+    "תצפית אבחונית: באשכול יש ",
     {
       "arg": "count",
       "type": "detail",
       "trust": "external"
     },
-    " צמתים במצב Ready אך אין תאי הפעלה מחוץ למרחבי השמות של המערכת -- לא נפרס דבר (שלב עומסי העבודה והרכיבים workloads⁦/components⁩ לא הושלם)."
+    " צמתים במצב Ready אך אין תאי הפעלה מחוץ למרחבי השמות של המערכת. בדקו אם שלב עומסי העבודה והרכיבים פרס את היישום הצפוי."
   ],
   "automation.operator_b31e13c9f6666800": [
     "לא ניתן לנקות: ",
@@ -5257,6 +5257,96 @@ const DataheILautomation = `{
       "trust": "external"
     },
     " שאורח מושך. סירוב הוא תשובה ולא העתקה שמתבצעת: כל אורח שמבקש את התמונות האלה יקבל אותה שוב עד שהסיבה תתוקן. יומן הסנכרון של zot מציין את הסיבה בחלונית \"Sync / upstream lines\" בלוח המחוונים של תקינות המטמון."
+  ],
+  "automation.system_diagnostic_registry_zot_compat_repaired": [
+    "REGISTRY: zot ",
+    {
+      "arg": "version",
+      "type": "detail",
+      "trust": "external"
+    },
+    " של המטמון מסנכרן את תמונות המעבדה רק משום שבדיקת הסנכרון העצמית הוסיפה את http.compat ",
+    {
+      "arg": "modes",
+      "type": "detail",
+      "trust": "external"
+    },
+    " לקובץ /etc/zot/config.json, שחסר בתצורה שגרסה זו של Yuruna מספקת; כל בנייה מחדש חוזרת על התיקון. דווחו על כך כדי שגרסה תכלול את המצב. פרטים: ",
+    {
+      "arg": "healthUrl",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "automation.system_diagnostic_registry_zot_incompatible": [
+    "REGISTRY: zot ",
+    {
+      "arg": "version",
+      "type": "detail",
+      "trust": "external"
+    },
+    " של המטמון מסרב לתמונות שהמעבדה מושכת: בדיקת הסנכרון העצמית קיבלה HTTP ",
+    {
+      "arg": "status",
+      "type": "detail",
+      "trust": "external"
+    },
+    " עבור ",
+    {
+      "arg": "image",
+      "type": "detail",
+      "trust": "external"
+    },
+    ", שהמקור מגיש, ויומן zot מבקש את http.compat ",
+    {
+      "arg": "modes",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (נדחו ",
+    {
+      "arg": "refused",
+      "type": "detail",
+      "trust": "external"
+    },
+    " תמונות בדיקה). הרצה חוזרת לא תעזור. תיקונים שאינם דורשים שינוי קוד: במטמון, הריצו sudo /usr/local/bin/zot-sync-selftest.py --heal; או הגדירו את vmStart.cachingProxyZotVersion ואת vmStart.cachingProxyZotSha256 בקובץ test/test.config.yml לגרסת zot שעובדת ובנו מחדש את המטמון; או עדכנו את Yuruna ובנו מחדש את המטמון. פרטים: ",
+    {
+      "arg": "healthUrl",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "automation.system_diagnostic_registry_zot_incompatible_unexplained": [
+    "REGISTRY: zot ",
+    {
+      "arg": "version",
+      "type": "detail",
+      "trust": "external"
+    },
+    " של המטמון מסרב לתמונות שהמעבדה מושכת: בדיקת הסנכרון העצמית קיבלה HTTP ",
+    {
+      "arg": "status",
+      "type": "detail",
+      "trust": "external"
+    },
+    " עבור ",
+    {
+      "arg": "image",
+      "type": "detail",
+      "trust": "external"
+    },
+    ", שהמקור מגיש (נדחו ",
+    {
+      "arg": "refused",
+      "type": "detail",
+      "trust": "external"
+    },
+    " תמונות בדיקה). הרצה חוזרת לא תעזור. תיקונים שאינם דורשים שינוי קוד: שנו את /etc/zot/config.json במטמון כפי ששורת היומן של zot בדף התקינות מציינת, הפעילו מחדש את zot והריצו sudo /usr/local/bin/zot-sync-selftest.py; או הגדירו את vmStart.cachingProxyZotVersion ואת vmStart.cachingProxyZotSha256 בקובץ test/test.config.yml לגרסת zot שעובדת ובנו מחדש את המטמון; או עדכנו את Yuruna ובנו מחדש את המטמון. פרטים: ",
+    {
+      "arg": "healthUrl",
+      "type": "detail",
+      "trust": "external"
+    }
   ],
   "automation.system_diagnostic_utmctl_list_incomplete": [
     "  utmctl list לא החזיר תשובה מלאה בתוך ",

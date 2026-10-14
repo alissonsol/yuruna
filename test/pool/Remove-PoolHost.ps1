@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 427d5433-30b3-40c0-aa3e-59e31c0c828b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,12 +30,12 @@
     Override the safety refusals (own uuid / recently-seen record).
 .PARAMETER ConfigPath
     test.config.yml to read the pool storage path from (default: next to test/).
-.PARAMETER IntentGitUrl
-    Writable URL/path of the bare intent repo for the membership strip. Defaults
-    to pool.intentGitUrl from test.config.yml. When neither is set, the storage
+.PARAMETER ConfigurationGitUrl
+    Writable URL/path of the bare configuration repo for the membership strip. Defaults
+    to pool.configurationGitUrl from test.config.yml. When neither is set, the storage
     records are still removed and the membership step is skipped with a warning.
-.PARAMETER IntentDir
-    Local working clone. Defaults to <runtime>/pool-intent-admin.
+.PARAMETER ConfigurationDir
+    Local working clone. Defaults to <runtime>/pool-configuration-admin.
 .EXAMPLE
     ./Remove-PoolHost.ps1 -HostId 42abcdef0123456789abcdef01234567
 .EXAMPLE
@@ -49,8 +49,8 @@ param(
     [Parameter(Mandatory)][string]$HostId,
     [switch]$Force,
     [string]$ConfigPath = $null,
-    [string]$IntentGitUrl,
-    [string]$IntentDir
+    [string]$ConfigurationGitUrl,
+    [string]$ConfigurationDir
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -61,7 +61,7 @@ $paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubf
 $ModulesDir  = $paths.ModulesDir
 $ConfigPath  = $paths.ConfigPath
 Initialize-YurunaEntryPointModuleSet -For PoolAdmin -ModulesDir $ModulesDir
-# The PoolAdmin set covers the intent-store side; the NAS-record side lives in
+# The PoolAdmin set covers the configuration-store side; the NAS-record side lives in
 # Test.PoolStorage (Get-YurunaPoolStorageConfig), which it does not load.
 Import-Module (Join-Path $ModulesDir 'Test.PoolStorage.psm1') -Global -Force -DisableNameChecking
 # The live-dashboard eviction (forget-host) reuses the pool push transport
@@ -184,15 +184,15 @@ if (Test-Path -LiteralPath $legacyRoot) {
     Write-Verbose "No legacy cycle folder at $legacyRoot (already gone)."
 }
 
-# --- REGION: Strip membership from every pool (needs the writable intent store)
-$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+# --- REGION: Strip membership from every pool (needs the writable configuration store)
+$open = Open-YurunaPoolAdminStore -ConfigurationGitUrl $ConfigurationGitUrl -ConfigurationDir $ConfigurationDir -Confirm:$false
 $t = $open.Target
-if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
+if ([string]::IsNullOrWhiteSpace($t.ConfigurationGitUrl)) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b752ee38cb8d2c81')
 } elseif (-not $open.Ok) {
     Write-Warning $open.Error
 } else {
-        $doc          = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
+        $doc          = Read-YurunaPoolsDoc -ConfigurationDir $t.ConfigurationDir
         $changedPools = [System.Collections.Generic.List[string]]::new()
         foreach ($pool in @($doc['pools'])) {
             if ($pool -isnot [System.Collections.IDictionary]) { continue }
@@ -205,7 +205,7 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
         if ($changedPools.Count -eq 0) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ab09d4d54d248346' -Arguments @{ shownHostId = "$shownHostId" }) -InformationAction Continue
         } elseif ($PSCmdlet.ShouldProcess("pools.yml [$($changedPools -join ', ')]", (Format-YurunaOperatorMessage -Key 'runner.operator_8660cf0175a55371' -Arguments @{ hostId = "$HostId" }))) {
-            $pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: purge host $HostId from members[]" -Confirm:$false
+            $pub = Publish-YurunaPoolDocChange -ConfigurationDir $t.ConfigurationDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: purge host $HostId from members[]" -Confirm:$false
             if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
             [void]$removed.Add("pool membership  [$($changedPools -join ', ')]")
         }

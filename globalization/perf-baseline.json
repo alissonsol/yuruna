@@ -243,8 +243,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.exceptions.js": {
-      "rawBytes": 31335,
-      "gzipBytes": 8568,
+      "rawBytes": 33116,
+      "gzipBytes": 8957,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.host.js": {
@@ -318,8 +318,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/he-IL.exceptions.js": {
-      "rawBytes": 61708,
-      "gzipBytes": 10413,
+      "rawBytes": 65715,
+      "gzipBytes": 10915,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/he-IL.host.js": {
@@ -393,8 +393,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.exceptions.js": {
-      "rawBytes": 35254,
-      "gzipBytes": 9488,
+      "rawBytes": 37317,
+      "gzipBytes": 9859,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.host.js": {
@@ -468,8 +468,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.exceptions.js": {
-      "rawBytes": 78595,
-      "gzipBytes": 11260,
+      "rawBytes": 84112,
+      "gzipBytes": 11805,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.host.js": {
@@ -543,8 +543,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.exceptions.js": {
-      "rawBytes": 80691,
-      "gzipBytes": 11334,
+      "rawBytes": 86312,
+      "gzipBytes": 11900,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.host.js": {
@@ -618,8 +618,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/zh-CN.exceptions.js": {
-      "rawBytes": 40680,
-      "gzipBytes": 9630,
+      "rawBytes": 42992,
+      "gzipBytes": 10074,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/zh-CN.host.js": {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d1c86a-7fb3-4e59-90a2-63b4e0d7185f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -311,17 +311,7 @@ foreach ($moduleFile in (Get-ChildItem -LiteralPath $here -Filter '*.psm1' -File
 $script:ServerModuleCall = @($script:ServerCalledCommand |
         Where-Object { $script:RepoModuleExport.ContainsKey($_) })
 
-# The commands a fresh server runspace has to end up holding, derived from the
-# server rather than listed here. A hand-written list goes stale the first time
-# a route starts calling something new, and a stale guard is worse than none
-# because it still reports green.
-#
-# Two rules select them. Whatever the server calls out of a module it imports
-# -ErrorAction Stop is mandatory by the server's own declaration. And whatever
-# the locale resolver calls is mandatory however its module was imported: that
-# function runs on every localized route, and it reads the language lock inside
-# a try/catch that swallows the loss, so a missing config command degrades the
-# page silently rather than failing loudly.
+# See https://yuruna.link/42e220c4-0014
 $script:LocaleResolverCall = @()
 $script:LocaleResolver = @($script:ServerAst.FindAll({
             param($n)

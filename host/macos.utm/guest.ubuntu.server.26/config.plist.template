@@ -76,8 +76,8 @@
 		<key>UEFIBoot</key>
 		<true/>
 	</dict>
-	<!-- See https://yuruna.link/42e220c4-000b -->
 	<!-- REGION: Display -->
+	<!-- See https://yuruna.link/42e220c4-000b -->
 	<key>Display</key>
 	<array>
 		<dict>
@@ -97,8 +97,8 @@
 			<string>Nearest</string>
 		</dict>
 	</array>
-	<!-- See https://yuruna.link/42e220c4-000b -->
 	<!-- REGION: Drive -->
+	<!-- See https://yuruna.link/42e220c4-000b -->
 	<key>Drive</key>
 	<array>
 		<dict>
@@ -159,8 +159,8 @@
 		<key>UsbSharing</key>
 		<false/>
 	</dict>
-	<!-- See https://yuruna.link/42e220c4-000b -->
 	<!-- REGION: Network -->
+	<!-- See https://yuruna.link/42e220c4-000b -->
 	<key>Network</key>
 	<array>
 		<dict>

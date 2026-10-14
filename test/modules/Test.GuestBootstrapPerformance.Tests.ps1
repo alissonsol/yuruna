@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42dbfc19-bf21-4ef5-ad59-a132755a721d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@ BeforeAll {
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
     $script:K8sSources = @{}
     foreach ($version in '24', '26') {
-        $script:K8sSources[$version] = Get-Content (Join-Path $script:RepoRoot "guest/ubuntu.server.$version/ubuntu.server.$version.k8s.sh") -Raw
+        $script:K8sSources[$version] = Get-Content (Join-Path $script:RepoRoot "guest/shared/ubuntu.k8s.sh") -Raw
     }
     function Get-BootstrapFixture {
         param([string]$Version, [string]$Mode, [int]$WaitSeconds = 3)

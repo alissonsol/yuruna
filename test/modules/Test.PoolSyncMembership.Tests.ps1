@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f48182-9ec5-4e1c-bd71-e3bf9945ef6e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     fetch+reset pull is bounded by one wall-clock deadline.
 .DESCRIPTION
     Behavioral tests for the pure lookup helpers; AST guards for the git deadline and
-    the warning wiring in Sync-YurunaPoolIntent (which does git + file I/O and is not
+    the warning wiring in Sync-YurunaPoolConfiguration (which does git + file I/O and is not
     unit-invoked here). The throw-free Should assertions run under Pester 5.x.
 #>
 
@@ -65,40 +65,40 @@ function Get-MemberAccessCount {
 
 Describe 'Resolve-YurunaPoolForHost normalizes members and matches ordinal-exact' {
     It 'matches a bare-string member' {
-        $intent = @{ pools = @(@{ poolId = 'p1'; members = @($script:TestHostId, '42other') }) }
-        (Resolve-YurunaPoolForHost -Intent $intent -HostId $script:TestHostId).poolId | Should -Be 'p1'
+        $configuration = @{ pools = @(@{ poolId = 'p1'; members = @($script:TestHostId, '42other') }) }
+        (Resolve-YurunaPoolForHost -Configuration $configuration -HostId $script:TestHostId).poolId | Should -Be 'p1'
     }
     It 'matches a structured member carrying a hostId key' {
-        $intent = @{ pools = @(@{ poolId = 'p2'; members = @(@{ hostId = $script:TestHostId; name = 'n' }) }) }
-        (Resolve-YurunaPoolForHost -Intent $intent -HostId $script:TestHostId).poolId | Should -Be 'p2'
+        $configuration = @{ pools = @(@{ poolId = 'p2'; members = @(@{ hostId = $script:TestHostId; name = 'n' }) }) }
+        (Resolve-YurunaPoolForHost -Configuration $configuration -HostId $script:TestHostId).poolId | Should -Be 'p2'
     }
     It 'matches a structured member carrying a name key' {
-        $intent = @{ pools = @(@{ poolId = 'p3'; members = @(@{ name = $script:TestHostId }) }) }
-        (Resolve-YurunaPoolForHost -Intent $intent -HostId $script:TestHostId).poolId | Should -Be 'p3'
+        $configuration = @{ pools = @(@{ poolId = 'p3'; members = @(@{ name = $script:TestHostId }) }) }
+        (Resolve-YurunaPoolForHost -Configuration $configuration -HostId $script:TestHostId).poolId | Should -Be 'p3'
     }
     It 'does NOT match a differently-cased member (ordinal-exact identity)' {
-        $intent = @{ pools = @(@{ poolId = 'p4'; members = @($script:TestHostId.ToUpper()) }) }
-        Resolve-YurunaPoolForHost -Intent $intent -HostId $script:TestHostId | Should -BeNullOrEmpty
+        $configuration = @{ pools = @(@{ poolId = 'p4'; members = @($script:TestHostId.ToUpper()) }) }
+        Resolve-YurunaPoolForHost -Configuration $configuration -HostId $script:TestHostId | Should -BeNullOrEmpty
     }
     It 'returns $null when no member matches' {
-        $intent = @{ pools = @(@{ poolId = 'p5'; members = @('42someoneelse') }) }
-        Resolve-YurunaPoolForHost -Intent $intent -HostId $script:TestHostId | Should -BeNullOrEmpty
+        $configuration = @{ pools = @(@{ poolId = 'p5'; members = @('42someoneelse') }) }
+        Resolve-YurunaPoolForHost -Configuration $configuration -HostId $script:TestHostId | Should -BeNullOrEmpty
     }
 }
 
-Describe 'Test-PoolIntentHasMember distinguishes populated from empty membership' {
+Describe 'Test-PoolConfigurationHasMember distinguishes populated from empty membership' {
     It 'is true when a pool lists at least one member' {
-        (Test-PoolIntentHasMember -Intent @{ pools = @(@{ poolId = 'p'; members = @('42x') }) }) | Should -Be $true
+        (Test-PoolConfigurationHasMember -Configuration @{ pools = @(@{ poolId = 'p'; members = @('42x') }) }) | Should -Be $true
     }
     It 'is false when every pool has an empty members list' {
-        (Test-PoolIntentHasMember -Intent @{ pools = @(@{ poolId = 'p'; members = @() }) }) | Should -Be $false
+        (Test-PoolConfigurationHasMember -Configuration @{ pools = @(@{ poolId = 'p'; members = @() }) }) | Should -Be $false
     }
-    It 'is false when the intent has no pools' {
-        (Test-PoolIntentHasMember -Intent @{ }) | Should -Be $false
+    It 'is false when the configuration has no pools' {
+        (Test-PoolConfigurationHasMember -Configuration @{ }) | Should -Be $false
     }
 }
 
-Describe 'Sync-YurunaPoolIntent bounds the pull by one deadline and surfaces failures' {
+Describe 'Sync-YurunaPoolConfiguration bounds the pull by one deadline and surfaces failures' {
     It 'derives the fetch and reset budgets from a single $deadlineUtc' {
         $ast = Get-ModuleAst
         (Get-AssignmentCount -Ast $ast -Lhs '$deadlineUtc') | Should -BeGreaterOrEqual 1
@@ -114,8 +114,8 @@ Describe 'Sync-YurunaPoolIntent bounds the pull by one deadline and surfaces fai
     It 'classifies the failing git rc for the warning (timeout vs a real error)' {
         (Get-AssignmentCount -Ast (Get-ModuleAst) -Lhs '$why') | Should -BeGreaterOrEqual 1
     }
-    It 'warns when the host is absent from a populated members[] (wired via Test-PoolIntentHasMember)' {
-        (Get-CommandInvokeCount -Ast (Get-ModuleAst) -Name 'Test-PoolIntentHasMember') | Should -BeGreaterOrEqual 1
+    It 'warns when the host is absent from a populated members[] (wired via Test-PoolConfigurationHasMember)' {
+        (Get-CommandInvokeCount -Ast (Get-ModuleAst) -Name 'Test-PoolConfigurationHasMember') | Should -BeGreaterOrEqual 1
     }
     It 'passes a shrinking budget to fetch then reset, both bounded by one PullTimeoutSeconds' {
         # Behavioral guard for the shared deadline: burn ~1.2s inside the fetch call so
@@ -137,8 +137,8 @@ Describe 'Sync-YurunaPoolIntent bounds the pull by one deadline and surfaces fai
             }
             Mock -ModuleName Test.PoolSync Write-YurunaPoolState { $true }
             Mock -ModuleName Test.PoolSync Write-YurunaPoolManifest { $true }
-            $cfg = @{ pool = @{ enabled = $true; intentGitUrl = 'http://localhost/x.git'; localClonePath = $tmp; pullTimeoutSeconds = 5 } }
-            $null = Sync-YurunaPoolIntent -Config $cfg -HostId '42none000000000000000000000000'
+            $cfg = @{ pool = @{ enabled = $true; configurationGitUrl = 'http://localhost/x.git'; localClonePath = $tmp; pullTimeoutSeconds = 5 } }
+            $null = Sync-YurunaPoolConfiguration -Config $cfg -HostId '42none000000000000000000000000'
             Assert-MockCalled -ModuleName Test.PoolSync Invoke-PoolSyncGit -Times 1 -Exactly -ParameterFilter {
                 ($ArgumentList -contains 'fetch') -and $TimeoutSeconds -eq 5
             }

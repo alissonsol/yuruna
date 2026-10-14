@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42dba0ee-ceaf-a7ec-5c0b-f7f0ef9d34c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,23 @@
             'trust' = 'internal'
         }
         '条无法确认已失效的运行器记录。'
+    )
+    'runner.config_gate_attempt_failed' = @(
+        '运行器尝试因配置验证失败而退出，退出代码为 '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '。未启动新的测试周期。请更正配置后重试。'
+    )
+    'runner.config_naming_backup' = @(
+        '将配置备份到 '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.critical_record_replace' = '替换私有关键记录'
     'runner.cycle_outcome_rejected_kept' = @(
@@ -264,6 +281,14 @@
             'trust' = 'external'
         }
         '个字符，Windows无法启动该命令。尚未开始在客户机上执行。'
+    )
+    'runner.gate_evidence_save_failed' = @(
+        '无法保存配置检查证据：'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.git_recovery_command' = @(
         '  使用以下命令恢复：git -C '''
@@ -1565,6 +1590,15 @@
         }
     )
     'runner.host_refresh_verified_noop' = 'Invoke-HostRefresh：虚拟机监控程序已响应，运行器状态正常；未进行任何更改。'
+    'runner.inner_attempt_exited' = @(
+        '运行器尝试在报告周期结果之前退出，退出代码为 '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '。请先检查运行器日志再重试。'
+    )
     'runner.inner_guest_folder_missing' = @(
         '在'
         @{
@@ -1586,17 +1620,88 @@
         }
         "`”）。"
     )
-    'runner.inner_sequence_baseline_missing' = @(
-        "内部序列`“"
+    'runner.inner_sequence_resource_missing' = @(
+        '内部序列 '''
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”没有`“baseline:`”操作系统键；不是可运行的客户机序列。"
+        ''' 在 ''resource:'' 中没有操作系统键，无法作为客户机序列运行。'
     )
     'runner.launch_record_complete_action' = '将运行器启动记录标记为已结束'
     'runner.launch_record_write_action' = '写入运行器启动记录'
+    'runner.m1ff7f8f2d1' = @(
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '：'''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' 在 '
+        @{
+            'arg' = 'waitedSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 秒后仍为 '''
+        @{
+            'arg' = 'observedState'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '''。该时刻的控制台画面、OCR 文本和虚拟机监控程序计数器已记录；请查看 last_failure.json 中的 causeDetail.vmState。'
+    )
+    'runner.m38857d4ae5' = @(
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '：输入后 '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 秒内 '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' 的控制台没有变化；按键未被确认。'
+    )
+    'runner.m60d80be676' = @(
+        '串口控制台日志已保存：'
+        @{
+            'arg' = 'cycleBase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/'
+        @{
+            'arg' = 'destSeqName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/serial-console.log'
+    )
+    'runner.ma32a33811f' = '通过宿主机驱动请求关闭客户机，并等待虚拟机报告已停止'
+    'runner.maa7a51f878' = @(
+        'stopVm：'''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' 忽略关机请求后无法被强制关闭；该步骤失败。'
+    )
     'runner.mac_automation_utm_title' = '自动化 -> UTM'
     'runner.mac_dock_reload_deferred' = '此次运行不得干扰桌面会话，因此未重启Dock；触发角和Spaces的更改将在下次启动Dock时生效。'
     'runner.mac_grant_prompt_suppressed' = @(
@@ -1668,6 +1773,36 @@
             'trust' = 'internal'
         }
     )
+    'runner.mb985d466db' = @(
+        'stopVm：客户机忽略关机请求 '
+        @{
+            'arg' = 'waitedSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 秒后，正在强制关闭 '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''；本周期以降级模式继续。'
+    )
+    'runner.mc7190c5d2b' = @(
+        'stopVm：已请求关闭客户机 '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''；最多等待 '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 秒，直到宿主机报告其已停止。'
+    )
     'runner.mcp_dependency_drift' = '此脚本以退出码1退出，表示固定版本的依赖项发生偏移，而非报告生成失败'
     'runner.mcp_dependency_invalid_json' = '预期-AsJson返回JSON，但无法解析输出'
     'runner.mcp_diagnostic_verdict' = 'Get-SystemDiagnostic始终以退出码0退出；问题体现在报告中，而非退出码中。'
@@ -1723,6 +1858,27 @@
     'runner.mcp_yuruna_test_configuration' = '验证测试配置。检查失败时以非零退出码退出，并生成转录记录；根集合完全无法解析时，仅返回False，并以退出码0退出。'
     'runner.mcp_yuruna_test_requirement' = '检查此宿主机是否满足周期所需的要求。任一要求未满足时，以非零退出码退出。'
     'runner.mcp_yuruna_test_runtime' = '检查运行时。判定结果是作为最后一个管道对象输出的布尔值；此脚本没有exit语句，因此退出码不反映判定结果。'
+    'runner.mf99bdf2253' = @(
+        '客户机 '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' 首次失去响应的时间为 '
+        @{
+            'arg' = 'sinceUtc'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '（'
+        @{
+            'arg' = 'source'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）；本序列中后续的失败可能源于此。'
+    )
     'runner.no_other_runner_refresh_active' = @(
         @{
             'arg' = 'callerName'
@@ -2062,7 +2218,7 @@
         '''没有已存储的保管库凭据，stash-service虚拟机将写入会被NAS拒绝的无效SMB密码。请在运行Start-StashServiceVM之前使用Set-Password设置密码。请参阅 docs/test-config.md.'
     )
     'runner.operator_04e4f7a2a65ad054' = '此会话中无法使用共享sudo包装器。'
-    'runner.operator_051583e964e5ccb5' = '存储根目录下的pool-intent仓库保持原样；'
+    'runner.operator_051583e964e5ccb5' = '存储根目录下的pool-configuration仓库保持原样；'
     'runner.operator_051a02c281a0d2b2' = @(
         "正在启动虚拟机`“"
         @{
@@ -3005,7 +3161,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_11155c290bdca317' = '不存在pool配置块——池意图同步已关闭（可选）。'
+    'runner.operator_11155c290bdca317' = '不存在pool配置块——池配置同步已关闭（可选）。'
     'runner.operator_112839be6c0da628' = '为新周期重置状态文档'
     'runner.operator_115a0cebc1971e79' = @(
         "无法撤销已被替代的`“"
@@ -3944,7 +4100,7 @@
         }
     )
     'runner.operator_1d0efcf0a84c0f0f' = @(
-        '池：意图存储可访问（'
+        '池：配置存储可访问（'
         @{
             'arg' = 'plUrl'
             'type' = 'detail'
@@ -4160,7 +4316,7 @@
         }
     )
     'runner.operator_205f4d4b991b0dd3' = @(
-        "池：当前无法访问意图存储`“"
+        "池：当前无法访问配置存储`“"
         @{
             'arg' = 'plUrl'
             'type' = 'detail'
@@ -4196,7 +4352,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '］池desiredState=paused——正在等待（未启动周期）。'
+        '］池configuredState=paused——正在等待（未启动周期）。'
     )
     'runner.operator_218ebb2c80a76597' = @(
         '［外层周期'
@@ -5274,7 +5430,7 @@
         }
     )
     'runner.operator_2d47f583d26c79d3' = @(
-        '池同步：获取意图失败（'
+        '池同步：获取配置失败（'
         @{
             'arg' = 'why'
             'type' = 'detail'
@@ -6083,7 +6239,7 @@
         }
         '）。此密钥无法用于此宿主机上的控制证明。'
     )
-    'runner.operator_37c6d3d1e44ac68b' = '初始化池意图存储'
+    'runner.operator_37c6d3d1e44ac68b' = '初始化池配置存储'
     'runner.operator_37ec87c9e9d924bd' = @(
         'networkStorage池：无法映射users.yml中的vaultKey（'
         @{
@@ -6559,7 +6715,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_3ee74fe8c9b60225' = 'pool.enabled为true，但pool.intentGitUrl为空；已禁用池意图同步。'
+    'runner.operator_3ee74fe8c9b60225' = 'pool.enabled为true，但pool.configurationGitUrl为空；已禁用池配置同步。'
     'runner.operator_3ef003e468ca0535' = @(
         '[3/3] 实验室保管库已存在于'
         @{
@@ -6652,7 +6808,7 @@
         }
         '）……'
     )
-    'runner.operator_3f91d27857293eb6' = '  3. 启动pool-control服务；它提供意图仓库，其URL将用作pool.intentGitUrl。'
+    'runner.operator_3f91d27857293eb6' = '  3. 启动pool-control服务；它提供配置仓库，其URL将用作pool.configurationGitUrl。'
     'runner.operator_3f965b8f770b8f1a' = '     已有的仍然适用——本次运行未作任何更改。'
     'runner.operator_3fa87fe4f05bcb17' = @(
         '［外层周期'
@@ -6764,16 +6920,16 @@
     'runner.operator_40eeaa317b25e65f' = '以原子方式写入JSON状态文件'
     'runner.operator_411c032a04bd8374' = '池存储已满'
     'runner.operator_413f257dbbf2120b' = @(
-        '无法初始化pool.intentGitUrl（'
+        '无法初始化pool.configurationGitUrl（'
         @{
             'arg' = 'message'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '）；令牌已存储。请手动设置pool.enabled/pool.intentGitUrl以加入池。'
+        '）；令牌已存储。请手动设置pool.enabled/pool.configurationGitUrl以加入池。'
     )
     'runner.operator_4154b8f8b4c44fe5' = @(
-        '[2/3] 已接管现有的pool-intent存储：'
+        '[2/3] 已接管现有的pool-configuration存储：'
         @{
             'arg' = 'legacyIntentPath'
             'type' = 'detail'
@@ -6781,13 +6937,13 @@
         }
         ' -> '
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
     )
     'runner.operator_416973ff9c4b82f2' = @(
-        'pool.intentGitUrl已设置（'
+        'pool.configurationGitUrl已设置（'
         @{
             'arg' = 'existingUrl'
             'type' = 'detail'
@@ -7085,7 +7241,7 @@
         '。'
     )
     'runner.operator_45a07fd31e96a1d6' = @(
-        '顶层序列没有基线（未声明受支持的客户机操作系统）：'
+        '顶层序列没有 resource 前置条件（未声明受支持的客户机操作系统）：'
         @{
             'arg' = 'topName'
             'type' = 'detail'
@@ -7255,7 +7411,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '不在任何池的members[]中；请检查意图仓库中hostId的拼写和大小写（spelling/case）。正在以单宿主机模式运行周期。'
+        '不在任何池的members[]中；请检查配置仓库中hostId的拼写和大小写（spelling/case）。正在以单宿主机模式运行周期。'
     )
     'runner.operator_479872781526f6ad' = '  重新输入密码'
     'runner.operator_47b0ccd4d36eff29' = @(
@@ -7328,7 +7484,7 @@
         }
         "`”存在。"
     )
-    'runner.operator_488c8abbe599cfff' = '  以及池意图仓库均位于其下。确认无误后：'
+    'runner.operator_488c8abbe599cfff' = '  以及池配置仓库均位于其下。确认无误后：'
     'runner.operator_489224a7c60c2a6e' = @(
         '  无法将失败产物复制到status/log：'
         @{
@@ -7931,8 +8087,8 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_4f719f0639145301' = '写入池意图文件'
-    'runner.operator_4f741864aba4d1fd' = '创建池意图裸仓库'
+    'runner.operator_4f719f0639145301' = '写入池配置文件'
+    'runner.operator_4f741864aba4d1fd' = '创建池配置裸仓库'
     'runner.operator_4f7e838f26c3bf54' = @(
         '[5/'
         @{
@@ -8023,9 +8179,9 @@
     )
     'runner.operator_507f379237cefeeb' = '  运行器：        无法确定'
     'runner.operator_5080fa98b3c9b51c' = @(
-        '无法打开意图存储（'
+        '无法打开配置存储（'
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -8610,13 +8766,13 @@
     )
     'runner.operator_57a1e401b74cce86' = 'Test.HostCondition注册表'
     'runner.operator_57d386e54fe5ebcf' = @(
-        '链：'
+        '执行链：'
         @{
             'arg' = 'fullChain'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '（未声明基线前提条件）'
+        '（未声明 resource 前置条件）'
     )
     'runner.operator_57f365ecb6da1349' = @(
         '已自动固定网桥DHCP身份：'
@@ -8773,7 +8929,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”的desiredState已设为`“"
+        "`”的configuredState已设为`“"
         @{
             'arg' = 'state'
             'type' = 'detail'
@@ -8837,7 +8993,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”。请修正意图配置（Remove-HostFromPool / Test-PoolIntent）。"
+        "`”。请修正配置（Remove-HostFromPool / Test-PoolConfiguration）。"
     )
     'runner.operator_5a198f884eed15db' = '与配置的时间源重新同步'
     'runner.operator_5a1fbbd3e27b9097' = "在这些路径上，步骤会耗尽整个timeoutSeconds并报告`“未找到匹配模式`”，而保存的帧看起来仍然清晰可读。"
@@ -8872,7 +9028,7 @@
         }
     )
     'runner.operator_5a576784a1b51113' = '无法读取Hyper-V虚拟硬盘路径，因此无法确定哪些筛选器作用于该路径。'
-    'runner.operator_5a5cc38a18508944' = '以及存储根目录下的池意图仓库将保持原样；'
+    'runner.operator_5a5cc38a18508944' = '以及存储根目录下的池配置仓库将保持原样；'
     'runner.operator_5acc85b3d32caa00' = @(
         '    [break] 实际经过'
         @{
@@ -9263,7 +9419,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] 池desiredState=drain——将在周期边界关闭。'
+        '] 池configuredState=drain——将在周期边界关闭。'
     )
     'runner.operator_5e254220c82bfee1' = @(
         '虚拟显示器'
@@ -9311,9 +9467,9 @@
         '验证该凭据）。'
     )
     'runner.operator_5e931217fd513630' = @(
-        '池意图存储（'
+        '池配置存储（'
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -10126,7 +10282,7 @@
         '：没有上游跟踪分支，跳过领先/落后检查：ahead/behind.'
     )
     'runner.operator_68683a605e32c8b4' = @(
-        '将/pool-intent.git指向'
+        '将/pool-configuration.git指向'
         @{
             'arg' = 'storePath'
             'type' = 'detail'
@@ -10213,7 +10369,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”是自动注册的目标池，不得包含仓库；将忽略这些仓库并保留此宿主机自身的仓库。请修正意图存储（Test-PoolIntent.ps1会报告此问题）。"
+        "`”是自动注册的目标池，不得包含仓库；将忽略这些仓库并保留此宿主机自身的仓库。请修正配置存储（Test-PoolConfiguration.ps1会报告此问题）。"
     )
     'runner.operator_69026426aeb39009' = ' 在此Mac上检测到配置描述文件。如果任何描述文件'
     'runner.operator_69313d3714ef798c' = '写入实验室健康状况记录'
@@ -10285,9 +10441,9 @@
         "`”不在恢复词汇表中；将强制转换为operator_intervention_required。"
     )
     'runner.operator_6a59b18694397dbf' = @(
-        '池同步：无法访问意图存储（'
+        '池同步：无法访问配置存储（'
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -11549,7 +11705,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] 池desiredState=paused——保持等待；稍后重新检查预期状态。'
+        '] 池configuredState=paused——保持等待；稍后重新检查配置。'
     )
     'runner.operator_7b5b47de81fd0974' = @(
         @{
@@ -11716,9 +11872,9 @@
     )
     'runner.operator_7d1e9cbc4ff500f6' = '宿主机要求快速检查已通过。'
     'runner.operator_7d60c40c2ee69f28' = @(
-        '成员关系：无法打开意图存储库（'
+        '成员关系：无法打开配置存储库（'
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -11806,7 +11962,7 @@
         }
         '] 即将调用内层pwsh'
     )
-    'runner.operator_7dd0aa845d3a93ea' = '未提供意图存储库URL。传入-IntentGitUrl或在test.config.yml中设置pool.intentGitUrl。'
+    'runner.operator_7dd0aa845d3a93ea' = '未提供配置存储库URL。传入-ConfigurationGitUrl或在test.config.yml中设置pool.configurationGitUrl。'
     'runner.operator_7dd6240c15d45471' = '需要第9节所述的已签名/自包含（signed/self-contained）引导程序兼容性和软件包恢复准入检查；尚未实现'
     'runner.operator_7def89dc77aaa4db' = @(
         '无法将自动化前采集的状态写入'
@@ -12075,11 +12231,11 @@
     'runner.operator_811a9975fa1a2df7' = @(
         '打开'
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '的池意图存储库克隆'
+        '的池配置存储库克隆'
     )
     'runner.operator_813ca315e92dc542' = @(
         '设置为'
@@ -12735,7 +12891,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] 池desiredState=drain——请求在周期边界关闭。'
+        '] 池configuredState=drain——请求在周期边界关闭。'
     )
     'runner.operator_8a8eb73bf7a84874' = @(
         "注册计划任务`“"
@@ -12798,9 +12954,9 @@
         '分钟。'
     )
     'runner.operator_8b14250671a04bd9' = @(
-        '  意图仓库：'
+        '  配置仓库：'
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -13099,7 +13255,7 @@
         }
         '……'
     )
-    'runner.operator_8e8fecb6ffc7d3d6' = '未找到test.config.yml；未初始化pool.intentGitUrl。请在运行Sync-HostConfiguration.ps1后重新运行，以加入实验室池。'
+    'runner.operator_8e8fecb6ffc7d3d6' = '未找到test.config.yml；未初始化pool.configurationGitUrl。请在运行Sync-HostConfiguration.ps1后重新运行，以加入实验室池。'
     'runner.operator_8e99318e4c9efaea' = @(
         @{
             'arg' = 'label'
@@ -13264,11 +13420,11 @@
     'runner.operator_8fcfdcefeec6d978' = @(
         '[2/3] 已在'
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '初始化池意图存储库'
+        '初始化池配置存储库'
     )
     'runner.operator_8fd5ad229615ab0d' = '设置为1'
     'runner.operator_8fe7627def332857' = '在非macOS宿主机上调用了Send-ClickUtm。'
@@ -13630,7 +13786,7 @@
     )
     'runner.operator_93d8c93707d2b133' = '通过OCR定位模式，然后点击其在屏幕上的矩形区域。'
     'runner.operator_93d9eec8ac1ddbb1' = '用于回收该磁盘空间的命令将显示在末尾，供执行。'
-    'runner.operator_93ef9f12e66f06e9' = 'pool.enabled = false且pool.intentGitUrl为空——池意图同步已关闭（可选）。请填写intentGitUrl，以便在启用前预先验证存储库。'
+    'runner.operator_93ef9f12e66f06e9' = 'pool.enabled = false且pool.configurationGitUrl为空——池配置同步已关闭（可选）。请填写configurationGitUrl，以便在启用前预先验证存储库。'
     'runner.operator_94158729db31acff' = '无法完成对两棵树的枚举'
     'runner.operator_941d097378241f81' = @(
         '无法写入'
@@ -14188,19 +14344,19 @@
         }
     )
     'runner.operator_9b3ed84eefe28021' = @(
-        '未找到链的先决条件：'
+        '找不到执行链前置条件：'
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '（通过'
+        '（由 '
         @{
             'arg' = 'sequenceName'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '的基线引用）'
+        ' 中的 resource 引用）'
     )
     'runner.operator_9b5f387caf6f42bd' = '  停止：       Ctrl+C（或在内层退出时完成）'
     'runner.operator_9b70d85e67370315' = @(
@@ -14989,9 +15145,9 @@
         '——应为正整数。'
     )
     'runner.operator_a57aeed80b0cf28a' = @(
-        '[2/3] 池意图存储已存在于'
+        '[2/3] 池配置存储已存在于'
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -15171,9 +15327,9 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”已存在（desiredState="
+        "`”已存在（configuredState="
         @{
-            'arg' = 'desiredState'
+            'arg' = 'configuredState'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -15693,7 +15849,7 @@
     )
     'runner.operator_af02ae2f4290672d' = 'hosts条目未写入，因此networkStorage名称仍解析到原地址，实验室共享将无法挂载。请在提权成功后重新运行此同步，或手动添加条目。'
     'runner.operator_af08cdf0a2ea5eb0' = '池注册表：此聚合器版本早于按服务列出的功能，仅报告它能解析的区域。请重建caching-proxy服务虚拟机，以在此处查看被拒绝的注册。'
-    'runner.operator_af0aca34836ac8bb' = 'pool.enabled为true，但pool.intentGitUrl为空——运行器无法拉取意图配置。请设置局域网裸仓库URL。参阅 docs/pool-storage.md.'
+    'runner.operator_af0aca34836ac8bb' = 'pool.enabled为true，但pool.configurationGitUrl为空——运行器无法拉取配置。请设置局域网裸仓库URL。参阅 docs/pool-storage.md.'
     'runner.operator_af33f0960f92ab46' = @(
         @{
             'arg' = 'phaseLabel'
@@ -15827,7 +15983,7 @@
     )
     'runner.operator_b102c44bb6764306' = '宿主机在上次尝试后已启动'
     'runner.operator_b1165d978837552e' = '框架／项目过时情况'
-    'runner.operator_b11e32378aff0234' = '池意图：所有文件均通过架构验证。'
+    'runner.operator_b11e32378aff0234' = '池配置：所有文件均通过架构验证。'
     'runner.operator_b12fd41a06f7b780' = @(
         '记录地址更改为'
         @{
@@ -16210,7 +16366,7 @@
         ' Start-GuestOS：通过'
     )
     'runner.operator_b5e4a53c200e2211' = @(
-        'pool.intentGitUrl指向原来的caching-proxy地址（'
+        'pool.configurationGitUrl指向原来的caching-proxy地址（'
         @{
             'arg' = 'existingUrl'
             'type' = 'detail'
@@ -16218,7 +16374,7 @@
         }
         '）；正在将其改为指向'
         @{
-            'arg' = 'intentUrl'
+            'arg' = 'configurationUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -16301,7 +16457,7 @@
         }
         "`”；请从`“系统设置 > 用户与群组`”中移除该账户。"
     )
-    'runner.operator_b752ee38cb8d2c81' = '成员关系：未设置pool.intentGitUrl（也未提供-IntentGitUrl）——仅移除了NAS记录；池成员关系未更改。'
+    'runner.operator_b752ee38cb8d2c81' = '成员关系：未设置pool.configurationGitUrl（也未提供-ConfigurationGitUrl）——仅移除了NAS记录；池成员关系未更改。'
     'runner.operator_b767a43bc1c25bbd' = @(
         '[外层周期 '
         @{
@@ -16383,7 +16539,7 @@
     )
     'runner.operator_b8044f428430e5d8' = '移除失效的SMB映射'
     'runner.operator_b85e68a82dd79259' = @(
-        '池意图：'
+        '池配置：'
         @{
             'arg' = 'failures'
             'type' = 'detail'
@@ -16423,11 +16579,11 @@
     'runner.operator_b8e126357db609a2' = @(
         '已在'
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '初始化新的池意图存储库。'
+        '初始化新的池配置存储库。'
     )
     'runner.operator_b8e59ada0f2a685a' = @(
         "在工作负载列表中找不到热恢复目标序列`“"
@@ -17873,7 +18029,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "]：意图存储`“"
+        "]：配置存储`“"
         @{
             'arg' = 'plUrl'
             'type' = 'detail'
@@ -17882,7 +18038,7 @@
         "`”。"
     )
     'runner.operator_cd0c45e03e65ccc2' = '  已有宿主机身份与此硬件匹配：'
-    'runner.operator_cd4a2a8be6258515' = '池（意图同步）'
+    'runner.operator_cd4a2a8be6258515' = '池（配置同步）'
     'runner.operator_cd4f83e57e569958' = @(
         'Register-SequenceAction '''
         @{
@@ -19671,13 +19827,13 @@
         "`”，并观察它是否被处理。"
     )
     'runner.operator_e178d69f96491585' = @(
-        '已加入实验室池：pool.enabled = true，pool.intentGitUrl = '
+        '已加入实验室池：pool.enabled = true，pool.configurationGitUrl = '
         @{
-            'arg' = 'intentUrl'
+            'arg' = 'configurationUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '。此宿主机现在会在每个周期以只读方式拉取池的预期配置。'
+        '。此宿主机现在会在每个周期以只读方式拉取池配置。'
     )
     'runner.operator_e1a14bbdcff651de' = @(
         '[外层周期'
@@ -19884,13 +20040,13 @@
         '）。聚合器的宿主机TTL（-host-ttl，默认为24h）到期后，面板会自行清除。'
     )
     'runner.operator_e2e4c1d2a97c7116' = @(
-        "内层`“"
+        '内部条目 '''
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”既不是客户机序列（baseline + steps），也不是宿主机动作（host:）。"
+        ''' 既不是客户机序列（resource 前置条件和步骤），也不是宿主机操作（host:）。'
     )
     'runner.operator_e2e9e0a96208388d' = '屏幕保护程序的idleTime未设置（currentHost）——采用macOS默认值（约20 min）。'
     'runner.operator_e2f867223580bc4d' = '存储筛选器堆栈（客户机吞吐量）'
@@ -20425,7 +20581,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] 池desiredState=drain；正在停止（不再运行后续周期）。'
+        '] 池configuredState=drain；正在停止（不再运行后续周期）。'
     )
     'runner.operator_eb8238e1e37a921c' = @(
         '[外层周期'
@@ -20873,7 +21029,7 @@
         '''手动添加映射，文件为 /etc/hosts.'
     )
     'runner.operator_efd4f169b13d993c' = @(
-        '提交并推送池意图：'
+        '提交并推送池配置：'
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -21771,19 +21927,19 @@
         '/fetch-and-execute-profile.log'
     )
     'runner.operator_fac625745e7555e3' = @(
-        "Set-RunnerState：`“"
+        'Set-RunnerState：'''
         @{
             'arg' = 'fromState'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`” -> `“"
+        ''' -> '''
         @{
             'arg' = 'to'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”不在规范邻接映射中；仍将记录，以便发现偏差。"
+        ''' 不在规范邻接映射中；仍会记录，以便显示这个意外的状态转换。'
     )
     'runner.operator_fad7deaf725b8e6e' = '停止残留的运行器并清理孤立虚拟机'
     'runner.operator_fad91a94e9edb38a' = @(
@@ -22051,7 +22207,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '）  desiredState='
+        '）  configuredState='
         @{
             'arg' = 'run'
             'type' = 'detail'
@@ -22196,6 +22352,7 @@
         }
         '，应为0（禁用）或正整数。'
     )
+    'runner.outer_attempt_failed' = '运行器尝试失败'
     'runner.outer_log_runtime_dir_unset' = @(
         'Write-OuterLog：未设置YURUNA_RUNTIME_DIR，因此无法定位outer.log；此行及后续各行不会写入该文件：'
         @{
@@ -22204,9 +22361,9 @@
             'trust' = 'external'
         }
     )
-    'runner.pool_intent_library_removed' = '已从意图存储中移除 test-sets.yml；没有任何内容读取它。'
-    'runner.pool_intent_schema_already_current' = @(
-        '池意图已是 schemaVersion '
+    'runner.pool_configuration_library_removed' = '已从配置存储中移除 test-sets.yml；没有任何内容读取它。'
+    'runner.pool_configuration_schema_already_current' = @(
+        '池配置已是 schemaVersion '
         @{
             'arg' = 'version'
             'type' = 'integer'
@@ -22214,8 +22371,8 @@
         }
         '；无需迁移。'
     )
-    'runner.pool_intent_schema_migrated' = @(
-        '池意图已从 schemaVersion '
+    'runner.pool_configuration_schema_migrated' = @(
+        '池配置已从 schemaVersion '
         @{
             'arg' = 'from'
             'type' = 'integer'
@@ -22229,7 +22386,7 @@
         }
         '，并已提交和推送。'
     )
-    'runner.pool_intent_schema_outdated' = @(
+    'runner.pool_configuration_schema_outdated' = @(
         '失败  schema-version：pools.yml 为 schemaVersion '
         @{
             'arg' = 'found'
@@ -22242,9 +22399,9 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '。请运行一次 test/pool/Update-PoolIntentSchema.ps1 以迁移意图存储。'
+        '。请运行一次 test/pool/Update-PoolConfigurationSchema.ps1 以迁移配置存储。'
     )
-    'runner.pool_intent_schema_unsupported' = @(
+    'runner.pool_configuration_schema_unsupported' = @(
         'pools.yml 为 schemaVersion '
         @{
             'arg' = 'version'
@@ -22257,7 +22414,7 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '）更新。请先更新此检出版本，再更改池意图。'
+        '）更新。请先更新此检出版本，再更改池配置。'
     )
     'runner.pool_repositories_cleared' = @(
         "已清除池`“"

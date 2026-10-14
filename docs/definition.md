@@ -1866,7 +1866,9 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `runner.pid` + `runner.start` | `<runtimeDir>` | `Write-RunnerPidFile` in [Test.SingleInstance.psm1](../test/modules/Test.SingleInstance.psm1) | rewritten by every outer launch; an atomic temp->rename keeps the pair consistent | Outer's pidfile + StartTime sidecar so a re-launched outer can classify the prior occupant as Self / Stale / OtherRunner without misreading via cmdline regex. |
 | `inner.pid` | `<runtimeDir>` | atomic write at top of [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | pre-wiped by outer before each spawn | Inner's PID -- read by the outer's watchdog. Temp-file + Move-Item makes the write atomic so a crash mid-write can't leave a truncated digit. |
 | `runner.heartbeat` | `<runtimeDir>` | C# `Yuruna.HeartbeatWriter` timer in [Test.RunnerHeartbeat.psm1](../test/modules/Test.RunnerHeartbeat.psm1), started by [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | overwritten every 30 s | Process-level proof of life. Stays fresh even when the runspace is wedged inside a long SSH/OCR call. |
-| `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at the top of every step in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1); outer pre-wipes + force-touches before each spawn | overwritten per step | Runspace-level proof of life. Mtime older than `testCycle.stepTimeoutSeconds` means the inner is wedged inside a step -> outer watchdog kills it. |
+| `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at step boundaries and after completed pause polls or lab-health probes; outer pre-wipes + force-touches before each spawn | overwritten on completed progress | Runspace-level proof of life. Deliberate holds remain live; blocked calls still age beyond `testCycle.stepTimeoutSeconds` and trigger the watchdog. |
+| `runner.configGate.json` + `runner-attempts/<attempt>/config-gate.{json,log}` | `<runtimeDir>` | [Test.ConfigPreflight.psm1](../test/modules/Test.ConfigPreflight.psm1) after a gate verdict | latest pointer replaced; 20 attempt folders retained | Structured configuration findings and transcript with attempt generation, timestamps and framework commit. Separate from completed cycle artifacts. |
+| `runner.watchdog-kill.json` | `<runtimeDir>` | [Test.RunnerWatchdog.psm1](../test/modules/Test.RunnerWatchdog.psm1) before terminating a matching stale inner | cleared before the next spawn | Attempt-bound evidence that termination was initiated by the watchdog; a nonzero gate exit alone is not a stall. |
 | `.test.config.snapshot.json` | `<runtimeDir>` | `Publish-TestConfigSnapshot` in [Test.Config.psm1](../test/modules/Test.Config.psm1), auto-fired by every `Read-TestConfig` parse | overwritten on next parse | Cross-process parsed-config snapshot (envelope: sourcePath, sourceMtime, sourceHash, publishedAt, publisherPid, config). `Read-TestConfigOrSnapshot` validates the envelope's mtime+hash against the live YAML and uses the snapshot when both still match, avoiding a redundant YAML parse in the inner. |
 | `.caching-proxy-service.env.json` | `<runtimeDir>` | atomic temp->rename in [test/service/Start-CachingProxyServiceVM.ps1](../test/service/Start-CachingProxyServiceVM.ps1) | wiped by `Remove-TestVMFiles.ps1` | Cleared `*_proxy` env-var snapshot so a re-invocation of Start-CachingProxyServiceVM can restore them without operator re-typing. |
 | `yuruna-caching-proxy-service.yml` | `<runtimeDir>` | `Save-CachingProxyServiceState` in [Test.CachingProxyService.psm1](../test/modules/Test.CachingProxyService.psm1) (temp-file + Move-Item + `.backup` rotation) | merged on next save | Cache-VM password + IP. Has a `.backup` sibling rotated on each successful write; `Read-CachingProxyServiceState` falls back to the backup when the main is corrupt and rotates the bad copy to `.corrupt.<UTC>` for forensics. |
@@ -2299,7 +2301,7 @@ paused      -> idle, cycle-start
 ```
 
 The `cycle-start <-> paused` pair is the healthy pool-hold loop
-(`desiredState=paused` gates a started cycle; each ~30s re-poll
+(`configuredState=paused` gates a started cycle; each ~30s re-poll
 re-enters `cycle-start`).
 
 `Test-RunnerStateTransition` is the predicate. An out-of-band write
@@ -2406,12 +2408,74 @@ guestKey, hostType, actionVerb, source) so a stream consumer follows
 the dispatcher's decision without reading the recommendation object
 back from memory.
 
+
+<a id="42fa6f45-0041"></a>
+
+### Defining Baseline, Configuration, Implementation, and Telemetry
+
+These four views use the terminology of `protect-sequence.txt` and the
+Syzor article `2026-09.syzor.draft04.pdf` (Tables 2 and 3). They describe
+related evidence, not four interchangeable names for configuration files.
+
+| View | Meaning | Yuruna usage |
+| --- | --- | --- |
+| **Baseline** | Intended requirements: permitted outcomes and required outcomes. | State the requirement separately from settings and observations. A test expectation can express a requirement, but a snapshot named `baseline` is still a snapshot. |
+| **Configuration** | Explicit settings in code, files, and tools. | `pools.yml`, `test.config.yml`, resource declarations, and configured pool state. |
+| **Implementation** | What the running system actually does. | Running hosts, guests, services, and their effective behavior. Source code and an SBOM alone do not establish this view. |
+| **Telemetry** | Observations and evidence collected from the system. | Heartbeats, probe results, logs, events, and measurements. These observations may cover only part of the Implementation. |
+
+Pool configuration is Configuration, not Baseline: it records explicit
+settings, not the independent requirement those settings should satisfy.
+`configuredState` is the pool's saved `run`, `paused`, or `drain` setting.
+A member's reported status and immediate pause/resume controls remain
+separate. Service start/stop requests use `requestedState`; observed service
+health is evidence and does not change that request by itself.
+
+Use **running implementation** when "implementation" could mean source
+code. Keep established technical names such as container runtime, process
+environment, Kubernetes manifest, artifact manifest, and snapshot baseline.
+These are not names for the security views above.
+
+<a id="42fa6f45-0042"></a>
+
+### Defining access conditions and differences
+
+The article models access outcomes as sets: **B** is the Baseline's permitted
+outcomes, **N** is its required outcomes (a subset of B), **C** is Configuration,
+**I** is Implementation, and **T** is Telemetry. Comparisons require the same
+scope, outcome representation, and observation period.
+
+| Term | Meaning in the article |
+| --- | --- |
+| **Authorized** | Access permitted by the Baseline; distinct from a tool's authorization decision. |
+| **Shortfall** | Configuration permits outcomes outside the Baseline: C minus B. |
+| **Patch** | A configured Shortfall absent from the Implementation: (C minus B) minus I. It may be beneficial but still needs reconciliation with Configuration. |
+| **Drift** | Implementation outside Configuration, together with Patch: (I minus C) union Patch. Drift includes beneficial differences. |
+| **Finding** | Observed outcomes outside Configuration: T minus C. |
+| **Unmonitored** | Implemented outcomes not represented in Telemetry: I minus T. Missing observations alone do not establish which outcomes are implemented. |
+| **Nonconformity** | Observed outcomes outside the Baseline: T minus B. |
+| **Exposure** | Implemented outcomes outside the Baseline: I minus B. |
+| **Unavailability** | Required outcomes absent from Implementation: N minus I. This is more specific than a generic outage. |
+
+These terms are assessment conditions and differences, not automatic incident
+classifications. A failed test, absent namespace, stale configuration revision,
+or invalid runner-state transition does not by itself prove a Finding,
+Nonconformity, or Drift in this model. Diagnostics describe the evidence they
+have: a **configuration mismatch**, **diagnostic observation**, **outdated
+configuration**, or **unexpected transition** as appropriate. Operational
+incidents keep their existing meaning and workflow.
+
+Version 2026/10 of the [Yuruna ontology](ontology/README.md) models this
+vocabulary as the four assessment views and nine assessment conditions, with
+their provenance recorded in the ontology file. It does not add security-set comparisons, proof agents, or
+new detectors.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

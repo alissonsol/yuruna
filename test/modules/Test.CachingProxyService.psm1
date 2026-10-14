@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -490,6 +490,15 @@ function Test-CachingProxyRegistryReady {
         return @{ Ready = $false; Reason = $_.Exception.Message; StatusCode = 0; Uri = $metadataUri }
     }
 
+    # The cache's own sync self-test outranks the warm-set counts below: when
+    # its zot release refuses images the upstream serves, those counts only
+    # show the result, and no wait changes it -- so the wait ends here.
+    $selfTest = ConvertFrom-ZotSelfTestMetric -Metadata $metadata
+    if ($selfTest.Verdict -eq 'incompatible') {
+        $healthUri = [UriBuilder]::new('http', $CacheIp, $MetadataPort, '/cache-health').Uri.AbsoluteUri
+        return @{ Ready = $false; Terminal = $true; Reason = (Format-ZotSelfTestSummary -SelfTest $selfTest -HealthUrl $healthUri)
+            StatusCode = 200; Uri = $metadataUri }
+    }
     if ($metadata -notmatch '(?m)^yuruna_prewarm_state_available\s+1(?:\.0+)?\s*$') {
         return @{ Ready = $false; Reason = 'required image warm set is not available'; StatusCode = 200; Uri = $metadataUri }
     }
@@ -537,6 +546,224 @@ function Test-CachingProxyRegistryReady {
     }
 }
 
+# --- REGION: zot release
+function Resolve-CachingProxyZotOverride {
+    <#
+    .SYNOPSIS
+        The zot release a host's test.config.yml installs on the
+        caching-proxy-service VM instead of the release the seed pins.
+    .DESCRIPTION
+        vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 let an
+        operator replace a pinned zot release that cannot sync the lab's images
+        without changing code. Both are baked into a shell assignment in the
+        cloud-init seed, so only a release tag and a 64-hex SHA-256 pass: the
+        seed downloads zot-linux-<arch> of that release and installs it only
+        when its SHA-256 matches, exactly as it does for the pin.
+    .OUTPUTS
+        [hashtable] @{ Version; Sha256 }, both empty when nothing overrides the pin.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()]$Config)
+    $vmStart = if ($Config) { $Config.vmStart } else { $null }
+    $version = if ($vmStart) { "$($vmStart.cachingProxyZotVersion)".Trim() } else { '' }
+    $sha256 = if ($vmStart) { "$($vmStart.cachingProxyZotSha256)".Trim().ToLowerInvariant() } else { '' }
+    if (-not $version -and -not $sha256) { return @{ Version = ''; Sha256 = '' } }
+    if ($version -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') {
+        throw "vmStart.cachingProxyZotVersion is '$version', which is not a zot release tag such as v2.1.21 " +
+            '(https://github.com/project-zot/zot/releases). Set both vmStart.cachingProxyZotVersion and ' +
+            'vmStart.cachingProxyZotSha256, or leave both empty to install the release this Yuruna release pins.'
+    }
+    if ($sha256 -notmatch '^[0-9a-f]{64}$') {
+        throw "vmStart.cachingProxyZotSha256 must be the 64-hex-digit SHA-256 of zot-linux-amd64 (or zot-linux-arm64 " +
+            "on an ARM64 host) as https://github.com/project-zot/zot/releases/download/$version/checksums.sha256.txt " +
+            'lists it; the caching-proxy-service VM installs the binary only when that checksum matches.'
+    }
+    return @{ Version = $version; Sha256 = $sha256 }
+}
+
+function ConvertFrom-ZotSelfTestMetric {
+    <#
+    .SYNOPSIS
+        Reads the zot sync self-test series out of the cache's /zot-meta text.
+    .DESCRIPTION
+        The caching-proxy-service VM syncs a probe image per upstream through
+        its zot release when zot is installed and after each warm run, and
+        publishes the verdict as yuruna_zot_selftest_* series. Verdicts: ok,
+        healed (passed once the self-test added an http.compat mode zot asked
+        for), incompatible (zot rejected a probe image its upstream serves),
+        gone (a probe image is no longer published), unanswered or down (no
+        verdict).
+    .OUTPUTS
+        [hashtable] @{ Available; Verdict; Version; Pinned; Override; Failed; Repaired }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()][AllowEmptyString()][string]$Metadata)
+    $result = @{ Available = $false; Verdict = ''; Version = ''; Pinned = ''; Override = $false; Failed = @(); Repaired = @() }
+    if (-not $Metadata -or $Metadata -notmatch '(?m)^yuruna_zot_selftest_available\s+1(?:\.0+)?\s*$') { return $result }
+    $result.Available = $true
+    $verdict = [regex]::Match($Metadata, '(?m)^yuruna_zot_selftest_verdict\{verdict="(?<v>[a-z]+)"\}\s+1')
+    if ($verdict.Success) { $result.Verdict = $verdict.Groups['v'].Value }
+    $release = [regex]::Match($Metadata, '(?m)^yuruna_zot_selftest_release_info\{version="(?<v>[^"]*)",pinned="(?<p>[^"]*)",override="(?<o>[01])"\}')
+    if ($release.Success) {
+        $result.Version = $release.Groups['v'].Value
+        $result.Pinned = $release.Groups['p'].Value
+        $result.Override = $release.Groups['o'].Value -eq '1'
+    }
+    $result.Failed = @([regex]::Matches($Metadata,
+            '(?m)^yuruna_zot_selftest_probe_failed\{image="(?<i>[^"]*)",stage="(?<s>[^"]*)",status="(?<c>[^"]*)",outcome="(?<o>[^"]*)",compat="(?<m>[^"]*)"\}') |
+        ForEach-Object { @{ Image = $_.Groups['i'].Value; Stage = $_.Groups['s'].Value; Status = $_.Groups['c'].Value
+                Outcome = $_.Groups['o'].Value; Compat = $_.Groups['m'].Value } })
+    $result.Repaired = @([regex]::Matches($Metadata, '(?m)^yuruna_zot_selftest_compat_added\{mode="(?<m>[^"]*)"\}') |
+        ForEach-Object { $_.Groups['m'].Value })
+    return $result
+}
+
+function Format-ZotSelfTestSummary {
+    <#
+    .SYNOPSIS
+        One line naming why the cache's zot release cannot serve guests, and
+        where the fixes are.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][hashtable]$SelfTest, [Parameter(Mandatory)][string]$HealthUrl)
+    $release = if ($SelfTest.Version) { "zot $($SelfTest.Version)" } else { 'zot' }
+    if ($SelfTest.Verdict -eq 'down') {
+        return "the cache's $release did not answer its own sync self-test, so it is not serving images; see $HealthUrl"
+    }
+    $refused = @($SelfTest.Failed | Where-Object { $_.Outcome -eq 'rejected' })
+    $first = $refused | Select-Object -First 1
+    $detail = if ($first) {
+        $answer = if ($first.Status -eq '0') { 'no answer' } else { "HTTP $($first.Status)" }
+        $ask = if ($first.Compat) { "; zot's log asks for http.compat $($first.Compat)" } else { '' }
+        " ($($first.Image): $answer at the $($first.Stage)$ask)"
+    } else { '' }
+    return "the cache's $release is incompatible with the lab's registries: its sync self-test refused " +
+        "$($refused.Count) probe image(s)$detail. That is not a cold cache, and a re-run does not help; " +
+        "the fixes, none of which needs a code change, are at $HealthUrl"
+}
+
+function Read-CachingProxyPage {
+    <#
+    .SYNOPSIS
+        The text of one of the cache's plain-text pages; empty when it does not answer 200.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Uri, [int]$TimeoutSeconds = 5)
+    try {
+        $response = Invoke-WebRequest -Uri $Uri -Method Get -NoProxy -UseBasicParsing -TimeoutSec $TimeoutSeconds `
+            -SkipHttpErrorCheck -ErrorAction Stop -Verbose:$false
+        if ([int]$response.StatusCode -ne 200) { return '' }
+        if ($response.Content -is [byte[]]) { return [Text.Encoding]::UTF8.GetString($response.Content) }
+        return [string]$response.Content
+    } catch { return '' }
+}
+
+function Get-CachingProxyZotSelfTestReport {
+    <#
+    .SYNOPSIS
+        Whether the cache's zot release can sync the lab's images, as the
+        cache's own sync self-test found, with its fix instructions.
+    .DESCRIPTION
+        Reads the verdict from /zot-meta and the human-readable block, fixes
+        included, from /cache-health, so the instructions an operator reads
+        here are the ones the cache prints. Level is PASS for ok, WARN for a
+        repaired configuration or a result that blames something other than
+        zot, FAIL for an incompatible release or a zot that does not answer,
+        and PENDING when the cache has no result yet.
+    .OUTPUTS
+        [hashtable] @{ Level; SelfTest; Summary; Lines }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [int]$MetadataPort = 80,
+        [ValidateRange(1, 60)][int]$TimeoutSeconds = 5
+    )
+    $metaUri = [UriBuilder]::new('http', $CacheIp, $MetadataPort, '/zot-meta').Uri.AbsoluteUri
+    $healthUri = [UriBuilder]::new('http', $CacheIp, $MetadataPort, '/cache-health').Uri.AbsoluteUri
+    $selfTest = ConvertFrom-ZotSelfTestMetric -Metadata (Read-CachingProxyPage -Uri $metaUri -TimeoutSeconds $TimeoutSeconds)
+    if (-not $selfTest.Available) {
+        return @{ Level = 'PENDING'; SelfTest = $selfTest; Summary = ''
+            Lines = @("  [WARN] zot sync self-test: no result at $metaUri yet. zot is installed near the end of a cache",
+                '    build, and a cache built before the self-test existed has none: rebuild it to get one.') }
+    }
+    $level = switch ($selfTest.Verdict) {
+        'ok' { 'PASS' }
+        { $_ -in 'incompatible', 'down' } { 'FAIL' }
+        default { 'WARN' }
+    }
+    $lines = [Collections.Generic.List[string]]::new()
+    $lines.Add("  [$level] zot sync self-test ($healthUri):")
+    # The block runs from its label line through the indented lines under it.
+    $shown = $false
+    foreach ($line in ((Read-CachingProxyPage -Uri $healthUri -TimeoutSeconds $TimeoutSeconds) -split "`r?`n")) {
+        if ($line -match '^zot sync self-test') { $shown = $true }
+        elseif (-not $line.StartsWith('  ')) { $shown = $false }
+        if ($shown) { $lines.Add("    $line") }
+    }
+    if ($lines.Count -eq 1) { $lines.Add("    verdict: $($selfTest.Verdict) (the health page did not answer)") }
+    if ($level -eq 'FAIL') {
+        $lines.Add('    The cache still serves squid, but Kubernetes guests stop at their control-plane warm pass until')
+        $lines.Add('    one of the fixes above is applied. test/Test-CachingProxyService.ps1 checks it again afterwards.')
+    }
+    if ($level -ne 'PASS') {
+        $lines.Add("    Commands marked sudo run on the cache VM: ssh caching-proxy-service-admin@$CacheIp")
+        $lines.Add('    (the harness key is test/status/ssh/yuruna_ed25519).')
+    }
+    $summary = if ($level -eq 'FAIL') { Format-ZotSelfTestSummary -SelfTest $selfTest -HealthUrl $healthUri } else { '' }
+    return @{ Level = $level; SelfTest = $selfTest; Summary = $summary; Lines = $lines.ToArray() }
+}
+
+function Wait-CachingProxyZotSelfTest {
+    <#
+    .SYNOPSIS
+        After a caching-proxy-service build, waits for the cache's zot sync
+        self-test and reports it, so an incompatible zot release fails the build
+        command instead of the first Kubernetes guest.
+    .DESCRIPTION
+        squid answers well before zot is installed: zot is among the last
+        things cloud-init sets up. Progress goes to the information stream
+        (pass -InformationAction Continue to show it);
+        the verdict and its fix instructions come back as Lines. ExitCode is 1
+        for an incompatible release or a zot that does not answer, and 0
+        otherwise -- including when no result arrives in time, which leaves the
+        build to finish and the verdict to /cache-health.
+    .OUTPUTS
+        [hashtable] @{ ExitCode; Level; Lines }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [int]$TimeoutSeconds = 2400,
+        [int]$IntervalSeconds = 20
+    )
+    $healthUri = [UriBuilder]::new('http', $CacheIp, 80, '/cache-health').Uri.AbsoluteUri
+    Write-Information ("Waiting up to $([int]($TimeoutSeconds / 60)) minutes for the cache to install zot and sync its probe images " +
+        "through it. Ctrl+C is safe: the VM keeps building, and $healthUri shows the verdict later.")
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $started = Get-Date
+    while ($true) {
+        $report = Get-CachingProxyZotSelfTestReport -CacheIp $CacheIp
+        if ($report.Level -ne 'PENDING') {
+            return @{ ExitCode = $(if ($report.Level -eq 'FAIL') { 1 } else { 0 }); Level = $report.Level; Lines = $report.Lines }
+        }
+        if ((Get-Date) -ge $deadline) {
+            return @{ ExitCode = 0; Level = 'PENDING'; Lines = @(
+                    "  [WARN] zot sync self-test: no result within $([int]($TimeoutSeconds / 60)) minutes. cloud-init may still be",
+                    "    running; $healthUri shows the verdict once zot is installed, and test/Test-CachingProxyService.ps1",
+                    '    checks it from this host.') }
+        }
+        Write-Information ("  ... no zot sync self-test result yet ($([int]((Get-Date) - $started).TotalSeconds)s)")
+        Start-Sleep -Seconds $IntervalSeconds
+    }
+}
+
 function Wait-PortConsecutiveSuccess {
     <#
     .SYNOPSIS
@@ -556,21 +783,22 @@ function Wait-PortConsecutiveSuccess {
     .PARAMETER Probe
         Optional application-level probe. It receives address and port and
         returns a hashtable with Ready and Reason. When supplied it replaces
-        the TCP-only probe.
+        the TCP-only probe. A result with Terminal set ends the wait at once:
+        it reports a state that waiting cannot change.
     .PARAMETER OnFirstMiss
         Callback for the leg's once-only waiting announcement.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param([string]$Address, [int]$Port, [datetime]$Deadline, [int]$Required, [int]$IntervalSeconds, $Classify, [scriptblock]$Probe, [scriptblock]$OnFirstMiss)
-    $probes = 0; $consecutive = 0; $reason = ''; $announced = $false
+    $probes = 0; $consecutive = 0; $reason = ''; $announced = $false; $terminal = $false
     while ($true) {
         if ($probes -gt 0) { Start-Sleep -Seconds $IntervalSeconds }
         $probes++
         if ($Probe) {
             $probeResult = & $Probe $Address $Port
             $ok = [bool]$probeResult.Ready
-            if (-not $ok) { $reason = [string]$probeResult.Reason }
+            if (-not $ok) { $reason = [string]$probeResult.Reason; $terminal = [bool]$probeResult.Terminal }
         } elseif ($Classify) {
             $outcome = & $Classify -IpAddress $Address -Port $Port -TimeoutMs 3000
             $ok = [bool]$outcome.Reachable
@@ -584,11 +812,13 @@ function Wait-PortConsecutiveSuccess {
             if ($consecutive -ge $Required) { break }
         } else {
             $consecutive = 0
+            if ($terminal) { break }
             if (-not $announced) { & $OnFirstMiss $reason; $announced = $true }
         }
         if ((Get-Date) -ge $Deadline) { break }
     }
-    return @{ Settled = $consecutive -ge $Required; Probes = $probes; Consecutive = $consecutive; Reason = $reason; Announced = $announced }
+    return @{ Settled = $consecutive -ge $Required; Probes = $probes; Consecutive = $consecutive; Reason = $reason
+        Announced = $announced; Terminal = $terminal }
 }
 
 function Wait-CachingProxyServiceSettled {
@@ -698,6 +928,13 @@ function Wait-CachingProxyServiceSettled {
         $registrySettled = $result.Settled; $regProbes = $result.Probes; $regReason = $result.Reason; $regAnnounced = $result.Announced
         if ($registrySettled -and $regAnnounced) {
             $lines.Add("  Cache registry required-image path settled after $regProbes probe(s); continuing.")
+        } elseif ($result.Terminal) {
+            $suffix = if ($RequireRegistry) {
+                'Kubernetes guest work was not started.'
+            } else {
+                'Proceeding anyway because this sequence does not require the cache registry.'
+            }
+            $lines.Add("  Cache registry cannot serve Kubernetes guests, and waiting does not change that: $regReason. $suffix")
         } elseif (-not $registrySettled) {
             $suffix = if ($RequireRegistry) {
                 'Kubernetes guest work was not started.'
@@ -1163,19 +1400,19 @@ function Wait-YurunaAggregatorReady {
     return $false
 }
 
-function Get-PoolIntentSeedUrl {
+function Get-PoolConfigurationSeedUrl {
 <#
 .SYNOPSIS
-    Resolves the pool-intent git URL to bake into the pool-control-service VM seed.
+    Resolves the pool-configuration git URL to bake into the pool-control-service VM seed.
 .DESCRIPTION
     The pool-control-service daemon COMMITS to this store, so the resolution prefers a
     writable location:
 
-      1. An explicit networkStorage/pool `intentGitUrl` in test.config.yml. The
+      1. An explicit networkStorage/pool `configurationGitUrl` in test.config.yml. The
          operator said what they want; nothing overrides it -- with one
-         exception. The read-only proxy route (`http://<host>/pool-intent.git`)
+         exception. The read-only proxy route (`http://<host>/pool-configuration.git`)
          is what Set-LabToken seeds into that same key so RUNNERS can pull
-         intent. It is not a request for this daemon to be read-only, and
+         configuration. It is not a request for this daemon to be read-only, and
          honoring it here would give the service a store every push fails
          against, so it yields to option 2 whenever the writable mount exists.
       2. The bare repo on the pool NAS, addressed by its GUEST mount path. The
@@ -1186,7 +1423,7 @@ function Get-PoolIntentSeedUrl {
       3. The proxy's read-only HTTP route, when no pool storage is configured.
          This is a DEGRADED answer and is returned last on purpose: apache
          publishes the repo through a plain Alias, so a clone works and every
-         push fails. It leaves the UI able to display intent rather than
+         push fails. It leaves the UI able to display configuration rather than
          nothing at all.
 
     Returns '' when none resolve, which the seed bakes as an empty value; the
@@ -1197,7 +1434,7 @@ function Get-PoolIntentSeedUrl {
     Mount point the pool-control-service guest uses for the pool NAS. Matches MOUNT in
     guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh.
 .OUTPUTS
-    [string] intent git URL, or ''.
+    [string] configuration git URL, or ''.
 #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -1206,8 +1443,8 @@ function Get-PoolIntentSeedUrl {
         [string]$GuestPoolMount = '/mnt/yuruna-pool'
     )
     $configured = ''
-    if ($Config -and $Config.pool -and -not [string]::IsNullOrWhiteSpace([string]$Config.pool.intentGitUrl)) {
-        $configured = ([string]$Config.pool.intentGitUrl).Trim()
+    if ($Config -and $Config.pool -and -not [string]::IsNullOrWhiteSpace([string]$Config.pool.configurationGitUrl)) {
+        $configured = ([string]$Config.pool.configurationGitUrl).Trim()
     }
     # Pool storage configured => the guest will mount it and can host the store.
     $hasPoolStorage = $false
@@ -1217,19 +1454,19 @@ function Get-PoolIntentSeedUrl {
     if ($configured) {
         # One exception to "the operator said what they want": the read-only
         # http route that Set-LabToken seeds for RUNNERS. It is the right value
-        # for a host that only pulls intent, and the wrong one here -- this
+        # for a host that only pulls configuration, and the wrong one here -- this
         # daemon COMMITS, and every push to an apache Alias fails. When the
         # writable pool mount exists, use it; the seeded value is a runner
         # binding that happens to live in the same config key, not a choice to
         # make this service read-only.
-        if ($hasPoolStorage -and $configured -match '^https?://[^/]+/pool-intent\.git$') {
-            Write-Verbose "Get-PoolIntentSeedUrl: pool.intentGitUrl ($configured) is the read-only proxy route; the pool-control service needs a writable store, using the pool mount instead."
+        if ($hasPoolStorage -and $configured -match '^https?://[^/]+/pool-(configuration|intent)\.git$') {
+            Write-Verbose "Get-PoolConfigurationSeedUrl: pool.configurationGitUrl ($configured) is the read-only proxy route; the pool-control service needs a writable store, using the pool mount instead."
         } else {
             return $configured
         }
     }
     if ($hasPoolStorage) {
-        return ("{0}/pool-intent.git" -f $GuestPoolMount.TrimEnd('/'))
+        return ("{0}/pool-configuration.git" -f $GuestPoolMount.TrimEnd('/'))
     }
     # Last resort: the proxy's pull-only route, so the UI at least reads.
     $ip = Get-CachingProxyServiceStateIp
@@ -1241,13 +1478,13 @@ function Get-PoolIntentSeedUrl {
     # quote or whitespace would corrupt it.
     if ($ip -match "['\s]") { return '' }
     $urlHost = ConvertTo-CachingProxyUrlHost -Address $ip
-    return "http://${urlHost}/pool-intent.git"
+    return "http://${urlHost}/pool-configuration.git"
 }
 
-function Sync-PoolIntentAliasOnProxy {
+function Sync-PoolConfigurationAliasOnProxy {
 <#
 .SYNOPSIS
-    Points the caching-proxy service's read-only pool-intent route at the pool NAS
+    Points the caching-proxy service's read-only pool-configuration route at the pool NAS
     store, so runners pull the same bytes the pool-control service UI writes.
 .DESCRIPTION
     A proxy-LOCAL bare repo is not an option: the pool-control-service daemon
@@ -1287,7 +1524,7 @@ function Sync-PoolIntentAliasOnProxy {
     [OutputType([hashtable])]
     param(
         [string]$ProxyAddress,
-        [string]$StorePath = '/mnt/ypool-nas/pool-intent.git',
+        [string]$StorePath = '/mnt/ypool-nas/pool-configuration.git',
         [string]$User = 'caching-proxy-service-admin',
         [int]$TimeoutSeconds = 60
     )
@@ -1317,19 +1554,42 @@ function Sync-PoolIntentAliasOnProxy {
     $script = @'
 set -u
 STORE='__STORE__'
-CONF=/etc/apache2/conf-available/yuruna-pool-intent.conf
+CONF=/etc/apache2/conf-available/yuruna-pool-configuration.conf
+CANONICAL_ENABLED=/etc/apache2/conf-enabled/yuruna-pool-configuration.conf
+LEGACY_ENABLED=/etc/apache2/conf-enabled/yuruna-pool-intent.conf
 if [ ! -d "$STORE/refs" ]; then echo "SKIP: no bare repo at $STORE"; exit 0; fi
-if [ -r "$CONF" ] && grep -qxF "Alias /pool-intent.git $STORE" "$CONF"; then echo "OK: alias already serves $STORE"; exit 0; fi
-sudo cp -p "$CONF" "$CONF.bak" 2>/dev/null || true
-printf 'Alias /pool-intent.git %s\n<Directory %s>\n    Options +Indexes\n    Require ip 127.0.0.1\n    Require ip 10.0.0.0/8\n    Require ip 172.16.0.0/12\n    Require ip 192.168.0.0/16\n</Directory>\n' "$STORE" "$STORE" | sudo tee "$CONF" >/dev/null
-sudo a2enconf yuruna-pool-intent >/dev/null 2>&1 || true
-if sudo apache2ctl configtest 2>&1 | grep -qi 'syntax ok'; then
-  sudo systemctl reload apache2 && echo "CHANGED: /pool-intent.git -> $STORE"
-else
-  sudo cp -p "$CONF.bak" "$CONF" 2>/dev/null || true
-  echo "FAILED: apache rejected the new conf; restored the previous one" >&2
-  exit 1
+if [ -r "$CONF" ] && [ -e "$CANONICAL_ENABLED" ] && [ ! -e "$LEGACY_ENABLED" ] &&
+   grep -qxF "Alias /pool-configuration.git $STORE" "$CONF" &&
+   grep -qxF "Alias /pool-intent.git $STORE" "$CONF"; then
+  echo "OK: alias already serves $STORE"; exit 0
 fi
+had_conf=0
+canonical_enabled=0
+legacy_enabled=0
+if [ -e "$CANONICAL_ENABLED" ]; then canonical_enabled=1; fi
+if [ -e "$LEGACY_ENABLED" ]; then legacy_enabled=1; fi
+if [ -e "$CONF" ]; then
+  sudo cp -p "$CONF" "$CONF.bak" || exit 1
+  had_conf=1
+fi
+restore_alias_configuration() {
+  if [ "$had_conf" -eq 1 ]; then sudo cp -p "$CONF.bak" "$CONF"; else sudo rm -f "$CONF"; fi
+  if [ "$canonical_enabled" -eq 0 ]; then sudo a2disconf yuruna-pool-configuration >/dev/null 2>&1; fi
+  if [ "$legacy_enabled" -eq 1 ]; then sudo a2enconf yuruna-pool-intent >/dev/null 2>&1; fi
+}
+# Both routes serve one store so existing runner URLs keep their meaning.
+if printf 'Alias /pool-configuration.git %s\nAlias /pool-intent.git %s\n<Directory %s>\n    Options +Indexes\n    Require ip 127.0.0.1\n    Require ip 10.0.0.0/8\n    Require ip 172.16.0.0/12\n    Require ip 192.168.0.0/16\n</Directory>\n' "$STORE" "$STORE" "$STORE" | sudo tee "$CONF" >/dev/null &&
+   sudo a2enconf yuruna-pool-configuration >/dev/null 2>&1 &&
+   { [ "$legacy_enabled" -eq 0 ] || sudo a2disconf yuruna-pool-intent >/dev/null 2>&1; } &&
+   sudo apache2ctl configtest 2>&1 | grep -qi 'syntax ok'; then
+  if sudo systemctl reload apache2; then
+    echo "CHANGED: /pool-configuration.git -> $STORE"
+    exit 0
+  fi
+fi
+restore_alias_configuration
+echo "FAILED: apache configuration or reload failed; restored the previous configuration" >&2
+exit 1
 '@.Replace('__STORE__', $StorePath)
 
     $r = $null
@@ -1530,4 +1790,4 @@ function Resolve-CachingProxyServiceCaCertPem {
     return @{ Pem = ''; Source = 'none' }
 }
 
-Export-ModuleMember -Function Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Test-SequenceRequiresCacheRegistry, Test-CachingProxyRegistryReady, Wait-CachingProxyServiceSettled, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolIntentSeedUrl, Sync-PoolIntentAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem
+Export-ModuleMember -Function Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Test-SequenceRequiresCacheRegistry, Test-CachingProxyRegistryReady, Wait-CachingProxyServiceSettled, Resolve-CachingProxyZotOverride, Get-CachingProxyZotSelfTestReport, Wait-CachingProxyZotSelfTest, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolConfigurationSeedUrl, Sync-PoolConfigurationAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem

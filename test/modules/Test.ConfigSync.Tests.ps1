@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42dc6e9c-5264-4b7f-9cb1-cbc552391717
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -135,7 +135,7 @@ Describe 'Sync-TestConfigToTemplate' {
     It 'adds missing fields, drops the renamed-section orphan, sorts, and backs up the dropped value' {
         $d = New-TempDir
         try {
-            # Template renamed the old top-level poolStorage block to networkStorage.*
+            # The template's networkStorage.* block replaces the retired top-level poolStorage block.
             # and is deliberately authored out of alphabetical order.
             $tmpl = Join-Path $d 'template.yml'
             Set-Content $tmpl "networkStorage:`n  poolStorageLocalPath: ''`n  poolStorageNetworkPath: ''`nlogLevel: Information`n"
@@ -323,7 +323,7 @@ Describe 'Update-TestConfigFromTemplate' {
         try {
             # Template = minimal + a new 'pool' node the existing file predates.
             $tmpl = Join-Path $d 'template.yml'
-            Set-Content $tmpl ($script:MinimalTemplate + "`npool:`n  enabled: false`n  intentGitUrl: ''`n")
+            Set-Content $tmpl ($script:MinimalTemplate + "`npool:`n  enabled: false`n  configurationGitUrl: ''`n")
             $cfg = Join-Path $d 'test.config.yml'
             # Shape-valid for the OLD schema (no 'pool'), with operator overrides.
             Set-Content $cfg "vmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 15`nvmImage:`n  refreshSeconds: 24`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  stopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://operator/fork`n"
@@ -501,5 +501,169 @@ Describe 'config preservation across documented reconciliation' {
         Assert-False ($json -match 'private-(token|password|key|secret)')
         Assert-Equal 'https://example.test/repo' $cfg.repositories.frameworkUrl
         Assert-Equal 0 $cfg.secrets.Count
+    }
+}
+
+Describe 'registered configuration naming upgrades before local reconciliation' {
+    BeforeAll {
+        $script:MigrationTemplatePath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'test.config.yml.template'
+        $script:PoolMigrationUrl = 'https://Example.invalid/Custom/pool-intent.git?branch=KeepCase'
+        function Invoke-LocalMigrationReconcile {
+            param([string]$EntryPoint, [string]$ConfigPath, [string]$TemplatePath)
+            if ($EntryPoint -eq 'runner') {
+                return Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath -Confirm:$false
+            }
+            return (Sync-TestConfigToTemplate -Template (Get-Content -Raw $TemplatePath | ConvertFrom-Yaml -Ordered) `
+                -Current (Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered) `
+                -ConfigPath $ConfigPath -TemplatePath $TemplatePath -Confirm:$false).Config
+        }
+    }
+
+    It '<EntryPoint> upgrades a populated previous template without dropping its pool URL' -TestCases @(
+        @{ EntryPoint = 'runner' }, @{ EntryPoint = 'validator' }
+    ) {
+        param($EntryPoint)
+        $d = New-TempDir
+        try {
+            $cfg = Join-Path $d 'test.config.yml'
+            $templateText = Get-Content -Raw $script:MigrationTemplatePath
+            $oldTemplateText = $templateText -creplace 'configurationGitUrl:', 'intentGitUrl:'
+            $previous = ConvertFrom-Yaml -Yaml $oldTemplateText -Ordered
+            $previous.pool.enabled = $true
+            $previous.pool.intentGitUrl = $script:PoolMigrationUrl
+            $previous.pool.localClonePath = '/mnt/operator/pool-checkout'
+            $previous.statusService.port = 8181
+            $previous.secrets = [ordered]@{ apiKey = 'keep-this-secret' }
+            $inputText = ConvertTo-DocumentedConfigYaml -TemplateText $oldTemplateText -Config $previous
+            [IO.File]::WriteAllText($cfg, $inputText)
+
+            $result = Invoke-LocalMigrationReconcile -EntryPoint $EntryPoint -ConfigPath $cfg -TemplatePath $script:MigrationTemplatePath
+            $result.pool.enabled | Should -BeTrue
+            $result.pool.configurationGitUrl | Should -BeExactly $script:PoolMigrationUrl
+            $result.pool.localClonePath | Should -Be '/mnt/operator/pool-checkout'
+            $result.statusService.port | Should -Be 8181
+            $result.secrets.apiKey | Should -Be 'keep-this-secret'
+            $landed = Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered
+            $landed.pool.configurationGitUrl | Should -BeExactly $script:PoolMigrationUrl
+            $landed.pool.Contains('intentGitUrl') | Should -BeFalse
+            (Get-ObsoleteConfigEntry -Text ([IO.File]::ReadAllText($cfg))).Contains('pool.intentGitUrl') | Should -BeFalse
+            [IO.File]::ReadAllText("$cfg.pre-renaming") | Should -BeExactly $inputText
+
+            $firstText = [IO.File]::ReadAllText($cfg)
+            $firstStamp = (Get-Item $cfg).LastWriteTimeUtc
+            [void](Invoke-LocalMigrationReconcile -EntryPoint $EntryPoint -ConfigPath $cfg -TemplatePath $script:MigrationTemplatePath)
+            [IO.File]::ReadAllText($cfg) | Should -BeExactly $firstText
+            (Get-Item $cfg).LastWriteTimeUtc | Should -Be $firstStamp
+            @(Get-ChildItem $d -Filter '*.pre-renaming*').Count | Should -Be 1
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force }
+    }
+
+    It '<EntryPoint> recovers a blank canonical URL from the generated obsolete block and preserves other evidence' -TestCases @(
+        @{ EntryPoint = 'runner' }, @{ EntryPoint = 'validator' }
+    ) {
+        param($EntryPoint)
+        $d = New-TempDir
+        try {
+            $cfg = Join-Path $d 'test.config.yml'
+            $templateText = Get-Content -Raw $script:MigrationTemplatePath
+            $current = ConvertFrom-Yaml -Yaml $templateText -Ordered
+            $current.pool.enabled = $true
+            $current.pool.configurationGitUrl = ''
+            $obsolete = [ordered]@{
+                'pool.intentGitUrl' = (Format-YamlScalarValue $script:PoolMigrationUrl)
+                'unregistered.savedPath' = "'/mnt/operator/Keep Me'"
+            }
+            $inputText = ConvertTo-DocumentedConfigYaml -TemplateText $templateText -Config $current -ObsoleteEntry $obsolete
+            [IO.File]::WriteAllText($cfg, $inputText)
+            [IO.File]::WriteAllText("$cfg.pre-renaming", 'earlier migration evidence')
+            [IO.File]::WriteAllText("$cfg.backup", 'earlier reconciliation evidence')
+
+            [void](Invoke-LocalMigrationReconcile -EntryPoint $EntryPoint -ConfigPath $cfg -TemplatePath $script:MigrationTemplatePath)
+            (Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered).pool.configurationGitUrl | Should -BeExactly $script:PoolMigrationUrl
+            $parked = Get-ObsoleteConfigEntry -Text ([IO.File]::ReadAllText($cfg))
+            $parked.Contains('pool.intentGitUrl') | Should -BeFalse
+            $parked['unregistered.savedPath'] | Should -Be "'/mnt/operator/Keep Me'"
+            [IO.File]::ReadAllText("$cfg.pre-renaming") | Should -Be 'earlier migration evidence'
+            [IO.File]::ReadAllText("$cfg.backup") | Should -Be 'earlier reconciliation evidence'
+            $newBackup = @(Get-ChildItem $d | Where-Object { $_.Name -match '\.pre-renaming\.[a-f0-9]{32}$' })
+            $newBackup.Count | Should -Be 1
+            [IO.File]::ReadAllText($newBackup[0].FullName) | Should -BeExactly $inputText
+
+            $firstText = [IO.File]::ReadAllText($cfg)
+            $firstStamp = (Get-Item $cfg).LastWriteTimeUtc
+            [void](Invoke-LocalMigrationReconcile -EntryPoint $EntryPoint -ConfigPath $cfg -TemplatePath $script:MigrationTemplatePath)
+            [IO.File]::ReadAllText($cfg) | Should -BeExactly $firstText
+            (Get-Item $cfg).LastWriteTimeUtc | Should -Be $firstStamp
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force }
+    }
+
+    It '<EntryPoint> rejects conflicting <Source> values before any write or backup' -TestCases @(
+        @{ EntryPoint = 'runner'; Source = 'active' }, @{ EntryPoint = 'validator'; Source = 'active' },
+        @{ EntryPoint = 'runner'; Source = 'parked' }, @{ EntryPoint = 'validator'; Source = 'parked' }
+    ) {
+        param($EntryPoint, $Source)
+        $d = New-TempDir
+        try {
+            $cfg = Join-Path $d 'test.config.yml'
+            $tmpl = Join-Path $d 'template.yml'
+            [IO.File]::WriteAllText($tmpl, "pool:`n  enabled: false`n  configurationGitUrl: ''`n")
+            $inputText = "pool:`n  enabled: true`n  configurationGitUrl: https://example.invalid/current.git`n"
+            if ($Source -eq 'active') { $inputText += "  intentGitUrl: https://example.invalid/other.git`n" }
+            else { $inputText += "# --- Obsolete keys ---`n#   pool.intentGitUrl: https://example.invalid/other.git`n" }
+            [IO.File]::WriteAllText($cfg, $inputText)
+            $mode = $EntryPoint
+            { Invoke-LocalMigrationReconcile -EntryPoint $mode -ConfigPath $cfg -TemplatePath $tmpl } | Should -Throw '*conflict*'
+            [IO.File]::ReadAllText($cfg) | Should -BeExactly $inputText
+            @(Get-ChildItem $d -Filter '*.pre-renaming*').Count | Should -Be 0
+            Test-Path "$cfg.backup" | Should -BeFalse
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force }
+    }
+
+    It 'does not recover ordinary documentation comments outside the obsolete block' {
+        $text = "pool:`n  enabled: true`n  configurationGitUrl: ''`n#   pool.intentGitUrl: https://example.invalid/documentation-only.git`n"
+        (Get-ObsoleteConfigEntry -Text $text).Count | Should -Be 0
+    }
+
+    It 'rejects conflicting duplicate parked entries instead of taking the first' {
+        $text = "# --- Obsolete keys ---`n#   pool.intentGitUrl: https://example.invalid/a.git`n#   pool.intentGitUrl: https://example.invalid/b.git`n"
+        { Get-ObsoleteConfigEntry -Text $text } | Should -Throw '*Conflicting obsolete*'
+    }
+
+    It 'keeps parked recovery evidence and the input object when the atomic save fails' {
+        $d = New-TempDir
+        try {
+            $cfg = Join-Path $d 'test.config.yml'
+            $tmpl = Join-Path $d 'template.yml'
+            $templateText = "pool:`n  enabled: false`n  configurationGitUrl: ''`n"
+            [IO.File]::WriteAllText($tmpl, $templateText)
+            $inputText = "pool:`n  enabled: true`n  configurationGitUrl: ''`n# --- Obsolete keys ---`n#   pool.intentGitUrl: https://example.invalid/pool-intent.git`n"
+            [IO.File]::WriteAllText($cfg, $inputText)
+            $current = ConvertFrom-Yaml -Yaml $inputText -Ordered
+            Mock Write-YurunaStateFile -ModuleName Test.ConfigSync { return $false }
+            { Sync-TestConfigToTemplate -Template (ConvertFrom-Yaml -Yaml $templateText -Ordered) -Current $current `
+                -ConfigPath $cfg -TemplatePath $tmpl -Confirm:$false } | Should -Throw '*Could not save*'
+            $current.pool.configurationGitUrl | Should -BeExactly ''
+            [IO.File]::ReadAllText($cfg) | Should -BeExactly $inputText
+            [IO.File]::ReadAllText("$cfg.pre-renaming") | Should -BeExactly $inputText
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force }
+    }
+
+    It 'also migrates validator reconciliation without a template text path' {
+        $d = New-TempDir
+        try {
+            $cfg = Join-Path $d 'test.config.yml'
+            [IO.File]::WriteAllText($cfg, "pool:`n  intentGitUrl: https://example.invalid/pool-intent.git`n")
+            $template = [ordered]@{ pool = [ordered]@{ configurationGitUrl = '' } }
+            $current = Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered
+            $result = Sync-TestConfigToTemplate -Template $template -Current $current -ConfigPath $cfg -Confirm:$false
+            $result.Wrote | Should -BeTrue
+            $result.Migrated.Count | Should -Be 1
+            $result.Removed.Count | Should -Be 0
+            $result.Added.Count | Should -Be 0
+            (Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered).pool.configurationGitUrl | Should -Be 'https://example.invalid/pool-intent.git'
+            $current.pool.intentGitUrl | Should -Be 'https://example.invalid/pool-intent.git'
+            (Sync-TestConfigToTemplate -Template $template -Current (Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered) `
+                -ConfigPath $cfg -Confirm:$false).Wrote | Should -BeFalse
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force }
     }
 }

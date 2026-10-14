@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"pool-control-service/internal/intent"
+	"pool-control-service/internal/configuration"
 	"yuruna.com/test/extension/extension-sdk/mcp"
 )
 
@@ -31,7 +31,7 @@ func mcpPost(t *testing.T, base, body string) map[string]any {
 }
 
 func TestMcpToolsArePinnedAndReadOnly(t *testing.T) {
-	srv := newTestServer(&fakeIntent{})
+	srv := newTestServer(&fakeConfiguration{})
 	defer srv.Close()
 	got := mcpPost(t, srv.URL, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	tools := got["result"].(map[string]any)["tools"].([]any)
@@ -93,7 +93,7 @@ func TestEveryMutatingToolPassesTheGate(t *testing.T) {
 	// before its handler runs, so "may an agent do this" and "may a curl do
 	// this" cannot drift apart. Enumerated from the registry rather than
 	// eyeballed, so a tool added later cannot quietly skip it.
-	srv := newTestServer(&fakeIntent{})
+	srv := newTestServer(&fakeConfiguration{})
 	defer srv.Close()
 	got := mcpPost(t, srv.URL, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	tools := got["result"].(map[string]any)["tools"].([]any)
@@ -127,9 +127,9 @@ func TestEveryMutatingToolPassesTheGate(t *testing.T) {
 func TestMcpToolAnswersExactlyWhatTheRouteAnswers(t *testing.T) {
 	// FromRoute invokes the handler, so tool and route come from one function.
 	// hostinfo is the pairing that proves it without a fixture: it touches no
-	// intent store, so it answers the same either way. The routes that DO need
+	// configuration store, so it answers the same either way. The routes that DO need
 	// one are covered by the failure test below.
-	srv := newTestServer(&fakeIntent{})
+	srv := newTestServer(&fakeConfiguration{})
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/api/hostinfo")
@@ -166,7 +166,7 @@ func TestMcpToolAnswersExactlyWhatTheRouteAnswers(t *testing.T) {
 // it, and an argument the route does not take is refused by name rather than
 // silently dropped, so a caller that sends one learns why nothing happened.
 func TestSetPoolRepositoriesToolSharesTheRoute(t *testing.T) {
-	call := func(f *fakeIntent, args string) map[string]any {
+	call := func(f *fakeConfiguration, args string) map[string]any {
 		t.Helper()
 		srv := newTestServer(f)
 		defer srv.Close()
@@ -187,19 +187,19 @@ func TestSetPoolRepositoriesToolSharesTheRoute(t *testing.T) {
 		return out
 	}
 
-	f := &fakeIntent{ret: intent.Result{OK: true}}
+	f := &fakeConfiguration{ret: configuration.Result{OK: true}}
 	res := call(f, `{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":"https://x/p"}`)
 	if res["error"] != nil || f.lastCall != "SetPoolRepositories" || strings.Join(f.lastArgs, " ") != "lab https://x/f https://x/p" {
 		t.Fatalf("set: %v, forwarded %s %q", res, f.lastCall, f.lastArgs)
 	}
 
-	f = &fakeIntent{ret: intent.Result{OK: true}}
+	f = &fakeConfiguration{ret: configuration.Result{OK: true}}
 	res = call(f, `{"poolId":"lab"}`)
 	if res["error"] != nil || f.lastCall != "ClearPoolRepositories" || strings.Join(f.lastArgs, " ") != "lab" {
 		t.Fatalf("clear: %v, forwarded %s %q", res, f.lastCall, f.lastArgs)
 	}
 
-	f = &fakeIntent{ret: intent.Result{OK: true}}
+	f = &fakeConfiguration{ret: configuration.Result{OK: true}}
 	res = call(f, `{"poolId":"lab","name":"x","frameworkUrl":"https://x/f","projectUrl":"https://x/p"}`)
 	errObj, _ := res["error"].(map[string]any)
 	if msg, _ := errObj["message"].(string); !strings.Contains(msg, "unsupported argument name") || f.lastCall != "" {
@@ -210,7 +210,7 @@ func TestSetPoolRepositoriesToolSharesTheRoute(t *testing.T) {
 // A route that fails must fail THROUGH the tool, carrying its own body -- not
 // be smoothed into an empty success.
 func TestMcpToolSurfacesARouteFailure(t *testing.T) {
-	srv := newTestServer(&fakeIntent{})
+	srv := newTestServer(&fakeConfiguration{})
 	defer srv.Close()
 	got := mcpPost(t, srv.URL, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"pool_control_board"}}`)
 	res := got["result"].(map[string]any)
@@ -218,7 +218,7 @@ func TestMcpToolSurfacesARouteFailure(t *testing.T) {
 		t.Fatalf("a failing route must reach the agent as isError: %v", res)
 	}
 	text := res["content"].([]any)[0].(map[string]any)["text"].(string)
-	if !strings.Contains(text, "pool intent read failed") {
+	if !strings.Contains(text, "pool configuration read failed") {
 		t.Errorf("the route's own message must survive: %q", text)
 	}
 }

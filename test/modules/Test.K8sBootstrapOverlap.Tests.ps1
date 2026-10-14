@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42cdf6b6-938d-4e26-ae2b-c1d96da2bed0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,7 +73,7 @@ Describe 'Kubernetes bootstrap overlap for Ubuntu <Version>' -ForEach @(
     @{ Version = '24' }, @{ Version = '26' }
 ) {
     BeforeAll {
-        $script:Source = [IO.File]::ReadAllText((Join-Path $script:RepoRoot "guest/ubuntu.server.$Version/ubuntu.server.$Version.k8s.sh"))
+        $script:Source = [IO.File]::ReadAllText((Join-Path $script:RepoRoot "guest/shared/ubuntu.k8s.sh"))
     }
     It 'starts network convergence before tools and gates completion after certificate generation' {
         $apply = $script:Source.IndexOf(' apply -f "$FLANNEL_MANIFEST"', [StringComparison]::Ordinal)

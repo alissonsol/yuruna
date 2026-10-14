@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f12da2-1112-4de8-b565-c97a7434c2c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,8 @@
 
 param(
     [string]$VMName = "ubuntu-server01",
+    # A bound URL, including empty for direct fetching, overrides discovery.
+    # See https://yuruna.link/42e220c4-0004
     [string]$CachingProxyServiceUrl,
     # Versioned usernames keep release-specific guest logs distinguishable.
     [string]$Username = 'yuuser24',

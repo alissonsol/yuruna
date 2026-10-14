@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f70b5c-df30-487c-a638-ea7b52866f97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -181,6 +181,8 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 Import-Module (Join-Path $RepoRoot "automation/Yuruna.Common.psm1") -Force -DisableNameChecking
 
@@ -223,7 +225,7 @@ func die(_ s: String) -> Never {
     exit(1)
 }
 
-// --- REGION: 1. Load IPSW
+// --- REGION: Load IPSW
 let loadSema = DispatchSemaphore(value: 0)
 var restoreImage: VZMacOSRestoreImage?
 var loadError: String?
@@ -246,7 +248,7 @@ if !hardwareModel.isSupported {
     die("Resolved hardwareModel is not supported by this host. Requires a newer macOS host or different chip.")
 }
 
-// --- REGION: 2. Resource sanity checks
+// --- REGION: Resource sanity checks
 if cpuCount < mostFeatureful.minimumSupportedCPUCount {
     die("Requested CPU count \(cpuCount) below minimum \(mostFeatureful.minimumSupportedCPUCount) for this IPSW.")
 }
@@ -255,7 +257,7 @@ if memBytes < mostFeatureful.minimumSupportedMemorySize {
     die("Requested memory \(memoryMb)MB below minimum \(mostFeatureful.minimumSupportedMemorySize / (1024*1024))MB for this IPSW.")
 }
 
-// --- REGION: 3. Aux storage
+// --- REGION: Aux storage
 try? FileManager.default.removeItem(atPath: auxPath)
 do {
     _ = try VZMacAuxiliaryStorage(
@@ -266,7 +268,7 @@ do {
     die("VZMacAuxiliaryStorage: \(error.localizedDescription)")
 }
 
-// --- REGION: 4. Disk image
+// --- REGION: Disk image
 try? FileManager.default.removeItem(atPath: diskPath)
 FileManager.default.createFile(atPath: diskPath, contents: nil)
 do {
@@ -277,10 +279,10 @@ do {
     die("disk truncate(\(diskSizeGb)GB): \(error.localizedDescription)")
 }
 
-// --- REGION: 5. Machine identifier (fresh, unique per VM)
+// --- REGION: Machine identifier (fresh, unique per VM)
 let machineId = VZMacMachineIdentifier()
 
-// --- REGION: 6. VM configuration
+// --- REGION: VM configuration
 let platform = VZMacPlatformConfiguration()
 platform.hardwareModel = hardwareModel
 platform.machineIdentifier = machineId
@@ -312,7 +314,7 @@ do {
 
 let vm = VZVirtualMachine(configuration: cfg)
 
-// --- REGION: 7. Run the installer
+// --- REGION: Run the installer
 //
 // `vm` was created with VZVirtualMachine(configuration:) and no explicit
 // queue, so it is bound to the MAIN dispatch queue. VZMacOSInstaller
@@ -334,7 +336,7 @@ installer.install { result in
     observer.invalidate()
     switch result {
     case .success:
-        // --- REGION: 8. Emit MacPlatform identifiers
+        // --- REGION: Emit MacPlatform identifiers
         let hwB64 = hardwareModel.dataRepresentation.base64EncodedString()
         let idB64 = machineId.dataRepresentation.base64EncodedString()
         print("MAC_PLATFORM\t\(hwB64)\t\(idB64)")
@@ -350,12 +352,7 @@ dispatchMain()
 "@
 
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_7e80cc3f51488991')
-# VZMacOSInstaller only reaches the system installation service when the
-# helper binary carries the com.apple.security.virtualization entitlement;
-# Invoke-EntitledSwift compiles + self-signs it before running. The helper
-# prints "Restore progress: N%" to stderr every few percent; -LineHandler
-# routes those into a PowerShell progress bar live, and the merged output
-# is still returned so we can recover the final MAC_PLATFORM tuple.
+# See https://yuruna.link/42e220c4-000b
 $restoreActivity = "Restoring macOS 26 IPSW into '$VMName'"
 $onRestoreLine = {
     param([string]$Line)
@@ -405,7 +402,7 @@ Set-Content -Path $IdsOut -Value @(
     "machineIdentifier.base64=$MachineIdentifierB64"
 )
 
-# --- REGION: config.plist (Apple Virtualization backend)
+# --- REGION: Create and configure the UTM bundle (config.plist, Apple Virtualization backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
@@ -441,6 +438,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Verbose "config.plist validated OK."
 
+# --- REGION: Guidance
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_94f12e1266d95601' -Arguments @{ utmDir = "$UtmDir" })
 Write-Output ""

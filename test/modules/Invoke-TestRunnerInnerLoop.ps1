@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -334,12 +334,19 @@ $script:Config = $Config
 # cycle run via Resolve-RunnerLogLevel.
 Resolve-LogLevel
 
-# --- REGION: Cycle-start config gate
+# --- REGION: Pre-cycle config gate
 # See https://yuruna.link/4213a0b3-001a
 if ($RefreshMode.Mode -ne 'preflight') {
     Write-RunnerPhase -Phase 'config-gate'
     $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'cycle start'
-    if (-not $gate.passed) { exit $ExitFailure }
+    $gateCommitSha = ([string](& git -C $RepoRoot rev-parse HEAD 2>$null)).Trim()
+    try {
+        $null = Write-ConfigGateArtifact -RuntimeDir $env:YURUNA_RUNTIME_DIR -Gate $gate `
+            -AttemptGeneration ([string]$env:YURUNA_CYCLE_GENERATION) -FrameworkCommitSha $gateCommitSha -Confirm:$false
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.gate_evidence_save_failed' -Arguments @{ detail = [string]$_.Exception.Message })
+    }
+    if (-not $gate.passed) { exit (Get-ConfigGateFailureExitCode) }
 }
 
 # --- REGION: Bootstrap
@@ -389,12 +396,14 @@ if ($HostType -eq 'host.ubuntu.kvm') {
 # (served at /runtime/host.registration.json) for the multi-host pool-aggregator service.
 # Once per cycle, main runspace, best-effort. See docs/opportunities.md.
 if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
+    Write-RunnerPhase -Phase 'host-registration'
     $null = Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot
 }
 
 # Wire the host driver so the contract functions (New-VM, Start-VM,
 # Stop-VM, Send-Text, Get-VMScreenshot, ...) are resolvable from this
 # script's session without any HostType branches.
+Write-RunnerPhase -Phase 'host-driver'
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
 # --- REGION: Held-control barrier
@@ -418,13 +427,16 @@ if ($RefreshMode.Mode -eq 'barrier') {
 # change. The refreshed URL folds into host.registration.json on the next cycle's
 # Write-HostRegistrationRecord. No-op when this host runs no stash service.
 if (Get-Command Update-StashServiceMarkerAddress -ErrorAction SilentlyContinue) {
+    Write-RunnerPhase -Phase 'stash-address'
     $null = Update-StashServiceMarkerAddress
 }
 
+Write-RunnerPhase -Phase 'host-conditions'
 if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
 
 # --- REGION: Concurrent-VM admission
 # See https://yuruna.link/4213a0b3-001b
+Write-RunnerPhase -Phase 'vm-admission'
 $admissionStep = Invoke-CycleAdmissionStep -HostType $HostType
 if (-not $admissionStep.Ok) {
     exit $admissionStep.ExitCode
@@ -855,7 +867,7 @@ $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startSc
 # (Step 2.6) on the caching-proxy-service host -- not the test runner. A plain test-runner
 # host that never brings up a caching-proxy service must not start it.
 
-# --- REGION: Graceful shutdown support
+# --- REGION: Ctrl+C handler
 # The CancelKeyPress contract lives in Test.Prelude's
 # Register-/Unregister-EntryPointCancelHandler so the register/poll/tear-down
 # shape stays identical across every entry point. The returned hashtable is the

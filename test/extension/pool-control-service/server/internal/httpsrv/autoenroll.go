@@ -56,7 +56,7 @@ func (s *Server) RunAutoEnrollment(ctx context.Context, opts AutoEnrollOptions) 
 }
 
 // sweepOnce performs one pass. Never panics out; every failure is a logged
-// no-op so a transient aggregator outage cannot corrupt intent.
+// no-op so a transient aggregator outage cannot corrupt configuration.
 func (s *Server) sweepOnce(ctx context.Context) {
 	if !s.pool.Configured() {
 		return
@@ -67,14 +67,14 @@ func (s *Server) sweepOnce(ctx context.Context) {
 		return
 	}
 
-	res := s.intent.State(ctx)
+	res := s.configuration.State(ctx)
 	if !res.OK {
-		log.Printf("auto-enrollment: intent unreadable (%s); skipping this tick", firstNonEmpty(res.Error, res.Stderr, "unknown"))
+		log.Printf("auto-enrollment: configuration unreadable (%s); skipping this tick", firstNonEmpty(res.Error, res.Stderr, "unknown"))
 		return
 	}
-	var doc intentDoc
+	var doc configurationDoc
 	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &doc); err != nil {
-		log.Printf("auto-enrollment: could not parse intent (%v); skipping this tick", err)
+		log.Printf("auto-enrollment: could not parse configuration (%v); skipping this tick", err)
 		return
 	}
 	target := strings.TrimSpace(doc.AutoEnrollment.TargetPoolID)
@@ -124,7 +124,7 @@ func (s *Server) sweepOnce(ctx context.Context) {
 	}
 
 	if !targetExists {
-		r := s.intent.NewPool(ctx, target, "", "")
+		r := s.configuration.NewPool(ctx, target, "", "")
 		if !r.OK {
 			log.Printf("auto-enrollment: could not create target pool %q (%s); skipping", target, firstNonEmpty(r.Error, r.Stderr, "unknown"))
 			return
@@ -134,7 +134,7 @@ func (s *Server) sweepOnce(ctx context.Context) {
 
 	added := 0
 	for _, hid := range toAdd {
-		r := s.intent.AddHost(ctx, target, hid)
+		r := s.configuration.AddHost(ctx, target, hid)
 		if !r.OK {
 			// Bounded, not atomic: stop here and let the next tick resume.
 			// Enrollment is idempotent, so the hosts already added stay added.

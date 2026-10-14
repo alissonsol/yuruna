@@ -70,18 +70,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
 
         Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-        # The fake reproduces the behaviors of the real tool that the code
-        # under test exists for: `status` is the only trustworthy answer to "is
-        # this name registered", and `delete` exits 0 whether or not it deleted
-        # anything, printing the OSStatus -2700 notice when the bundle it wants
-        # to trash is not there. YRN_FAKE_DELETE_FAILS makes every delete fail,
-        # standing in for a bundle UTM cannot move (open file handles, a
-        # permissions fault). YRN_FAKE_STATUS_MODE turns `status` into a denial
-        # at exit 0 (deny0), an OSStatus failure at exit 1 (oserr) or a call
-        # that never returns (hang); YRN_FAKE_DENY_AFTER_DELETE makes every
-        # status after the first delete a denial. Every call is logged. The
-        # fake refuses to run at all without its directories, so no removal it
-        # performs can reach outside them.
+        # See https://yuruna.link/42e220c4-0014
         function Initialize-GhostFake {
             Remove-Item -LiteralPath $script:GhostRegDir -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $script:GhostHome -Recurse -Force -ErrorAction SilentlyContinue

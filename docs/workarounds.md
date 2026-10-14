@@ -129,7 +129,7 @@ resources/components/workloads.
 -- usually a shell expression that returned nothing; append `$true`.
 
 **Edit a live service** -- `kubectl edit svc <name> -n <ns>` (also
-configMaps, pods, etc.); once at the desired state, encode it as
+configMaps, pods, etc.); once it has the intended behavior, encode it as
 `kubectl patch` statements.
 
 **Debugging localhost** -- resetting Docker's Kubernetes cluster and
@@ -372,6 +372,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

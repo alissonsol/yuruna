@@ -43,7 +43,7 @@ processamento de fetch e do corpo continua limitado pelo timeout da solicitaçã
 | `caching-proxy-service` | `default` | O **plano de gerenciamento** da VM caching-proxy-service -- a área que tornou essa VM autodescritiva, em vez de uma linha fixa no cadastro. Um daemon Go com biblioteca padrão e SDK em `:9310` informa o resumo de execução do Squid (pela API de gerenciamento), o estado das opções offline / sem upstream e o catálogo, os registros canary e de pré-aquecimento do zot; ele controla as duas opções do operador, antes disponíveis apenas por SSH. Nenhum serviço que atende tráfego foi movido: Squid (`:3128`/`:3129`), zot (`:5000`), Grafana, Prometheus, Loki e os exportadores permanecem como estavam. É executado na VM do proxy (`--mode local`) ou em outro hospedeiro que alcance essas APIs (`--mode remote`, somente leitura -- consulte [abaixo](#running-the-caching-proxy-service-from-another-host)). |
 | `stash-service` | `default` | Recebe artefatos enviados por `scp`/`sftp` (pacotes de diagnóstico, capturas de tela) em um stash respaldado por stash-storage. Inclui um daemon Go em [`server/`](../../test/extension/stash-service/server/) (SCP legado **e** SFTP, arquivos no compartilhamento ystash-nas e índice/arquivos auxiliares SQLite locais à VM), iniciado por `Start-StashServiceVM` + cloud-init, além do wrapper PowerShell `default.psm1`. |
 | `pool-aggregator-service` | `default` | **Visão do grupo** com vários hospedeiros, somente leitura (`Get-PoolAggregatorServiceManifest`), mais a parte do grupo na consulta de serviços abaixo (`Get-PoolExtensionHost`). Inclui um daemon Go que usa apenas a biblioteca padrão e roda na máquina caching-proxy-service (hospedeiro dos serviços do grupo): descobre automaticamente os membros pelo log de acesso do Squid, consulta o serviço de status de cada um, identifica-os pelo `hostId` estável e envia transições de status dos ciclos ao Loki. Consulte [`pool-aggregator-service/README.md`](../../test/extension/pool-aggregator-service/README.md). |
-| `pool-control-service` | `default` | O painel do operador para a **configuração de grupos**: quais grupos existem, quais hospedeiros pertencem a eles e quais repositórios de framework e projeto cada um executa. Inclui um daemon Go que usa apenas a biblioteca padrão em sua própria VM `yuruna-pool-control-service`, que controla o armazenamento git de intenções do grupo executando as CLIs pool-admin, com uma interface web cujas ações de alteração são desbloqueadas pelo token do laboratório rotativo do dashboard. O `default.psm1` do PowerShell é o par do hospedeiro -- `Get-PoolControlServiceInfo` (stub de status) e `Test-PoolControlServiceHost` (verificação prévia de `/healthz`). Consulte [pool-admin.md](../pool-admin.md#pool-control-service). |
+| `pool-control-service` | `default` | O painel do operador para a **configuração de grupos**: quais grupos existem, quais hospedeiros pertencem a eles e quais repositórios de framework e projeto cada um executa. Inclui um daemon Go que usa apenas a biblioteca padrão em sua própria VM `yuruna-pool-control-service`, que controla o armazenamento git de configuração do grupo executando as CLIs pool-admin, com uma interface web cujas ações de alteração são desbloqueadas pelo token do laboratório rotativo do dashboard. O `default.psm1` do PowerShell é o par do hospedeiro -- `Get-PoolControlServiceInfo` (stub de status) e `Test-PoolControlServiceHost` (verificação prévia de `/healthz`). Consulte [pool-admin.md](../pool-admin.md#pool-control-service). |
 | `download-agent-service` | `default` | **Downloader de imagens de convidados** para todo o grupo: um daemon Go que usa apenas a biblioteca padrão em sua própria VM `yuruna-download-agent-service`, que mantém atualizado um Download pool no compartilhamento do grupo e serve os artefatos aos hospedeiros por HTTP, com uma interface web cujas ações de alteração são desbloqueadas pelo token do laboratório rotativo do dashboard. O `default.psm1` do PowerShell é o par do hospedeiro -- `Get-DownloadAgentServiceInfo` (stub de status) e `Test-DownloadAgentServiceHost` (verificação prévia de `/healthz`). Consulte [download-agent.md](../download-agent.md). |
 | `digest` | `default` | Valores SHA-256 que uma etapa de sequência leva ao convidado em seu comando de inicialização, para que um script do convidado verifique o que baixa antes de extrair, instalar ou executar: `${ext:digest.GetFileSha256(<path>)}`, `${ext:digest.GetArchiveSha256(project)}`, `${ext:digest.GetPublishedSha256(<name>)}`, mais a etapa `digest.PublishGuestFileSha256` para um artefato que um convidado compila e outro baixa. O digest trafega pelo mesmo canal digitado que o do próprio script, nunca pelo HTTP pelo qual os bytes chegam. Consulte [`digest/README.md`](../../test/extension/digest/README.md). |
 
@@ -110,7 +110,7 @@ test/extension/
 +-- pool-control-service/
 |   +-- pool-control-service.config.yml         # active: ['default'] + the service manifest
 |   +-- pool-control-service.contract.yml
-|   +-- server/                         # Go daemon (main.go + internal/{...}, incl. intent)
+|   +-- server/                         # Go daemon (main.go + internal/{...}, incl. configuration)
 |   +-- default.psm1                    # host-side status stub + /healthz preflight
 +-- download-agent-service/
 |   +-- download-agent-service.config.yml       # active: ['default'] + the service manifest
@@ -722,7 +722,7 @@ alteração; o agregador não oferece nenhuma. Cada serviço também deixa de ex
 determinadas alterações: as do agregador abrangem um fluxo intenso de telemetria
 e uma rota que exclui evidências que um operador pode estar lendo; pool-control
 não expõe a criação de grupos, a exclusão de grupos (que faz commit e push do
-armazenamento de intenções do grupo) nem varreduras de rede;
+armazenamento de configuração do grupo) nem varreduras de rede;
 o `DELETE` de stash alcança o stash de todos os hospedeiros na montagem
 compartilhada, não apenas o próprio; e a rota `ensure` do download agent é
 **deliberadamente sem controle de acesso** no HTTP. Por isso, uma ferramenta
@@ -1303,6 +1303,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Voltar a [Yuruna](../../README.md)

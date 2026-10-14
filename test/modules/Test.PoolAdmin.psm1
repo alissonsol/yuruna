@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42771d17-19c8-478e-adde-9418cf0f9f10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna pool admin intent git yaml
+.TAGS yuruna pool admin configuration git yaml
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -17,16 +17,17 @@
 #requires -version 7
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.PoolSync.psm1') -Global -DisableNameChecking
 
 
 # Shared helpers for the pool admin CLI (New-Pool / Add-HostToPool / ... /
-# Test-PoolIntent). See ../../docs/pool-admin.md#before-you-start for the
+# Test-PoolConfiguration). See ../../docs/pool-admin.md#before-you-start for the
 # write path vs the runner's read-only pull path. -- Test.PoolAdmin.psm1
 
 $script:PoolAdminGitTimeoutSeconds = 60
 # Idempotent network git ops (fetch/clone/push) retry within one overall
 # wall-clock budget so a single transient blip (a proxy hiccup, a momentary
-# DNS/TLS failure) does not abort the operator action or leave intent
+# DNS/TLS failure) does not abort the operator action or leave configuration
 # committed-but-unpushed. Kept short so an interactive admin command fails in
 # bounded time rather than hanging.
 $script:PoolAdminRetryBudgetSeconds = 90
@@ -114,7 +115,7 @@ function Test-YurunaPoolDocValid {
 
 <#
 .SYNOPSIS
-Validates one pool-intent file against its schema, returning $true when the file is acceptable.
+Validates one pool-configuration file against its schema, returning $true when the file is acceptable.
 .DESCRIPTION
 A -Required file that is absent FAILS (returns $false): pools.yml is the pool's identity and the
 runners pull whatever is committed, so a missing pools.yml would silently leave the pool
@@ -122,7 +123,7 @@ unconfigured -- it must not read as success. A non-required file that is absent 
 (returns $true) -- guests.compatibility.yml is genuinely optional. A present
 file is parsed and schema-checked via Test-YurunaPoolDocValid. Emits PASS/FAIL/SKIP breadcrumbs.
 #>
-function Test-YurunaPoolIntentFile {
+function Test-YurunaPoolConfigurationFile {
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -159,27 +160,27 @@ $script:PoolAdminHeldLocks = [System.Collections.Generic.Dictionary[string, Syst
 .SYNOPSIS
 Takes the cross-process lock for an admin clone, waiting up to $WaitSeconds for another command.
 .DESCRIPTION
-The lock is an exclusively opened file NEXT TO the clone (<IntentDir>.lock), never inside it, so
+The lock is an exclusively opened file NEXT TO the clone (<ConfigurationDir>.lock), never inside it, so
 `git add -A` cannot stage it and a clone that does not exist yet can still be locked. Re-entrant
 within a process: a second call for the same clone returns at once. Returns @{ Ok; Error }; Ok=$false
 only when another command still holds the clone after the wait. A lock that cannot be created for
 any other reason (an unwritable directory, a filesystem without file locking) is skipped, not
 fatal: the caller's own clone or fetch reports the real problem, and this guard must not become a
 new way for an admin command to fail.
-.PARAMETER IntentDir
+.PARAMETER ConfigurationDir
 The clone directory. A PowerShell path (a drive such as TestDrive:, a relative path) is resolved,
 because other processes must land on the same file.
 .PARAMETER WaitSeconds
 How long to wait for a command that holds the clone.
 #>
-function Lock-YurunaPoolIntentClone {
+function Lock-YurunaPoolConfigurationClone {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)][string]$IntentDir,
+        [Parameter(Mandatory)][string]$ConfigurationDir,
         [int]$WaitSeconds = $script:PoolAdminLockWaitSeconds
     )
-    $cloneFull = [System.IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($IntentDir))
+    $cloneFull = [System.IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ConfigurationDir))
     $lockPath = $cloneFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + '.lock'
     if ($script:PoolAdminHeldLocks.ContainsKey($lockPath)) { return @{ Ok = $true; Error = '' } }
     $deadlineUtc = [DateTime]::UtcNow.AddSeconds([Math]::Max(0, $WaitSeconds))
@@ -200,7 +201,7 @@ function Lock-YurunaPoolIntentClone {
                 return @{ Ok = $true; Error = '' }
             }
             if ([DateTime]::UtcNow -ge $deadlineUtc) {
-                return @{ Ok = $false; Error = "another pool admin command is still using the admin clone at $IntentDir (waited $WaitSeconds s for $lockPath); run this command again when it finishes." }
+                return @{ Ok = $false; Error = "another pool admin command is still using the admin clone at $ConfigurationDir (waited $WaitSeconds s for $lockPath); run this command again when it finishes." }
             }
             Start-Sleep -Milliseconds 250
         }
@@ -209,21 +210,21 @@ function Lock-YurunaPoolIntentClone {
 
 <#
 .SYNOPSIS
-Releases the lock Lock-YurunaPoolIntentClone took for one admin clone, or for every clone with -All.
+Releases the lock Lock-YurunaPoolConfigurationClone took for one admin clone, or for every clone with -All.
 .DESCRIPTION
 An admin command need not call this: it holds the clone for its whole run and the operating system
 frees the lock when the process ends. It exists for a long-lived caller and for tests that delete
 the clone's directory, which Windows refuses while the lock file is open.
 #>
-function Unlock-YurunaPoolIntentClone {
+function Unlock-YurunaPoolConfigurationClone {
     [CmdletBinding(DefaultParameterSetName = 'One')]
     [OutputType([void])]
     param(
-        [Parameter(Mandatory, ParameterSetName = 'One')][string]$IntentDir,
+        [Parameter(Mandatory, ParameterSetName = 'One')][string]$ConfigurationDir,
         [Parameter(Mandatory, ParameterSetName = 'All')][switch]$All
     )
     $held = if ($All) { @($script:PoolAdminHeldLocks.Keys) } else {
-        $cloneFull = [System.IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($IntentDir))
+        $cloneFull = [System.IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ConfigurationDir))
         @($cloneFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + '.lock')
     }
     foreach ($lockPath in $held) {
@@ -237,160 +238,106 @@ function Unlock-YurunaPoolIntentClone {
 
 <#
 .SYNOPSIS
-Ensures a working clone of the WRITABLE intent repo at $IntentDir.
+Ensures a working clone of the WRITABLE configuration repo at $ConfigurationDir.
 .DESCRIPTION
 Clones when absent, else fetches + reset --hard origin/HEAD so the edit is based on the latest
 remote state. Bounded + prompt-proof. Returns @{ Ok; Error }. Takes the clone's cross-process lock
-first (see Lock-YurunaPoolIntentClone) and keeps it until the process exits, so no other admin
+first (see Lock-YurunaPoolConfigurationClone) and keeps it until the process exits, so no other admin
 command can clone, reset or commit in the clone while this one edits it.
 #>
-function Open-YurunaPoolIntent {
+function Open-YurunaPoolConfiguration {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)][string]$IntentGitUrl,
-        [Parameter(Mandatory)][string]$IntentDir
+        [Parameter(Mandatory)][string]$ConfigurationGitUrl,
+        [Parameter(Mandatory)][string]$ConfigurationDir
     )
     if (-not (Get-Command Invoke-PoolSyncGit -ErrorAction SilentlyContinue)) {
         return @{ Ok = $false; Error = 'Test.PoolSync (Invoke-PoolSyncGit) not loaded.' }
     }
-    if (-not $PSCmdlet.ShouldProcess($IntentDir, (Format-YurunaOperatorMessage -Key 'runner.operator_811a9975fa1a2df7' -Arguments @{ intentGitUrl = "$IntentGitUrl" }))) { return @{ Ok = $true; Error = '' } }
-    $locked = Lock-YurunaPoolIntentClone -IntentDir $IntentDir -WaitSeconds $script:PoolAdminLockWaitSeconds
+    if (-not $PSCmdlet.ShouldProcess($ConfigurationDir, (Format-YurunaOperatorMessage -Key 'runner.operator_811a9975fa1a2df7' -Arguments @{ configurationGitUrl = "$ConfigurationGitUrl" }))) { return @{ Ok = $true; Error = '' } }
+    $locked = Lock-YurunaPoolConfigurationClone -ConfigurationDir $ConfigurationDir -WaitSeconds $script:PoolAdminLockWaitSeconds
     if (-not $locked.Ok) { return @{ Ok = $false; Error = $locked.Error } }
-    $gitDir = Join-Path $IntentDir '.git'
+    $gitDir = Join-Path $ConfigurationDir '.git'
     if (Test-Path -LiteralPath $gitDir) {
-        # The clone is the operator's write path and may hold unpushed intent, so a
+        # The clone is the operator's write path and may hold unpushed configuration, so a
         # different origin is refused rather than rewritten or re-cloned over it.
-        if ((Get-Command Test-PoolIntentCloneOrigin -ErrorAction SilentlyContinue) -and -not (Test-PoolIntentCloneOrigin -Path $IntentDir -Url $IntentGitUrl)) {
-            return @{ Ok = $false; Error = "the admin clone at $IntentDir has a different origin than the requested $IntentGitUrl; refusing to fetch or push it. Use another -IntentDir, or delete $IntentDir to re-clone from $IntentGitUrl." }
+        if ((Get-Command Test-PoolConfigurationCloneOrigin -ErrorAction SilentlyContinue) -and -not (Test-PoolConfigurationCloneOrigin -Path $ConfigurationDir -Url $ConfigurationGitUrl)) {
+            return @{ Ok = $false; Error = "the admin clone at $ConfigurationDir has a different origin than the requested $ConfigurationGitUrl; refusing to fetch or push it. Use another -ConfigurationDir, or delete $ConfigurationDir to re-clone from $ConfigurationGitUrl." }
         }
-        $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'fetch', '--quiet', 'origin') -Label 'git fetch'
-        if ($rc -ne 0) { return @{ Ok = $false; Error = "git fetch failed (exit $rc) from $IntentGitUrl" } }
+        $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $ConfigurationDir, 'fetch', '--quiet', 'origin') -Label 'git fetch'
+        if ($rc -ne 0) { return @{ Ok = $false; Error = "git fetch failed (exit $rc) from $ConfigurationGitUrl" } }
         # A clone left mid-rebase (an interrupted Publish rebase-retry) holds an
         # in-flight unpushed commit while its branch tip has already moved onto the
         # remote's -- so the merge-base probe below would read it as a safe
         # fast-forward and reset --hard would discard it. Detect the
         # rebase-in-progress state first and refuse.
         if ((Test-Path -LiteralPath (Join-Path $gitDir 'rebase-merge')) -or (Test-Path -LiteralPath (Join-Path $gitDir 'rebase-apply'))) {
-            return @{ Ok = $false; Error = "the admin clone at $IntentDir has an unfinished rebase (unpushed pool intent in flight); refusing to reset --hard. Finish or abort it (git -C '$IntentDir' rebase --abort) and push from a writable location, or delete $IntentDir to discard and re-clone from $IntentGitUrl." }
+            return @{ Ok = $false; Error = "the admin clone at $ConfigurationDir has an unfinished rebase (unpushed pool configuration in flight); refusing to reset --hard. Finish or abort it (git -C '$ConfigurationDir' rebase --abort) and push from a writable location, or delete $ConfigurationDir to discard and re-clone from $ConfigurationGitUrl." }
         }
         # See https://yuruna.link/4213a0b3-00bd
-        $rcAncestor = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
+        $rcAncestor = Invoke-PoolSyncGit -ArgumentList @('-C', $ConfigurationDir, 'merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
         if ($rcAncestor -ne 0 -and $rcAncestor -ne 128) {
-            return @{ Ok = $false; Error = "cannot confirm the admin clone at $IntentDir is safe to reset (merge-base rc=$rcAncestor; likely local commit(s) the remote does not have); refusing to reset --hard. Push them from a writable location, or delete $IntentDir to discard and re-clone from $IntentGitUrl." }
+            return @{ Ok = $false; Error = "cannot confirm the admin clone at $ConfigurationDir is safe to reset (merge-base rc=$rcAncestor; likely local commit(s) the remote does not have); refusing to reset --hard. Push them from a writable location, or delete $ConfigurationDir to discard and re-clone from $ConfigurationGitUrl." }
         }
         # Reset to FETCH_HEAD (origin's default branch) rather than the origin/HEAD
         # symbolic ref, which a plain clone does not always populate.
-        $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'reset', '--hard', '--quiet', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
+        $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $ConfigurationDir, 'reset', '--hard', '--quiet', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
         if ($rc -ne 0) { return @{ Ok = $false; Error = "git reset failed (exit $rc)" } }
         return @{ Ok = $true; Error = '' }
     }
-    $parent = Split-Path -Parent $IntentDir
+    $parent = Split-Path -Parent $ConfigurationDir
     if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
     # Clone retry is idempotent for the common transient case: git removes a target
     # dir it created on a connect-stage failure, so a network/proxy blip re-clones
     # cleanly. A timeout process-kill mid-transfer can leave a partial dir a later
     # run must clear -- no worse than a single attempt, and the store is authored
     # here, not read, so a leftover partial loses no data.
-    $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('clone', '--quiet', $IntentGitUrl, $IntentDir) -Label 'git clone'
-    if ($rc -ne 0) { return @{ Ok = $false; Error = "git clone failed (exit $rc) from $IntentGitUrl" } }
+    $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('clone', '--quiet', $ConfigurationGitUrl, $ConfigurationDir) -Label 'git clone'
+    if ($rc -ne 0) { return @{ Ok = $false; Error = "git clone failed (exit $rc) from $ConfigurationGitUrl" } }
     return @{ Ok = $true; Error = '' }
 }
 
 <#
 .SYNOPSIS
-Upgrades an in-memory pools.yml document to schemaVersion 3, in place, and returns it.
+Parses <ConfigurationDir>/pools.yml into an ordered dictionary upgraded to schemaVersion 4, or returns a
+fresh empty doc ({schemaVersion:4, pools:[]}) when the file is absent or not a mapping.
 .DESCRIPTION
-Schema v3 carries a pool's framework and project URLs as `repositories`
-({ frameworkUrl, projectUrl }). A document below v3 -- or one with no schemaVersion at all,
-which the v2 admin tooling read as 2 -- is upgraded: a pool whose `testSet` holds a non-empty
-frameworkUrl AND projectUrl gets them as `repositories`, in the same key position; the
-`testSet` object (with its `name` and `sequences`) and any `testSets` list are dropped; and
-schemaVersion becomes 3.
-
-A document already at 3 is returned unchanged, and so is one at a higher or a non-integer
-version: this checkout cannot know that shape, so it leaves the document for the writer's
-schema validation to refuse instead of guessing. Idempotent. Every admin read goes through
-Read-YurunaPoolsDoc, which calls this, so the next admin write persists the upgrade.
-.PARAMETER Doc
-The parsed pools.yml document.
-.OUTPUTS
-System.Collections.IDictionary -- the same $Doc instance.
-#>
-function ConvertTo-PoolIntentSchemaV3 {
-    [CmdletBinding()]
-    [OutputType([System.Collections.IDictionary])]
-    param([Parameter(Mandatory)][System.Collections.IDictionary]$Doc)
-    $version = if ($Doc.Contains('schemaVersion')) { $Doc['schemaVersion'] } else { 2 }
-    if (-not (($version -is [int]) -or ($version -is [long]))) { return $Doc }
-    if ($version -ge 3) { return $Doc }
-    foreach ($pool in @($Doc['pools'])) {
-        if ($pool -isnot [System.Collections.IDictionary]) { continue }
-        $legacy = $pool['testSet']
-        if (($legacy -is [System.Collections.IDictionary]) -and -not $pool.Contains('repositories')) {
-            $frameworkUrl = ([string]$legacy['frameworkUrl']).Trim()
-            $projectUrl   = ([string]$legacy['projectUrl']).Trim()
-            if ($frameworkUrl -and $projectUrl) {
-                $pair = [ordered]@{ frameworkUrl = $frameworkUrl; projectUrl = $projectUrl }
-                if ($pool -is [System.Collections.Specialized.OrderedDictionary]) {
-                    $pool.Insert(@($pool.Keys).IndexOf('testSet'), 'repositories', $pair)
-                } else {
-                    $pool['repositories'] = $pair
-                }
-            }
-        }
-        if ($pool.Contains('testSet'))  { $pool.Remove('testSet') }
-        if ($pool.Contains('testSets')) { $pool.Remove('testSets') }
-    }
-    # schemaVersion leads the file when it has to be added, as every writer emits it.
-    if (($Doc -is [System.Collections.Specialized.OrderedDictionary]) -and -not $Doc.Contains('schemaVersion')) {
-        $Doc.Insert(0, 'schemaVersion', 3)
-    } else {
-        $Doc['schemaVersion'] = 3
-    }
-    return $Doc
-}
-
-<#
-.SYNOPSIS
-Parses <IntentDir>/pools.yml into an ordered dictionary upgraded to schemaVersion 3, or returns a
-fresh empty doc ({schemaVersion:3, pools:[]}) when the file is absent or not a mapping.
-.DESCRIPTION
-Every pool-admin CLI reads through here, so ConvertTo-PoolIntentSchemaV3 runs on every admin
-read and the next admin write persists the upgrade. Test-PoolIntent.ps1 and
-Update-PoolIntentSchema.ps1 read pools.yml raw instead: they must see the version as stored.
+Every pool-admin CLI reads through here, so ConvertTo-PoolConfigurationSchemaV4 runs on every admin
+read and the next admin write persists the upgrade. Test-PoolConfiguration.ps1 and
+Update-PoolConfigurationSchema.ps1 read pools.yml raw instead: they must see the version as stored.
 #>
 function Read-YurunaPoolsDoc {
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
-    param([Parameter(Mandatory)][string]$IntentDir)
-    $path = Join-Path $IntentDir 'pools.yml'
+    param([Parameter(Mandatory)][string]$ConfigurationDir)
+    $path = Join-Path $ConfigurationDir 'pools.yml'
     $doc = $null
     if (Test-Path -LiteralPath $path) { $doc = Get-Content -Raw -LiteralPath $path | ConvertFrom-Yaml -Ordered }
-    if ($doc -isnot [System.Collections.IDictionary]) { $doc = [ordered]@{ schemaVersion = 3; pools = @() } }
+    if ($doc -isnot [System.Collections.IDictionary]) { $doc = [ordered]@{ schemaVersion = 4; pools = @() } }
     if (-not $doc.Contains('pools') -or $null -eq $doc['pools']) { $doc['pools'] = @() }
-    return (ConvertTo-PoolIntentSchemaV3 -Doc $doc)
+    return (ConvertTo-PoolConfigurationSchemaV4 -Doc $doc)
 }
 
 <#
 .SYNOPSIS
-Validates $Doc against $SchemaName then writes it to <IntentDir>/<RelPath> as BOM-less UTF-8.
+Validates $Doc against $SchemaName then writes it to <ConfigurationDir>/<RelPath> as BOM-less UTF-8.
 .DESCRIPTION
 ConvertTo-Yaml can emit a BOM; the bare-repo + git consumers must stay BOM-free. Returns
-@{ Ok; Error }. Does NOT commit -- Publish-YurunaPoolIntent does.
+@{ Ok; Error }. Does NOT commit -- Publish-YurunaPoolConfiguration does.
 #>
 function Save-YurunaPoolDoc {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)][string]$IntentDir,
+        [Parameter(Mandatory)][string]$ConfigurationDir,
         [Parameter(Mandatory)][string]$RelPath,
         [Parameter(Mandatory)]$Doc,
         [Parameter(Mandatory)][string]$SchemaName
     )
     $v = Test-YurunaPoolDocValid -Doc $Doc -SchemaName $SchemaName
     if (-not $v.Ok) { return @{ Ok = $false; Error = "schema validation failed against $SchemaName -- $($v.Errors -join '; ')" } }
-    $path = Join-Path $IntentDir $RelPath
+    $path = Join-Path $ConfigurationDir $RelPath
     if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_4f719f0639145301'))) { return @{ Ok = $true; Error = '' } }
     try {
         $dir = Split-Path -Parent $path
@@ -403,38 +350,38 @@ function Save-YurunaPoolDoc {
 
 <#
 .SYNOPSIS
-Commits everything under $IntentDir and pushes to the writable origin (bounded).
+Commits everything under $ConfigurationDir and pushes to the writable origin (bounded).
 .DESCRIPTION
 A commit identity is passed inline so a fresh proxy clone with no configured user.name/email still
 commits. Returns @{ Ok; Pushed; Error }: Ok=committed locally, Pushed=reached the remote (a
 read-only/offline remote leaves Pushed=$false with a hint -- the function itself does not throw).
 The admin CLIs, however, treat Pushed=$false as a command failure (exit non-zero): a committed-but-
-unpushed intent is not durable and is discarded by the next Open-YurunaPoolIntent.
+unpushed configuration is not durable and is discarded by the next Open-YurunaPoolConfiguration.
 #>
-function Publish-YurunaPoolIntent {
+function Publish-YurunaPoolConfiguration {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)][string]$IntentDir,
+        [Parameter(Mandatory)][string]$ConfigurationDir,
         [Parameter(Mandatory)][string]$Message
     )
-    if (-not $PSCmdlet.ShouldProcess($IntentDir, (Format-YurunaOperatorMessage -Key 'runner.operator_efd4f169b13d993c' -Arguments @{ message = "$Message" }))) { return @{ Ok = $true; Pushed = $true; Error = '' } }
-    $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'add', '-A') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
+    if (-not $PSCmdlet.ShouldProcess($ConfigurationDir, (Format-YurunaOperatorMessage -Key 'runner.operator_efd4f169b13d993c' -Arguments @{ message = "$Message" }))) { return @{ Ok = $true; Pushed = $true; Error = '' } }
+    $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $ConfigurationDir, 'add', '-A') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
     if ($rc -ne 0) { return @{ Ok = $false; Pushed = $false; Error = "git add failed (exit $rc)" } }
     # Nothing staged -> no-op success (idempotent re-run).
-    $rcDiff = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'diff', '--cached', '--quiet') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
+    $rcDiff = Invoke-PoolSyncGit -ArgumentList @('-C', $ConfigurationDir, 'diff', '--cached', '--quiet') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
     if ($rcDiff -eq 0) { return @{ Ok = $true; Pushed = $true; Error = 'no changes' } }
     $rc = Invoke-PoolSyncGit -ArgumentList @(
-        '-C', $IntentDir,
+        '-C', $ConfigurationDir,
         '-c', 'user.name=yuruna-pool-admin', '-c', 'user.email=pool-admin@yuruna.local',
         'commit', '--quiet', '-m', $Message) -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
     if ($rc -ne 0) { return @{ Ok = $false; Pushed = $false; Error = "git commit failed (exit $rc)" } }
-    # Push to origin's 'main' explicitly (HEAD:main). The yuruna intent repo is
+    # Push to origin's 'main' explicitly (HEAD:main). The yuruna configuration repo is
     # always 'main' (the proxy seeds it with --initial-branch=main); pinning the
     # destination branch makes the push deterministic even when a fresh clone of
     # an empty repo left the local branch named 'master', so a later clone reading
     # the bare repo's HEAD (main) always sees the pushed commit.
-    $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'push', '--quiet', 'origin', 'HEAD:main') -Label 'git push'
+    $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $ConfigurationDir, 'push', '--quiet', 'origin', 'HEAD:main') -Label 'git push'
     if ($rc -ne 0) {
         # A reachable remote that rejects the push is most likely a non-fast-
         # forward: a concurrent admin pushed between our Open and here. Fetch,
@@ -443,15 +390,15 @@ function Publish-YurunaPoolIntent {
         # commit intact for the caller to surface (Open refuses to reset over it).
         # A fetch that also fails means the remote is offline/read-only -- surface
         # Pushed=$false without disturbing the clone.
-        $rcFetch = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'fetch', '--quiet', 'origin') -Label 'git fetch (rebase retry)'
+        $rcFetch = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $ConfigurationDir, 'fetch', '--quiet', 'origin') -Label 'git fetch (rebase retry)'
         if ($rcFetch -eq 0) {
-            $rcRebase = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, '-c', 'user.name=yuruna-pool-admin', '-c', 'user.email=pool-admin@yuruna.local', 'rebase', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
+            $rcRebase = Invoke-PoolSyncGit -ArgumentList @('-C', $ConfigurationDir, '-c', 'user.name=yuruna-pool-admin', '-c', 'user.email=pool-admin@yuruna.local', 'rebase', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
             if ($rcRebase -eq 0) {
-                $rc2 = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'push', '--quiet', 'origin', 'HEAD:main') -Label 'git push (after rebase)'
+                $rc2 = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $ConfigurationDir, 'push', '--quiet', 'origin', 'HEAD:main') -Label 'git push (after rebase)'
                 if ($rc2 -eq 0) { return @{ Ok = $true; Pushed = $true; Error = '' } }
                 $rc = $rc2
             } else {
-                $null = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'rebase', '--abort') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
+                $null = Invoke-PoolSyncGit -ArgumentList @('-C', $ConfigurationDir, 'rebase', '--abort') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
             }
         }
         return @{ Ok = $true; Pushed = $false; Error = "committed locally but push failed (exit $rc) -- push from a writable location (e.g. on the proxy: a file:// or local path to the bare repo)" }
@@ -461,27 +408,27 @@ function Publish-YurunaPoolIntent {
 
 <#
 .SYNOPSIS
-Fills the WRITABLE intent url + the admin working clone dir with sensible defaults.
+Fills the WRITABLE configuration url + the admin working clone dir with sensible defaults.
 .DESCRIPTION
-The url falls back to pool.intentGitUrl from test.config.yml; the clone dir defaults to
-<runtime>/pool-intent-admin (kept separate from the runner's read-only pool-intent clone so admin
+The url falls back to pool.configurationGitUrl from test.config.yml; the clone dir defaults to
+<runtime>/pool-configuration-admin (kept separate from the runner's read-only pool-configuration clone so admin
 edits never race the runner's reset --hard).
 #>
 function Resolve-YurunaPoolAdminTarget {
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([string]$IntentGitUrl, [string]$IntentDir)
-    if ([string]::IsNullOrWhiteSpace($IntentGitUrl) -and (Get-Command Get-YurunaPoolConfig -ErrorAction SilentlyContinue)) {
+    param([string]$ConfigurationGitUrl, [string]$ConfigurationDir)
+    if ([string]::IsNullOrWhiteSpace($ConfigurationGitUrl) -and (Get-Command Get-YurunaPoolConfig -ErrorAction SilentlyContinue)) {
         $pc = Get-YurunaPoolConfig -IgnoreEnabled -WarningAction SilentlyContinue
-        if ($pc) { $IntentGitUrl = $pc.IntentGitUrl }
+        if ($pc) { $ConfigurationGitUrl = $pc.ConfigurationGitUrl }
     }
-    if ([string]::IsNullOrWhiteSpace($IntentDir)) {
+    if ([string]::IsNullOrWhiteSpace($ConfigurationDir)) {
         $rt = if (Get-Command Initialize-YurunaRuntimeDir -ErrorAction SilentlyContinue) { Initialize-YurunaRuntimeDir }
               elseif ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR }
               else { [System.IO.Path]::GetTempPath() }
-        $IntentDir = Join-Path $rt 'pool-intent-admin'
+        $ConfigurationDir = Join-Path $rt 'pool-configuration-admin'
     }
-    return @{ IntentGitUrl = $IntentGitUrl; IntentDir = $IntentDir }
+    return @{ ConfigurationGitUrl = $ConfigurationGitUrl; ConfigurationDir = $ConfigurationDir }
 }
 
 <#
@@ -533,7 +480,7 @@ function ConvertTo-YurunaHostId {
 
 <#
 .SYNOPSIS
-    Create a bare pool-intent repository, seeded with an empty schema-valid pools.yml.
+    Create a bare pool-configuration repository, seeded with an empty schema-valid pools.yml.
 .DESCRIPTION
     The only other implementations live in shell, inside the caching-proxy-service
     and pool-control-service cloud-init, so this is the host side's way to create a
@@ -544,11 +491,10 @@ function ConvertTo-YurunaHostId {
         git would otherwise see a permission change on every file it writes back.
       * `receive.updateServerInfo true` -- keeps the dumb-HTTP indexes current after
         each push. The usual post-update hook never becomes executable on a CIFS
-        mount, so info/refs would go stale the moment intent was written and readers
+        mount, so info/refs would go stale the moment configuration was written and readers
         would keep being served the old refs.
-      * `schemaVersion: 3` -- a store seeded at an older version READS fine,
-        because nothing validates on read, and then fails every write at schema
-        validation. The store looks healthy right up until someone creates a pool.
+      * `schemaVersion: 4` -- new stores use the canonical configuredState shape;
+        readers normalize older stores in memory before the next admin write.
 
     Idempotent: an existing repository is left untouched.
 .PARAMETER Path
@@ -556,7 +502,7 @@ function ConvertTo-YurunaHostId {
 .PARAMETER Force
     Recreate even if the path already looks like a repository.
 #>
-function New-YurunaPoolIntentStore {
+function New-YurunaPoolConfigurationStore {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
     param(
@@ -580,17 +526,17 @@ function New-YurunaPoolIntentStore {
     & git -C $Path config core.fileMode false 2>&1 | Out-Null
     & git -C $Path config receive.updateServerInfo true 2>&1 | Out-Null
 
-    $seed = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-intent-seed-' + [Guid]::NewGuid().ToString('N'))
+    $seed = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-configuration-seed-' + [Guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $seed -Force
     try {
         & git -C $seed init -q --initial-branch=main 2>&1 | Out-Null
         & git -C $seed config core.fileMode false 2>&1 | Out-Null
         # LF, no BOM: the file is read by git and by ConvertFrom-Yaml on three platforms.
-        [IO.File]::WriteAllText((Join-Path $seed 'pools.yml'), "schemaVersion: 3`npools: []`n",
+        [IO.File]::WriteAllText((Join-Path $seed 'pools.yml'), "schemaVersion: 4`npools: []`n",
             (New-Object System.Text.UTF8Encoding($false)))
         & git -C $seed add -A 2>&1 | Out-Null
         # Identity supplied inline so this works on a host with no git user configured.
-        & git -C $seed -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool intent' 2>&1 | Out-Null
+        & git -C $seed -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool configuration' 2>&1 | Out-Null
         & git -C $seed push -q -- $Path HEAD:main 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_a4fb11bebe1b1114' -Arguments @{ path = "$Path"; lASTEXITCODE = "$LASTEXITCODE" }) }
         & git -C $Path update-server-info 2>&1 | Out-Null
@@ -602,10 +548,10 @@ function New-YurunaPoolIntentStore {
 
 <#
 .SYNOPSIS
-    Make a WRITABLE filesystem intent target openable: seed the bare repository
+    Make a WRITABLE filesystem configuration target openable: seed the bare repository
     when the path carries none yet. Returns @{ Ok; Created; Reason }.
 .DESCRIPTION
-    Open-YurunaPoolIntent can only clone a store that already exists, so every
+    Open-YurunaPoolConfiguration can only clone a store that already exists, so every
     authoring command against a path that was never seeded dies on the same
     opaque `git clone failed (exit 128)`. The store is an implementation detail of
     the pool, not something an operator creates by hand, and the only thing that
@@ -614,8 +560,8 @@ function New-YurunaPoolIntentStore {
     under a new root, a beacon whose pool folder was replaced) reaches an
     authoring command with nothing to open and no hint of what is missing.
 
-    Only for CREATE/UPDATE paths. The read-only consumers (Get-PoolIntent,
-    Get-PoolStatus, Test-PoolIntent) must keep failing on an absent store: for
+    Only for CREATE/UPDATE paths. The read-only consumers (Get-PoolConfiguration,
+    Get-PoolStatus, Test-PoolConfiguration) must keep failing on an absent store: for
     them a wrong url and an empty pool are different answers, and seeding one
     here would turn "you are pointed at nothing" into a healthy-looking empty
     pool that reports every host as unenrolled.
@@ -624,16 +570,16 @@ function New-YurunaPoolIntentStore {
     on this side can create a repository over there, and the caller's own clone
     failure is the honest report. Only a local or UNC PATH is seeded, and only
     when it holds no repository already; an existing store is never touched.
-.PARAMETER IntentGitUrl
+.PARAMETER ConfigurationGitUrl
     The writable target Resolve-YurunaPoolAdminTarget produced.
 #>
-function Initialize-YurunaPoolIntentStorePath {
+function Initialize-YurunaPoolConfigurationStorePath {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$IntentGitUrl)
+    param([Parameter(Mandatory)][string]$ConfigurationGitUrl)
 
-    if ([string]::IsNullOrWhiteSpace($IntentGitUrl)) { return @{ Ok = $false; Created = $false; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b225367bfb565d80') } }
-    $target = $IntentGitUrl.Trim()
+    if ([string]::IsNullOrWhiteSpace($ConfigurationGitUrl)) { return @{ Ok = $false; Created = $false; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b225367bfb565d80') } }
+    $target = $ConfigurationGitUrl.Trim()
 
     # A scheme means "somewhere else". file:// is the one scheme that still names
     # a local path, so it is unwrapped rather than skipped -- an operator writing
@@ -655,7 +601,7 @@ function Initialize-YurunaPoolIntentStorePath {
         return @{ Ok = $true; Created = $false; Reason = 'WhatIf' }
     }
     try {
-        $store = New-YurunaPoolIntentStore -Path $target -Confirm:$false
+        $store = New-YurunaPoolConfigurationStore -Path $target -Confirm:$false
         return @{ Ok = $true; Created = [bool]$store.Created; Reason = $store.Reason }
     } catch {
         # Surfaced, not swallowed: the caller's clone is about to fail anyway,
@@ -669,35 +615,35 @@ function Initialize-YurunaPoolIntentStorePath {
 function Open-YurunaPoolAdminStore {
     <#
     .SYNOPSIS
-        Resolve and open the pool intent store with one consistent error contract.
+        Resolve and open the pool configuration store with one consistent error contract.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
-    param([string]$IntentGitUrl, [string]$IntentDir)
-    $target = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
-    if ([string]::IsNullOrWhiteSpace($target.IntentGitUrl)) {
+    param([string]$ConfigurationGitUrl, [string]$ConfigurationDir)
+    $target = Resolve-YurunaPoolAdminTarget -ConfigurationGitUrl $ConfigurationGitUrl -ConfigurationDir $ConfigurationDir
+    if ([string]::IsNullOrWhiteSpace($target.ConfigurationGitUrl)) {
         return @{ Ok = $false; Target = $target; Error = (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') }
     }
-    if (-not $PSCmdlet.ShouldProcess($target.IntentDir, 'Open pool intent store')) { return @{ Ok = $false; Target = $target; Error = 'Open declined.' } }
-    $opened = Open-YurunaPoolIntent -IntentGitUrl $target.IntentGitUrl -IntentDir $target.IntentDir -Confirm:$false
-    $errorText = if ($opened.Ok) { '' } else { Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($target.IntentGitUrl)"; error = "$($opened.Error)" } }
+    if (-not $PSCmdlet.ShouldProcess($target.ConfigurationDir, 'Open pool configuration store')) { return @{ Ok = $false; Target = $target; Error = 'Open declined.' } }
+    $opened = Open-YurunaPoolConfiguration -ConfigurationGitUrl $target.ConfigurationGitUrl -ConfigurationDir $target.ConfigurationDir -Confirm:$false
+    $errorText = if ($opened.Ok) { '' } else { Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ configurationGitUrl = "$($target.ConfigurationGitUrl)"; error = "$($opened.Error)" } }
     return @{ Ok = [bool]$opened.Ok; Target = $target; Error = $errorText }
 }
 
 function Publish-YurunaPoolDocChange {
     <#
     .SYNOPSIS
-        Save a validated document and require successful intent publication.
+        Save a validated document and require successful configuration publication.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$IntentDir, [Parameter(Mandatory)][string]$RelPath,
+    param([Parameter(Mandatory)][string]$ConfigurationDir, [Parameter(Mandatory)][string]$RelPath,
         [Parameter(Mandatory)]$Doc, [Parameter(Mandatory)][string]$SchemaName,
         [Parameter(Mandatory)][string]$Message)
-    if (-not $PSCmdlet.ShouldProcess($IntentDir, $Message)) { return @{ Ok = $false; Pushed = $false; Error = 'Publication declined.' } }
-    $saved = Save-YurunaPoolDoc -IntentDir $IntentDir -RelPath $RelPath -Doc $Doc -SchemaName $SchemaName -Confirm:$false
+    if (-not $PSCmdlet.ShouldProcess($ConfigurationDir, $Message)) { return @{ Ok = $false; Pushed = $false; Error = 'Publication declined.' } }
+    $saved = Save-YurunaPoolDoc -ConfigurationDir $ConfigurationDir -RelPath $RelPath -Doc $Doc -SchemaName $SchemaName -Confirm:$false
     if (-not $saved.Ok) { return @{ Ok = $false; Pushed = $false; Error = (Format-YurunaOperatorMessage -Key 'runner.operator_9c27a25b6843707d' -Arguments @{ error = "$($saved.Error)" }) } }
-    $published = Publish-YurunaPoolIntent -IntentDir $IntentDir -Message $Message -Confirm:$false
+    $published = Publish-YurunaPoolConfiguration -ConfigurationDir $ConfigurationDir -Message $Message -Confirm:$false
     $key = if (-not $published.Ok) { 'runner.operator_493d8875345272bb' } else { 'runner.operator_d7dcddaba0a5b0ef' }
     $errorText = if ($published.Ok -and $published.Pushed) { '' } else { Format-YurunaOperatorMessage -Key $key -Arguments @{ error = "$($published.Error)" } }
     return @{ Ok = [bool]($published.Ok -and $published.Pushed); Pushed = [bool]$published.Pushed; Error = $errorText }
@@ -705,11 +651,11 @@ function Publish-YurunaPoolDocChange {
 
 # A re-import (Import-Module -Force) drops this table, and a lock whose stream was dropped with it
 # would stay held by this process and block the next Open of the same clone until the process ends.
-$ExecutionContext.SessionState.Module.OnRemove = { Unlock-YurunaPoolIntentClone -All }
+$ExecutionContext.SessionState.Module.OnRemove = { Unlock-YurunaPoolConfigurationClone -All }
 
 Export-ModuleMember -Function Open-YurunaPoolAdminStore, Publish-YurunaPoolDocChange, `
-    Resolve-YurunaPoolSchemaPath, Test-YurunaPoolDocValid, Test-YurunaPoolIntentFile, `
-    Lock-YurunaPoolIntentClone, Unlock-YurunaPoolIntentClone, `
-    Open-YurunaPoolIntent, ConvertTo-PoolIntentSchemaV3, Read-YurunaPoolsDoc, Save-YurunaPoolDoc, Publish-YurunaPoolIntent, `
+    Resolve-YurunaPoolSchemaPath, Test-YurunaPoolDocValid, Test-YurunaPoolConfigurationFile, `
+    Lock-YurunaPoolConfigurationClone, Unlock-YurunaPoolConfigurationClone, `
+    Open-YurunaPoolConfiguration, Read-YurunaPoolsDoc, Save-YurunaPoolDoc, Publish-YurunaPoolConfiguration, `
     Get-YurunaPoolFromDoc, Resolve-YurunaPoolAdminTarget, ConvertTo-YurunaHostId, `
-    New-YurunaPoolIntentStore, Initialize-YurunaPoolIntentStorePath
+    New-YurunaPoolConfigurationStore, Initialize-YurunaPoolConfigurationStorePath

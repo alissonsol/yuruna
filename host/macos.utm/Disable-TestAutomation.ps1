@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d0dcad-5f1c-4177-8e40-8f43c9920e55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,6 +82,7 @@ function Restore-Knob {
         -Apply $Apply -Absent $Absent -Cmdlet $Script:DisableCmdlet -Restored $restored -Skipped $skipped
 }
 
+# --- REGION: Prime sudo
 # Prime sudo once, before the run, with the reasons visible -- the same posture
 # Enable uses. Under -WhatIf nothing elevated actually runs, so skip the prompt.
 if ($state -and -not $WhatIfPreference) {
@@ -141,24 +142,14 @@ foreach ($spec in @(
     @{ Key = 'utm/KeepRunningAfterLastWindowClosed'       ; Args = @('com.utmapp.UTM', 'KeepRunningAfterLastWindowClosed')      ; Type = '-bool'; Desc = 'UTM survives its last window closing' }
     @{ Key = 'global/AppleSpacesSwitchOnActivation'       ; Args = @('NSGlobalDomain', 'AppleSpacesSwitchOnActivation')         ; Type = '-bool'; Desc = 'Spaces switch on activation' }
 )) {
-    # `defaults` takes the host selector BEFORE the verb. Emitted verb-first it
-    # binds '-currentHost' as the domain and rejects the rest, so the three
-    # ByHost knobs would be neither written nor deleted and "Disable puts the
-    # Mac back" would not be true for them. Get-MacDefaultsCommandArgument
-    # re-emits the selector where it belongs, from the same knob table the
-    # capture and the apply paths use.
+    # See https://yuruna.link/42e220c4-0004
     $dWrite  = @(Get-MacDefaultsCommandArgument -Verb 'write'  -DefaultsArgs $spec.Args -Trailing @($spec.Type))
     $dDelete = @(Get-MacDefaultsCommandArgument -Verb 'delete' -DefaultsArgs $spec.Args)
     $dLabel  = ($spec.Args -join ' ')
     $dIsBool = ($spec.Type -eq '-bool')
     Restore-Knob -Name "defaults/$($spec.Key)" -Description $spec.Desc -Apply {
         param($v)
-        # A captured value has to be spoken back in the vocabulary of the type it
-        # is written as. `defaults read` renders a boolean as 1 / 0, and
-        # `defaults write -bool` accepts only true / false / yes / no -- a digit
-        # exits 255 with the usage text, so without this translation every
-        # boolean knob reports a failed restore and stays exactly as the
-        # automation left it.
+        # See https://yuruna.link/42e220c4-0004
         $value = if ($dIsBool) { if ("$v".Trim() -in @('0', 'false', 'no', 'NO', 'FALSE')) { 'false' } else { 'true' } } else { "$v" }
         & defaults @dWrite $value
         if ($LASTEXITCODE -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_4e1b665678bb8be4' -Arguments @{ dLabel = "$dLabel"; lASTEXITCODE = "$LASTEXITCODE" }) }

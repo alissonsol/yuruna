@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42393379-b183-472a-aafb-3e90a62215aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,17 +95,7 @@ $script:StaleLeaseText = @'
 }
 '@
 
-# Substitute the discovery the marker refresh consumes. $IpAnswer supplies
-# Get-VMIp's replies in order (the last repeats, so a case can model "stale,
-# stale, then the real one"); $Healthy is the set of addresses that answer
-# /healthz. State lives in the global scope because the substitutes are called
-# from inside a module, which has a session state of its own.
-#
-# The substitutes are declared HERE, from a helper each case calls, rather than
-# at file scope: Pester scans the file to collect its blocks and runs those
-# blocks afterwards, and a function declared during the scan is not present by
-# the time the cases execute -- Get-VMIp comes back "not recognized" and the
-# refresh resolves nothing, which reads exactly like the bug under test.
+# See https://yuruna.link/42e220c4-0014
 function Set-StashDiscovery {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: installs the substituted discovery for the case that calls it.')]

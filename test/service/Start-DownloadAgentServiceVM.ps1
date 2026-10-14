@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,8 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit $ExitFailure
 }
 
-# --- REGION: https://yuruna.link/42e220c4-0008
+# --- REGION: Elevation check
+# See https://yuruna.link/42e220c4-0008
 if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output ""
     Write-Output "This script requires elevation (Run as Administrator)."
@@ -102,12 +103,15 @@ if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Princi
     exit $ExitFailure
 }
 
-# --- REGION: https://yuruna.link/42e220c4-0008
+# --- REGION: Initialize the runtime directory
+# See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.DownloadAgentService.psm1') -Global -Force
 $runtimeDir = Initialize-YurunaRuntimeDir
 if ([string]::IsNullOrWhiteSpace($runtimeDir)) { Write-Error 'No runtime dir (YURUNA_RUNTIME_DIR).'; exit $ExitFailure }
 
+# --- REGION: Initialize host access
+# See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Global -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
@@ -117,12 +121,7 @@ Write-Verbose "Host type: $HostType"
 [void](Initialize-YurunaHost -RepoRoot $repoRoot -HostType $HostType)
 
 # --- REGION: Record the start intent
-# The start is on record, and this service's operation lock held, before
-# anything is built: a Stop issued meanwhile waits for the lock instead of
-# tearing down a half-built guest, and the reboot sweep and a host refresh see
-# the request. Taken after the group relaunch, because a lock taken in the
-# parent would block the relaunched child. A request that cannot be recorded
-# changes nothing.
+# See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
 Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
 $serviceOp = Enter-YurunaServiceOperation -Key 'download-agent' -VMName $VMName -Operation Start -Script 'Start-DownloadAgentServiceVM.ps1' -Confirm:$false
@@ -247,8 +246,9 @@ $build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VM
 if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
 $serviceOpResult = 'confirmed'
 
+# --- REGION: Resolve the VM address
+# See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
-# --- REGION: https://yuruna.link/42e220c4-0008
 $ipDeadline = (Get-Date)
 $vmIp = try { Wait-VMIp -VMName $VMName -TimeoutSeconds 120 } catch { Write-Verbose "Wait-VMIp: $($_.Exception.Message)"; $null }
 $ipWaitSeconds = [int]((Get-Date) - $ipDeadline).TotalSeconds
@@ -263,7 +263,6 @@ if ($HostType -eq 'host.macos.utm') {
     if ($bundleMode -and $uplinkMode -and $bundleMode -ne $uplinkMode) {
         Write-Warning "'$VMName' was built for '$bundleMode' networking but this host's uplink now wants '$uplinkMode' (Wi-Fi and Ethernet differ). The VM's baked addresses are for the old topology; rebuild it (Stop-DownloadAgentServiceVM.ps1 then re-run this script)."
     }
-    # --- REGION: https://yuruna.link/42e220c4-0008
     if ($bundleMode -eq 'Shared') {
         if ($vmIp) {
             $mapped = Add-PortMap -VMIp $vmIp -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false
@@ -289,7 +288,6 @@ $readyTimeoutMinutes = [int]($readyTimeoutSeconds / 60)
 # polls or was never there.
 $recoveryProbeSeconds = 60
 
-# --- REGION: https://yuruna.link/42e220c4-0008
 $daemonReady = $false
 # A different question, kept apart from the one above: the daemon can be serving
 # while THIS host has no route to it. That costs this host its local path and
@@ -300,7 +298,6 @@ $stillBuilding = $false
 # $null until a wait actually runs, which is itself an answer: a verdict that was
 # never taken is not a pass.
 $endpoint = $null
-# --- REGION: https://yuruna.link/42e220c4-0008
 if ($vmIp) {
     Write-Verbose "VM '$VMName' is at $vmIp. Waiting up to $readyTimeoutMinutes min for the download-agent-service daemon to serve on :80 (first boot builds it in-guest)."
     Write-Verbose "  The wait extends itself while the guest reports it is still building; progress is printed as it happens."
@@ -315,7 +312,6 @@ if ($vmIp) {
             }
         }
     }
-    # --- REGION: https://yuruna.link/42e220c4-0008
     $endpoint = Wait-YurunaServiceVmDaemon -VMName $VMName -Port 80 `
         -TimeoutSeconds $readyTimeoutSeconds -Address $vmIp `
         -GuestKey 'guest.download-agent-service' -User 'download-agent-service-admin' `
@@ -327,10 +323,8 @@ if ($vmIp) {
                            "$([int]($endpoint.ExtendedSeconds / 60)) min because the guest reported it was still building.") -InformationAction Continue
     }
 } else {
-    # --- REGION: https://yuruna.link/42e220c4-0008
     Write-Warning ("Could not resolve the VM's IP after waiting ${ipWaitSeconds}s (Wait-VMIp); the VM IS running, so this is address " +
                    "discovery, not a boot failure. Asking the guest itself whether the daemon is up.")
-    # --- REGION: https://yuruna.link/42e220c4-0008
     if (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue) {
         $inGuest = $null
         try {
@@ -339,7 +333,6 @@ if ($vmIp) {
                 -Command 'ss -ltn 2>/dev/null | grep -qE "(^|[^0-9]):80\b" && echo YURUNA_LISTENING || echo YURUNA_NOT_LISTENING'
         } catch { Write-Verbose "download-agent-service in-guest listener probe: $($_.Exception.Message)" }
         if ($inGuest -and "$($inGuest.output)" -match 'YURUNA_LISTENING') {
-            # --- REGION: https://yuruna.link/42e220c4-0008
             $endpoint = [pscustomobject]@{
                 Ready         = $false
                 Unreachable   = $true
@@ -352,22 +345,18 @@ if ($vmIp) {
     }
 }
 
-# --- REGION: Evaluate service readiness
-# See https://yuruna.link/42e220c4-0008
-$verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
-
-# --- REGION: https://yuruna.link/4220a755-0046
+# --- REGION: Recover the VM address
+# See https://yuruna.link/4220a755-0046
 # Spent here and nowhere else: the sweep costs about two minutes, and this is
 # the one place where the alternative is calling a healthy daemon failed.
 $recoveredIp = ''
-if ($verdict.IsFailure) {
+if ((Get-ServiceVmReadinessVerdict -Endpoint $endpoint).IsFailure) {
     $recovery = Confirm-ServiceVmAtRecoveredAddress -VMName $VMName -Port 80 -KnownAddress ([string]$vmIp) -TimeoutSeconds $recoveryProbeSeconds
     $recoveredIp = [string]$recovery.Address
     Write-Verbose "  $($recovery.Summary)."
     if ($recovery.Ready) {
         $vmIp = $recoveredIp
         $endpoint = New-ServiceVmRecoveredEndpoint -Endpoint $endpoint -Address $recoveredIp -WaitedSeconds $ipWaitSeconds
-        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
         if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
             if (Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false) {
                 $hostAddress = [string](Get-BestHostIp)
@@ -377,6 +366,9 @@ if ($verdict.IsFailure) {
     }
 }
 
+# --- REGION: Evaluate service readiness
+# See https://yuruna.link/42e220c4-0008
+$verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
 # Every downstream branch reads these, and all three come from the one verdict:
 # a bring-up cannot be "ready" in the banner and "not ready" in the marker.
 $daemonReady             = ($verdict.Outcome -eq 'Ready' -or $verdict.Outcome -eq 'Unreachable')
@@ -429,7 +421,8 @@ To hold this script longer next time:
     }
 }
 
-# --- REGION: https://yuruna.link/42fffc2c-0008
+# --- REGION: Publish service readiness
+# See https://yuruna.link/42fffc2c-0008
 $downloadAgentServiceBaseUrl = if ($daemonReady -and -not $listeningButUnreachable) {
     Resolve-DownloadAgentServiceBaseUrl -VMIp ([string]$vmIp) -NetworkMode $bundleMode -HostAddress $hostAddress
 } else { '' }

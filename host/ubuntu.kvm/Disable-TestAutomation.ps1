@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,6 +88,7 @@ function Restore-Knob {
         -Apply $Apply -Absent $Absent -Cmdlet $Script:DisableCmdlet -Restored $restored -Skipped $skipped
 }
 
+# --- REGION: Prime sudo
 if (-not $WhatIfPreference) {
     [void](Initialize-SudoCache -Reasons @(
         'ufw delete allow <status port>',

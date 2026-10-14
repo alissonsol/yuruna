@@ -43,6 +43,23 @@ const DataenUSrunner = `{
     },
     " runner records it could not prove stale."
   ],
+  "runner.config_gate_attempt_failed": [
+    "The runner attempt exited ",
+    {
+      "arg": "exitCode",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " because configuration validation failed. No new test cycle started. Correct the configuration before retrying."
+  ],
+  "runner.config_naming_backup": [
+    "Back up configuration to ",
+    {
+      "arg": "backupPath",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "runner.critical_record_replace": "Replace a private critical record",
   "runner.cycle_outcome_rejected_kept": [
     "[outer cycle ",
@@ -252,6 +269,14 @@ const DataenUSrunner = `{
       "trust": "external"
     },
     " characters after wrapping; Windows cannot start it. Guest execution was not started."
+  ],
+  "runner.gate_evidence_save_failed": [
+    "Configuration gate evidence could not be saved: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
   ],
   "runner.git_recovery_command": [
     "  Recover with: git -C '",
@@ -1545,6 +1570,15 @@ const DataenUSrunner = `{
     }
   ],
   "runner.host_refresh_verified_noop": "Invoke-HostRefresh: the hypervisor answered and the runner is healthy; nothing was changed.",
+  "runner.inner_attempt_exited": [
+    "The runner attempt exited ",
+    {
+      "arg": "exitCode",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " before reporting a cycle result. Review the runner logs before retrying."
+  ],
   "runner.inner_guest_folder_missing": [
     "Guest folder not found for '",
     {
@@ -1566,17 +1600,88 @@ const DataenUSrunner = `{
     },
     "')."
   ],
-  "runner.inner_sequence_baseline_missing": [
+  "runner.inner_sequence_resource_missing": [
     "Inner sequence '",
     {
       "arg": "name",
       "type": "detail",
       "trust": "external"
     },
-    "' has no 'baseline:' OS key; not a runnable guest sequence."
+    "' has no 'resource:' OS key; not a runnable guest sequence."
   ],
   "runner.launch_record_complete_action": "Mark the runner launch record ended",
   "runner.launch_record_write_action": "Write the runner launch record",
+  "runner.m1ff7f8f2d1": [
+    {
+      "arg": "action",
+      "type": "token",
+      "trust": "internal"
+    },
+    ": '",
+    {
+      "arg": "vMName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' was still '",
+    {
+      "arg": "observedState",
+      "type": "token",
+      "trust": "internal"
+    },
+    "' after ",
+    {
+      "arg": "waitedSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s. The console frame, OCR text, and hypervisor counters at that moment are recorded; see causeDetail.vmState in last_failure.json."
+  ],
+  "runner.m38857d4ae5": [
+    {
+      "arg": "action",
+      "type": "token",
+      "trust": "internal"
+    },
+    ": the console of '",
+    {
+      "arg": "vMName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' did not change within ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s after typing; the keystrokes were not acknowledged."
+  ],
+  "runner.m60d80be676": [
+    "Serial console log saved: ",
+    {
+      "arg": "cycleBase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "/",
+    {
+      "arg": "destSeqName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "/serial-console.log"
+  ],
+  "runner.ma32a33811f": "Request a guest shutdown through the host driver and wait for the VM to report stopped",
+  "runner.maa7a51f878": [
+    "stopVm: '",
+    {
+      "arg": "vMName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' could not be forced off after it ignored the shutdown request; the step fails."
+  ],
   "runner.mac_automation_utm_title": "Automation -> UTM",
   "runner.mac_dock_reload_deferred": "Dock was not restarted because this run must not disturb the desktop session; the hot-corner and Spaces changes take effect the next time Dock starts.",
   "runner.mac_grant_prompt_suppressed": [
@@ -1648,6 +1753,36 @@ const DataenUSrunner = `{
       "trust": "internal"
     }
   ],
+  "runner.mb985d466db": [
+    "stopVm: forcing '",
+    {
+      "arg": "vMName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' off after the guest ignored the shutdown request for ",
+    {
+      "arg": "waitedSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s; the cycle continues in a degraded mode."
+  ],
+  "runner.mc7190c5d2b": [
+    "stopVm: requested a guest shutdown of '",
+    {
+      "arg": "vMName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'; waiting up to ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s for the host to report it stopped."
+  ],
   "runner.mcp_dependency_drift": "exit 1 from this script means a pinned dependency has drifted, not that the report failed",
   "runner.mcp_dependency_invalid_json": "expected JSON from -AsJson but the output did not parse",
   "runner.mcp_diagnostic_verdict": "Get-SystemDiagnostic always exits 0; problems are in the report, not the exit code.",
@@ -1703,6 +1838,27 @@ const DataenUSrunner = `{
   "runner.mcp_yuruna_test_configuration": "Validate the test configuration. Exits non-zero with a transcript when a check fails, and returns a bare False while exiting 0 when the root set will not resolve at all.",
   "runner.mcp_yuruna_test_requirement": "Check that this host meets the requirements a cycle needs. Exits non-zero on a failed requirement.",
   "runner.mcp_yuruna_test_runtime": "Check the runtime. The verdict is a boolean emitted as the last pipeline object; this script has no exit statement, so the exit code says nothing.",
+  "runner.mf99bdf2253": [
+    "Guest '",
+    {
+      "arg": "vMName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' first went silent at ",
+    {
+      "arg": "sinceUtc",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "source",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "); later failures in this sequence may stem from it."
+  ],
   "runner.no_other_runner_refresh_active": [
     {
       "arg": "callerName",
@@ -2041,7 +2197,7 @@ const DataenUSrunner = `{
     "' has NO stored vault credential -- the stash-service VM would bake a junk SMB password the NAS rejects. Set-Password it before Start-StashServiceVM. See docs/test-config.md."
   ],
   "runner.operator_04e4f7a2a65ad054": "the shared sudo wrapper is unavailable in this session.",
-  "runner.operator_051583e964e5ccb5": "pool-intent repository under the storage root are left exactly as they are;",
+  "runner.operator_051583e964e5ccb5": "pool-configuration repository under the storage root are left exactly as they are;",
   "runner.operator_051a02c281a0d2b2": [
     "Starting VM '",
     {
@@ -2982,7 +3138,7 @@ const DataenUSrunner = `{
       "trust": "external"
     }
   ],
-  "runner.operator_11155c290bdca317": "pool block not present -- pool intent sync is off (optional).",
+  "runner.operator_11155c290bdca317": "pool block not present -- pool configuration sync is off (optional).",
   "runner.operator_112839be6c0da628": "Reset status document for new cycle",
   "runner.operator_115a0cebc1971e79": [
     "Could not retire the superseded '",
@@ -3922,7 +4078,7 @@ const DataenUSrunner = `{
     }
   ],
   "runner.operator_1d0efcf0a84c0f0f": [
-    "pool: intent store reachable (",
+    "pool: configuration store reachable (",
     {
       "arg": "plUrl",
       "type": "detail",
@@ -4137,7 +4293,7 @@ const DataenUSrunner = `{
     }
   ],
   "runner.operator_205f4d4b991b0dd3": [
-    "pool: intent store '",
+    "pool: configuration store '",
     {
       "arg": "plUrl",
       "type": "detail",
@@ -4173,7 +4329,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "] pool desiredState=paused -- holding (no cycle spawned)."
+    "] pool configuredState=paused -- holding (no cycle spawned)."
   ],
   "runner.operator_218ebb2c80a76597": [
     "[outer cycle ",
@@ -5250,7 +5406,7 @@ const DataenUSrunner = `{
     }
   ],
   "runner.operator_2d47f583d26c79d3": [
-    "pool sync: intent fetch failed (",
+    "pool sync: configuration fetch failed (",
     {
       "arg": "why",
       "type": "detail",
@@ -6060,7 +6216,7 @@ const DataenUSrunner = `{
     },
     "). The key is not usable for control proofs on this host."
   ],
-  "runner.operator_37c6d3d1e44ac68b": "Seed the pool-intent store",
+  "runner.operator_37c6d3d1e44ac68b": "Seed the pool-configuration store",
   "runner.operator_37ec87c9e9d924bd": [
     "networkStorage pool: could not map the vaultKey in users.yml (",
     {
@@ -6536,7 +6692,7 @@ const DataenUSrunner = `{
       "trust": "external"
     }
   ],
-  "runner.operator_3ee74fe8c9b60225": "pool.enabled is true but pool.intentGitUrl is empty; pool intent sync disabled.",
+  "runner.operator_3ee74fe8c9b60225": "pool.enabled is true but pool.configurationGitUrl is empty; pool configuration sync disabled.",
   "runner.operator_3ef003e468ca0535": [
     "[3/3] lab vault already exists at ",
     {
@@ -6629,7 +6785,7 @@ const DataenUSrunner = `{
     },
     ") ..."
   ],
-  "runner.operator_3f91d27857293eb6": "  3. Stand up pool-control service; it serves the intent repo and that URL becomes pool.intentGitUrl.",
+  "runner.operator_3f91d27857293eb6": "  3. Stand up pool-control service; it serves the configuration repo and that URL becomes pool.configurationGitUrl.",
   "runner.operator_3f965b8f770b8f1a": "     already carries still applies -- this run changed none of it.",
   "runner.operator_3fa87fe4f05bcb17": [
     "[outer cycle ",
@@ -6741,16 +6897,16 @@ const DataenUSrunner = `{
   "runner.operator_40eeaa317b25e65f": "Atomic JSON state-file write",
   "runner.operator_411c032a04bd8374": "pool storage full",
   "runner.operator_413f257dbbf2120b": [
-    "Could not seed pool.intentGitUrl (",
+    "Could not seed pool.configurationGitUrl (",
     {
       "arg": "message",
       "type": "detail",
       "trust": "external"
     },
-    "); the token is stored. Set pool.enabled/pool.intentGitUrl by hand to join the pool."
+    "); the token is stored. Set pool.enabled/pool.configurationGitUrl by hand to join the pool."
   ],
   "runner.operator_4154b8f8b4c44fe5": [
-    "[2/3] adopted the existing pool-intent store: ",
+    "[2/3] adopted the existing pool-configuration store: ",
     {
       "arg": "legacyIntentPath",
       "type": "detail",
@@ -6758,13 +6914,13 @@ const DataenUSrunner = `{
     },
     " -> ",
     {
-      "arg": "intentPath",
+      "arg": "configurationPath",
       "type": "detail",
       "trust": "external"
     }
   ],
   "runner.operator_416973ff9c4b82f2": [
-    "pool.intentGitUrl already set (",
+    "pool.configurationGitUrl already set (",
     {
       "arg": "existingUrl",
       "type": "detail",
@@ -7061,7 +7217,7 @@ const DataenUSrunner = `{
     "."
   ],
   "runner.operator_45a07fd31e96a1d6": [
-    "Top-level sequence has no baseline (no supported guest OS declared): ",
+    "Top-level sequence has no resource prerequisites (no supported guest OS declared): ",
     {
       "arg": "topName",
       "type": "detail",
@@ -7231,7 +7387,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    " is not in any pool's members[] though pools.yml lists members; check the hostId spelling/case in the intent repo. Cycling as a single host."
+    " is not in any pool's members[] though pools.yml lists members; check the hostId spelling/case in the configuration repo. Cycling as a single host."
   ],
   "runner.operator_479872781526f6ad": "  Re-enter the password",
   "runner.operator_47b0ccd4d36eff29": [
@@ -7304,7 +7460,7 @@ const DataenUSrunner = `{
     },
     "'."
   ],
-  "runner.operator_488c8abbe599cfff": "  and the pool-intent repository all live under it. When you are satisfied:",
+  "runner.operator_488c8abbe599cfff": "  and the pool-configuration repository all live under it. When you are satisfied:",
   "runner.operator_489224a7c60c2a6e": [
     "  Could not copy failure artifacts to status/log: ",
     {
@@ -7906,8 +8062,8 @@ const DataenUSrunner = `{
       "trust": "external"
     }
   ],
-  "runner.operator_4f719f0639145301": "Write pool intent file",
-  "runner.operator_4f741864aba4d1fd": "Create bare pool-intent repository",
+  "runner.operator_4f719f0639145301": "Write pool configuration file",
+  "runner.operator_4f741864aba4d1fd": "Create bare pool-configuration repository",
   "runner.operator_4f7e838f26c3bf54": [
     "[5/",
     {
@@ -7997,9 +8153,9 @@ const DataenUSrunner = `{
   ],
   "runner.operator_507f379237cefeeb": "  Runner:        could not be determined",
   "runner.operator_5080fa98b3c9b51c": [
-    "Could not open the intent store (",
+    "Could not open the configuration store (",
     {
-      "arg": "intentGitUrl",
+      "arg": "configurationGitUrl",
       "type": "detail",
       "trust": "external"
     },
@@ -8590,7 +8746,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    " (no baseline prereqs declared)"
+    " (no resource prerequisites declared)"
   ],
   "runner.operator_57f365ecb6da1349": [
     "Bridge DHCP identity pinned automatically: ",
@@ -8747,7 +8903,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "' desiredState set to '",
+    "' configuredState set to '",
     {
       "arg": "state",
       "type": "detail",
@@ -8811,7 +8967,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "'. Fix the intent (Remove-HostFromPool / Test-PoolIntent)."
+    "'. Fix the configuration (Remove-HostFromPool / Test-PoolConfiguration)."
   ],
   "runner.operator_5a198f884eed15db": "Resynchronize against the configured time source",
   "runner.operator_5a1fbbd3e27b9097": "On those paths a step burns its whole timeoutSeconds and reports 'pattern not found' while the saved frame still looks readable.",
@@ -8846,7 +9002,7 @@ const DataenUSrunner = `{
     }
   ],
   "runner.operator_5a576784a1b51113": "The Hyper-V virtual hard disk path could not be read, so nothing can be said about what filters it.",
-  "runner.operator_5a5cc38a18508944": "and pool-intent repository under the storage root are left exactly as they are;",
+  "runner.operator_5a5cc38a18508944": "and pool-configuration repository under the storage root are left exactly as they are;",
   "runner.operator_5acc85b3d32caa00": [
     "    [break] auto-resumed after ",
     {
@@ -9234,7 +9390,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "] pool desiredState=drain -- shutting down at the cycle boundary."
+    "] pool configuredState=drain -- shutting down at the cycle boundary."
   ],
   "runner.operator_5e254220c82bfee1": [
     "Virtual display ",
@@ -9282,9 +9438,9 @@ const DataenUSrunner = `{
     ")."
   ],
   "runner.operator_5e931217fd513630": [
-    "The pool-intent store (",
+    "The pool-configuration store (",
     {
-      "arg": "intentGitUrl",
+      "arg": "configurationGitUrl",
       "type": "detail",
       "trust": "external"
     },
@@ -10097,7 +10253,7 @@ const DataenUSrunner = `{
     ": no upstream tracking branch -- skipping ahead/behind."
   ],
   "runner.operator_68683a605e32c8b4": [
-    "Point /pool-intent.git at ",
+    "Point /pool-configuration.git at ",
     {
       "arg": "storePath",
       "type": "detail",
@@ -10185,7 +10341,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "' is the auto-enrollment target pool and must not carry repositories; ignoring them and keeping this host's own repositories. Fix the intent store (Test-PoolIntent.ps1 reports this)."
+    "' is the auto-enrollment target pool and must not carry repositories; ignoring them and keeping this host's own repositories. Fix the configuration store (Test-PoolConfiguration.ps1 reports this)."
   ],
   "runner.operator_69026426aeb39009": " Configuration Profile(s) detected on this Mac. If any profile",
   "runner.operator_69313d3714ef798c": "Write the lab-health record",
@@ -10257,9 +10413,9 @@ const DataenUSrunner = `{
     "' outside the recovery vocabulary; coercing to operator_intervention_required."
   ],
   "runner.operator_6a59b18694397dbf": [
-    "pool sync: could not reach the intent store (",
+    "pool sync: could not reach the configuration store (",
     {
-      "arg": "intentGitUrl",
+      "arg": "configurationGitUrl",
       "type": "detail",
       "trust": "external"
     },
@@ -11521,7 +11677,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "] pool desiredState=paused -- holding; re-checking intent shortly."
+    "] pool configuredState=paused -- holding; re-checking configuration shortly."
   ],
   "runner.operator_7b5b47de81fd0974": [
     "The canonical dashboard at ",
@@ -11688,9 +11844,9 @@ const DataenUSrunner = `{
   ],
   "runner.operator_7d1e9cbc4ff500f6": "Host requirements quick check passed.",
   "runner.operator_7d60c40c2ee69f28": [
-    "membership: could not open the intent store (",
+    "membership: could not open the configuration store (",
     {
-      "arg": "intentGitUrl",
+      "arg": "configurationGitUrl",
       "type": "detail",
       "trust": "external"
     },
@@ -11778,7 +11934,7 @@ const DataenUSrunner = `{
     },
     "] about to invoke inner pwsh"
   ],
-  "runner.operator_7dd0aa845d3a93ea": "No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.",
+  "runner.operator_7dd0aa845d3a93ea": "No configuration store URL. Pass -ConfigurationGitUrl or set pool.configurationGitUrl in test.config.yml.",
   "runner.operator_7dd6240c15d45471": "requires signed/self-contained bootstrap compatibility and package recovery gates from section 9; not yet built",
   "runner.operator_7def89dc77aaa4db": [
     "Could not write the pre-automation capture to ",
@@ -12045,9 +12201,9 @@ const DataenUSrunner = `{
     " commit(s). Pulling..."
   ],
   "runner.operator_811a9975fa1a2df7": [
-    "Open pool intent clone of ",
+    "Open pool configuration clone of ",
     {
-      "arg": "intentGitUrl",
+      "arg": "configurationGitUrl",
       "type": "detail",
       "trust": "external"
     }
@@ -12705,7 +12861,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "] pool desiredState=drain -- requesting shutdown at the cycle boundary."
+    "] pool configuredState=drain -- requesting shutdown at the cycle boundary."
   ],
   "runner.operator_8a8eb73bf7a84874": [
     "Register scheduled task '",
@@ -12768,9 +12924,9 @@ const DataenUSrunner = `{
     " minute(s)."
   ],
   "runner.operator_8b14250671a04bd9": [
-    "  intent repo : ",
+    "  configuration repo : ",
     {
-      "arg": "intentPath",
+      "arg": "configurationPath",
       "type": "detail",
       "trust": "external"
     }
@@ -13070,7 +13226,7 @@ const DataenUSrunner = `{
     },
     "..."
   ],
-  "runner.operator_8e8fecb6ffc7d3d6": "test.config.yml not found; pool.intentGitUrl was not seeded. Re-run after Sync-HostConfiguration.ps1 to join the lab pool.",
+  "runner.operator_8e8fecb6ffc7d3d6": "test.config.yml not found; pool.configurationGitUrl was not seeded. Re-run after Sync-HostConfiguration.ps1 to join the lab pool.",
   "runner.operator_8e99318e4c9efaea": [
     {
       "arg": "label",
@@ -13233,9 +13389,9 @@ const DataenUSrunner = `{
     "' -- treating as failure."
   ],
   "runner.operator_8fcfdcefeec6d978": [
-    "[2/3] pool-intent store seeded at ",
+    "[2/3] pool-configuration store seeded at ",
     {
-      "arg": "intentPath",
+      "arg": "configurationPath",
       "type": "detail",
       "trust": "external"
     }
@@ -13599,7 +13755,7 @@ const DataenUSrunner = `{
   ],
   "runner.operator_93d8c93707d2b133": "OCR-locate a pattern then click its on-screen rectangle.",
   "runner.operator_93d9eec8ac1ddbb1": "the command that reclaims that disk is printed at the end for you to run.",
-  "runner.operator_93ef9f12e66f06e9": "pool.enabled = false and pool.intentGitUrl is empty -- pool intent sync is off (optional). Populate intentGitUrl to pre-validate the store before enabling.",
+  "runner.operator_93ef9f12e66f06e9": "pool.enabled = false and pool.configurationGitUrl is empty -- pool configuration sync is off (optional). Populate configurationGitUrl to pre-validate the store before enabling.",
   "runner.operator_94158729db31acff": "could not enumerate both trees",
   "runner.operator_941d097378241f81": [
     "Could not write ",
@@ -14156,13 +14312,13 @@ const DataenUSrunner = `{
     }
   ],
   "runner.operator_9b3ed84eefe28021": [
-    "Chain prereq not found: ",
+    "Chain prerequisite not found: ",
     {
       "arg": "name",
       "type": "detail",
       "trust": "external"
     },
-    " (referenced via baseline of ",
+    " (referenced through resource in ",
     {
       "arg": "sequenceName",
       "type": "detail",
@@ -14957,9 +15113,9 @@ const DataenUSrunner = `{
     " -- should be a positive integer."
   ],
   "runner.operator_a57aeed80b0cf28a": [
-    "[2/3] pool-intent store already present at ",
+    "[2/3] pool-configuration store already present at ",
     {
-      "arg": "intentPath",
+      "arg": "configurationPath",
       "type": "detail",
       "trust": "external"
     },
@@ -15140,9 +15296,9 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "' already exists (desiredState=",
+    "' already exists (configuredState=",
     {
-      "arg": "desiredState",
+      "arg": "configuredState",
       "type": "detail",
       "trust": "external"
     },
@@ -15663,7 +15819,7 @@ const DataenUSrunner = `{
   ],
   "runner.operator_af02ae2f4290672d": "The hosts entries were not written, so the networkStorage names still resolve to their previous addresses and the lab's shares will not mount. Re-run this sync once the elevation succeeds, or add the entries by hand.",
   "runner.operator_af08cdf0a2ea5eb0": "pool registry: this aggregator predates the per-service listing; only the areas it resolves are reported. Rebuild the caching-proxy service VM to see refused registrations here.",
-  "runner.operator_af0aca34836ac8bb": "pool.enabled is true but pool.intentGitUrl is empty -- the runner cannot pull intent. Set the LAN bare-repo URL. See docs/pool-storage.md.",
+  "runner.operator_af0aca34836ac8bb": "pool.enabled is true but pool.configurationGitUrl is empty -- the runner cannot pull configuration. Set the LAN bare-repo URL. See docs/pool-storage.md.",
   "runner.operator_af33f0960f92ab46": [
     {
       "arg": "phaseLabel",
@@ -15797,7 +15953,7 @@ const DataenUSrunner = `{
   ],
   "runner.operator_b102c44bb6764306": "the host has started since the last attempt",
   "runner.operator_b1165d978837552e": "Framework / project staleness",
-  "runner.operator_b11e32378aff0234": "Pool intent: all files schema-valid.",
+  "runner.operator_b11e32378aff0234": "Pool configuration: all files schema-valid.",
   "runner.operator_b12fd41a06f7b780": [
     "Record address change to ",
     {
@@ -16181,7 +16337,7 @@ const DataenUSrunner = `{
     " Start-GuestOS: PASS"
   ],
   "runner.operator_b5e4a53c200e2211": [
-    "pool.intentGitUrl pointed at a previous caching-proxy address (",
+    "pool.configurationGitUrl pointed at a previous caching-proxy address (",
     {
       "arg": "existingUrl",
       "type": "detail",
@@ -16189,7 +16345,7 @@ const DataenUSrunner = `{
     },
     "); re-pointing it at ",
     {
-      "arg": "intentUrl",
+      "arg": "configurationUrl",
       "type": "detail",
       "trust": "external"
     },
@@ -16272,7 +16428,7 @@ const DataenUSrunner = `{
     },
     "'; remove it from System Settings > Users & Groups."
   ],
-  "runner.operator_b752ee38cb8d2c81": "membership: no pool.intentGitUrl (and no -IntentGitUrl) -- removed the NAS records only; pool memberships were not touched.",
+  "runner.operator_b752ee38cb8d2c81": "membership: no pool.configurationGitUrl (and no -ConfigurationGitUrl) -- removed the NAS records only; pool memberships were not touched.",
   "runner.operator_b767a43bc1c25bbd": [
     "[outer cycle ",
     {
@@ -16353,7 +16509,7 @@ const DataenUSrunner = `{
   ],
   "runner.operator_b8044f428430e5d8": "Remove stale SMB mapping",
   "runner.operator_b85e68a82dd79259": [
-    "Pool intent: ",
+    "Pool configuration: ",
     {
       "arg": "failures",
       "type": "detail",
@@ -16391,9 +16547,9 @@ const DataenUSrunner = `{
     "'"
   ],
   "runner.operator_b8e126357db609a2": [
-    "Seeded a new pool-intent store at ",
+    "Seeded a new pool-configuration store at ",
     {
-      "arg": "intentGitUrl",
+      "arg": "configurationGitUrl",
       "type": "detail",
       "trust": "external"
     },
@@ -17843,7 +17999,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "]: intent store '",
+    "]: configuration store '",
     {
       "arg": "plUrl",
       "type": "detail",
@@ -17852,7 +18008,7 @@ const DataenUSrunner = `{
     "'."
   ],
   "runner.operator_cd0c45e03e65ccc2": "  A prior host identity matches this hardware:",
-  "runner.operator_cd4a2a8be6258515": "pool (intent sync)",
+  "runner.operator_cd4a2a8be6258515": "pool (configuration sync)",
   "runner.operator_cd4f83e57e569958": [
     "Register-SequenceAction '",
     {
@@ -19638,13 +19794,13 @@ const DataenUSrunner = `{
     "' to the console and watching for it to be consumed."
   ],
   "runner.operator_e178d69f96491585": [
-    "Joined the lab pool: pool.enabled = true, pool.intentGitUrl = ",
+    "Joined the lab pool: pool.enabled = true, pool.configurationGitUrl = ",
     {
-      "arg": "intentUrl",
+      "arg": "configurationUrl",
       "type": "detail",
       "trust": "external"
     },
-    ". This host now pulls pool intent read-only each cycle."
+    ". This host now pulls pool configuration read-only each cycle."
   ],
   "runner.operator_e1a14bbdcff651de": [
     "[outer cycle ",
@@ -19857,7 +20013,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "' is neither a guest sequence (baseline + steps) nor a host action (host:)."
+    "' is neither a guest sequence (resource prerequisites and steps) nor a host action (host:)."
   ],
   "runner.operator_e2e9e0a96208388d": "Screen saver idleTime is unset (currentHost) -- macOS default applies (~20 min).",
   "runner.operator_e2f867223580bc4d": "Storage filter stack (guest throughput)",
@@ -20391,7 +20547,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "] pool desiredState=drain -- stopping (no further cycles)."
+    "] pool configuredState=drain -- stopping (no further cycles)."
   ],
   "runner.operator_eb8238e1e37a921c": [
     "[outer cycle ",
@@ -20838,7 +20994,7 @@ const DataenUSrunner = `{
     "' in /etc/hosts."
   ],
   "runner.operator_efd4f169b13d993c": [
-    "Commit + push pool intent: ",
+    "Commit + push pool configuration: ",
     {
       "arg": "message",
       "type": "detail",
@@ -21747,7 +21903,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "' is not in the canonical adjacency map; recording anyway so the drift is visible."
+    "' is not in the canonical adjacency map; recording anyway so the unexpected transition is visible."
   ],
   "runner.operator_fad7deaf725b8e6e": "Stop stale runner + clear orphan VMs",
   "runner.operator_fad91a94e9edb38a": [
@@ -22015,7 +22171,7 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    ")  desiredState=",
+    ")  configuredState=",
     {
       "arg": "run",
       "type": "detail",
@@ -22160,6 +22316,7 @@ const DataenUSrunner = `{
     },
     " -- should be 0 (disabled) or a positive integer."
   ],
+  "runner.outer_attempt_failed": "runner attempt failed",
   "runner.outer_log_runtime_dir_unset": [
     "Write-OuterLog: YURUNA_RUNTIME_DIR is not set, so outer.log cannot be located; this line and later lines are not written to it: ",
     {
@@ -22168,9 +22325,9 @@ const DataenUSrunner = `{
       "trust": "external"
     }
   ],
-  "runner.pool_intent_library_removed": "Removed test-sets.yml from the intent store; nothing reads it.",
-  "runner.pool_intent_schema_already_current": [
-    "Pool intent is already at schemaVersion ",
+  "runner.pool_configuration_library_removed": "Removed test-sets.yml from the configuration store; nothing reads it.",
+  "runner.pool_configuration_schema_already_current": [
+    "Pool configuration is already at schemaVersion ",
     {
       "arg": "version",
       "type": "integer",
@@ -22178,8 +22335,8 @@ const DataenUSrunner = `{
     },
     "; nothing to migrate."
   ],
-  "runner.pool_intent_schema_migrated": [
-    "Pool intent migrated from schemaVersion ",
+  "runner.pool_configuration_schema_migrated": [
+    "Pool configuration migrated from schemaVersion ",
     {
       "arg": "from",
       "type": "integer",
@@ -22193,7 +22350,7 @@ const DataenUSrunner = `{
     },
     ", committed and pushed."
   ],
-  "runner.pool_intent_schema_outdated": [
+  "runner.pool_configuration_schema_outdated": [
     "FAIL  schema-version: pools.yml is schemaVersion ",
     {
       "arg": "found",
@@ -22206,9 +22363,9 @@ const DataenUSrunner = `{
       "type": "integer",
       "trust": "internal"
     },
-    ". Run test/pool/Update-PoolIntentSchema.ps1 once to migrate the intent store."
+    ". Run test/pool/Update-PoolConfigurationSchema.ps1 once to migrate the configuration store."
   ],
-  "runner.pool_intent_schema_unsupported": [
+  "runner.pool_configuration_schema_unsupported": [
     "pools.yml is schemaVersion ",
     {
       "arg": "version",
@@ -22221,7 +22378,7 @@ const DataenUSrunner = `{
       "type": "integer",
       "trust": "internal"
     },
-    "). Update this checkout before changing pool intent."
+    "). Update this checkout before changing pool configuration."
   ],
   "runner.pool_repositories_cleared": [
     "Repositories cleared on pool '",

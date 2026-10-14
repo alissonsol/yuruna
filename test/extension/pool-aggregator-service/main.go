@@ -339,6 +339,14 @@ type hostStatus struct {
 		FailureClass string `json:"failureClass"`
 		Severity     string `json:"severity"`
 	} `json:"lastFailure"`
+	// RunnerFault describes an attempt that failed outside a completed cycle.
+	// Keep the public snapshot free of transcripts, paths and diagnostic text.
+	RunnerFault *runnerFault `json:"runnerFault,omitempty"`
+}
+
+type runnerFault struct {
+	FailureClass string `json:"failureClass"`
+	Severity     string `json:"severity"`
 }
 
 type cycleVerdict struct {
@@ -987,6 +995,9 @@ func (hv *hostView) statusLabel() string {
 	}
 	if hv.Status == nil {
 		return "idle"
+	}
+	if hv.Status.RunnerFault != nil && hv.Status.RunnerFault.FailureClass != "" {
+		return "fail"
 	}
 	if hv.Status.StepPaused {
 		// Only the current-action sidecar separates "parked at the boundary" from
@@ -1657,7 +1668,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.10.11.1"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.10.14"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -6552,7 +6563,7 @@ func main() {
 	mux.HandleFunc(routeExtensionHosts, state.handleExtensionHosts)
 	// /api/v1/pool-stats: per-HOST terminal-cycle counts over a preset window,
 	// the numbers behind the pool-control board's cards. Per-host, not per-pool,
-	// because membership lives in the intent store this service never reads --
+	// because membership lives in the configuration store this service never reads --
 	// the control service does the join. Read-only and open, like pool-status.
 	mux.HandleFunc("/api/v1/pool-stats", state.handlePoolStats)
 	mux.HandleFunc(routePoolIncidents, state.handlePoolIncidents)

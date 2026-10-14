@@ -24,7 +24,7 @@ then walks the cycle plan resolved from `test.runner.yml` -- creating a fresh
 VM, driving its sequences, and recording results. Concretely, each cycle:
 
 1. `git pull` the framework repo.
-2. Reconcile the pool intent when the host belongs to a pool: `drain` stops
+2. Reconcile the pool configuration when the host belongs to a pool: `drain` stops
    the runner at this cycle boundary, `paused` holds without spawning.
 3. Wipe last cycle's `inner.pid` / `inner.start` / `runner.stepHeartbeat` /
    `runner.phase` / `last_failure.json` / `break-active.json`.
@@ -405,7 +405,7 @@ transition table live in
 | Watchdog armed | `cycle-start -> in-cycle` |
 | Inner exited 0 | `in-cycle -> cycle-end -> idle` |
 | Inner exited non-zero | `in-cycle -> fault` |
-| Pool `desiredState=paused` (hold) | `cycle-start -> paused`, then `paused -> cycle-start` on the ~30s intent re-poll |
+| Pool `configuredState=paused` (hold) | `cycle-start -> paused`, then `paused -> cycle-start` on the ~30s configuration re-poll |
 | Entering failure-pause | `fault -> paused` |
 | Pause broke out | `paused -> idle` |
 | Host refresh holds the dispatch or the cycle start | none: the cycle changes nothing |
@@ -532,7 +532,7 @@ Six sites read it, each before anything it guards can change:
 | Site | Process | Guards |
 |---|---|---|
 | Dispatch | loop | Spawning the cycle process at all |
-| Cycle start | cycle | The `git pull`, the pool-intent sync and the first state transition |
+| Cycle start | cycle | The `git pull`, the pool-configuration sync and the first state transition |
 | Before the wipe | cycle | The pre-spawn wipe and the inner spawn, which can be reached after the gate closed during the pull |
 | Cycle start | inner | The per-cycle host-condition re-check and everything after it |
 | Before the pull | inner | The auth vault, the status reset and the framework pull |
@@ -575,7 +575,7 @@ which runner receives it:
   dispatch is the preflight chain.
 
 The gate admits only the preflight chain of the designated runner. A preflight
-cycle skips the pull and the pool-intent sync, wipes only the four files named
+cycle skips the pull and the pool-configuration sync, wipes only the four files named
 under [Pre-spawn cleanup ordering](#pre-spawn-cleanup-ordering), and carries the
 token to its inner in the environment (`YURUNA_REFRESH_PREFLIGHT`,
 `YURUNA_REFRESH_HANDOFF_TOKEN`). The preflight inner is bounded (120 seconds)
@@ -1034,8 +1034,8 @@ paused       -> idle, cycle-start
 ```
 
 The `cycle-start <-> paused` pair is the healthy pool-hold loop: when a
-pulled pool intent has `desiredState=paused`, a started cycle moves to
-`paused`, and each ~30s intent re-poll re-enters `cycle-start`.
+pulled pool configuration has `configuredState=paused`, a started cycle moves to
+`paused`, and each ~30s configuration re-poll re-enters `cycle-start`.
 
 The validator never rejects -- an unrecognized pair logs a
 `Write-Warning` and writes the new state anyway. Same contract as the
@@ -1099,6 +1099,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

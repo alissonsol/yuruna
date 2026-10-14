@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 422d4ab8-65fc-c85d-47c1-57e5e7f4dddd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -335,6 +335,7 @@
     'status.config_field_chardelayms' = 'השהיה בין תווים באלפיות שנייה (charDelayMs)'
     'status.config_field_cleanupvmnameprefixes' = 'קידומות שמות של מכונות וירטואליות לניקוי (cleanupVmNamePrefixes)'
     'status.config_field_configservice' = 'שירות תצורה (configService)'
+    'status.config_field_configurationgiturl' = 'כתובת URL של Git עבור הכוונה'
     'status.config_field_cycledelayseconds' = 'השהיה בין מחזורים בשניות (cycleDelaySeconds)'
     'status.config_field_discoveryintervalseconds' = 'מרווח גילוי בשניות (discoveryIntervalSeconds)'
     'status.config_field_downloadagentservice' = 'שירות סוכן הורדה (downloadAgentService)'
@@ -346,7 +347,6 @@
     'status.config_field_ghtoken' = 'אסימון GitHub (ghToken)'
     'status.config_field_guestquarantine' = 'בידוד אורח (guestQuarantine)'
     'status.config_field_guestsequence' = 'רצף אורחים (guestSequence)'
-    'status.config_field_intentgiturl' = 'כתובת URL של Git עבור הכוונה'
     'status.config_field_labhealth' = 'תקינות המעבדה (labHealth)'
     'status.config_field_language' = 'שפה (language)'
     'status.config_field_localclonepath' = 'נתיב עותק מקומי (localClonePath)'
@@ -1411,6 +1411,32 @@
         ' כדי להתחיל מחזור בדיקה.'
     )
     'status.run_start_testrunner_ps1_to_start_a_test_cycle' = 'הריצו את ⁦Start-TestRunner.ps1⁩ כדי להתחיל מחזור בדיקה.'
+    'status.runner_attempt_failed' = @(
+        'ניסיון ההרצה נכשל: '
+        @{
+            'arg' = 'failureClass'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'status.runner_attempt_started' = @(
+        'תחילת הניסיון: '
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'status.runner_failure_record' = 'רשומת הכשל'
+    'status.runner_failure_transcript' = 'תמליל בדיקת התצורה'
+    'status.runner_framework_commit' = @(
+        'קומיט של המסגרת: '
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'status.save' = 'שמרו'
     'status.save_and_start_cycle' = 'שמרו והתחילו מחזור'
     'status.save_and_start_cycle_failed_value1' = @(

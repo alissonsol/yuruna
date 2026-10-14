@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4230f2fc-1a17-4a20-b766-368eff24c01c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,8 +51,7 @@ BeforeAll {
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 $script:seedLines = Get-Content -LiteralPath (Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.base.user-data')
 $script:guestPaths = @(
-    (Join-Path $repoRoot 'guest/ubuntu.server.24/ubuntu.server.24.k8s.sh')
-    (Join-Path $repoRoot 'guest/ubuntu.server.26/ubuntu.server.26.k8s.sh')
+    (Join-Path $repoRoot 'guest/shared/ubuntu.k8s.sh')
 )
 
 # The body of one write_files entry. The seed writes each as "  - path: <p>",
@@ -203,9 +202,13 @@ exit 0
 '@
 
 function Invoke-Exporter {
-    param([string]$ManifestCode, [string]$ManifestSeconds, [string[]]$Rows)
+    param([string]$ManifestCode, [string]$ManifestSeconds, [string[]]$Rows, [hashtable]$SelfTest)
     $files = @{ 'www/.keep' = '' }
     if ($Rows) { $files['state/prewarm-rows.tsv'] = ($Rows -join "`n") + "`n" }
+    if ($SelfTest) {
+        $files['state/zot-selftest.prom'] = $SelfTest.Prom
+        $files['state/zot-selftest.txt'] = $SelfTest.Text
+    }
     return Invoke-StubbedBash -Script $script:exporter -CurlStub $script:exporterStub -Files $files `
         -Environment @{ MANIFEST_CODE = $ManifestCode; MANIFEST_SECONDS = $ManifestSeconds }
 }
@@ -274,6 +277,41 @@ function Get-DiagnosticShortfall {
     # would hand back an array whose one element is that array.
     $run = [scriptblock]::Create($script:residencyReader + "`nreturn , (Get-RegistryResidencyShortfall -Reading (Get-PrometheusReading -Text `$args[0]))")
     return , (& $run $MetricText)
+}
+
+# The diagnostic's zot verdict reader, with the message lookup stubbed to
+# '<key>|<argument>=<value>;...' so a test sees which message and what it names.
+$script:zotProblemReader = (@('Get-PrometheusReading', 'Get-PrometheusValue', 'Get-ZotSelfTestProblem') | ForEach-Object {
+    $name = $_
+    $diagnosticAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true).Extent.Text
+}) -join "`n"
+function Get-DiagnosticZotProblem {
+    param([string]$MetricText)
+    $run = [scriptblock]::Create($script:zotProblemReader + @'
+
+function Format-YurunaOperatorMessage {
+    param([string]$Key, [hashtable]$Arguments)
+    "$Key|" + (($Arguments.Keys | Sort-Object | ForEach-Object { "$_=$($Arguments[$_])" }) -join ';')
+}
+return , (Get-ZotSelfTestProblem -Reading (Get-PrometheusReading -Text $args[0]) -HealthUrl 'http://192.0.2.7/cache-health')
+'@)
+    return , (& $run $MetricText)
+}
+# The series zot-sync-selftest.py writes, as the exporter passes them on.
+$script:selfTestProm = @{
+    incompatible = "yuruna_zot_selftest_available 1`nyuruna_zot_selftest_ok 0`nyuruna_zot_selftest_verdict{verdict=`"incompatible`"} 1`n" +
+        "yuruna_zot_selftest_release_info{version=`"v2.1.23`",pinned=`"v2.1.23`",override=`"0`"} 1`n" +
+        "yuruna_zot_selftest_probe_failed{image=`"registry.k8s.io/pause:3.10.2`",stage=`"tag`",status=`"503`",outcome=`"rejected`",compat=`"docker2s2`"} 1`n" +
+        "yuruna_zot_selftest_probe_failed{image=`"mcr.microsoft.com/dotnet/runtime-deps:10.0`",stage=`"tag`",status=`"503`",outcome=`"rejected`",compat=`"docker2s2`"} 1`n" +
+        "yuruna_zot_selftest_probe_failed{image=`"quay.io/x:1`",stage=`"tag`",status=`"0`",outcome=`"unanswered`",compat=`"`"} 1`n"
+    unexplained = "yuruna_zot_selftest_available 1`nyuruna_zot_selftest_ok 0`nyuruna_zot_selftest_verdict{verdict=`"incompatible`"} 1`n" +
+        "yuruna_zot_selftest_release_info{version=`"v2.1.23`",pinned=`"v2.1.22`",override=`"1`"} 1`n" +
+        "yuruna_zot_selftest_probe_failed{image=`"ghcr.io/flannel-io/flannel:v0.28.10`",stage=`"config blob`",status=`"500`",outcome=`"rejected`",compat=`"`"} 1`n"
+    repaired = "yuruna_zot_selftest_available 1`nyuruna_zot_selftest_ok 1`nyuruna_zot_selftest_verdict{verdict=`"healed`"} 1`n" +
+        "yuruna_zot_selftest_release_info{version=`"v2.1.23`",pinned=`"v2.1.23`",override=`"0`"} 1`n" +
+        "yuruna_zot_selftest_compat_added{mode=`"docker2s2`"} 1`n"
+    ok = "yuruna_zot_selftest_available 1`nyuruna_zot_selftest_ok 1`nyuruna_zot_selftest_verdict{verdict=`"ok`"} 1`n"
+    unanswered = "yuruna_zot_selftest_available 1`nyuruna_zot_selftest_ok 0`nyuruna_zot_selftest_verdict{verdict=`"unanswered`"} 1`n"
 }
 }
 
@@ -454,5 +492,107 @@ Describe 'A guest reports a refused control plane as refused' -Skip:(-not $scrip
             $run.ExitCode | Should -Be 0 -Because $path
             $run.Output | Should -Match '== control-plane: 3 of 3 images cached ==' -Because $path
         }
+    }
+    It "shows the cache's verdict on its own zot release, and its fixes, next to the refusal" {
+        $stub = "#!/bin/bash`nfor a in `"`$@`"; do case `"`$a`" in */cache-health) cat '@TMP@/cache-health'; exit 0 ;; esac; done`n" +
+            "printf '%s' `"`$STUB_CODE`"`nexit `"`$STUB_RC`"`n"
+        $page = "zot /v2/ liveness            : up`n" +
+            "zot sync self-test           : INCOMPATIBLE -- zot v9.9.9 refused 2 of 4 probe images`n" +
+            "  registry.k8s.io/pause:3.10.2: HTTP 503 for the tag; zot's log: docker media type requires http.compat docker2s2`n" +
+            "    1. Let the self-test add what zot asks for, restart zot, and test again:`n`n" +
+            "Docker Hub budget            : 100 of 100 left`n"
+        foreach ($path in $script:guestPaths) {
+            $body = "set -euo pipefail`nCACHE_HOST=cache.invalid`n" + (Get-GuestWarmPass -Path $path)
+            $run = Invoke-StubbedBash -Script $body -CurlStub $stub -Files @{ 'cache-health' = $page } `
+                -Environment @{ STUB_CODE = '503'; STUB_RC = '0'; YURUNA_IMAGE_WARM_ATTEMPTS = '1' }
+            $run.ExitCode | Should -Be 1 -Because $path
+            $run.Output | Should -Match "The cache's own verdict on its zot release" -Because $path
+            $run.Output | Should -Match 'zot sync self-test\s+: INCOMPATIBLE -- zot v9\.9\.9' -Because $path
+            $run.Output | Should -Match 'requires http\.compat docker2s2' -Because $path
+            $run.Output | Should -Match 'Let the self-test add what zot asks for' -Because $path
+            $run.Output | Should -Not -Match 'Docker Hub budget' -Because $path
+        }
+    }
+}
+
+Describe 'The cache publishes its zot sync self-test' -Skip:(-not $script:CanRunBash) {
+    It 'puts the verdict right under liveness on the health page, and its series in zot-meta' {
+        $prom = "# HELP yuruna_zot_selftest_available x`nyuruna_zot_selftest_available 1`nyuruna_zot_selftest_ok 0`n" +
+            "yuruna_zot_selftest_probe_failed{image=`"registry.k8s.io/pause:3.10.2`",stage=`"tag`",status=`"503`",outcome=`"rejected`",compat=`"docker2s2`"} 1`n"
+        $text = "zot sync self-test           : INCOMPATIBLE -- zot v9.9.9 refused 1 of 4 probe images`n  sudo /usr/local/bin/zot-sync-selftest.py --heal`n"
+        $run = Invoke-Exporter -ManifestCode '200' -ManifestSeconds '0.100' -SelfTest @{ Prom = $prom; Text = $text }
+        $run.Meta | Should -Match '(?m)^yuruna_zot_selftest_ok 0$'
+        $run.Meta | Should -Match 'compat="docker2s2"'
+        $page = @($run.Page -split "`n")
+        $liveness = [array]::IndexOf(@($page | ForEach-Object { $_ -match '^zot /v2/ liveness' }), $true)
+        $page[$liveness + 1] | Should -Match '^zot sync self-test\s+: INCOMPATIBLE'
+        $page[$liveness + 2] | Should -Match 'zot-sync-selftest\.py --heal'
+    }
+    It 'says the self-test has not run yet when it has no result' {
+        $run = Invoke-Exporter -ManifestCode '200' -ManifestSeconds '0.100'
+        $run.Meta | Should -Match '(?m)^yuruna_zot_selftest_available 0$'
+        $run.Page | Should -Match 'zot sync self-test\s+: not run yet'
+    }
+}
+
+Describe 'The sync self-test names an incompatible zot release and how to fix it' {
+    It 'passes its suite against a stand-in registry, and the record qualifies the seed' {
+        # A candidate must answer --version: the Windows Store alias for python3
+        # resolves as an application yet exits 9009 without running anything.
+        $python = @('python3', 'python') | ForEach-Object {
+                Get-Command $_ -CommandType Application -ErrorAction SilentlyContinue
+            } | Where-Object {
+                $version = & $_.Source --version 2>&1
+                $LASTEXITCODE -eq 0 -and "$version" -match '^Python 3\.([89]|1\d)'
+            } | Select-Object -First 1
+        if (-not $python) { Set-ItResult -Skipped -Because 'Python 3.8 or newer is unavailable on this host.'; return }
+        $suite = Join-Path $repoRoot 'host/vmconfig/tests/test_zot_selftest.py'
+        $output = (& $python.Source $suite -v 2>&1) -join "`n"
+        $LASTEXITCODE | Should -Be 0 -Because $output
+        $output | Should -Match 'Ran 13 tests'
+    }
+}
+
+Describe 'The diagnostic names an incompatible zot release, and the fixes, in its problems summary' -Skip:(-not $script:CanRunBash) {
+    It 'reads the verdict the exporter passes on, and names the release, the image and the mode zot asks for' {
+        $run = Invoke-Exporter -ManifestCode '200' -ManifestSeconds '0.050' -SelfTest @{ Prom = $script:selfTestProm.incompatible; Text = '' }
+        $found = Get-DiagnosticZotProblem -MetricText $run.Meta
+        $found.Count | Should -Be 1
+        $found[0].Class | Should -Be 'REGISTRY.zot-incompatible'
+        $found[0].Message | Should -Be ('automation.system_diagnostic_registry_zot_incompatible|healthUrl=http://192.0.2.7/cache-health;' +
+            'image=registry.k8s.io/pause:3.10.2;modes=docker2s2;refused=2;status=503;version=v2.1.23')
+    }
+    It 'falls back to the health page when zot named no mode' {
+        $found = Get-DiagnosticZotProblem -MetricText $script:selfTestProm.unexplained
+        $found[0].Class | Should -Be 'REGISTRY.zot-incompatible'
+        $found[0].Message | Should -BeLike 'automation.system_diagnostic_registry_zot_incompatible_unexplained|*image=ghcr.io/flannel-io/flannel:v0.28.10;refused=1;status=500;version=v2.1.23'
+    }
+    It 'reports a repaired configuration so a release ships the mode' {
+        $found = Get-DiagnosticZotProblem -MetricText $script:selfTestProm.repaired
+        $found[0].Class | Should -Be 'REGISTRY.zot-compat-repaired'
+        $found[0].Message | Should -BeLike '*modes=docker2s2;version=v2.1.23'
+    }
+    It 'raises nothing for a release that syncs, a run without a verdict, or a cache without the self-test' {
+        foreach ($text in @($script:selfTestProm.ok, $script:selfTestProm.unanswered, 'yuruna_zot_selftest_available 0', '')) {
+            $found = Get-DiagnosticZotProblem -MetricText $text
+            $found.Count | Should -Be 0
+        }
+    }
+    It 'tells the reader every fix that needs no code change, in English and in each supported locale' {
+        $catalogs = Join-Path $repoRoot 'globalization/catalogs'
+        $english = (Get-Content -Raw (Join-Path $catalogs 'en-US/automation.json') | ConvertFrom-Json -AsHashtable).messages
+        foreach ($key in 'automation.system_diagnostic_registry_zot_incompatible', 'automation.system_diagnostic_registry_zot_incompatible_unexplained') {
+            $message = $english[$key].message
+            foreach ($fix in 'zot-sync-selftest.py', 'vmStart.cachingProxyZotVersion', 'vmStart.cachingProxyZotSha256', 'test/test.config.yml', 'Yuruna') {
+                $message | Should -Match ([regex]::Escape($fix)) -Because "$key names that fix"
+            }
+            foreach ($locale in 'pt-BR', 'he-IL', 'zh-CN') {
+                $translated = (Get-Content -Raw (Join-Path $catalogs "$locale/automation.json") | ConvertFrom-Json -AsHashtable).messages[$key].message
+                foreach ($literal in 'zot-sync-selftest.py', 'vmStart.cachingProxyZotVersion', 'vmStart.cachingProxyZotSha256', '{healthUrl}') {
+                    $translated | Should -Match ([regex]::Escape($literal)) -Because "the $locale text keeps what the operator types"
+                }
+            }
+        }
+        $english['automation.system_diagnostic_registry_zot_incompatible'].message | Should -Match '--heal'
     }
 }

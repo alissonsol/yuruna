@@ -393,7 +393,7 @@ applies (`testCycle.preambleTimeoutSeconds` while `runner.phase` exists,
 | `liveness` | Meaning |
 | --- | --- |
 | `idle` | No runner is alive. Deliberately not `ok`: with nothing running, nothing can be progressing. |
-| `paused` | The runner has declared a hold -- the pause after a failed cycle, or a pool `desiredState=paused`. No inner runner exists, so the step marker is not a progress signal. |
+| `paused` | The runner has declared a hold -- the pause after a failed cycle, or a pool `configuredState=paused`. No inner runner exists, so the step marker is not a progress signal. |
 | `unknown` | A runner is alive but there is no step marker to age. |
 | `stalled` | The step marker is older than `boundSeconds`. |
 | `slow` | The step marker is past half of `boundSeconds`. |
@@ -403,6 +403,17 @@ applies (`testCycle.preambleTimeoutSeconds` while `runner.phase` exists,
 `runner.state.json`, so the `paused` verdict can be checked against it.
 `phase` reports `runner.phase`, which is null outside the inner runner's
 preamble.
+
+**`test/service/Start-StatusService.ps1`.**
+
+Runner-liveness detection for /control/runner-status (the start-cycle worker
+re-reads runner state itself, after its cleanup). Delegates the runner.pid + runner.start
+StartTime identity check (with the cmdline regex fallback) to
+Get-RunnerInstanceState so that logic lives in one tested place; a prior
+occupant classified as anything other than this-process/absent/stale counts
+as running. -QuietErrors routes the check's own diagnostics to the debug
+stream; the default path forwards them to server.err, matching each caller's
+prior behavior.
 
 <a id="42185271-000c"></a>
 
@@ -452,6 +463,21 @@ aggregator reads this route through a 4096-byte reader and refuses a larger answ
 
 The capability is recomputed on every request from two small files, with no native
 command; the remote state is cached for 30 seconds.
+
+**`test/service/Start-StatusService.ps1`.**
+
+Read-only and always open -- deliberately NOT in the CSRF lists
+above: it changes nothing, and the pool-aggregator service must be
+able to ask before it holds anything to authenticate with. Answers
+{ tokenConfigured, tokenTag, verifier, utcNow }: the tag is a
+non-secret HMAC naming WHICH internal authentication key this host holds
+(Get-YurunaControlTag), so the aggregator can compare it with the
+token it mints proofs from and tell "enrolled here" from "enrolled
+against a proxy that has since been rebuilt" -- the difference
+between reasons 3 and 4 in docs/control-routes.md, which is
+otherwise invisible until a button 403s. utcNow lets the same
+comparison catch the clock skew that expires a fresh proof.
+See docs/control-routes.md (GET /control/control-status).
 
 <a id="42185271-0011"></a>
 
@@ -584,6 +610,19 @@ Progress is `runtime/start-cycle.state.json`: `operationId`, `generation`, `phas
 `internal_error`). The worker's streams and the runner's stay in the host's private state
 directory, not under `runtime/`.
 
+**`test/service/Start-StatusService.ps1`.**
+
+POST /control/start-cycle once the method and route checks passed: secure
+the private worker directory, reserve the host under the short admission
+lock, launch the detached worker and record the launch. Nothing else is
+written here. A reservation carries a pending launch that names this
+listener, and reservations are cleared by identity, never by age: a
+pending one left behind by a live listener would make every later
+start-cycle and every refresh busy until the listener restarts. So once the
+host is reserved, every way out records started or launch-failed (which
+removes the reservation) in the finally, and a record that does not commit
+is tried once more. A throw still reaches the dispatcher's 500 reply.
+
 <a id="42185271-0013"></a>
 
 ## GET /control/host-diagnostic
@@ -700,6 +739,16 @@ directory lookup.
 The outer runner prints one of these per finished cycle, e.g.
 `Cycle 004062 - FAIL: http://192.168.7.101:8080/cycle/004062`.
 
+**`test/service/Start-StatusService.ps1`.**
+
+Short, shareable per-cycle link: /cycle/<number> -> that cycle's
+HTML transcript. The transcript's real path carries the cycle's
+timestamp and host id, which makes it far too long to paste into
+a message; the number is the only part of it an operator reads off
+a console line or a dashboard row. Redirecting rather than serving
+in place keeps the relative links INSIDE the transcript (per-guest
+folders, failure-screen dirs) resolving against the cycle folder.
+
 <a id="42185271-000f"></a>
 
 ## Sharing one cycle: `/archive/<cycle-folder>.zip` and `share-cycle.html`
@@ -799,6 +848,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

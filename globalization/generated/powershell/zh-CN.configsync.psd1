@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4298f408-0d55-233d-18ab-45d061f819d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -494,7 +494,7 @@
         }
         '）。'
     )
-    'configsync.operator_9e1f86637c4a7e09' = '已留空（默认为<runtime>/pool-intent）'
+    'configsync.operator_9e1f86637c4a7e09' = '保留为空（默认为 <runtime>/pool-configuration）'
     'configsync.operator_9e44a801c5e38eb2' = ' （已丢弃，当前拼写形式已存在）'
     'configsync.operator_a01d26f897759fcf' = @(
         @{
@@ -505,13 +505,13 @@
         '未提供可供统一使用的凭据'
     )
     'configsync.operator_a07da31688eb8071' = @(
-        'Sync-HostConfiguration：在-NonInteractive模式下拒绝从'
+        'Sync-HostConfiguration：在 -NonInteractive 模式下拒绝从 '
         @{
             'arg' = 'referenceHost'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '复制过时的配置。请使用-AllowStaleReference重新运行以接受配置偏差，或先将参考宿主机更新到最新状态。'
+        ' 复制过时的配置。请使用 -AllowStaleReference 重新运行以接受过时的配置，或先更新参考宿主机。'
     )
     'configsync.operator_a610cd0fd716e5f9' = 'Sync-HostConfiguration：不支持的平台。'
     'configsync.operator_a693215e036db1c5' = @(

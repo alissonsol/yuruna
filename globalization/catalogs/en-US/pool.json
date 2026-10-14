@@ -302,7 +302,7 @@
         }
       }
     },
-    "pool.could_not_load_pool_intent_value1": {
+    "pool.could_not_load_pool_configuration_value1": {
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "tombstone"
     },
@@ -477,7 +477,7 @@
       }
     },
     "pool.diagnostic_install_git": {
-      "message": "The pool-admin CLIs clone and push pool intent; install git in the guest.",
+      "message": "The pool-admin CLIs clone and push pool configuration; install git in the guest.",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active"
     },
@@ -486,27 +486,27 @@
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active"
     },
-    "pool.diagnostic_intent_absent": {
-      "message": "no intent URL to check",
+    "pool.diagnostic_configuration_absent": {
+      "message": "no configuration URL to check",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active"
     },
-    "pool.diagnostic_intent_configure": {
-      "message": "The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_INTENT_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.intentGitUrl in test/test.config.yml before rebuilding.",
+    "pool.diagnostic_configuration_configure": {
+      "message": "The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_CONFIGURATION_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.configurationGitUrl in test/test.config.yml before rebuilding.",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active"
     },
-    "pool.diagnostic_intent_empty": {
-      "message": "empty: no intent store resolved from the launch flag or the config file",
+    "pool.diagnostic_configuration_empty": {
+      "message": "empty: no configuration store resolved from the launch flag or the config file",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active"
     },
-    "pool.diagnostic_intent_initialize": {
+    "pool.diagnostic_configuration_initialize": {
       "message": "The pool NAS store is created by the guest bring-up; if the NAS mounted late, re-run the bring-up script or git init --bare it.",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active"
     },
-    "pool.diagnostic_intent_not_bare": {
+    "pool.diagnostic_configuration_not_bare": {
       "message": "{path}: not a bare git repo ({detail})",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active",
@@ -523,7 +523,7 @@
         }
       }
     },
-    "pool.diagnostic_intent_not_writable": {
+    "pool.diagnostic_configuration_not_writable": {
       "message": "{path}: bare repo present but NOT writable: {detail}",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active",
@@ -540,7 +540,7 @@
         }
       }
     },
-    "pool.diagnostic_intent_override": {
+    "pool.diagnostic_configuration_override": {
       "message": "  (config file overrides the launch flag {flag})",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active",
@@ -552,22 +552,22 @@
         }
       }
     },
-    "pool.diagnostic_intent_permission": {
+    "pool.diagnostic_configuration_permission": {
       "message": "Writes will fail at push. Check the pool NAS mount's uid/gid against the service user.",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active"
     },
-    "pool.diagnostic_intent_pull_only": {
-      "message": "An http(s) intent store is pull-only unless the server runs git-http-backend: reads will work and every write will fail at push. The writable store is the bare repo on the pool NAS.",
+    "pool.diagnostic_configuration_pull_only": {
+      "message": "An http(s) configuration store is pull-only unless the server runs git-http-backend: reads will work and every write will fail at push. The writable store is the bare repo on the pool NAS.",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active"
     },
-    "pool.diagnostic_intent_remote": {
-      "message": "remote URL; reachability is covered by intent-read",
+    "pool.diagnostic_configuration_remote": {
+      "message": "remote URL; reachability is covered by configuration-read",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active"
     },
-    "pool.diagnostic_intent_writable": {
+    "pool.diagnostic_configuration_writable": {
       "message": "{path}: bare repo, writable",
       "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
       "lifecycle": "active",
@@ -1469,13 +1469,13 @@
       "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
       "lifecycle": "active"
     },
-    "pool.intent_git_url": {
-      "message": "intent git URL",
+    "pool.configuration_git_url": {
+      "message": "configuration git URL",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
-    "pool.intent_read_raw_invocation": {
-      "message": "Intent read — raw invocation",
+    "pool.configuration_read_raw_invocation": {
+      "message": "Configuration read — raw invocation",
       "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
       "lifecycle": "active"
     },
@@ -2221,8 +2221,8 @@
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
-    "pool.runtime_environment": {
-      "message": "Runtime environment",
+    "pool.process_environment": {
+      "message": "Process environment",
       "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
       "lifecycle": "active"
     },

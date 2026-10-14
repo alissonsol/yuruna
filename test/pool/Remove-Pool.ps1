@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 422d18ba-e16c-4e00-929c-adfa86bc8abe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,12 +18,12 @@
 
 <#
 .SYNOPSIS
-    Delete a pool from the LAN pool-intent store (pools.yml).
+    Delete a pool from the LAN pool-configuration store (pools.yml).
 .DESCRIPTION
     Pool admin CLI. Removes the pool with -PoolId. Refuses to delete a pool that
     still has members unless -Force is given, so a host is never silently
     orphaned from a pool it thinks it is in. Schema-validates, then commits +
-    pushes. Runners PULL this intent read-only. See docs/pool-admin.md.
+    pushes. Runners PULL this configuration read-only. See docs/pool-admin.md.
 .PARAMETER PoolId
     Pool id to delete.
 .PARAMETER Force
@@ -36,8 +36,8 @@
 param(
     [Parameter(Mandatory)][string]$PoolId,
     [switch]$Force,
-    [string]$IntentGitUrl,
-    [string]$IntentDir
+    [string]$ConfigurationGitUrl,
+    [string]$ConfigurationDir
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -54,13 +54,13 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 # the clean exit-code path.
 Import-Module powershell-yaml -ErrorAction Stop
 
-# --- REGION: Open the intent store
-$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+# --- REGION: Open the configuration store
+$open = Open-YurunaPoolAdminStore -ConfigurationGitUrl $ConfigurationGitUrl -ConfigurationDir $ConfigurationDir -Confirm:$false
 $t = $open.Target
 if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
-$doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
+$doc  = Read-YurunaPoolsDoc -ConfigurationDir $t.ConfigurationDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if (-not $pool) {
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9dad0192303cf1bf' -Arguments @{ poolId = "$PoolId" }) -InformationAction Continue
@@ -75,7 +75,7 @@ if ($members.Count -gt 0 -and -not $Force) {
 $doc['pools'] = @(@($doc['pools']) | Where-Object { -not (($_ -is [System.Collections.IDictionary]) -and ([string]$_['poolId'] -eq $PoolId)) })
 
 # --- REGION: Save, commit and push
-$pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: delete $PoolId" -Confirm:$false
+$pub = Publish-YurunaPoolDocChange -ConfigurationDir $t.ConfigurationDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: delete $PoolId" -Confirm:$false
 if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
 
 Write-Information "Pool '$PoolId' deleted." -InformationAction Continue

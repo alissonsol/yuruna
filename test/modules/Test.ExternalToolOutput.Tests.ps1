@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42c8b0e7-91d4-4a36-b5f8-2e7c19d3a640
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,16 +198,7 @@ Describe 'a Windows principal is identified by its value, not its display name' 
     }
 
     It 'derives a machine account SID from the machine id' {
-        # "NT VIRTUAL MACHINE" is a display name and Windows localizes it, so a
-        # lookup by name throws on a host installed in another language. The
-        # caller then cannot prove which access entries are stale and skips the
-        # cleanup -- safe, and silent, which is why it went unnoticed: the
-        # cleanup simply stopped happening, one warning at a time.
-        #
-        # The SID is computable instead: S-1-5-83-1 followed by the machine
-        # GUID's sixteen bytes read as four little-endian unsigned 32-bit
-        # values. Pure arithmetic, so it is checkable on any platform even
-        # though the code around it is Windows-only.
+        # See https://yuruna.link/42e220c4-0014
         $text = Get-NamedFunctionText -Path $script:HyperVHost -Name 'Get-YurunaVMAccountSid'
         Assert-True ([bool]$text) 'the Hyper-V host module has no Get-YurunaVMAccountSid'
         $derive = [scriptblock]::Create($text + "`nGet-YurunaVMAccountSid -VMId ([guid]`$args[0])")

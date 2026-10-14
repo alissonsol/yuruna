@@ -2,8 +2,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
-# NoCloud user-data for Amazon Linux 2023 (parity with hyperv/kvm/utm siblings).
-# chpasswd default expire=true is LOAD-BEARING: it fires the first-login Current/New/Retype prompt.
 # --- REGION: users
 users:
   - default
@@ -13,19 +11,19 @@ users:
     lock_passwd: false
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
-# See https://yuruna.link/429f3d06-000e
 # --- REGION: ssh_authorized_keys
+# See https://yuruna.link/429f3d06-000e
 ssh_authorized_keys:
   - SSH_AUTHORIZED_KEY_PLACEHOLDER
-# See https://yuruna.link/429f3d06-000c
 # --- REGION: chpasswd
+# See https://yuruna.link/429f3d06-000c
+# chpasswd default expire=true is LOAD-BEARING: it fires the first-login Current/New/Retype prompt.
 chpasswd:
   list: |
     USERNAME_PLACEHOLDER:PLAINTEXT_PASSWORD_PLACEHOLDER
 # --- REGION: ssh_pwauth
 ssh_pwauth: true
 
-# See https://yuruna.link/429f3d06-001f
 # --- REGION: write_files
 write_files:
   # --- REGION: Persistent diagnostic journal
@@ -40,11 +38,12 @@ write_files:
       RuntimeMaxUse=8M
       SyncIntervalSec=30s
       ForwardToConsole=no
+  # --- REGION: https://yuruna.link/429f3d06-001f
   - path: /etc/modprobe.d/denylist-hv-balloon.conf
     content: |
       blacklist hv_balloon
     permissions: '0644'
-  # See https://yuruna.link/429f3d06-002c
+  # --- REGION: https://yuruna.link/429f3d06-002c
   - path: /usr/local/lib/yuruna/yuruna-retry.sh
     encoding: base64
     content: YURUNA_RETRY_LIB_BASE64_PLACEHOLDER
@@ -69,7 +68,7 @@ write_files:
     encoding: base64
     content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
     permissions: '0755'
-  # See https://yuruna.link/429f3d06-002a
+  # --- REGION: https://yuruna.link/429f3d06-002a
   - path: /etc/systemd/system/yuruna-host-locate.service
     permissions: '0644'
     content: |
@@ -88,7 +87,7 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=network-online.target
-  # See https://yuruna.link/4220a755-000f
+  # --- REGION: https://yuruna.link/4220a755-000f
   - path: /etc/systemd/system/yuruna-dhcp-release.service
     permissions: '0644'
     content: |
@@ -125,7 +124,7 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
-  # See https://yuruna.link/42fa6f45-000c
+  # --- REGION: https://yuruna.link/42fa6f45-000c
   # git does NOT read GH_TOKEN (a gh(1) convention); without this GIT_ASKPASS shim a private
   # clone hangs on a username prompt -- "Private repositories" in the REGION topic above.
   - path: /usr/local/lib/yuruna/git-askpass.sh
@@ -136,7 +135,7 @@ write_files:
           Username*) echo "x-access-token" ;;
           *)         echo "${GH_TOKEN}" ;;
       esac
-  # See https://yuruna.link/4220a755-000b
+  # --- REGION: https://yuruna.link/4220a755-000b
   # See https://yuruna.link/4220a755-000c
   - path: /etc/systemd/network/98-yuruna-fallback-dhcp.network
     permissions: '0644'
@@ -156,6 +155,7 @@ runcmd:
   # --- REGION: Persistent diagnostic journal
   - mkdir -p /var/log/journal
   - timeout --kill-after=1 10 systemctl restart systemd-journald.service && timeout --kill-after=1 10 journalctl --flush || echo 'Yuruna => persistent journal activation failed; inspect systemd-journald' >&2
+  # --- REGION: https://yuruna.link/429f3d06-001f
   - rmmod hv_balloon 2>/dev/null || true
   # --- REGION: Reinforce DHCP client identity
   # See https://yuruna.link/4220a755-000b
@@ -200,7 +200,8 @@ runcmd:
   - chvt 1 2>/dev/null || true
   - bash -c 'setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true'
 # === YURUNA_OVERLAY_RUNCMD_CONSOLEBLANK ===
-  # See https://yuruna.link/429f3d06-0025
+  # --- REGION: https://yuruna.link/429f3d06-0025
+  - bash -c 'command -v grubby >/dev/null 2>&1 && grubby --update-kernel=ALL --args="quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no" || true'
 # === YURUNA_OVERLAY_RUNCMD_QUIET_LOGLEVEL ===
   # --- REGION: https://yuruna.link/429f3d06-0023
   - mkdir -p /etc/xdg/autostart
@@ -228,7 +229,9 @@ runcmd:
     YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
     EOF
   - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_STATUS_SERVICE_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
+  # --- REGION: https://yuruna.link/429f3d06-002a
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
+  # --- REGION: https://yuruna.link/4220a755-000f
   # --now so the unit is active from this boot: its ExecStop only runs for a
   # unit that is running, so one enabled but not started would sit inert until
   # the reboot after this one and release nothing in between.
@@ -241,7 +244,8 @@ runcmd:
     EOF
     chmod 0644 /etc/profile.d/yuruna-git-noprompt.sh
     printf 'GIT_TERMINAL_PROMPT=0\nGIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh\n' >> /etc/environment
-  # Token for private framework/project URLs, delivered on the seed ISO (never the OCR'd console, never HTTP); written to /etc/profile.d (login shells) and ~/.bashrc (the runner's interactive shell), skipped when unset.
+  # --- REGION: Private repository credentials
+  # See https://yuruna.link/4220a755-004f
   - |
     if [ -n 'GH_TOKEN_PLACEHOLDER' ]; then
     cat > /etc/profile.d/yuruna-github.sh << 'EOF'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 420eae9d-b5a9-4ca6-af97-df678c83b820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -304,7 +304,8 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir)))
 $YurunaHostPort = $_statusSeed.Port
 
-# --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
+# --- REGION: Fetch caching-proxy-service CA cert
+# Embedded in the seed as base64.
 # See https://yuruna.link/4220a755-0015
 # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 Import-Module (Join-Path $RepoRoot "test/modules/Test.CachingProxyService.psm1") -Force -DisableNameChecking

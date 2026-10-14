@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1130,7 +1130,7 @@ function Test-PoolStorageMountEntry {
 Proves a mount point is actually USABLE by writing a uniquely-named probe file into it and deleting it again, bounded by a short wall-clock cap. Returns @{ Ok; Error } and never throws.
 .DESCRIPTION
 WRITES, despite the Test- verb, and that is the point. Every consumer of pool
-and stash storage writes: the pool-intent store is pushed to, cycle output is
+and stash storage writes: the pool-configuration store is pushed to, cycle output is
 replicated, the stash daemon uploads. A read-only check would pass on a share
 mounted read-only or one whose account lost write permission -- the two cases
 that then fail much later at `git push`, with an error naming git rather than
@@ -1355,7 +1355,7 @@ function Connect-YurunaPoolStorage {
     # A mount that succeeded is not yet a mount that can be used. A share mounted
     # read-only, or one whose account authenticated but carries no write
     # permission at the share root, mounts cleanly and then fails the first real
-    # write -- at `git push` into the intent store, or mid-replication, with an
+    # write -- at `git push` into the configuration store, or mid-replication, with an
     # error naming git or the copy rather than the share. Paying one probe here
     # moves that discovery to the mount, where the reason is still legible.
     $probe = Test-PoolStorageWriteProbe -Path $Config.LocalPath

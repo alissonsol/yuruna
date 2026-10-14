@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -36,22 +36,33 @@ export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 # See https://yuruna.link/42e220c4-0005
 echo ""
 echo -e "\e[1;36m==== PostgreSQL ====\e[0m"
-# The RPM does not start a cluster, so stop any prior service before initialization.
-if sudo systemctl is-active postgresql &>/dev/null; then
-  sudo systemctl stop postgresql
-  while sudo systemctl is-active postgresql &>/dev/null; do
-    echo "Waiting for PostgreSQL to stop..."
-    sleep 1
-  done
-fi
-
 # See https://yuruna.link/42e220c4-0005
 # AL2023 uses PostgreSQL 17; PGDG does not support Amazon Linux.
 dnf_retry sudo dnf install -y postgresql17-server postgresql17-contrib
 
-# Clear data directory to allow re-initialization
-sudo rm -rf /var/lib/pgsql/data/ 2>/dev/null || true
-sudo /usr/bin/postgresql-setup --initdb
+# --- REGION: Ensure PostgreSQL cluster
+# See https://yuruna.link/42e220c4-0005
+# The RPM creates no cluster. Preserve initialized data and reject partial or
+# incompatible clusters rather than replacing them during a retry.
+PG_DATA=/var/lib/pgsql/data
+initialize_cluster=true
+if sudo test -e "$PG_DATA/PG_VERSION"; then
+  installed_major=$(sudo cat "$PG_DATA/PG_VERSION")
+  if [ "$installed_major" != 17 ]; then
+    echo "PostgreSQL data requires major $installed_major; expected 17. Migrate it explicitly before installation." >&2
+    exit 1
+  fi
+  initialize_cluster=false
+elif sudo test -d "$PG_DATA"; then
+  existing_entry=$(sudo find "$PG_DATA/." -mindepth 1 -maxdepth 1 -print -quit)
+  if [ -n "$existing_entry" ]; then
+    echo "PostgreSQL data directory is not empty and has no PG_VERSION; refusing to initialize it." >&2
+    exit 1
+  fi
+fi
+if [ "$initialize_cluster" = true ]; then
+  sudo /usr/bin/postgresql-setup --initdb
+fi
 
 sudo systemctl enable postgresql
 sudo systemctl start postgresql

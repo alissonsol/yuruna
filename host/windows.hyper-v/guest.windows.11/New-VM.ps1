@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
 
+# --- REGION: Environment checks
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
@@ -80,12 +81,7 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
-# Nested virtualization is opt-in and AMD64-only: ARM64 Hyper-V rejects a VM
-# with virtualization extensions exposed at start time ("this platform does
-# not support nested virtualization"), so an impossible ask fails here,
-# before any VM state is created. OSArchitecture rather than
-# $env:PROCESSOR_ARCHITECTURE, which reports AMD64 for an x64 pwsh under
-# emulation on an ARM64 host.
+# See https://yuruna.link/42e220c4-0004
 $exposeVirt = $false
 if ($ExposeVirtualizationExtensions) {
     if (-not [bool]::TryParse($ExposeVirtualizationExtensions, [ref]$exposeVirt)) {
@@ -113,6 +109,8 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
@@ -127,6 +125,7 @@ if (Test-Path -Path $vhdxFile) {
 Write-Verbose "Creating 512GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 512GB -Dynamic | Out-Null
 
+# --- REGION: Render the autounattend.xml + build a CD with it
 # Autounattend seed ISO. 4-digit entropy is weak by design (10k cases)
 # but enough to defeat the deterministic-path symlink trap: an attacker
 # dropping a symlink at %TEMP%\seed_<VMName>\ before New-VM runs can't
@@ -142,6 +141,7 @@ if (-not (Test-Path $AnswerFileTemplate)) {
     exit 1
 }
 
+# --- REGION: Select the guest network
 # Pick a vSwitch -- prefer Yuruna-External (LAN-bridged) so the install
 # VM gets a real LAN IP via DHCP. Default Switch fallback for hosts
 # that can't create an External vSwitch. Same pattern as guest.caching-proxy-service.

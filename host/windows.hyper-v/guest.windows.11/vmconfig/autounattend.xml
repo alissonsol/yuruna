@@ -196,6 +196,7 @@
                     <CommandLine>powershell.exe -NoProfile -Command "Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name 'AutoAdminLogon' -Value '0'"</CommandLine>
                     <Description>Disable auto-logon after first boot</Description>
                 </SynchronousCommand>
+                <!-- See https://yuruna.link/42e220c4-000c -->
                 <SynchronousCommand wcm:action="add">
                     <Order>5</Order>
                     <CommandLine>net user ywuser1 /logonpasswordchg:yes</CommandLine>

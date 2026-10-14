@@ -1,10 +1,10 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.10.11.1
-  --- REGION: https://yuruna.link/42fa6f45-0018
-  --- REGION: https://yuruna.link/42fa6f45-001d
-  --- REGION: https://yuruna.link/42fa6f45-0019
+  Version: 2026.10.14
+  See https://yuruna.link/42fa6f45-0018
+  See https://yuruna.link/42fa6f45-001d
+  See https://yuruna.link/42fa6f45-0019
 */
 
 :root {
@@ -384,7 +384,8 @@ footer.app a { color: var(--chrome-muted); }
   text-decoration: underline; cursor: pointer;
 }
 #footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
-/* --------------------------------------------------------------------------
+/* REGION: Right-to-left mirror */
+/*
    The right-to-left mirror for the chrome above.
 
    The safe-area insets are physical, so the chrome states each side for the

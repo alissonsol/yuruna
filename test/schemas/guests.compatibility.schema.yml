@@ -4,7 +4,7 @@ $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/guests.compatibility.schema.yml
 title: Yuruna guest-to-hypervisor compatibility rules
 description: >
-  Declares which hypervisors each guest can run on for pool-intent validation.
+  Declares which hypervisors each guest can run on for pool-configuration validation.
   The runner currently selects guests without consulting these rules. The hypervisor tokens
   match those derived in the host registration record (hyper-v / kvm / utm).
 

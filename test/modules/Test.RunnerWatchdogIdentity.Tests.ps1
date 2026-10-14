@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4226ec4a-0d3b-407b-80ff-4b853f0a15cc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -139,5 +139,37 @@ Describe 'Watchdog gates disarm and kill on the armed identity' {
     }
     It 'kills only inside an identity-gated branch (never an unrelated reused PID)' {
         (Test-StopProcessGatedBy -Ast (Get-ModuleAst) -Pattern 'sameInner') | Should -Be $true
+    }
+}
+
+Describe 'Watchdog records a proven stop for the current attempt' {
+    It 'persists the armed identity, phase and timeout before stopping a stale child' {
+        $dir = Join-Path $TestDrive 'watchdog-stop'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        $child = $null; $watchdog = $null
+        try {
+            $start = [Diagnostics.ProcessStartInfo]::new([Environment]::ProcessPath)
+            $start.UseShellExecute = $false
+            foreach ($arg in @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 45')) { $start.ArgumentList.Add($arg) }
+            $child = [Diagnostics.Process]::Start($start)
+            Set-Content -LiteralPath (Join-Path $dir 'inner.pid') -Value $child.Id
+            Set-Content -LiteralPath (Join-Path $dir 'runner.phase') -Value 'config-gate'
+            Set-Content -LiteralPath (Join-Path $dir 'runner.stepHeartbeat') -Value 'stale'
+            (Get-Item -LiteralPath (Join-Path $dir 'runner.stepHeartbeat')).LastWriteTimeUtc = [DateTime]::UtcNow.AddSeconds(-30)
+            $watchdog = Start-Watchdog -StepTimeoutSeconds 20 -PreambleTimeoutSeconds 1 -PollSeconds 1 -RuntimeDir $dir -CycleGeneration 'runner:2' -Confirm:$false
+            $null = Wait-Job -Job $watchdog -Timeout 15
+            $watchdog.State | Should -Be 'Completed'
+            $record = Get-Content -Raw -LiteralPath (Join-Path $dir 'runner.watchdog-kill.json') | ConvertFrom-Json
+            $record.failureClass | Should -Be 'preamble_stall'
+            $record.phase | Should -Be 'config-gate'
+            $record.attemptGeneration | Should -Be 'runner:2'
+            $record.innerPid | Should -Be $child.Id
+            $record.timeoutSeconds | Should -Be 1
+            $record.stepHeartbeatAgeSeconds | Should -BeGreaterThan 20
+            $child.WaitForExit(5000) | Should -BeTrue
+        } finally {
+            if ($watchdog) { Stop-Watchdog -Job $watchdog -Confirm:$false }
+            if ($child) { if (-not $child.HasExited) { $child.Kill($true) }; $child.Dispose() }
+        }
     }
 }

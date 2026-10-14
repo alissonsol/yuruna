@@ -7383,7 +7383,7 @@
       "disposition": "internal",
       "rule": "diagnostic-stream",
       "reason": "maintainer-only verbose/debug or browser/service console logging; operator streams are classified separately",
-      "text": "  Proxy: /pool-intent.git now serves the pool NAS store (runners pull what this UI writes)."
+      "text": "  Proxy: /pool-configuration.git now serves the pool NAS store (runners pull what this UI writes)."
     },
     {
       "id": "a0c6abba9001e350",
@@ -10738,7 +10738,7 @@
       "disposition": "internal",
       "rule": "diagnostic-stream",
       "reason": "maintainer-only verbose/debug or browser/service console logging; operator streams are classified separately",
-      "text": "intentGitUrl lookup: $($_.Exception.Message)"
+      "text": "configurationGitUrl lookup: $($_.Exception.Message)"
     },
     {
       "id": "4706346376600460",
@@ -11178,7 +11178,7 @@
       "disposition": "convert",
       "rule": "operator-stream",
       "reason": "whole text emitted to an operator output, warning, information, progress, or prompt surface",
-      "text": "pool-intent alias not reconciled on the caching-proxy service: $($aliasSync.Message). Runners may still pull the proxy's older local store; the pool-control service UI is unaffected."
+      "text": "pool-configuration alias not reconciled on the caching-proxy service: $($aliasSync.Message). Runners may still pull the proxy's older local store; the pool-control service UI is unaffected."
     },
     {
       "id": "d275e5b45c84f9a7",
@@ -11189,7 +11189,7 @@
       "disposition": "internal",
       "rule": "diagnostic-stream",
       "reason": "maintainer-only verbose/debug or browser/service console logging; operator streams are classified separately",
-      "text": "pool-intent alias sync: $($_.Exception.Message)"
+      "text": "pool-configuration alias sync: $($_.Exception.Message)"
     },
     {
       "id": "2a9ad7db2119467e",
@@ -11200,7 +11200,7 @@
       "disposition": "internal",
       "rule": "diagnostic-stream",
       "reason": "maintainer-only verbose/debug or browser/service console logging; operator streams are classified separately",
-      "text": "pool-intent alias: $($aliasSync.Message)"
+      "text": "pool-configuration alias: $($aliasSync.Message)"
     },
     {
       "id": "201fea5c2cb5eb26",
@@ -17118,7 +17118,7 @@
       "disposition": "unexplained",
       "rule": "",
       "reason": "",
-      "text": "O guest bring-up cria uma loja de escrita no NAS da piscina quando um está ausente; um valor vazio aqui significa que o NAS não foi montado no bring-up. Defina POOL CONTROL INTENT GIT URL em /etc/yuruna/pool-control-service.env (re-read por requisição, não é necessário reiniciar), ou pool.intentGitUrl em test/test.config.yml antes de reconstruir."
+      "text": "O guest bring-up cria uma loja de escrita no NAS da piscina quando um está ausente; um valor vazio aqui significa que o NAS não foi montado no bring-up. Defina POOL CONTROL INTENT GIT URL em /etc/yuruna/pool-control-service.env (re-read por requisição, não é necessário reiniciar), ou pool.configurationGitUrl em test/test.config.yml antes de reconstruir."
     },
     {
       "id": "cfeb592b374f0130",
@@ -18471,7 +18471,7 @@
       "disposition": "convert",
       "rule": "catalog-message",
       "reason": "identical to a message an existing source catalog already ships",
-      "text": "The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_INTENT_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.intentGitUrl in test/test.config.yml before rebuilding."
+      "text": "The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_CONFIGURATION_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.configurationGitUrl in test/test.config.yml before rebuilding."
     },
     {
       "id": "f38d195d96b8cf7a",
@@ -19659,7 +19659,7 @@
       "disposition": "unexplained",
       "rule": "",
       "reason": "",
-      "text": "env file re-read before each intent operation for POOL_CONTROL_INTENT_GIT_URL (empty pins the launch flag)"
+      "text": "env file re-read before each intent operation for POOL_CONTROL_CONFIGURATION_GIT_URL (empty pins the launch flag)"
     },
     {
       "id": "869cd943e24ef71b",
@@ -20572,7 +20572,7 @@
       "disposition": "unexplained",
       "rule": "",
       "reason": "",
-      "text": "poolId and desiredState are required"
+      "text": "poolId and configuredState are required"
     },
     {
       "id": "9e5a428ee632a2cc",
@@ -21408,7 +21408,7 @@
       "disposition": "unexplained",
       "rule": "",
       "reason": "",
-      "text": "writable pool-intent git URL forwarded to the CLIs (defaults to test.config.yml's pool.intentGitUrl when empty)"
+      "text": "writable pool-configuration git URL forwarded to the CLIs (defaults to test.config.yml's pool.configurationGitUrl when empty)"
     },
     {
       "id": "8d11cf7164c13f0e",
@@ -44321,7 +44321,7 @@
       "disposition": "internal",
       "rule": "diagnostic-stream",
       "reason": "maintainer-only verbose/debug or browser/service console logging; operator streams are classified separately",
-      "text": "Get-PoolIntentSeedUrl: pool.intentGitUrl ($configured) is the read-only proxy route; the pool-control service needs a writable store, using the pool mount instead."
+      "text": "Get-PoolConfigurationSeedUrl: pool.configurationGitUrl ($configured) is the read-only proxy route; the pool-control service needs a writable store, using the pool mount instead."
     },
     {
       "id": "a0f6afa49a7df464",
@@ -45333,7 +45333,7 @@
       "disposition": "internal",
       "rule": "diagnostic-stream",
       "reason": "maintainer-only verbose/debug or browser/service console logging; operator streams are classified separately",
-      "text": "Invoke-HostRefreshAutoDecision: resume of $($resume.RequestId) held (pool $($pool.DesiredState), shutdown $shutdown)."
+      "text": "Invoke-HostRefreshAutoDecision: resume of $($resume.RequestId) held (pool $($pool.ConfiguredState), shutdown $shutdown)."
     },
     {
       "id": "f33dc3455edfaac0",
@@ -48974,7 +48974,7 @@
       "disposition": "internal",
       "rule": "diagnostic-stream",
       "reason": "maintainer-only verbose/debug or browser/service console logging; operator streams are classified separately",
-      "text": "Sync-YurunaPoolIntent: git step threw: $($_.Exception.Message)"
+      "text": "Sync-YurunaPoolConfiguration: git step threw: $($_.Exception.Message)"
     },
     {
       "id": "d54563713cba4698",
@@ -48985,7 +48985,7 @@
       "disposition": "internal",
       "rule": "diagnostic-stream",
       "reason": "maintainer-only verbose/debug or browser/service console logging; operator streams are classified separately",
-      "text": "Sync-YurunaPoolIntent: powershell-yaml not available; skipping."
+      "text": "Sync-YurunaPoolConfiguration: powershell-yaml not available; skipping."
     },
     {
       "id": "6426401e1ad171fc",
@@ -51636,7 +51636,7 @@
       "disposition": "unexplained",
       "rule": "",
       "reason": "",
-      "text": "cannot confirm the admin clone at $IntentDir is safe to reset (merge-base rc=$rcAncestor; likely local commit(s) the remote does not have); refusing to reset --hard. Push them from a writable location, or delete $IntentDir to discard and re-clone from $IntentGitUrl."
+      "text": "cannot confirm the admin clone at $ConfigurationDir is safe to reset (merge-base rc=$rcAncestor; likely local commit(s) the remote does not have); refusing to reset --hard. Push them from a writable location, or delete $ConfigurationDir to discard and re-clone from $ConfigurationGitUrl."
     },
     {
       "id": "e8e4eed35f859e51",
@@ -52417,7 +52417,7 @@
       "disposition": "internal",
       "rule": "command-source",
       "reason": "complete command or interpreter source text evaluated by a subprocess; translating it would change executable behavior",
-      "text": "git clone failed (exit $rc) from $IntentGitUrl"
+      "text": "git clone failed (exit $rc) from $ConfigurationGitUrl"
     },
     {
       "id": "759b0deb82f873cd",
@@ -52450,7 +52450,7 @@
       "disposition": "internal",
       "rule": "command-source",
       "reason": "complete command or interpreter source text evaluated by a subprocess; translating it would change executable behavior",
-      "text": "git fetch failed (exit $rc) from $IntentGitUrl"
+      "text": "git fetch failed (exit $rc) from $ConfigurationGitUrl"
     },
     {
       "id": "8180bfc4fb5f6395",
@@ -53880,7 +53880,7 @@
       "disposition": "unexplained",
       "rule": "",
       "reason": "",
-      "text": "pool desiredState=paused (cycle $cycle)"
+      "text": "pool configuredState=paused (cycle $cycle)"
     },
     {
       "id": "6581d1e153b42581",
@@ -55409,7 +55409,7 @@
       "disposition": "unexplained",
       "rule": "",
       "reason": "",
-      "text": "the admin clone at $IntentDir has an unfinished rebase (unpushed pool intent in flight); refusing to reset --hard. Finish or abort it (git -C '$IntentDir' rebase --abort) and push from a writable location, or delete $IntentDir to discard and re-clone from $IntentGitUrl."
+      "text": "the admin clone at $ConfigurationDir has an unfinished rebase (unpushed pool intent in flight); refusing to reset --hard. Finish or abort it (git -C '$ConfigurationDir' rebase --abort) and push from a writable location, or delete $ConfigurationDir to discard and re-clone from $ConfigurationGitUrl."
     },
     {
       "id": "8e0cc765b7150ae8",
@@ -76115,7 +76115,7 @@
       "file": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
       "rule": "catalog-message",
       "state": "ready",
-      "text": "The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_INTENT_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.intentGitUrl in test/test.config.yml before rebuilding."
+      "text": "The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_CONFIGURATION_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.configurationGitUrl in test/test.config.yml before rebuilding."
     },
     "pool.control.m77e3eabb47": {
       "id": "77e3eabb470ef2dd",
@@ -81236,7 +81236,7 @@
       "file": "test/service/Start-PoolControlServiceVM.ps1",
       "rule": "operator-stream",
       "state": "ready",
-      "text": "pool-intent alias not reconciled on the caching-proxy service: $($aliasSync.Message). Runners may still pull the proxy's older local store; the pool-control service UI is unaffected."
+      "text": "pool-configuration alias not reconciled on the caching-proxy service: $($aliasSync.Message). Runners may still pull the proxy's older local store; the pool-control service UI is unaffected."
     },
     "status.service.m7f0ef8c9fb": {
       "id": "7f0ef8c9fba27531",

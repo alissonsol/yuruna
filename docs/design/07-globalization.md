@@ -2,8 +2,10 @@
 
 These diagrams explain the current catalog pipeline, locale decisions, and client/server exchange for localized Yuruna surfaces.
 
-[Architecture](../architecture.md) defines the system boundaries; this page
-explains language selection within them and the companion applications' separate
+[Architecture](../architecture.md) defines the system boundaries, and
+[Languages and localization](../globalization.md) is the operator and
+contributor guide. This page shows the mechanisms behind that guide: language
+selection within the boundaries and the companion applications' separate
 localization behavior.
 
 ## Catalog authority and delivery
@@ -27,9 +29,12 @@ flowchart LR
 ```
 
 The seven boxes group generated PowerShell, Go, and browser formats; service
-catalog copies; and browser consumers. The embedder combines the shared browser
-kernel with locale data and the domains each consumer needs. PowerShell reads
-generated `.psd1` catalogs directly rather than receiving a service-local copy.
+catalog copies; and browser consumers. The embedder writes the kernel, locale
+data, and default tables into the shared runtimes, service-only tables into
+service scripts whose pages already load the shared runtime, and one catalog
+asset per non-default locale. It also writes the Go SDK's locale data. PowerShell
+reads generated `.psd1` catalogs directly rather than receiving a service-local
+copy.
 
 Sources: [locale manifest](../../globalization/locale-manifest.json),
 [source catalogs](../../globalization/catalogs/),
@@ -48,13 +53,18 @@ header bounds, number separators, and pinned plural rules are shared inputs to
 the runtimes. Locale matching accepts exact supported tags and declared aliases;
 it does not invent a match for an undeclared regional variant.
 
-The compiler validates key coverage, placeholder contracts, plural forms, and
-translation `sourceHash` values. Stale translations for supported locales fail
-compilation. `origin: machine` records translation provenance, and removal of
-that marker records acceptance; both use the same runtime compilation path.
-The [catalog-set manifest](../../globalization/manifests/catalog-set.json)
-records the compiled set and translation provenance under the
-[catalog schema](../../globalization/schema/catalog.schema.json).
+The compiler validates each source catalog against the
+[catalog schema](../../globalization/schema/catalog.schema.json), then checks key
+coverage and domain ownership, required descriptions, lifecycle rules,
+placeholder contracts, matching message kinds, plural forms, and translation
+`sourceHash` values. The hash covers the whole en-US message contract, so editing
+a translator description also makes translations stale. Stale translations for
+supported locales fail compilation. `origin: machine` records translation
+provenance only; draft acceptance follows
+[Translating a source revision](../globalization.md#420b66d2-0004). The
+[catalog-set manifest](../../globalization/manifests/catalog-set.json) records
+input hashes, per-message source hashes, translation provenance, and the
+generated artifacts.
 
 ## Locale decisions at boundaries
 
@@ -96,23 +106,28 @@ Sources: [PowerShell resolver](../../test/modules/Test.Locale.psm1),
 | --- | --- |
 | PowerShell operator message | The adapter reads the lab configuration's language and process UI culture lazily, then caches the command's context at first emission. |
 | PowerShell status request | Reads the configuration language at the request boundary, combines it with `Accept-Language`, and explicitly disables process-culture fallback. |
-| Go service request | Uses its startup language option and `Accept-Language`, with no process-culture fallback. Negotiation is restricted to catalogs the binary carries. |
+| Go service request | Uses its startup language option and `Accept-Language`, with no process-culture fallback. Negotiation is restricted to catalogs the binary carries. Provisioning writes the lab language to `/etc/yuruna/globalization.env`, so a later configuration edit does not reach a running service. |
 | Browser page | Initializes from the server's HTML `lang`, requested language, and decision source. The page context is then sealed. |
+| Provisioned guest page | Marked static pages, such as the caching proxy's Squid error template, render once at VM provisioning from the seeded language; with `auto`, the provisioning host's UI culture applies. No request negotiates them. |
 
 Sources: [operator adapter](../../automation/Yuruna.Globalization.psm1),
 [status adapter](../../test/service/Start-StatusService.ps1),
 [Go HTTP adapter](../../test/extension/extension-sdk/i18n/http.go),
-[pool resolver wiring](../../test/extension/pool-control-service/server/internal/httpsrv/i18nwire.go), and
-[browser initialization](../../globalization/kernel/yuruna.i18n.js).
+[pool resolver wiring](../../test/extension/pool-control-service/server/internal/httpsrv/i18nwire.go),
+[browser initialization](../../globalization/kernel/yuruna.i18n.js), and
+[seed template rendering](../../automation/Yuruna.CloudInitTemplate.psm1).
 Status opens diagnostic locales with `YURUNA_ALLOW_PSEUDO_LOCALE`; Go services
 use `--allow-pseudo-locale`. Ordinary negotiation excludes them.
 
 PowerShell contexts are read-only dictionaries, Go contexts are passed by
 value, and browser contexts are frozen. They carry requested and resolved tags,
 direction, decision source, timezone policy, and catalog version/hash.
-PowerShell and Go catalog formatting use UTC; browser wall-clock formatting
-explicitly uses the reader's local zone. Number formatting and plural selection
-use the manifest's tables. Typed substitutions receive bidi isolation where
+Catalog `datetime` arguments render one fixed UTC shape in all three runtimes.
+The browser's separate wall-clock helpers use the reader's zone, so its context
+records `timeZone: local`. Typed arguments use the manifest's number and plural
+tables; operator messages carried over from composite formats still format those
+values with .NET culture data for the resolved tag. A missing key falls back to
+`en-US`, then to the key itself. Typed substitutions receive bidi isolation where
 needed; see [PowerShell formatting](../../test/modules/Test.Catalog.psm1),
 [Go formatting](../../test/extension/extension-sdk/i18n/format.go), and the browser
 kernel.
@@ -165,10 +180,10 @@ Sources: [status HTML](../../test/status/index.html),
 ## Go pages and response caching
 
 Go page stores prepare a finite set of localized HTML representations and their
-ETags during initialization. A request selects a prepared representation;
-arbitrary request headers do not create an unbounded page cache or cause catalog
-parsing. Pool-control also prepares its immutable pages and builds its supported
-locale set at startup.
+ETags once, before the first page is served. A request selects a prepared
+representation; arbitrary request headers do not create an unbounded page cache
+or cause catalog parsing. Pool-control also prepares its immutable pages and
+builds its supported locale set at startup.
 
 | Surface | Browser catalog delivery |
 | --- | --- |
@@ -184,12 +199,16 @@ Sources: [SDK page store](../../test/extension/extension-sdk/i18n/page.go),
 [parser page](../../test/extension/caching-proxy-parser-service/localization.go), and
 [aggregator diagnostics](../../test/extension/pool-aggregator-service/localization.go).
 
-Negotiated representations carry `Content-Language` and
-`Vary: Accept-Language`. Their ETags identify the final localized bytes, and a
-304 response repeats locale metadata. Hashed catalog scripts are immutable and
-cacheable. Ordinary scripts and styles are not language-varying representations;
-the HTTP middleware resolves context while the response handler decides whether
-locale headers apply. See [HTTP headers](../../test/extension/extension-sdk/i18n/http.go),
+Negotiated representations carry `Content-Language` and `Vary: Accept-Language`.
+Their ETags identify the final localized bytes, and a 304 response repeats
+locale metadata. Hashed catalog scripts are immutable and cacheable. Ordinary
+scripts and styles are not language-varying representations. Pool-control's
+middleware resolves the context once per request; page-store services resolve it
+in the handler. In both cases only the handler applies locale headers, so
+scripts and styles carry none. The caching-proxy landing page is the exception
+to prepared pages: it is assembled per request with `no-store`, carrying locale
+headers but no ETag. See
+[HTTP headers](../../test/extension/extension-sdk/i18n/http.go),
 [page serving](../../test/extension/extension-sdk/i18n/page.go), and the status
 request handler.
 
@@ -245,7 +264,9 @@ This localizes service diagnostics, while the
 and [generic orchestrator errors](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/components/frontend/text-to-sql-ui/Services/AgentOrchestrator.cs)
 still contain English literals. The
 [resource checker](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/tests/ServiceContracts.Tests/check_messages.py)
-checks translated resource source hashes and provenance comments. The website
+holds the resource keys to the code's call sites and checks placeholders, source
+hashes, and the machine-draft marker that every translated resource still
+carries. The website
 example's [Program.cs](https://github.com/alissonsol/yuruna-project/blob/main/example/website/components/frontend/website/Program.cs)
 does not install request-localization middleware; its behavior should not be
 inferred from text-to-SQL's configuration.
@@ -255,16 +276,24 @@ inferred from text-to-SQL's configuration.
 The public [exchange module](../../test/modules/Test.LocalizationExchange.psm1)
 reads and writes JSON, CSV, and XLIFF 2.0 tables. Entries carry stable IDs,
 English source, and translated text; an earlier translation is context rather
-than a new answer. The XLIFF reader requires version `2.0` and prohibits DTD
-processing and external XML resolution.
+than a new answer. Rows cover glossary, style, message, document, and
+project-scalar text; a request digest binds each answer, and an answer that
+alters its English is rejected. The XLIFF reader requires version `2.0` and
+prohibits DTD processing and external XML resolution. The versioned
+[ontology](../ontology/README.md) defines the English concepts translators work
+from; glossary rows come from
+[globalization/terminology/](../../globalization/terminology/).
 
 The [tooling decision](../../globalization/manifests/tooling-decision.json)
 records a provisional requirement for translator interchange and names the
 booked native translator's answer as its replacement. Its rationale mentions
 XLIFF 2.1; the implemented public codec currently reads and writes 2.0. After
 translated source is placed, [Publish-Localization.ps1](../../tools/Publish-Localization.ps1)
-regenerates catalogs and embeddings, refreshes the inventory, and runs the
-translation, project-label, reference-fixture, and cross-repository gates.
+regenerates catalogs and embeddings and re-checks each, refreshes the domain
+inventory, then runs the UTF-8, terminology, document-translation, project
+locale-map, reference-fixture, and full cross-repository gates, stopping at the
+first failure. The project locale-map gate validates each project label map
+against the companion repository's source hashes.
 
 ---
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,6 +78,8 @@ if (-not (Assert-HyperVEnabled)) {
 }
 
 # --- REGION: Seek the base image
+# See https://yuruna.link/42e220c4-0003
+# Fetch missing media once; fail if manual-download requirements remain unmet.
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
@@ -131,7 +133,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
 }
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
-# --- REGION: Generate cloud-init seed ISO
+# --- REGION: Stage the cloud-init seed directory
 # 4-digit entropy is weak by design (10k cases) but enough to defeat the
 # deterministic-path symlink trap: an attacker dropping a symlink at
 # %TEMP%\seed_<VMName>\ before New-VM runs can't predict the trailing 4
@@ -145,16 +147,16 @@ $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
-# Load the SSH public key used by the test harness to drive the VM over SSH.
+# --- REGION: Yuruna harness SSH key
+# Use the shared key for post-boot harness access.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
-# Per-cycle authentication vault password for $Username (default
-# 'yauser1'). cloud-init's chpasswd default 'expire: true' force-expires
-# this on first console login, so the test sequence's Current/New/Retype
-# rotation runs against the OS prompt.
+# --- REGION: Vault user password
+# See https://yuruna.link/42e220c4-0004
+# Read the persistent authentication vault; a new cycle must not reset credentials.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
@@ -164,21 +166,21 @@ if (-not $Password) { Write-Error (Format-YurunaOperatorMessage -Key 'host.opera
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
-# --- REGION: https://yuruna.link/42e220c4-0004
+# --- REGION: Select the guest network
+# See https://yuruna.link/42e220c4-0004
 # Select the switch before resolving the host address reachable through it.
 $switchName = Resolve-HyperVGuestSwitch
 
-# Yuruna host (status service) IP+port baked into the seed for the dev
-# iteration loop. Guest scripts read /etc/yuruna/host.env (written by
-# user-data runcmd) to resolve a local URL before falling back to
-# GitHub. Default Switch's host IP changes across host reboots -- see
-# Test-YurunaHost.ps1 for the in-guest probe.
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
+# Bake the status-service address reachable through the selected guest network.
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Config.psm1') -Global -Force
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
 $YurunaHostPort = $_statusSeed.Port
 
+# --- REGION: Render user-data / meta-data
 # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
 # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
 # write_files entries, then resolves the per-cycle placeholders below.
@@ -197,6 +199,7 @@ Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b
 # Amazon Linux preserves cloud-init fallback networking; pin DHCP identity in user-data.
 
+# --- REGION: Generate cloud-init seed ISO
 $SeedIso = Join-Path $vmDir "seed.iso"
 $VolumeId = "cidata"
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId $VolumeId

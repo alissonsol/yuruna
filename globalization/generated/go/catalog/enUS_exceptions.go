@@ -7,6 +7,72 @@ package catalog
 // DataenUSexceptions is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataenUSexceptions = `{
+  "exceptions.config_naming_blocked_path": [
+    "Cannot migrate '",
+    {
+      "arg": "old",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' to '",
+    {
+      "arg": "replacement",
+      "type": "detail",
+      "trust": "external"
+    },
+    "': a scalar blocks the replacement path. The file was not changed."
+  ],
+  "exceptions.config_naming_conflict": [
+    "Configuration naming conflict: '",
+    {
+      "arg": "old",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' and '",
+    {
+      "arg": "replacement",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' contain different populated values. Keep one value before retrying. The file was not changed."
+  ],
+  "exceptions.config_naming_duplicate_parked": [
+    "Conflicting obsolete configuration entries for '",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'. Keep one value before retrying. The file was not changed."
+  ],
+  "exceptions.config_naming_invalid_duration": [
+    "Cannot migrate configuration key '",
+    {
+      "arg": "old",
+      "type": "detail",
+      "trust": "external"
+    },
+    "': expected a numeric duration. The file was not changed."
+  ],
+  "exceptions.config_naming_invalid_parked_scalar": [
+    "Cannot migrate obsolete configuration key '",
+    {
+      "arg": "old",
+      "type": "detail",
+      "trust": "external"
+    },
+    "': expected a valid YAML scalar. The file was not changed."
+  ],
+  "exceptions.config_naming_save_failed": [
+    "Could not save configuration naming migration to '",
+    {
+      "arg": "configPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'; the original file and backup remain available."
+  ],
   "exceptions.host_1568d9e12a12e190": "This is the Ubuntu KVM variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead.",
   "exceptions.host_1c714189825ec0e2": [
     "Hyper-V\\Remove-VM failed for '",
@@ -589,6 +655,7 @@ const DataenUSexceptions = `{
       "trust": "external"
     }
   ],
+  "exceptions.host_ffd2efb19a40de43": "Enable-TestAutomation.ps1 (host/windows.hyper-v) only runs on Windows.",
   "exceptions.host_refresh_auth_authority_incomplete": [
     "Wrote ",
     {
@@ -746,6 +813,24 @@ const DataenUSexceptions = `{
       "trust": "internal"
     },
     "'."
+  ],
+  "exceptions.pool_configuration_legacy_state": [
+    "Pool '",
+    {
+      "arg": "poolId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' uses desiredState in schemaVersion 4; use configuredState."
+  ],
+  "exceptions.pool_configuration_state_conflict": [
+    "Pool '",
+    {
+      "arg": "poolId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' declares conflicting desiredState and configuredState values; remove the obsolete field after choosing the intended configuredState."
   ],
   "exceptions.runner_037f5a478339db90": [
     "Runner config has no 'sequences' entries: ",

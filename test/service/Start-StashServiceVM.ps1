@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,8 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit $ExitFailure
 }
 
-# --- REGION: https://yuruna.link/42e220c4-0008
+# --- REGION: Elevation check
+# See https://yuruna.link/42e220c4-0008
 if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Verbose ""
     Write-Output "This script requires elevation (Run as Administrator)."
@@ -82,6 +83,8 @@ if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Princi
     exit $ExitFailure
 }
 
+# --- REGION: Initialize host access
+# See https://yuruna.link/42e220c4-0008
 # Same module set as Start-CachingProxyServiceVM: Test.HostContract (for Get-HostType /
 # Initialize-YurunaHost), Test.VMUtility (host-agnostic helpers),
 # Test.CachingProxyService reuse not needed here (stash-service VM is independent of
@@ -95,12 +98,7 @@ Write-Verbose "Host type: $HostType"
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
 # --- REGION: Record the start intent
-# The start is on record, and this service's operation lock held, before
-# anything is built: a Stop issued meanwhile waits for the lock instead of
-# tearing down a half-built guest, and the reboot sweep and a host refresh see
-# the request. Taken after the group relaunch, because a lock taken in the
-# parent would block the relaunched child. A request that cannot be recorded
-# changes nothing.
+# See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
 Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
 $serviceOp = Enter-YurunaServiceOperation -Key 'stash' -VMName $VMName -Operation Start -Script 'Start-StashServiceVM.ps1' -Confirm:$false
@@ -136,7 +134,10 @@ test/test.config.yml and Set-Password the stashStorageNetworkUser. See docs/test
 "@
     exit $ExitFailure
 }
-# --- REGION: https://yuruna.link/42e220c4-0008
+# Hard gate: a REAL password must already be stored for the stash SMB user.
+# A mapped-but-unstored vaultKey would make the seed bake an AUTO-GENERATED
+# junk password the NAS rejects (cifs mount error(13)); the SMB user
+# authenticates to a PRE-EXISTING NAS account, so require a stored entry.
 if (-not (Test-PoolStorageStoredCredential -Config $stashCfg)) {
     Write-Error @"
 stash networkUser '$($stashCfg.NetworkUser)' has NO password stored in the vault.
@@ -148,7 +149,9 @@ See docs/test-config.md (networkStorage credentials).
 "@
     exit $ExitFailure
 }
-# --- REGION: https://yuruna.link/42e220c4-0008
+# Soft gate: a credential IS stored -- verify it actually AUTHENTICATES to the
+# stash share. WARNING, not a hard stop: the daemon buffers uploads locally
+# when the share is offline, and the NAS may merely be transiently unreachable.
 if (Connect-YurunaPoolStorage -Config $stashCfg -Confirm:$false) {
     Write-Verbose "stash storage pre-flight OK (networkUser='$($stashCfg.NetworkUser)'; credential authenticates)."
 } else {
@@ -238,6 +241,7 @@ if ($HostType -eq 'host.macos.utm') {
 }
 
 # --- REGION: Initialize the runtime directory
+# See https://yuruna.link/42f52e37-0020
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
 $runtimeDir = $null
@@ -247,6 +251,7 @@ try {
 
 # --- REGION: Probe service readiness
 # See https://yuruna.link/42d69dfa-0024
+# See https://yuruna.link/42f52e37-0020
 $stashReadyTimeoutSeconds = Get-ExtensionServiceReadyTimeoutSeconds -Area 'stash-service'
 $stashReadyCapSeconds = $stashReadyTimeoutSeconds * 2
 Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
@@ -272,7 +277,9 @@ if ($stashEndpoint.ExtendedSeconds -gt 0) {
                   "$([int]($stashEndpoint.ExtendedSeconds / 60)) min because the guest reported it was still building.")
 }
 
-# --- REGION: https://yuruna.link/42e220c4-0008
+# --- REGION: Recover the VM address
+# See https://yuruna.link/4220a755-0046
+# See https://yuruna.link/42f52e37-0020
 $stashRecovery = $null
 if ((Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint).IsFailure) {
     Write-Output "  The wait ended without the daemon answering -- looking for the guest by a route the wait could not use..."
@@ -297,6 +304,7 @@ if ((Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint).IsFailure) {
 }
 
 # --- REGION: Evaluate service readiness
+# See https://yuruna.link/42e220c4-0008
 # The script routes on that decision instead of each site judging for itself. A
 # readiness timeout is a FAILURE: a run that records PASS for a daemon that
 # never started sends the operator looking for the fault in whatever breaks next.
@@ -336,7 +344,8 @@ if ($runtimeDir -and $stashVerdict.Outcome -eq 'Ready') {
         else { Write-Output "  Stash VM address not resolved yet -- the Extension deep-link populates on a later refresh." }
     } catch { Write-Verbose "stash address resolve: $($_.Exception.Message)" }
 
-    # --- REGION: https://yuruna.link/42e220c4-0008
+    # --- REGION: Re-point the Shared NAT forwarder
+    # See https://yuruna.link/42e220c4-0008
     if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
         try {
             $settledIp = Get-VMIp -VMName $VMName
@@ -366,6 +375,7 @@ try {
 
 # --- REGION: Collect failure diagnostics
 # See https://yuruna.link/42fffc2c-000c
+# See https://yuruna.link/42f52e37-0020
 if ($stashVerdict.IsFailure) {
     $stashWaitedMinutes = if ($stashEndpoint) { [int]($stashEndpoint.WaitedSeconds / 60) } else { 0 }
     $stashObserved = if ($stashEndpoint -and $stashEndpoint.ObservedState) { [string]$stashEndpoint.ObservedState } else { 'nothing' }
@@ -410,7 +420,8 @@ if ($stashVerdict.IsFailure) {
     exit $ExitFailure
 }
 
-# --- REGION: https://yuruna.link/42e220c4-0008
+# --- REGION: Verify the host status service
+# See https://yuruna.link/42e220c4-0008
 if ($statusDecision -and $statusDecision.ShouldStart) {
     $statusPort = [int]$statusDecision.Port
     $accepting = Test-TcpEndpointOpen -Address '127.0.0.1' -Port $statusPort -TimeoutMilliseconds 2000

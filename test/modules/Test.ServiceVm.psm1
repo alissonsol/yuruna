@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 426c2f81-86df-422e-8db7-a94bd7ff61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -274,7 +274,7 @@ function ConvertTo-ServiceVmIdentityRow {
         ForwardersCaptured = [bool](& $get 'ForwardersCaptured')
         Ambiguity          = $ambiguity
         IntentGeneration   = [long](& $get 'IntentGeneration')
-        DesiredState       = [string](& $get 'DesiredState')
+        RequestedState       = [string](& $get 'RequestedState')
     }
 }
 
@@ -501,7 +501,7 @@ function Resolve-YurunaServiceVmPolicy {
             $disposition = 'not-a-guest'
         } elseif ([string]$row.Ambiguity) {
             $disposition = 'ambiguous'
-        } elseif ([string]$row.DesiredState -eq 'stopped') {
+        } elseif ([string]$row.RequestedState -eq 'stopped') {
             $disposition = 'intended-stopped'; $evidence = 'intent'
         } elseif ($selectedLeave) {
             $disposition = 'leave-stopped'; $evidence = 'operator-selection'
@@ -534,7 +534,7 @@ function Resolve-YurunaServiceVmPolicy {
                 EvidenceAgeSeconds      = $ageSeconds
                 EvidenceLifetimeSeconds = [int]$row.EvidenceLifetimeSeconds
                 EvidenceOrigin          = [string]$row.EvidenceOrigin
-                DesiredState            = [string]$row.DesiredState
+                RequestedState            = [string]$row.RequestedState
                 IntentGeneration        = [long]$row.IntentGeneration
                 IntentResult            = [string]$row.IntentResult
                 Ambiguity               = [string]$row.Ambiguity
@@ -659,7 +659,7 @@ function Test-YurunaServiceVmRunning {
         (Running, Suspended, Stopped, Absent, Unknown, HostProcess,
         NotDeployed), RawState, Reason, ServiceAnswered, Evidence,
         EvidenceAgeSeconds, EvidenceLifetimeSeconds, EvidenceOrigin,
-        DesiredState, IntentGeneration, IntentResult, Ambiguity, Preserve,
+        RequestedState, IntentGeneration, IntentResult, Ambiguity, Preserve,
         Disposition, Identity.
     #>
     [CmdletBinding()]
@@ -808,7 +808,7 @@ function Test-YurunaServiceVmRunning {
         }
 
         $record = if ($Census.Services -and $Census.Services.ContainsKey($row.Key)) { $Census.Services[$row.Key] } else { $null }
-        $desired = if ($record) { [string]$record.desiredState } else { [string]$row.DesiredState }
+        $desired = if ($record) { [string]$record.requestedState } else { [string]$row.RequestedState }
         $generation = if ($record) { [long]$record.intentGeneration } else { [long]$row.IntentGeneration }
         $intentResult = if ($record -and $record.intent) { [string]$record.intent.result } else { '' }
         $censusPositive = [bool]($record -and $record.evidenceFresh -and [string]$record.lastAnsweredIdentity -eq 'mac-corroborated' -and
@@ -831,7 +831,7 @@ function Test-YurunaServiceVmRunning {
                 CensusAgeSeconds        = if ($record) { $record.evidenceAgeSeconds } else { $null }
                 EvidenceLifetimeSeconds = $lifetime
                 EvidenceOrigin          = [string]$Census.EvidenceLifetimeOrigin
-                DesiredState            = $desired
+                RequestedState            = $desired
                 IntentGeneration        = $generation
                 IntentResult            = $intentResult
                 Identity                = $row
@@ -910,7 +910,7 @@ function New-ServiceVmRestoreRecord {
         [AllowEmptyString()][string]$Message = '',
         [AllowEmptyString()][string]$ProbeReason = 'unclassified',
         [AllowEmptyString()][string]$HypervisorState = '',
-        [AllowEmptyString()][string]$DesiredState = '',
+        [AllowEmptyString()][string]$RequestedState = '',
         [long]$IntentGeneration = 0,
         [AllowEmptyString()][string]$Address = '',
         [AllowEmptyString()][string]$ConsumerEndpoint = '',
@@ -928,7 +928,7 @@ function New-ServiceVmRestoreRecord {
         Message               = $Message
         ProbeReason           = $ProbeReason
         HypervisorState       = $HypervisorState
-        DesiredState          = $DesiredState
+        RequestedState          = $RequestedState
         IntentGeneration      = $IntentGeneration
         HostingMode           = [string]$Row.HostingMode
         Address               = $Address
@@ -1135,7 +1135,7 @@ function Restore-YurunaServiceVM {
         Injected sleeper taking milliseconds (tests).
     .OUTPUTS
         pscustomobject[] -- Key, VMName, DisplayName, StateBefore, Outcome,
-        Healthy, Message, ProbeReason, HypervisorState, DesiredState,
+        Healthy, Message, ProbeReason, HypervisorState, RequestedState,
         IntentGeneration, HostingMode, Address, ConsumerEndpoint,
         ConsumerEndpointState (verified, stale-advertisement, unanswered,
         not-advertised, not-checked), Obligation (none, state-unresolved,
@@ -1226,7 +1226,7 @@ function Restore-YurunaServiceVM {
         $state = [string]$svc.State
         $rawState = [string]$svc.RawState
         $rowReason = [string]$svc.Reason
-        if ($rowReason -eq 'app-stopped' -and $state -in @('Stopped', 'Suspended') -and [string]$svc.DesiredState -ne 'stopped' -and
+        if ($rowReason -eq 'app-stopped' -and $state -in @('Stopped', 'Suspended') -and [string]$svc.RequestedState -ne 'stopped' -and
             -not $svc.Ambiguity -and -not (Test-YurunaDeadlineExpired -Deadline $Deadline)) {
             # With the hypervisor app down every guest reads as stopped,
             # including one this host never built. Only this VM's own answer
@@ -1247,7 +1247,7 @@ function Restore-YurunaServiceVM {
                        else { [string]$verdict.Hypervisor.Reason }
         $common = @{
             Row = $row; StateBefore = $stateBefore; ProbeReason = $probeReason; HypervisorState = $hypervisorState
-            DesiredState = [string]$svc.DesiredState; IntentGeneration = [long]$svc.IntentGeneration
+            RequestedState = [string]$svc.RequestedState; IntentGeneration = [long]$svc.IntentGeneration
         }
         $emit = {
             param([hashtable]$Fields)
@@ -1324,7 +1324,7 @@ function Restore-YurunaServiceVM {
             continue
         }
         # Positively stopped or suspended from here on.
-        if ([string]$svc.DesiredState -eq 'stopped') {
+        if ([string]$svc.RequestedState -eq 'stopped') {
             & $emit @{ Outcome = 'intended-stopped'; Message = (Format-YurunaOperatorMessage -Key 'runner.service_restore_intended_stopped' -Arguments @{ operation = 'stop' }) }
             continue
         }
@@ -1423,11 +1423,11 @@ function Restore-YurunaServiceVM {
                 continue
             }
             $intentNow = Get-YurunaServiceIntent -Key $row.Key -Census $censusNow
-            if ($intentNow.DesiredState -eq 'stopped') {
+            if ($intentNow.RequestedState -eq 'stopped') {
                 # Desired 'stopped' only ever comes from a stop request: a
                 # pending or failed start leaves the state before it in
                 # force, and that state is a stop's.
-                & $emit @{ Outcome = 'intended-stopped'; DesiredState = 'stopped'; IntentGeneration = [long]$intentNow.Generation
+                & $emit @{ Outcome = 'intended-stopped'; RequestedState = 'stopped'; IntentGeneration = [long]$intentNow.Generation
                     Message = (Format-YurunaOperatorMessage -Key 'runner.service_restore_intended_stopped' -Arguments @{ operation = 'stop' }) }
                 continue
             }

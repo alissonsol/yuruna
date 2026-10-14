@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42abb186-f4b8-4269-9bed-8d5f24f258e5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # --- REGION: Shared bootstrap
+# See https://yuruna.link/42f52e37-001c
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
 # --- REGION: Delegate to the per-host script

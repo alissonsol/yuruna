@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b7c714-750f-4b13-9c64-3f688f1db47d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Move a re-keyed host's pool membership in one intent-store commit.
+    Move a re-keyed host's pool membership in one configuration-store commit.
 .DESCRIPTION
     Replaces the old host ID with the new one in pools.yml. If the new ID is
     already assigned to a pool, that assignment wins and the old ID is only
@@ -35,8 +35,8 @@
 param(
     [Parameter(Mandatory)][string]$OldHostId,
     [Parameter(Mandatory)][string]$NewHostId,
-    [string]$IntentGitUrl,
-    [string]$IntentDir
+    [string]$ConfigurationGitUrl,
+    [string]$ConfigurationDir
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -58,13 +58,13 @@ if (-not $old -or -not $new -or $old -eq $new) {
     exit $ExitFailure
 }
 
-# --- REGION: Open the intent store
-$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+# --- REGION: Open the configuration store
+$open = Open-YurunaPoolAdminStore -ConfigurationGitUrl $ConfigurationGitUrl -ConfigurationDir $ConfigurationDir -Confirm:$false
 $t = $open.Target
 if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
-$doc = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
+$doc = Read-YurunaPoolsDoc -ConfigurationDir $t.ConfigurationDir
 $oldPool = $null
 $newPool = $null
 foreach ($p in @($doc['pools'])) {
@@ -89,6 +89,6 @@ if (($auto -is [System.Collections.IDictionary]) -and (@($auto['excluded']) -con
 if (-not $changed) { exit $ExitOk }
 
 # --- REGION: Save, commit and push
-$pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: hand over $old to $new" -Confirm:$false
+$pub = Publish-YurunaPoolDocChange -ConfigurationDir $t.ConfigurationDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: hand over $old to $new" -Confirm:$false
 if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
 exit $ExitOk

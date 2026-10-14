@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -196,7 +196,7 @@ $null = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $script:CmdLineLogLevel -Co
 # shells.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
-# --- REGION: Pre-flight: elevation
+# --- REGION: Elevation check
 # See https://yuruna.link/42010605-0002
 if (-not (Assert-Elevation -HostType (Get-HostType))) { exit $ExitFailure }
 
@@ -242,7 +242,7 @@ if ($NoProjectClone) {
     }
 }
 
-# --- REGION: Ensure status service is running (restart to pick up any changes)
+# --- REGION: Start the host status service
 # Shared gate (Test.Prelude) so enabled / -NoStatusService / port / restart match the
 # inner runner. -Restart: a re-invoked Debug-TestSequence must pick up edits.
 # Skipped when nested: the owner already started (and owns) the status service;
@@ -420,7 +420,7 @@ if (-not (Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $Gu
     exit $ExitFailure
 }
 
-# --- REGION: Derive VM name (use -VMName override if provided)
+# --- REGION: Derive VM name
 if (-not $VMName) {
     $Prefix = $Config.vmStart.testVmNamePrefix ?? "test-"
     $VMName = Get-TestVMName -GuestKey $GuestKey -Prefix $Prefix

@@ -43,7 +43,7 @@ properties:
     type: [string, "null"]
     description: >
       The pool this host belongs to, DERIVED by the runner from pools.yml
-      members[] during the pool-intent pull. null when the host is unpooled or has
+      members[] during the pool-configuration pull. null when the host is unpooled or has
       not yet pulled intent. The aggregator labels telemetry by this value.
 
   poolGuid:

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d0ee91-af77-4d3c-9e22-94d5edbc7661
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,6 +88,8 @@ Import-Module (Join-Path $_repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
@@ -127,8 +129,6 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'pool-control-service.meta-data') -Destination "$SeedDir/meta-data"
-# --- REGION: https://yuruna.link/4220a755-000b
-Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
@@ -160,6 +160,8 @@ if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
     $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
 }
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
@@ -170,12 +172,13 @@ $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHos
 # Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
 $null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
-# Writable pool-intent git url the daemon commits to; empty degrades the daemon
-# (read-only). An explicit test.config.yml pool.intentGitUrl wins; otherwise this
+# Writable pool-configuration git url the daemon commits to; empty degrades the daemon
+# (read-only). An explicit test.config.yml pool.configurationGitUrl wins; otherwise this
 # resolves the bare repo on the pool NAS, which the guest creates and seeds on
 # first bring-up so a fresh VM reaches a working UI with nothing pre-staged.
-$intentGitUrl = Get-PoolIntentSeedUrl -Config $tc
+$configurationGitUrl = Get-PoolConfigurationSeedUrl -Config $tc
 
+# --- REGION: Render user-data / meta-data
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
 # pool-control-service.*). New-CloudInitUserData resolves placeholders with literal
 # .Replace(), so values carrying regex-special chars are safe.
@@ -192,7 +195,7 @@ $UserData = New-CloudInitUserData `
         YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
         YURUNA_HOST_ID_PLACEHOLDER     = $poolNas.HostId
         YURUNA_AGGREGATOR_URL_PLACEHOLDER      = $aggregatorSeedUrl
-        YURUNA_POOL_INTENT_GIT_URL_PLACEHOLDER = $intentGitUrl
+        YURUNA_POOL_CONFIGURATION_GIT_URL_PLACEHOLDER = $configurationGitUrl
         YURUNA_LANGUAGE_PLACEHOLDER       = $poolControlLanguage
         YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
         POOL_NAS_NETWORK_PATH_PLACEHOLDER  = $poolNas.NetworkPath
@@ -202,6 +205,8 @@ $UserData = New-CloudInitUserData `
         POOL_NAS_HOST_ID_PLACEHOLDER       = $poolNas.HostId
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+# --- REGION: https://yuruna.link/4220a755-000b
+Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Generate cloud-init seed ISO
 $SeedIso = "$DataDir/seed.iso"
@@ -222,6 +227,8 @@ $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance
+# UTM bundles are registered and started by the operator, so this phase prints
+# the next steps instead of waiting for an IP.
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_15cdc9f7300def05')
 Write-Output "  Path:      $UtmDir"

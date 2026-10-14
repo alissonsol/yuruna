@@ -47,11 +47,12 @@ def top_level_errexit(block):
         if heredoc: terminator = heredoc.group(1)
     return found
 
-def run_zot_install(root, fail='', digest=ZOT_SHA256_AMD64):
+def run_zot_install(root, fail='', digest=ZOT_SHA256_AMD64, override=('', '')):
     """Run the seed's zot install block as x86_64 with every system-changing command stubbed.
 
-    FAIL names the stub that fails; sha256sum reports DIGEST for any file. Returns the
-    result and the stubbed commands in call order.
+    FAIL names the stub that fails; sha256sum reports DIGEST for any file. OVERRIDE is the
+    version and SHA-256 a host's vmStart.cachingProxyZot* keys bake in; empty means the pin.
+    Returns the result and the stubbed commands in call order.
     """
     commands = root/'bin'; commands.mkdir(exist_ok=True)
     for name in ['curl', 'chmod', 'mv', 'useradd', 'install', 'systemctl', 'setfacl', 'sleep']:
@@ -62,9 +63,14 @@ def run_zot_install(root, fail='', digest=ZOT_SHA256_AMD64):
     for path in commands.iterdir(): path.chmod(0o755)
     shell_root = subprocess.run(['bash', '-c', 'pwd -P'], cwd=root, text=True,
                                 capture_output=True, check=True).stdout.strip()
-    # Rewrite owned absolute install paths; no actual service or account is touched.
+    # Rendered as New-VM.ps1 renders it, then owned absolute install paths are
+    # rewritten; no actual service or account is touched. cloud-init's
+    # write_files has already created /etc/zot when this block runs.
+    block = ZOT_INSTALL.replace('YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER', override[0]) \
+                       .replace('YURUNA_ZOT_OVERRIDE_SHA256_PLACEHOLDER', override[1])
     block = re.sub(r'/(?:usr/local/bin|var/log/zot|var/lib/zot|etc/zot)(?:/[A-Za-z0-9._/-]*)?',
-                   lambda match: '"$FIXTURE_ROOT' + match[0] + '"', ZOT_INSTALL)
+                   lambda match: '"$FIXTURE_ROOT' + match[0] + '"', block)
+    (root/'etc/zot').mkdir(parents=True, exist_ok=True)
     calls = root/'calls'; calls.write_text('')
     result = subprocess.run(['bash'], input='export PATH="$FIXTURE_ROOT/bin:$PATH"\n' + block,
         text=True, capture_output=True,
@@ -108,6 +114,24 @@ class CollectorSeed(unittest.TestCase):
             self.assertIn('failed its SHA-256 check', result.stdout)
             self.assertNotIn('chmod', calls); self.assertNotIn('mv', calls)
             self.assertFalse(staged.exists(), 'a binary that failed its check stays on disk')
+
+    def test_zot_installs_the_release_a_host_names_instead_of_the_pin(self):
+        pinned = re.search(r'ZOT_VERSION="([^"]+)"', ZOT_INSTALL)[1]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result, calls = run_zot_install(root, digest='f' * 64, override=('v2.1.21', 'f' * 64))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('/releases/download/v2.1.21/zot-linux-amd64', (root/'calls').read_text())
+            self.assertEqual((root/'etc/zot/yuruna-release.env').read_text(),
+                             f'ZOT_VERSION=v2.1.21\nZOT_PINNED_VERSION={pinned}\nZOT_OVERRIDE=1\n')
+            # The override's own digest gates it; the pin's digest does not vouch for another release.
+            result, calls = run_zot_install(root, override=('v2.1.21', 'f' * 64))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('failed its SHA-256 check', result.stdout)
+            self.assertNotIn('mv', calls)
+            result, _ = run_zot_install(root)
+            self.assertEqual((root/'etc/zot/yuruna-release.env').read_text(),
+                             f'ZOT_VERSION={pinned}\nZOT_PINNED_VERSION={pinned}\nZOT_OVERRIDE=0\n')
 
     def test_zot_stores_docker_manifest_lists(self):
         self.assertIn('docker2s2', json.loads(ZOT_CONFIG)['http'].get('compat', []),

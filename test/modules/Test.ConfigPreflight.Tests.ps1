@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -373,5 +373,83 @@ Describe 'One gate per cycle, at the front of it' {
         $plan = New-GatePlan -Root $script:planRoot -Name 'skip-default' -ExitCode 0
         $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath -Skip
         Assert-True ($o.Text -match '-NoConfigGate') 'the unqualified skip is still the operator opting out'
+    }
+}
+
+Describe 'Configuration gate evidence survives the attempt' {
+    BeforeAll {
+        foreach ($dir in @($script:gateRoot, $script:planRoot)) { $null = New-Item -ItemType Directory -Path $dir -Force }
+        Set-Content -LiteralPath (Join-Path $script:gateRoot 'Test-Config.ps1') -Value $script:stubGateBody
+    }
+
+    It 'preserves the full transcript and structured findings with current provenance' {
+        $dir = Join-Path $TestDrive 'gate-evidence'
+        $plan = New-GatePlan -Root $script:planRoot -Name 'persistent-failure' -ExitCode 1 `
+            -Stdout @('first line', 'last line') -Sidecar @{ schema = 'yuruna.preflight-failures/v1'; failures = @(@{ section = 'pool'; message = 'configuration URL missing' }) }
+        $gate = (Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath).Result
+        $artifact = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:9' -FrameworkCommitSha 'new-sha' -Confirm:$false
+        $record = Get-Content -LiteralPath (Join-Path $dir $artifact.recordPath) -Raw | ConvertFrom-Json
+        $record.failureClass | Should -Be 'config_gate_failed'
+        $record.frameworkCommitSha | Should -Be 'new-sha'
+        $record.attemptGeneration | Should -Be 'runner:9'
+        $record.structuredResult.failures[0].message | Should -Be 'configuration URL missing'
+        @(Get-Content -LiteralPath (Join-Path $dir $artifact.transcriptPath)) | Should -Be @('first line', 'last line')
+        (Get-Content -Raw -LiteralPath (Join-Path $dir 'runner.configGate.json') | ConvertFrom-Json).recordPath | Should -Be $artifact.recordPath
+    }
+
+    It 'bounds retries and clears a previous fault only when the gate passes' {
+        $dir = Join-Path $TestDrive 'gate-retention'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        $statusPath = Join-Path $dir 'status.json'
+        Set-Content -LiteralPath $statusPath -Value (@{ overallStatus = 'pass'; cycle = 7; runnerFault = @{ failureClass = 'config_gate_failed' }; runnerState = 'paused' } | ConvertTo-Json)
+        $gate = @{ passed = $false; skipped = $false; exitCode = 1; startedAtUtc = [DateTime]::UtcNow.ToString('o'); lines = @('bad config'); failureLines = @(); structuredResult = $null }
+        foreach ($n in 1..4) { $null = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration "runner:$n" -MaxAttempts 2 -Confirm:$false }
+        @(Get-ChildItem -LiteralPath (Join-Path $dir 'runner-attempts') -Directory).Count | Should -Be 2
+        (Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json).runnerFault.failureClass | Should -Be 'config_gate_failed'
+        $gate.passed = $true; $gate.exitCode = 0
+        $null = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:5' -MaxAttempts 2 -Confirm:$false
+        $status = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json
+        $status.runnerFault | Should -BeNullOrEmpty
+        $status.overallStatus | Should -Be 'pass'
+        $status.cycle | Should -Be 7
+        $status.runnerState | Should -Be 'in-cycle'
+    }
+}
+
+Describe 'Configuration refusal survives evidence write failure' {
+    It 'reports a failed latest-pointer write instead of silently returning success' {
+        $dir = Join-Path $TestDrive 'gate-pointer-failure'
+        $gate = @{ passed = $false; skipped = $false; exitCode = 1; startedAtUtc = [DateTime]::UtcNow.ToString('o'); lines = @('invalid configuration'); failureLines = @(); structuredResult = $null }
+        Mock -ModuleName Test.ConfigPreflight Write-YurunaStateFileJson { $false }
+        { Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:9' -Confirm:$false } | Should -Throw '*latest verdict*'
+        @(Get-ChildItem -LiteralPath (Join-Path $dir 'runner-attempts') -Recurse -Filter config-gate.log).Count | Should -Be 1
+    }
+
+    It 'the inner wrapper returns the dedicated refusal code even when artifact writing throws' {
+        $dir = Join-Path $TestDrive 'gate-wrapper-failure'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        Set-Content -LiteralPath (Join-Path $dir 'Test-Config.ps1') -Value $script:stubGateBody
+        $plan = New-GatePlan -Root $dir -Name 'wrapper' -ExitCode 1
+        $moduleRoot = Split-Path -Parent $PSCommandPath
+        $repo = Split-Path -Parent (Split-Path -Parent $moduleRoot)
+        $innerPath = Join-Path $moduleRoot 'Invoke-TestRunnerInnerLoop.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($innerPath, [ref]$null, [ref]$null)
+        $block = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.IfStatementAst] -and $node.Extent.Text -match '\$gate = Invoke-ConfigGate' }, $true) | Select-Object -First 1
+        $stubPath = Join-Path $dir 'inner-gate.ps1'
+        $stub = @'
+param($ModuleRoot, $RepoRoot, $TestRoot, $ConfigPath, $RuntimeDir)
+Import-Module (Join-Path $ModuleRoot 'Test.ConfigPreflight.psm1') -DisableNameChecking
+Import-Module (Join-Path $ModuleRoot 'Test.RecoveryContract.psm1') -DisableNameChecking
+function Write-ConfigGateArtifact { throw 'artifact storage is unavailable' }
+function Write-RunnerPhase { param($Phase) Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.phase') -Value $Phase }
+$env:YURUNA_RUNTIME_DIR = $RuntimeDir
+$RefreshMode = @{ Mode = 'ordinary' }
+$NoConfigGate = $false
+'@
+        Set-Content -LiteralPath $stubPath -Value ($stub + "`n" + $block.Extent.Text)
+        $null = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -File $stubPath -ModuleRoot $moduleRoot -RepoRoot $repo -TestRoot $dir -ConfigPath $plan.ConfigPath -RuntimeDir $dir 2>&1
+        $LASTEXITCODE | Should -Be 78
+        Test-Path -LiteralPath (Join-Path $dir 'runner.configGate.json') | Should -BeFalse
+        (Get-Content -Raw -LiteralPath (Join-Path $dir 'runner.phase')).Trim() | Should -Be 'config-gate'
     }
 }

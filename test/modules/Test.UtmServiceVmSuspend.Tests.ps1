@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4219b525-eda6-4092-a1ab-0224926173fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     was `started` comes back `suspended`, and nothing resumes it. For the
     service VMs (caching proxy, stash, pool-control) that is an outage:
     guests take their packages through the proxy, the build uploads to the
-    stash, and pool-control serves the intent store, so every consumer
+    stash, and pool-control serves the configuration store, so every consumer
     fails for as long as one sits suspended. Two things get UTM quit --
     an operator closing the last window, and the framework doing it on
     purpose to edit UTM's Registry plist -- and each needs its own guard.

@@ -1,14 +1,10 @@
 # Yuruna line-ending policy.
 #
-# Yuruna runs on Windows + Hyper-V hosts AND macOS + UTM hosts, drives
-# Linux guest VMs (Ubuntu, Amazon Linux), and ships shell scripts that
-# the host status service serves byte-faithfully to those guests over
-# HTTP. If a developer's git is configured with core.autocrlf=true (the
-# Windows default after some "Git for Windows" installers), `*.sh` files
-# are checked out as CRLF, the status service serves CRLF bytes, and the
-# guest's bash chokes with `$'\r': command not found` on the very first
-# line of fetch-and-execute.sh. This file forces LF on every text type
-# a Linux guest reads, regardless of any per-developer config.
+# Yuruna hosts serve these files byte-faithfully to the Linux guest VMs under
+# test. A CRLF checkout (core.autocrlf=true) would reach the guest as CRLF bytes
+# and break bash on the first script line, so every text type a guest reads is
+# pinned to LF here.
+# See https://yuruna.link/429fb30b-0011
 #
 # Files consumed by Linux guests -- must always be LF.
 # The cloud-init seeds are extensionless *suffixes*, not bare names: the

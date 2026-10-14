@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,13 +52,7 @@ param(
     # is running and its squid / ssl-bump / CA probe passes. Pass this after a
     # base-image or config change to guarantee a fresh build.
     [switch]$ForceRebuild,
-    # Size the cache for a shared lab beacon, whose cache answers every machine
-    # in the pool. Without it the VM is built for a host that runs the cache
-    # beside the stash, the download agent and its own test guests, where every
-    # gigabyte here is one those guests cannot have -- the ordinary case, and
-    # the safer one to default to. The RAM and squid's cache_mem are resolved
-    # together and passed together -- swap is masked in the guest, so moving one
-    # without the other is an unrecoverable OOM rather than a slowdown.
+    # See https://yuruna.link/42e220c4-0008
     [switch]$Lab,
     [switch]$AllowPseudoLocale
 )
@@ -82,12 +76,8 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
-# Windows has no mid-run elevation: querying Hyper-V (Get-VMHost), creating
-# and removing the cache VM, and setting the host proxy + netsh portproxy
-# all need an elevated session. Check NOW and stop with a clear reason. A
-# non-elevated run otherwise hits a non-terminating Get-VMHost permission
-# error, leaves the VHD path $null, and cascades through null-path failures
-# before the real cause (need-admin) finally surfaces from Get-Image.ps1.
+# --- REGION: Elevation check
+# See https://yuruna.link/42e220c4-0008
 if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Verbose ""
     Write-Output "This script requires elevation (Run as Administrator)."
@@ -100,6 +90,7 @@ if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Princi
     exit 1
 }
 
+# --- REGION: Clear the inherited proxy environment
 # Pre-flight: drop inherited proxy env vars from THIS process and its
 # children so .NET HttpClient downloads go DIRECT (a stale upstream IP
 # would fail every Get-Image / virt-install / qemu-img call before the
@@ -111,12 +102,7 @@ $proxyEnvVars = @(
     'ALL_PROXY',   'all_proxy',
     'YURUNA_CACHING_PROXY_SERVICE_IP'
 )
-# Capture the cleared values to a sidecar BEFORE removing them, so
-# a downstream operator (or an automated re-invocation after a Ctrl+C
-# mid-bring-up) can restore the proxy state without re-typing it from
-# memory. The sidecar lives next to runner.pid so it's wiped by
-# Remove-TestVMFiles along with the rest of per-host state. Best-effort:
-# write failures are logged Verbose and the cleanup continues.
+# See https://yuruna.link/42e220c4-0008
 $envSidecarDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path $PSScriptRoot '../status/runtime' }
 $envSidecarPath = Join-Path $envSidecarDir '.caching-proxy-service.env.json'
 $clearedProxy = @()
@@ -154,6 +140,7 @@ if ($clearedProxy.Count -gt 0) {
     }
 }
 
+# --- REGION: Initialize host access
 # Canonical path bundle + CachingProxyService module kind (Test.VMUtility,
 # Test.CachingProxyService, Test.HostContract -- the union every caching-proxy-service
 # entry-point script needs).
@@ -183,12 +170,7 @@ if ($MacAddress) {
 # libvirt-socket access. No-op on macOS / Windows / fresh shells.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
-# Surface the sudo requirement up front, unconditionally. The Step 0 sudo
-# priming only prints its reason box when it actually prompts -- a warm
-# sudo timestamp, or YURUNA_SUDO_PRIMED=1 from an install wrapper, skips
-# that box, and the long Step 5 discovery wait can expire the timestamp so
-# a later call prompts bare. This notice guarantees the operator always
-# sees WHY their password may be requested. (Windows handled above.)
+# See https://yuruna.link/42e220c4-0008
 if ($IsMacOS -or $IsLinux) {
     Write-Verbose ""
     Write-Verbose "Note: bringing up the cache proxy uses sudo -- you may be prompted for your password."
@@ -215,14 +197,14 @@ if ($IsMacOS) {
     Write-Error "Unsupported host. Start-CachingProxyServiceVM.ps1 runs on macOS (UTM), Windows (Hyper-V), or Linux (KVM/libvirt)."
     exit 1
 }
+
+# --- REGION: Resolve the VM builder
+# See https://yuruna.link/42e220c4-0008
+# See https://yuruna.link/42f52e37-0020
+# Resolved ahead of Preflight and the start intent: a missing builder script
+# stops the run before anything is recorded or changed.
 $HostDir = Join-Path $RepoRoot "host/$HostType/guest.caching-proxy-service"
 
-# The cache VM boots the base image every extension service on this host
-# shares; resolve it from the same helper Get-Image.ps1 and New-VM.ps1 use so
-# the artifact check below can never test a path they don't write. On Hyper-V
-# the resolver reads (Get-VMHost).VirtualHardDiskPath, which loads the Hyper-V
-# module on first use -- the underlying New-VM.ps1 has the same dependency, so
-# surfacing that failure here keeps the error close to the user.
 Import-Module (Join-Path $RepoRoot 'host/modules/Yuruna.Image.psm1') -Force
 try {
     $ImageFile = (Get-UbuntuExtensionImageInfo -HostType $HostType).BaseImageFile
@@ -231,12 +213,6 @@ try {
     exit 1
 }
 
-# Single cross-cycle persistence file (yuruna password + cache VM IP)
-# under the framework's runtime directory. One framework-managed path
-# avoids the per-platform sidecar drift class where each host's
-# VHD/raw image directory carried its own caching-proxy-service-password.txt
-# and cache-ip.txt out of sync. Get-CachingProxyServiceStatePath comes from
-# Test.CachingProxyService, loaded by the CachingProxyService kind at file top.
 $PasswordFile = Get-CachingProxyServiceStatePath
 
 $GetImageScript = Join-Path $HostDir 'Get-Image.ps1'
@@ -321,13 +297,7 @@ if ($IsLinux -and $plannedBridge -and $plannedBridge.WillChangeHostNetworking) {
 Write-Verbose "  Preflight OK -- proceeding unattended (no further prompts)."
 
 # --- REGION: Record the start intent
-# The start is on record, and this service's operation lock held, before the
-# bring-up lock and before anything is torn down or built: a Stop issued
-# meanwhile waits for the lock instead of removing a half-built cache, and the
-# reboot sweep and a host refresh see the request. The operation lock comes
-# first, the same order Stop-CachingProxyServiceVM.ps1 takes them in, so the two
-# scripts can never each hold the lock the other waits for. A request that
-# cannot be recorded changes nothing.
+# See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
 Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
 $serviceOp = Enter-YurunaServiceOperation -Key 'caching-proxy' -VMName $VMName -Operation Start -Script 'Start-CachingProxyServiceVM.ps1' -Confirm:$false
@@ -426,13 +396,7 @@ if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit 1 }
 Write-Verbose ""
 Write-Verbose "== Step 1: cleanup previous '$VMName' VM =="
 
-# Wipe any leftover host-proxy state BEFORE provisioning. Remove-HostProxy
-# (not Clear-HostProxy) is the right model: a previous cycle's WinINet
-# ProxyServer or HTTP_PROXY env var pointing at an IP that no longer hosts
-# squid is junk we want gone, not state we want to preserve. The snapshot/restore
-# alternative (Clear-HostProxy) captures whatever is on disk at first promotion
-# and faithfully reinstates it on each Stop, leaking stale IPs into every
-# subsequent Test-CachingProxyService probe. Symmetric with Stop-CachingProxyServiceVM.ps1.
+# See https://yuruna.link/42e5cdfd-0033
 try {
     Import-Module (Join-Path $PSScriptRoot '../modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
@@ -492,13 +456,7 @@ if ($IsMacOS) {
         Write-Verbose "== Step 1.5: bridge auto-creation skipped (YURUNA_EXTERNAL_BRIDGE_SKIP=1) =="
         Write-Verbose "  Cache VM will land on libvirt's NAT 'default' network (host-only)."
     } elseif ($plannedBridge -and -not $plannedBridge.CanBridge) {
-        # Step 0's plan already determined a LAN-routable bridge is
-        # impossible right now (no default route, Wi-Fi NIC, or -- most
-        # importantly -- NetworkManager has crashed recently and re-trying
-        # the nmcli build would just crash it again + raise another apport
-        # dialog). Honor that plan: skip the attempt entirely rather than
-        # re-running New-YurunaExternalNetwork only for its internal guard
-        # to bail. The full reason was printed in Step 0.
+        # See https://yuruna.link/42e220c4-0008
         Write-Verbose ""
         Write-Verbose "== Step 1.5: bridge step skipped (per Step 0 plan: $($plannedBridge.Action)) =="
         Write-Verbose "  Cache VM will use libvirt's NAT 'default' network (host-only). Reason"
@@ -593,13 +551,7 @@ if ($cpConfigDecision.ShouldStart) {
     if ($cpConfigUp) {
         Write-Verbose "  config service verified accepting on :$($cpConfigDecision.Port) (mTLS; serves NAS creds to this host's VMs)."
     } else {
-        # configService is enabled but the service did not come up -- REFUSE to build
-        # the cache VM. A VM built now bakes EMPTY mTLS materials into its seed (New-VM
-        # cannot mint a client cert against a down/unusable CA), so it could never fetch
-        # its ystash-nas/ypool-nas credentials: no password rotation, and an EMPTY
-        # "Extension hosts" panel (ystash-nas is never mounted). Failing here keeps the
-        # operator to ONE reliable step instead of silently shipping a broken VM to
-        # rediscover later. The opt-out is explicit: configService.enabled=false.
+        # See https://yuruna.link/42e5cdfd-0036
         Write-Verbose ""
         Write-Output "  Building the cache VM now would bake EMPTY mTLS materials into its seed: it could not fetch"
         Write-Verbose "  its ystash-nas/ypool-nas credentials -- so NO password rotation, and an EMPTY 'Extension"
@@ -617,12 +569,7 @@ if ($cpConfigDecision.ShouldStart) {
 Write-Verbose ""
 Write-Verbose "== Step 3: create VM '$VMName' =="
 $global:LASTEXITCODE = $null
-# By-name (hashtable) splatting is REQUIRED here. Array splatting binds
-# every element POSITIONALLY -- a literal '-MacAddress' string element is
-# never re-parsed as a parameter name, so the child rejects it with "A
-# positional parameter cannot be found" and never runs at all. The key is
-# added conditionally so the bare call keeps each platform New-VM.ps1's
-# random-MAC default.
+# See https://yuruna.link/42e220c4-0008
 $newVmParams = @{ VMName = $VMName; AllowPseudoLocale = $AllowPseudoLocale }
 if ($MacAddress) { $newVmParams.MacAddress = $MacAddress }
 # Both or neither: the profile is the only place these two are chosen, so a
@@ -691,12 +638,7 @@ if ($IsMacOS) {
         exit 1
     }
 
-    # Every utmctl call below is bounded: utmctl reaches UTM over Apple Events,
-    # and a call that raised an Automation consent dialog nobody answers does not
-    # return on its own, so a bare call would hang the bring-up instead of
-    # reporting the stall. The macOS driver's wrappers are used when it exports
-    # them (they also resolve the bundle's utmctl when the PATH link is
-    # missing); otherwise the shared bounded runner calls utmctl by name.
+    # See https://yuruna.link/42e5cdfd-0037
     $cpUtmctl = {
         param([string]$Verb, [string]$Name, [int]$TimeoutSeconds)
         if ($Verb -eq 'start' -and (Get-Command Invoke-UtmctlLifecycle -ErrorAction SilentlyContinue)) {
@@ -884,12 +826,7 @@ if ($IsMacOS) {
     }
 
     # --- REGION: Step 6: macOS bridged -- tear down legacy host-side forwarders
-    # With bridged networking the cache VM is reachable directly at its
-    # LAN IP -- no host:port forwarder layer needed. Any leftover pwsh
-    # forwarders from a prior shared-NAT cycle would now bind ports that
-    # the operator expects to be free, and would tunnel to a stale IP.
-    # Remove-PortMap clears every Yuruna-managed forwarder symmetrically
-    # with Stop-CachingProxyServiceVM.ps1; on a fresh install this is a no-op.
+    # See https://yuruna.link/42e5cdfd-0039
     if ($cacheIp) {
         Write-Verbose ""
         Write-Verbose "== Step 6: tear down any legacy host-side forwarders (bridged cache is LAN-direct) =="
@@ -901,13 +838,7 @@ if ($IsMacOS) {
     }
     }
 } elseif ($IsLinux) {
-    # KVM/libvirt: guest.caching-proxy-service/New-VM.ps1 already calls virt-install
-    # with --import and blocks until the VM has an IP AND squid is
-    # listening on :3128 (see host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1
-    # for the wait loop). No separate "register + start" phase like UTM,
-    # and no host-side discovery loop like Hyper-V -- by the time we
-    # reach here the cache is up and reachable, we just need to re-query
-    # the IP for the summary and persist it for downstream consumers.
+    # See https://yuruna.link/42e5cdfd-0039
     # --- REGION: Linux -- re-query the cache VM IP for persistence + summary
     Write-Verbose ""
     Write-Verbose "== Step 4: re-query cache VM IP for persistence + summary =="
@@ -967,12 +898,7 @@ if ($IsMacOS) {
     }
 } elseif ($IsWindows) {
     # --- REGION: Windows -- discover the cache VM and expose its ports to the LAN
-    # Use the same KVP+ARP+:3128-probe discovery the guest consumers
-    # (guest.ubuntu.server.24/New-VM.ps1) use, so the summary line
-    # below matches what a subsequent guest install will actually see.
-    # KVP-only discovery would print "(discovery failed)" whenever
-    # hv_kvp_daemon wasn't warm, even though the inner New-VM.ps1's ARP
-    # path had already found the cache and the cache was serving :3128.
+    # See https://yuruna.link/42e5cdfd-003b
     $vmCommon = Join-Path $RepoRoot "host/windows.hyper-v/modules/Yuruna.Host.psm1"
     Import-Module $vmCommon -Force
     $CachingProxyServiceUrl = Get-WorkingCachingProxyServiceUrl -VMName $VMName
@@ -983,12 +909,7 @@ if ($IsMacOS) {
     # the run with nothing on screen to explain why.
     if (-not $cacheIp) {
         if ($CachingProxyServiceUrl) {
-            # Get-WorkingCachingProxyServiceUrl builds its host through
-            # Format-IpUrlHost, which brackets IPv6, while the pattern above
-            # reads IPv4 only -- so a cache reachable only at an IPv6 address
-            # answers the probe and still leaves no address to record. Naming
-            # the URL is what makes that five seconds to diagnose instead of a
-            # silent stop.
+            # See https://yuruna.link/42e5cdfd-003b
             Write-Warning "The cache answered at $CachingProxyServiceUrl, but no IPv4 address could be read from it, so there is nothing to record or to point guests at. A cache reachable only over IPv6 lands here; give it an IPv4 address on the vSwitch it is attached to."
         } else {
             Write-Warning "No caching-proxy VM answered on the proxy port. Hyper-V KVP may be cold (hv_kvp_daemon not yet running in the guest) and the host's neighbor entry for the VM's MAC may have aged out. Check the VM is running, then re-run this script."
@@ -1044,12 +965,7 @@ $serviceOpResult = 'confirmed'
 }
 
 # --- REGION: Report the service state
-# The caching-proxy-service-admin user's password is NOT printed in the banner -- the value
-# already lives in <runtime>/yuruna-caching-proxy-service.yml (written by the
-# cache VM's New-VM.ps1) and the vault. Reading it again here just to echo
-# to the terminal leaks the secret into operator transcripts / scrollback
-# for no real gain. Operators who need it run:
-#     yq .password $PasswordFile        (or: Get-Content $PasswordFile)
+# See https://yuruna.link/42e5cdfd-003c
 
 Write-Verbose ""
 Write-Verbose "========"

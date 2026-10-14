@@ -375,7 +375,7 @@ without it a cycle written in that hour would be written twice.
 - [collector-down](https://yuruna.link/collector-down) -- restoring the
   pool-aggregator-service collector this whole dashboard depends on.
 - [pool-admin](https://yuruna.link/4207d71a) -- running a pool: membership,
-  framework and project repositories, desired state.
+  framework and project repositories, configured state.
 - [lab-operator](https://yuruna.link/42383647) -- bringing a lab up.
 
 ---
@@ -384,6 +384,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

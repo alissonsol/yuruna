@@ -14,25 +14,25 @@
 
 A **pool** is a named group of test hosts that run the same assigned work and report
 under one label (the `poolId`). You manage a pool by editing one small file
-of **intent** -- `pools.yml` -- through a handful of admin commands. You never touch the
-hosts directly: each runner **pulls** the intent every cycle and acts on it.
+of **configuration** -- `pools.yml` -- through a handful of admin commands. You never touch the
+hosts directly: each runner **pulls** the configuration every cycle and acts on it.
 
-Intent has three parts:
+Configuration has three parts:
 
 - **members** -- which hosts belong to the pool (by their stable host id).
 - **repositories** -- the framework and project repositories the pool runs (its
   **Framework URL** and **Project URL**); that project's own `test.runner.yml` is
   the work. A pool without them leaves each member on its own configured
   repositories.
-- **desiredState** -- whether the pool is running, paused, or draining.
+- **configuredState** -- whether the pool is running, paused, or draining.
 
 ```
-  you --run--> admin CLI --writes--> pools.yml  (intent git repo on the caching-proxy-service)
+  you --run--> admin CLI --writes--> pools.yml  (configuration git repo on the caching-proxy-service)
                                           |
   every host --pulls read-only each cycle-+--> runs the pool's project, reports under <poolId>
 ```
 
-The intent repo holds **only non-secret** files (`pools.yml`,
+The configuration repository holds **only non-secret** files (`pools.yml`,
 `guests.compatibility.yml`). No credential is ever routed through it.
 
 **Planning is decentralized -- there is no central dispatch.** A member of a
@@ -40,17 +40,17 @@ pool that carries repositories switches to the pool's framework and project for
 the cycle and resolves that project's own `test.runner.yml` plan itself, exactly
 as a standalone host resolves its own. Members do not coordinate or split the
 work: each one runs the whole plan. `guests.compatibility.yml` does not narrow
-it either -- `Test-PoolIntent.ps1` validates that file, and no runner reads it.
+it either -- `Test-PoolConfiguration.ps1` validates that file, and no runner reads it.
 The switch is strictly additive and best-effort -- a pool without repositories,
 or a pool manifest the runner cannot read, leaves the host on its own
 configured repositories rather than throwing or halting the loop.
 
 **The pull itself** is a small git spine, optional and default-off: a host
-with `pool.enabled: false`, or one whose intent store is unreachable,
-keeps cycling as a single host. Each runner clones/fetches the intent repo
+with `pool.enabled: false`, or one whose configuration store is unreachable,
+keeps cycling as a single host. Each runner clones/fetches the configuration repository
 over the LAN, finds its own pool by locating its stable `hostId` in
 `members[]` -- the single source of truth for membership -- and reconciles
-the pulled `desiredState` (`run`/`paused`/`drain`) into the outer loop
+the pulled `configuredState` (`run`/`paused`/`drain`) into the outer loop
 exactly like the local `control.cycle-restart` flag. Every git call is
 wall-clock-bounded and proofed against a credential prompt
 (`GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS`, `GCM_INTERACTIVE=never`,
@@ -62,15 +62,15 @@ interactive one.
 
 ## Before you start
 
-1. **The intent store exists.** The caching-proxy-service VM seeds a bare git repo at
-   `/mnt/ypool-nas/pool-intent.git` and serves it **read-only over HTTP** at
-   `http://<proxy>/pool-intent.git`. Set up automatically when the caching-proxy-service is
+1. **The configuration store exists.** The caching-proxy-service VM seeds a bare git repo at
+   `/mnt/ypool-nas/pool-configuration.git` and serves it **read-only over HTTP** at
+   `http://<proxy>/pool-configuration.git`. Set up automatically when the caching-proxy-service is
    provisioned.
 2. **Each host has opted in.** In each host's `test/test.config.yml`, set the `pool` block:
    ```yaml
    pool:
      enabled: true
-     intentGitUrl: http://<proxy>/pool-intent.git   # the READ-ONLY HTTP url
+     configurationGitUrl: http://<proxy>/pool-configuration.git   # the READ-ONLY HTTP url
      localClonePath: ''                              # optional; defaults under runtime/
    ```
    A host with `pool.enabled: false` (the default) runs standalone.
@@ -78,32 +78,32 @@ interactive one.
    `42`-prefixed 32-hex string, also shown as `hostId` on the host's own status page and
    on the pool dashboard. Anywhere a FULL one is put in front of you it is spelled
    GUID-dashed (`42abcdef-0123-4567-89ab-cdef01234567`); the stores hold the bare hex.
-4. **You can write the intent repo.** The HTTP URL above is read-only. The admin commands
+4. **You can write the configuration repository.** The HTTP URL above is read-only. The admin commands
    need a **writable** path/URL, so run them **on the caching-proxy-service** against the local repo
-   (`/mnt/ypool-nas/pool-intent.git`), or against any pre-authenticated writable remote.
-   Pass it with `-IntentGitUrl <writable-url>`, or set `pool.intentGitUrl` to a writable
+   (`/mnt/ypool-nas/pool-configuration.git`), or against any pre-authenticated writable remote.
+   Pass it with `-ConfigurationGitUrl <writable-url>`, or set `pool.configurationGitUrl` to a writable
    value in the `test.config.yml` you run the admin CLI from (then you can omit the flag).
    The admin CLIs reuse `Test.PoolSync`'s same bounded, prompt-proof git wrapper the
    runner's pull path uses, and every change is schema-validated **before** commit,
-   so a malformed intent can never reach the store the whole pool pulls from.
+   so a malformed configuration can never reach the store the whole pool pulls from.
 
 Run the commands below from the repo root. Steps 1, 2 and 4 also name the
 pool-control service page (`http://<pool-control>/`) that makes the same change
 by running the same command; a change made there unlocks with the Lab token
-([Unlocking the actions](#4207d71a-0012)) instead of taking `-IntentGitUrl`.
+([Unlocking the actions](#4207d71a-0012)) instead of taking `-ConfigurationGitUrl`.
 
 <a id="4207d71a-0004"></a>
 
 ## Step 1 -- Create the pool
 
 ```powershell
-pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <writable-url>
+pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -ConfigurationGitUrl <writable-url>
 ```
 
 - `-PoolId` is a short, lowercase, DNS-safe name (`a-z 0-9 -`). It becomes the **permanent
   label** for this pool's telemetry on the dashboard, so pick it deliberately -- renaming it
   later forks the history.
-- The pool starts empty (`desiredState: run`, no members, no repositories).
+- The pool starts empty (`configuredState: run`, no members, no repositories).
 - On the pool-control service: the Pools page (`/pools`) takes the **Pool id**
   and an optional **Display name**, then **Create pool**.
 
@@ -114,7 +114,7 @@ pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <w
 Run once per host:
 
 ```powershell
-pwsh test/pool/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01234567 -IntentGitUrl <writable-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01234567 -ConfigurationGitUrl <writable-url>
 ```
 
 - `-HostId` is the host's `runtime/host.uuid` (`42` + 30 hex). The pool dashboard's
@@ -137,7 +137,7 @@ the work). When a pool carries both, every member overrides its own
 and runs that project's `test.runner.yml` plan. A pool that carries none leaves
 each member on its own configured repositories.
 
-`GH_TOKEN` is never stored in pool intent; it stays host-local, so each member's
+`GH_TOKEN` is never stored in pool configuration; it stays host-local, so each member's
 own credential must be able to read both repositories (see
 [Project access](#4207d71a-000f)). Nothing is registered up front: Step 4
 records both URLs directly on the pool.
@@ -147,8 +147,8 @@ records both URLs directly on the pool.
 ## Step 4 -- Set the repositories on the pool
 
 ```powershell
-pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
-pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -Clear -IntentGitUrl <writable-url>   # back to each member's own repositories
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -FrameworkUrl <framework-url> -ProjectUrl <project-url> -ConfigurationGitUrl <writable-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -Clear -ConfigurationGitUrl <writable-url>   # back to each member's own repositories
 ```
 
 - A pool holds **exactly one** pair; setting it replaces the previous one, and
@@ -160,10 +160,10 @@ pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -Clear -IntentGitUrl <writable
   self-contained -- no file in the project repo is involved:
 
   ```yaml
-  schemaVersion: 3
+  schemaVersion: 4
   pools:
     - poolId: lab
-      # ...poolGuid, displayName, members, desiredState...
+      # ...poolGuid, displayName, members, configuredState...
       repositories:
         frameworkUrl: <framework-url>
         projectUrl: <project-url>
@@ -183,47 +183,58 @@ pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -Clear -IntentGitUrl <writable
 ## Step 5 -- Verify
 
 ```powershell
-pwsh test/pool/Test-PoolIntent.ps1             # schema-validates pools.yml (+ guests.compatibility.yml); host-in-one-pool invariant
-pwsh test/pool/Get-PoolStatus.ps1 -PoolId lab  # shows members, desiredState, and repositories
+pwsh test/pool/Test-PoolConfiguration.ps1             # schema-validates pools.yml (+ guests.compatibility.yml); host-in-one-pool invariant
+pwsh test/pool/Get-PoolStatus.ps1 -PoolId lab  # shows members, configuredState, and repositories
 ```
 
-There is nothing to "deploy": each runner picks up the new intent at the start of its
+There is nothing to "deploy": each runner picks up the new configuration at the start of its
 **next cycle**, so no host restart is needed. Once a pooled host completes a cycle,
 confirm it took effect on the **Yuruna hosts** Grafana dashboard (it groups every host under
 your `poolId`), or directly: `curl -sk https://<proxy>:9400/api/v1/pool-status`.
 
-`Test-PoolIntent.ps1` reads `pools.yml` as stored, and its `schema-version`
-check fails on a store below `schemaVersion: 3`. The other admin commands
-already read such a store as `schemaVersion: 3` and store it that way on their
-next write; to migrate it at once, run this one time:
+`Test-PoolConfiguration.ps1` validates the stored document against schemaVersion 4.
+Readers accept versions 2 and 3 in memory and preserve `run`, `paused`, and
+`drain` while converting `desiredState` to `configuredState`. Version 2's
+`testSet` repository URLs also become `repositories`. Matching duplicate state
+fields collapse during migration; conflicting values are rejected before any
+change. Version 4 permits only `configuredState`.
+
+Upgrade the framework on every runner, the pool-control service VM, and all
+admin checkouts before updating the shared store. Older binaries do not
+understand the new field and must not keep running against a version 4 store.
+Then run:
 
 ```powershell
-pwsh test/pool/Update-PoolIntentSchema.ps1 -IntentGitUrl <writable-url>
+pwsh tools/Update-TestConfigNaming.ps1 -ConfigPath <test.config.yml>
+pwsh test/pool/Update-PoolConfigurationSchema.ps1 -ConfigurationGitUrl <writable-url>
 ```
 
-It rewrites `pools.yml` at `schemaVersion: 3`, moving each pool's framework and
-project URLs into `repositories`, deletes intent files that nothing reads,
-validates the result, and commits and pushes it; run again, it reports the
-store already current. Update the pool-control service VM and every admin
-checkout first: a checkout that expects an older `schemaVersion` refuses to
-write the migrated store.
+The first command renames `pool.intentGitUrl` to `pool.configurationGitUrl`
+and keeps the URL value. The second validates, commits, and pushes the pool
+configuration migration when invoked by the operator; an already-current
+store is unchanged. No running pool is migrated just by updating this checkout.
 
-Members do not switch shapes at the same moment, and each side of the change
-falls back to the member's own configured project. A member whose framework
-checkout still expects `schemaVersion` 2 ignores `repositories` and runs its
-own project until its framework updates. A member already on the current
-framework takes the URLs only from `repositories`, so while the store is still
-below `schemaVersion: 3` it also runs its own project. Run the migration right
-after updating the service VM and the admin checkouts to keep that window
-short.
+New installations use `pool-configuration.git`. Re-running `New-Lab.ps1` or
+the service bootstrap adopts an existing managed `pool-intent.git` store,
+preserving its Git history. `New-Lab.ps1` also upgrades lab-vault metadata to
+schemaVersion 2 (`configurationGitPath`) while retaining credentials. Update
+any explicitly configured filesystem or `git://` URL to the adopted path;
+the proxy retains the old HTTP route as an upgrade alias. Custom repository
+URLs are not rewritten automatically.
+
+The public command is `Set-PoolConfiguredState.ps1`; its API route and relay
+operation are `/api/pool/configured-state` and `configured-state`. The daemon
+uses `--configuration-git-url` and `POOL_CONTROL_CONFIGURATION_GIT_URL`.
+The old environment key is read only as an upgrade fallback, with the new
+key taking precedence. Upgrade the service unit together with the binary.
 
 <a id="4207d71a-0009"></a>
 
 ## Step 6 -- Operate the pool
 
 ```powershell
-pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId lab -State paused -IntentGitUrl <writable-url>   # run | paused | drain
-pwsh test/pool/Remove-HostFromPool.ps1  -PoolId lab -HostId 42<...30 hex...> -IntentGitUrl <writable-url>
+pwsh test/pool/Set-PoolConfiguredState.ps1 -PoolId lab -State paused -ConfigurationGitUrl <writable-url>   # run | paused | drain
+pwsh test/pool/Remove-HostFromPool.ps1  -PoolId lab -HostId 42<...30 hex...> -ConfigurationGitUrl <writable-url>
 ```
 
 - **run** -- cycle normally.
@@ -242,7 +253,7 @@ In-flight cycles always finish, so pause/drain never corrupt an accumulating run
 When a machine is reimaged or re-cloned, it can answer with a new host ID while
 the aggregator still remembers its previous ID. On the pool-control `/hosts`
 page, **Hand over** appears on the old row only when the new ID answers at the
-same address. The action moves membership in one intent-store commit, records
+same address. The action moves membership in one configuration-store commit, records
 a durable old-to-new identity alias on the aggregator, and removes the old live
 row immediately. It reports failure if the aggregator cannot persist the alias;
 retry the same pair after fixing the error. Repeating a completed handover is
@@ -282,7 +293,7 @@ pwsh test/pool/Remove-PoolHost.ps1 -HostId 42<...30 hex...>          # add -What
 
 It (1) reads `networkStorage.poolStorageLocalPath` from `test.config.yml` and deletes
 `<poolStorageLocalPath>/hosts/info.<hostId>.yml` + `<poolStorageLocalPath>/hosts/<hostId>/` + the legacy `<poolStorageLocalPath>/<hostId>/`; (2) strips
-the id from EVERY pool's `members[]` (needs `pool.intentGitUrl`; without it the NAS
+the id from EVERY pool's `members[]` (needs `pool.configurationGitUrl`; without it the NAS
 records are still removed and membership is skipped with a warning); and (3) asks
 the aggregator to **forget** the host (`POST /api/v1/forget-host`) so it leaves the
 dashboard NOW instead of after the host TTL. Step 3 is opt-in + best-effort: it
@@ -301,23 +312,23 @@ Every command below lives in `test/pool/`.
 
 | Command | Does | Key parameters |
 |---|---|---|
-| `New-Pool.ps1` | create a pool | `-PoolId` (req), `-DisplayName`, `-DesiredState` |
+| `New-Pool.ps1` | create a pool | `-PoolId` (req), `-DisplayName`, `-ConfiguredState` |
 | `Remove-Pool.ps1` | delete a pool (refuses one that still has members unless `-Force`) | `-PoolId` (req), `-Force` |
 | `Add-HostToPool.ps1` | add a host | `-PoolId` (req), `-HostId` (req) |
 | `Remove-HostFromPool.ps1` | remove a host from ONE pool's members | `-PoolId` (req), `-HostId` (req) |
-| `Move-PoolHostIdentity.ps1` | replace a re-keyed host ID in one intent-store commit | `-OldHostId` (req), `-NewHostId` (req) |
+| `Move-PoolHostIdentity.ps1` | replace a re-keyed host ID in one configuration-store commit | `-OldHostId` (req), `-NewHostId` (req) |
 | `Remove-PoolHost.ps1` | **purge** a stale host: delete its NAS records + strip ALL memberships | `-HostId` (req), `-Force`, `-ConfigPath` |
 | `Set-PoolRepository.ps1` | set the pool's framework and project URLs (replaces), or clear them | `-PoolId` (req), then `-FrameworkUrl` + `-ProjectUrl` (req together) or `-Clear` |
-| `Set-PoolDesiredState.ps1` | run / pause / drain | `-PoolId` (req), `-State` (req) |
-| `Get-PoolStatus.ps1` | read members + the pool's repositories (intent) | `-PoolId` |
-| `Get-PoolIntent.ps1` | dump the whole intent store as JSON (what the dashboard reads) | -- |
-| `Test-PoolIntent.ps1` | validate the intent files | -- |
-| `Update-PoolIntentSchema.ps1` | migrate `pools.yml` to `schemaVersion: 3` once (a re-run changes nothing) | -- |
+| `Set-PoolConfiguredState.ps1` | run / pause / drain | `-PoolId` (req), `-State` (req) |
+| `Get-PoolStatus.ps1` | read members + the pool's repositories (configuration) | `-PoolId` |
+| `Get-PoolConfiguration.ps1` | dump the whole configuration store as JSON (what the dashboard reads) | -- |
+| `Test-PoolConfiguration.ps1` | validate the configuration files | -- |
+| `Update-PoolConfigurationSchema.ps1` | migrate `pools.yml` to `schemaVersion: 4` once (a re-run changes nothing) | -- |
 | `Convert-ToPoolWorker.ps1` | turn a standalone machine into a worker of an existing lab | `-ReferenceHost` (req), `-InternalAuthKey`, `-KeepCachingProxy` |
 
 All mutating commands support `-WhatIf` (preview) and `-Confirm`, validate against the
-schemas **before** writing, and `git commit` + `push` for you. `-IntentGitUrl` defaults to
-`pool.intentGitUrl` from `test.config.yml` when omitted. A failed push **fails the command**
+schemas **before** writing, and `git commit` + `push` for you. `-ConfigurationGitUrl` defaults to
+`pool.configurationGitUrl` from `test.config.yml` when omitted. A failed push **fails the command**
 (non-zero exit): a change committed locally but not pushed is not durable, and a later admin
 command discards it -- recover by re-running from a writable location (on the proxy: a `file://`
 or local path to the bare repo), or delete the admin clone dir to discard the local change and
@@ -327,8 +338,8 @@ re-clone from the remote. Every command has full help: e.g. `Get-Help test/pool/
 
 ## Pool-control service
 
-The pool-control service is the operator UI + API for the LAN pool intent. It
-drives the pool-intent git store; runners only
+The pool-control service is the operator UI + API for the LAN pool configuration. It
+drives the pool-configuration git store; runners only
 PULL that store read-only. Every button routes through the admin CLIs above,
 so the UI and the command line cannot diverge.
 
@@ -426,7 +437,7 @@ footer countdown.
 
 A pool can hand a host a `projectUrl` that host's git credential cannot read:
 the assignment is made centrally, the credential is host-local, and `GH_TOKEN`
-deliberately never travels in pool intent. So each host also runs a
+deliberately never travels in pool configuration. So each host also runs a
 `git ls-remote` against a **pool-assigned** URL at the top of a cycle *before*
 the clone -- the problem is named at the host that has it, rather than surfacing
 minutes later as a generic bootstrap error. Only a pool-assigned URL is probed
@@ -481,12 +492,12 @@ member did not answer (the disagreeing hosts are then listed under the
 selector), `--` when none answered. Hosts stay individually controllable from
 their own status pages; this changes them all and then reads them back.
 
-This is **not** the pool's `desiredState` (`run`/`paused`/`drain`): that one
-is durable intent in git, reconciled at a cycle
+This is **not** the pool's `configuredState` (`run`/`paused`/`drain`): that one
+is durable configuration in git, reconciled at a cycle
 boundary, and `drain` ends the runner process. Pool Status acts on the live
 pause switches instead &mdash; what "hold the lab now, then let it carry on"
-means mid-cycle. `desiredState` has no page of its own; write it with
-`Set-PoolDesiredState.ps1` (table above).
+means mid-cycle. `configuredState` has no page of its own; write it with
+`Set-PoolConfiguredState.ps1` (table above).
 
 Driving another host's control routes needs a **control proof** (see
 [control-routes.md](control-routes.md)), which the service obtains one of two
@@ -580,7 +591,7 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
   |---|---|
   | open (GET) | `/healthz`, `/api/hostinfo`, `/api/session`, `/api/board`, `/api/hosts`, `/api/hosts/facts`, `/api/state`, `/api/scan`, `/api/diagnostics`, `/api/pool/host-control` |
   | open (POST) | `/api/login`, `/api/unlock-proof` -- the two ways INTO the gate |
-  | lab-token | `/api/pool` (POST, DELETE), `/api/pool/desired-state`, `/api/pool/host`  (POST, DELETE), `/api/pool/move-host`, `/api/pool/adopt-rekey`, `/api/pool/repositories`, `/api/pool/host-control`, `/api/scan`, `/api/scan/forget`, `/api/hosts/history` (GET) |
+  | lab-token | `/api/pool` (POST, DELETE), `/api/pool/configured-state`, `/api/pool/host`  (POST, DELETE), `/api/pool/move-host`, `/api/pool/adopt-rekey`, `/api/pool/repositories`, `/api/pool/host-control`, `/api/scan`, `/api/scan/forget`, `/api/hosts/history` (GET) |
   | lab-token **and** refresh credential | `/api/host/refresh` (POST) -- see [Remote host refresh](#remote-host-refresh) |
 
   Reads are open on the trusted LAN so a wall display needs no credential;
@@ -588,30 +599,30 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
 - **Reads the aggregator's `GET /api/v1/pool-stats`** for the numbers on the
   board's cards: per-**host** terminal-cycle counts over a preset window.
   Per-host rather than per-pool because that route returns only what Loki can
-  answer, and pool membership lives in the intent store the aggregator has never
+  answer, and pool membership lives in the configuration store the aggregator has never
   read -- its sole notion of a pool is the `poolId` a host self-advertises. The
   control service owns the join, because it already reads `members[]`. That
   split is what lets the board render a card for a pool whose hosts are all
   silent (`0` reporting) instead of that pool vanishing because no Loki stream
   happened to mention it. Read-only and open, like `pool-status`.
-- **Shells out to the PowerShell pool-admin CLIs** in `test/pool/` (`Get-PoolIntent.ps1`,
-  `New-Pool.ps1`, `Remove-Pool.ps1`, `Set-PoolDesiredState.ps1`,
+- **Shells out to the PowerShell pool-admin CLIs** in `test/pool/` (`Get-PoolConfiguration.ps1`,
+  `New-Pool.ps1`, `Remove-Pool.ps1`, `Set-PoolConfiguredState.ps1`,
   `Add-HostToPool.ps1`, `Remove-HostFromPool.ps1`, `Move-PoolHostIdentity.ps1`,
   `Set-PoolRepository.ps1`) rather than reimplementing
   git + YAML + schema validation + commit/push in Go &mdash; one authoritative
   implementation. A failed push surfaces to the UI as an error.
 - **Drives the members' own control routes** for Pool Status
   (`/api/pool/host-control`): the one thing here that acts on other machines
-  rather than on the intent store. Membership comes from intent and addresses
+  rather than on the configuration store. Membership comes from configuration and addresses
   from the aggregator, because the aggregator's notion of a pool is a label a
   host self-advertises &mdash; it cannot say who belongs.
 - **Self-announces** to the pool-aggregator service (beacon, area `pool-control-service`) and, via
   the `runtime/pool-control-service.json` marker + `host.registration.json`, appears in the
   Extension hosts table (shown as "Pool-control service"). Either path alone paints the row.
 - Persists an **audit log** (`audit.jsonl`) + **status.json** (last write,
-  last-publish outcome, heartbeat, intent-readable, health) under
+  last-publish outcome, heartbeat, configuration-readable, health) under
   `poolStorageNetworkPath/pool-control-service/` (the pool NAS), surviving restarts. `/healthz`
-  serves that status. A monitor loop probes the intent every `--monitor-interval`.
+  serves that status. A monitor loop probes the configuration every `--monitor-interval`.
 
 The area's own `default.psm1` is its host-side presence: it makes the area
 visible to `Get-ExtensionAreaName`, gives it a capability-matrix entry, and
@@ -867,7 +878,7 @@ Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
 
 A host that has enrolled its Lab token, and is in **no pool at all**, can join a
 pool without you adding it. It **ships off**: the sweep runs only when an
-`autoEnrollment` block in the intent store's `pools.yml` sets `enabled: true` and names a target pool
+`autoEnrollment` block in the configuration store's `pools.yml` sets `enabled: true` and names a target pool
 *and* the daemon runs with `--auto-enroll` (`--auto-enroll-interval`, default 60s,
 sets the cadence).
 
@@ -893,7 +904,7 @@ is idempotent and resumable, so the next tick finishes the job.
 
 **The target pool never carries repositories.** Its members keep running their
 own configured projects: `Set-PoolRepository.ps1` refuses to set repositories
-there, `Test-PoolIntent.ps1` fails a store that carries them, the Pools page
+there, `Test-PoolConfiguration.ps1` fails a store that carries them, the Pools page
 shows the pool's **Framework / Project** boxes disabled, and a runner that still
 finds them ignores them with a warning. To remove repositories a hand edit left
 there, use **Clear** on the Pools page or
@@ -916,7 +927,7 @@ server on the same port is not enough. Each host that answers is then asked for
 its own registration record, which is where its host id, hostname and type come
 from; a host that will not name itself is still recorded, by address.
 
-**What it does not do.** Nothing on the scanned hosts changes, and pool intent
+**What it does not do.** Nothing on the scanned hosts changes, and pool configuration
 is never written: a discovered host is **monitored, not enrolled**. It appears
 on the Hosts page marked `discovered`, in no pool, with its **Control** column
 blank &mdash; that is the pool's reading of a *member*. Its hardware and
@@ -1079,7 +1090,7 @@ stop/start pair for you in a lab, or in a standalone host that states
 - **One framework and project pair per pool** -- split hosts into two pools to
   run two bodies of tests side by side.
 - **Repository URLs are not probed** -- `Set-PoolRepository.ps1` and the Pools
-  page record the repo URLs without cloning them, and `Test-PoolIntent.ps1`
+  page record the repo URLs without cloning them, and `Test-PoolConfiguration.ps1`
   checks shape, not reachability.
 - **Members do not split the work** -- every member runs the assigned project's
   full `test.runner.yml` plan; there is no per-guest scheduling across members.
@@ -1089,7 +1100,7 @@ stop/start pair for you in a lab, or in a standalone host that states
 ## Advanced: two more optional `pools.yml` blocks
 
 These have no dedicated command yet -- author them directly in `pools.yml` (validate with
-`Test-PoolIntent.ps1`); see [`test/schemas/pools.schema.yml`](../test/schemas/pools.schema.yml):
+`Test-PoolConfiguration.ps1`); see [`test/schemas/pools.schema.yml`](../test/schemas/pools.schema.yml):
 
 - **`config.testCycle`** -- override test-cycle knobs for the whole pool (e.g.
   `stepTimeoutSeconds`, `autoRemediation.enabled`); pool value wins over each host's config.
@@ -1103,7 +1114,7 @@ These have no dedicated command yet -- author them directly in `pools.yml` (vali
 
 The pool layer is entirely opt-in: a host with no `pool` block, or a pool with no
 members or no repositories, runs its local `test.runner.yml` exactly as a
-standalone host. An unreachable intent store falls back to the last good copy,
+standalone host. An unreachable configuration store falls back to the last good copy,
 then to standalone -- a pool never stops a host from testing.
 
 <a id="4207d71a-001e"></a>
@@ -1124,6 +1135,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

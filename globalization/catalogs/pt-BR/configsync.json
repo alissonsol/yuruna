@@ -183,8 +183,9 @@
       "message": "{referenceHost} não está respondendo na porta de status ({why})."
     },
     "configsync.operator_9e1f86637c4a7e09": {
-      "sourceHash": "4f9b23ae286063507e60b75f23809311e0abbca4fb61a2abe44edbfb2301b13f",
-      "message": "deixou-o vazio (por padrão para <runtime>/pool-intent)"
+      "sourceHash": "2883f991cbb88d4457420355d24382d91426be9e166e547e27a72aca5cbfa722",
+      "message": "mantido vazio (o padrão é <runtime>/pool-configuration)",
+      "origin": "machine"
     },
     "configsync.operator_9e44a801c5e38eb2": {
       "sourceHash": "11078a006929941559fb2b92d4450eb9fbb22ac7aaaa6e93e162f4434bdaba30",
@@ -195,8 +196,9 @@
       "message": "{referenceHost} não forneceu credenciais para convergir"
     },
     "configsync.operator_a07da31688eb8071": {
-      "sourceHash": "5a093cdae431ce03c219837b19067f8b52daf30035ba76bb330deef5e0bc1a20",
-      "message": "Sync-HostConfiguration: recusando-se a copiar uma configuração antiga do {referenceHost} no modo -NonInteractive. Repetir com -AllowStaleReference para aceitar a deriva, ou atualizar o host de referência primeiro."
+      "sourceHash": "cb2e1f75b7c5fa30bcdc7c4dfaa2cb28051d625f4c74d1b7fd846acc18f2805c",
+      "message": "Sync-HostConfiguration: a cópia de uma configuração desatualizada de {referenceHost} foi recusada no modo -NonInteractive. Execute novamente com -AllowStaleReference para aceitar a configuração desatualizada ou atualize primeiro o host de referência.",
+      "origin": "machine"
     },
     "configsync.operator_a610cd0fd716e5f9": {
       "sourceHash": "c27b6d61e9ab7fad84b17d5821b74361579cb14972c75131fb3e6decf63048e4",

@@ -278,8 +278,9 @@
       "message": "Recursos nulos ou vazios no arquivo: {resourcesFile}"
     },
     "automation.operator_159f23f7bbf09a33": {
-      "sourceHash": "6978330e2386b70d620fe40e6786a1c9c71ba0d9d8e14a7a1faf6140b5af6744",
-      "message": "1. add autoInrollment: { activado: true, targetPoolId: default } to pools.yml in the intention store"
+      "sourceHash": "f7b3036deddd5e10d3932e1638dec92dc4a71476f2ab7fc729a485ed172a3e4f",
+      "message": "  1. adicione autoEnrollment: { enabled: true, targetPoolId: default } a pools.yml no repositório de configuração",
+      "origin": "machine"
     },
     "automation.operator_163577cbcc97e68e": {
       "sourceHash": "e2fc1464b8614fa7635a9d2f162faf3512204456f3e81808d71589487d2bc0f6",
@@ -763,8 +764,9 @@
       "message": "Heurística 4: imagem de registro local não referenciada por nenhum pod"
     },
     "automation.operator_47229a44b80ae93b": {
-      "sourceHash": "899281af85e1b4e269bc1c14b6cc0d122253f9bc48463ded41ce4896c13e9040",
-      "message": "(não há nós Prontos -- o cluster não está em cima; não existe uma lacuna de implantação, veja a seção KUBE)"
+      "sourceHash": "a17299665406582c52cdb6f9995ced4c1fa6b9a080efe42fcb8c142b3c9e3758",
+      "message": "(nenhum nó Ready -- o cluster não está ativo; as verificações de implantação estão indisponíveis, veja a seção KUBE)",
+      "origin": "machine"
     },
     "automation.operator_4788a5c9b68d9b0a": {
       "sourceHash": "a7f708f5006ef4376b96d4b63193f3d0f06f90bc375560dfdcc664f44ec1cfbe",
@@ -809,8 +811,9 @@
       }
     },
     "automation.operator_4b5000e2da8b0a45": {
-      "sourceHash": "d538450632ca768b43867e83026737594cfc0c32570f40b3b01de117a1dbed54",
-      "message": "GAP: {count} image(s) pressionada(s) para o registro local, mas não referenciada por qualquer pod -- {join}. A fase de cargas de trabalho ou não implantou um gráfico que usa essas imagens, ou o gráfico renderizou-as com um diferente prefixo de registro (verifique componentesRegistry.registryLocalização em resources.output.yml). Uma imagem que só serve como uma etapa de compilação é esperada aqui e não é propriamente uma lacuna de implantação."
+      "sourceHash": "6304174b1e0618354c38847113bb23cbdb61b5d701fa26ed2e0dc325f0012040",
+      "message": "Observação de diagnóstico: {count} imagem(ns) enviada(s) ao registro local, mas sem referência em nenhum pod -- {join}. A fase de cargas de trabalho pode não ter implantado um chart que usa essas imagens, ou o chart pode tê-las renderizado com outro prefixo de registro (verifique componentsRegistry.registryLocation em resources.output.yml). Uma imagem usada apenas como etapa de compilação é esperada aqui e, por si só, não comprova uma divergência de configuração.",
+      "origin": "machine"
     },
     "automation.operator_4ba3081aa0af2a76": {
       "sourceHash": "17ffe8102da968f5306dc6ac2bb5b225fab53e4de4edc4945e08b5ffee03e51c",
@@ -1038,8 +1041,9 @@
       "message": "NÃO concedido no {source} -- as falhas do DHCP convidado capturam nenhuma evidência do fio."
     },
     "automation.operator_6026e7f1ae4f2ef0": {
-      "sourceHash": "4b8e530d54c9b66f0b50d24fb127788be5b0e3683480c4b73c483fc934a0a9ab",
-      "message": "GAP: namespace '{name}' declarado em {file} mas não existe no cluster -- a fase de cargas de trabalho nunca o criou (helm install / kubectl create namespace não foi executado ou errou)."
+      "sourceHash": "9f7d146564ebc324fe7800444bcd949d5abb232c0fa8e7a4010095424fc8299c",
+      "message": "Divergência de configuração: o namespace '{name}' está declarado em {file}, mas não existe no cluster. Verifique se a fase de cargas de trabalho o criou e se helm install / kubectl create namespace foi concluído com sucesso.",
+      "origin": "machine"
     },
     "automation.operator_6036ef007d775983": {
       "sourceHash": "e543863bc05b6dcdc1e804dab34d2e2e7ab56cbaa66cb31c4d88322da108ce46",
@@ -1226,8 +1230,9 @@
       "message": "(helm not in PATH -- as cargas de trabalho baseadas em gráficos não serão implantadas)"
     },
     "automation.operator_72c1075973a89231": {
-      "sourceHash": "937fd251a76400fae1f9fae9f831ce0cd7a469ba15265c88b2614128273baba8",
-      "message": "GAP: {tfStateCount} tofu.tfstate arquivo(s) presente(s), mas leme tem 0 lançamentos em todos os espaços de nomes -- a fase de cargas de trabalho parece ter sido ignorada ou saiu 0 sem chamar Set-Workload. Verifique os arquivos helm.stderr.log acima e as últimas linhas do script."
+      "sourceHash": "0f6afba8ebce257bc8c0e129d1d2259dade4e46c3a0761e81fe6a8694f923fe7",
+      "message": "Observação de diagnóstico: há {tfStateCount} arquivo(s) tofu.tfstate, mas o helm não tem releases em nenhum namespace. A fase de cargas de trabalho pode ter sido ignorada ou terminado com código 0 sem chamar Set-Workload. Verifique os arquivos helm.stderr.log acima e as últimas linhas do script que chama essa fase.",
+      "origin": "machine"
     },
     "automation.operator_72e28a58e0301f9b": {
       "sourceHash": "44f111f969d608de098aee839233d1d7c6e7139e922be02b16472d8c52145574",
@@ -1338,8 +1343,9 @@
       "message": "Comutadores virtuais Hyper-V"
     },
     "automation.operator_7d384e5a632109dd": {
-      "sourceHash": "35f9d9eece5e6e8fb60fcea1933e932852976ac0a5a11d040c13756064ea8a46",
-      "message": "(nenhum diretório de projeto no {candidate} -- pulando heurísticas de gap)"
+      "sourceHash": "02171fd077893066661853200ecc71aa9fb748eff2765de2b075f43d52d09b00",
+      "message": "(nenhum diretório de projeto em {candidate} -- as verificações de implantação serão ignoradas)",
+      "origin": "machine"
     },
     "automation.operator_7f64bfad9ab853d4": {
       "sourceHash": "e0c3e75600f2bd58072c51cf3c5392fb2a042a50f79074af89955edd290f9fd6",
@@ -1921,7 +1927,8 @@
     },
     "automation.operator_ad9c42ff8e5e7995": {
       "sourceHash": "bc245daabe76d5406669cdcd9bcb521bd9e758707e055d51c111d75fa4b6089a",
-      "message": "Resolve-CloudInitPlaceholder: template ainda contém placeholder(s) não resolvido(s) após a substituição: {join}. Adicione-os a -Replacement (com valor vazio se intencional) ou passe -AllowedUnresolved."
+      "message": "Resolve-CloudInitPlaceholder: template ainda contém placeholder(s) não resolvido(s) após a substituição: {join}. Adicione-os a -Replacement (com valor vazio se intencional) ou passe -AllowedUnresolved.",
+      "origin": "machine"
     },
     "automation.operator_add466496962fbf6": {
       "sourceHash": "a8a0b7908862921241d295278461e53f524395f13cddd9388f6d1ebd7ba4ec8d",
@@ -1968,8 +1975,9 @@
       "message": "desenvolvedor ativo dir: {join}"
     },
     "automation.operator_b2e83136c96ad810": {
-      "sourceHash": "af6fa665efdac7ebf5e0061cb1e431db8ef7f16541f2a14c828e5ec8d844f6b0",
-      "message": "GAP: cluster tem o(s) nó(s) {count} Ready (s) mas zero pods fora dos espaços de nomes do sistema -- nada foi implantado (a fase de carga de trabalho/componentes não pousou)."
+      "sourceHash": "67d3b44ccda474c209f346e432d232828457bb4f3744fe49cb6f14e18a31e3ce",
+      "message": "Observação de diagnóstico: o cluster tem {count} nó(s) Ready, mas nenhum pod fora dos namespaces do sistema. Verifique se a fase de cargas de trabalho/componentes implantou a aplicação esperada.",
+      "origin": "machine"
     },
     "automation.operator_b31e13c9f6666800": {
       "sourceHash": "395b3b92f34c7edc44a4d26a5f01e45c48d926f3b8f5a0e5e9ebc5a9904a70b4",
@@ -2861,6 +2869,21 @@
       "sourceHash": "60386655fdaedd33959a12c064b745cd8178280a913dd32cff66c5fbbe76cda5",
       "origin": "machine",
       "message": "não foi possível confirmar o estado da VM ({reason})"
+    },
+    "automation.system_diagnostic_registry_zot_compat_repaired": {
+      "sourceHash": "136d64e07420391672b287be8b9036b4317ad5f9e3619a0b15b934552e1c7205",
+      "origin": "machine",
+      "message": "REGISTRY: o zot {version} do cache só sincroniza as imagens do laboratório porque o autoteste de sincronização adicionou http.compat {modes} a /etc/zot/config.json, que falta na configuração que esta versão do Yuruna entrega; cada reconstrução repete o reparo. Relate o problema para que uma versão inclua o modo. Detalhes: {healthUrl}"
+    },
+    "automation.system_diagnostic_registry_zot_incompatible": {
+      "sourceHash": "664c9679228330e3dca6574de9bec26a6491acbd2a448c0a575eba2415c5a846",
+      "origin": "machine",
+      "message": "REGISTRY: o zot {version} do cache recusa imagens que o laboratório baixa: o autoteste de sincronização recebeu HTTP {status} para {image}, que a origem disponibiliza, e o log do zot pede http.compat {modes} ({refused} imagem(ns) de teste recusada(s)). Executar de novo não resolve. Correções que não exigem alterar código: no cache, execute sudo /usr/local/bin/zot-sync-selftest.py --heal; ou defina vmStart.cachingProxyZotVersion e vmStart.cachingProxyZotSha256 em test/test.config.yml com uma versão do zot que funcione e reconstrua o cache; ou atualize o Yuruna e reconstrua o cache. Detalhes: {healthUrl}"
+    },
+    "automation.system_diagnostic_registry_zot_incompatible_unexplained": {
+      "sourceHash": "4a680527e88e38d4be82343f6ec3684d1c3c34b3405456d2d5efcc1db7c254b7",
+      "origin": "machine",
+      "message": "REGISTRY: o zot {version} do cache recusa imagens que o laboratório baixa: o autoteste de sincronização recebeu HTTP {status} para {image}, que a origem disponibiliza ({refused} imagem(ns) de teste recusada(s)). Executar de novo não resolve. Correções que não exigem alterar código: altere /etc/zot/config.json no cache conforme a linha do log do zot na página de saúde, reinicie o zot e execute sudo /usr/local/bin/zot-sync-selftest.py; ou defina vmStart.cachingProxyZotVersion e vmStart.cachingProxyZotSha256 em test/test.config.yml com uma versão do zot que funcione e reconstrua o cache; ou atualize o Yuruna e reconstrua o cache. Detalhes: {healthUrl}"
     },
     "automation.system_diagnostic_utmctl_list_incomplete": {
       "sourceHash": "410f6bf1667685d826d78c56f61a3ed885843fa3f3d7e6bc91e8393085f22c0d",

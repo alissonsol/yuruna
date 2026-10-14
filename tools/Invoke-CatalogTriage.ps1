@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4284df2f-52a5-4145-9114-1e901d60121e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,7 +128,7 @@ if (-not $OutputPath) { $OutputPath = Join-Path $RepoRoot 'globalization/manifes
 if (-not $CatalogRoot) { $CatalogRoot = Join-Path $RepoRoot 'globalization/catalogs/en-US' }
 if (-not $Update) { $Check = $true }
 
-# --- REGION: Shared extraction, lifted from the inventory
+# --- REGION: Shared extraction
 #
 # The inventory's count and this tool's triage have to describe the same set of
 # literals, or the number being closed here is not the number being reported

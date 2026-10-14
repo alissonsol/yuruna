@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 426b5e54-fbb6-4398-849c-4e49eda31278
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,12 +111,7 @@ if ($Port -le 0) {
 }
 
 # --- REGION: Shared helpers (used by the -Serve loop)
-# Resolve the JSON payload for a NAS name, or $null when not configured. Reads
-# test.config.yml + the vault FRESH each call so a rotated password / changed
-# share is picked up live. Never mints a junk password: when the networkUser has
-# no real vault entry (empty vaultKey AND no stored secret) it returns $null so
-# the caller answers 503 rather than baking an auto-generated credential the NAS
-# would reject.
+# See https://yuruna.link/42e220c4-0008
 function Resolve-YurunaNasPayload {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -357,7 +352,7 @@ function Show-YurunaConfigServerLog {
     }
 }
 
-# --- REGION: Skip if an instance is already healthy
+# --- REGION: Check for an existing server
 # Skip-if-healthy: the runner re-ensures this every cycle, so a no-op when an
 # instance is already serving keeps it cheap + non-disruptive. -Restart forces a
 # replace (deploying new service code). Either way, a host reboot / crash that
@@ -400,7 +395,7 @@ if ($IsWindows) {
     } catch { Write-Verbose "firewall rule for config port failed (non-fatal): $($_.Exception.Message)" }
 }
 
-# --- REGION: Detach the serve process
+# --- REGION: Launch the server as a detached process
 # Detach a serve process that outlives this launcher (mirrors Start-StatusService).
 $scriptPath = $PSCommandPath
 # Set when the detached child is confirmed dead right after launch, so the
@@ -425,12 +420,7 @@ if ($IsWindows) {
     $outFile = Join-Path $RuntimeDir 'config-server.out'
     & bash -c "set -m; nohup pwsh -NoProfile -File '$scriptPath' -Serve -Port $Port </dev/null >'$outFile' 2>'$errFile' & echo `$!" |
         Set-Variable -Name bgPid
-    # The child echoes its PID via `echo $!`. Verify that value parsed to an
-    # integer AND the process is still alive right after launch: a serve process
-    # that dies immediately (module-import error, port already bound) never opens
-    # $Port, so without this check we would record a PID file pointing at a dead
-    # process and then burn the full readiness timeout on a port that will never
-    # accept. If it is already gone, surface the captured startup log now.
+    # See https://yuruna.link/42e220c4-0008
     $bgPidInt = 0
     if (-not [int]::TryParse("$bgPid".Trim(), [ref]$bgPidInt) -or
         -not (Get-Process -Id $bgPidInt -ErrorAction SilentlyContinue)) {
@@ -442,7 +432,7 @@ if ($IsWindows) {
     }
 }
 
-# --- REGION: Verify the service is accepting on the config port (TCP connect probe)
+# --- REGION: Verify server started
 if ($launchFailedEarly) {
     Write-YurunaConfigHealth -Up $false -HealthPort $Port
     Write-Warning "Full logs: $(Join-Path $RuntimeDir 'config-server.err') (stderr), $(Join-Path $RuntimeDir 'config-server.out') (stdout)."

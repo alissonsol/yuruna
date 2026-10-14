@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 429e89fa-f380-4a1b-8768-7b52c7f86767
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,10 +18,10 @@
 
 <#
 .SYNOPSIS
-    Set a pool's desiredState (run | paused | drain) -- the operator control plane.
+    Set a pool's configuredState (run | paused | drain) -- the operator control plane.
 .DESCRIPTION
     Pool admin CLI. Sets the field that gates the runner: every
-    member pulls the intent each cycle and reconciles. run = cycle normally;
+    member pulls the configuration each cycle and reconciles. run = cycle normally;
     paused = finish the in-flight cycle then hold (re-checking each ~30s) until
     run returns; drain = stop after the current cycle (the runner process exits;
     re-add + restart to rejoin). In-flight cycles always complete -- pause/drain
@@ -31,15 +31,15 @@
 .PARAMETER State
     run | paused | drain.
 .EXAMPLE
-    test/pool/Set-PoolDesiredState.ps1 -PoolId lab -State paused
+    test/pool/Set-PoolConfiguredState.ps1 -PoolId lab -State paused
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][string]$PoolId,
     [Parameter(Mandatory)][ValidateSet('run', 'paused', 'drain')][string]$State,
-    [string]$IntentGitUrl,
-    [string]$IntentDir
+    [string]$ConfigurationGitUrl,
+    [string]$ConfigurationDir
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -56,19 +56,19 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 # the clean exit-code path.
 Import-Module powershell-yaml -ErrorAction Stop
 
-# --- REGION: Open the intent store
-$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+# --- REGION: Open the configuration store
+$open = Open-YurunaPoolAdminStore -ConfigurationGitUrl $ConfigurationGitUrl -ConfigurationDir $ConfigurationDir -Confirm:$false
 $t = $open.Target
 if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
-$doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
+$doc  = Read-YurunaPoolsDoc -ConfigurationDir $t.ConfigurationDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if (-not $pool) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_945821c2fef42ae6' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue; exit $ExitFailure }
-$pool['desiredState'] = $State
+$pool['configuredState'] = $State
 
 # --- REGION: Save, commit and push
-$pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: $PoolId desiredState=$State" -Confirm:$false
+$pub = Publish-YurunaPoolDocChange -ConfigurationDir $t.ConfigurationDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: $PoolId configuredState=$State" -Confirm:$false
 if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
 
 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_59650e3f07b2342b' -Arguments @{ poolId = "$PoolId"; state = "$State" }) -InformationAction Continue

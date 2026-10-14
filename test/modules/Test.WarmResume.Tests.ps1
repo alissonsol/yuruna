@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42bc2da1-ebdb-48ed-9d8a-68099d34d1f5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,18 +66,7 @@ $script:WarmResumeWorkload = @('ubuntu.server.26.update', 'ubuntu.server.26.k8s'
 
 Describe 'Warm-resume class eligibility' {
     It 'accepts exactly the transient allow-list' {
-        # ip_not_discovered belongs here for the same reason as the rest: a step
-        # that never resolved an address never reached the guest, so nothing it
-        # might have done is in doubt and replaying it is as sound as replaying a
-        # timeout. The count is asserted alongside the members so that widening
-        # this list stays a deliberate act -- a class added without a reason to
-        # trust a replay is how warm resume starts re-running work that changed
-        # something.
-        # payload_unavailable earns its place on the same ground: the guest ran
-        # the fetch wrapper and no source served the script, so the step did
-        # nothing and there is nothing a replay could do twice. Its usual cause
-        # -- a host that renumbered while the guest still held the old address --
-        # is normally gone by the next attempt.
+        # See https://yuruna.link/42e220c4-0014
         foreach ($c in 'network_timeout','wait_timeout','instrumentation_failure','host_io_blocked','ip_not_discovered','payload_unavailable','input_lost') {
             Assert-True (Test-WarmResumeEligibleClass -FailureClass $c) "expected eligible: $c"
         }
@@ -477,7 +466,7 @@ Describe 'Replay safety is declared by every registered action' {
         @{ Verb = 'pressKey' }, @{ Verb = 'inputText' }, @{ Verb = 'inputTextAndEnter' }, @{ Verb = 'waitForAndEnter' }
         @{ Verb = 'passwdPrompt' }, @{ Verb = 'tapOn' }, @{ Verb = 'callExtension' }, @{ Verb = 'fetchAndExecute' }
         @{ Verb = 'sshExec' }, @{ Verb = 'sshFetchAndExecute' }, @{ Verb = 'saveDiskSnapshot' }, @{ Verb = 'startVm' }
-        @{ Verb = 'networkRelease' }, @{ Verb = 'loadDiskSnapshot' }, @{ Verb = 'recoverFromSnapshot' }
+        @{ Verb = 'networkRelease' }, @{ Verb = 'loadDiskSnapshot' }, @{ Verb = 'recoverFromSnapshot' }, @{ Verb = 'stopVm' }
     ) {
         param($Verb)
         Assert-Equal -Expected $false -Actual (Test-WarmResumeReplayIsSafe -StepAction @($Verb) -ResumeFromStep 1) -Because $Verb

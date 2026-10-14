@@ -35,8 +35,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
     allow-pw: true
     authorized-keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
-  # See https://yuruna.link/429f3d06-000f
   # --- REGION: user-data
+  # See https://yuruna.link/429f3d06-000f
   user-data:
     no_ssh_fingerprints: true
     ssh:
@@ -151,7 +151,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
         chmod 0644 /target/etc/iptables/rules.v4 /target/etc/iptables/rules.v6
         curtin in-target --target=/target -- systemctl enable netfilter-persistent || true
       fi
-    # --- REGION: https://yuruna.link/4220a755-000b
+    # --- REGION: Reinforce DHCP client identity
+    # See https://yuruna.link/4220a755-000b
     # Idempotent: a re-run finds the key already present and leaves the file alone.
     - |
       for f in /target/etc/netplan/*.yaml; do
@@ -321,7 +322,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
       EOF
       chmod 0644 /target/etc/profile.d/yuruna-git-noprompt.sh
       printf 'GIT_TERMINAL_PROMPT=0\nGIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh\n' >> /target/etc/environment
-    # Token for private framework/project URLs, delivered on the seed ISO (never the OCR'd console, never HTTP); written to /etc/profile.d (login shells) and ~/.bashrc (the runner's interactive shell), skipped when unset.
+    # --- REGION: Private repository credentials
+    # See https://yuruna.link/4220a755-004f
     - |
       if [ -n 'GH_TOKEN_PLACEHOLDER' ]; then
       cat > /target/etc/profile.d/yuruna-github.sh << 'EOF'
@@ -366,8 +368,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- REGION: https://yuruna.link/429f3d06-002e
     - umount -lf /cdrom || true
     - losetup -D || true
-  # See https://yuruna.link/429f3d06-002f
   # --- REGION: error-commands
+  # See https://yuruna.link/429f3d06-002f
   error-commands:
     - |
       set +e

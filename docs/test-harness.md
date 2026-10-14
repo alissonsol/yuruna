@@ -228,7 +228,7 @@ source searches and status-UI click-throughs land on their exported entry point.
 
 | Module | Purpose |
 |--------|---------|
-| `Test.PoolSync`        | Pulls the pool intent (membership + desiredState) and reconciles it into the outer loop |
+| `Test.PoolSync`        | Pulls the pool configuration (membership + configuredState) and reconciles it into the outer loop |
 | `Test.PoolPlanner`     | Reads the pool manifest -- the pool's framework and project repositories -- for the runner |
 | `Test.PoolAdmin`       | Helpers behind the pool-admin CLI; every change is schema-validated before it is committed |
 | `Test.PoolStorage`     | Optional SMB3 share as the durable tier for cycle output, plus the drain that commits and reclaims |
@@ -721,7 +721,7 @@ Today (see the `Register-SequenceAction` calls in
 | `fetchAndExecute`        | `Send-Text`, `Send-Key`   | yes          |
 | `networkRelease`         | `Send-Text`, `Send-Key`   | no           |
 | `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(none)_ | no |
-| `startVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(none)_ | no |
+| `startVm` / `stopVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(none)_ | no |
 
 Adding a new verb means one `Register-SequenceAction` call that
 declares its capabilities -- the gate picks it up on the next cycle.
@@ -1253,6 +1253,38 @@ backoff protocol all live in
 [Watchdog](runner-outer-loop.md#watchdog-and-heartbeat-protocol). Per-step
 log-stream visibility is controlled by [Log levels](loglevels.md).
 
+**`test/test.config.yml.template`.**
+
+Automatic host refresh. 0 (the default) keeps it off; the recommended
+opt-in is 2, and 1 is treated as 2 because one timeout is not proof.
+Counts only completed cycles whose service-vm-restore sweep saw the
+hypervisor control channel time out with no service answering. A denial,
+a missing utmctl, no GUI session, unrecognized output, any other phase
+(git, network, vault, packages) and aborted, paused or drained cycles
+never count, and an answering hypervisor resets the count. At most one
+automatic attempt per UTC day, never while the pool is paused or
+draining, and never a forced stop of UTM or its helpers. It acts only on
+platforms that passed native qualification; elsewhere the runner records
+the evidence, logs why it does not act, and Test-Config warns. A pool's
+testCycle override wins, including 0.
+
+Outer watchdog, not a second step budget: runner.stepHeartbeat is touched at
+the top of every step and the outer runner kills the whole inner process when
+one step goes staler than this. It therefore has to sit ABOVE the largest
+step budget any sequence asks for -- below it, a step that is merely slow is
+killed as a wedged runner, trading a failure that names the step for one that
+names nothing.
+
+3600 rather than a tighter number because the slowest step the tree ships,
+the Visual Studio Code workload, asks 3000 and has been measured at 2828 s on
+an ARM64 Hyper-V host where a Linux guest runs at about a third of the speed
+the same work takes elsewhere (docs/host-hyperv.md). That run SUCCEEDED; a
+2700 s watchdog would have killed it a hundred seconds short. Hosts that
+finish the same step in minutes pay nothing for the headroom -- the only cost
+of a generous value is how long a genuinely wedged step takes to be noticed,
+and preambleTimeoutSeconds below still bounds the phase where a stall is
+never legitimate.
+
 <a id="42d38664-0024"></a>
 
 ## Exit codes
@@ -1269,6 +1301,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

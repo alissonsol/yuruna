@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42418995-a462-47f5-816a-8709623807f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,8 +33,7 @@
 
 # Downloads route through the squid cache only when the caller has imported a
 # per-host Yuruna.Host.psm1 driver; a bare caller falls back to a direct fetch.
-# Both paths and the sentinel formats:
-# docs/guest-image-setup.md#ubuntu-iso-downloads-yurunaubuntuimagepsm1
+# Both paths and the sentinel formats are documented at https://yuruna.link/42ec97cd-0019
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Image.psm1') -DisableNameChecking -Verbose:$false
@@ -367,7 +366,7 @@ function Save-UbuntuServerImage {
 
     .DESCRIPTION
         Consults a download agent first when one is reachable (see
-        docs/guest-image-setup.md#agent-first-image-downloads); with no
+        https://yuruna.link/42ec97cd-0004); with no
         agent, or on any agent failure, resolves stable/daily, applies the
         skip-if-same-source guard, downloads (through Save-CachedHttpUri
         when available) and verifies SHA256. Either way it preserves the
@@ -415,12 +414,7 @@ function Save-UbuntuServerImage {
     $downloadFile    = Join-Path $DownloadDir 'downloaded.iso'
 
     # --- REGION: https://yuruna.link/42ec97cd-0004
-    # Ask the download agent before the origin is touched at all: when it
-    # confirms the local copy IS the current artifact there is nothing to
-    # resolve, HEAD-probe or transfer. Both the client module and a healthy
-    # agent are feature-detected, so a lab with no agent -- or one whose agent
-    # is down, has no pool, or errors mid-request -- falls through to the
-    # resolve / same-source guard / download pipeline below.
+    # See https://yuruna.link/42e220c4-0003
     $agentServed       = $false
     $agentLastModified = ''
     $agentImageKey = switch ($ReleaseCodename) {
@@ -504,12 +498,7 @@ function Save-UbuntuServerImage {
 
         # --- REGION: Verify the published checksum
         if (-not (Test-UbuntuServerImageChecksum -ChecksumUrl $checksumUrl -IsoFileName $isoFileName -DownloadFile $downloadFile)) {
-            # Hard-fail on a genuine checksum MISMATCH (corruption or tamper,
-            # never benign) and on a SHA256SUMS fetch still failing after the
-            # bounded retry budget -- unverifiable bytes must not be promoted.
-            # Only a definitively MISSING upstream checksum (HTTP 403/404/410 or
-            # no line for this ISO) is a soft pass, and that returns $true from
-            # Test-UbuntuServerImageChecksum and never reaches here.
+            # See https://yuruna.link/42e220c4-0003
             Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
             throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9bbc5dc302229fc3' -Arguments @{ isoFileName = "$isoFileName" })
         }
@@ -524,12 +513,7 @@ function Save-UbuntuServerImage {
     }
     Move-Item -Path $downloadFile -Destination $baseImageFile
 
-    # Write the sentinel in the SAME format the skip-guard above reads back: the
-    # 4-line shape (filename + URL + size + Last-Modified) via Write-ImageSentinel
-    # when the host driver ships Test-DownloadAlreadyCurrent, else the bundled
-    # 3-line shape that Test-UbuntuServerImageAlreadyCurrent reads. An asymmetric
-    # writer/reader pair never matches, so the skip-guard would re-download every
-    # run.
+    # See https://yuruna.link/42e220c4-0003
     if (Get-Command -Name Test-DownloadAlreadyCurrent -ErrorAction SilentlyContinue) {
         if ($agentServed) {
             # Last-Modified comes from the agent's record of the origin

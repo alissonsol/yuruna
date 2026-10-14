@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42baeedc-3176-482c-b82b-04bd087fb651
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -194,12 +194,15 @@ Describe 'Invoke-UtmctlLifecycle (host.macos.utm)' {
         Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'vm1' -Status 'stopped'
         Assert-Equal 300 (Invoke-UtmctlLifecycle -Verb 'start' -VMName 'vm1').TimeoutSeconds
         Assert-Equal 120 (Invoke-UtmctlLifecycle -Verb 'stop' -VMName 'vm1').TimeoutSeconds
+        $request = Invoke-UtmctlLifecycle -Verb 'stop' -VMName 'vm1' -Request
+        Assert-Equal 120 $request.TimeoutSeconds
+        Assert-True $request.OutcomeKnown
         $kill = Invoke-UtmctlLifecycle -Verb 'stop' -VMName 'vm1' -Kill
         Assert-Equal 60 $kill.TimeoutSeconds
         Assert-True $kill.OutcomeKnown
         Assert-StringEqual 'none' $kill.FailureKind
         Assert-Equal 120 (Invoke-UtmctlLifecycle -Verb 'delete' -VMName 'vm1').TimeoutSeconds
-        Assert-StringEqual 'utmctl start vm1|utmctl stop vm1|utmctl stop vm1 --kill|utmctl delete vm1' ((Get-Call 'utmctl') -join '|')
+        Assert-StringEqual 'utmctl start vm1|utmctl stop vm1|utmctl stop vm1 --request|utmctl stop vm1 --kill|utmctl delete vm1' ((Get-Call 'utmctl') -join '|')
     }
 
     It 'bounds a hung verb and marks its outcome unknown' {

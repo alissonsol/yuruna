@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 429a9b8e-d547-4b8a-8e37-5d6306ea49b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,7 +57,7 @@ BeforeAll {
         [CmdletBinding()]
         param(
             [string]$Key = 'stash', [string]$State = 'Unknown', [string]$Reason = 'timeout', [string]$VMName,
-            [string]$HostingMode = 'vm', [string]$Ambiguity = '', [string]$DesiredState = '', [bool]$CensusPositive = $false,
+            [string]$HostingMode = 'vm', [string]$Ambiguity = '', [string]$RequestedState = '', [bool]$CensusPositive = $false,
             $ServiceAnswered = $null, [bool]$StateFromRecord = $true, [string]$Source = 'manifest+hard-coded'
         )
         if (-not $VMName) { $VMName = "yuruna-$Key-service" }
@@ -66,7 +66,7 @@ BeforeAll {
             HostingMode = $HostingMode; Ambiguity = $Ambiguity; State = $State; RawState = ''; Reason = $Reason
             StateFromRecord = $StateFromRecord; ServiceAnswered = $ServiceAnswered; CensusPositive = $CensusPositive
             CensusAgeSeconds = if ($CensusPositive) { 120 } else { $null }; EvidenceLifetimeSeconds = 86400; EvidenceOrigin = 'default'
-            DesiredState = $DesiredState; IntentGeneration = 0; IntentResult = ''; Identity = $null
+            RequestedState = $RequestedState; IntentGeneration = 0; IntentResult = ''; Identity = $null
         }
     }
     $script:Responsive = [pscustomobject]@{ State = 'Responsive'; Reason = 'responsive'; Probed = $true; ElapsedMs = 5 }
@@ -463,8 +463,8 @@ Describe 'the Repair policy matrix' {
 
     It 'never restores a guest stopped on purpose, and never treats a host process as a guest' {
         $v = Resolve-YurunaServiceVmPolicy -UnknownMeans Repair -HostType 'host.test' -Hypervisor $script:Responsive -Capability $script:Unqualified -Evidence @(
-            New-EvidenceRow -Key 'stash' -State 'Running' -Reason 'responsive' -DesiredState 'stopped'
-            New-EvidenceRow -Key 'download-agent' -State 'Absent' -Reason 'not-found' -DesiredState 'stopped'
+            New-EvidenceRow -Key 'stash' -State 'Running' -Reason 'responsive' -RequestedState 'stopped'
+            New-EvidenceRow -Key 'download-agent' -State 'Absent' -Reason 'not-found' -RequestedState 'stopped'
             New-EvidenceRow -Key 'pool-control' -State 'HostProcess' -HostingMode 'host-process'
         )
         $v.Satisfied | Should -BeTrue
@@ -565,7 +565,7 @@ Describe 'the Repair policy matrix' {
             ,$v.RefusalKeys | Should -BeOfType [string[]]
             foreach ($row in $v.Services) {
                 foreach ($field in @('Key', 'VMName', 'DisplayName', 'HealthPort', 'Source', 'VMNameSource', 'HostingMode', 'State', 'RawState', 'Reason',
-                        'ServiceAnswered', 'Evidence', 'EvidenceAgeSeconds', 'EvidenceLifetimeSeconds', 'EvidenceOrigin', 'DesiredState', 'IntentGeneration',
+                        'ServiceAnswered', 'Evidence', 'EvidenceAgeSeconds', 'EvidenceLifetimeSeconds', 'EvidenceOrigin', 'RequestedState', 'IntentGeneration',
                         'IntentResult', 'Preserve', 'Disposition', 'Identity')) {
                     $row.PSObject.Properties.Name | Should -Contain $field
                 }

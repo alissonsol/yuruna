@@ -16,7 +16,7 @@ import (
 
 // /api/v1/pool-stats feeds the pool-control board's cards. The properties that
 // matter are: the window is a CLOSED set (it is interpolated into LogQL), the
-// rows are per-HOST (pool attribution belongs to the intent store, which this
+// rows are per-HOST (pool attribution belongs to the configuration store, which this
 // service never reads), a host that only failed still appears, and the answer is
 // memoized so a phone refreshing does not become a Loki query storm.
 

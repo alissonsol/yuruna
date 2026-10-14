@@ -719,10 +719,10 @@
       "lifecycle": "active",
       "message": "guestSequence"
     },
-    "status.config_field_intentgiturl": {
+    "status.config_field_configurationgiturl": {
       "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
       "lifecycle": "active",
-      "message": "intentGitUrl"
+      "message": "configurationGitUrl"
     },
     "status.config_field_labhealth": {
       "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
@@ -2525,6 +2525,52 @@
       "message": "Run Start-TestRunner.ps1 to start a test cycle.",
       "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
+    },
+    "status.runner_attempt_failed": {
+      "message": "Runner attempt failed: {failureClass}",
+      "description": "Runner-attempt diagnostics and configuration migration. Preserve machine identifiers and untrusted detail placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "failureClass": {
+          "type": "detail",
+          "trust": "external",
+          "example": "config_gate_failed"
+        }
+      }
+    },
+    "status.runner_attempt_started": {
+      "message": "Attempt started: {startedAt}",
+      "description": "Runner-attempt diagnostics and configuration migration. Preserve machine identifiers and untrusted detail placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "startedAt": {
+          "type": "detail",
+          "trust": "external",
+          "example": "2026-10-12 13:37:27"
+        }
+      }
+    },
+    "status.runner_failure_record": {
+      "message": "Failure record",
+      "description": "Runner-attempt diagnostics and configuration migration. Preserve machine identifiers and untrusted detail placeholders.",
+      "lifecycle": "active"
+    },
+    "status.runner_failure_transcript": {
+      "message": "Configuration gate transcript",
+      "description": "Runner-attempt diagnostics and configuration migration. Preserve machine identifiers and untrusted detail placeholders.",
+      "lifecycle": "active"
+    },
+    "status.runner_framework_commit": {
+      "message": "Framework commit: {commit}",
+      "description": "Runner-attempt diagnostics and configuration migration. Preserve machine identifiers and untrusted detail placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "commit": {
+          "type": "detail",
+          "trust": "external",
+          "example": "abc123"
+        }
+      }
     },
     "status.save": {
       "message": "Save",

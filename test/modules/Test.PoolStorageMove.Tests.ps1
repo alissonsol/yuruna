@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d76e1e-670d-4849-af41-08ce879f3532
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,7 +133,7 @@ Describe 'Test-PoolStorageSpaceSufficient (the arithmetic both space checks shar
     It 'refuses when the reserve would be eaten, even though the copy itself would fit' {
         # 2.5 GiB free, 1 GiB cycle: the bytes fit, but landing them leaves 1.5 GiB --
         # below the reserve the share's other tenants (image pool, proxy archive,
-        # pool-intent.git) depend on.
+        # pool-configuration.git) depend on.
         $v = Test-PoolStorageSpaceSufficient -FreeBytes ([long](2.5 * 1GB)) -NeedBytes 1GB
         Assert-False $v.ok 'reserve is protected, not just the copy'
         Assert-True ($v.shortfall -gt 0) 'shortfall reported'

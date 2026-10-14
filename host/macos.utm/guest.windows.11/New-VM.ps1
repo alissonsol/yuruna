@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,7 +123,8 @@ Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# --- REGION: Check UTM Guest Tools ISO exists (needed after installation, not during)
+# --- REGION: Check UTM Guest Tools ISO exists
+# Needed after installation, not during.
 $spiceImageName = "host.macos.utm.guest.windows.11.spice.iso"
 $spiceImageFile = Join-Path $downloadDir $spiceImageName
 if (-not (Test-Path $spiceImageFile)) {
@@ -132,6 +133,8 @@ if (-not (Test-Path $spiceImageFile)) {
 }
 
 # --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
@@ -151,6 +154,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# --- REGION: Render the autounattend.xml + build a CD with it
 # Generate autounattend seed ISO (Windows Setup scans all drives for autounattend.xml)
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }

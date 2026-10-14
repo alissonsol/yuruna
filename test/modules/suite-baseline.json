@@ -3,8 +3,8 @@
   "recordedUtc": "2026-09-30T17:16:40.8543919Z",
   "pesterVersion": "5.9.0",
   "totals": {
-    "suites": 389,
-    "tests": 8689,
+    "suites": 391,
+    "tests": 8701,
     "failed": 0,
     "skipped": 39
   },
@@ -123,6 +123,11 @@
       "total": 18,
       "skipped": 0,
       "seconds": 3.24
+    },
+    "test/modules/Test.CachingProxyZotRelease.Tests.ps1": {
+      "total": 11,
+      "skipped": 0,
+      "seconds": 1.54
     },
     "test/modules/Test.CanonicalJson.Tests.ps1": {
       "total": 11,
@@ -524,12 +529,12 @@
       "seconds": 25.67
     },
     "test/modules/Test.GuestK8sCertificate.Tests.ps1": {
-      "total": 50,
+      "total": 47,
       "skipped": 0,
       "seconds": 9.24,
       "platformTotal": {
-        "linux": 46,
-        "macos": 46
+        "linux": 43,
+        "macos": 43
       }
     },
     "test/modules/Test.GuestLeaseRelease.Tests.ps1": {
@@ -1147,6 +1152,16 @@
       "skipped": 0,
       "seconds": 13.19
     },
+    "test/modules/Test.PoolConfigurationAliasSync.Tests.ps1": {
+      "total": 9,
+      "skipped": 0,
+      "seconds": 3.0
+    },
+    "test/modules/Test.PoolConfigurationSeedUrl.Tests.ps1": {
+      "total": 13,
+      "skipped": 0,
+      "seconds": 2.05
+    },
     "test/modules/Test.PoolControlServiceLocaleLaunch.Tests.ps1": {
       "total": 6,
       "skipped": 0,
@@ -1166,16 +1181,6 @@
       "total": 6,
       "skipped": 0,
       "seconds": 74.44
-    },
-    "test/modules/Test.PoolIntentAliasSync.Tests.ps1": {
-      "total": 9,
-      "skipped": 0,
-      "seconds": 3.0
-    },
-    "test/modules/Test.PoolIntentSeedUrl.Tests.ps1": {
-      "total": 13,
-      "skipped": 0,
-      "seconds": 2.05
     },
     "test/modules/Test.PoolNotifier.Tests.ps1": {
       "total": 24,
@@ -1964,6 +1969,11 @@
       "skipped": 0,
       "seconds": 4.78
     },
+    "test/modules/Test.ZotQualification.Tests.ps1": {
+      "total": 4,
+      "skipped": 0,
+      "seconds": 1.1
+    },
     "test/modules/Test.ZotSyncContract.Tests.ps1": {
       "total": 20,
       "skipped": 0,
@@ -2320,7 +2330,7 @@
       }
     },
     {
-      "registeredUtc": "2026-10-10T13:46:44.6683890Z",
+      "registeredUtc": "2026-10-10T13:46:44.668389Z",
       "pesterVersion": "5.8.0",
       "suites": [
         "test/modules/Test.ExecutionLogAttribution.Tests.ps1",
@@ -2335,7 +2345,7 @@
       }
     },
     {
-      "registeredUtc": "2026-10-10T22:19:43.9827810Z",
+      "registeredUtc": "2026-10-10T22:19:43.982781Z",
       "pesterVersion": "5.9.1",
       "suites": [
         "test/modules/Test.PrivateStateRepair.Tests.ps1",
@@ -2356,6 +2366,19 @@
       "tests": 14,
       "sourceSha256": {
         "test/modules/Test.ZotSyncContract.Tests.ps1": "DE31C064E80A6EBDB5BED97CCC5AA6DB80F1E2B9547449C9F5A0920C56406A9C"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-12T15:40:07.3275054Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.CachingProxyZotRelease.Tests.ps1",
+        "test/modules/Test.ZotQualification.Tests.ps1"
+      ],
+      "tests": 15,
+      "sourceSha256": {
+        "test/modules/Test.CachingProxyZotRelease.Tests.ps1": "25508498A7713F8F9D545798E9A586A6F9DB98E42136053B392CBF9F8282310D",
+        "test/modules/Test.ZotQualification.Tests.ps1": "775238979D04F8A42D8C546A9C98BE692626924953F1CDE6DAFA9CE83F587993"
       }
     }
   ]

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42994830-6205-4cf7-a39c-84254b1669c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -425,6 +425,18 @@ Describe 'ConvertTo-RunnerRecoveryResult' {
     }
     AfterEach { Remove-Item -LiteralPath $script:Log, $script:Runtime -Recurse -Force -ErrorAction SilentlyContinue }
 
+    It 'reports a configuration refusal with its own evidence and ignores previous cycle failures' {
+        Write-Json (Join-Path $script:Log 'last_failure.json') ([ordered]@{ failureClass = 'wait_timeout'; description = 'previous cycle' })
+        Set-Content -LiteralPath (Join-Path $script:Runtime 'config-gate.log') -Value 'configuration URL missing'
+        Write-Json (Join-Path $script:Runtime 'runner.configGate.json') ([ordered]@{ attemptGeneration = (Get-Generation); transcriptPath = 'config-gate.log' })
+        $r = Convert-Dispatch @{ Outcome = 'config-gate-failed'; ExitCode = 1 }
+        $r['outcome'] | Should -Be 'cannot-run'
+        $r['failureClass'] | Should -Be 'config_gate_failed'
+        $r['stage'] | Should -Be 'ConfigGate'
+        @($r['evidence'] | Where-Object { $_['ref'] -like '*last_failure.json' }).Count | Should -Be 0
+        @($r['evidence'] | Where-Object { $_['ref'] -like '*config-gate.log' }).Count | Should -Be 1
+        (Test-RecoveryResult -Result $r).Valid | Should -BeTrue
+    }
     It 'is a pass for a completed cycle that exited 0' {
         $r = Convert-Dispatch @{ Outcome = 'completed'; ExitCode = 0 }
         $r['outcome'] | Should -Be 'passed'

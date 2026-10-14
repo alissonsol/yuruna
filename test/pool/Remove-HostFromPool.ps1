@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42e5b8b9-d9cd-4ae5-92e1-a3fd96227e6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
 .DESCRIPTION
     Pool admin CLI. Removing a host from members[] stops the aggregator labeling
     its telemetry under this pool. To GRACEFULLY retire a running host, set its
-    desiredState to drain first (Set-PoolDesiredState) so it finishes its cycle
+    configuredState to drain first (Set-PoolConfiguredState) so it finishes its cycle
     and stops, THEN remove it here. Idempotent.
 
     Distinct from Remove-PoolHost, which purges a stale host outright: it deletes
@@ -49,8 +49,8 @@ param(
     [Parameter(ParameterSetName = 'Exclude')][string]$PoolId,
     [Parameter(Mandatory, ParameterSetName = 'Exclude')][switch]$Exclude,
     [Parameter(Mandatory)][string]$HostId,
-    [string]$IntentGitUrl,
-    [string]$IntentDir
+    [string]$ConfigurationGitUrl,
+    [string]$ConfigurationDir
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -79,13 +79,13 @@ $HostId = $canonicalHostId
 # the canonical key the store is read and written with.
 $shownHostId = Format-YurunaHostId -HostId $HostId
 
-# --- REGION: Open the intent store
-$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+# --- REGION: Open the configuration store
+$open = Open-YurunaPoolAdminStore -ConfigurationGitUrl $ConfigurationGitUrl -ConfigurationDir $ConfigurationDir -Confirm:$false
 $t = $open.Target
 if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
-$doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
+$doc  = Read-YurunaPoolsDoc -ConfigurationDir $t.ConfigurationDir
 $changed = $false
 if ($Exclude) {
     $selectedPools = @($doc['pools'])
@@ -116,7 +116,7 @@ if (-not $changed) {
 
 # --- REGION: Save, commit and push
 $message = if ($Exclude) { "pool: exclude $HostId from auto-enrollment" } else { "pool: remove $HostId from $PoolId" }
-$pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message $message -Confirm:$false
+$pub = Publish-YurunaPoolDocChange -ConfigurationDir $t.ConfigurationDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message $message -Confirm:$false
 if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
 
 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_49dca05bbccf311f' -Arguments @{ shownHostId = "$shownHostId"; poolId = "$PoolId" }) -InformationAction Continue

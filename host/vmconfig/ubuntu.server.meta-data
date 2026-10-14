@@ -1,16 +1,16 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # See https://yuruna.link/429f3d06-0002
+# --- REGION: instance-id
 # instance-id tracks the VM name, not the hostname: a change re-runs per-instance
 # modules, and two VMs may legitimately share a pinned hostname.
-# --- REGION: instance-id
 instance-id: INSTANCE_ID_PLACEHOLDER
 # --- REGION: local-hostname
 local-hostname: HOSTNAME_PLACEHOLDER
-# See https://yuruna.link/42e220c4-0006
-# Compatibility hint; the builders' shared network-config takes precedence.
-# the installed system's netplan comes from the autoinstall `network:` section.
 # --- REGION: network-interfaces
+# See https://yuruna.link/42e220c4-0006
+# Compatibility hint: the builders' shared network-config takes precedence, and the
+# installed system's netplan comes from the autoinstall `network:` section.
 network-interfaces: |
   auto eth0
   iface eth0 inet dhcp

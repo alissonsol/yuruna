@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d58adc-cab7-4fe8-b412-b22f9af0785c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 BeforeAll {
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     Import-Module (Join-Path $script:RepoRoot 'host/Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
-    $script:Contract = Get-YurunaHostContractVerb
+    $script:Contract = (Get-YurunaHostContractVerb) + @('Resolve-HostTag', 'Resolve-CacheHostIp', 'Save-CachedHttpUri')
     $script:ProviderSources = @{}
     foreach ($provider in 'windows.hyper-v', 'macos.utm', 'ubuntu.kvm') {
         $path = Join-Path $script:RepoRoot "host/$provider/modules/Yuruna.Host.psm1"

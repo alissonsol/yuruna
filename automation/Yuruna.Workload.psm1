@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,13 +95,9 @@ function Invoke-WorkloadChartDeployment {
     Push-Location $workFolder -ErrorAction Stop
     try {
 
-    # Per-chart helm stderr/stdout log + final-rc sidecar. Mirrors Set-Resource's
-    # tofu.stderr.log pattern so Get-SystemDiagnostic.ps1's *.stderr.log glob
-    # picks it up on failure. Truncated at chart entry; each helm command's
-    # output is appended under a "== <cmd> (exit=N) ==" header. helm.rc is
-    # rewritten after each helm call so the LAST observed exit code is what the
-    # diagnostic reports -- matching operator intuition ("did helm succeed?")
-    # and what the gap-detector heuristic checks.
+    # Per-chart helm log and final-rc sidecar, truncated at chart entry. helm.rc holds
+    # the LAST observed exit code, which is what the diagnostic checks.
+    # See https://yuruna.link/42e568c8-000a
     $helmLogFile = Join-Path -Path $workFolder -ChildPath "helm.stderr.log"
     $helmRcFile  = Join-Path -Path $workFolder -ChildPath "helm.rc"
     Remove-Item -LiteralPath $helmLogFile -Force -ErrorAction SilentlyContinue

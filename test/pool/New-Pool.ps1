@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42509e7a-733b-48f3-a663-0952f4326255
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,30 +18,30 @@
 
 <#
 .SYNOPSIS
-    Create or update a pool in the LAN pool-intent store (pools.yml).
+    Create or update a pool in the LAN pool-configuration store (pools.yml).
 .DESCRIPTION
-    Pool admin CLI. Clones/pulls the WRITABLE intent repo, upserts a pool entry
-    (poolId + poolGuid + displayName + desiredState; members and repositories are
+    Pool admin CLI. Clones/pulls the WRITABLE configuration repo, upserts a pool entry
+    (poolId + poolGuid + displayName + configuredState; members and repositories are
     preserved on update), schema-validates pools.yml, then commits + pushes. Set
     the pool's framework and project repositories with Set-PoolRepository.ps1.
-    Runners PULL this intent read-only over HTTP and never write it. Run on the
-    proxy (or with a writable -IntentGitUrl) so the push succeeds. See
+    Runners PULL this configuration read-only over HTTP and never write it. Run on the
+    proxy (or with a writable -ConfigurationGitUrl) so the push succeeds. See
     docs/pool-storage.md.
 .PARAMETER PoolId
     DNS-label-safe pool id (the immutable Loki/Prometheus label).
-.PARAMETER IntentGitUrl
-    Writable URL/path of the bare intent repo. Defaults to pool.intentGitUrl from
+.PARAMETER ConfigurationGitUrl
+    Writable URL/path of the bare configuration repo. Defaults to pool.configurationGitUrl from
     test.config.yml.
-.PARAMETER IntentDir
-    Local working clone. Defaults to <runtime>/pool-intent-admin.
+.PARAMETER ConfigurationDir
+    Local working clone. Defaults to <runtime>/pool-configuration-admin.
 .PARAMETER IfMissing
     Create the pool only when it does not exist yet; leave an existing one
     exactly as it is and exit 0. For callers that ENSURE a pool rather than
     author one -- setup.ps1 runs on every re-run, and without this the plain
     upsert would reset a pool an operator had deliberately set to 'paused' or
-    'drain' back to the -DesiredState default on each pass.
+    'drain' back to the -ConfiguredState default on each pass.
 .EXAMPLE
-    ./New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl /var/lib/yuruna/pool-intent.git
+    ./New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -ConfigurationGitUrl /var/lib/yuruna/pool-configuration.git
 .EXAMPLE
     ./New-Pool.ps1 -PoolId default -IfMissing
 #>
@@ -50,9 +50,9 @@
 param(
     [Parameter(Mandatory)][string]$PoolId,
     [string]$DisplayName = '',
-    [ValidateSet('run', 'paused', 'drain')][string]$DesiredState = 'run',
-    [string]$IntentGitUrl,
-    [string]$IntentDir,
+    [ValidateSet('run', 'paused', 'drain')][string]$ConfiguredState = 'run',
+    [string]$ConfigurationGitUrl,
+    [string]$ConfigurationDir,
     [switch]$IfMissing
 )
 
@@ -60,7 +60,8 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# --- REGION: https://yuruna.link/42162449-0004
+# --- REGION: Log level from environment
+# See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default. $InformationPreference
 # is re-read afterwards because the script-scoped assignment above shadows the
@@ -86,24 +87,24 @@ if ($PoolId -notmatch '^[a-z0-9][a-z0-9-]{0,62}$') {
     exit $ExitFailure
 }
 
-# --- REGION: Open the intent store
-$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+# --- REGION: Open the configuration store
+$open = Open-YurunaPoolAdminStore -ConfigurationGitUrl $ConfigurationGitUrl -ConfigurationDir $ConfigurationDir -Confirm:$false
 $t = $open.Target
 if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
-$doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
+$doc  = Read-YurunaPoolsDoc -ConfigurationDir $t.ConfigurationDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if ($pool -and $IfMissing) {
-    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a7d432e9c0cf6e77' -Arguments @{ poolId = "$PoolId"; desiredState = "$($pool['desiredState'])" }) -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a7d432e9c0cf6e77' -Arguments @{ poolId = "$PoolId"; configuredState = "$($pool['configuredState'])" }) -InformationAction Continue
     exit $ExitOk
 }
 if ($pool) {
     # Only overwrite displayName when the caller actually passed -DisplayName; re-running
-    # New-Pool just to change desiredState must not wipe an existing name (members and
+    # New-Pool just to change configuredState must not wipe an existing name (members and
     # repositories are already preserved on update).
     if ($PSBoundParameters.ContainsKey('DisplayName')) { $pool['displayName'] = $DisplayName }
-    $pool['desiredState'] = $DesiredState
+    $pool['configuredState'] = $ConfiguredState
     $action = 'update'
 } else {
     # Mint a stable 42-prefixed pool GUID once, at creation.
@@ -113,14 +114,14 @@ if ($pool) {
         poolGuid     = $poolGuid
         displayName  = $DisplayName
         members      = @()
-        desiredState = $DesiredState
+        configuredState = $ConfiguredState
     }))
     $action = 'create'
 }
 
 # --- REGION: Save, commit and push
-$pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: $action $PoolId" -Confirm:$false
+$pub = Publish-YurunaPoolDocChange -ConfigurationDir $t.ConfigurationDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: $action $PoolId" -Confirm:$false
 if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
 
-Write-Information "Pool '$PoolId' ${action}d (desiredState=$DesiredState)." -InformationAction Continue
+Write-Information "Pool '$PoolId' ${action}d (configuredState=$ConfiguredState)." -InformationAction Continue
 exit $ExitOk

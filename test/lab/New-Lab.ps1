@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 425d0d82-ebe2-4d28-90df-3b22ff1c2915
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Create a lab: its storage folders, its credential vault, and its pool-intent
+    Create a lab: its storage folders, its credential vault, and its pool-configuration
     repository.
 
 .DESCRIPTION
@@ -177,21 +177,23 @@ foreach ($p in @($Root, $poolPath, $stashPath)) {
     Write-Output "[1/3] $(if ($existed) { 'confirmed' } else { 'created' }) $p"
 }
 
-# --- REGION: Pool-intent repository
+# --- REGION: Pool-configuration repository
 # See https://yuruna.link/42010605-0003
-$intentPath = Join-Path $poolPath 'pool-intent.git'
+$configurationPath = Join-Path $poolPath 'pool-configuration.git'
 # Adopt a store created under the older lab-name-derived name rather than
 # leaving its seeded history orphaned beside a fresh empty repo.
-$legacyIntentPath = Join-Path $poolPath "$Name.intent.git"
-if ((Test-Path -LiteralPath $legacyIntentPath) -and -not (Test-Path -LiteralPath $intentPath)) {
-    Move-Item -LiteralPath $legacyIntentPath -Destination $intentPath
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4154b8f8b4c44fe5' -Arguments @{ legacyIntentPath = "$legacyIntentPath"; intentPath = "$intentPath" })
+foreach ($legacyName in @('pool-intent.git', "$Name.intent.git")) {
+    $legacyIntentPath = Join-Path $poolPath $legacyName
+    if ((Test-Path -LiteralPath $legacyIntentPath) -and -not (Test-Path -LiteralPath $configurationPath)) {
+        Move-Item -LiteralPath $legacyIntentPath -Destination $configurationPath
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4154b8f8b4c44fe5' -Arguments @{ legacyIntentPath = "$legacyIntentPath"; configurationPath = "$configurationPath" })
+    }
 }
-$store = New-YurunaPoolIntentStore -Path $intentPath -Confirm:$false
+$store = New-YurunaPoolConfigurationStore -Path $configurationPath -Confirm:$false
 if ($store.Created) {
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8fcfdcefeec6d978' -Arguments @{ intentPath = "$intentPath" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8fcfdcefeec6d978' -Arguments @{ configurationPath = "$configurationPath" })
 } else {
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a57aeed80b0cf28a' -Arguments @{ intentPath = "$intentPath"; reason = "$($store.Reason)" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a57aeed80b0cf28a' -Arguments @{ configurationPath = "$configurationPath"; reason = "$($store.Reason)" })
 }
 
 # --- REGION: Lab vault
@@ -204,17 +206,26 @@ Set-DirectoryPrivate -Path $vaultDir -Confirm:$false
 $labVault = Join-Path $vaultDir "lab.$Name.vault.yml"
 
 if ((Test-Path -LiteralPath $labVault) -and -not $Force) {
+    $vault = Get-Content -Raw -LiteralPath $labVault | ConvertFrom-Yaml -Ordered
+    if ([int]$vault.schemaVersion -eq 1) {
+        $vault.schemaVersion = 2
+        if ($vault.lab.Contains('intentGitPath')) {
+            $vault.lab.configurationGitPath = $configurationPath
+            $vault.lab.Remove('intentGitPath')
+        }
+        $null = Write-YurunaStateFile -Path $labVault -Content ($vault | ConvertTo-Yaml) -Confirm:$false
+    }
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3ef003e468ca0535' -Arguments @{ labVault = "$labVault" })
 } else {
     $nowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     $lines = [System.Collections.Generic.List[string]]::new()
-    $lines.Add('schemaVersion: 1')
+    $lines.Add('schemaVersion: 2')
     $lines.Add('lab:')
     $lines.Add("  name: $(ConvertTo-Json -InputObject $Name -Compress)")
     $lines.Add("  createdUtc: '$nowUtc'")
     $lines.Add("  poolPath: $(ConvertTo-Json -InputObject $poolPath -Compress)")
     $lines.Add("  stashPath: $(ConvertTo-Json -InputObject $stashPath -Compress)")
-    $lines.Add("  intentGitPath: $(ConvertTo-Json -InputObject $intentPath -Compress)")
+    $lines.Add("  configurationGitPath: $(ConvertTo-Json -InputObject $configurationPath -Compress)")
     $lines.Add('users:')
     $reused = [System.Collections.Generic.List[string]]::new()
     foreach ($u in $User) {
@@ -249,7 +260,7 @@ Write-Output ""
 Write-Output "Lab '$Name' ready."
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4ccbfa081fc1ccc8' -Arguments @{ poolPath = "$poolPath" })
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_be3425294035d6f8' -Arguments @{ stashPath = "$stashPath" })
-Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8b14250671a04bd9' -Arguments @{ intentPath = "$intentPath" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8b14250671a04bd9' -Arguments @{ configurationPath = "$configurationPath" })
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_671e06827d6b0716' -Arguments @{ labVault = "$labVault" })
 Write-Output ""
 Write-Output "Next:"

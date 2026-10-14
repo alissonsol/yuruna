@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b0681f-50bb-3b49-3fcf-f99d409ef81e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,23 @@
             'trust' = 'internal'
         }
         ' registros do runner que não pôde provar que estavam obsoletos.'
+    )
+    'runner.config_gate_attempt_failed' = @(
+        'A tentativa do executor terminou com código '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' porque a validação da configuração falhou. Nenhum novo ciclo de testes foi iniciado. Corrija a configuração antes de tentar novamente.'
+    )
+    'runner.config_naming_backup' = @(
+        'Fazer backup da configuração em '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.critical_record_replace' = 'Substituir um registro crítico privado'
     'runner.cycle_outcome_rejected_kept' = @(
@@ -264,6 +281,14 @@
             'trust' = 'external'
         }
         ' caracteres após o empacotamento; o Windows não consegue iniciá-lo. A execução no convidado não foi iniciada.'
+    )
+    'runner.gate_evidence_save_failed' = @(
+        'Não foi possível salvar as evidências da verificação de configuração: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.git_recovery_command' = @(
         'Recuperar com: git -C '''
@@ -1558,6 +1583,15 @@
         }
     )
     'runner.host_refresh_verified_noop' = 'Invoke-HostRefresh: o hipervisor respondeu e o runner está íntegro; nada foi alterado.'
+    'runner.inner_attempt_exited' = @(
+        'A tentativa do executor terminou com código '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' antes de informar um resultado de ciclo. Revise os logs do executor antes de tentar novamente.'
+    )
     'runner.inner_guest_folder_missing' = @(
         'A pasta de visitas não foi encontrada para '''
         @{
@@ -1579,17 +1613,88 @@
         }
         ''').'
     )
-    'runner.inner_sequence_baseline_missing' = @(
-        'Sequência interna '''
+    'runner.inner_sequence_resource_missing' = @(
+        'A sequência interna '''
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não tem ''baseline:'' chave OS; não uma sequência de convidado executável.'
+        ''' não tem uma chave de sistema operacional em ''resource:''; não é uma sequência executável de convidado.'
     )
     'runner.launch_record_complete_action' = 'Marcar o registro de inicialização do runner como encerrado'
     'runner.launch_record_write_action' = 'Gravar o registro de inicialização do runner'
+    'runner.m1ff7f8f2d1' = @(
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ainda estava '''
+        @{
+            'arg' = 'observedState'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ''' após '
+        @{
+            'arg' = 'waitedSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's. O quadro do console, o texto OCR e os contadores do hipervisor desse momento foram registrados; veja causeDetail.vmState em last_failure.json.'
+    )
+    'runner.m38857d4ae5' = @(
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': o console de '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' não mudou em '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's após a digitação; as teclas não foram reconhecidas.'
+    )
+    'runner.m60d80be676' = @(
+        'Log do console serial salvo: '
+        @{
+            'arg' = 'cycleBase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/'
+        @{
+            'arg' = 'destSeqName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/serial-console.log'
+    )
+    'runner.ma32a33811f' = 'Solicitar o desligamento do convidado pelo driver do hospedeiro e aguardar a VM informar que parou'
+    'runner.maa7a51f878' = @(
+        'stopVm: não foi possível forçar o desligamento de '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' depois que ele ignorou a solicitação; a etapa falha.'
+    )
     'runner.mac_automation_utm_title' = 'Automação -> UTM'
     'runner.mac_dock_reload_deferred' = 'O Dock não foi reiniciado porque esta execução não deve interferir na sessão da área de trabalho; as alterações de cantos ativos e Spaces entram em vigor na próxima vez que o Dock for iniciado.'
     'runner.mac_grant_prompt_suppressed' = @(
@@ -1661,6 +1766,36 @@
             'trust' = 'internal'
         }
     )
+    'runner.mb985d466db' = @(
+        'stopVm: forçando o desligamento de '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' depois que o convidado ignorou a solicitação por '
+        @{
+            'arg' = 'waitedSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's; o ciclo continua em modo degradado.'
+    )
+    'runner.mc7190c5d2b' = @(
+        'stopVm: desligamento do convidado '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' solicitado; aguardando até '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's para o hospedeiro informar que ele parou.'
+    )
     'runner.mcp_dependency_drift' = 'saída 1 deste script significa que uma dependência presa se deslocou, não que o relatório tenha falhado'
     'runner.mcp_dependency_invalid_json' = 'esperado JSON de -AsJson, mas a saída não analisou'
     'runner.mcp_diagnostic_verdict' = 'O Get-SystemDiagnostic sempre sai de 0; os problemas estão no relatório, não no código de saída.'
@@ -1716,6 +1851,27 @@
     'runner.mcp_yuruna_test_configuration' = 'Valida a configuração do teste. Sai não-zero com uma transcrição quando uma verificação falha e retorna uma Falsa nua ao sair de 0 quando o conjunto root não se resolver.'
     'runner.mcp_yuruna_test_requirement' = 'Verifique se esta máquina satisfaz os requisitos de que um ciclo necessita. Sai não-zero com um requisito falhado.'
     'runner.mcp_yuruna_test_runtime' = 'Verifique o tempo de execução. O veredicto é um booleano emitido como o último objeto do gasoduto; este script não tem instrução de saída, então o código de saída não diz nada.'
+    'runner.mf99bdf2253' = @(
+        'O convidado '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ficou em silêncio pela primeira vez em '
+        @{
+            'arg' = 'sinceUtc'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'source'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); falhas posteriores nesta sequência podem derivar disso.'
+    )
     'runner.no_other_runner_refresh_active' = @(
         @{
             'arg' = 'callerName'
@@ -2052,7 +2208,7 @@
         ''' não tem credencial de cofre armazenado -- a VM stash-service faria uma senha de lixo SMB que o NAS rejeita. Set-Password it before Start-StashServiceVM. Veja docs/test-config.md.'
     )
     'runner.operator_04e4f7a2a65ad054' = 'o invólucro de sudo compartilhado não está disponível nesta sessão.'
-    'runner.operator_051583e964e5ccb5' = 'o repositório de intenção de pool sob a raiz de armazenamento são deixados exatamente como são;'
+    'runner.operator_051583e964e5ccb5' = 'o repositório pool-configuration sob a raiz de armazenamento permanecem exatamente como estão;'
     'runner.operator_051a02c281a0d2b2' = @(
         'Iniciando VM '''
         @{
@@ -2991,7 +3147,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_11155c290bdca317' = 'bloco de grupo não presente -- sincronia de intenção de grupo está desligada (opcional).'
+    'runner.operator_11155c290bdca317' = 'O bloco pool não está presente -- a sincronização da configuração do grupo está desativada (opcional).'
     'runner.operator_112839be6c0da628' = 'Reiniciar o documento de estado para o novo ciclo'
     'runner.operator_115a0cebc1971e79' = @(
         'Não foi possível retirar a entrada '''
@@ -3927,7 +4083,7 @@
         }
     )
     'runner.operator_1d0efcf0a84c0f0f' = @(
-        'pool: intention store atingable ('
+        'Grupo: repositório de configuração acessível ('
         @{
             'arg' = 'plUrl'
             'type' = 'detail'
@@ -4141,19 +4297,19 @@
         }
     )
     'runner.operator_205f4d4b991b0dd3' = @(
-        'pool: intention store '''
+        'Grupo: o repositório de configuração '''
         @{
             'arg' = 'plUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não acessível no momento ('
+        ''' não está acessível agora ('
         @{
             'arg' = 'why'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ') -- tudo bem se o proxy estiver intencionalmente offline; o corredor se degrada para um único host. Caso contrário, verifique o URL / apache / rede.'
+        ') -- isso é esperado se o proxy estiver intencionalmente offline; o executor passa a operar com um único hospedeiro. Caso contrário, verifique a URL / apache / rede.'
     )
     'runner.operator_209d040d216b9f8c' = 'o exportador host-metrics é um componente host do Windows.'
     'runner.operator_20c8d607a6fb6e96' = 'Instale tesseract ou fio um provedor por host via Register-OcrProvider.'
@@ -4177,7 +4333,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] pool desejedState=paused -- holding (sem ciclo gerado).'
+        '] grupo configuredState=paused -- aguardando (nenhum ciclo iniciado).'
     )
     'runner.operator_218ebb2c80a76597' = @(
         '[ciclo externo '
@@ -5247,13 +5403,13 @@
         }
     )
     'runner.operator_2d47f583d26c79d3' = @(
-        'Sincronização do pool: a captura de intenção falhou ('
+        'Sincronização do grupo: falha ao buscar a configuração ('
         @{
             'arg' = 'why'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); usando o último bom pools.yml ('
+        '); usando a última cópia válida de pools.yml em cache ('
         @{
             'arg' = 'poolsPath'
             'type' = 'detail'
@@ -6056,7 +6212,7 @@
         }
         '). A chave não é utilizável para as provas de controlo nesta máquina.'
     )
-    'runner.operator_37c6d3d1e44ac68b' = 'Semente da loja de grupo'
+    'runner.operator_37c6d3d1e44ac68b' = 'Inicializar o repositório pool-configuration'
     'runner.operator_37ec87c9e9d924bd' = @(
         'networkStorage pool: não foi possível mapear a abóbadaKey em users.yml ('
         @{
@@ -6531,7 +6687,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_3ee74fe8c9b60225' = 'pool.enabled é verdadeiro, mas pool.intentGitUrl está vazio; pool intention sync desabilitado.'
+    'runner.operator_3ee74fe8c9b60225' = 'pool.enabled é true, mas pool.configurationGitUrl está vazio; a sincronização da configuração do grupo foi desativada.'
     'runner.operator_3ef003e468ca0535' = @(
         '[3/3] já existe um cofre de laboratório em '
         @{
@@ -6624,7 +6780,7 @@
         }
         ') ...'
     )
-    'runner.operator_3f91d27857293eb6' = '3. Stand up pool-control service; serve o repo intenção e que URL torna-se pool.intentGitUrl.'
+    'runner.operator_3f91d27857293eb6' = '  3. Inicie o serviço pool-control; ele disponibiliza o repositório de configuração, e essa URL passa a ser pool.configurationGitUrl.'
     'runner.operator_3f965b8f770b8f1a' = 'já carrega ainda se aplica -- esta execução não mudou nada.'
     'runner.operator_3fa87fe4f05bcb17' = @(
         '[ciclo externo '
@@ -6736,16 +6892,16 @@
     'runner.operator_40eeaa317b25e65f' = 'Arquivo de estado Atomic JSON'
     'runner.operator_411c032a04bd8374' = 'armazenamento completo'
     'runner.operator_413f257dbbf2120b' = @(
-        'Não foi possível criar o pool.intentGitUrl ('
+        'Não foi possível preencher pool.configurationGitUrl ('
         @{
             'arg' = 'message'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); o token é armazenado. Defina o pool.enabled/pool.intentGitUrl à mão para se juntar ao pool.'
+        '); o token foi armazenado. Defina pool.enabled/pool.configurationGitUrl manualmente para ingressar no grupo.'
     )
     'runner.operator_4154b8f8b4c44fe5' = @(
-        '[2/3] adoptou o actual armazém de reserva: '
+        '[2/3] repositório pool-configuration existente adotado: '
         @{
             'arg' = 'legacyIntentPath'
             'type' = 'detail'
@@ -6753,13 +6909,13 @@
         }
         ' -> '
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
     )
     'runner.operator_416973ff9c4b82f2' = @(
-        'pool.intentGitUrl já está definido ('
+        'pool.configurationGitUrl já está definido ('
         @{
             'arg' = 'existingUrl'
             'type' = 'detail'
@@ -7056,7 +7212,7 @@
         '.'
     )
     'runner.operator_45a07fd31e96a1d6' = @(
-        'Sequência de nível superior não tem linha de base (sem OS convidado suportado declarado): '
+        'A sequência de nível superior não tem pré-requisitos em resource (nenhum sistema operacional de convidado compatível foi declarado): '
         @{
             'arg' = 'topName'
             'type' = 'detail'
@@ -7220,13 +7376,13 @@
         's e foi parado. O serviço por trás dele não está respondendo, então esta verificação é indeterminada em vez de falhar.'
     )
     'runner.operator_47955cec68775797' = @(
-        'pool sync: host '
+        'Sincronização do grupo: o hospedeiro '
         @{
             'arg' = 'hostId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' não está em nenhum membro do pool[] embora pools.yml lista membros; verifique o hostId ortografia/caso no repo de intenção. Ciclismo como um único host.'
+        ' não está em members[] de nenhum grupo, embora pools.yml liste membros; verifique a grafia e as maiúsculas/minúsculas de hostId no repositório de configuração. Os ciclos serão executados com um único hospedeiro.'
     )
     'runner.operator_479872781526f6ad' = 'Voltar a inserir a senha'
     'runner.operator_47b0ccd4d36eff29' = @(
@@ -7299,7 +7455,7 @@
         }
         '''.'
     )
-    'runner.operator_488c8abbe599cfff' = 'e o repositório de intenção de pool está todo sob ele. Quando você estiver satisfeito:'
+    'runner.operator_488c8abbe599cfff' = '  e o repositório pool-configuration ficam todos sob essa raiz. Quando estiver satisfeito:'
     'runner.operator_489224a7c60c2a6e' = @(
         'Não foi possível copiar artefatos de falha para status/log: '
         @{
@@ -7900,8 +8056,8 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_4f719f0639145301' = 'Gravar o arquivo de intenção do pool'
-    'runner.operator_4f741864aba4d1fd' = 'Criar repositório de intenção de conjunto desprotegido'
+    'runner.operator_4f719f0639145301' = 'Gravar o arquivo de configuração do grupo'
+    'runner.operator_4f741864aba4d1fd' = 'Criar o repositório bare pool-configuration'
     'runner.operator_4f7e838f26c3bf54' = @(
         '[5/'
         @{
@@ -7991,9 +8147,9 @@
     )
     'runner.operator_507f379237cefeeb' = 'Execução: não foi possível determinar'
     'runner.operator_5080fa98b3c9b51c' = @(
-        'Não foi possível abrir o armazenamento de intenções ('
+        'Não foi possível abrir o repositório de configuração ('
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -8581,7 +8737,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' (sem pré-requisitos de base declarados)'
+        ' (nenhum pré-requisito declarado em resource)'
     )
     'runner.operator_57f365ecb6da1349' = @(
         'Identidade DHCP da ponte presa automaticamente: '
@@ -8731,19 +8887,19 @@
         ' existe''.'
     )
     'runner.operator_59650e3f07b2342b' = @(
-        'Pool '''
+        'configuredState do grupo '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' desejedState set to '''
+        ''' definido como '''
         @{
             'arg' = 'state'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. Os membros se reconciliam em seu próximo ciclo.'
+        '''. Os membros reconciliam o estado ao buscar a configuração no próximo ciclo.'
     )
     'runner.operator_597096826951b442' = @(
         'Test.HostCondition: pulando o registro '
@@ -8783,25 +8939,25 @@
         ''' pode agora montar/mkdir/umount sem senha.'
     )
     'runner.operator_5a025273229840cf' = @(
-        'A máquina '
+        'O hospedeiro '
         @{
             'arg' = 'hostId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' é um membro de vários pools ('
+        ' pertence a vários grupos ('
         @{
             'arg' = 'join'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); uma máquina deve pertencer no máximo a um. Usando '''
+        '); cada hospedeiro deve pertencer a no máximo um. Usando '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. Corrija a intenção (Remove-HostFromPool / Test-PoolIntent).'
+        '''. Corrija a configuração (Remove-HostFromPool / Test-PoolConfiguration).'
     )
     'runner.operator_5a198f884eed15db' = 'Ressincronizar contra a fonte de tempo configurada'
     'runner.operator_5a1fbbd3e27b9097' = 'Nesses caminhos, um passo queima todo o seu tempooutSegundos e relata ''padrão não encontrado'' enquanto o frame salvo ainda parece legível.'
@@ -8836,7 +8992,7 @@
         }
     )
     'runner.operator_5a576784a1b51113' = 'O caminho do disco rígido virtual Hyper-V não pôde ser lido, então nada pode ser dito sobre o que filtra.'
-    'runner.operator_5a5cc38a18508944' = 'e o repositório pool-intent sob a raiz de armazenamento são deixados exatamente como são;'
+    'runner.operator_5a5cc38a18508944' = 'e o repositório pool-configuration sob a raiz de armazenamento permanecem exatamente como estão;'
     'runner.operator_5acc85b3d32caa00' = @(
         '[break] resumido automaticamente após o relógio de parede '
         @{
@@ -9226,7 +9382,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] pool desejedState=drain -- desligando no limite do ciclo.'
+        '] grupo configuredState=drain -- encerrando no limite do ciclo.'
     )
     'runner.operator_5e254220c82bfee1' = @(
         'Visualização virtual '
@@ -9274,13 +9430,13 @@
         ').'
     )
     'runner.operator_5e931217fd513630' = @(
-        'A loja de intenção de grupo ('
+        'O repositório pool-configuration ('
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ') não existe e não pôde ser criada: '
+        ') não existe e não pôde ser criado: '
         @{
             'arg' = 'reason'
             'type' = 'detail'
@@ -10085,7 +10241,7 @@
         ': nenhum ramo de rastreamento upstream -- pulando para frente/atrás.'
     )
     'runner.operator_68683a605e32c8b4' = @(
-        'Ponto /pool-intent.git em '
+        'Apontar /pool-configuration.git para '
         @{
             'arg' = 'storePath'
             'type' = 'detail'
@@ -10173,7 +10329,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' é o grupo de destino da autoinscrição e não deve conter repositórios; eles serão ignorados e os repositórios próprios deste hospedeiro serão mantidos. Corrija o repositório de intenções (Test-PoolIntent.ps1 informa isso).'
+        ''' é o destino da autoinscrição e não deve conter repositórios; eles serão ignorados, e os repositórios próprios deste hospedeiro serão mantidos. Corrija o repositório de configuração (Test-PoolConfiguration.ps1 informa isso).'
     )
     'runner.operator_69026426aeb39009' = 'Perfil de configuração detectado neste Mac. Se algum perfil'
     'runner.operator_69313d3714ef798c' = 'Escreva o registro de saúde do laboratório.'
@@ -10245,9 +10401,9 @@
         ''' fora do vocabulário de recuperação; coerção para operator intervention required.'
     )
     'runner.operator_6a59b18694397dbf' = @(
-        'Sincronização do pool: não foi possível alcançar a loja de intenções ('
+        'Sincronização do grupo: não foi possível acessar o repositório de configuração ('
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -10257,7 +10413,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); ciclismo como uma única máquina.'
+        '); os ciclos serão executados com um único hospedeiro.'
     )
     'runner.operator_6a63d02d5ebb8e7d' = 'Não é possível saltar o serviço de status (Start-StatusService.ps1 ou o executável pwsh não foi encontrado); o token é armazenado e faz efeito no ciclo seguinte.'
     'runner.operator_6a6ff8c7e20e3fa6' = @(
@@ -11502,7 +11658,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] pool desejedState=paused -- holding; re-checking intention em breve.'
+        '] grupo configuredState=paused -- aguardando; a configuração será verificada novamente em breve.'
     )
     'runner.operator_7b5b47de81fd0974' = @(
         'O painel canônico no '
@@ -11669,9 +11825,9 @@
     )
     'runner.operator_7d1e9cbc4ff500f6' = 'Os requisitos de host verificação rápida passou.'
     'runner.operator_7d60c40c2ee69f28' = @(
-        'associação: não foi possível abrir a loja de intenções ('
+        'Associação: não foi possível abrir o repositório de configuração ('
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -11681,7 +11837,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Registros NAS removidos; membros NÃO tocados.'
+        '. Os registros do NAS foram removidos; as associações NÃO foram alteradas.'
     )
     'runner.operator_7d74f75db443e9e2' = @(
         'O salto do servidor de estado ainda está em execução após o '
@@ -11759,7 +11915,7 @@
         }
         '] prestes a invocar o pwsh interno'
     )
-    'runner.operator_7dd0aa845d3a93ea' = 'Sem intenção armazenar URL. Passe -IntentGitUrl ou definir pool.intentGitUrl em test.config.yml.'
+    'runner.operator_7dd0aa845d3a93ea' = 'Nenhuma URL de repositório de configuração. Passe -ConfigurationGitUrl ou defina pool.configurationGitUrl em test.config.yml.'
     'runner.operator_7dd6240c15d45471' = 'requer compatibilidade com o bootstrap e portas de recuperação de pacotes assinadas/auto-suficientes da secção 9; ainda não construídas'
     'runner.operator_7def89dc77aaa4db' = @(
         'Não foi possível gravar a captura de pré-automatização para '
@@ -12026,9 +12182,9 @@
         '. Puxando...'
     )
     'runner.operator_811a9975fa1a2df7' = @(
-        'Clone de intenção de conjunto aberto de '
+        'Abrir o clone da configuração do grupo em '
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -12686,7 +12842,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] pool desejedState=drain -- solicitando desligamento no limite do ciclo.'
+        '] grupo configuredState=drain -- solicitando encerramento no limite do ciclo.'
     )
     'runner.operator_8a8eb73bf7a84874' = @(
         'Registre a tarefa agendada '''
@@ -12749,9 +12905,9 @@
         ' minute(s).'
     )
     'runner.operator_8b14250671a04bd9' = @(
-        'repo de intenção : '
+        '  repositório de configuração : '
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -13051,7 +13207,7 @@
         }
         '...'
     )
-    'runner.operator_8e8fecb6ffc7d3d6' = 'test.config.yml não foi encontrado; pool.intentGitUrl não foi semeado. Re-run after Sync-HostConfiguration.ps1 to join the lab pool.'
+    'runner.operator_8e8fecb6ffc7d3d6' = 'test.config.yml não foi encontrado; pool.configurationGitUrl não foi preenchido. Execute novamente após Sync-HostConfiguration.ps1 para ingressar no grupo do laboratório.'
     'runner.operator_8e99318e4c9efaea' = @(
         @{
             'arg' = 'label'
@@ -13214,9 +13370,9 @@
         ''' -- tratando como falha.'
     )
     'runner.operator_8fcfdcefeec6d978' = @(
-        '[2/3] armazém de reserva semeado em '
+        '[2/3] repositório pool-configuration inicializado em '
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -13579,7 +13735,7 @@
     )
     'runner.operator_93d8c93707d2b133' = 'OCR-locate um padrão em seguida, clique em seu retângulo na tela.'
     'runner.operator_93d9eec8ac1ddbb1' = 'o comando que recupera esse disco é impresso no final para você executar.'
-    'runner.operator_93ef9f12e66f06e9' = 'pool.enabled = false and pool.intentGitUrl está vazio -- pool intention sync is off (opcional). Popule intentionGitUrl para pré-validar o store antes de habilitar.'
+    'runner.operator_93ef9f12e66f06e9' = 'pool.enabled = false e pool.configurationGitUrl está vazio -- a sincronização da configuração do grupo está desativada (opcional). Preencha configurationGitUrl para validar o repositório antes de ativar.'
     'runner.operator_94158729db31acff' = 'não foi possível enumerar ambas as árvores'
     'runner.operator_941d097378241f81' = @(
         'Não foi possível gravar '
@@ -14134,13 +14290,13 @@
         }
     )
     'runner.operator_9b3ed84eefe28021' = @(
-        'Prereq da cadeia não encontrado: '
+        'Pré-requisito da cadeia não encontrado: '
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' (referenciado através da linha de base de '
+        ' (referenciado em resource de '
         @{
             'arg' = 'sequenceName'
             'type' = 'detail'
@@ -14933,9 +15089,9 @@
         ' -- deve ser um inteiro positivo.'
     )
     'runner.operator_a57aeed80b0cf28a' = @(
-        '[2/3] armazém já presente em '
+        '[2/3] repositório pool-configuration já presente em '
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -15115,9 +15271,9 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' já existe (desiredState='
+        ''' já existe (configuredState='
         @{
-            'arg' = 'desiredState'
+            'arg' = 'configuredState'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -15635,7 +15791,7 @@
     )
     'runner.operator_af02ae2f4290672d' = 'Os itens dos hosts não foram escritos, então os nomes do networkStorage ainda se resolvem em seus endereços anteriores e os compartilhamentos do laboratório não serão montados. Execute novamente esta sincronização assim que a elevação tiver sucesso, ou adicione os itens manualmente.'
     'runner.operator_af08cdf0a2ea5eb0' = 'registro do pool: este agregador antecede a listagem por serviço; apenas as áreas que ele resolve são relatadas. Reconstrua o serviço de cache-proxy VM para ver registros recusados aqui.'
-    'runner.operator_af0aca34836ac8bb' = 'pool.enabled é true, mas pool.intentGitUrl está vazio -- o runner não pode buscar a intenção. Defina a URL do repositório bare na LAN. Veja docs/pool-storage.md.'
+    'runner.operator_af0aca34836ac8bb' = 'pool.enabled é true, mas pool.configurationGitUrl está vazio -- o executor não pode buscar a configuração. Defina a URL do repositório bare na LAN. Veja docs/pool-storage.md.'
     'runner.operator_af33f0960f92ab46' = @(
         'A sequência '
         @{
@@ -15770,7 +15926,7 @@
     )
     'runner.operator_b102c44bb6764306' = 'o host começou desde a última tentativa'
     'runner.operator_b1165d978837552e' = 'Quadro / atraso do projecto'
-    'runner.operator_b11e32378aff0234' = 'Intenção de conjunto: todos os arquivos esquemático-válido.'
+    'runner.operator_b11e32378aff0234' = 'Configuração do grupo: todos os arquivos são válidos conforme o esquema.'
     'runner.operator_b12fd41a06f7b780' = @(
         'Gravar a alteração do endereço para '
         @{
@@ -16152,7 +16308,7 @@
         ' Start-GuestOS: PASS'
     )
     'runner.operator_b5e4a53c200e2211' = @(
-        'pool.intentGitUrl apontou para um endereço de cache-proxy anterior ('
+        'pool.configurationGitUrl apontou para um endereço de cache-proxy anterior ('
         @{
             'arg' = 'existingUrl'
             'type' = 'detail'
@@ -16160,7 +16316,7 @@
         }
         '); apontando-o novamente para '
         @{
-            'arg' = 'intentUrl'
+            'arg' = 'configurationUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -16243,7 +16399,7 @@
         }
         '''; remova-a da Configuração do Sistema > Usuários & Grupos.'
     )
-    'runner.operator_b752ee38cb8d2c81' = 'associação: nenhum pool.intentGitUrl (e nenhum -IntentGitUrl) -- removeu apenas os registros do NAS; os membros do pool não foram tocados.'
+    'runner.operator_b752ee38cb8d2c81' = 'associação: nenhum pool.configurationGitUrl (e nenhum -ConfigurationGitUrl) -- removeu apenas os registros do NAS; os membros do pool não foram tocados.'
     'runner.operator_b767a43bc1c25bbd' = @(
         '[ciclo externo '
         @{
@@ -16324,13 +16480,13 @@
     )
     'runner.operator_b8044f428430e5d8' = 'Remover mapeamento SMB antigo'
     'runner.operator_b85e68a82dd79259' = @(
-        'Intenção de conjunto: '
+        'Configuração do grupo: '
         @{
             'arg' = 'failures'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' arquivo(s) validação FALADA.'
+        ' arquivo(s) FALHARAM na validação.'
     )
     'runner.operator_b85fb226033e3953' = 'o daemon respondeu desta máquina'
     'runner.operator_b86ea943b0beb5ed' = 'A amostragem do PDH do Windows não é aplicável neste host.'
@@ -16362,9 +16518,9 @@
         ''''
     )
     'runner.operator_b8e126357db609a2' = @(
-        'Sementes de uma nova loja de pool-intent no '
+        'Novo repositório pool-configuration inicializado em '
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -17802,13 +17958,13 @@
     )
     'runner.operator_ccd260442c911f6b' = 'Definir a escala de exibição para 100% (ao vivo)'
     'runner.operator_ccfb3b8777922241' = @(
-        'pool ['
+        'Grupo ['
         @{
             'arg' = 'plState'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ']: intention store '''
+        ']: repositório de configuração '''
         @{
             'arg' = 'plUrl'
             'type' = 'detail'
@@ -17817,7 +17973,7 @@
         '''.'
     )
     'runner.operator_cd0c45e03e65ccc2' = 'Uma identidade da máquina anterior corresponde a este hardware:'
-    'runner.operator_cd4a2a8be6258515' = 'pool (sincronização de intenção)'
+    'runner.operator_cd4a2a8be6258515' = 'grupo (sincronização da configuração)'
     'runner.operator_cd4f83e57e569958' = @(
         'Register-SequenceAction '''
         @{
@@ -19598,13 +19754,13 @@
         ''' para o console e observando para que seja consumido.'
     )
     'runner.operator_e178d69f96491585' = @(
-        'Ingressou no pool de laboratório: pool.enabled = true, pool.intentGitUrl = '
+        'Ingresso no grupo do laboratório concluído: pool.enabled = true, pool.configurationGitUrl = '
         @{
-            'arg' = 'intentUrl'
+            'arg' = 'configurationUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Este host agora puxa a intenção de pool somente para leitura em cada ciclo.'
+        '. Este hospedeiro agora busca a configuração do grupo somente para leitura a cada ciclo.'
     )
     'runner.operator_e1a14bbdcff651de' = @(
         '[ciclo externo '
@@ -19810,13 +19966,13 @@
         '). O painel se atualizará após o TTL do host no agregador (-host-ttl, padrão de 24 h).'
     )
     'runner.operator_e2e4c1d2a97c7116' = @(
-        'inner '''
+        'A entrada interna '''
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não é uma sequência de convidados (baseline + passos) nem uma ação host (host:).'
+        ''' não é uma sequência de convidado (pré-requisitos em resource e etapas) nem uma ação de host (host:).'
     )
     'runner.operator_e2e9e0a96208388d' = 'Protetor de tela ociosoTime is unset (currentHost) -- o padrão do macOS se aplica (~20 min).'
     'runner.operator_e2f867223580bc4d' = 'Pilha de filtro de armazenamento (produção de clientes)'
@@ -20349,7 +20505,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] pool desejedState=drain -- parando (sem ciclos adicionais).'
+        '] grupo configuredState=drain -- encerrando (sem novos ciclos).'
     )
     'runner.operator_eb8238e1e37a921c' = @(
         '[ciclo externo '
@@ -20796,7 +20952,7 @@
         ''' em /etc/hosts.'
     )
     'runner.operator_efd4f169b13d993c' = @(
-        'Commit + push pool intention: '
+        'Fazer commit e push da configuração do grupo: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -21704,7 +21860,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' não está no mapa de adjacência canônica; gravando de qualquer forma, então a deriva é visível.'
+        ''' não está no mapa canônico de adjacência; o registro será mantido para que a transição inesperada fique visível.'
     )
     'runner.operator_fad7deaf725b8e6e' = 'Parar corredor velho + VMs órfãos claras'
     'runner.operator_fad91a94e9edb38a' = @(
@@ -21954,7 +22110,7 @@
         ' aqui; a máquina de referência não forneceu um endereço, então o mapeamento local é mantido.'
     )
     'runner.operator_fe92e0ad4340efe9' = @(
-        'Pool '
+        'Grupo '
         @{
             'arg' = 'poolId'
             'type' = 'detail'
@@ -21972,7 +22128,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ') DesejedState='
+        ')  configuredState='
         @{
             'arg' = 'run'
             'type' = 'detail'
@@ -22117,6 +22273,7 @@
         }
         ' -- deve ser 0 (desativado) ou um inteiro positivo.'
     )
+    'runner.outer_attempt_failed' = 'a tentativa do executor falhou'
     'runner.outer_log_runtime_dir_unset' = @(
         'Write-OuterLog: YURUNA_RUNTIME_DIR não está definido, portanto o outer.log não pode ser localizado; esta linha e as seguintes não serão gravadas nele: '
         @{
@@ -22125,9 +22282,9 @@
             'trust' = 'external'
         }
     )
-    'runner.pool_intent_library_removed' = 'test-sets.yml removido do repositório de intenções; nada o lê.'
-    'runner.pool_intent_schema_already_current' = @(
-        'A intenção do grupo já está em schemaVersion '
+    'runner.pool_configuration_library_removed' = 'test-sets.yml removido do repositório de configuração; nada o lê.'
+    'runner.pool_configuration_schema_already_current' = @(
+        'A configuração do grupo já está em schemaVersion '
         @{
             'arg' = 'version'
             'type' = 'integer'
@@ -22135,8 +22292,8 @@
         }
         '; nada a migrar.'
     )
-    'runner.pool_intent_schema_migrated' = @(
-        'Intenção do grupo migrada de schemaVersion '
+    'runner.pool_configuration_schema_migrated' = @(
+        'Configuração do grupo migrada de schemaVersion '
         @{
             'arg' = 'from'
             'type' = 'integer'
@@ -22150,7 +22307,7 @@
         }
         ', com commit e push realizados.'
     )
-    'runner.pool_intent_schema_outdated' = @(
+    'runner.pool_configuration_schema_outdated' = @(
         'FAIL  schema-version: pools.yml está em schemaVersion '
         @{
             'arg' = 'found'
@@ -22163,9 +22320,9 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '. Execute test/pool/Update-PoolIntentSchema.ps1 uma vez para migrar o repositório de intenções.'
+        '. Execute test/pool/Update-PoolConfigurationSchema.ps1 uma vez para migrar o repositório de configuração.'
     )
-    'runner.pool_intent_schema_unsupported' = @(
+    'runner.pool_configuration_schema_unsupported' = @(
         'pools.yml está em schemaVersion '
         @{
             'arg' = 'version'
@@ -22178,7 +22335,7 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '). Atualize este checkout antes de alterar a intenção do grupo.'
+        '). Atualize este checkout antes de alterar a configuração do grupo.'
     )
     'runner.pool_repositories_cleared' = @(
         'Repositórios removidos do grupo '''

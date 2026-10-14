@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4210ad59-ce3d-4890-bc1a-eb6a22a42087
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,6 +61,7 @@ if (-not $IsLinux) {
     exit 1
 }
 
+# --- REGION: Environment checks
 $arch = (& uname -m).Trim()
 if ($arch -ne 'x86_64') {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_bf7819296c37a7e0' -Arguments @{ arch = "$arch" })
@@ -88,6 +89,8 @@ Write-BaseImageProvenance -BaseImagePath $winIso
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 $virshUri = 'qemu:///system'
 Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
@@ -162,7 +165,7 @@ if (-not (Test-Path -LiteralPath $nvram)) {
     Copy-Item -Path $ovmfVars -Destination $nvram
 }
 
-# --- REGION: Create and configure the libvirt domain (virt-install)
+# --- REGION: Create and configure the libvirt domain
 # See https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
@@ -207,6 +210,11 @@ if ($LASTEXITCODE -ne 0) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_385530ac2faec54f' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
     exit 1
 }
+
+# --- REGION: Clean up temporary files
+# autounattend.src holds the rendered bootstrap with the repository token; the
+# guest reads it from autounattend.iso, so the plaintext source does not survive.
+Remove-Item -LiteralPath $autoSrc -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance
 Write-Verbose "VM '$VMName' created. Setup will run unattended; first boot lands at the desktop user 'ywuser1' (password: password)."

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 420e9e53-94d9-42df-aca1-6b21310676a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,7 @@
 # See https://yuruna.link/4213a0b3-0091
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.RunnerHeartbeat.psm1') -DisableNameChecking
 $script:LabHealthRecordFileName = 'lab-health.json'
 $script:LabHoldFlagFileName     = 'control.lab-hold'
 $script:LabHoldSidecarFileName  = 'lab-hold.json'
@@ -474,6 +475,8 @@ function Test-LabHealth {
                             lastAddress = if ($entry) { [string]$entry['lastAddress'] } else { '' }
                             lastOkUtc   = if ($entry) { [string]$entry['lastOkUtc'] } else { '' }
                             detail      = [string]$cached.Detail
+                            triedAddresses = @($cached.TriedAddresses)
+                            discovery   = $cached.Discovery
                         })
                     }
                     continue
@@ -485,6 +488,7 @@ function Test-LabHealth {
         $ok      = $false
         $winner  = ''
         $tried   = [System.Collections.Generic.List[string]]::new()
+        $discovery = $null
 
         $lastAddress = if ($entry) { [string]$entry['lastAddress'] } else { '' }
         if ($armed -and -not [string]::IsNullOrWhiteSpace($lastAddress)) {
@@ -494,7 +498,12 @@ function Test-LabHealth {
             }
         }
         if (-not $ok) {
-            foreach ($address in (Resolve-LabHealthAddress -Area $area)) {
+            $candidates = @(Resolve-LabHealthAddress -Area $area)
+            if (Get-Command Get-ExtensionHostLastOutcome -ErrorAction SilentlyContinue) {
+                $lookupOutcome = Get-ExtensionHostLastOutcome
+                if ($lookupOutcome.Area -eq $area) { $discovery = $lookupOutcome }
+            }
+            foreach ($address in $candidates) {
                 if ($tried -contains $address) { continue }
                 [void]$tried.Add($address)
                 if (Invoke-LabHealthProbe -Area $area -Address $address -Manifest $manifest) {
@@ -511,7 +520,8 @@ function Test-LabHealth {
         } else {
             "no answer from $($tried -join ', ')"
         }
-        $script:VerdictCache[$area] = @{ Verdict = $verdict; Address = $winner; Detail = $detail; CheckedUtc = $NowUtc }
+        $script:VerdictCache[$area] = @{ Verdict = $verdict; Address = $winner; Detail = $detail; CheckedUtc = $NowUtc
+            TriedAddresses = $tried.ToArray(); Discovery = $discovery }
 
         if ($ok) {
             $record[$area] = @{
@@ -527,6 +537,8 @@ function Test-LabHealth {
                 lastAddress = $lastAddress
                 lastOkUtc   = if ($entry) { [string]$entry['lastOkUtc'] } else { '' }
                 detail      = $detail
+                triedAddresses = $tried.ToArray()
+                discovery   = $discovery
             })
         }
     }
@@ -787,6 +799,7 @@ function Wait-LabHealthy {
     if (-not $knobs.Enabled) { return $idle }
 
     $verdict = Test-LabHealth -Config $Config
+    Write-RunnerStepHeartbeat
     if ($verdict.Verdict -ne 'down') { return $idle }
 
     # Confirmation probe before parking the cycle. This gate runs on a thin
@@ -795,6 +808,7 @@ function Wait-LabHealthy {
     # worse failure than the one being prevented.
     Clear-LabHealthVerdictCache -Confirm:$false
     $verdict = Test-LabHealth -Config $Config -Force
+    Write-RunnerStepHeartbeat
     if ($verdict.Verdict -ne 'down') { return $idle }
 
     $down    = [hashtable[]]$verdict.Down
@@ -821,8 +835,10 @@ function Wait-LabHealthy {
 
         Clear-LabHealthVerdictCache -Confirm:$false
         $verdict = Test-LabHealth -Config $Config -Force
+        Write-RunnerStepHeartbeat
         if ($verdict.Verdict -ne 'down') { $outcome = 'recovered'; break }
         $down = [hashtable[]]$verdict.Down
+        $summary = Format-LabHoldSummary -Down $down
         $null = Set-LabHold -Down $down -SinceUtc $since -Attempt $attempt -Confirm:$false
     }
 
@@ -954,7 +970,8 @@ function Invoke-LabHealthGate {
         if (Get-Command Write-CycleInfraFailure -ErrorAction SilentlyContinue) {
             try {
                 Write-CycleInfraFailure -Stage $Stage -FailureClass 'lab_dependency_down' -Severity 'hard' `
-                    -GuestKey '(orchestration)' -VMName '' -ErrorMessage $message -HostType $HostType
+                    -GuestKey '(orchestration)' -VMName '' -ErrorMessage $message -HostType $HostType `
+                    -DependencyFailures $result.Down
             } catch {
                 Write-Verbose "Invoke-LabHealthGate: no failure record written -- $($_.Exception.Message)"
             }

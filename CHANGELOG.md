@@ -4,17 +4,21 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.14
+
+- **Ontology release.** First public release of the Yuruna ontology.
+- **Incompatible zot releases caught early.** Live sync gates commits and releases.
+  Build and warm-run checks repair compatibility or halt Kubernetes guests with
+  diagnostics and configurable version overrides.  
+  
 ## 2026.10.11.1
 
-- **Same-day hotfix for the caching proxy.** The zot 2.1.22 that 2026.10.11
-  installs refused the Docker-format manifests of Kubernetes images, stalling
-  every Kubernetes guest. A same-day patch release, instead of a wait for the next
-  weekly cycle, ships the fix: the seed enables zot's `docker2s2` mode and
-  diagnostics report refused images. Rebuild caching-proxy-service VMs built from
-  2026.10.11.
-- **Patch-version publishing.** Version updates encode same-day CalVer patches as
-  SemVer build metadata in Helm charts, so Helm can lint and install the project
-  workloads while their application version retains the full release number.
+- **Same-day hotfix for the caching proxy.** Same-day hotfix enables `zot`’s
+  `docker2s2` and reports refused Kubernetes images. Rebuild caching-proxy-service
+  VMs created with 2026.10.11.
+- **Patch-version publishing.** Version updates encode same-day CalVer
+  patches as SemVer build metadata in Helm charts, so Helm can lint and install
+  the project workloads while their application version retains the full release number.
 
 ## 2026.10.11
 
@@ -588,6 +592,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](README.md)

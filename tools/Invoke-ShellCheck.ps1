@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d95a38-0ff3-43d7-99b3-685dafc66496
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,8 +67,10 @@
     work is incremental -- silence a class where it is wrong about this repo,
     then lower the default one step.
 .PARAMETER Path
-    Optional repo-relative subpath to limit the scan (e.g. 'guest').
-    Default: the whole repo.
+    Optional file or directory to limit the scan: repository-relative (e.g.
+    'guest' or 'guest/shared/ubuntu.update.sh'), or an absolute path inside or
+    outside this repository. An explicit scope that selects no shell source
+    fails with exit 2. Default: the whole repo.
 .PARAMETER Severity
     shellcheck's minimum severity -- error, warning, info or style, each
     including everything more severe. Default: error. See APERTURE above.
@@ -109,20 +111,36 @@ if (-not (Get-Command shellcheck -ErrorAction SilentlyContinue)) {
 }
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+Import-Module (Join-Path $PSScriptRoot 'Gate.Scope.psm1') -Force -DisableNameChecking
 
 Push-Location $RepoRoot
 try {
+    # An explicit scope is resolved before anything is listed, so a scope that
+    # names nothing fails here instead of scanning nothing and passing.
+    $explicitScope = $PSBoundParameters.ContainsKey('Path')
+    $target = $null
+    if ($explicitScope) {
+        try { $target = Resolve-GateTarget -Value $Path -RepoRoot $RepoRoot }
+        catch {
+            Write-Error -Message $_.Exception.Message -ErrorAction Continue
+            exit 2
+        }
+    }
     # The extension filter runs HERE, not as a git pathspec. A `*.sh` pathspec
     # is expanded against the current directory before git sees it whenever a
     # file there matches, which silently narrows the set to one directory.
     # Forward slashes: git prints '/'-separated paths on every platform, so
-    # Join-Path (a backslash on Windows) would not match the prefix.
-    $prefix = if ($Path) { ($Path -replace '\\', '/').TrimEnd('/') + '/' } else { '' }
-    $candidates = @(git ls-files --cached --others --exclude-standard |
-        Where-Object { $_ } |
-        Where-Object { -not $prefix -or $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) } |
-        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
-        Sort-Object -Unique)
+    # Join-Path (a backslash on Windows) would not match the scope.
+    if ($target -and $target.Kind -eq 'External') {
+        $candidates = @(Get-GateExternalFile -Path $target.Path | Sort-Object -Unique)
+    } else {
+        $scope = if ($target) { $target.Scope } else { '' }
+        $candidates = @(git ls-files --cached --others --exclude-standard |
+            Where-Object { $_ } |
+            Where-Object { Test-GateScopeMatch -RelativePath $_ -Scope $scope } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Sort-Object -Unique)
+    }
 
     # An extensionless file is shell only if line 1 says so. The word boundary
     # is what keeps a `#!/usr/bin/pwsh` hook from being fed to shellcheck.
@@ -134,7 +152,11 @@ try {
         })
 
     if ($files.Count -eq 0) {
-        Write-Output "No shell files to scan$(if ($Path) { " under '$Path'" })."
+        if ($explicitScope) {
+            Write-Error -Message "No tracked/new, non-ignored shell source matches explicit scope '$Path'." -ErrorAction Continue
+            exit 2
+        }
+        Write-Output 'No shell files to scan.'
         exit 0
     }
 

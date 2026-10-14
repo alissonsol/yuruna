@@ -474,7 +474,7 @@ const DataenUSconfigsync = `{
     },
     ")."
   ],
-  "configsync.operator_9e1f86637c4a7e09": "left it empty (defaults to <runtime>/pool-intent)",
+  "configsync.operator_9e1f86637c4a7e09": "left it empty (defaults to <runtime>/pool-configuration)",
   "configsync.operator_9e44a801c5e38eb2": " (dropped -- the current spelling was already present)",
   "configsync.operator_a01d26f897759fcf": [
     {
@@ -491,7 +491,7 @@ const DataenUSconfigsync = `{
       "type": "detail",
       "trust": "external"
     },
-    " in -NonInteractive mode. Re-run with -AllowStaleReference to accept the drift, or bring the reference host up to date first."
+    " in -NonInteractive mode. Re-run with -AllowStaleReference to accept the outdated configuration, or bring the reference host up to date first."
   ],
   "configsync.operator_a610cd0fd716e5f9": "Sync-HostConfiguration: unsupported platform.",
   "configsync.operator_a693215e036db1c5": [

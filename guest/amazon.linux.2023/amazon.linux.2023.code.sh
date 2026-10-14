@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -101,6 +101,7 @@ sudo cp /tmp/microsoft.asc /etc/pki/rpm-gpg/microsoft.asc
 sudo rpm --import /etc/pki/rpm-gpg/microsoft.asc
 rm -f /tmp/microsoft.asc
 sudo sh -c 'echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/microsoft.asc" > /etc/yum.repos.d/vscode.repo'
+# --- REGION: https://yuruna.link/42e220c4-0005
 dnf_retry sudo dnf -y install code
 
 # --- REGION: Installation summary

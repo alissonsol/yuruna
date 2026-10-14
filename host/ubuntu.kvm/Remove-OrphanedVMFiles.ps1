@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 429b56f1-0d8f-43a6-a6dc-445eb58c952f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,7 @@ Write-CleanupMessage "========"
 Write-CleanupMessage ""
 
 # --- REGION: Scan for VM artifacts
+# See https://yuruna.link/42f52e37-001a
 $vmRoot = Join-Path $HOME 'yuruna/vms'
 if (-not (Test-Path -LiteralPath $vmRoot)) {
     Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_20ed766361c51090' -Arguments @{ vmRoot = "$vmRoot" })
@@ -94,6 +95,8 @@ if (-not (Test-Path -LiteralPath $vmRoot)) {
 }
 
 # --- REGION: Check prerequisites
+# Runs after the scan, unlike the other hosts: a host with no VM directory has
+# nothing to sweep, so a missing virsh must not turn that into a failure.
 if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6f88583aeb61d648')
     exit 1

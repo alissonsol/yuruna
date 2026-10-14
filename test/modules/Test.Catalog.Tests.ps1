@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42ff5f78-3c96-4742-aa2e-f64ce54e850a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -248,20 +248,7 @@ Describe 'the renderer refuses to guess' {
 Describe 'the renderer does not take away what it depends on' {
 
     It 'leaves the locale commands resolvable in a runspace that loaded them first' {
-        # Importing the renderer has to be additive: it may ADD its own
-        # commands, never REMOVE the commands of the locale module it loads for
-        # the plural rule and the separators. A nested -Force import that is
-        # not -Global breaks precisely that half -- it re-homes the locale
-        # module into the renderer's private scope, so the renderer's own
-        # functions go on working while the importer silently loses
-        # Get-LocaleManifest and New-LocaleContext. Both imports return
-        # normally and write to no stream, so only a resolution probe sees it.
-        #
-        # A fresh child runspace, not this one. The loss needs the locale
-        # module loaded BEFORE the renderer -- the order a long-lived consumer
-        # imports in, and the reverse of the order this suite's BeforeAll
-        # leaves behind. Probing in place would assert against an order that
-        # cannot produce the failure.
+        # See https://yuruna.link/42e220c4-0014
         $exe = (Get-Process -Id $PID).Path
         if (-not $exe) { $exe = 'pwsh' }
         if (-not (Get-Command -Name $exe -ErrorAction SilentlyContinue)) {

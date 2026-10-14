@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,7 @@
 # fallback mechanically discoverable instead of leaving an immortal "legacy"
 # branch with no owner or deadline.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -DisableNameChecking
 $script:LegacyFailureBlockRemovalRelease = '2026.11'
 $script:LegacyFailureBlockRemovalDate = '2026-11-30'
 
@@ -88,15 +89,16 @@ function Invoke-ConfigGate {
     # Created before the first return so every exit path carries the same shape.
     # A key that exists on some returns and not others is a null dereference
     # waiting for the day someone puts Set-StrictMode on a caller.
+    $startedAtUtc = [DateTime]::UtcNow.ToString('o')
     $capturedLines = [System.Collections.Generic.List[string]]::new()
     $gateScript = Join-Path $TestRoot 'Test-Config.ps1'
     if (-not (Test-Path -LiteralPath $gateScript)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bfd82336e946d877' -Arguments @{ callerName = "$CallerName"; gateScript = "$gateScript" })
-        return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray(); failureLines = @() }
+        return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray(); failureLines = @(); structuredResult = $null; startedAtUtc = $startedAtUtc }
     }
     if ($Skip) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6c78ee15c3d85e9a' -Arguments @{ callerName = "$CallerName"; skipReason = "$SkipReason" }) -InformationAction Continue
-        return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray(); failureLines = @() }
+        return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray(); failureLines = @(); structuredResult = $null; startedAtUtc = $startedAtUtc }
     }
     # See https://yuruna.link/4213a0b3-0036
     if (-not (Get-Module -Name 'Test.InnerSpawn')) {
@@ -214,14 +216,86 @@ function Invoke-ConfigGate {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4ebb5d5bd4b1c67b')
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e34abeb2a0f88379')
         Write-Warning "========"
-        return @{ passed = $false; exitCode = $gateExit; skipped = $false; lines = $capturedLines.ToArray(); failureLines = $failureLines.ToArray() }
+        return @{ passed = $false; exitCode = $gateExit; skipped = $false; lines = $capturedLines.ToArray(); failureLines = $failureLines.ToArray(); structuredResult = $sidecar; startedAtUtc = $startedAtUtc }
     }
     # Silent on success -- the cycle/sequence flow that follows is the
     # operator's signal that the gate cleared. A "gate PASSED" line here
     # would just be noise stacked above the rest of the entry-point banner.
     # The transcript still goes back to the caller, which can file it somewhere
     # a reader will find it later without spending a line of console now.
-    return @{ passed = $true; exitCode = 0; skipped = $false; lines = $capturedLines.ToArray(); failureLines = @() }
+    return @{ passed = $true; exitCode = 0; skipped = $false; lines = $capturedLines.ToArray(); failureLines = @(); structuredResult = $sidecar; startedAtUtc = $startedAtUtc }
 }
 
-Export-ModuleMember -Function Invoke-ConfigGate
+# --- REGION: Configuration gate artifacts
+function Write-ConfigGateArtifact {
+    <#
+    .SYNOPSIS
+        Persist the gate transcript and structured verdict for one runner attempt.
+    .DESCRIPTION
+        Attempt folders outlive retries; the latest pointer is published only after
+        both artifacts are written. Retention bounds repeated invalid-config retries.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][hashtable]$Gate,
+        [string]$AttemptGeneration = '',
+        [string]$FrameworkCommitSha = '',
+        [ValidateRange(1, 1000)][int]$MaxAttempts = 20
+    )
+    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, 'Persist configuration gate evidence')) { return @{} }
+    if (-not $AttemptGeneration) { $AttemptGeneration = [Guid]::NewGuid().ToString('n') }
+    $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($AttemptGeneration))).ToLowerInvariant()
+    $relativeDir = 'runner-attempts/' + $digest.Substring(0, 24)
+    $attemptDir = Join-Path $RuntimeDir $relativeDir
+    $null = [IO.Directory]::CreateDirectory($attemptDir)
+    $transcriptPath = $relativeDir + '/config-gate.log'
+    $recordPath = $relativeDir + '/config-gate.json'
+    $record = [ordered]@{
+        schemaVersion = 1
+        attemptGeneration = $AttemptGeneration
+        startedAtUtc = [string]$Gate.startedAtUtc
+        finishedAtUtc = [DateTime]::UtcNow.ToString('o')
+        frameworkCommitSha = $FrameworkCommitSha
+        elapsedSeconds = [math]::Max(0, [math]::Round(([DateTime]::UtcNow - [datetime]::Parse([string]$Gate.startedAtUtc, [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()).TotalSeconds, 3))
+        passed = [bool]$Gate.passed
+        skipped = [bool]$Gate.skipped
+        exitCode = [int]$Gate.exitCode
+        failureClass = if ($Gate.passed) { '' } else { 'config_gate_failed' }
+        failureLines = @($Gate.failureLines)
+        structuredResult = $Gate.structuredResult
+        recordPath = $recordPath
+        transcriptPath = $transcriptPath
+    }
+    [IO.File]::WriteAllLines((Join-Path $RuntimeDir $transcriptPath), [string[]]@($Gate.lines), [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $RuntimeDir $recordPath), ($record | ConvertTo-Json -Depth 32), [Text.UTF8Encoding]::new($false))
+    if (-not (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -DisableNameChecking
+    }
+    $pointerSaved = Write-YurunaStateFileJson -Path (Join-Path $RuntimeDir 'runner.configGate.json') -InputObject $record -Depth 32 -Confirm:$false
+    if (-not $pointerSaved) { throw 'Configuration gate latest verdict could not be saved.' }
+    if ($Gate.passed) {
+        $statusPath = Join-Path $RuntimeDir 'status.json'
+        if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            try {
+                $status = Get-Content -Raw -LiteralPath $statusPath -ErrorAction Stop | ConvertFrom-Json -AsHashtable
+                if ($status -is [System.Collections.IDictionary] -and $status['runnerFault']) {
+                    $status['runnerFault'] = $null
+                    $status['runnerState'] = 'in-cycle'
+                    $status['runnerStateReason'] = ''
+                    $status['runnerStateSinceUtc'] = [DateTime]::UtcNow.ToString('o')
+                    $status['runnerStalledPhase'] = ''
+                    $null = Write-YurunaStateFileJson -Path $statusPath -InputObject $status -Depth 32 -Confirm:$false
+                }
+            } catch { Write-Verbose "Configuration gate: could not clear prior runner fault: $($_.Exception.Message)" }
+        }
+    }
+    $retired = @(Get-ChildItem -LiteralPath (Join-Path $RuntimeDir 'runner-attempts') -Directory |
+        Where-Object { $_.Name -match '^[0-9a-f]{24}$' -and $_.FullName -ne $attemptDir } |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -Skip ($MaxAttempts - 1))
+    foreach ($folder in $retired) { Remove-Item -LiteralPath $folder.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    return @{ recordPath = $recordPath; transcriptPath = $transcriptPath; attemptGeneration = $AttemptGeneration }
+}
+
+Export-ModuleMember -Function Invoke-ConfigGate, Write-ConfigGateArtifact

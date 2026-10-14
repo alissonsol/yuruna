@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,6 +79,8 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
 $arch = (& uname -m).Trim()
 
 # --- REGION: Seek the base image
+# See https://yuruna.link/42e220c4-0003
+# Fetch missing media once; fail if manual-download requirements remain unmet.
 $downloadDir   = "$HOME/yuruna/image/amazon.linux.2023"
 $baseImageName = "host.ubuntu.kvm.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
@@ -92,6 +94,8 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 $virshUri = 'qemu:///system'
 Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
@@ -102,6 +106,13 @@ $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $seedImg = Join-Path $vmDir 'seed.iso'
 New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
+# --- REGION: Stage the cloud-init seed directory
+# Staged beside the disk, not under a temp root: the per-VM directory is
+# private to this build and the plaintext source is removed once seed.iso exists.
+$seedDir = Join-Path $vmDir 'seed.src'
+if (Test-Path -LiteralPath $seedDir) { Remove-Item -LiteralPath $seedDir -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
+
 # --- REGION: Yuruna harness SSH key
 # Single harness key shared with Test.Diagnostic; see the
 # guest.ubuntu.server.24/New-VM.ps1 sibling for the why.
@@ -110,17 +121,6 @@ $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
 Import-Module $TestSshModule -Force -DisableNameChecking
 $sshPub = Get-YurunaSshPublicKey
 if (-not $sshPub) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
-
-# --- REGION: Yuruna host coordinates
-# See https://yuruna.link/42e220c4-0004
-# Resolve the guest network and its reachable host address as one pair.
-Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
-$guestBinding = Resolve-GuestHostBinding
-$networkName  = $guestBinding.NetworkName
-$hostIp       = $guestBinding.HostIp
-Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
-$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
-$hostPort = $_statusSeed.Port
 
 # user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
 # byte-identical across the three host platforms). Anchor contract:
@@ -136,7 +136,9 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     }
 }
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-# Per-cycle authentication vault password for $Username.
+# --- REGION: Vault user password
+# See https://yuruna.link/42e220c4-0004
+# Read the persistent authentication vault; a new cycle must not reset credentials.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
@@ -144,6 +146,17 @@ $plaintextPassword = Get-LocalOsPassword -Username $Username
 if (-not $plaintextPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a8c8c2c47e517a44' -Arguments @{ username = "$Username" }); exit 1 }
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
+
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/42e220c4-0004
+# Resolve the guest network and its reachable host address as one pair.
+Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
+$guestBinding = Resolve-GuestHostBinding
+$networkName  = $guestBinding.NetworkName
+$hostIp       = $guestBinding.HostIp
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
+$hostPort = $_statusSeed.Port
 
 # --- REGION: Render user-data / meta-data
 # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
@@ -163,14 +176,12 @@ $userData = New-CloudInitUserData `
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
     Replace('INSTANCE_ID_PLACEHOLDER', $VMName).Replace('HOSTNAME_PLACEHOLDER', $GuestHostname)
 
-# --- REGION: Generate cloud-init seed ISO
-$seedDir = Join-Path $vmDir 'seed.src'
-New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b
 # Amazon Linux preserves cloud-init fallback networking; pin DHCP identity in user-data.
 
+# --- REGION: Generate cloud-init seed ISO
 & genisoimage -output $seedImg -volid cidata -joliet -rock `
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
@@ -194,15 +205,13 @@ if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.
 # --- REGION: https://yuruna.link/42d69dfa-0008
 $osVariant = Resolve-KvmOsVariant -Candidates @('amazonlinux2023')
 
-# --- REGION: https://yuruna.link/42e220c4-0004
-# Keep guest reboots inside QEMU so the domain and console connection survive.
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
-# --- REGION: https://yuruna.link/42fa6f45-0015
+# See https://yuruna.link/42fa6f45-0015
 # Reserve at least one host thread while applying the shared guest core policy.
 $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 
@@ -211,7 +220,7 @@ $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores /
 $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
 Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
-# --- REGION: Create and configure the libvirt domain (virt-install)
+# --- REGION: Create and configure the libvirt domain
 $installArgs = @(
     '--connect', $virshUri,
     '--name',    $VMName,
@@ -223,6 +232,8 @@ $installArgs = @(
     '--disk',    "path=$seedImg,device=cdrom",
     '--network', "network=$networkName,model=virtio,mac=$YurunaGuestMac",
     '--graphics','vnc,listen=127.0.0.1',
+    # See https://yuruna.link/42e220c4-0004
+    # Keep guest reboots inside QEMU so the domain and console connection survive.
     '--events',  'on_reboot=restart',
     '--noautoconsole',
     '--import',
@@ -237,12 +248,7 @@ if ($arch -eq 'aarch64') {
 }
 
 Write-Verbose "virt-install $($installArgs -join ' ')"
-# Capture instead of streaming: Yuruna.Host\New-VM re-emits every child
-# stdout/stderr line via Write-Information, so virt-install's
-# "Starting install... / Creating domain... / Domain creation completed."
-# would clutter the cycle log at Info level. The verbose stream is not
-# captured by the parent's `2>&1`, so Write-Verbose hides these unless
-# the operator re-runs the script directly with -Verbose.
+# See https://yuruna.link/42e220c4-0004
 $virtInstallOutput = & virt-install @installArgs 2>&1
 $virtInstallExit = $LASTEXITCODE
 $virtInstallOutput | ForEach-Object { Write-Verbose "$_" }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,45 +23,12 @@
     Ubuntu live-server ISOs.
 
 .DESCRIPTION
-    The Ubuntu ISO pipeline runs through a warn-only checksum policy.
-    The other guest-image sources (Windows ISO, Amazon Linux 2023
-    qcow2, caching-proxy-service base, macOS images) reach disk through
-    `Save-CachedHttpUri` + `Invoke-WebRequest` with no shared integrity
-    layer, so a supply-chain incident on those mirrors would land
-    silently.
-
-    Save-ImageWithChecksum is the single chokepoint:
-
-      1. Download to a destination path, through the host's
-         `Save-CachedHttpUri` when available (squid bump + per-process
-         custom CA trust), else a direct Invoke-WebRequest.
-      2. Compute SHA-256 over the downloaded file.
-      3. Compare against an expected hash, supplied by -ExpectedSha256
-         or parsed from a published checksum file at -ChecksumUrl with
-         -ChecksumPattern (defaults to the conventional
-         `<sha256>  <filename>` shape the cloud-images mirrors use).
-      4. POLICY (matches the Ubuntu-ISO policy). Four outcomes, four
-         decisions, every default permissive so a caller that does not
-         opt in keeps the behavior it was written against:
-           - hash match          -> silent pass, return $true
-           - hash mismatch       -> -OnMismatch
-           - publisher lists no
-             entry, or no
-             checksum source     -> -OnMissingChecksum
-           - checksum file
-             unreachable         -> -OnUnreachableChecksum
-
-    Keeping those three failure modes apart is the point: "the mirror
-    publishes no hash for this file" and "we never reached the mirror"
-    are different facts, and one of them is not the publisher's doing.
-
-    -OnMismatch and its siblings flip that strictness; see their
-    parameter help.
-
-    Designed to be the migration target for the AL2023 / Windows /
-    caching-proxy-service / macOS Get-Image.ps1 scripts. The Ubuntu path
-    keeps using Yuruna.UbuntuImage (which has the codename resolver
-    on top); this gateway covers everything else.
+    Single integrity chokepoint for the guest-image sources outside the
+    Ubuntu ISO pipeline (Windows, Amazon Linux 2023, caching-proxy-service,
+    macOS). Without it those mirrors reach disk unchecked. Keep "the
+    publisher lists no hash" apart from "the mirror was unreachable": they
+    are different facts. The outcome policy is documented at
+    https://yuruna.link/42fa6f45-0035.
 #>
 
 # Conventional checksum-file pattern. The cloud-images / releases.ubuntu.com /
@@ -870,7 +837,7 @@ function Save-UbuntuExtensionImage {
           * a download agent, when one is reachable, answers "you already
             hold the current artifact" or serves verified bytes with the
             origin never contacted
-            (docs/guest-image-setup.md#agent-first-image-downloads)
+            (https://yuruna.link/42ec97cd-0004)
           * skip-if-same-source guard on the 4-line sentinel, so the second
             and third service asking for the image cost one HEAD request
           * SHA-256 + pinned-key GPG verification of the publisher checksum
@@ -1163,6 +1130,7 @@ function Assert-YurunaBaseImage {
     return $false
 }
 
+# --- REGION: Invoke-DownloadAgentFirst
 function Invoke-DownloadAgentFirst {
     <#
     .SYNOPSIS
@@ -1197,6 +1165,13 @@ function Invoke-DownloadAgentFirst {
         if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
         Remove-Item -LiteralPath $StagingPath -Force -ErrorAction SilentlyContinue
         $reply.Result = Request-DownloadAgentImage @request
+        if ($reply.Result -and $reply.Result.outcome -eq 'downloaded' -and
+            [string]::IsNullOrWhiteSpace([string]$reply.Result.sourceUrl)) {
+            # Preserve the artifact filename in the local fingerprint even when
+            # the agent has no origin URL; no origin probe is needed for its bytes.
+            $filename = [Uri]::EscapeDataString([string]$reply.Result.filename)
+            $reply.Result.sourceUrl = "agent:$($reply.BaseUrl.TrimEnd('/'))/$filename"
+        }
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57234ab9582f912d' -Arguments @{ agentBaseUrl = "$($reply.BaseUrl)"; message = "$($_.Exception.Message)" })
     }

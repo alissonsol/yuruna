@@ -24,9 +24,11 @@ flowchart LR
     end
     install -->|prepares| test
     install -->|configures| host
+    install -->|checks requirements| automation
     test -->|drives| host
-    host -->|guest scripts invoke| automation
+    host -->|imports harness modules| test
     yuruna-project -->|configuration and sources| automation
+    yuruna-project -->|guest scripts invoke| automation
     yuruna-project -->|test definitions| test
     install -->|imports| yuruna-common-psm1
     automation -->|imports| yuruna-common-psm1
@@ -34,6 +36,7 @@ flowchart LR
     host -->|imports| yuruna-common-psm1
     automation -->|deploys and publishes| global-resources
     test -->|fetches and notifies| global-resources
+    host -->|downloads images| global-resources
 ```
 
 Each empty subgraph is a placeholder expanded by the identically titled section
@@ -42,12 +45,12 @@ current sources:
 
 | Boundary | Source and scope |
 | --- | --- |
-| Provisioning | OS bootstrappers in [install/](../../install/), [setup.ps1](../../install/setup.ps1), [Yuruna.HostSetup](../../automation/Yuruna.HostSetup.psm1), host commands in [test/lab/](../../test/lab/), and service launchers in [test/service/](../../test/service/). |
+| Provisioning | OS bootstrappers in [install/](../../install/), [setup.ps1](../../install/setup.ps1), [Yuruna.HostSetup](../../automation/Yuruna.HostSetup.psm1), host commands in [test/lab/](../../test/lab/), pool administration in [test/pool/](../../test/pool/), and service VM launchers in [test/service/](../../test/service/). |
 | Deploy engine | [Set-Resource](../../automation/Set-Resource.ps1), [Set-Component](../../automation/Set-Component.ps1), [Set-Workload](../../automation/Set-Workload.ps1), their phase modules, validators, and [Invoke-Clear](../../automation/Invoke-Clear.ps1). |
-| Test harness | [Start-TestRunner](../../test/Start-TestRunner.ps1), supervision and sequence modules in [test/modules/](../../test/modules/), [diagnostic preservation](../../test/modules/Test.DiagnosticPreservation.psm1), [test/sequences/](../../test/sequences/), [test/status/](../../test/status/), [test/pool/](../../test/pool/), and [test/extension/](../../test/extension/). |
+| Test harness | [Start-TestRunner](../../test/Start-TestRunner.ps1), supervision and sequence modules in [test/modules/](../../test/modules/), [diagnostic preservation](../../test/modules/Test.DiagnosticPreservation.psm1), [test/sequences/](../../test/sequences/), [test/status/](../../test/status/), pool runtime modules, and [test/extension/](../../test/extension/). |
 | Providers | The shared [host contract](../../host/Yuruna.Host.Contract.psm1), platform drivers in [host/](../../host/), shared [host/modules/](../../host/modules/), and OS scripts in [guest/](../../guest/). |
 | Project data | The companion repository's [layout](https://github.com/alissonsol/yuruna-project/blob/main/README.md), [template](https://github.com/alissonsol/yuruna-project/blob/main/template/README.md), [examples](https://github.com/alissonsol/yuruna-project/blob/main/example/README.md), and [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml). |
-| Shared modules | Cross-cutting [automation/](../../automation/) libraries, reusable [global/](../../global/) assets, [globalization/](../../globalization/), and [tools/](../../tools/). |
+| Shared modules | Cross-cutting [automation/](../../automation/) libraries and guest shell helpers, reusable [global/](../../global/) assets, [globalization/](../../globalization/), and [tools/](../../tools/). |
 | External services | Implemented integration points in [global/resources/](../../global/resources/), [Yuruna.CredentialProvider](../../automation/Yuruna.CredentialProvider.psm1), [Yuruna.GitHubSource](../../automation/Yuruna.GitHubSource.psm1), [Yuruna.HostDownload](../../host/modules/Yuruna.HostDownload.psm1), and [notification/](../../test/extension/notification/). |
 
 The deploy engine and shared modules occupy the same automation directory.
@@ -58,7 +61,12 @@ They select scripts for [Amazon Linux 2023](../../guest/amazon.linux.2023/),
 [Ubuntu Server 24](../../guest/ubuntu.server.24/),
 [Ubuntu Server 26](../../guest/ubuntu.server.26/),
 [Windows 11](../../guest/windows.11/), and [macOS 26](../../guest/macos.26/).
-Host drivers execute on the hypervisor host; guest scripts execute in the VM.
+Host drivers execute on the hypervisor host and import harness modules for
+configuration, logging, SSH, and sequences; guest scripts execute in the VM and
+source the automation shell helpers. Project guest scripts, rather than
+framework guest scripts, invoke the deploy engine inside a test guest. The
+bootstrappers check tool version floors through
+[Test-Requirement](../../automation/Test-Requirement.ps1).
 The runner obtains project data from `repositories.projectUrl`, including
 pool repository assignments, through
 [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1); its runtime
@@ -74,7 +82,9 @@ shown in [Deployment](06-deployment.md).
 
 The resource directories implement localhost, AWS, and Azure; there is no
 GCP resource directory or companion config/gcp deployment. Google Artifact
-Registry authentication exists in the credential-provider module. It does not
+Registry authentication exists in the credential-provider module, and
+[global/config/gcp/](../../global/config/gcp/) holds only a placeholder key file
+for it. It does not
 establish a GCP infrastructure deployment path, so no active GCP edge is drawn.
 
 ---

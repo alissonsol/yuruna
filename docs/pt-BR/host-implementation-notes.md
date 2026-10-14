@@ -32,6 +32,13 @@ escopo aninhado de Yuruna.Host e REMOVE a cópia global que outros módulos cham
 por nomes qualificados (por exemplo, Test.Ssh\Invoke-GuestSsh) --
 feedback_module_force_import_evicts_global.
 
+`Resolve-HostTag` também protege referências a funções mantidas após uma
+reimportação forçada remover o estado do módulo original. Um `$script:HostTag`
+vazio falha na vinculação obrigatória do hospedeiro no despachante; o texto
+parcialmente digitado no console pode então se juntar ao comando seguinte.
+Cada driver restaura sua identificação constante quando esse estado está
+vazio, mantendo válidas a chamada retida e as outras leituras desse escopo.
+
 <a id="42e5cdfd-0003"></a>
 
 ## host/macos.utm/modules/Yuruna.Host.psm1: Start-UtmVM
@@ -128,6 +135,8 @@ bloqueada também produz): somente uma leitura positiva de 'running' ou
 leitura positiva de 'stopped', nunca de 'unknown'. Uma leitura para a qual
 não restou tempo antes do prazo nunca substitui uma resposta já obtida.
 
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0002).
+
 <a id="42e5cdfd-0007"></a>
 
 ## host/macos.utm/modules/Yuruna.Host.psm1: Rename-VM
@@ -145,6 +154,8 @@ Esse reinício é o único momento em que o arquivo volta a ser a autoridade.
 Isso importa porque os pacotes são construídos com um único nome de teste
 por tipo -- toda VM promovida para fora desse espaço de nomes herda o mesmo
 display, e somente a primeira consegue reservar a porta.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0003).
 
 <a id="42e5cdfd-0008"></a>
 
@@ -388,6 +399,8 @@ falham num domínio que não consegue iniciar. Os arquivos mantidos aqui
 continuam pertencendo ao domínio sobrevivente, exatamente o que a varredura
 de arquivos órfãos espera ignorar.
 
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0004).
+
 <a id="42e5cdfd-0013"></a>
 
 ## host/ubuntu.kvm/modules/Yuruna.Host.psm1: Get-KvmNeighborIp
@@ -459,6 +472,8 @@ que tenha terminado de iniciar. Portanto, ele fica ausente durante toda a
 janela de inicialização após cada restauração de snapshot, exatamente
 quando um ciclo faz a maioria de suas consultas de endereço. Os níveis
 de cache permanecem abaixo dele nessa janela, sem alteração.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0005).
 
 <a id="42e5cdfd-0016"></a>
 
@@ -550,6 +565,8 @@ estar sustentando a conectividade do hospedeiro.
    inicialização e fixaria silenciosamente a escolha do backend em
    netplan nos hospedeiros que deveriam usar nmcli.
 
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0006).
+
 <a id="42e5cdfd-0019"></a>
 
 ## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaExternalNetwork
@@ -566,6 +583,8 @@ A interface da rota padrão também pode JÁ SER uma bridge (uma bridge
 criada pelo netplan mantém a rota após um reinício) -- reutilize-a
 diretamente; tratá-la como uma NIC a subordinar tentaria colocar a
 bridge dentro dela mesma.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0007).
 
 <a id="42e5cdfd-001a"></a>
 
@@ -587,6 +606,8 @@ nativo nesse caso. Quando NM gerencia a NIC (hospedeiros de desktop ou
 com renderização por NM), nmcli é correto; recorra a netplan se ainda
 assim falhar, para que uma particularidade de plugin/versão não custe
 a exposição na LAN + o dashboard do grupo.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0008).
 
 <a id="42e5cdfd-001b"></a>
 
@@ -628,6 +649,8 @@ tem sucesso. Este é o momento em que as sessões SSH por $Nic oscilam;
 com o MAC clonado acima, a nova concessão DHCP deve manter o mesmo IP,
 e o SSH se reconecta em poucos segundos.
 
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0009).
+
 <a id="42e5cdfd-001c"></a>
 
 ## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaBridgeViaNetplan
@@ -660,6 +683,8 @@ networkd (o público principal deste backend), aplicar é a única operação
 que devolve a NIC à configuração netplan original remanescente e restaura
 seu DHCP; sem isso, uma construção com falha deixa o hospedeiro sem
 endereço até uma aplicação manual ou um reinício.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-000a).
 
 <a id="42e5cdfd-001d"></a>
 
@@ -714,6 +739,8 @@ duas superfícies porque nenhuma delas é completa sozinha: o aviso chega
 ao console e à transcrição do processo, mas não ao fluxo de eventos
 do próprio ciclo; o evento de degradação aparece junto do artefato
 ausente, mas é descartado silenciosamente quando não há pasta de ciclo aberta.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-000b).
 
 <a id="42e5cdfd-0020"></a>
 
@@ -904,6 +931,8 @@ candidatos para classificá-los em relação aos resultados ARP abaixo, e o auxi
 deliberadamente responde com um único endereço. A regra de rejeição aplicada é a
 mesma; altere ambas em conjunto.
 
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-000c).
+
 <a id="42e5cdfd-0029"></a>
 
 ## host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-OrCreateYurunaExternalSwitch
@@ -958,6 +987,8 @@ Usa-se Verbose, não Warning: a alternativa PrintWindow/vmconnect
 abaixo recupera um framebuffer utilizável, portanto um hospedeiro sem interface gráfica
 continua passando -- aumente o nível do log para ver a
 orientação de solução de problemas quando o OCR começar a exceder o tempo limite.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-000d).
 
 <a id="42e5cdfd-002c"></a>
 
@@ -1021,6 +1052,8 @@ segundo mantém isso funcionando quando o primeiro não pode ser consultado:
 Get-VMSwitch exige direitos de administrador do Hyper-V, e nem todo chamador os
 possui, enquanto a rota padrão pode ser consultada por qualquer pessoa e está no
 adaptador voltado à LAN, seja qual for o seu nome.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-000e).
 
 <a id="42e5cdfd-002f"></a>
 
@@ -1122,6 +1155,8 @@ YURUNA_CACHING_PROXY_SERVICE_IP=<host-lan-ip> apontando de volta para este Mac.
 Nenhuma ação é realizada em uma instalação nova. Stop-CachingProxyServiceVM.ps1 também chama isso
 de maneira simétrica.
 
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-000f).
+
 <a id="42e5cdfd-0034"></a>
 
 <a id="testservicestart-cachingproxyservicevmps1-host-status-service-bootstrap"></a>
@@ -1178,6 +1213,8 @@ suas credenciais ystash-nas/ypool-nas neste endpoint na inicialização. Um serv
 INDISPONÍVEL durante a criação é a causa silenciosa de uma VM de cache que incorpora materiais mTLS VAZIOS,
 nunca monta ystash-nas e mostra um painel "Extension hosts" vazio.
 Apresente o problema agora (de forma explícita) em vez de deixar que o operador o descubra depois.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0010).
 
 <a id="42e5cdfd-0037"></a>
 
@@ -1239,6 +1276,8 @@ Um status que nunca respondeu é um quarto caso próprio -- utmctl se comunica c
 o UTM por Apple Events, que um hospedeiro que não tenha concedido Automation
 nega imediatamente -- portanto isso é relatado como silêncio em vez de ser apresentado
 como um estado que o UTM nunca informou.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0011).
 
 <a id="42e5cdfd-0038"></a>
 
@@ -1310,6 +1349,8 @@ incorporam o certificado CA em base64, buscando-o por
 A reimportação é obrigatória após Initialize-YurunaHost da Etapa 5:
 docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
 
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0012).
+
 <a id="42e5cdfd-003a"></a>
 
 <a id="testservicestart-cachingproxyservicevmps1-linux----re-query-the-cache-vm-ip-for-persistence--summary"></a>
@@ -1373,6 +1414,8 @@ o único caminho acessível pela LAN neste hospedeiro Hyper-V (o encaminhador
 pwsh em modo de usuário é descartado silenciosamente por Defender / EDR /
 WFP independentemente das regras -- veja docs/caching.md).
 
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0013).
+
 <a id="42e5cdfd-003c"></a>
 
 <a id="testservicestart-cachingproxyservicevmps1-report-the-service-state"></a>
@@ -1392,6 +1435,8 @@ em $cacheLanIp existem SOMENTE para hospedeiros remotos da LAN e fazem o possív
 qualquer ciclo que execute Remove-PortMap (uma execução de teste, uma
 reinicialização de status-service) os encerra, portanto $cacheLanIp não é um
 endereço confiável em estado estável.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0014).
 
 <a id="42e5cdfd-003d"></a>
 
@@ -1418,6 +1463,8 @@ este script bloquearia toda inicialização posterior durante a vida desse proce
 cada saída abaixo o libera primeiro, e o trap o libera em qualquer
 erro não capturado, deixando o erro se propagar sem alteração (inclusive a exceção
 identificada de conflito de porta).
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0015).
 
 <a id="42e5cdfd-003e"></a>
 
@@ -1474,6 +1521,8 @@ e aborta o ponto de entrada de forma limpa; uma execução independente sai com 
 a exceção não é capturada. A detecção é independente do sistema operacional (sondagem de vinculação HttpListener), portanto
 isso funciona de maneira idêntica no macOS/UTM, Ubuntu/KVM e Windows/Hyper-V.
 
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0016).
+
 <a id="42e5cdfd-0040"></a>
 
 <a id="testservicestart-statusserviceps1-ensure-repourl-is-set-in-statusjson"></a>
@@ -1495,6 +1544,8 @@ ignorados por .gitignore), enchendo `git status`. Remova-os em toda inicializaç
 as execuções do operador terminem com um diretório de status limpo.
 A inicialização segura para atualização ignora essa varredura: ela remove o arquivo auxiliar de interrupção e
 o sinalizador de continuação, dos quais um executor pausado ainda precisa.
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0017).
 
 <a id="42e5cdfd-0041"></a>
 
@@ -1707,6 +1758,8 @@ segundo gravador aqui reabriria um banner que a verificação acabara de limpar 
 congelaria a contagem no valor observado pela última inicialização do serviço -- este
 serviço dura muito tempo e reinicia com frequência muito menor que a execução dos ciclos.
 
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0018).
+
 <a id="42e5cdfd-0045"></a>
 
 <a id="testservicestart-statusserviceps1-detached-server-launch"></a>
@@ -1779,6 +1832,8 @@ portanto `&` coloca o servidor em seu PRÓPRIO grupo de processos (o bash usa se
 tty, portanto o servidor permanece ativo após o chamador de forma limpa. (O macOS não tem `setsid`,
 portanto uma nova sessão não está disponível aqui -- um novo grupo de processos mais
 nohup é o que o desacopla da saída do chamador.)
+
+As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0019).
 
 <a id="42e5cdfd-0046"></a>
 

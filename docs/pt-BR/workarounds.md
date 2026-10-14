@@ -142,7 +142,7 @@ recursos/componentes/cargas de trabalho.
 `$true`.
 
 **Editar um serviço ativo** -- `kubectl edit svc <name> -n <ns>` (também
-configMaps, pods etc.); ao chegar no estado desejado, codifique-o como
+configMaps, pods etc.); ao obter o comportamento pretendido, registre-o como
 instruções `kubectl patch`.
 
 **Depurando o localhost** -- redefinir o cluster Kubernetes do Docker e
@@ -403,6 +403,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.11.1
+Última revisão: 2026.10.14
 
 Voltar para [Yuruna](../../README.md)

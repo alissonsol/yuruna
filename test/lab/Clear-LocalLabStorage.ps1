@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42630144-53bf-4e35-a4c0-971c1bcc65a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,6 +69,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
+# --- REGION: Log level from environment
 # Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
 # entry point started this script. After the line above on purpose: an explicit
 # level is the operator's choice and replaces this script's own default. See

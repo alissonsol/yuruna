@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 422ccca9-b2ae-4944-9d17-c8d6f481d268
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,8 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# --- REGION: https://yuruna.link/42162449-0004
+# --- REGION: Log level from environment
+# See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default. $InformationPreference
 # is re-read afterwards because the script-scoped assignment above shadows the
@@ -83,7 +84,8 @@ Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1')    -Global -Force -Disable
 $DashboardPath = Join-Path $repoRoot 'test/extension/pool-aggregator-service/grafana-pool-dashboard.json'
 $GuestPath     = '/var/lib/grafana/dashboards/pool.json'
 
-# --- REGION: Read and validate the canonical dashboard
+# --- REGION: Validate the source
+# Read the repo's canonical dashboard and validate it.
 if (-not (Test-Path -LiteralPath $DashboardPath)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_369a86d20220ec6e' -Arguments @{ dashboardPath = "$DashboardPath" })
     exit $ExitFailure
@@ -178,7 +180,8 @@ if (-not $PSCmdlet.ShouldProcess("${User}@${ProxyAddress}", (Format-YurunaOperat
     exit $ExitOk
 }
 
-# --- REGION: Push the dashboard and re-fit its panels
+# --- REGION: Apply and verify
+# Push the dashboard and re-fit its panels.
 # Single-quoted here-string: every $ below is a SHELL variable and PowerShell
 # must not touch it. The payload is injected by literal replace.
 $script = @'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42046a95-dbf3-4dd6-b06d-4ee539c58a98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,6 +60,8 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit $ExitFailure
 }
 
+# --- REGION: Initialize host access
+# See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Global -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
@@ -162,13 +164,13 @@ try {
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
 # --- REGION: Stop the VM
+# See https://yuruna.link/42e220c4-0008
 $state = Get-VMState -VMName $VMName
 if ($state -eq 'absent') {
     Write-Information "  VM '$VMName' not registered with $HostType." -InformationAction Continue
 } elseif ($state -in @('stopped', 'shutoff')) {
     Write-Information "  VM '$VMName' is already stopped." -InformationAction Continue
 } else {
-    # --- REGION: https://yuruna.link/42e220c4-0008
     Write-Information "Stopping '$VMName' (current state: $state)..." -InformationAction Continue
     $ok = Stop-VM -VMName $VMName -Confirm:$false
     if (-not $ok) {

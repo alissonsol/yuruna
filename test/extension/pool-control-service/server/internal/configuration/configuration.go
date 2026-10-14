@@ -1,12 +1,12 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package intent is the pool-control-service write/read layer. Rather than reimplement
+// Package configuration is the pool-control-service write/read layer. Rather than reimplement
 // the git-clone + YAML + schema-validation + commit/push/rebase-retry logic, it
 // SHELLS OUT to the battle-tested PowerShell pool-admin CLIs under <repo>/test/
 // (pool/New-Pool.ps1, pool/Set-PoolRepository.ps1, ...). That reuses one authoritative
-// implementation of the intent contract and keeps this service thin.
-package intent
+// implementation of the configuration contract and keeps this service thin.
+package configuration
 
 import (
 	"context"
@@ -18,54 +18,71 @@ import (
 )
 
 // Runner invokes the pool-admin CLIs via pwsh. RepoDir is the yuruna framework
-// checkout (the CLIs live at RepoDir/test/pool/). IntentGitUrl, when set, is
-// forwarded as -IntentGitUrl so the service is not bound to test.config.yml.
+// checkout (the CLIs live at RepoDir/test/pool/). ConfigurationGitUrl, when set, is
+// forwarded as -ConfigurationGitUrl so the service is not bound to test.config.yml.
 type Runner struct {
-	Pwsh         string
-	RepoDir      string
-	IntentGitUrl string
+	Pwsh                string
+	RepoDir             string
+	ConfigurationGitUrl string
 	// ConfigPath is an optional environment file re-read before every
-	// invocation. The intent URL is otherwise fixed at cloud-init bake time, so
+	// invocation. The configuration URL is otherwise fixed at cloud-init bake time, so
 	// correcting a wrong one would mean rebuilding the VM; with this an operator
 	// edits the file, restarts nothing, and the next request uses the new value.
 	ConfigPath string
 }
 
-// intentURLKey is the assignment the config file is scanned for. It matches the
+// configurationURLKey is the assignment the config file is scanned for. It matches the
 // name the guest bring-up script writes, so the file the systemd unit reads and
 // the file re-read here are the same one.
-const intentURLKey = "POOL_CONTROL_INTENT_GIT_URL="
+const configurationURLKey = "POOL_CONTROL_CONFIGURATION_GIT_URL="
 
-// resolveIntentURL returns the live intent URL: the ConfigPath value when the
+// legacyConfigurationURLKey is accepted only while reading an existing guest's
+// environment file. Newly written configuration always uses configurationURLKey.
+const legacyConfigurationURLKey = "POOL_CONTROL_INTENT_GIT_URL="
+
+// resolveConfigurationURL returns the live configuration URL: the ConfigPath value when the
 // file supplies a non-empty one, else the value fixed at startup. An unreadable
 // or key-less file is not an error -- it just means nothing overrides startup.
-func (r *Runner) resolveIntentURL() string {
+func (r *Runner) resolveConfigurationURL() string {
 	if r.ConfigPath == "" {
-		return r.IntentGitUrl
+		return r.ConfigurationGitUrl
 	}
 	b, err := os.ReadFile(r.ConfigPath)
 	if err != nil {
-		return r.IntentGitUrl
+		return r.ConfigurationGitUrl
 	}
+	canonicalPresent := false
+	legacyURL := ""
 	for _, line := range strings.Split(string(b), "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, intentURLKey) {
+		key := configurationURLKey
+		if strings.HasPrefix(line, configurationURLKey) {
+			canonicalPresent = true
+		} else if strings.HasPrefix(line, legacyConfigurationURLKey) {
+			key = legacyConfigurationURLKey
+		} else {
 			continue
 		}
 		// Tolerate shell-style quoting; the guest writes bare values but an
 		// operator hand-editing the file may well add quotes.
-		v := strings.TrimSpace(strings.TrimPrefix(line, intentURLKey))
+		v := strings.TrimSpace(strings.TrimPrefix(line, key))
 		v = strings.Trim(v, `"'`)
-		if v != "" {
+		if key == configurationURLKey && v != "" {
 			return v
 		}
+		if key == legacyConfigurationURLKey && legacyURL == "" {
+			legacyURL = v
+		}
 	}
-	return r.IntentGitUrl
+	if !canonicalPresent && legacyURL != "" {
+		return legacyURL
+	}
+	return r.ConfigurationGitUrl
 }
 
-// IntentURL exposes the live resolved intent URL so the diagnostics report shows
+// ConfigurationURL exposes the live resolved configuration URL so the diagnostics report shows
 // what the NEXT invocation will actually use, not what startup was told.
-func (r *Runner) IntentURL() string { return r.resolveIntentURL() }
+func (r *Runner) ConfigurationURL() string { return r.resolveConfigurationURL() }
 
 // Result is the uniform outcome of a CLI invocation. Argv and Duration are
 // carried for the diagnostics report: without the exact command line, a failing
@@ -106,22 +123,22 @@ func cliErrorFromStdout(stdout string) string {
 }
 
 // exec runs `pwsh -NoProfile -File <RepoDir>/test/<script> <args...>` and, when
-// IntentGitUrl is set, appends -IntentGitUrl. It never blocks on prompts.
+// ConfigurationGitUrl is set, appends -ConfigurationGitUrl. It never blocks on prompts.
 // script is relative to test/ and names its subfolder ("pool/New-Pool.ps1"),
 // so a CLI that changes folders is one edit at the call site.
 func (r *Runner) exec(ctx context.Context, script string, args ...string) Result {
 	full := append([]string{"-NoProfile", "-NonInteractive", "-File", r.RepoDir + "/test/" + script}, args...)
 	// Resolved per invocation, not captured at construction: the operator fix for
-	// a wrong intent URL is a file edit, and it must take effect without a restart.
-	if url := r.resolveIntentURL(); url != "" {
-		full = append(full, "-IntentGitUrl", url)
+	// a wrong configuration URL is a file edit, and it must take effect without a restart.
+	if url := r.resolveConfigurationURL(); url != "" {
+		full = append(full, "-ConfigurationGitUrl", url)
 	}
 	cmd := exec.CommandContext(ctx, r.Pwsh, full...)
 	// os.Environ() as the base, NOT a bare append onto the nil cmd.Env: a
 	// non-nil Env REPLACES the inherited environment rather than extending it,
 	// so the one-element slice handed the CLIs an empty PATH and HOME. git then
-	// resolves to nothing and every intent read fails well after the process
-	// started, which reads like an intent-store outage rather than a bad env.
+	// resolves to nothing and every configuration read fails well after the process
+	// started, which reads like a configuration-store outage rather than a bad env.
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	var out, errb strings.Builder
 	cmd.Stdout = &out
@@ -144,7 +161,7 @@ func (r *Runner) exec(ctx context.Context, script string, args ...string) Result
 	}
 	// Prefer the CLI's own structured message (stdout), then any Write-Error
 	// text (stderr), then the bare process error. Ordered this way because the
-	// pool-admin CLIs report every failure on stdout: "No intent store URL..."
+	// pool-admin CLIs report every failure on stdout: "No configuration store URL..."
 	// reaches the operator instead of "exit status 1".
 	msg := cliErrorFromStdout(out.String())
 	if msg == "" {
@@ -157,17 +174,19 @@ func (r *Runner) exec(ctx context.Context, script string, args ...string) Result
 	return res
 }
 
-// State runs Get-PoolIntent.ps1 (read-only) which emits a single JSON object
+// State runs Get-PoolConfiguration.ps1 (read-only) which emits a single JSON object
 // {ok, pools, autoEnrollment} on stdout. Returned verbatim so the handler can relay it.
-func (r *Runner) State(ctx context.Context) Result { return r.exec(ctx, "pool/Get-PoolIntent.ps1") }
+func (r *Runner) State(ctx context.Context) Result {
+	return r.exec(ctx, "pool/Get-PoolConfiguration.ps1")
+}
 
-func (r *Runner) NewPool(ctx context.Context, poolID, displayName, desiredState string) Result {
+func (r *Runner) NewPool(ctx context.Context, poolID, displayName, configuredState string) Result {
 	args := []string{"-PoolId", poolID}
 	if displayName != "" {
 		args = append(args, "-DisplayName", displayName)
 	}
-	if desiredState != "" {
-		args = append(args, "-DesiredState", desiredState)
+	if configuredState != "" {
+		args = append(args, "-ConfiguredState", configuredState)
 	}
 	return r.exec(ctx, "pool/New-Pool.ps1", args...)
 }
@@ -180,12 +199,12 @@ func (r *Runner) RemovePool(ctx context.Context, poolID string, force bool) Resu
 	return r.exec(ctx, "pool/Remove-Pool.ps1", args...)
 }
 
-func (r *Runner) SetDesiredState(ctx context.Context, poolID, state string) Result {
-	// -State, not -DesiredState: the CLI names the parameter after the value it
+func (r *Runner) SetConfiguredState(ctx context.Context, poolID, state string) Result {
+	// -State, not -ConfiguredState: the CLI names the parameter after the value it
 	// takes, while New-Pool.ps1 (which sets the same field as one of several
-	// properties) names it -DesiredState. A mismatch here is invisible until an
+	// properties) names it -ConfiguredState. A mismatch here is invisible until an
 	// operator flips a pool and pwsh rejects the parameter at bind time.
-	return r.exec(ctx, "pool/Set-PoolDesiredState.ps1", "-PoolId", poolID, "-State", state)
+	return r.exec(ctx, "pool/Set-PoolConfiguredState.ps1", "-PoolId", poolID, "-State", state)
 }
 
 func (r *Runner) AddHost(ctx context.Context, poolID, hostID string, moveExisting ...bool) Result {

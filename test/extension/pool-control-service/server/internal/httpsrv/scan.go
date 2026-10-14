@@ -23,7 +23,7 @@ import (
 // in this daemon's own list, so the Hosts page shows the machines that EXIST
 // and not only the ones some other component was told about.
 //
-// Discovery never touches pool intent: a discovered host is monitored, not
+// Discovery never touches pool configuration: a discovered host is monitored, not
 // enrolled. Putting it in a pool stays an operator's decision, made on the
 // Hosts page, and the row is there for them to make it on.
 
@@ -178,7 +178,7 @@ func (s *Server) handleScanForget(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// auditScan records a discovery action in the same append-only log every intent
+// auditScan records a discovery action in the same append-only log every configuration
 // mutation lands in: what this daemon monitors is operator-visible state, and a
 // row that appeared on its own needs the same trail as one somebody added.
 func (s *Server) auditScan(action, target string) {

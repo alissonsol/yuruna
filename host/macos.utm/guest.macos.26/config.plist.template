@@ -3,6 +3,7 @@
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
 <!-- See https://yuruna.link/429f3d06 -->
+<!-- See https://yuruna.link/42e220c4-000b -->
 <plist version="1.0">
 <dict>
 	<key>Backend</key>
@@ -64,8 +65,8 @@
 		<key>Rosetta</key>
 		<false/>
 	</dict>
-	<!-- See https://yuruna.link/42e220c4-000b -->
 	<!-- REGION: Display -->
+	<!-- See https://yuruna.link/42e220c4-000b -->
 	<key>Display</key>
 	<array>
 		<dict>

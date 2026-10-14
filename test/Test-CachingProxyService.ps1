@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 429d2507-81f3-45bf-89aa-1a0471f4641c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,6 +171,18 @@ $script:PassCount += $probe.PassCount
 $script:WarnCount += $probe.WarnCount
 $script:FailCount += $probe.FailCount
 $httpPort  = $probe.HttpPort
+
+# --- REGION: zot release
+# Every port can answer while the cache's zot release refuses each image of a
+# manifest format its configuration does not allow. The cache's own sync
+# self-test is what says so, together with the fixes.
+$zotReport = Get-CachingProxyZotSelfTestReport -CacheIp $resolvedIp
+foreach ($line in $zotReport.Lines) { Write-Output $line }
+switch ($zotReport.Level) {
+    'PASS' { $script:PassCount++ }
+    'FAIL' { $script:FailCount++ }
+    default { $script:WarnCount++ }
+}
 
 # --- REGION: Host system-proxy check
 # See https://yuruna.link/42010605-0002

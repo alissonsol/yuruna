@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,7 +93,11 @@ $repoRoot   = $paths.RepoRoot
 $ModulesDir = $paths.ModulesDir
 Import-Module (Join-Path $ModulesDir 'Test.ServiceVm.psm1') -Global -DisableNameChecking -Verbose:$false
 
-# --- REGION: https://yuruna.link/42e220c4-0008
+# --- REGION: Initialize the runtime directory
+# See https://yuruna.link/42e220c4-0008
+# See https://yuruna.link/42f52e37-0020
+# Ahead of the Elevation check on purpose: both launch modes need the runtime
+# directory, and only the VM path checks elevation.
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.Locale.psm1') -Global -Force
@@ -109,7 +113,8 @@ if (-not $HostSideProof) {
         exit $ExitFailure
     }
 
-    # --- REGION: https://yuruna.link/42e220c4-0008
+    # --- REGION: Elevation check
+    # See https://yuruna.link/42e220c4-0008
     if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
         Write-Output ""
         Write-Output "This script requires elevation (Run as Administrator)."
@@ -121,6 +126,8 @@ if (-not $HostSideProof) {
         exit $ExitFailure
     }
 
+    # --- REGION: Initialize host access
+    # See https://yuruna.link/42e220c4-0008
     Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Global -Force
     Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
@@ -130,12 +137,7 @@ if (-not $HostSideProof) {
     [void](Initialize-YurunaHost -RepoRoot $repoRoot -HostType $HostType)
 
     # --- REGION: Record the start intent
-    # The start is on record, and this service's operation lock held, before
-    # anything is built: a Stop issued meanwhile waits for the lock instead of
-    # tearing down a half-built guest, and the reboot sweep and a host refresh see
-    # the request. Taken after the group relaunch, because a lock taken in the
-    # parent would block the relaunched child. A request that cannot be recorded
-    # changes nothing.
+    # See https://yuruna.link/42e220c4-0008
     Import-Module (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
     Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
     $serviceOp = Enter-YurunaServiceOperation -Key 'pool-control' -VMName $VMName -Operation Start -Script 'Start-PoolControlServiceVM.ps1' -Confirm:$false
@@ -257,7 +259,6 @@ $remedy
     # See https://yuruna.link/42e220c4-0008
     Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
     Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
-    # --- REGION: https://yuruna.link/42e220c4-0008
     $ipWaitStart = (Get-Date)
     $vmIp = try { Wait-VMIp -VMName $VMName -TimeoutSeconds 120 } catch { Write-Verbose "Wait-VMIp: $($_.Exception.Message)"; $null }
     $ipWaitSeconds = [int]((Get-Date) - $ipWaitStart).TotalSeconds
@@ -298,7 +299,6 @@ $remedy
     # within a few polls or was never there.
     $recoveryProbeSeconds = 60
 
-    # --- REGION: https://yuruna.link/42e220c4-0008
     $daemonReady = $false
     # A different question, kept apart from the one above: the daemon can be
     # serving while THIS host has no route to it. That costs this host its local
@@ -309,7 +309,6 @@ $remedy
     # $null until a wait actually runs, which is itself an answer: a verdict that
     # was never taken is not a pass.
     $endpoint = $null
-    # --- REGION: https://yuruna.link/42e220c4-0008
     if ($vmIp) {
         Write-Verbose "VM '$VMName' is at $vmIp. Waiting up to $readyTimeoutMinutes min for the pool-control-service daemon to serve on :80 (first boot builds it in-guest)."
         Write-Verbose "  The wait extends itself while the guest reports it is still building; progress is printed as it happens."
@@ -324,7 +323,6 @@ $remedy
                 }
             }
         }
-        # --- REGION: https://yuruna.link/42e220c4-0008
         $endpoint = Wait-YurunaServiceVmDaemon -VMName $VMName -Port 80 `
             -TimeoutSeconds $readyTimeoutSeconds -Address $vmIp `
             -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' `
@@ -336,7 +334,6 @@ $remedy
                                "$([int]($endpoint.ExtendedSeconds / 60)) min because the guest reported it was still building.") -InformationAction Continue
         }
     } else {
-        # --- REGION: https://yuruna.link/42e220c4-0008
         Write-Warning ("Could not resolve the VM's IP after waiting ${ipWaitSeconds}s (Wait-VMIp); the VM IS running, so this is " +
                        "address discovery, not a boot failure. Asking the guest itself whether the daemon is up.")
         # Address discovery failing is not the same as the service failing, and
@@ -351,7 +348,6 @@ $remedy
                     -Command 'ss -ltn 2>/dev/null | grep -qE "(^|[^0-9]):80\b" && echo YURUNA_LISTENING || echo YURUNA_NOT_LISTENING'
             } catch { Write-Verbose "pool-control-service in-guest listener probe: $($_.Exception.Message)" }
             if ($inGuest -and "$($inGuest.output)" -match 'YURUNA_LISTENING') {
-                # --- REGION: https://yuruna.link/42e220c4-0008
                 $endpoint = [pscustomobject]@{
                     Ready         = $false
                     Unreachable   = $true
@@ -364,22 +360,18 @@ $remedy
         }
     }
 
-    # --- REGION: Evaluate service readiness
-    # See https://yuruna.link/42e220c4-0008
-    $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
-
-    # --- REGION: https://yuruna.link/4220a755-0046
+    # --- REGION: Recover the VM address
+    # See https://yuruna.link/4220a755-0046
     # Spent here and nowhere else: the sweep costs about two minutes, and this
     # is the one place where the alternative is calling a healthy daemon failed.
     $recoveredIp = ''
-    if ($verdict.IsFailure) {
+    if ((Get-ServiceVmReadinessVerdict -Endpoint $endpoint).IsFailure) {
         $recovery = Confirm-ServiceVmAtRecoveredAddress -VMName $VMName -Port 80 -KnownAddress ([string]$vmIp) -TimeoutSeconds $recoveryProbeSeconds
         $recoveredIp = [string]$recovery.Address
         Write-Verbose "  $($recovery.Summary)."
         if ($recovery.Ready) {
             $vmIp = $recoveredIp
             $endpoint = New-ServiceVmRecoveredEndpoint -Endpoint $endpoint -Address $recoveredIp -WaitedSeconds $ipWaitSeconds
-            $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
             if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
                 $script:poolControlForwarded = Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
                 if ($script:poolControlForwarded) {
@@ -389,6 +381,9 @@ $remedy
         }
     }
 
+    # --- REGION: Evaluate service readiness
+    # See https://yuruna.link/42e220c4-0008
+    $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
     # Every downstream branch reads these, and all three come from the one
     # verdict: a bring-up cannot be "ready" in the banner and "not ready" in the
     # marker.
@@ -440,14 +435,8 @@ To hold this script longer next time:
         }
     }
 
-    # --- REGION: https://yuruna.link/42fffc2c-0008
-    # No trailing slash, which is not cosmetic: the service's own announce derives
-    # its address from the connection it arrives on and so never carries one. The
-    # aggregator keys a candidate on the exact target string, so the two spellings
-    # of one address register as two candidates for the same host and area, and the
-    # loser is reported as a supersededTarget. Probing already tolerates either
-    # form, which is why nothing failed and the difference showed up only as a
-    # duplicate. The sibling services advertise the bare form as well.
+    # --- REGION: Publish service readiness
+    # See https://yuruna.link/42fffc2c-0008
     $poolControlServiceBaseUrl = if (-not $daemonReady -or $listeningButUnreachable -or -not $vmIp) { '' }
                                  elseif ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
                                      if ($script:poolControlForwarded) {
@@ -497,18 +486,19 @@ To hold this script longer next time:
             exit $ExitFailure
         }
 
-        # --- REGION: https://yuruna.link/42e220c4-0008
+        # --- REGION: Sync the pool-configuration alias
+        # See https://yuruna.link/42e220c4-0008
         try {
             Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force
-            $aliasSync = Sync-PoolIntentAliasOnProxy -Confirm:$false
+            $aliasSync = Sync-PoolConfigurationAliasOnProxy -Confirm:$false
             if ($aliasSync.Changed) {
-                Write-Verbose "  Proxy: /pool-intent.git now serves the pool NAS store (runners pull what this UI writes)."
+                Write-Verbose "  Proxy: /pool-configuration.git now serves the pool NAS store (runners pull what this UI writes)."
             } elseif (-not $aliasSync.Ok) {
-                Write-Warning "pool-intent alias not reconciled on the caching-proxy service: $($aliasSync.Message). Runners may still pull the proxy's older local store; the pool-control service UI is unaffected."
+                Write-Warning "pool-configuration alias not reconciled on the caching-proxy service: $($aliasSync.Message). Runners may still pull the proxy's older local store; the pool-control service UI is unaffected."
             } else {
-                Write-Verbose "pool-intent alias: $($aliasSync.Message)"
+                Write-Verbose "pool-configuration alias: $($aliasSync.Message)"
             }
-        } catch { Write-Verbose "pool-intent alias sync: $($_.Exception.Message)" }
+        } catch { Write-Verbose "pool-configuration alias sync: $($_.Exception.Message)" }
 
         Write-Verbose ""
         if ($listeningButUnreachable) {
@@ -602,14 +592,14 @@ if ($PSCmdlet.ShouldProcess($binPath, 'go build pool-control-service')) {
     } finally { Pop-Location }
 }
 
-# The intent URL + host id come from config / the runtime identity.
-$intentGitUrl = ''
+# The configuration URL + host id come from config / the runtime identity.
+$configurationGitUrl = ''
 try {
     if ($env:YURUNA_CONFIG_PATH -and (Test-Path -LiteralPath $env:YURUNA_CONFIG_PATH) -and (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
         $cfg = Get-Content -Raw -LiteralPath $env:YURUNA_CONFIG_PATH | ConvertFrom-Yaml -Ordered
-        if ($cfg -and $cfg['pool'] -and $cfg['pool']['intentGitUrl']) { $intentGitUrl = [string]$cfg['pool']['intentGitUrl'] }
+        if ($cfg -and $cfg['pool'] -and $cfg['pool']['configurationGitUrl']) { $configurationGitUrl = [string]$cfg['pool']['configurationGitUrl'] }
     }
-} catch { Write-Verbose "intentGitUrl lookup: $($_.Exception.Message)" }
+} catch { Write-Verbose "configurationGitUrl lookup: $($_.Exception.Message)" }
 $hostId = Get-YurunaHostId
 Set-Variable -Name '__YurunaHostId' -Scope Global -Value $hostId
 Import-Module (Join-Path $ModulesDir 'Test.HostDetection.psm1') -Global -Force
@@ -625,7 +615,7 @@ catch { Write-Error $_; exit $ExitFailure }
 
 $goArgs = @('--http-addr', "0.0.0.0:$Port", '--repo-dir', $repoRoot, '--pwsh', $pwshExe,
     '--language', $poolControlLanguage)
-if ($intentGitUrl)  { $goArgs += @('--intent-git-url', $intentGitUrl) }
+if ($configurationGitUrl)  { $goArgs += @('--configuration-git-url', $configurationGitUrl) }
 if ($AggregatorUrl) { $goArgs += @('--aggregator-url', $AggregatorUrl) }
 if ($hostId)        { $goArgs += @('--host-id', $hostId) }
 if ($AllowPseudoLocale) { $goArgs += '--allow-pseudo-locale' }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42208271-79d6-4f13-84cb-51fe46e67ef4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,6 +61,8 @@ if (-not $ProxyAddress) {
 if (-not $ProxyAddress -or $ProxyAddress -match "['`"\s]") { throw 'A proxy address without whitespace or quotes is required.' }
 
 # --- REGION: Validate the source
+# After the proxy address, unlike Sync-PoolDashboardOnProxy: the dry-run gate that
+# ends this block names the proxy.
 $helper = Join-Path $PSScriptRoot 'sync_host_metrics.py'
 if (-not (Test-Path -LiteralPath $helper)) { throw "Missing synchronization helper: $helper" }
 $payload = [Convert]::ToBase64String([IO.File]::ReadAllBytes($helper))

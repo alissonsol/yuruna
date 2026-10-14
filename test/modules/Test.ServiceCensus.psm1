@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 422e4da5-c4d3-416f-8529-84b6ec995443
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.ExtensionService.psm1') -DisableNam
 
 # See https://yuruna.link/4213a0b3-016a
 
-$script:CensusSchemaVersion      = 1
+$script:CensusSchemaVersion      = 2
 $script:CensusRecordName         = 'service-census.record'
 $script:CensusLockName           = 'service-census.lock'
 $script:CensusRecordKind         = 'service-census'
@@ -181,12 +181,14 @@ function ConvertTo-ServiceCensusIntent {
     if ($null -eq $Intent -or -not ($Intent -is [System.Collections.IDictionary])) { return $null }
     $generation = ConvertTo-ServiceCensusLong -Value $Intent['generation']
     if ($generation -le 0) { return $null }
+    $requested = if ($Intent.Contains('requestedState')) { $Intent['requestedState'] } else { $Intent['desiredState'] }
+    $previous = if ($Intent.Contains('previousRequestedState')) { $Intent['previousRequestedState'] } else { $Intent['baselineDesiredState'] }
     return [ordered]@{
         generation           = $generation
         operation            = [string]$Intent['operation']
         result               = [string]$Intent['result']
-        desiredState         = [string]$Intent['desiredState']
-        baselineDesiredState = [string]$Intent['baselineDesiredState']
+        requestedState         = [string]$requested
+        previousRequestedState = [string]$previous
         vmName               = [string]$Intent['vmName']
         hostingMode          = [string]$Intent['hostingMode']
         publishedUnixMs      = ConvertTo-ServiceCensusLong -Value $Intent['publishedUnixMs']
@@ -198,15 +200,15 @@ function ConvertTo-ServiceCensusIntent {
     }
 }
 
-function Get-ServiceEffectiveDesiredState {
+function Get-ServiceEffectiveRequestedState {
     <#
     .SYNOPSIS
-        The desired state an intent leaves in force: stopped, running or ''.
+        The requested state an intent leaves in force: stopped, running or ''.
     .DESCRIPTION
         An explicit stop stands whatever its result, because a failed stop is
         still an operator's request that the service stay down. A start
-        changes the desired state only once it is confirmed; until then, or
-        when it failed, the state before it stays in force. Desired state
+        changes the requested state only once it is confirmed; until then, or
+        when it failed, the state before it stays in force. Requested state
         never expires.
     #>
     [CmdletBinding()]
@@ -218,7 +220,7 @@ function Get-ServiceEffectiveDesiredState {
         'stop'  { return 'stopped' }
         'start' {
             if ([string]$Intent['result'] -eq 'confirmed') { return 'running' }
-            return [string]$Intent['baselineDesiredState']
+            return [string]$Intent['previousRequestedState']
         }
     }
     return ''
@@ -253,7 +255,7 @@ function New-ServiceCensusServiceRecord {
         lastUncorroboratedAnswerUnixMs = [long]0
         lastProbeUnixMs                = [long]0
         lastProbeOutcome               = ''
-        desiredState                   = ''
+        requestedState                   = ''
         intentGeneration               = [long]0
         intent                         = $null
         history                        = [object[]]@()
@@ -291,7 +293,7 @@ function ConvertTo-ServiceCensusServiceRecord {
         if ($null -ne $normalized -and $history.Count -lt $script:HistoryCap) { $history.Add($normalized) }
     }
     $out.history = [object[]]$history.ToArray()
-    $out.desiredState = Get-ServiceEffectiveDesiredState -Intent $out.intent
+    $out.requestedState = Get-ServiceEffectiveRequestedState -Intent $out.intent
     $out.intentGeneration = if ($out.intent) { [long]$out.intent.generation } else { [long]0 }
     return $out
 }
@@ -359,7 +361,7 @@ function Read-ServiceCensusState {
         'ok' {
             $payload = $read.Payload
             $version = ConvertTo-ServiceCensusLong -Value $payload['schemaVersion']
-            if ($version -ne $script:CensusSchemaVersion) {
+            if ($version -notin @(1, $script:CensusSchemaVersion)) {
                 $record.Reason = 'unsupported-version'
                 return [pscustomobject]$record
             }
@@ -539,8 +541,8 @@ function Read-YurunaServiceCensus {
         Each service entry is the stored record plus three computed fields:
         evidenceAgeSeconds (seconds since the last corroborated answer, $null
         when none), evidenceFresh (that answer is inside the evidence
-        lifetime) and effectiveDesiredState. Expired evidence is unknown,
-        never "stopped"; desired state never expires.
+        lifetime) and effectiveRequestedState. Expired evidence is unknown,
+        never "stopped"; requested state never expires.
     .PARAMETER StateRoot
         Private root to read from; defaults to the resolved private state
         root, observed without creating it.
@@ -624,7 +626,7 @@ function Read-YurunaServiceCensus {
             $svc.evidenceAgeSeconds = $null
             $svc.evidenceFresh = $false
         }
-        $svc.effectiveDesiredState = [string]$svc.desiredState
+        $svc.effectiveRequestedState = [string]$svc.requestedState
         $services[$name] = $svc
     }
     $census.Services = $services
@@ -647,7 +649,7 @@ function Get-YurunaServiceIntent {
         Private root to read from when no Census is passed.
     .OUTPUTS
         [pscustomobject] @{ Key; Generation (0 = none); Operation; Result;
-        DesiredState; VMName; HostingMode; PublishedUnixMs; CompletedUnixMs;
+        RequestedState; VMName; HostingMode; PublishedUnixMs; CompletedUnixMs;
         Script; Pid; CensusReason }
     #>
     [CmdletBinding()]
@@ -660,7 +662,7 @@ function Get-YurunaServiceIntent {
     if ($null -eq $Census) { $Census = Read-YurunaServiceCensus -StateRoot $StateRoot }
     $record = [ordered]@{
         PSTypeName = 'Yuruna.ServiceIntent'
-        Key = $Key; Generation = [long]0; Operation = ''; Result = ''; DesiredState = ''
+        Key = $Key; Generation = [long]0; Operation = ''; Result = ''; RequestedState = ''
         VMName = ''; HostingMode = ''; PublishedUnixMs = [long]0; CompletedUnixMs = [long]0
         Script = ''; Pid = 0; CensusReason = [string]$Census.Reason
     }
@@ -668,7 +670,7 @@ function Get-YurunaServiceIntent {
     if ($services -and $services.ContainsKey($Key)) {
         $svc = $services[$Key]
         $intent = $svc.intent
-        $record.DesiredState = [string]$svc.desiredState
+        $record.RequestedState = [string]$svc.requestedState
         if ($intent) {
             $record.Generation      = [long]$intent.generation
             $record.Operation       = [string]$intent.operation
@@ -1128,7 +1130,7 @@ function Publish-ServiceIntent {
     if (-not $State.services.Contains($Key)) { $State.services[$Key] = New-ServiceCensusServiceRecord -Key $Key }
     $svc = $State.services[$Key]
     $previous = $svc.intent
-    $baseline = Get-ServiceEffectiveDesiredState -Intent $previous
+    $baseline = Get-ServiceEffectiveRequestedState -Intent $previous
     $State.intentCounter = [long]$State.intentCounter + 1
     $generation = [long]$State.intentCounter
     if ($previous) {
@@ -1138,8 +1140,8 @@ function Publish-ServiceIntent {
         generation           = $generation
         operation            = $Operation
         result               = 'pending'
-        desiredState         = if ($Operation -eq 'stop') { 'stopped' } else { 'running' }
-        baselineDesiredState = $baseline
+        requestedState         = if ($Operation -eq 'stop') { 'stopped' } else { 'running' }
+        previousRequestedState = $baseline
         vmName               = $VMName
         hostingMode          = $HostingMode
         publishedUnixMs      = $NowUnixMs
@@ -1161,7 +1163,7 @@ function Publish-ServiceIntent {
         $svc.vmNameSource = 'intent'
     }
     $svc.hostingMode = $HostingMode
-    $svc.desiredState = Get-ServiceEffectiveDesiredState -Intent $svc.intent
+    $svc.requestedState = Get-ServiceEffectiveRequestedState -Intent $svc.intent
     $svc.intentGeneration = $generation
     return $generation
 }
@@ -1192,7 +1194,7 @@ function Complete-ServiceIntent {
         $svc.intent.result = $Result
         $svc.intent.completedUnixMs = $NowUnixMs
         $svc.intent.finalState = [string]$FinalState
-        $svc.desiredState = Get-ServiceEffectiveDesiredState -Intent $svc.intent
+        $svc.requestedState = Get-ServiceEffectiveRequestedState -Intent $svc.intent
         return [pscustomobject]@{ Found = $true; Result = $Result; NewerOperation = '' }
     }
     foreach ($entry in @($svc.history)) {
@@ -1932,7 +1934,7 @@ function Get-YurunaServiceVmIdentitySet {
                 ForwardersCaptured = $false
                 Ambiguity          = $ambiguity
                 IntentGeneration   = if ($censusRecord) { [long]$censusRecord.intentGeneration } else { [long]0 }
-                DesiredState       = if ($censusRecord) { [string]$censusRecord.desiredState } else { '' }
+                RequestedState       = if ($censusRecord) { [string]$censusRecord.requestedState } else { '' }
             })
     }
 

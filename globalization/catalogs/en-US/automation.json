@@ -691,7 +691,7 @@
       }
     },
     "automation.operator_159f23f7bbf09a33": {
-      "message": "  1. add autoEnrollment: { enabled: true, targetPoolId: default } to pools.yml in the intent store",
+      "message": "  1. add autoEnrollment: { enabled: true, targetPoolId: default } to pools.yml in the configuration store",
       "description": "Whole Write-SetupMessage message in install/setup.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -1941,7 +1941,7 @@
       "lifecycle": "active"
     },
     "automation.operator_47229a44b80ae93b": {
-      "message": "(no Ready nodes -- cluster is not up; not a deploy gap, see KUBE section)",
+      "message": "(no Ready nodes -- cluster is not up; deployment checks are unavailable, see KUBE section)",
       "description": "Whole Write-Output message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -2075,7 +2075,7 @@
       }
     },
     "automation.operator_4b5000e2da8b0a45": {
-      "message": "GAP: {count} image(s) pushed to local registry but not referenced by any pod -- {join}. The workloads phase either didn't deploy a chart that uses these images, or the chart rendered them with a different registry prefix (check componentsRegistry.registryLocation in resources.output.yml). An image that only ever serves as a build stage is expected here and is not itself a deploy gap.",
+      "message": "Diagnostic observation: {count} image(s) pushed to local registry but not referenced by any pod -- {join}. The workloads phase either didn't deploy a chart that uses these images, or the chart rendered them with a different registry prefix (check componentsRegistry.registryLocation in resources.output.yml). An image used only as a build stage is expected here and does not by itself establish a configuration mismatch.",
       "description": "Whole Add-Problem message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -2671,7 +2671,7 @@
       }
     },
     "automation.operator_6026e7f1ae4f2ef0": {
-      "message": "GAP: namespace '{name}' declared in {file} but does not exist in the cluster -- workloads phase never created it (helm install / kubectl create namespace did not run, or errored).",
+      "message": "Configuration mismatch: namespace '{name}' is declared in {file} but does not exist in the cluster. Check whether the workloads phase created it and whether helm install / kubectl create namespace succeeded.",
       "description": "Whole Add-Problem message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -3160,7 +3160,7 @@
       "lifecycle": "active"
     },
     "automation.operator_72c1075973a89231": {
-      "message": "GAP: {tfStateCount} tofu.tfstate file(s) present but helm has 0 releases across all namespaces -- the workloads phase appears to have been skipped or exited 0 without calling Set-Workload. Check the helm.stderr.log files above and the wrapper script's last lines.",
+      "message": "Diagnostic observation: {tfStateCount} tofu.tfstate file(s) present but helm has 0 releases across all namespaces. The workloads phase may have been skipped or exited 0 without calling Set-Workload. Check the helm.stderr.log files above and the wrapper script's last lines.",
       "description": "Whole Add-Problem message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -3469,7 +3469,7 @@
       "lifecycle": "active"
     },
     "automation.operator_7d384e5a632109dd": {
-      "message": "(no project directory at {candidate} -- skipping gap heuristics)",
+      "message": "(no project directory at {candidate} -- skipping deployment checks)",
       "description": "Whole Write-Output message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -5002,7 +5002,7 @@
       }
     },
     "automation.operator_b2e83136c96ad810": {
-      "message": "GAP: cluster has {count} Ready node(s) but zero pods outside the system namespaces -- nothing has been deployed (workloads/components phase did not land).",
+      "message": "Diagnostic observation: cluster has {count} Ready node(s) but zero pods outside the system namespaces. Check whether the workloads/components phase deployed the expected application.",
       "description": "Whole Add-Problem message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -7363,6 +7363,97 @@
           "type": "detail",
           "trust": "external",
           "example": "$short.Set"
+        }
+      }
+    },
+    "automation.system_diagnostic_registry_zot_compat_repaired": {
+      "message": "REGISTRY: the cache's zot {version} syncs the lab's images only because its sync self-test added http.compat {modes} to /etc/zot/config.json, which the configuration this Yuruna release ships lacks; every rebuild repeats the repair. Report it so a release ships the mode. Details: {healthUrl}",
+      "description": "Add-Problem message in automation/Get-SystemDiagnostic.ps1 when the cache's zot sync self-test passed only after adding an http.compat mode zot's log asked for. {modes} is a comma-separated list of zot http.compat mode names such as docker2s2. Keep REGISTRY, zot, http.compat, the mode names and the path /etc/zot/config.json in English: the operator types them.",
+      "lifecycle": "active",
+      "placeholders": {
+        "version": {
+          "type": "detail",
+          "trust": "external",
+          "example": "v2.1.23"
+        },
+        "modes": {
+          "type": "detail",
+          "trust": "external",
+          "example": "docker2s2"
+        },
+        "healthUrl": {
+          "type": "detail",
+          "trust": "external",
+          "example": "http://192.0.2.7/cache-health"
+        }
+      }
+    },
+    "automation.system_diagnostic_registry_zot_incompatible": {
+      "message": "REGISTRY: the cache's zot {version} refuses images the lab pulls: its sync self-test got HTTP {status} for {image}, which the upstream serves, and zot's log asks for http.compat {modes} ({refused} probe image(s) refused). A re-run does not help. Fixes that need no code change: on the cache, run sudo /usr/local/bin/zot-sync-selftest.py --heal; or set vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 in test/test.config.yml to a zot release that works and rebuild the cache; or update Yuruna and rebuild the cache. Details: {healthUrl}",
+      "description": "Add-Problem message in automation/Get-SystemDiagnostic.ps1 when the cache's zot sync self-test found that its zot release refuses images the upstream registry serves, and zot's log named the http.compat mode it wants. {modes} is a comma-separated list of zot http.compat mode names such as docker2s2. Keep REGISTRY, HTTP, zot, http.compat, the mode names, the command, the configuration keys vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 and the path test/test.config.yml in English: the operator types them.",
+      "lifecycle": "active",
+      "placeholders": {
+        "version": {
+          "type": "detail",
+          "trust": "external",
+          "example": "v2.1.23"
+        },
+        "status": {
+          "type": "detail",
+          "trust": "external",
+          "example": "503"
+        },
+        "image": {
+          "type": "detail",
+          "trust": "external",
+          "example": "registry.k8s.io/pause:3.10.2"
+        },
+        "modes": {
+          "type": "detail",
+          "trust": "external",
+          "example": "docker2s2"
+        },
+        "refused": {
+          "type": "detail",
+          "trust": "external",
+          "example": "2"
+        },
+        "healthUrl": {
+          "type": "detail",
+          "trust": "external",
+          "example": "http://192.0.2.7/cache-health"
+        }
+      }
+    },
+    "automation.system_diagnostic_registry_zot_incompatible_unexplained": {
+      "message": "REGISTRY: the cache's zot {version} refuses images the lab pulls: its sync self-test got HTTP {status} for {image}, which the upstream serves ({refused} probe image(s) refused). A re-run does not help. Fixes that need no code change: change /etc/zot/config.json on the cache as zot's log line on the health page says, restart zot and run sudo /usr/local/bin/zot-sync-selftest.py; or set vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 in test/test.config.yml to a zot release that works and rebuild the cache; or update Yuruna and rebuild the cache. Details: {healthUrl}",
+      "description": "Add-Problem message in automation/Get-SystemDiagnostic.ps1 when the cache's zot sync self-test found that its zot release refuses images the upstream registry serves, and zot's log named no http.compat mode. Keep REGISTRY, HTTP, zot, the path /etc/zot/config.json, the command, the configuration keys vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 and the path test/test.config.yml in English: the operator types them.",
+      "lifecycle": "active",
+      "placeholders": {
+        "version": {
+          "type": "detail",
+          "trust": "external",
+          "example": "v2.1.23"
+        },
+        "status": {
+          "type": "detail",
+          "trust": "external",
+          "example": "503"
+        },
+        "image": {
+          "type": "detail",
+          "trust": "external",
+          "example": "registry.k8s.io/pause:3.10.2"
+        },
+        "refused": {
+          "type": "detail",
+          "trust": "external",
+          "example": "2"
+        },
+        "healthUrl": {
+          "type": "detail",
+          "trust": "external",
+          "example": "http://192.0.2.7/cache-health"
         }
       }
     },

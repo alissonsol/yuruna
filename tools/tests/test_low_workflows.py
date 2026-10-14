@@ -164,11 +164,11 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             (root / 'guest/shared').mkdir(parents=True)
             for release in ('24', '26'):
                 (root / f'guest/ubuntu.server.{release}').mkdir()
-            for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+            for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 (root / f'guest/shared/ubuntu.{name}.sh').write_text('#!/bin/bash\nprintf "%s\\n" "$@"\nexit 17\n', newline='')
             subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
             for release in ('24', '26'):
-                for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+                for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                     path = root / f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh'
                     result = subprocess.run(['bash', path.as_posix(), 'arg with spaces'], text=True, capture_output=True)
                     self.assertEqual((result.returncode, result.stdout), (17, 'arg with spaces\n'))
@@ -185,7 +185,7 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
 
     def test_guest_workflow_version_stamp(self):
         # A release stamp changes the bytes protected by every wrapper.
-        # The generator must refresh all ten pins and their version lines.
+        # The generator must refresh all twelve pins and their version lines.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'tools').mkdir()
@@ -193,26 +193,26 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             (root / 'guest/shared').mkdir(parents=True)
             for release in ('24', '26'):
                 (root / f'guest/ubuntu.server.{release}').mkdir()
-            for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+            for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 shared = root / f'guest/shared/ubuntu.{name}.sh'
                 shared.write_bytes(b'#!/bin/bash\n# Version: 2026.09.30\nexit 17\n')
             (root / 'VERSION').write_text('2026.09.30\n')
             subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
 
-            (root / 'VERSION').write_text('2026.10.11.1\n')
-            for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+            (root / 'VERSION').write_text('2026.10.14\n')
+            for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 shared = root / f'guest/shared/ubuntu.{name}.sh'
-                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.10.11.1\nexit 17\n')
+                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.10.14\nexit 17\n')
             stale = subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py'), '--check'], capture_output=True, text=True)
             self.assertNotEqual(stale.returncode, 0)
-            self.assertEqual(len(stale.stderr.splitlines()) - 1, 10)
+            self.assertEqual(len(stale.stderr.splitlines()) - 1, 12)
             subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
             subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py'), '--check'], check=True)
             for release in ('24', '26'):
-                for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+                for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                     wrapper = (root / f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh').read_text()
                     digest = hashlib.sha256((root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
-                    self.assertIn('# Version: 2026.10.11.1\n', wrapper)
+                    self.assertIn('# Version: 2026.10.14\n', wrapper)
                     self.assertIn(f'expected="{digest}"', wrapper)
 
     def test_guest_workflow_pre_commit_stages_pins(self):
@@ -230,7 +230,7 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             (root / 'tools/Sync-Sbom.py').write_text('raise SystemExit(0)\n')
             (root / 'tools/Test-AsciiNoBom.ps1').write_text('')
             (root / 'VERSION').write_text('2026.09.30\n')
-            for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+            for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 (root / f'guest/shared/ubuntu.{name}.sh').write_bytes(
                     b'#!/bin/bash\n# Version: 2026.09.30\nexit 0\n')
             subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
@@ -255,23 +255,23 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             git('-c', 'core.hooksPath=', 'commit', '-q', '-m', 'seed')
             git('config', 'core.hooksPath', 'tools/githooks')
 
-            (root / 'VERSION').write_text('2026.10.11.1\n')
-            for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+            (root / 'VERSION').write_text('2026.10.14\n')
+            for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 (root / f'guest/shared/ubuntu.{name}.sh').write_bytes(
-                    b'#!/bin/bash\n# Version: 2026.10.11.1\nexit 0\n')
+                    b'#!/bin/bash\n# Version: 2026.10.14\nexit 0\n')
             git('add', 'VERSION', 'guest/shared')
             committed = git('commit', '-q', '-m', 'version stamp')
             self.assertIn('regenerated and staged Ubuntu workflow checksum pins', committed.stderr)
             self.assertEqual(git('status', '--porcelain').stdout, '')
             subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py'), '--check'], check=True)
             for release in ('24', '26'):
-                for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+                for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                     path = f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh'
                     wrapper = git('show', f'HEAD:{path}').stdout
                     digest = hashlib.sha256(
                         (root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
                     self.assertIn(f'expected="{digest}"', wrapper)
-                    self.assertIn('# Version: 2026.10.11.1', wrapper)
+                    self.assertIn('# Version: 2026.10.14', wrapper)
 
             # A staged version with an unstaged workflow edit must not pin
             # bytes that the proposed commit does not contain.

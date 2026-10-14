@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42305b75-dbdd-448e-8c59-ffaf93235629
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -540,6 +540,22 @@ Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inn
             Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'break-active.json')) 'an ordinary cycle still clears a stale break marker'
         } finally { Remove-Item -LiteralPath $f.Root -Recurse -Force -ErrorAction SilentlyContinue }
     }
+    It 'returns a gate refusal before running cycle-end hooks or reusing old results' {
+        $gateInner = "[ordered]@{ attemptGeneration = `$env:YURUNA_CYCLE_GENERATION; startedAtUtc = [DateTime]::UtcNow.ToString('o'); passed = `$false; exitCode = 1; frameworkCommitSha = 'new-sha' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path 'RUNTIME' 'runner.configGate.json'); Set-Content -LiteralPath (Join-Path 'RUNTIME' 'runner.phase') -Value 'config-gate'; exit 1"
+        $f = New-CycleFixture -InnerScript $gateInner
+        try {
+            $env:YURUNA_RUNTIME_DIR = $f.Runtime; $env:YURUNA_LOG_DIR = $f.Log
+            $f.State.NoGitPull = $true; $f.State.CycleGeneration = ('e' * 32) + ':2'
+            Mock -ModuleName Test.RunnerOuterLoop Get-YurunaRefreshGateState { [pscustomobject]@{ State = 'open'; SpawnAllowed = $true; PreflightAllowed = $false } }
+            Mock -ModuleName Test.RunnerOuterLoop Get-OuterPoolStorageMoveMode { throw 'cycle-end hooks must not run' }
+            $r = Invoke-RunnerOuterCycle -State $f.State -Cycle 2 | Select-Object -Last 1
+            $r.Outcome | Should -Be 'config-gate-failed'
+            $r.ExitCode | Should -Be 1
+            Assert-MockCalled -CommandName Get-OuterPoolStorageMoveMode -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
+            (Get-RunnerAttemptFault -RuntimeDir $f.Runtime -AttemptGeneration $f.State.CycleGeneration).IsCrash | Should -BeFalse
+        } finally { Remove-Item -LiteralPath $f.Root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
 }
 
 Describe 'Invoke-RunnerOuterLoop refresh outcomes and automatic-refresh call sites (mocked dispatch)' {
@@ -628,13 +644,13 @@ Describe 'Invoke-RunnerOuterLoop refresh outcomes and automatic-refresh call sit
         $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 1 })
         $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null 6>$null
         Assert-MockCalled -CommandName Update-RunnerFaultStatus -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It -ParameterFilter {
-            $RunnerState -eq 'fault' -and -not $FailureClass -and $Reason -eq 'inner exited 1' }
+            $RunnerState -eq 'fault' -and $FailureClass -eq 'inner_exited' -and $Reason -eq 'inner exited 1' }
     }
     It 'keeps naming a recorded failure by the inner''s exit code' {
         $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 3 })
         $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null 6>$null
         Assert-MockCalled -CommandName Update-RunnerFaultStatus -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It -ParameterFilter {
-            $RunnerState -eq 'fault' -and -not $FailureClass -and $Reason -eq 'inner exited 3' }
+            $RunnerState -eq 'fault' -and $FailureClass -eq 'inner_exited' -and $Reason -eq 'inner exited 3' }
     }
     It 'closes a recorded clean cycle as a pass' {
         $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 })
@@ -810,7 +826,7 @@ Describe 'Invoke-RunnerOuterLoop refresh outcomes and automatic-refresh call sit
         $state = New-LoopState
         $null = Invoke-RunnerOuterLoop -State $state 3>$null 6>$null
         Assert-Equal -Expected ('a' * 32) -Actual $script:Dispatches[1].Handoff.tokenId -Because 'the handoff reaches the next dispatch'
-        Assert-MockCalled -CommandName Get-OuterCommitSha -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It
+        Assert-MockCalled -CommandName Get-OuterCommitSha -ModuleName Test.RunnerOuterLoop -Times 4 -Exactly -Scope It
         Assert-True (@($script:Logged) -contains 'KEY:runner.host_refresh_auto_pause_skipped') 'the skipped pause is logged'
         Assert-True (@($script:Logged) -contains 'KEY:runner.refresh_status_ensure_skipped') 'the re-ensure was skipped'
         Assert-False ($global:__trigger -contains 'status-start') 'the status starter was not consulted'

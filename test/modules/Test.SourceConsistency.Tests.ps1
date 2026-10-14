@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,14 @@ BeforeAll {
         $script:AmisadRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'alius-git/amisad.dev'
     }
     $script:SeedRoot = Join-Path $script:RepoRoot 'host/vmconfig'
+    # SQL comments open with `--` and CSS comments with `/* */`, so the `#` and
+    # `//` patterns elsewhere in this file never see them. A line that starts
+    # a dash run followed by whitespace, or ends with one, is a decorative rule
+    # or title; the native REGION form is the replacement. A CSS custom
+    # property such as `--fg-header` is not a rule, because no whitespace
+    # follows its dashes.
+    $script:SqlCssDividerPattern = '(?m)^[ \t]*(?:--[ \t]*-{4,}[ \t]*$|--[ \t]+--+[ \t]+(?!REGION:)\S|--[ \t]+(?!REGION:)[^\r\n]*[ \t]-{5,}[ \t]*$|/\*[ \t]*-{2,}(?=[ \t]|$)|/\*[^\r\n]*[ \t]-{5,}[ \t]*\*/)'
+    $script:SqlCssRegionBlankPattern = '(?m)^[ \t]*(?:--[ \t]+---[ \t]+REGION:[^\r\n]*|/\*[ \t]*REGION:[^\r\n]*)\r?\n[ \t]*\r?\n'
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
     Import-Module powershell-yaml
@@ -123,7 +131,7 @@ BeforeAll {
         $extensions = @('.ps1', '.psm1', '.psd1', '.sh', '.bash', '.yml', '.yaml',
             '.user-data', '.xml', '.go', '.js', '.cjs', '.mjs', '.ts', '.tsx', '.jsx',
             '.cs', '.py', '.html', '.css', '.service', '.timer', '.cmd', '.plist',
-            '.template', '.network-config', '.meta-data', '.ini', '.cfg', '.tf', '.tfvars', '.toml')
+            '.template', '.network-config', '.meta-data', '.ini', '.cfg', '.tf', '.tfvars', '.toml', '.sql')
         return [IO.Path]::GetExtension($leaf) -in $extensions -or
             $leaf -in @('Dockerfile', '.gitattributes', '.gitignore') -or
             $leaf.StartsWith('Dockerfile.', [StringComparison]::OrdinalIgnoreCase) -or
@@ -289,9 +297,15 @@ Describe 'Ubuntu installer parity' {
         $first = Get-NormalizedSource (Join-Path $script:RepoRoot "guest/ubuntu.server.24/ubuntu.server.24.$Workload.sh")
         $second = Get-NormalizedSource (Join-Path $script:RepoRoot "guest/ubuntu.server.26/ubuntu.server.26.$Workload.sh")
         $second | Should -BeExactly $first
+        $shared = Join-Path $script:RepoRoot "guest/shared/ubuntu.$Workload.sh"
+        $digest = (Get-FileHash -LiteralPath $shared -Algorithm SHA256).Hash.ToLowerInvariant()
+        foreach ($release in '24', '26') {
+            $entrypoint = Get-Content (Join-Path $script:RepoRoot "guest/ubuntu.server.$release/ubuntu.server.$release.$Workload.sh") -Raw
+            $entrypoint | Should -Match ([regex]::Escape('workflow="guest/shared/ubuntu.' + $Workload + '.sh"'))
+            $entrypoint | Should -Match ([regex]::Escape('expected="' + $digest + '"'))
+        }
         if ($Workload -eq 'k8s') {
-            $first | Should -Not -Match '(?m)^[ \t]*build-essential(?:[ \t\\]|$)'
-            $second | Should -Not -Match '(?m)^[ \t]*build-essential(?:[ \t\\]|$)'
+            (Get-Content $shared -Raw) | Should -Not -Match '(?m)^[ \t]*build-essential(?:[ \t\\]|$)'
         }
     }
 }
@@ -344,14 +358,14 @@ Describe 'Ubuntu test-sequence parity' {
             $first.workload.Count | Should -Be 5
             $second.workload.Count | Should -Be 6
             ($first.workload[2] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'inputTextAndEnter'; text = 'clear; sudo reboot now' } | ConvertTo-Json -Compress)
-            ($second.workload[2] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'inputTextAndEnter'; text = 'clear; sudo poweroff' } | ConvertTo-Json -Compress)
+            ($second.workload[2] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'stopVm'; timeoutSeconds = 120; forceOnTimeout = $true; frameIntervalSeconds = 30 } | ConvertTo-Json -Compress)
             ($second.workload[3] | ConvertTo-Json -Compress) | Should -BeExactly ($start | ConvertTo-Json -Compress)
             $second['workload'] = @($second.workload[0], $second.workload[1], $first.workload[2], $second.workload[4], $second.workload[5])
         } else {
             $first.workload.Count | Should -Be 2
             $second.workload.Count | Should -Be 4
             ($first.workload[1] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'sshExec'; command = 'sudo reboot now && while :; do sleep 1; done'; timeoutSeconds = 60; allowFailure = $true } | ConvertTo-Json -Compress)
-            ($second.workload[1] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'sshExec'; command = 'sudo poweroff'; allowFailure = $true } | ConvertTo-Json -Compress)
+            ($second.workload[1] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'stopVm'; timeoutSeconds = 120; forceOnTimeout = $true; frameIntervalSeconds = 30 } | ConvertTo-Json -Compress)
             ($second.workload[2] | ConvertTo-Json -Compress) | Should -BeExactly ($start | ConvertTo-Json -Compress)
             ($second.workload[3] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'sshWaitReady'; timeoutSeconds = 600 } | ConvertTo-Json -Compress)
             $second['workload'] = @($second.workload[0], $first.workload[1])
@@ -618,6 +632,17 @@ Describe 'Project workload parity' {
 }
 
 Describe 'Shared source regions' {
+    It 'keeps the shared SBOM implementation identical across the three workspace projects' {
+        foreach ($root in $script:ProjectRoot, $script:LinkRoot) {
+            Confirm-SiblingCheckout -Path $root
+            foreach ($relative in 'tools/Sync-Sbom.py', 'tools/sbom_dependencies.py', 'tools/sbom_provisioning.py') {
+                $canonical = Get-FileHash -LiteralPath (Join-Path $script:RepoRoot $relative) -Algorithm SHA256
+                $copy = Get-FileHash -LiteralPath (Join-Path $root $relative) -Algorithm SHA256
+                $copy.Hash | Should -BeExactly $canonical.Hash -Because "$relative has the same contract in all three repositories"
+            }
+        }
+    }
+
     It 'keeps service image wrappers identical within each provider' {
         foreach ($hostKind in 'windows.hyper-v', 'macos.utm', 'ubuntu.kvm') {
             $expected = $null
@@ -651,6 +676,16 @@ Describe 'Shared source regions' {
                         '(?m)^# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
                 $observed = @($regions | Where-Object { $_ -in $phases })
                 ($observed -join '|') | Should -BeExactly ($phases -join '|') -Because "$hostKind/$guest shares the replacement order"
+                $source = Get-ConsistencyWorkflowSource -Path $path
+                if ($hostKind -eq 'ubuntu.kvm' -and $guest -ne 'windows.11') {
+                    [regex]::Matches($source, '(?m)^\$guestBinding = Resolve-GuestHostBinding\r?$').Count | Should -Be 1
+                    $source | Should -Not -Match '(?m)^\$(?:networkName|YurunaHostIp|hostIp)\s*=\s*Get-(?:ExternalNetwork|BestHostIp|GuestReachableHostIp)\b'
+                }
+                if ($guest -eq 'amazon.linux.2023') {
+                    $seedPhases = @('Yuruna harness SSH key', 'Vault user password',
+                        'Yuruna host coordinates', 'Render user-data / meta-data', 'Generate cloud-init seed ISO')
+                    (($regions | Where-Object { $_ -in $seedPhases }) -join '|') | Should -BeExactly ($seedPhases -join '|')
+                }
             }
         }
     }
@@ -659,18 +694,17 @@ Describe 'Shared source regions' {
         $common = @('Log level from environment', 'Seek the base image',
             'Remove existing VM', 'Create copies and files for VM',
             'Copy base image -> per-VM disk', 'Grow the per-VM disk to 256 GB',
+            'Stage the cloud-init seed directory',
             'Yuruna harness SSH key', 'Vault admin password',
-            'Select the guest network', 'Generate cloud-init seed ISO',
+            'Select the guest network', 'Yuruna host coordinates', 'Generate cloud-init seed ISO',
             'Clean up temporary files')
         $providerPhases = @{
-            'windows.hyper-v' = @('Stage the cloud-init seed directory',
-                'Create and configure the Hyper-V VM', 'Start VM and wait for IP')
+            'windows.hyper-v' = @('Create and configure the Hyper-V VM', 'Start VM and wait for IP')
             'ubuntu.kvm' = @('libvirt-qemu search ACL on $HOME',
                 'Render user-data / meta-data',
                 'Create and configure the libvirt domain',
                 'Wait for VM IP')
-            'macos.utm' = @('Stage the cloud-init seed directory',
-                'Create and configure the UTM bundle (config.plist, QEMU backend)',
+            'macos.utm' = @('Create and configure the UTM bundle (config.plist, QEMU backend)',
                 'Guidance', 'Restore operator file ownership')
         }
         foreach ($hostKind in 'windows.hyper-v', 'ubuntu.kvm', 'macos.utm') {
@@ -707,7 +741,8 @@ Describe 'Shared source regions' {
         $phases = @('Confirm the service operation', 'Initialize service runtime',
             'Storage preflight', 'Resolve the VM builder', 'Start the host status service',
             'Verify the framework source', 'Create the VM', 'Configure Shared NAT forwarding',
-            'Probe service readiness', 'Evaluate service readiness')
+            'Probe service readiness', 'Recover the VM address', 'Evaluate service readiness',
+            'Publish service readiness', 'Collect failure diagnostics')
         foreach ($service in 'Stash', 'PoolControl', 'DownloadAgent') {
             $path = Join-Path $script:RepoRoot "test/service/Start-${service}ServiceVM.ps1"
             $regions = @([regex]::Matches((Get-ConsistencyWorkflowSource -Path $path),
@@ -736,7 +771,7 @@ Describe 'Shared source regions' {
 
     It 'keeps service guest lifecycle regions in the common order' {
         $names = @('Initialize environment', 'Detect architecture', 'Load retry helpers',
-            'Service user', 'Load service helpers', 'Service tunables', 'Storage paths', 'Package dependencies',
+            'Service user', 'Load service helpers', 'Service locale', 'Service tunables', 'Storage paths', 'Package dependencies',
             'Locate the daemon source', 'Build', 'Install the binary', 'Storage directories',
             'Environment file', 'systemd unit', 'Start the service and wait for readiness')
         foreach ($service in 'download-agent-service', 'pool-control-service', 'stash-service') {
@@ -892,6 +927,28 @@ Describe 'Shared source regions' {
         $findings | Should -BeNullOrEmpty -Because 'structural headers use the canonical REGION syntax without decorative rules'
     }
 
+    It 'has no legacy decorative dividers in SQL or CSS sources' {
+        $findings = @()
+        foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.sql', '.css')) {
+            $text = Get-ConsistencySourceText -Path $file.FullName
+            foreach ($match in [regex]::Matches($text, $script:SqlCssDividerPattern)) {
+                $findings += Format-SourceMatch -File $file -Text $text -Match $match
+            }
+        }
+        $findings | Should -BeNullOrEmpty -Because 'SQL and CSS headers use the native REGION form, not decorative -- or /* */ rules'
+    }
+
+    It 'leaves no blank line immediately after a native SQL or CSS REGION marker' {
+        $findings = @()
+        foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.sql', '.css')) {
+            $text = Get-ConsistencySourceText -Path $file.FullName
+            foreach ($match in [regex]::Matches($text, $script:SqlCssRegionBlankPattern)) {
+                $findings += Format-SourceMatch -File $file -Text $text -Match $match
+            }
+        }
+        $findings | Should -BeNullOrEmpty -Because 'a native SQL or CSS REGION marker belongs directly to the block it names'
+    }
+
     It 'uses the canonical recurring REGION vocabulary' {
         $pattern = '(?m)^[ \t]*(?:#|//)[ \t]*---[ \t]+REGION:[ \t]*(?:Install logging|Storage dirs|Cleanup temporary files|Log level from the environment)[ \t]*$'
         $findings = @()
@@ -1024,6 +1081,8 @@ Describe 'Consistency source inventory' {
         @{ Path = 'src/config.ts' },
         @{ Path = 'globalization/generated/powershell/en-US.psd1' },
         @{ Path = 'test/status/yuruna.common.css' },
+        @{ Path = 'example/text-to-sql/db/schema.sql' },
+        @{ Path = 'db/migrations/001-init.sql' },
         @{ Path = 'components/site/Dockerfile' },
         @{ Path = 'components/site/Dockerfile.debug' },
         @{ Path = 'tools/githooks/pre-commit' },
@@ -1050,6 +1109,7 @@ Describe 'Consistency source inventory' {
         @{ Path = 'src/obj/module.ps1' },
         @{ Path = 'test/status/runtime/generated.ps1' },
         @{ Path = '.test-results/generated.ps1' },
+        @{ Path = '.test-results/generated.sql' },
         @{ Path = 'test\status\runtime\generated.ps1' }
     ) {
         param($Path)
@@ -1063,6 +1123,50 @@ Describe 'Consistency source inventory' {
             'example/website/components/frontend/website/Dockerfile', 'tools/githooks/pre-commit') {
             $paths | Should -Contain (Join-Path $script:ProjectRoot $relative)
         }
+    }
+}
+
+Describe 'SQL and CSS divider fixtures' {
+    It 'flags <Name>' -ForEach @(
+        @{ Name = 'a SQL legacy title'; Text = '-- -- Reference tables -----' },
+        @{ Name = 'a SQL rule line'; Text = '-- ---------------------------------------------' },
+        @{ Name = 'a SQL title with a trailing rule'; Text = '-- Core entities ------------------------' },
+        @{ Name = 'a CSS legacy title'; Text = '/* -- Page header -------------------------------------------------------- */' },
+        @{ Name = 'a CSS rule opener'; Text = '/* --------------------------------------------------------------------------' },
+        @{ Name = 'a CSS trailing rule'; Text = '/* ---------- header chrome (both windows) ---------- */' }
+    ) {
+        param($Name, $Text)
+        $null = $Name
+        [regex]::IsMatch($Text, $script:SqlCssDividerPattern) | Should -BeTrue
+    }
+
+    It 'leaves <Name> alone' -ForEach @(
+        @{ Name = 'a SQL native region'; Text = '-- --- REGION: Reference tables' },
+        @{ Name = 'a SQL prose comment'; Text = '-- Yuruna Text-to-SQL example schema: a small SaaS-style' },
+        @{ Name = 'a CSS native region'; Text = '/* REGION: Page header */' },
+        @{ Name = 'a CSS custom property in prose'; Text = '/* --fg-header is white and stays white here, in both color schemes */' }
+    ) {
+        param($Name, $Text)
+        $null = $Name
+        [regex]::IsMatch($Text, $script:SqlCssDividerPattern) | Should -BeFalse
+    }
+
+    It 'flags a blank line after <Name>' -ForEach @(
+        @{ Name = 'a SQL region'; Text = "-- --- REGION: Seed data`n`nINSERT INTO geography VALUES (1);" },
+        @{ Name = 'a CSS region'; Text = "/* REGION: Page header */`r`n`r`n.page-header { color: red; }" }
+    ) {
+        param($Name, $Text)
+        $null = $Name
+        [regex]::IsMatch($Text, $script:SqlCssRegionBlankPattern) | Should -BeTrue
+    }
+
+    It 'accepts a region directly followed by content for <Name>' -ForEach @(
+        @{ Name = 'a SQL region'; Text = "-- --- REGION: Seed data`nINSERT INTO geography VALUES (1);" },
+        @{ Name = 'a CSS region'; Text = "/* REGION: Page header */`n.page-header { color: red; }" }
+    ) {
+        param($Name, $Text)
+        $null = $Name
+        [regex]::IsMatch($Text, $script:SqlCssRegionBlankPattern) | Should -BeFalse
     }
 }
 

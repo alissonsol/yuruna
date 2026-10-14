@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 429fb05c-3d83-4caa-aefe-d8655672e199
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -252,7 +252,7 @@ Describe 'host-memory preflight -- the arithmetic across host sizes' {
     It 'offers a lab only the levers a lab is allowed to pull' {
         $v = Get-ServiceVmMemoryVerdict -Service $script:PlanLab -HostMemoryMb 24576
         Assert-True ($v.Message -notmatch 'storage\.kind = none') `
-            "a lab needs the shares for its stash and its intent store, so setup rejects storage.kind = none for one"
+            "a lab needs the shares for its stash and its configuration store, so setup rejects storage.kind = none for one"
         Assert-True ($v.Message -match 'downloadAgentService\.enabled') 'the download agent is a lever a lab does have'
     }
     It 'offers a standalone host both of its levers, with what each one is worth' {

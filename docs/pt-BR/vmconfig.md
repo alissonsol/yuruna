@@ -1547,13 +1547,13 @@ Sinalizadores de habilitação de unattended-upgrades. Ambos os temporizadores (
 
 <a id="429f3d06-0040"></a>
 
-<a id="pool-intent-store-over-read-only-http"></a>
+<a id="pool-configuration-store-over-read-only-http"></a>
 
-### Armazenamento de intenção dos grupos por HTTP somente para leitura
+### Armazenamento de configuração dos grupos por HTTP somente para leitura
 
-Armazenamento de intenção dos grupos: servir o repositório Git bare SOMENTE PARA LEITURA pela LAN, usando o protocolo Git estático (dumb-HTTP) do apache. Os hospedeiros de grupos clonam/buscam http://<proxy>/pool-intent.git para conhecer a composição do grupo, desiredState e os repositórios de cada grupo. O repositório contém apenas intenção SEM SEGREDOS (pools.yml / guests.compatibility.yml); as gravações passam pela CLI de administração no proxy (um caminho local/file://), nunca por essa rota HTTP. Apenas RFC1918, reproduzindo a política de acesso de cachemgr.
+Armazenamento de configuração dos grupos: servir o repositório Git bare SOMENTE PARA LEITURA pela LAN, usando o protocolo Git estático (dumb-HTTP) do apache. Os hospedeiros de grupos clonam/buscam http://<proxy>/pool-configuration.git para conhecer a composição do grupo, configuredState e os repositórios de cada grupo. O repositório contém apenas configuração SEM SEGREDOS (pools.yml / guests.compatibility.yml); as gravações passam pela CLI de administração no proxy (um caminho local/file://), nunca por essa rota HTTP. Apenas RFC1918, reproduzindo a política de acesso de cachemgr.
 
-O `Alias` aponta para o NAS do grupo, não uma cópia local do proxy: o daemon pool-control-service executa em sua própria VM e só pode fazer PUSH para um local que monta, e esse compartilhamento é o que ele e este proxy montam para leitura e gravação. Apontar o apache para os mesmos bytes mantém um único armazenamento, para que um operador gravando intenção pela interface e um executor buscando-a não possam divergir. A rota retorna 404 enquanto o NAS não está montado, que é a resposta correta; uma cópia local desatualizada ocultaria a indisponibilidade de todos os executores.
+O `Alias` aponta para o NAS do grupo, não uma cópia local do proxy: o daemon pool-control-service executa em sua própria VM e só pode fazer PUSH para um local que monta, e esse compartilhamento é o que ele e este proxy montam para leitura e gravação. Apontar o apache para os mesmos bytes mantém um único armazenamento, para que um operador gravando configuração pela interface e um executor buscando-a não possam divergir. A rota retorna 404 enquanto o NAS não está montado, que é a resposta correta; uma cópia local desatualizada ocultaria a indisponibilidade de todos os executores.
 
 <a id="429f3d06-0041"></a>
 
@@ -1842,6 +1842,10 @@ Duas razões para NÃO incorporar isso ao squid-exporter:
 - squid-exporter lê os contadores de cachemgr do squid; offline_mode é uma diretiva de configuração, não um contador, portanto expô-lo exigiria uma bifurcação.
 - Quando o squid está INATIVO, as métricas de squid-exporter deixam de ser publicadas, e o Grafana mostra "No data" -- justamente quando o operador precisa saber se offline_mode deveria estar habilitado. Este exportador publica independentemente do squid, portanto o sinal sobrevive a uma falha do squid.
 
+`squid-meta-exporter.timer` atualiza `/var/www/html/squid-meta`; o Apache serve
+esse arquivo independentemente do Squid. Assim, o Prometheus ainda consegue
+coletar as leituras da porta e do modo de execução quando o Squid está indisponível.
+
 <a id="429f3d06-004b"></a>
 
 <a id="zot-manifest-canary-exporter"></a>
@@ -2028,6 +2032,11 @@ O banner ocupa uma linha de altura e nenhuma largura adicional. O seletor de int
 
 Idempotente por construção: um painel que já contém o banner tem apenas seu texto atualizado, nunca sua geometria, portanto o temporizador não pode empurrá-lo mais para baixo a cada execução. Os arquivos só são reescritos quando seu conteúdo muda e sempre por renomeação no mesmo diretório, para que o provedor de painéis nunca leia um arquivo parcial. [O ajuste automático dos quadros](#yuruna-hosts-dashboard-panel-autofit) reescreve o mesmo arquivo, e os dois concordam sem coordenação: o ajuste posiciona os quadros a partir da borda inferior do que estiver acima dos quadros por hospedeiro, isto é, o banner mais os cartões de resumo quando o banner existe, e apenas os cartões quando não existe.
 
+O serviço de identificação lê o ambiente fornecido pela inicialização e
+reescreve apenas o diretório de dashboards provisionados. Esse diretório é
+seu único caminho gravável; `PrivateNetwork` isola uma tarefa que não precisa
+de comunicação pela rede.
+
 <a id="429f3d06-0059"></a>
 
 <a id="squid-dashboard-inlined"></a>
@@ -2143,6 +2152,16 @@ folha do servidor.
 
 A chave de autenticação interna que protege o controle remoto, a superfície de envio POST /ingest do agregador e a obtenção de credenciais entre hospedeiros. Incorporada a `/etc/yuruna/internal-auth.key` (a substituição `INTERNAL_AUTH_KEY_PLACEHOLDER`) por New-VM a partir do cofre do hospedeiro que constrói a VM -- usuário lógico `internal-auth-key`, com as entradas antigas `lab-auth-token` e legadas `pool-auth-token` do cofre aceitas como alternativas, para que um hospedeiro inscrito sob qualquer um desses nomes lógicos continue funcionando; os daemons que leem o arquivo recorrem ao caminho antigo `/etc/yuruna/lab-auth.token` quando o novo está ausente, para que uma VM que ainda contém o caminho antigo continue funcionando até ser reconstruída. Quando o cofre não contém nenhum dos três, New-VM emite uma chave de autenticação interna aleatória e a armazena antes de incorporá-la, para que um proxy nunca seja construído com chave vazia; um proxy de chave vazia (não emite provas de controle, /ingest responde 503, o cartão Lab token do painel mostra "off") é um estado de falha diagnosticável, não um estado inicial normal. O agregador remove espaços em branco nas extremidades. Modo 0640 root:proxy: legível pelo agregador executado como proxy, não legível por todas as pessoas.
 
+**`host/macos.utm/guest.caching-proxy-service/New-VM.ps1`, `host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1`, `host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1`.**
+
+Se não houver um token armazenado, gere um e armazene-o imediatamente, para que
+o proxy nunca seja criado com um token vazio. Um token vazio impediria a emissão
+de provas de controle, manteria /ingest em 503, ocultaria o Lab token no painel
+e faria o controle remoto de cada novo hospedeiro receber 403. O hospedeiro que
+cria o proxy torna-se o primeiro membro inscrito no laboratório; os demais
+recebem o mesmo valor pelo Lab token do painel
+(pwsh test/lab/Set-LabToken.ps1).
+
 <a id="429f3d06-0060"></a>
 
 <a id="runcmd-errexit-leaks-across-items"></a>
@@ -2209,6 +2228,12 @@ Ambas as etapas são idempotentes, para que novas execuções não rotacionem a 
 
 Certificado folha TLS do pool-aggregator-service: emitir um certificado de servidor para a superfície :9400 do agregador (métricas + ingestão), assinado pela CA do squid acima (reutilizada -- nenhuma nova CA), para que o trecho da LAN seja criptografado e autenticado. Idempotente (sem rotação). SAN contém o IP LAN do proxy (os executores se conectam por IP) + 127.0.0.1 (Prometheus por loopback). A chave permanece proxy:proxy 600 (o agregador executa como proxy). Melhor esforço: uma falha de emissão não deixa certificado folha, e o agregador recorre a HTTP sem criptografia.
 
+Quando existe um certificado TLS, o agregador atende TLS e HTTP simples na
+mesma porta `:9400`, mantendo os links do navegador utilizáveis. A coleta local
+do Prometheus usa `insecure_skip_verify`: a autenticação do par não acrescenta
+uma fronteira em `127.0.0.1`, e a coleta funciona tanto com localhost quanto
+somente com endereços IP no SAN do certificado.
+
 <a id="429f3d06-0065"></a>
 
 <a id="resolve-pool-dashboard-aggregator-url"></a>
@@ -2254,6 +2279,11 @@ Publique a MESMA CA com um nome específico de grupo, para que um executor possa
 security.ubuntu.com limita requisições de linux-firmware (~330 MB) a ponto de toda instalação fria de convidado receber 429 nesse pacote. Obtê-lo antecipadamente pelo proxy local o coloca no squid antes de qualquer convidado solicitar, para que a primeira instalação seja servida pelo cache. Obtenha também o metapacote HWE, para que os .debs de kernel, modules-extra, headers e microcode sejam armazenados junto.
 
 Aguarde até 60s pelo listener do squid. O postinst do apt normalmente já o deixa ativo, mas a inicialização pode ser lenta na primeira execução.
+
+Se a porta nunca ficar disponível, a inicialização copia o journal do Squid
+para `cloud-init-output.log`. A busca por erros passa a mostrar causas como
+`EADDRINUSE` por declarações duplicadas de `http_port`, em vez de apenas
+relatar uma conexão TCP malsucedida.
 
 <a id="429f3d06-006a"></a>
 
@@ -2397,15 +2427,15 @@ Essas 24h não são o intervalo de tempo padrão do painel acima nem a janela de
 
 <a id="429f3d06-0079"></a>
 
-<a id="pool-intent-store-seeding"></a>
+<a id="pool-configuration-store-seeding"></a>
 
-### Inicialização do armazenamento de intenção dos grupos
+### Inicialização do armazenamento de configuração dos grupos
 
-O armazenamento de intenção dos grupos Yuruna é um repositório Git bare que os
+O armazenamento de configuração dos grupos Yuruna é um repositório Git bare que os
 hospedeiros dos grupos clonam e atualizam somente para leitura por HTTP, pela
-configuração Apache `yuruna-pool-intent`. A CLI de administração envia para cá a
-composição dos grupos e `desiredState`. Inicialize `main` com um `pools.yml`
-vazio usando `schemaVersion: 3`: um esquema antigo permite clonar o repositório,
+configuração Apache `yuruna-pool-configuration`. A CLI de administração envia para cá a
+composição dos grupos e `configuredState`. Inicialize `main` com um `pools.yml`
+vazio usando `schemaVersion: 4`: um esquema antigo permite clonar o repositório,
 mas falha na validação da primeira gravação administrativa. A inicialização
 ignora um repositório existente, e falhas na configuração do Git são toleradas
 para permitir que o provisionamento dos demais serviços continue.
@@ -2418,7 +2448,7 @@ opções de montagem. Essas opções também atribuem a propriedade; evite `chow
 que pode impor uma ACL exclusiva ao proprietário e bloquear a VM de controle
 do grupo que grava no mesmo compartilhamento.
 
-Crie o repositório apenas enquanto o NAS do grupo estiver montado. Inicializá-lo sob um ponto de montagem não montado colocaria a intenção no disco da VM; uma montagem posterior ocultaria esse repositório e deixaria inacessíveis as atualizações feitas nesse intervalo.
+Crie o repositório apenas enquanto o NAS do grupo estiver montado. Inicializá-lo sob um ponto de montagem não montado colocaria a configuração no disco da VM; uma montagem posterior ocultaria esse repositório e deixaria inacessíveis as atualizações feitas nesse intervalo.
 
 <a id="429f3d06-007a"></a>
 
@@ -2490,7 +2520,7 @@ Confirme que os temporizadores que controlam a frequência de 24 horas estão at
 
 ### Instalação do binário zot e ativação
 
-Instalação do zot (obtenção do binário + ativação systemd). ZOT_VERSION é fixado para reprodutibilidade, e o binário baixado só é instalado quando o seu SHA-256 corresponde a `ZOT_SHA256_AMD64` ou `ZOT_SHA256_ARM64`; uma divergência não deixa nenhum arquivo para trás. Os hashes ficam fixados no seed em vez de baixados junto com o binário, para que um artefato de release substituído não possa atestar a si mesmo. Para atualizar: leia https://github.com/project-zot/zot/releases, inclusive as mudanças de sync e compat, verifique se os nomes dos artefatos ainda correspondem a `zot-linux-{amd64,arm64}` (NÃO `-minimal` -- a extensão sync é necessária para cache pull-through sob demanda), altere ZOT_VERSION e copie os dois hashes do `checksums.sha256.txt` da release, depois execute `ZOT_BINARY=<novo binário zot-linux> python3 host/vmconfig/tests/test_collector_seed.py`: ele confere o binário com o seu hash fixado e sincroniza uma manifest list Docker pela tabela de roteamento do seed. O download do binário vai DIRETAMENTE ao GitHub (não pelo próprio squid desta VM -- dependência circular) e ocorre uma vez por construção de VM, portanto a transferência de ~220 MB não se repete.
+Instalação do zot (obtenção do binário + ativação systemd). ZOT_VERSION é fixado para reprodutibilidade, e o binário baixado só é instalado quando o seu SHA-256 corresponde a `ZOT_SHA256_AMD64` ou `ZOT_SHA256_ARM64`; uma divergência não deixa nenhum arquivo para trás. Os hashes ficam fixados no seed em vez de baixados junto com o binário, para que um artefato de release substituído não possa atestar a si mesmo. Para atualizar: leia https://github.com/project-zot/zot/releases, inclusive as mudanças de sync e compat, verifique se os nomes dos artefatos ainda correspondem a `zot-linux-{amd64,arm64}` (NÃO `-minimal` -- a extensão sync é necessária para cache pull-through sob demanda), altere ZOT_VERSION e copie os dois hashes do `checksums.sha256.txt` da release, depois faça o commit: o hook de pre-commit executa `python3 tools/Test-ZotRelease.py`, que baixa a release fixada uma vez, sincroniza as imagens de teste pela tabela de roteamento do seed com o próprio autoteste de sincronização do seed e registra a aprovação que o gate de release exige (veja [When a zot release cannot sync the lab's images](../caching.md#when-a-zot-release-cannot-sync-the-labs-images)). Um host pode instalar outra release no lugar, por meio de `vmStart.cachingProxyZotVersion` e `vmStart.cachingProxyZotSha256`; o binário então só é instalado quando corresponde a esse checksum. Depois que o zot inicia, `zot-sync-selftest.py --heal` sincroniza as imagens de teste por ele e publica o veredito em `/cache-health` e `/zot-meta`. O download do binário vai DIRETAMENTE ao GitHub (não pelo próprio squid desta VM -- dependência circular) e ocorre uma vez por construção de VM, portanto a transferência de ~220 MB não se repete.
 
 Sem uma conta Docker Hub configurada, remova `credentialsFile` do JSON do zot antes de excluir o arquivo de credencial. Uma sequência interrompida então deixa um arquivo não usado, em vez de uma configuração que referencia um arquivo ausente e impede o zot de iniciar. A reescrita do JSON deve preservar a ordem de `registries[]`, pois esse vetor é a tabela de roteamento das origens. Ative o pré-aquecimento após a ativação, em vez de esperar pelo primeiro conjunto frio durante cloud-init.
 
@@ -2608,6 +2638,16 @@ Como a etapa PowerShell, esta faz o melhor esforço, e sua última linha informa
 O destino deve permanecer em um dos caminhos pesquisados pelo daemon quando `--fido-script` está vazio. Movê-lo para outro lugar desabilita a família **silenciosamente**, pois Fido ausente é um estado suportado, não um erro.
 
 ---
+
+**`host/macos.utm/guest.windows.11/Get-Image.ps1`, `host/windows.hyper-v/guest.windows.11/Get-Image.ps1`.**
+
+Altere as configurações do Fido para baixar outra edição ou idioma.
+O Fido fica fixado em uma versão com tag, em vez da referência móvel `master`,
+e o hash do script é verificado antes da execução. Fido.ps1 executa com os
+privilégios deste script; portanto, uma referência móvel sem fixação permitiria
+executar código remoto sem verificação. Ao adotar uma nova versão do Fido,
+atualize a tag na URL e substitua o hash pelo do novo arquivo:
+(Get-FileHash -Algorithm SHA256).Hash.
 
 <a id="429f3d06-008d"></a>
 
@@ -2891,6 +2931,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../../README.md)

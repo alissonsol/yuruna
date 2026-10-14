@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 421a00db-6a8c-407e-7559-b4d0f0043856
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -487,7 +487,7 @@
         }
         ').'
     )
-    'configsync.operator_9e1f86637c4a7e09' = 'deixou-o vazio (por padrão para <runtime>/pool-intent)'
+    'configsync.operator_9e1f86637c4a7e09' = 'mantido vazio (o padrão é <runtime>/pool-configuration)'
     'configsync.operator_9e44a801c5e38eb2' = '(descartado -- a grafia atual já estava presente)'
     'configsync.operator_a01d26f897759fcf' = @(
         @{
@@ -498,13 +498,13 @@
         ' não forneceu credenciais para convergir'
     )
     'configsync.operator_a07da31688eb8071' = @(
-        'Sync-HostConfiguration: recusando-se a copiar uma configuração antiga do '
+        'Sync-HostConfiguration: a cópia de uma configuração desatualizada de '
         @{
             'arg' = 'referenceHost'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' no modo -NonInteractive. Repetir com -AllowStaleReference para aceitar a deriva, ou atualizar o host de referência primeiro.'
+        ' foi recusada no modo -NonInteractive. Execute novamente com -AllowStaleReference para aceitar a configuração desatualizada ou atualize primeiro o host de referência.'
     )
     'configsync.operator_a610cd0fd716e5f9' = 'Sync-HostConfiguration: plataforma não suportada.'
     'configsync.operator_a693215e036db1c5' = @(

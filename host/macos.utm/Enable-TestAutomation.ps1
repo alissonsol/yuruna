@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42ff1bc2-5f12-4c34-8a53-a45f6186f94f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,6 +77,10 @@ $ErrorActionPreference = "Stop"
 # display-sleep / screen-lock / hot-corner / Spaces decisions print
 # nothing and the operator can't tell what changed.
 $InformationPreference = 'Continue'
+
+# No platform guard, unlike the sibling hosts: Test.HostSettingsNoPrompt runs
+# this file byte for byte on every host with the macOS-only modules stubbed,
+# and an $IsMacOS check would end that coverage off a Mac.
 
 # Captured before anything below can change it: the finally block puts the
 # caller's value back, or removes the variable when the caller had none, so an

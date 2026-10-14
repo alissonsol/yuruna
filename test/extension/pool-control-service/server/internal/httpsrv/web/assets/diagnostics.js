@@ -61,7 +61,7 @@
     var checks = d.checks || [];
     for (var i = 0; i < checks.length; i++) { rows.appendChild(checkRow(checks[i])); }
 
-    var p = d.intentProbe || {};
+    var p = d.configurationProbe || {};
     var probe = document.getElementById('probe-rows');
     probe.textContent = '';
     probe.appendChild(streamRow('argv', (p.argv || []).join('  ')));
@@ -79,7 +79,7 @@
     env.appendChild(envRow(window.YurunaI18n.t("pool.framework_version"), e.frameworkVersion));
     env.appendChild(envRow(window.YurunaI18n.t("pool.framework_revision"), e.frameworkRevision));
     env.appendChild(envRow(window.YurunaI18n.t("pool.state_dir"), e.stateDir));
-    env.appendChild(envRow(window.YurunaI18n.t("pool.intent_git_url"), e.intentGitUrl));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.configuration_git_url"), e.configurationGitUrl));
     env.appendChild(envRow(window.YurunaI18n.t("pool.aggregator_url"), e.aggregatorUrl));
     env.appendChild(envRow(window.YurunaI18n.t("pool.host_id_7b624c8f"), e.hostId));
     env.appendChild(envRow(window.YurunaI18n.t("pool.service_user"), e.user));

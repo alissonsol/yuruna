@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42df5581-572e-4f0e-9e2c-5cfd797e9fbf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,8 +52,7 @@ $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $script:guestScripts = @{
-    ubuntu24  = Join-Path $repoRoot 'guest/ubuntu.server.24/ubuntu.server.24.k8s.sh'
-    ubuntu26  = Join-Path $repoRoot 'guest/ubuntu.server.26/ubuntu.server.26.k8s.sh'
+    ubuntu    = Join-Path $repoRoot 'guest/shared/ubuntu.k8s.sh'
     windows11 = Join-Path $repoRoot 'guest/windows.11/windows.11.k8s.ps1'
 }
 $script:regionMarker = '# --- REGION: Create the HTTPS development certificate'
@@ -261,8 +260,7 @@ try {
 
 Describe 'The guest k8s scripts carry no fixed certificate password' {
     It 'has no literal password or openssl password argument in <Name>' -ForEach @(
-        @{ Name = 'ubuntu.server.24.k8s.sh'; Key = 'ubuntu24' }
-        @{ Name = 'ubuntu.server.26.k8s.sh'; Key = 'ubuntu26' }
+        @{ Name = 'ubuntu.k8s.sh'; Key = 'ubuntu' }
         @{ Name = 'windows.11.k8s.ps1'; Key = 'windows11' }
     ) {
         # Booleans, not -Not -Match: a failing -Match would print the whole script into the result file.
@@ -272,8 +270,7 @@ Describe 'The guest k8s scripts carry no fixed certificate password' {
         [regex]::IsMatch($text, '(?i)[''"]password[''"]') | Should -BeFalse -Because 'the literal password is not a quoted string in the script'
     }
     It 'passes no openssl password on a command line in <Name>' -ForEach @(
-        @{ Name = 'ubuntu.server.24.k8s.sh'; Key = 'ubuntu24' }
-        @{ Name = 'ubuntu.server.26.k8s.sh'; Key = 'ubuntu26' }
+        @{ Name = 'ubuntu.k8s.sh'; Key = 'ubuntu' }
     ) {
         $text = [IO.File]::ReadAllText($script:guestScripts[$Key])
         [regex]::IsMatch($text, '\bpass:') | Should -BeFalse -Because 'pass: puts the value on the command line'
@@ -283,34 +280,36 @@ Describe 'The guest k8s scripts carry no fixed certificate password' {
 
 Describe 'The Ubuntu certificate region' {
     BeforeAll {
-        $script:region24 = Get-RegionText -Path $script:guestScripts.ubuntu24 -Through $script:ubuntuRegionEnd
-        $script:region26 = Get-RegionText -Path $script:guestScripts.ubuntu26 -Through $script:ubuntuRegionEnd
+        $script:ubuntuRegion = Get-RegionText -Path $script:guestScripts.ubuntu -Through $script:ubuntuRegionEnd
     }
-    It 'is the same in the 24.04 and 26.04 scripts' {
-        $script:region26 | Should -BeExactly $script:region24
-    }
-    It 'ends the executable fixture at certificate ownership before cluster readiness' {
-        foreach ($region in @($script:region24, $script:region26)) {
-            $region.TrimEnd().EndsWith($script:ubuntuRegionEnd) | Should -BeTrue
-            $region | Should -Not -Match '(?m)^wait_for_kubernetes_network$|\bkubectl\b'
+    It 'is reached through the checksum-pinned workflow on both Ubuntu releases' {
+        $digest = (Get-FileHash -LiteralPath $script:guestScripts.ubuntu -Algorithm SHA256).Hash.ToLowerInvariant()
+        foreach ($release in '24', '26') {
+            $entrypoint = Get-Content (Join-Path $repoRoot "guest/ubuntu.server.$release/ubuntu.server.$release.k8s.sh") -Raw
+            $entrypoint | Should -Match 'workflow="guest/shared/ubuntu\.k8s\.sh"'
+            $entrypoint | Should -Match ([regex]::Escape('expected="' + $digest + '"'))
         }
     }
+    It 'ends the executable fixture at certificate ownership before cluster readiness' {
+        $script:ubuntuRegion.TrimEnd().EndsWith($script:ubuntuRegionEnd) | Should -BeTrue
+        $script:ubuntuRegion | Should -Not -Match '(?m)^wait_for_kubernetes_network$|\bkubectl\b'
+    }
     It 'draws a random 32-byte password and hands it to openssl through the environment of that one command' {
-        $script:region24 | Should -Match '(?m)^PFX_PASSWORD="\$\(openssl rand -hex 32\)"$'
-        $script:region24 | Should -Match '(?m)^PFX_PASSWORD="\$PFX_PASSWORD" openssl pkcs12 -export .* -passout env:PFX_PASSWORD$'
-        $script:region24 | Should -Not -Match '(?m)^export PFX_PASSWORD'
+        $script:ubuntuRegion | Should -Match '(?m)^PFX_PASSWORD="\$\(openssl rand -hex 32\)"$'
+        $script:ubuntuRegion | Should -Match '(?m)^PFX_PASSWORD="\$PFX_PASSWORD" openssl pkcs12 -export .* -passout env:PFX_PASSWORD$'
+        $script:ubuntuRegion | Should -Not -Match '(?m)^export PFX_PASSWORD'
     }
     It 'writes the sidecar beside the PFX under umask 077 and replaces any earlier file' {
-        $script:region24 | Should -Match '(?m)^rm -f "\$PFX_FILE\.password"$'
-        $script:region24 | Should -Match '(?m)^\(umask 077; printf ''%s\\n'' "\$PFX_PASSWORD" > "\$PFX_FILE\.password"\)$'
-        $script:region24 | Should -Match '(?m)^PFX_FILE="\$PFX_DIR/aspnetapp\.pfx"$'
+        $script:ubuntuRegion | Should -Match '(?m)^rm -f "\$PFX_FILE\.password"$'
+        $script:ubuntuRegion | Should -Match '(?m)^\(umask 077; printf ''%s\\n'' "\$PFX_PASSWORD" > "\$PFX_FILE\.password"\)$'
+        $script:ubuntuRegion | Should -Match '(?m)^PFX_FILE="\$PFX_DIR/aspnetapp\.pfx"$'
     }
     It 'gives the real user the sidecar with the rest of the directory and removes the key and certificate' {
-        $script:region24 | Should -Match '(?m)^chown -R "\$REAL_USER:\$REAL_USER" "\$PFX_DIR"$'
-        $script:region24 | Should -Match '(?m)^rm -f "\$PFX_DIR/aspnetapp\.key" "\$PFX_DIR/aspnetapp\.crt"$'
+        $script:ubuntuRegion | Should -Match '(?m)^chown -R "\$REAL_USER:\$REAL_USER" "\$PFX_DIR"$'
+        $script:ubuntuRegion | Should -Match '(?m)^rm -f "\$PFX_DIR/aspnetapp\.key" "\$PFX_DIR/aspnetapp\.crt"$'
     }
     It 'pauses xtrace around the only lines that hold the password' {
-        $region = $script:region24
+        $region = $script:ubuntuRegion
         $off = $region.IndexOf("`nset +x`n")
         $generate = $region.IndexOf('openssl rand -hex 32')
         $forget = $region.IndexOf('unset PFX_PASSWORD')
@@ -322,7 +321,7 @@ Describe 'The Ubuntu certificate region' {
         $region | Should -Match '(?m)^case \$- in \*x\*\) PFX_XTRACE=1 ;; \*\) PFX_XTRACE=0 ;; esac$'
     }
     It 'prints the password only into the sidecar' {
-        foreach ($line in ($script:region24 -split "`n")) {
+        foreach ($line in ($script:ubuntuRegion -split "`n")) {
             if ($line -match '^\s*#') { continue }
             if ($line -match '\b(echo|printf)\b' -and $line -match 'PFX_PASSWORD') {
                 $line | Should -Match '> "\$PFX_FILE\.password"' -Because 'the only command that outputs the password writes it to the sidecar'
@@ -330,8 +329,7 @@ Describe 'The Ubuntu certificate region' {
         }
     }
     It 'is pure ASCII with LF line ends and no byte-order mark in <Name>' -ForEach @(
-        @{ Name = 'ubuntu.server.24.k8s.sh'; Key = 'ubuntu24' }
-        @{ Name = 'ubuntu.server.26.k8s.sh'; Key = 'ubuntu26' }
+        @{ Name = 'ubuntu.k8s.sh'; Key = 'ubuntu' }
     ) {
         $bytes = [IO.File]::ReadAllBytes($script:guestScripts[$Key])
         @($bytes | Where-Object { $_ -gt 127 }).Count | Should -Be 0 -Because 'the guest reads these bytes through a console and a hash'
@@ -456,7 +454,7 @@ set -euo pipefail
 chown() { printf '%s\n' "$*" >> "$CHOWN_LOG"; }
 '@
         $driver = Join-Path $script:work 'region.sh'
-        $script:bashRegion = Get-RegionText -Path $script:guestScripts.ubuntu24 -Through $script:ubuntuRegionEnd
+        $script:bashRegion = Get-RegionText -Path $script:guestScripts.ubuntu -Through $script:ubuntuRegionEnd
         $driverText = ($prelude + "`n" + $script:bashRegion + "`n").Replace("`r`n", "`n")
         [IO.File]::WriteAllText($driver, $driverText, [Text.UTF8Encoding]::new($false))
         $posix = { param($path) $path.Replace('\', '/') }

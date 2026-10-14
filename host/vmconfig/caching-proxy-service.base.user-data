@@ -3,11 +3,11 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
 # See https://yuruna.link/429f3d06-0032
-# See https://yuruna.link/429f3d06-0033
 # --- REGION: hostname
+# See https://yuruna.link/429f3d06-0033
 hostname: yuruna-caching-proxy-service
-# See https://yuruna.link/429f3d06-0034
 # --- REGION: users
+# See https://yuruna.link/429f3d06-0034
 users:
   - name: caching-proxy-service-admin
     gecos: caching-proxy-service debug user
@@ -27,8 +27,8 @@ chpasswd:
       type: text
 # --- REGION: ssh_pwauth
 ssh_pwauth: true
-# See https://yuruna.link/429f3d06-0035
 # --- REGION: apt
+# See https://yuruna.link/429f3d06-0035
 apt:
   sources:
     grafana.list:
@@ -95,6 +95,7 @@ packages:
   - acl
   - golang-go
   # --- REGION: https://yuruna.link/429f3d06-003a
+  # Network tools support console and SSH diagnostics.
   - net-tools       # ifconfig, netstat, route, arp
   - iputils-ping    # ping, ping6
   # --- REGION: https://yuruna.link/429f3d06-003b
@@ -109,7 +110,7 @@ packages:
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 # --- REGION: write_files
 write_files:
-  # See https://yuruna.link/4220a755-004c
+  # --- REGION: https://yuruna.link/4220a755-004c
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
     owner: root:root
@@ -129,7 +130,7 @@ write_files:
       // installs unattended-upgrades and arms the apt-daily timers, which can
       // hold the lock during first boot.
       DPkg::Lock::Timeout "300";
-  # See https://yuruna.link/429f3d06-003f
+  # --- REGION: https://yuruna.link/429f3d06-003f
   - path: /etc/apt/apt.conf.d/20auto-upgrades
     permissions: '0644'
     owner: root:root
@@ -137,20 +138,21 @@ write_files:
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
-  # See https://yuruna.link/429f3d06-0040
-  - path: /etc/apache2/conf-available/yuruna-pool-intent.conf
+  # --- REGION: https://yuruna.link/429f3d06-0040
+  - path: /etc/apache2/conf-available/yuruna-pool-configuration.conf
     permissions: '0644'
     owner: root:root
     content: |
-      Alias /pool-intent.git /mnt/ypool-nas/pool-intent.git
-      <Directory /mnt/ypool-nas/pool-intent.git>
+      Alias /pool-configuration.git /mnt/ypool-nas/pool-configuration.git
+      Alias /pool-intent.git /mnt/ypool-nas/pool-configuration.git
+      <Directory /mnt/ypool-nas/pool-configuration.git>
           Options +Indexes
           Require ip 127.0.0.1
           Require ip 10.0.0.0/8
           Require ip 172.16.0.0/12
           Require ip 192.168.0.0/16
       </Directory>
-  # See https://yuruna.link/429f3d06-0037
+  # --- REGION: https://yuruna.link/429f3d06-0037
   - path: /etc/apache2/conf-available/yuruna-landing.conf
     permissions: '0644'
     owner: root:root
@@ -158,7 +160,8 @@ write_files:
       # --- REGION: https://yuruna.link/42f6b05f-0044
       ProxyRequests Off
       ProxyPreserveHost On
-      # --- REGION: https://yuruna.link/42f6b05f-0044
+      # --- REGION: Directory
+      # See https://yuruna.link/42f6b05f-0044
       <Directory /var/www/html>
           RewriteEngine On
           RewriteRule ^(index\.html)?$ http://127.0.0.1:9310/landing [P,L]
@@ -166,7 +169,7 @@ write_files:
       # The daemon being down must read as an error on the landing page alone,
       # not as a proxy that retries forever while the operator waits.
       ProxyTimeout 5
-  # See https://yuruna.link/429f3d06-0041
+  # --- REGION: https://yuruna.link/429f3d06-0041
   - path: /etc/squid/conf.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -340,7 +343,7 @@ write_files:
       # would clutter the client log, but without it the VM's own egress leaves
       # no trace and a stalled local service cannot be told from a stalled client.
       access_log stdio:/var/log/squid/yuruna_loopback.log yuruna yuruna_selfscrape
-  # See https://yuruna.link/42f6b05f-0016
+  # --- REGION: https://yuruna.link/42f6b05f-0016
   - path: /usr/share/squid/errors/templates/ERR_YURUNA_NO_UPSTREAM
     permissions: '0644'
     owner: root:root
@@ -414,7 +417,7 @@ write_files:
           exit 2
           ;;
       esac
-  # See https://yuruna.link/429f3d06-0046
+  # --- REGION: https://yuruna.link/429f3d06-0046
   - path: /etc/default/prometheus
     permissions: '0644'
     owner: root:root
@@ -454,7 +457,7 @@ write_files:
         - job_name: zot
           static_configs:
             - targets: ['localhost:5000']
-        # Squid metadata: timer-driven script publishes /var/www/html/squid-meta (Prom text format, gauges squid_listening + squid_offline_mode_configured); Prometheus scrapes it via Apache so the offline-mode signal survives even when squid is down.
+        # See https://yuruna.link/429f3d06-004a
         - job_name: squid_meta
           metrics_path: /squid-meta
           static_configs:
@@ -469,7 +472,7 @@ write_files:
         - job_name: node
           static_configs:
             - targets: ['localhost:9100']
-        # pool-aggregator-service: multi-host pool collector on :9400 (TLS via proxy-CA leaf when present -- served alongside plain HTTP on the same port for the browser deep-links -- else plain HTTP only). Loopback scrape uses insecure_skip_verify -- peer authentication is moot on 127.0.0.1 and it works whether the leaf SAN lists localhost or only IPs.
+        # See https://yuruna.link/429f3d06-0064
         - job_name: pool-aggregator-service
           scheme: https
           tls_config:
@@ -491,7 +494,7 @@ write_files:
             - source_labels: [__name__]
               regex: 'up|scrape_.*|windows_memory_.*|windows_cpu_time_total|windows_logical_disk_.*|windows_os_(info|hostname)|windows_exporter_(build_info|collector_success|collector_duration_seconds|scrape_collector_success|scrape_duration_seconds)|windows_hyperv_hypervisor_(logical_processor_(time_total|total_run_time_total|context_switches_total)|root_virtual(_processor)?_(time_total|cpu_wait_time_per_dispatch_total)|virtual_processor_((mode_)?time_total|(total_)?run_time_total|cpu_wait_time_per_dispatch_total))'
               action: keep
-  # See https://yuruna.link/429f3d06-0047
+  # --- REGION: https://yuruna.link/429f3d06-0047
   - path: /etc/loki/config.yml
     permissions: '0644'
     owner: root:root
@@ -546,7 +549,7 @@ write_files:
         working_directory: /var/lib/loki/compactor
         retention_enabled: true
         delete_request_store: filesystem
-  # See https://yuruna.link/429f3d06-0048
+  # --- REGION: https://yuruna.link/429f3d06-0048
   # Converted with Alloy 1.20.0; preserve the legacy offsets on migration.
   - path: /etc/alloy/config.alloy
     permissions: '0644'
@@ -661,13 +664,13 @@ write_files:
       [Service]
       SupplementaryGroups=proxy zot
       Environment="CUSTOM_ARGS=--server.http.listen-addr=127.0.0.1:9080 --disable-reporting"
-  # See https://yuruna.link/429f3d06-004a
+  # --- REGION: https://yuruna.link/429f3d06-004a
   - path: /usr/local/bin/squid-meta-exporter.sh
     permissions: '0755'
     owner: root:root
     content: |
       #!/bin/bash
-      # Yuruna squid meta exporter: probes runtime config via cachemgr, writes /var/www/html/squid-meta (Prom text format); driven by squid-meta-exporter.timer.
+      # See https://yuruna.link/429f3d06-004a
       set +e
       TMP=$(mktemp)
       trap 'rm -f "$TMP"' EXIT
@@ -731,7 +734,7 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
-  # See https://yuruna.link/429f3d06-004b
+  # --- REGION: https://yuruna.link/429f3d06-004b
   - path: /usr/local/bin/zot-meta-exporter.sh
     permissions: '0755'
     owner: root:root
@@ -1112,6 +1115,20 @@ write_files:
           fi
       } >> "$TMP"
 
+      # The sync self-test writes its own series: whether this zot release
+      # syncs the probe images, and what zot's log asked for when it did not.
+      SELFTEST_PROM=/var/lib/yuruna/zot-selftest.prom
+      SELFTEST_TXT=/var/lib/yuruna/zot-selftest.txt
+      if [ -r "$SELFTEST_PROM" ]; then
+          cat "$SELFTEST_PROM" >> "$TMP"
+      else
+          {
+              echo '# HELP yuruna_zot_selftest_available 1 when the zot sync self-test has a result on this cache'
+              echo '# TYPE yuruna_zot_selftest_available gauge'
+              echo 'yuruna_zot_selftest_available 0'
+          } >> "$TMP"
+      fi
+
       install -m 0644 "$TMP" /var/www/html/zot-meta
 
       # Mirror the metrics as unauthenticated plain text for first-look cache triage.
@@ -1119,6 +1136,13 @@ write_files:
           echo "yuruna caching-proxy health -- $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo
           echo "zot /v2/ liveness            : $( [ "$V2_UP" = 1 ] && echo up || echo DOWN )"
+          # Right under liveness: /v2/ stays up while an incompatible release
+          # refuses every image, and this is the line that says so.
+          if [ -r "$SELFTEST_TXT" ]; then
+              cat "$SELFTEST_TXT"
+          else
+              echo "zot sync self-test           : not run yet -- it runs when zot is installed and after each warm run"
+          fi
           # A zero status code means the probe hit its cap with no answer at all,
           # which reads as a nonsense HTTP status unless it is spelled out.
           if [ "$MANIFEST_CODE" = "0" ]; then
@@ -1298,7 +1322,7 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
-  # See https://yuruna.link/429f3d06-004c
+  # --- REGION: https://yuruna.link/429f3d06-004c
   - path: /usr/local/bin/zot-prewarm.sh
     permissions: '0755'
     owner: root:root
@@ -1532,6 +1556,12 @@ write_files:
       } > "$META_TMP"
       install -m 0644 "$META_TMP" "$META_FILE"
 
+      # An upstream can change the manifest format it publishes long after zot
+      # was installed, so each warm run repeats the sync self-test. It runs
+      # under this run's lock: a repair restarts zot, which must not happen in
+      # the middle of a warm request.
+      [ -x /usr/local/bin/zot-sync-selftest.py ] && /usr/local/bin/zot-sync-selftest.py --heal --quiet
+
       # --- REGION: https://yuruna.link/429f3d06-004c
       [ -x /usr/local/bin/zot-meta-exporter.sh ] && /usr/local/bin/zot-meta-exporter.sh
       exit 0
@@ -1572,7 +1602,481 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
-  # See https://yuruna.link/429f3d06-004d
+  - path: /etc/zot/yuruna-sync-probes.list
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # Images zot-sync-selftest.py syncs to prove the installed zot release can serve
+      # the lab: one per upstream the guests pull from, covering both manifest formats
+      # those registries publish. A release that refuses a format refuses every image
+      # in it, so one image per format and upstream is enough.
+      # <upstream>          <repository>          <tag>
+      registry.k8s.io       pause                 3.10.2     # Docker manifest list; the kubeadm control plane
+      mcr.microsoft.com     dotnet/runtime-deps   10.0       # Docker manifest list; .NET workloads
+      ghcr.io               flannel-io/flannel    v0.28.10   # OCI image index; the flannel CNI
+      mirror.gcr.io         library/registry      2          # OCI image index; the workload support image
+  - path: /usr/local/bin/zot-sync-selftest.py
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/usr/bin/env python3
+      """Sync the probe images through zot and say whether this zot release can serve the lab.
+
+      zot answers GET /v2/ and accepts its configuration under `zot verify` while
+      refusing every image whose manifest format that configuration does not allow,
+      so only a real sync shows whether a release fits the configuration it runs
+      with. Each probe asks for a tag with ns= (the form containerd sends), then for
+      the tag's linux/amd64 child by digest, then for that child's config blob. A
+      refusal is explained from zot's own log, which names the http.compat mode zot
+      wants when that is the cause.
+
+      The caching-proxy-service VM runs this against its installed zot when zot is
+      installed and after each warm run. tools/Test-ZotRelease.py runs the same file
+      against a local zot to qualify a release before the seed pins it.
+
+      Writes zot-selftest.json, zot-selftest.prom and zot-selftest.txt to
+      --state-dir. With --heal, an http.compat mode zot's log asks for is added to
+      --config, zot is restarted, and every probe runs again.
+
+      Exit status: 0 every probe synced, also after a repair; 1 zot refused a probe
+      or a probe image is gone; 2 no verdict, because zot or an upstream did not
+      answer.
+      """
+      import argparse
+      import json
+      import os
+      import platform
+      import re
+      import shlex
+      import shutil
+      import subprocess
+      import sys
+      import time
+      import urllib.error
+      import urllib.parse
+      import urllib.request
+
+      ACCEPT = ', '.join([
+          'application/vnd.oci.image.index.v1+json',
+          'application/vnd.oci.image.manifest.v1+json',
+          'application/vnd.docker.distribution.manifest.list.v2+json',
+          'application/vnd.docker.distribution.manifest.v2+json',
+      ])
+      COMPAT = re.compile(r'requires http\.compat ([A-Za-z0-9]+)')
+      # A mode name read out of a log line is written into zot's configuration, so
+      # only a plain word qualifies.
+      MODE = re.compile(r'^[a-z0-9]{1,32}$')
+      LABEL = 'zot sync self-test           : '
+      # zot is local and must never be reached through a proxy from the environment;
+      # an upstream is reached the way zot reaches it, which honors that proxy.
+      ZOT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+      UPSTREAM_OPENER = urllib.request.build_opener()
+
+
+      def fetch(opener, url, timeout, accept=ACCEPT):
+          request = urllib.request.Request(url, headers={'Accept': accept} if accept else {})
+          try:
+              with opener.open(request, timeout=timeout) as response:
+                  return response.status, response.headers.get('Content-Type', ''), response.read()
+          except urllib.error.HTTPError as error:
+              media = error.headers.get('Content-Type', '') if error.headers else ''
+              return error.code, media, error.read()
+          except Exception as error:  # refused connection, reset, timeout: no HTTP answer at all
+              return 0, '', str(error).encode('utf-8', 'replace')
+
+
+      def read_probes(path):
+          probes = []
+          with open(path, encoding='utf-8') as handle:
+              for line in handle:
+                  fields = line.split('#', 1)[0].split()
+                  if not fields:
+                      continue
+                  if len(fields) != 3:
+                      raise SystemExit('zot-sync-selftest: {0}: expected "<upstream> <repository> <tag>", got: {1}'.format(path, line.strip()))
+                  probes.append(tuple(fields))
+          if not probes:
+              raise SystemExit('zot-sync-selftest: {0} names no probe image'.format(path))
+          return probes
+
+
+      def read_release(path):
+          values = {}
+          if path and os.path.isfile(path):
+              with open(path, encoding='utf-8') as handle:
+                  for line in handle:
+                      key, _, value = line.strip().partition('=')
+                      values[key] = value.strip('"\'')
+          return {'version': values.get('ZOT_VERSION', ''), 'pinned': values.get('ZOT_PINNED_VERSION', ''),
+                  'override': values.get('ZOT_OVERRIDE', '0') == '1'}
+
+
+      class ZotLog:
+          def __init__(self, path):
+              self.path = path
+
+          def size(self):
+              try:
+                  return os.path.getsize(self.path)
+              except OSError:
+                  return 0
+
+          def since(self, offset):
+              try:
+                  with open(self.path, 'rb') as handle:
+                      handle.seek(0, 2)
+                      # A log shorter than the offset was rotated in between.
+                      handle.seek(offset if offset <= handle.tell() else 0)
+                      return handle.read().decode('utf-8', 'replace')
+              except OSError:
+                  return ''
+
+
+      def explain(text, repository):
+          """zot's own words for a refusal, and the http.compat mode they ask for."""
+          compat, said = '', {}
+          for line in text.splitlines():
+              try:
+                  row = json.loads(line)
+              except ValueError:
+                  row = {'message': line}
+              if not isinstance(row, dict):
+                  continue
+              words = ' '.join(str(value) for value in row.values() if isinstance(value, (str, int, float)))
+              level = str(row.get('level', '')).lower()
+              line_said = str(row.get('error') or row.get('message') or words).strip()
+              match = COMPAT.search(words)
+              if match:
+                  compat = compat or match.group(1)
+                  said.setdefault(1, line_said)
+              elif level in ('error', 'warn', 'warning'):
+                  said[2 if repository in words else 3] = line_said
+          reason = said.get(1) or said.get(2) or said.get(3) or ''
+          return reason[:300], compat
+
+
+      def platform_child(body):
+          """The linux/amd64 child of an index; None for a single-platform manifest."""
+          document = json.loads(body)
+          manifests = document.get('manifests')
+          if not isinstance(manifests, list):
+              return None
+          for entry in manifests:
+              found = entry.get('platform') or {}
+              if found.get('os') == 'linux' and found.get('architecture') == 'amd64':
+                  return entry['digest']
+          return manifests[0]['digest'] if manifests else None
+
+
+      def upstream_status(template, upstream, repository, reference, timeout=20):
+          """What the upstream registry itself answers for the manifest zot did not serve.
+
+          A HEAD costs no pull budget. A public registry answers an anonymous request
+          with 401 and a Bearer challenge, so the anonymous token is fetched the way
+          any client fetches it.
+          """
+          url = template.format(upstream=upstream, repository=repository, reference=reference)
+
+          def head(headers):
+              request = urllib.request.Request(url, method='HEAD', headers=dict(headers, Accept=ACCEPT))
+              try:
+                  with UPSTREAM_OPENER.open(request, timeout=timeout) as response:
+                      return response.status, response.headers
+              except urllib.error.HTTPError as error:
+                  return error.code, error.headers
+              except Exception:  # unreachable: no HTTP answer at all
+                  return 0, None
+
+          status, headers = head({})
+          challenge = (headers.get('WWW-Authenticate', '') if headers else '') if status == 401 else ''
+          if challenge.lower().startswith('bearer '):
+              fields = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
+              query = '&'.join('{0}={1}'.format(key, urllib.parse.quote(fields[key], safe=':/'))
+                               for key in ('service', 'scope') if fields.get(key))
+              code, _, body = fetch(UPSTREAM_OPENER, fields.get('realm', '') + ('?' + query if query else ''), timeout, accept=None)
+              token = ''
+              if code == 200:
+                  try:
+                      answer = json.loads(body)
+                      token = answer.get('token') or answer.get('access_token') or ''
+                  except (ValueError, AttributeError):
+                      token = ''
+              if token:
+                  status, _ = head({'Authorization': 'Bearer ' + token})
+          return status
+
+
+      def probe(zot, entry, timeout, log, upstream_url):
+          upstream, repository, tag = entry
+          query = '?ns=' + upstream
+          result = {'image': '{0}/{1}:{2}'.format(upstream, repository, tag), 'upstream': upstream, 'stage': 'tag',
+                    'status': 0, 'mediaType': '', 'seconds': 0.0, 'outcome': 'ok', 'reason': '', 'compat': ''}
+          offset = log.size()
+          started = time.monotonic()
+          status, media, body = fetch(ZOT_OPENER, '{0}/v2/{1}/manifests/{2}{3}'.format(zot, repository, tag, query), timeout)
+          result['mediaType'] = media.split(';')[0].strip()
+          unreadable = ''
+          if status == 200:
+              try:
+                  child = platform_child(body)
+                  manifest = body
+                  if child:
+                      result['stage'] = 'platform manifest'
+                      status, _, manifest = fetch(ZOT_OPENER, '{0}/v2/{1}/manifests/{2}{3}'.format(zot, repository, child, query), timeout)
+                  config = (json.loads(manifest).get('config') or {}).get('digest') if status == 200 else None
+                  if config:
+                      result['stage'] = 'config blob'
+                      status, _, _ = fetch(ZOT_OPENER, '{0}/v2/{1}/blobs/{2}{3}'.format(zot, repository, config, query), timeout, accept=None)
+              except (ValueError, KeyError, TypeError, AttributeError):
+                  unreadable = 'zot answered the {0} with a body that is not an image manifest'.format(result['stage'])
+          result['status'] = status
+          result['seconds'] = round(time.monotonic() - started, 3)
+          if status == 200 and not unreadable:
+              return result
+          # zot writes the sync error after it has answered.
+          time.sleep(0.5)
+          result['reason'], result['compat'] = explain(log.since(offset), repository)
+          result['reason'] = unreadable or result['reason']
+          if result['compat'] or unreadable:
+              result['outcome'] = 'rejected'
+              return result
+          # Only the upstream's own answer separates a release that refuses an image
+          # from an upstream that is down or no longer publishes it: an outage must
+          # not read as an incompatible zot, which stops every Kubernetes guest.
+          upstream_code = upstream_status(upstream_url, upstream, repository, tag)
+          result['upstreamStatus'] = upstream_code
+          if upstream_code == 404:
+              result['outcome'] = 'gone'
+          elif upstream_code == 200 and status != 0:
+              result['outcome'] = 'rejected'
+          else:
+              result['outcome'] = 'unanswered'
+          return result
+
+
+      def zot_up(zot, seconds):
+          deadline = time.monotonic() + seconds
+          while True:
+              if fetch(ZOT_OPENER, zot + '/v2/', 10, accept=None)[0] == 200:
+                  return True
+              if time.monotonic() >= deadline:
+                  return False
+              time.sleep(1)
+
+
+      def heal(config_path, modes, restart_command, zot):
+          with open(config_path, encoding='utf-8') as handle:
+              config = json.load(handle)
+          http = config.setdefault('http', {})
+          present = list(http.get('compat') or [])
+          added = [mode for mode in dict.fromkeys(modes) if MODE.match(mode) and mode not in present]
+          if not added:
+              return []
+          backup = config_path + '.before-selftest'
+          if not os.path.exists(backup):
+              shutil.copy2(config_path, backup)
+          http['compat'] = present + added
+          staged = config_path + '.selftest-tmp'
+          with open(staged, 'w', encoding='utf-8') as handle:
+              json.dump(config, handle, indent=2)
+              handle.write('\n')
+          shutil.copymode(config_path, staged)
+          os.replace(staged, config_path)
+          subprocess.run(shlex.split(restart_command), check=False, timeout=120)
+          zot_up(zot, 60)
+          return added
+
+
+      def verdict_of(results, healed):
+          outcomes = {result['outcome'] for result in results}
+          for verdict, outcome in (('incompatible', 'rejected'), ('gone', 'gone'), ('unanswered', 'unanswered')):
+              if outcome in outcomes:
+                  return verdict
+          return 'healed' if healed else 'ok'
+
+
+      def label_value(value):
+          return str(value).replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ')
+
+
+      def render_prom(state):
+          lines = [
+              '# HELP yuruna_zot_selftest_available 1 when the zot sync self-test has a result on this cache',
+              '# TYPE yuruna_zot_selftest_available gauge',
+              'yuruna_zot_selftest_available 1',
+              '# HELP yuruna_zot_selftest_ok 1 when zot synced every probe image, also after the self-test repaired its configuration',
+              '# TYPE yuruna_zot_selftest_ok gauge',
+              'yuruna_zot_selftest_ok {0}'.format(1 if state['verdict'] in ('ok', 'healed') else 0),
+              '# HELP yuruna_zot_selftest_verdict ok; healed (passed once the self-test added an http.compat mode); incompatible (zot rejected an image its upstream serves); gone (a probe image is no longer published); unanswered or down (no verdict)',
+              '# TYPE yuruna_zot_selftest_verdict gauge',
+              'yuruna_zot_selftest_verdict{{verdict="{0}"}} 1'.format(state['verdict']),
+              '# HELP yuruna_zot_selftest_timestamp_seconds Unix time the self-test finished',
+              '# TYPE yuruna_zot_selftest_timestamp_seconds gauge',
+              'yuruna_zot_selftest_timestamp_seconds {0}'.format(state['epoch']),
+              '# HELP yuruna_zot_selftest_release_info The zot release tested, the release this Yuruna pins, and whether the host configuration overrode that pin',
+              '# TYPE yuruna_zot_selftest_release_info gauge',
+              'yuruna_zot_selftest_release_info{{version="{0}",pinned="{1}",override="{2}"}} 1'.format(
+                  label_value(state['version']), label_value(state['pinned']), 1 if state['override'] else 0),
+              '# HELP yuruna_zot_selftest_probe_failed One series per probe image that did not sync: where it stopped, zot\'s HTTP status, the outcome, and the http.compat mode zot\'s log asked for (empty when it named none)',
+              '# TYPE yuruna_zot_selftest_probe_failed gauge',
+          ]
+          for result in state['probes']:
+              if result['outcome'] != 'ok':
+                  lines.append('yuruna_zot_selftest_probe_failed{{image="{0}",stage="{1}",status="{2}",outcome="{3}",compat="{4}"}} 1'.format(
+                      *(label_value(result[key]) for key in ('image', 'stage', 'status', 'outcome', 'compat'))))
+          lines += [
+              '# HELP yuruna_zot_selftest_compat_added http.compat modes the self-test added because zot\'s log asked for them; the shipped configuration lacks each one',
+              '# TYPE yuruna_zot_selftest_compat_added gauge',
+          ]
+          lines += ['yuruna_zot_selftest_compat_added{{mode="{0}"}} 1'.format(label_value(mode)) for mode in state['compatAdded']]
+          return '\n'.join(lines) + '\n'
+
+
+      def describe_release(state):
+          version = state['version'] or 'of unknown version'
+          if state['override'] and state['pinned'] and state['pinned'] != state['version']:
+              return 'zot {0} (set by vmStart.cachingProxyZotVersion; this Yuruna release pins {1})'.format(version, state['pinned'])
+          return 'zot ' + version
+
+
+      def describe_failure(result):
+          where = {'tag': 'the tag', 'platform manifest': 'its linux/amd64 manifest', 'config blob': 'its config blob'}[result['stage']]
+          answer = 'no answer' if result['status'] == 0 else 'HTTP {0}'.format(result['status'])
+          line = '  {0}: {1} for {2}'.format(result['image'], answer, where)
+          if result['reason']:
+              line += "; zot's log: " + result['reason']
+          upstream = result.get('upstreamStatus')
+          if upstream == 0:
+              line += '; the upstream registry did not answer from here either'
+          elif upstream == 200:
+              line += '; the upstream registry serves it'
+          elif upstream is not None:
+              line += '; the upstream registry answers HTTP {0}'.format(upstream)
+          return line
+
+
+      def render_text(state):
+          probes = state['probes']
+          failed = [result for result in probes if result['outcome'] != 'ok']
+          release = describe_release(state)
+          stamp = ' ({0})'.format(state['time'])
+          verdict = state['verdict']
+          if verdict == 'down':
+              return '\n'.join([
+                  LABEL + 'NO VERDICT -- zot did not answer GET /v2/ at {0}{1}'.format(state['zot'], stamp),
+                  '  Check the service: sudo systemctl status zot; sudo journalctl -u zot -n 50',
+              ]) + '\n'
+          if verdict == 'ok':
+              return LABEL + 'OK -- {0} synced {1} of {1} probe images{2}\n'.format(release, len(probes), stamp)
+          if verdict == 'healed':
+              modes = ', '.join('"{0}"'.format(mode) for mode in state['compatAdded'])
+              return '\n'.join([
+                  LABEL + 'OK AFTER REPAIR -- {0} synced {1} of {1} probe images once http.compat gained {2}{3}'.format(release, len(probes), modes, stamp),
+                  '  The zot configuration this Yuruna release ships lacks that mode, so the self-test added it',
+                  '  to {0} (the original is {0}.before-selftest) and restarted zot.'.format(state['config']),
+                  '  Every rebuild repeats this repair until a Yuruna release ships the mode: report it.',
+              ]) + '\n'
+          lines = [describe_failure(result) for result in failed]
+          if verdict == 'gone':
+              return '\n'.join([LABEL + 'PROBE IMAGE GONE -- {0} of {1} probe images no longer exist upstream{2}'.format(len(failed), len(probes), stamp)] + lines + [
+                  '  This says nothing about zot: /etc/zot/yuruna-sync-probes.list names an image its registry',
+                  '  no longer publishes. Replace that line with a tag the registry publishes, then re-run:',
+                  '    sudo /usr/local/bin/zot-sync-selftest.py',
+                  '  Contributors: the probe list is in host/vmconfig/caching-proxy-service.base.user-data.',
+              ]) + '\n'
+          if verdict == 'unanswered':
+              return '\n'.join([LABEL + 'NO VERDICT -- {0} of {1} probe images got no answer through zot{2}'.format(len(failed), len(probes), stamp)] + lines + [
+                  '  The upstream registry did not serve the probe image from here either, so this run cannot',
+                  '  tell whether zot would sync from it. Check this VM\'s internet access and that registry\'s',
+                  '  status; the next warm run repeats the self-test.',
+              ]) + '\n'
+          modes = sorted({result['compat'] for result in failed if result['compat']})
+          arch = {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(platform.machine().lower(), platform.machine().lower())
+          text = [LABEL + 'INCOMPATIBLE -- {0} refused {1} of {2} probe images{3}'.format(release, len(failed), len(probes), stamp)] + lines + [
+              '  This zot release cannot sync those images with the configuration it runs with. Every guest',
+              '  that pulls from those registries gets the same refusal, so Kubernetes guests stop before',
+              '  kubeadm runs, and a re-run does not help. Fix it without changing code, by any one of:',
+          ]
+          if state['compatAdded']:
+              text.append('    (The self-test already added http.compat {0}; zot still refuses.)'.format(
+                  ', '.join('"{0}"'.format(mode) for mode in state['compatAdded'])))
+          if modes:
+              listed = ', '.join('"{0}"'.format(mode) for mode in modes)
+              text += [
+                  '    1. Let the self-test add what zot asks for, restart zot, and test again:',
+                  '         sudo /usr/local/bin/zot-sync-selftest.py --heal',
+                  '       By hand: add {0} to the "compat" list in the "http" block of'.format(listed),
+                  '       {0}, then run: sudo systemctl restart zot'.format(state['config']),
+                  '       and record the new verdict: sudo /usr/local/bin/zot-sync-selftest.py',
+              ]
+          else:
+              text += [
+                  "    1. zot's log line above names the cause. Change {0} to match, run".format(state['config']),
+                  '       sudo systemctl restart zot, then test again: sudo /usr/local/bin/zot-sync-selftest.py',
+              ]
+          text += [
+              '    2. Install a zot release that works: on the host that builds this VM, set',
+              '       vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 in test/test.config.yml',
+              "       (the SHA-256 of zot-linux-{0} from that release's checksums.sha256.txt), then rebuild.".format(arch),
+              '    3. Update Yuruna to a release that ships the fix, then rebuild this VM.',
+              '  Contributors: python3 tools/Test-ZotRelease.py reproduces this; see docs/caching.md.',
+          ]
+          return '\n'.join(text) + '\n'
+
+
+      def write_atomically(path, text):
+          staged = path + '.tmp'
+          with open(staged, 'w', encoding='utf-8') as handle:
+              handle.write(text)
+          os.chmod(staged, 0o644)
+          os.replace(staged, path)
+
+
+      def main(argv=None):
+          parser = argparse.ArgumentParser(description=__doc__.split('\n', 1)[0])
+          parser.add_argument('--zot', default='http://127.0.0.1:5000')
+          parser.add_argument('--probes', default='/etc/zot/yuruna-sync-probes.list')
+          parser.add_argument('--config', default='/etc/zot/config.json')
+          parser.add_argument('--log', default='/var/log/zot/zot.log')
+          parser.add_argument('--release-env', default='/etc/zot/yuruna-release.env')
+          parser.add_argument('--state-dir', default='/var/lib/yuruna')
+          parser.add_argument('--timeout', type=int, default=300, help='seconds one request may take')
+          parser.add_argument('--wait', type=int, default=60, help='seconds to wait for zot to answer GET /v2/')
+          parser.add_argument('--heal', action='store_true', help="add the http.compat mode zot's log asks for, restart zot, and test again")
+          parser.add_argument('--restart-command', default='systemctl restart zot')
+          parser.add_argument('--upstream-url', default='https://{upstream}/v2/{repository}/manifests/{reference}', help=argparse.SUPPRESS)
+          parser.add_argument('--quiet', action='store_true')
+          args = parser.parse_args(argv)
+
+          zot = args.zot.rstrip('/')
+          probes = read_probes(args.probes)
+          state = dict(read_release(args.release_env), zot=zot, config=args.config, compatAdded=[], probes=[])
+          if not zot_up(zot, args.wait):
+              state['verdict'] = 'down'
+          else:
+              log = ZotLog(args.log)
+              state['probes'] = [probe(zot, entry, args.timeout, log, args.upstream_url) for entry in probes]
+              wanted = [result['compat'] for result in state['probes'] if result['outcome'] == 'rejected' and result['compat']]
+              if args.heal and wanted:
+                  state['compatAdded'] = heal(args.config, wanted, args.restart_command, zot)
+                  if state['compatAdded']:
+                      state['probes'] = [probe(zot, entry, args.timeout, log, args.upstream_url) for entry in probes]
+              state['verdict'] = verdict_of(state['probes'], state['compatAdded'])
+          state['epoch'] = int(time.time())
+          state['time'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(state['epoch']))
+          text = render_text(state)
+          os.makedirs(args.state_dir, exist_ok=True)
+          write_atomically(os.path.join(args.state_dir, 'zot-selftest.json'), json.dumps(state, indent=2) + '\n')
+          write_atomically(os.path.join(args.state_dir, 'zot-selftest.prom'), render_prom(state))
+          write_atomically(os.path.join(args.state_dir, 'zot-selftest.txt'), text)
+          if not args.quiet:
+              sys.stdout.write(text)
+          return {'ok': 0, 'healed': 0, 'incompatible': 1, 'gone': 1}.get(state['verdict'], 2)
+
+
+      if __name__ == '__main__':
+          sys.exit(main())
+  # --- REGION: https://yuruna.link/429f3d06-004d
   - path: /etc/systemd/system/squid-exporter.service
     permissions: '0644'
     owner: root:root
@@ -1593,7 +2097,7 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=multi-user.target
-  # See https://yuruna.link/429f3d06-004e
+  # --- REGION: https://yuruna.link/429f3d06-004e
   - path: /etc/systemd/system/grafana-server.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -1602,7 +2106,7 @@ write_files:
       [Service]
       Environment=GF_AUTH_ANONYMOUS_ENABLED=true
       Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-  # See https://yuruna.link/429f3d06-004f
+  # --- REGION: https://yuruna.link/429f3d06-004f
   - path: /etc/grafana/provisioning/datasources/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -1625,7 +2129,7 @@ write_files:
           jsonData:
             # Seconds; matches Loki's query_timeout so a 90-day range is not cut off.
             timeout: 120
-  # See https://yuruna.link/429f3d06-0050
+  # --- REGION: https://yuruna.link/429f3d06-0050
   - path: /usr/local/bin/yuruna-rewrite-zot-dashboard.py
     permissions: '0755'
     owner: root:root
@@ -1793,7 +2297,7 @@ write_files:
       for k in ('id', '__inputs', '__elements', '__requires'):
           d.pop(k, None)
       json.dump(d, sys.stdout, indent=2)
-  # See https://yuruna.link/429f3d06-0052
+  # --- REGION: https://yuruna.link/429f3d06-0052
   - path: /etc/grafana/provisioning/dashboards/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -1807,7 +2311,7 @@ write_files:
           updateIntervalSeconds: 30
           options:
             path: /var/lib/grafana/dashboards
-  # See https://yuruna.link/429f3d06-0053
+  # --- REGION: https://yuruna.link/429f3d06-0053
   - path: /etc/grafana/provisioning/alerting/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -1882,7 +2386,7 @@ write_files:
                   registries[] -- a tag-addressed pull re-runs the upstream sync
                   on every single request, so a handful of guests looping on one
                   image holds the hourly allowance at zero indefinitely.
-  # See https://yuruna.link/429f3d06-0054
+  # --- REGION: https://yuruna.link/42fffc2c-000d
   - path: /etc/yuruna/globalization.env
     owner: root:root
     permissions: '0644'
@@ -1890,6 +2394,10 @@ write_files:
       YURUNA_LANGUAGE=YURUNA_LANGUAGE_PLACEHOLDER
       YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER
 
+  # --- REGION: https://yuruna.link/429f3d06-0029
+  # See https://yuruna.link/429f3d06-0054
+  # Empty IP/PORT falls back to GitHub raw for the daemon source fetch.
+  # This VM is the cache, so the caching-proxy address is its own loopback.
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
@@ -1898,8 +2406,10 @@ write_files:
       YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=127.0.0.1
-  # See https://yuruna.link/429f3d06-002a
+  # --- REGION: https://yuruna.link/429f3d06-002a
   # See https://yuruna.link/429f3d06-0054
+  # This VM is provisioned once and runs for weeks, so it accumulates host
+  # renumbers a per-cycle test guest never sees.
   - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
     encoding: base64
     content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
@@ -1938,7 +2448,7 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
-  # See https://yuruna.link/429f3d06-005e
+  # --- REGION: https://yuruna.link/429f3d06-005e
   - path: /etc/yuruna/host-config/config.env
     permissions: '0644'
     owner: root:root
@@ -2076,7 +2586,7 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
-  # See https://yuruna.link/429f3d06-0055
+  # --- REGION: https://yuruna.link/429f3d06-0055
   - path: /var/lib/grafana/dashboards/pool.json
     permissions: '0644'
     owner: root:root
@@ -2356,7 +2866,7 @@ write_files:
                 {
                   "matcher": { "id": "byName", "options": "Control" },
                   "properties": [
-                    { "id": "custom.width", "value": 190 },
+                    { "id": "custom.width", "value": 100 },
                     { "id": "custom.cellOptions", "value": { "type": "color-text" } },
                     { "id": "mappings", "value": [ { "type": "value", "options": {
                       "ready": { "text": "remote", "color": "#16a34a", "index": 0 },
@@ -2609,7 +3119,7 @@ write_files:
           }
         ]
       }
-  # See https://yuruna.link/429f3d06-0056
+  # --- REGION: https://yuruna.link/429f3d06-0056
   - path: /usr/local/bin/yuruna-fit-pool-dashboard.py
     permissions: '0755'
     owner: root:root
@@ -2857,7 +3367,7 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
-  # See https://yuruna.link/429f3d06-0057
+  # --- REGION: https://yuruna.link/429f3d06-0057
   # Seed build provenance; this VM receives artifacts rather than the framework checkout.
   - path: /etc/yuruna/brand.env
     permissions: '0644'
@@ -2865,7 +3375,7 @@ write_files:
     content: |
       YURUNA_BRAND_NAME='YURUNA_BRAND_NAME_PLACEHOLDER'
       YURUNA_BRAND_VERSION='YURUNA_BRAND_VERSION_PLACEHOLDER'
-  # See https://yuruna.link/429f3d06-0058
+  # --- REGION: https://yuruna.link/429f3d06-0058
   - path: /usr/local/bin/yuruna-brand-dashboards.py
     permissions: '0755'
     owner: root:root
@@ -3103,7 +3613,7 @@ write_files:
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/yuruna-brand-dashboards.py
-      # Reads a seeded env file and rewrites the provisioned dashboards in place; the dashboard directory is the only writable path, and it talks to nothing, as PrivateNetwork records.
+      # See https://yuruna.link/429f3d06-0058
       ProtectSystem=strict
       ReadWritePaths=/var/lib/grafana/dashboards
       ProtectHome=true
@@ -3133,7 +3643,7 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
-  # See https://yuruna.link/429f3d06-0059
+  # --- REGION: https://yuruna.link/429f3d06-0059
   # See https://yuruna.link/429f3d06-005a
   - path: /var/lib/grafana/dashboards/cache-health.json
     permissions: '0644'
@@ -3632,14 +4142,7 @@ write_files:
           }
         ]
       }
-  # See https://yuruna.link/42f6b05f-001f
-  # ORDER IS THE ROUTING TABLE: zot tries each entry whose content matches, in
-  # file order, until one syncs. A failed sync falls through to later matching
-  # entries and ends at the Docker Hub "**" catch-all.
-  # docker2s2: zot 2.1.22 and later keep a Docker manifest as served instead of
-  # converting it to OCI, and refuse to sync one without this compat mode.
-  # registry.k8s.io and mcr.microsoft.com serve Docker manifest lists, so
-  # without it every image from them answers HTTP 503 at once.
+  # --- REGION: https://yuruna.link/42f6b05f-001f
   - path: /etc/zot/config.json
     permissions: '0644'
     owner: root:root
@@ -3786,7 +4289,7 @@ write_files:
           }
         }
       }
-  # See https://yuruna.link/42f6b05f-0022
+  # --- REGION: https://yuruna.link/42f6b05f-0022
   - path: /etc/zot/sync-credentials.json
     permissions: '0600'
     owner: root:root
@@ -3797,7 +4300,7 @@ write_files:
           "password": "YURUNA_DOCKERHUB_TOKEN_PLACEHOLDER"
         }
       }
-  # See https://yuruna.link/429f3d06-005b
+  # --- REGION: https://yuruna.link/429f3d06-005b
   - path: /etc/systemd/system/zot.service
     permissions: '0644'
     owner: root:root
@@ -3839,7 +4342,7 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=multi-user.target
-  # See https://yuruna.link/429f3d06-005c
+  # --- REGION: https://yuruna.link/429f3d06-005c
   - path: /etc/yuruna/ypool-nas.env
     permissions: '0644'
     owner: root:root
@@ -3849,7 +4352,7 @@ write_files:
       YPOOL_NAS_NETWORK_USER='YPOOL_NAS_NETWORK_USER_PLACEHOLDER'
       YPOOL_NAS_HOST_ID='YPOOL_NAS_HOST_ID_PLACEHOLDER'
       YPOOL_NAS_MOUNT='/mnt/ypool-nas'
-  # See https://yuruna.link/429f3d06-005f
+  # --- REGION: https://yuruna.link/429f3d06-005f
   # Fetch root-only NAS credentials at runtime so rotation needs no seed rebuild.
   - path: /etc/yuruna/internal-auth.key
     permissions: '0640'
@@ -3942,7 +4445,8 @@ runcmd:
   # a reload to take effect on this boot rather than only on the next one.
   - systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
   # === YURUNA_OVERLAY_RUNCMD_NET ===
-  # Refresh host coordinates before the framework fetch below.
+  # --- REGION: https://yuruna.link/429f3d06-002a
+  # Refresh host coordinates before the source fetches below read host.env.
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
   # --- REGION: https://yuruna.link/429f3d06-0061
   - systemctl stop squid || true
@@ -4032,7 +4536,6 @@ runcmd:
     ) || echo "== YURUNA: pool dashboard aggregator URL rewrite FAILED =="
   # --- REGION: https://yuruna.link/429f3d06-0066
   - |
-    # See https://yuruna.link/429f3d06-0066
     # Initialize ssl_db as root, then hand it to proxy; a missing DB breaks bumped HTTPS.
     SSL_DB=/var/lib/squid/ssl_db
     install -d -o proxy -g proxy -m 0750 /var/lib/squid
@@ -4052,9 +4555,9 @@ runcmd:
   # `|| true` is load-bearing: the bind-wait below is what reports a failed start.
   - systemctl start squid || true
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
-  # --- REGION: https://yuruna.link/429f3d06-0037
+  # See https://yuruna.link/429f3d06-0037
   # No `a2enmod cgi` / `a2enconf yuruna-cachemgr`: squid-cgi (cachemgr.cgi) is gone in
-  # Ubuntu 26.04. Apache still serves the CA cert + pool-intent.
+  # Ubuntu 26.04. Apache still serves the CA cert + pool-configuration.
   # --- REGION: https://yuruna.link/429f3d06-0067
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
   # --- REGION: https://yuruna.link/429f3d06-0068
@@ -4078,7 +4581,7 @@ runcmd:
       ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break
       sleep 1
     done
-    # Diagnostic safety net: dump squid journal into cloud-init-output.log so `grep ERROR` surfaces the real cause (e.g. EADDRINUSE from a duplicate http_port) instead of a bare "can't TCP-connect".
+    # See https://yuruna.link/429f3d06-0069
     if ! ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128; then
       # One remediation restart before giving up: when a late package
       # replacement swaps in the ssl-bump-capable binary after the first
@@ -4275,35 +4778,37 @@ runcmd:
   - systemctl enable --now caching-proxy-service.service || true
   # --- REGION: https://yuruna.link/429f3d06-0079
   - |
-    # --- REGION: https://yuruna.link/429f3d06-0079
-    INTENT_GIT=/mnt/ypool-nas/pool-intent.git
+    CONFIGURATION_GIT=/mnt/ypool-nas/pool-configuration.git
+    if mountpoint -q /mnt/ypool-nas 2>/dev/null && [ ! -e "$CONFIGURATION_GIT" ] && [ -d /mnt/ypool-nas/pool-intent.git/refs ]; then
+      mv /mnt/ypool-nas/pool-intent.git "$CONFIGURATION_GIT"
+    fi
     if ! mountpoint -q /mnt/ypool-nas 2>/dev/null; then
-      echo "yuruna: /mnt/ypool-nas not mounted; skipping pool intent seeding (the route 404s until it is)." >&2
-    elif [ ! -d "$INTENT_GIT/refs" ]; then
+      echo "yuruna: /mnt/ypool-nas not mounted; skipping pool configuration seeding (the route 404s until it is)." >&2
+    elif [ ! -d "$CONFIGURATION_GIT/refs" ]; then
       install -d -o www-data -g www-data /var/lib/yuruna || true
-      git init --bare --initial-branch=main "$INTENT_GIT" || true
+      git init --bare --initial-branch=main "$CONFIGURATION_GIT" || true
       # cifs maps every file's mode from the mount options, so git would see a
       # permission change on each file it wrote back.
-      git -C "$INTENT_GIT" config core.fileMode false || true
+      git -C "$CONFIGURATION_GIT" config core.fileMode false || true
       # See https://yuruna.link/429f3d06-0079
       # Use the built-in index refresh: CIFS mount modes prevent executable hooks.
-      git -C "$INTENT_GIT" config receive.updateServerInfo true || true
+      git -C "$CONFIGURATION_GIT" config receive.updateServerInfo true || true
       TMP_SEED=$(mktemp -d)
       git -C "$TMP_SEED" init -q --initial-branch=main || true
       # See https://yuruna.link/429f3d06-0079
       # Seed the schema's current version; an old version fails the first admin write.
-      printf 'schemaVersion: 3\npools: []\n' > "$TMP_SEED/pools.yml"
+      printf 'schemaVersion: 4\npools: []\n' > "$TMP_SEED/pools.yml"
       git -C "$TMP_SEED" add -A || true
-      git -C "$TMP_SEED" -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool intent' || true
-      git -C "$TMP_SEED" push -q "$INTENT_GIT" HEAD:main || true
+      git -C "$TMP_SEED" -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool configuration' || true
+      git -C "$TMP_SEED" push -q "$CONFIGURATION_GIT" HEAD:main || true
       rm -rf "$TMP_SEED"
-      git -C "$INTENT_GIT" update-server-info || true
+      git -C "$CONFIGURATION_GIT" update-server-info || true
       # No chown: the cifs mount assigns ownership from its uid/gid options, so
       # a chown here is at best a no-op and can re-impose an owner-only ACL that
       # locks out the pool-control-service VM writing the same share.
-      echo "yuruna: pool intent store seeded at $INTENT_GIT"
+      echo "yuruna: pool configuration store seeded at $CONFIGURATION_GIT"
     fi
-    a2enconf yuruna-pool-intent || true
+    a2enconf yuruna-pool-configuration || true
     systemctl reload apache2 || systemctl restart apache2 || true
   - systemctl enable grafana-server.service
   - systemctl restart grafana-server.service
@@ -4490,12 +4995,28 @@ runcmd:
     # A version bump changes these lines with it.
     ZOT_SHA256_AMD64="33b9b5bfe05d6788c076de951a01920477dbd6395c330146e23cc2340073e52e"
     ZOT_SHA256_ARM64="abc9bab13c144a4ee2f9067a6bbbe70ca1c018c49dbf521db28975514ea705da"
+    # vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 on the
+    # building host replace the pin when a pinned release cannot sync the lab's
+    # images; the host validates both before baking them in. Empty means the pin.
+    ZOT_OVERRIDE_VERSION='YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER'
+    ZOT_OVERRIDE_SHA256='YURUNA_ZOT_OVERRIDE_SHA256_PLACEHOLDER'
+    ZOT_PINNED_VERSION=$ZOT_VERSION
     ARCH=$(uname -m)
     case "$ARCH" in
       x86_64)  ZOT_ARCH="amd64"; ZOT_SHA256=$ZOT_SHA256_AMD64 ;;
       aarch64) ZOT_ARCH="arm64"; ZOT_SHA256=$ZOT_SHA256_ARM64 ;;
       *) echo "yuruna: zot install skipped -- unsupported arch '$ARCH'"; exit 0 ;;
     esac
+    ZOT_OVERRIDE=0
+    if [ -n "$ZOT_OVERRIDE_VERSION" ]; then
+      ZOT_VERSION=$ZOT_OVERRIDE_VERSION
+      ZOT_SHA256=$ZOT_OVERRIDE_SHA256
+      ZOT_OVERRIDE=1
+      echo "yuruna: installing zot ${ZOT_VERSION} from vmStart.cachingProxyZotVersion instead of the pinned ${ZOT_PINNED_VERSION}"
+    fi
+    # The sync self-test reports which release it tested and whether it is the pin.
+    printf 'ZOT_VERSION=%s\nZOT_PINNED_VERSION=%s\nZOT_OVERRIDE=%s\n' \
+      "$ZOT_VERSION" "$ZOT_PINNED_VERSION" "$ZOT_OVERRIDE" > /etc/zot/yuruna-release.env
     if [ ! -x /usr/local/bin/zot ]; then
       curl -fsSL --retry 3 --retry-delay 10 \
         "https://github.com/project-zot/zot/releases/download/${ZOT_VERSION}/zot-linux-${ZOT_ARCH}" \
@@ -4530,6 +5051,12 @@ runcmd:
       setfacl -m u:alloy:r /var/log/zot/zot.log 2>&1 || true
       setfacl -d -m u:alloy:r /var/log/zot/    2>&1 || true
     fi
+    # GET /v2/ answers while zot refuses every image of a manifest format its
+    # configuration does not allow, so only a sync shows this release can serve
+    # the lab. The verdict reaches /cache-health, /zot-meta and the building
+    # host; the build still finishes, because squid serves guests either way.
+    /usr/local/bin/zot-sync-selftest.py --heal || \
+      echo "== YURUNA: zot sync self-test did not pass -- the zot sync self-test lines below say why and how to fix it =="
     # Prime the canary so health and zot_meta have a first-boot reading.
     /usr/local/bin/zot-meta-exporter.sh || true
     # --- REGION: https://yuruna.link/429f3d06-0082
@@ -4555,6 +5082,11 @@ runcmd:
     # --- REGION: https://yuruna.link/429f3d06-0083
     if [ -r /var/www/html/cache-health ]; then
       grep -E '^zot (/v2/|manifest|resident-tag|guest-path)|^ +resident |^ +refused ' /var/www/html/cache-health | sed 's/^/  /'
+    fi
+    if [ -r /var/lib/yuruna/zot-selftest.txt ]; then
+      sed 's/^/  /' /var/lib/yuruna/zot-selftest.txt
+    else
+      echo "  zot sync self-test           : DID NOT RUN -- see the zot install lines above"
     fi
     for hp in 3128 3129 80 3000 9090 3100 5000 9302 9400 9310; do
       if ss -ltn 2>/dev/null | grep -q ":$hp "; then st=listening; else st="NOT LISTENING"; fi

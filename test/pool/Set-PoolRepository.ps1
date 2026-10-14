@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42c869eb-bcb1-4640-9d26-b9f3f7fbc926
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,11 +30,11 @@
 .PARAMETER Clear
     Remove the pool's repositories, so each member runs its own configured
     repositories from its next cycle.
-.PARAMETER IntentGitUrl
-    Writable URL/path of the bare intent repo. Defaults to pool.intentGitUrl from
+.PARAMETER ConfigurationGitUrl
+    Writable URL/path of the bare configuration repo. Defaults to pool.configurationGitUrl from
     test.config.yml.
-.PARAMETER IntentDir
-    Local working clone. Defaults to <runtime>/pool-intent-admin.
+.PARAMETER ConfigurationDir
+    Local working clone. Defaults to <runtime>/pool-configuration-admin.
 .EXAMPLE
     test/pool/Set-PoolRepository.ps1 -PoolId lab -FrameworkUrl https://github.com/alissonsol/yuruna -ProjectUrl https://github.com/alissonsol/yuruna-project
 .EXAMPLE
@@ -47,8 +47,8 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'Set')][string]$FrameworkUrl,
     [Parameter(Mandatory, ParameterSetName = 'Set')][string]$ProjectUrl,
     [Parameter(Mandatory, ParameterSetName = 'Clear')][switch]$Clear,
-    [string]$IntentGitUrl,
-    [string]$IntentDir
+    [string]$ConfigurationGitUrl,
+    [string]$ConfigurationDir
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -83,13 +83,13 @@ if (-not $Clear) {
     $ProjectUrl   = $urls['ProjectUrl']
 }
 
-# --- REGION: Open the intent store
-$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+# --- REGION: Open the configuration store
+$open = Open-YurunaPoolAdminStore -ConfigurationGitUrl $ConfigurationGitUrl -ConfigurationDir $ConfigurationDir -Confirm:$false
 $t = $open.Target
 if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
-$doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
+$doc  = Read-YurunaPoolsDoc -ConfigurationDir $t.ConfigurationDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if (-not $pool) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_945821c2fef42ae6' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue; exit $ExitFailure }
 
@@ -110,7 +110,7 @@ if ($Clear) {
 }
 
 # --- REGION: Save, commit and push
-$pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message $message -Confirm:$false
+$pub = Publish-YurunaPoolDocChange -ConfigurationDir $t.ConfigurationDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message $message -Confirm:$false
 if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
 
 if ($Clear) {

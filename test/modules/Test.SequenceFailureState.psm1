@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,6 +156,21 @@ function Initialize-SequenceFailureStateStore {
     # when the wait gave up. The closing guard never ran, so the payload never
     # executed; that is what separates this from a script that ran and stalled.
     $Store['StepInputLost'] = $null
+    # Set by stopVm and startVm when the guest did not reach the stopped state
+    # inside the step's deadline. A VM that ignores a shutdown request is not a
+    # provisioning fault, and retrying the same wait cannot help it: the record
+    # carries the state the host observed, how long it waited, and the console
+    # and hypervisor evidence captured at that moment.
+    # @{ observedState; waitedSeconds; requestedAtUtc; action } or $null.
+    $Store['StepVmNotStopped'] = $null
+    # The earliest moment in the current top-level sequence at which the guest
+    # stopped answering: a dropped SSH transport, typed input the console never
+    # acknowledged, a diagnostic that no rung could reach, or a shutdown request
+    # the guest ignored. Each later failure record carries it so a reader finds
+    # the first symptom instead of only the step that finally gave up. Reset
+    # at sequence start, never per step.
+    $Store['FirstGuestSilenceUtc'] = $null
+    $Store['FirstGuestSilenceSource'] = $null
 }
 
 $script:SeqFailReg = New-YurunaRegistry -Name 'SequenceFailureState'
@@ -278,6 +293,12 @@ function New-SequenceFailureRecord {
     }
 
     $matchedFailPattern = $fail.WaitForTextMatchedFailurePattern
+    $vmNotStopped = if ($fail.StepVmNotStopped -is [System.Collections.IDictionary]) { $fail.StepVmNotStopped } else { $null }
+    $vmState = if ($vmNotStopped) { [string]$vmNotStopped.observedState } else { '' }
+    $vmStateWaitedSeconds = if ($vmNotStopped) { [int]$vmNotStopped.waitedSeconds } else { 0 }
+    $vmStateRequestedAtUtc = if ($vmNotStopped) { [string]$vmNotStopped.requestedAtUtc } else { '' }
+    $firstGuestSilenceUtc = if ($fail.FirstGuestSilenceUtc) { [string]$fail.FirstGuestSilenceUtc } else { '' }
+    $firstGuestSilenceSource = if ($fail.FirstGuestSilenceSource) { [string]$fail.FirstGuestSilenceSource } else { '' }
     # Runtime cause signal (empty-array guard mirrors innerSuggestedRecoveries so
     # patternsSought never collapses to $null via the if-pipeline flatten).
     $ocrTail = if ($fail.WaitForTextOcrTail) { [string]$fail.WaitForTextOcrTail } else { '' }
@@ -338,18 +359,18 @@ function New-SequenceFailureRecord {
             $failureClass = 'pattern_matched_failure'
             [string[]]$suggested = @('pause_and_inspect')
         }
-        # A wait that ended with the console overwriting itself did not fail the
-        # way ocr_timeout describes. ocr_timeout's recoveries assume the pattern
-        # never printed -- so they restart the guest and try again, which reruns
-        # the flood. The owner here is whatever is filling the console, and the
-        # answer is to read it, so the class and the recovery both change. Ranked
-        # below a matched failure pattern: that is the guest announcing its own
-        # failure in words, which outranks an inference drawn from screen shape.
-        # Ranked below a matched failure pattern, which means the guest ran and
-        # announced its own failure. Ranked above the console-flood reading: the
-        # frozen staged input is the specific cause that flood would otherwise hide.
+        # See https://yuruna.link/4213a0b3-0150
         elseif ($fail.StepInputLost) {
             $failureClass = 'input_lost'
+            [string[]]$suggested = @('retry_with_backoff','pause_and_inspect')
+        }
+        # The guest never reached the stopped state the step waited for. The
+        # registry's provisioning_failure describes a start or resize that
+        # failed; nothing here was started. Retrying the wait immediately only
+        # waits again for a shutdown the guest already ignored, so the hint is
+        # the cold restart a retry wrapper performs, then an operator look.
+        elseif ($fail.StepVmNotStopped) {
+            $failureClass = 'wait_timeout'
             [string[]]$suggested = @('retry_with_backoff','pause_and_inspect')
         }
         elseif ($fail.WaitForTextConsoleFlood) {
@@ -573,6 +594,16 @@ function New-SequenceFailureRecord {
                     # reads on screen exactly like a prompt that never printed.
                     pauseBeforeStepSeconds = $pauseHeldSeconds
                     pauseReleasedAtUtc     = $pauseReleasedAtUtc
+                    # The host's reading of the VM when a stopped-wait gave up:
+                    # the state it reported, how long the step waited, and when
+                    # the shutdown was requested. Empty when no such wait failed.
+                    vmState                = $vmState
+                    vmStateWaitedSeconds   = $vmStateWaitedSeconds
+                    vmStateRequestedAtUtc  = $vmStateRequestedAtUtc
+                    # The earliest sign in this sequence that the guest stopped
+                    # answering, and which mechanism saw it. Empty when none did.
+                    firstGuestSilenceUtc   = $firstGuestSilenceUtc
+                    firstGuestSilenceSource = $firstGuestSilenceSource
                 }
             }
         }
@@ -622,6 +653,10 @@ function New-SequenceFailureRecord {
         causeBlankScreenSeconds = $blankScreenSeconds
         causeGuestLivelocked    = [bool]$fail.WaitForTextGuestLivelocked
         causeGuestLivelockedSeconds = [int]$(if ($guestLivelock) { $guestLivelock.livelockedSeconds } else { 0 })
+        causeVmState            = $vmState
+        causeVmStateWaitedSeconds = $vmStateWaitedSeconds
+        firstGuestSilenceUtc    = $firstGuestSilenceUtc
+        firstGuestSilenceSource = $firstGuestSilenceSource
         progressAdvisory         = $progressAdvisory
         guestProcessorWindow    = if ($guestLivelock) { $guestLivelock.processorWindow } else { $null }
         reproCommand            = $reproCommand
@@ -682,7 +717,8 @@ function New-InfraFailureRecord {
         # the driver could measure it. Left unbound rather than zeroed when it
         # could not: a zeroed reading is indistinguishable from a measured one,
         # and the difference is the whole value of the field.
-        [AllowNull()][hashtable]$HostMemory
+        [AllowNull()][hashtable]$HostMemory,
+        [AllowNull()][hashtable[]]$DependencyFailures
     )
     # Two-step [string[]] guard so the empty recoveries list never collapses to
     # $null (the typed-array-cast-if-empty trap); the NDJSON field stays an array.
@@ -729,6 +765,10 @@ function New-InfraFailureRecord {
         action               = $Stage
         description          = $ErrorMessage
         sequenceName         = ''
+    }
+    if ($DependencyFailures) {
+        $file.context['dependencyFailures'] = @($DependencyFailures)
+        $eventRecord['dependencyFailures'] = @($DependencyFailures)
     }
     # See https://yuruna.link/4213a0b3-0155
     if ($HostMemory -and $HostMemory.Contains('commitLimitBytes')) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42746513-f859-4478-b773-07a4c13848b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,23 +92,7 @@ Get:1 http://archive.ubuntu.com/ubuntu noble InRelease [256 kB]
 Reading package lists... Done
 '@
 
-# A healthy step several seconds in, doing the loudest thing a step does: a
-# container build restoring web assets. Nothing here is a shell refusal, and
-# the shell that would have issued one accepted its command line long ago.
-#
-# This screen is kept verbatim because it, and not merely a screen of its
-# size, satisfies "No such file or directory" through the matcher's unbounded
-# strategy -- the one asking only whether each word of the pattern turns up
-# SOMEWHERE. Normalization folds each word to a short token, and the tokens
-# are then supplied by text that has nothing to do with any of the words:
-# 'No' by a run of hex inside a sha256 digest, 'such' by a line OCR garbled
-# beyond reading, 'file' by "profile", 'or' by "WORKDIR", and only
-# 'directory' by an actual directory. Thin out any of those five and the
-# coincidence stops reproducing, which is the point -- it never needed a
-# screen that said anything like the pattern.
-#
-# Reproduced ASCII-only, garbled line included: that line is what a real
-# frame's noise looks like, and it is load-bearing here.
+# See https://yuruna.link/42e220c4-0014
 $script:BuildFloodEcho = @'
 #4 transferring context: 359B done
 #4 DONE 0.0s

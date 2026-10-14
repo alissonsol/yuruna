@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4287fe47-ee43-47e6-b67f-e2fb5baf90c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -144,12 +144,7 @@ function Test-AddressInUse {
     return $false
 }
 
-# Candidates first, reachability second, both here rather than handing the
-# probe to Select-StaleDhcpLeaseBlock: its -InUseVerdict runs the scriptblock
-# across a module boundary, and a veto that silently misfires there would
-# either delete a live guest's lease or quietly protect every block. Splitting
-# the two keeps the probe running in the scope it was written for, and lets the
-# skipped addresses be reported instead of just vanishing from the list.
+# See https://yuruna.link/42e220c4-0004
 $candidates = @(Select-StaleDhcpLeaseBlock -LeaseText $leaseText -Name $Name)
 Write-Verbose "Read $($leaseText.Length) bytes from '$LeasePath'; $($candidates.Count) block(s) superseded by a newer one of the same name."
 $vetoed = @()

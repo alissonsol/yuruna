@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -341,8 +341,8 @@ rm -rf "$d"
     }
 
     It 'gives a consumer no sentence to recognize' {
-        # The diagnostic reads these records. It used to match the English
-        # "all N attempts exhausted", which the wrapper writes to a stream that
+        # The diagnostic reads these records. Matching the English
+        # "all N attempts exhausted" would be wrong: the wrapper writes it to a stream that
         # log never receives -- so the check found nothing on any real run, and
         # would have followed the host's language even if it had.
         $here = Split-Path -Parent (Split-Path -Parent $PSCommandPath)

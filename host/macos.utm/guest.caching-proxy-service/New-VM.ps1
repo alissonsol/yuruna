@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4220d762-3e46-4f5b-808c-166adb4d8b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,6 +129,8 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
@@ -177,9 +179,6 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -Destination "$SeedDir/meta-data"
 
-# --- REGION: https://yuruna.link/4220a755-000b
-Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
-
 # --- REGION: Yuruna harness SSH key
 # See https://yuruna.link/42e220c4-0004
 # Seed the shared harness key so guest provisioning and failure diagnostics agree.
@@ -218,10 +217,16 @@ if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Config.psm1') -Global -Force
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Locale.psm1') -Global -Force
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRootForExt
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
+# A zot release this host's test.config.yml names in place of the seed's pin,
+# for when the pinned release cannot sync the lab's images.
+try { $zotOverride = Resolve-CachingProxyZotOverride -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 
 # --- REGION: Pool storage replication
@@ -282,12 +287,7 @@ if ($internalAuthKey -match '[\s''"]') {
     $internalAuthKey = ''
     $keyReadFailed = $true
 }
-# No stored token -> mint one and store it NOW, so the proxy is never built
-# with an empty token (which would mint no control proofs, keep /ingest 503,
-# show no Lab token on the dashboard, and turn every joining host's remote
-# control into a 403). The building host becomes the lab's first enrolled
-# member; every other host receives the same value through the dashboard's
-# Lab token (pwsh test/lab/Set-LabToken.ps1).
+# See https://yuruna.link/429f3d06-005f
 if ([string]::IsNullOrEmpty($internalAuthKey) -and -not $keyReadFailed) {
     $internalAuthKey = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant()
     Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
@@ -378,6 +378,7 @@ try {
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.FrameworkSource.psm1') -Force
 $brand = Get-YurunaBrandIdentity -RepoRoot $_repoRootForExt -Config $tc
 
+# --- REGION: Render user-data / meta-data
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
 # caching-proxy-service.*). New-CloudInitUserData resolves the SSH-key and
 # password placeholders with literal .Replace(), so values with
@@ -408,10 +409,15 @@ $UserData = New-CloudInitUserData `
         YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configCaCertB64
         YURUNA_BRAND_NAME_PLACEHOLDER    = $brand.Name
         YURUNA_BRAND_VERSION_PLACEHOLDER = $brand.Version
+        YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER = $zotOverride.Version
+        YURUNA_ZOT_OVERRIDE_SHA256_PLACEHOLDER  = $zotOverride.Sha256
     } `
     -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
     -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+
+# --- REGION: https://yuruna.link/4220a755-000b
+Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Generate cloud-init seed ISO
 $SeedIso = "$DataDir/seed.iso"
@@ -433,6 +439,8 @@ Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance
 # See https://yuruna.link/42e220c4-0004
+# UTM bundles are registered and started by the operator, so this phase prints
+# the next steps instead of waiting for an IP.
 # Keep the here-string literal: expandable strings would execute the shell examples.
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0aa25de09813cc1c')
@@ -475,6 +483,11 @@ verify all three checks below before starting guest installs):
 
   5. Verify pre-warm finished (cache occupancy should be > 0):
        ssh caching-proxy-service-admin@$ip "squidclient mgr:storedir"    # StoreEntries > 0
+
+  6. Verify the cache's zot release can sync the images Kubernetes guests
+     pull (zot is installed near the end of cloud-init):
+       pwsh test/Test-CachingProxyService.ps1 -CacheIp "$ip"
+     INCOMPATIBLE there lists the fixes; none of them needs a code change.
 
 If step 4 reports 'squid DOWN' after 15 minutes, access the VM:
   * UTM window:  login 'caching-proxy-service-admin'

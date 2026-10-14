@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -400,7 +400,7 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
-# --- REGION: Pre-flight: elevation
+# --- REGION: Elevation check
 # See https://yuruna.link/42010605-0002
 $elevationHostType = Get-HostType
 # A resumed start has nobody at a console, so it never prompts: a missing

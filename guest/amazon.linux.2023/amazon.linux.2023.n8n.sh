@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -44,6 +44,9 @@ dnf_retry sudo dnf -y install nodejs
 echo ""
 echo -e "\e[1;36m==== n8n ====\e[0m"
 sudo npm install -g n8n
+# The NodeSource RPM puts node and npm under /usr, so the global n8n link already
+# sits on the default PATH and no command-exposure step follows.
+# See https://yuruna.link/4213a0b3-0194
 
 # --- REGION: Installation summary
 echo ""

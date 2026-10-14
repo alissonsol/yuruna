@@ -27,10 +27,10 @@ import (
 // found" from pwsh. Paths rather than bare names so a CLI that moves to another
 // folder is one edit here rather than a silent per-operation failure.
 var poolAdminCLIs = []string{
-	"pool/Get-PoolIntent.ps1",
+	"pool/Get-PoolConfiguration.ps1",
 	"pool/New-Pool.ps1",
 	"pool/Remove-Pool.ps1",
-	"pool/Set-PoolDesiredState.ps1",
+	"pool/Set-PoolConfiguredState.ps1",
 	"pool/Add-HostToPool.ps1",
 	"pool/Remove-HostFromPool.ps1",
 	"pool/Move-PoolHostIdentity.ps1",
@@ -79,9 +79,9 @@ type Diagnostics struct {
 	Checks      []Check       `json:"checks"`
 	Environment EnvReport     `json:"environment"`
 	Runtime     RuntimeReport `json:"runtime"`
-	// IntentProbe is the raw intent-read invocation behind the check of the
+	// ConfigurationProbe is the raw configuration-read invocation behind the check of the
 	// same name.
-	IntentProbe CommandProbe `json:"intentProbe"`
+	ConfigurationProbe CommandProbe `json:"configurationProbe"`
 	// Health is the persisted status the /healthz endpoint serves, folded in so
 	// one fetch answers both "is the daemon working" and "was it ever working".
 	Health any `json:"health,omitempty"`
@@ -91,16 +91,16 @@ type Diagnostics struct {
 // with, plus the environment its child processes inherit. PATH is included
 // because an empty one is invisible from outside yet breaks every CLI.
 type EnvReport struct {
-	PwshFlag      string `json:"pwshFlag"`
-	PwshResolved  string `json:"pwshResolved,omitempty"`
-	RepoDir       string `json:"repoDir"`
-	StateDir      string `json:"stateDir"`
-	AggregatorURL string `json:"aggregatorUrl"`
-	HostID        string `json:"hostId"`
-	IntentGitURL  string `json:"intentGitUrl"`
-	User          string `json:"user"`
-	PATH          string `json:"path"`
-	HOME          string `json:"home"`
+	PwshFlag            string `json:"pwshFlag"`
+	PwshResolved        string `json:"pwshResolved,omitempty"`
+	RepoDir             string `json:"repoDir"`
+	StateDir            string `json:"stateDir"`
+	AggregatorURL       string `json:"aggregatorUrl"`
+	HostID              string `json:"hostId"`
+	ConfigurationGitURL string `json:"configurationGitUrl"`
+	User                string `json:"user"`
+	PATH                string `json:"path"`
+	HOME                string `json:"home"`
 	// The checkout the CLIs are executed FROM, which can lag the daemon binary:
 	// the binary is built once at bring-up while the checkout can be re-fetched
 	// separately. Answers "is the fix actually deployed" for the script half.
@@ -109,7 +109,7 @@ type EnvReport struct {
 }
 
 // redactURL strips any userinfo from a URL so a credential embedded in the
-// intent git URL (https://user:token@host/repo) is not published by a page that
+// configuration git URL (https://user:token@host/repo) is not published by a page that
 // has no authentication of its own. Non-URL values (a local path) pass through.
 func redactURL(raw string) string {
 	if raw == "" {
@@ -135,7 +135,7 @@ func runProbe(ctx context.Context, name string, args ...string) (string, error) 
 // collectDiagnostics probes every dependency the daemon needs to serve a single
 // UI request, in the order a request actually touches them: interpreter, then
 // the CLI scripts, then git (the CLIs' own dependency), then persistence, then
-// a live end-to-end intent read.
+// a live end-to-end configuration read.
 func (s *Server) collectDiagnostics(ctx context.Context, locales ...i18n.Context) Diagnostics {
 	locale := diagnosticLocale(locales)
 	d := Diagnostics{
@@ -149,14 +149,14 @@ func (s *Server) collectDiagnostics(ctx context.Context, locales ...i18n.Context
 	}
 
 	env := EnvReport{
-		PwshFlag:      pwsh,
-		RepoDir:       s.opts.RepoDir,
-		StateDir:      s.opts.StateDir,
-		AggregatorURL: s.opts.AggregatorURL,
-		HostID:        s.opts.HostID,
-		IntentGitURL:  redactURL(s.opts.IntentGitURL),
-		PATH:          os.Getenv("PATH"),
-		HOME:          os.Getenv("HOME"),
+		PwshFlag:            pwsh,
+		RepoDir:             s.opts.RepoDir,
+		StateDir:            s.opts.StateDir,
+		AggregatorURL:       s.opts.AggregatorURL,
+		HostID:              s.opts.HostID,
+		ConfigurationGitURL: redactURL(s.opts.ConfigurationGitURL),
+		PATH:                os.Getenv("PATH"),
+		HOME:                os.Getenv("HOME"),
 	}
 	d.Runtime = RuntimeReport{
 		PID:        os.Getpid(),
@@ -198,7 +198,7 @@ func (s *Server) collectDiagnostics(ctx context.Context, locales ...i18n.Context
 		})
 	}
 
-	// 2. powershell-yaml -- the CLIs parse intent YAML with it, so its absence
+	// 2. powershell-yaml -- the CLIs parse configuration YAML with it, so its absence
 	// fails every operation with a parse error rather than an import error.
 	if lookErr == nil {
 		out, err := runProbe(ctx, pwsh, "-NoProfile", "-NonInteractive", "-Command",
@@ -222,7 +222,7 @@ func (s *Server) collectDiagnostics(ctx context.Context, locales ...i18n.Context
 		d.Checks = append(d.Checks, revCheck)
 	}
 
-	// 4. git -- the CLIs clone and push the pool-intent store through it.
+	// 4. git -- the CLIs clone and push the pool-configuration store through it.
 	if gitPath, err := exec.LookPath("git"); err == nil {
 		ver, verr := runProbe(ctx, "git", "--version")
 		d.Checks = append(d.Checks, Check{
@@ -241,37 +241,37 @@ func (s *Server) collectDiagnostics(ctx context.Context, locales ...i18n.Context
 	// reports OK with the reason rather than as a failure.
 	d.Checks = append(d.Checks, s.checkStateDir(locale))
 
-	// 6. The intent store URL. Every read and write targets it, and an empty
+	// 6. The configuration store URL. Every read and write targets it, and an empty
 	// value fails all of them identically -- so name it as its own check rather
 	// than leaving it to be inferred from the CLI's error text. The LIVE value is
 	// reported, not the launch flag: the runner re-reads its config file per
 	// invocation, so the flag can be stale the moment an operator edits it.
-	liveURL := strings.TrimSpace(s.liveIntentURL())
-	env.IntentGitURL = redactURL(liveURL)
+	liveURL := strings.TrimSpace(s.liveConfigurationURL())
+	env.ConfigurationGitURL = redactURL(liveURL)
 	if liveURL == "" {
 		d.Checks = append(d.Checks, Check{
-			Name: "intent-git-url", OK: false,
-			Detail: Translate(locale, "pool.diagnostic_intent_empty", nil),
-			Hint:   Translate(locale, "pool.diagnostic_intent_configure", nil),
+			Name: "configuration-git-url", OK: false,
+			Detail: Translate(locale, "pool.diagnostic_configuration_empty", nil),
+			Hint:   Translate(locale, "pool.diagnostic_configuration_configure", nil),
 		})
 	} else {
 		detail := redactURL(liveURL)
-		if flag := strings.TrimSpace(s.opts.IntentGitURL); flag != liveURL {
-			detail += Translate(locale, "pool.diagnostic_intent_override", map[string]any{"flag": redactURL(flag)})
+		if flag := strings.TrimSpace(s.opts.ConfigurationGitURL); flag != liveURL {
+			detail += Translate(locale, "pool.diagnostic_configuration_override", map[string]any{"flag": redactURL(flag)})
 		}
-		d.Checks = append(d.Checks, Check{Name: "intent-git-url", OK: true, Detail: detail})
+		d.Checks = append(d.Checks, Check{Name: "configuration-git-url", OK: true, Detail: detail})
 	}
 
 	// 7. The store itself, when it is a local path (the pool NAS case). A URL the
 	// daemon cannot write is the failure mode that only shows up on the first
 	// mutation, long after the UI looked healthy, so probe it up front.
-	d.Checks = append(d.Checks, checkIntentStore(liveURL, locale))
+	d.Checks = append(d.Checks, checkConfigurationStore(liveURL, locale))
 
 	// 8. End-to-end: the same call the Pools page makes on load. This is the
 	// check that reproduces the operator-visible symptom directly.
-	res := s.intent.State(ctx)
+	res := s.configuration.State(ctx)
 	d.Checks = append(d.Checks, Check{
-		Name:   "intent-read",
+		Name:   "configuration-read",
 		OK:     res.OK,
 		Detail: firstNonEmpty(strings.TrimSpace(res.Error), strings.TrimSpace(res.Stderr), truncate(strings.TrimSpace(res.Stdout), 400), Translate(locale, "pool.diagnostic_no_output", nil)),
 		Hint:   hintIf(!res.OK, Translate(locale, "pool.diagnostic_raw_invocation", nil)),
@@ -279,7 +279,7 @@ func (s *Server) collectDiagnostics(ctx context.Context, locales ...i18n.Context
 	// The unabridged invocation. Argv and both streams are kept verbatim: the
 	// summary line above is lossy by design, and this is the page's reason to
 	// exist.
-	d.IntentProbe = CommandProbe{
+	d.ConfigurationProbe = CommandProbe{
 		Argv:     res.Argv,
 		ExitCode: res.Exit,
 		Duration: res.Duration,
@@ -425,50 +425,50 @@ func (s *Server) checkRepoDir(locales ...i18n.Context) Check {
 	return Check{Name: "repo-dir", OK: true, Detail: Translate(locale, "pool.diagnostic_repo_complete", map[string]any{"path": s.opts.RepoDir, "count": strconv.Itoa(len(poolAdminCLIs))})}
 }
 
-// intentURLReporter is satisfied by intent.Runner. Declared as an optional
-// interface rather than added to IntentAPI so a caller that only drives the
+// configurationURLReporter is satisfied by configuration.Runner. Declared as an optional
+// interface rather than added to ConfigurationAPI so a caller that only drives the
 // pool-admin surface -- including the test fake -- is unaffected.
-type intentURLReporter interface{ IntentURL() string }
+type configurationURLReporter interface{ ConfigurationURL() string }
 
-// liveIntentURL is what the NEXT invocation will use: the runner's per-request
+// liveConfigurationURL is what the NEXT invocation will use: the runner's per-request
 // resolution when it offers one, else the value startup was given.
-func (s *Server) liveIntentURL() string {
-	if r, ok := s.intent.(intentURLReporter); ok {
-		if u := r.IntentURL(); u != "" {
+func (s *Server) liveConfigurationURL() string {
+	if r, ok := s.configuration.(configurationURLReporter); ok {
+		if u := r.ConfigurationURL(); u != "" {
 			return u
 		}
 	}
-	return s.opts.IntentGitURL
+	return s.opts.ConfigurationGitURL
 }
 
-// checkIntentStore validates a LOCAL intent store (the pool NAS case). A remote
+// checkConfigurationStore validates a LOCAL configuration store (the pool NAS case). A remote
 // URL is reported as not-locally-checkable rather than failed: reachability is
-// then the intent-read check's job, and probing it here would just duplicate it.
-func checkIntentStore(url string, locales ...i18n.Context) Check {
+// then the configuration-read check's job, and probing it here would just duplicate it.
+func checkConfigurationStore(url string, locales ...i18n.Context) Check {
 	locale := diagnosticLocale(locales)
 	if url == "" {
-		return Check{Name: "intent-store", OK: false, Detail: Translate(locale, "pool.diagnostic_intent_absent", nil)}
+		return Check{Name: "configuration-store", OK: false, Detail: Translate(locale, "pool.diagnostic_configuration_absent", nil)}
 	}
 	if strings.Contains(url, "://") {
 		hint := ""
 		if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
 			// The proxy publishes the store through a plain apache Alias, which
 			// serves fetches but cannot accept a push.
-			hint = Translate(locale, "pool.diagnostic_intent_pull_only", nil)
+			hint = Translate(locale, "pool.diagnostic_configuration_pull_only", nil)
 		}
-		return Check{Name: "intent-store", OK: true, Detail: Translate(locale, "pool.diagnostic_intent_remote", nil), Hint: hint}
+		return Check{Name: "configuration-store", OK: true, Detail: Translate(locale, "pool.diagnostic_configuration_remote", nil), Hint: hint}
 	}
 	if _, err := os.Stat(filepath.Join(url, "refs")); err != nil {
-		return Check{Name: "intent-store", OK: false, Detail: Translate(locale, "pool.diagnostic_intent_not_bare", map[string]any{"path": url, "detail": errText(err)}),
-			Hint: Translate(locale, "pool.diagnostic_intent_initialize", nil)}
+		return Check{Name: "configuration-store", OK: false, Detail: Translate(locale, "pool.diagnostic_configuration_not_bare", map[string]any{"path": url, "detail": errText(err)}),
+			Hint: Translate(locale, "pool.diagnostic_configuration_initialize", nil)}
 	}
 	probe := filepath.Join(url, ".pool-control-service-write-probe")
 	if err := os.WriteFile(probe, []byte("probe\n"), 0o600); err != nil {
-		return Check{Name: "intent-store", OK: false, Detail: Translate(locale, "pool.diagnostic_intent_not_writable", map[string]any{"path": url, "detail": errText(err)}),
-			Hint: Translate(locale, "pool.diagnostic_intent_permission", nil)}
+		return Check{Name: "configuration-store", OK: false, Detail: Translate(locale, "pool.diagnostic_configuration_not_writable", map[string]any{"path": url, "detail": errText(err)}),
+			Hint: Translate(locale, "pool.diagnostic_configuration_permission", nil)}
 	}
 	_ = os.Remove(probe)
-	return Check{Name: "intent-store", OK: true, Detail: Translate(locale, "pool.diagnostic_intent_writable", map[string]any{"path": url})}
+	return Check{Name: "configuration-store", OK: true, Detail: Translate(locale, "pool.diagnostic_configuration_writable", map[string]any{"path": url})}
 }
 
 func (s *Server) checkStateDir(locales ...i18n.Context) Check {

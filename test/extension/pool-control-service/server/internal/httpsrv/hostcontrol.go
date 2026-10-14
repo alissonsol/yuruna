@@ -21,13 +21,13 @@ import (
 // Pool-wide host control: one selector drives every member of a pool the way
 // the operator would drive one host from its own status page.
 //
-// The pool's desiredState in the intent store is a DIFFERENT mechanism and is
+// The pool's configuredState in the configuration store is a DIFFERENT mechanism and is
 // deliberately not what this touches: that one is durable, reconciled at a
 // cycle boundary from git, and `drain` ends the runner process. This acts on
 // the live pause switches instead, which is what "pause the lab now, then let
 // it carry on" means to an operator watching a cycle.
 //
-// Membership comes from the intent store and the addresses from the aggregator,
+// Membership comes from the configuration store and the addresses from the aggregator,
 // for the same reason the board joins them that way: the aggregator's notion of
 // a pool is a label a host self-advertises, so it cannot say who BELONGS.
 
@@ -135,7 +135,7 @@ func eachMember[T any](members []string, work func(hostID string) T) []T {
 // doing. Open like every other read: it exposes no more than each host's own
 // status page already serves to the LAN.
 func (s *Server) handleHostControlState(w http.ResponseWriter, r *http.Request) {
-	doc, err := s.readIntentDoc(r.Context())
+	doc, err := s.readConfigurationDoc(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -174,7 +174,7 @@ func (s *Server) handleHostControlState(w http.ResponseWriter, r *http.Request) 
 //
 // The response is 200 with per-host rows even when hosts refused: the fan-out
 // itself ran, and "3 of 4 hosts paused, this one is not enrolled" is the answer
-// the operator needs. Only a failure to fan out AT ALL -- unreadable intent, an
+// the operator needs. Only a failure to fan out AT ALL -- unreadable configuration, an
 // unknown pool, no way to prove control -- is an error status.
 func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) {
 	var body struct{ PoolID, Action string }
@@ -201,7 +201,7 @@ func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "action must be one of continue, pause-after-cycle, pause-after-step")
 		return
 	}
-	doc, err := s.readIntentDoc(r.Context())
+	doc, err := s.readConfigurationDoc(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -350,7 +350,7 @@ func orderByReachable(members []string, addr map[string]string) []string {
 }
 
 // recordHostControl audits one fan-out. Every other mutation is audited through
-// relay(); this one does not go through the intent CLIs, so it records its own.
+// relay(); this one does not go through the configuration CLIs, so it records its own.
 func (s *Server) recordHostControl(poolID, action string, applied, failed int) {
 	if s.state == nil {
 		return
@@ -365,7 +365,7 @@ func (s *Server) recordHostControl(poolID, action string, applied, failed int) {
 // membersOf returns a pool's members and whether the pool exists at all. The
 // two are distinct answers: an empty pool accepts the call and changes nothing,
 // an unknown pool is a bad request.
-func membersOf(doc intentDoc, poolID string) ([]string, bool) {
+func membersOf(doc configurationDoc, poolID string) ([]string, bool) {
 	for _, p := range doc.Pools {
 		if p.PoolID == poolID {
 			return p.Members, true
@@ -374,16 +374,16 @@ func membersOf(doc intentDoc, poolID string) ([]string, bool) {
 	return nil, false
 }
 
-// readIntentDoc runs the intent read and decodes it, with the messages every
+// readConfigurationDoc runs the configuration read and decodes it, with the messages every
 // caller here surfaces verbatim.
-func (s *Server) readIntentDoc(ctx context.Context) (intentDoc, error) {
-	var doc intentDoc
-	res := s.intent.State(ctx)
+func (s *Server) readConfigurationDoc(ctx context.Context) (configurationDoc, error) {
+	var doc configurationDoc
+	res := s.configuration.State(ctx)
 	if !res.OK {
-		return doc, fmt.Errorf("%s", firstNonEmpty(res.Error, res.Stderr, "pool intent read failed"))
+		return doc, fmt.Errorf("%s", firstNonEmpty(res.Error, res.Stderr, "pool configuration read failed"))
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &doc); err != nil {
-		return doc, fmt.Errorf("could not parse pool intent: %s", err.Error())
+		return doc, fmt.Errorf("could not parse pool configuration: %s", err.Error())
 	}
 	return doc, nil
 }

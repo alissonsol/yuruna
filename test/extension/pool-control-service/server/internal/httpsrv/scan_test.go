@@ -37,7 +37,7 @@ func waitForIdle(t *testing.T, s *Server) {
 // addresses) so the test scans real closed ports quickly instead of standing up
 // a network.
 func TestScanStartAndStatus(t *testing.T) {
-	srv := httptest.NewServer(New(&fakeIntent{}, Options{Version: "test", AuthToken: testBearer}).Handler())
+	srv := httptest.NewServer(New(&fakeConfiguration{}, Options{Version: "test", AuthToken: testBearer}).Handler())
 	defer srv.Close()
 
 	resp, m := do(t, "POST", srv.URL+"/api/scan", `{"cidr":"127.0.0.0/30"}`)
@@ -75,7 +75,7 @@ func TestScanStartAndStatus(t *testing.T) {
 // Scanning changes what this daemon monitors and aims connection attempts at a
 // network the caller names, so it is gated with the writes, not the reads.
 func TestScanRequiresUnlock(t *testing.T) {
-	srv := httptest.NewServer(New(&fakeIntent{}, Options{Version: "test", AuthToken: testBearer}).Handler())
+	srv := httptest.NewServer(New(&fakeConfiguration{}, Options{Version: "test", AuthToken: testBearer}).Handler())
 	defer srv.Close()
 
 	for _, path := range []string{"/api/scan", "/api/scan/forget"} {
@@ -93,7 +93,7 @@ func TestScanRequiresUnlock(t *testing.T) {
 // A range the daemon will not walk is refused before anything is probed, and
 // the refusal says what would be accepted instead.
 func TestScanRejectsOversizeRange(t *testing.T) {
-	srv := httptest.NewServer(New(&fakeIntent{}, Options{Version: "test", AuthToken: testBearer}).Handler())
+	srv := httptest.NewServer(New(&fakeConfiguration{}, Options{Version: "test", AuthToken: testBearer}).Handler())
 	defer srv.Close()
 
 	resp, m := do(t, "POST", srv.URL+"/api/scan", `{"cidr":"10.0.0.0/8"}`)
@@ -108,7 +108,7 @@ func TestScanRejectsOversizeRange(t *testing.T) {
 // An empty range means "the one you would sweep", which is what the page sends
 // when the operator has not typed anything of their own.
 func TestScanEmptyCIDRUsesConfigured(t *testing.T) {
-	s := New(&fakeIntent{}, Options{Version: "test", AuthToken: testBearer, ScanCIDR: "127.0.0.0/30"})
+	s := New(&fakeConfiguration{}, Options{Version: "test", AuthToken: testBearer, ScanCIDR: "127.0.0.0/30"})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
@@ -129,7 +129,7 @@ func TestScanEmptyCIDRUsesConfigured(t *testing.T) {
 func TestHostsIncludesDiscovered(t *testing.T) {
 	dir := t.TempDir()
 	agg := hostsAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer, StateDir: dir})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer, StateDir: dir})
 
 	s.discovered.Add(discovery.Host{
 		Address: "192.168.7.9", BaseURL: "http://192.168.7.9:8080",
@@ -191,7 +191,7 @@ func TestHostsIncludesDiscovered(t *testing.T) {
 // Forget is the way out for a retired machine, and it is gated like the scan
 // that put the host there.
 func TestScanForget(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{Version: "test", AuthToken: testBearer})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{Version: "test", AuthToken: testBearer})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	s.discovered.Add(discovery.Host{Address: "192.168.7.9", HostID: "9999"}, time.Now())
@@ -216,7 +216,7 @@ func TestScanForget(t *testing.T) {
 // The page has to be reachable from the menu on every page, and its script has
 // to ship: a menu item pointing at a 404 is worse than no menu item.
 func TestScanPageServed(t *testing.T) {
-	srv := httptest.NewServer(New(&fakeIntent{}, Options{Version: "test"}).Handler())
+	srv := httptest.NewServer(New(&fakeConfiguration{}, Options{Version: "test"}).Handler())
 	defer srv.Close()
 
 	page := getText(t, srv.URL+"/scan")
@@ -303,7 +303,7 @@ func rekeyAggStub(t *testing.T) (*httptest.Server, *int32) {
 // says so, and the live one is left alone.
 func TestHostsMarksTheRegisteredIdThatNoLongerAnswers(t *testing.T) {
 	agg, _ := rekeyAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL})
 
 	_, rows := hostsPayload(t, s, "")
 	if got := rows["42dead"]["supersededBy"]; got != "42live" {
@@ -325,7 +325,7 @@ func TestHostsMarksTheRegisteredIdThatNoLongerAnswers(t *testing.T) {
 // rows read as two similar machines, which is the opposite of the point.
 func TestHostFactsAskARekeyedMachineOnce(t *testing.T) {
 	agg, calls := rekeyAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/hosts/facts", nil)
 	rec := httptest.NewRecorder()
@@ -358,7 +358,7 @@ func TestHostFactsAskARekeyedMachineOnce(t *testing.T) {
 // it in the window before that happens.
 func TestHostsRendersOneRowPerDiscoveredAddress(t *testing.T) {
 	agg := hostsAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
 
 	// Written straight into the store under two keys, which is the state a
 	// re-key leaves behind, and with the older sighting added last so insertion
@@ -408,7 +408,7 @@ func TestAdoptRekeyMovesMembershipToTheLiveId(t *testing.T) {
 	// exactly the state that costs the pool a member.
 	const doc = `{"ok":true,"autoEnrollment":{"targetPoolId":""},
       "pools":[{"poolId":"lab","poolGuid":"42l","members":["42dead"]}]}`
-	fake := &boardIntent{doc: doc}
+	fake := &boardConfiguration{doc: doc}
 	s := New(fake, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
@@ -421,15 +421,15 @@ func TestAdoptRekeyMovesMembershipToTheLiveId(t *testing.T) {
 	if m["movedToPool"] != "lab" {
 		t.Errorf("movedToPool = %v, want lab", m["movedToPool"])
 	}
-	// Membership changes in one intent-store write, so a failed push cannot
+	// Membership changes in one configuration-store write, so a failed push cannot
 	// leave the machine between the remove and add steps.
 	want := []string{"MoveHostIdentity:42dead:42live"}
 	if len(fake.calls) != len(want) {
-		t.Fatalf("intent calls = %v, want %v", fake.calls, want)
+		t.Fatalf("configuration calls = %v, want %v", fake.calls, want)
 	}
 	for i, c := range want {
 		if fake.calls[i] != c {
-			t.Fatalf("intent calls = %v, want %v", fake.calls, want)
+			t.Fatalf("configuration calls = %v, want %v", fake.calls, want)
 		}
 	}
 	if s.discovered.Has("42dead") {
@@ -457,7 +457,7 @@ func TestAdoptRekeyMovesMembershipToTheLiveId(t *testing.T) {
 // the request.
 func TestAdoptRekeyRefusesAPairItCannotConfirm(t *testing.T) {
 	agg, _ := rekeyAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
@@ -485,7 +485,7 @@ func TestAdoptRekeyRefusesAPairItCannotConfirm(t *testing.T) {
 // merging them would take one out of its pool for good.
 func TestAdoptRekeyRefusesTwoDistinctMachines(t *testing.T) {
 	agg := hostsAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
@@ -509,7 +509,7 @@ func TestHostHistoryRequiresUnlockAndForwardsInternalBearer(t *testing.T) {
 		_, _ = w.Write([]byte(`{"canonicalHostId":"42live","hostIds":["42dead","42live"],"entries":[]}`))
 	}))
 	defer agg.Close()
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	response, err := http.Get(srv.URL + "/api/hosts/history?hostId=42live")
@@ -542,7 +542,7 @@ func TestAdoptRekeyReportsAggregatorFailureWithoutForgettingOldRow(t *testing.T)
 	base = "http://" + agg.Listener.Addr().String()
 	agg.Start()
 	defer agg.Close()
-	fake := &boardIntent{doc: `{"ok":true,"pools":[{"poolId":"lab","members":["42dead"]}]}`}
+	fake := &boardConfiguration{doc: `{"ok":true,"pools":[{"poolId":"lab","members":["42dead"]}]}`}
 	s := New(fake, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
 	s.discovered.Add(discovery.Host{Address: "192.168.7.110", HostID: "42dead"}, time.Now())
 	srv := httptest.NewServer(s.Handler())
@@ -560,7 +560,7 @@ func TestAdoptRekeyReportsAggregatorFailureWithoutForgettingOldRow(t *testing.T)
 }
 
 func TestDiscoveredHostnamesRequireUnlockedReads(t *testing.T) {
-	s := New(&boardIntent{doc: `{"ok":true,"pools":[]}`}, Options{Version: "test", AuthToken: testBearer, StateDir: t.TempDir()})
+	s := New(&boardConfiguration{doc: `{"ok":true,"pools":[]}`}, Options{Version: "test", AuthToken: testBearer, StateDir: t.TempDir()})
 	s.discovered.Add(discovery.Host{Address: "192.168.7.9", BaseURL: "http://192.168.7.9:8080", HostID: "example", Hostname: "private-machine-name"}, time.Now())
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()

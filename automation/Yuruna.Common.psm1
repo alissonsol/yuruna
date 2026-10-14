@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2252,7 +2252,7 @@ function Get-YurunaServiceVmName {
     Concurrency guards exist to keep leftover TEST guests from competing with a
     cycle. These four are the opposite kind of VM: the cycle consumes them. The
     caching proxy serves every guest install, the stash service receives the
-    build's binaries, the pool-control service serves the intent store, and the
+    build's binaries, the pool-control service serves the configuration store, and the
     download agent serves the guest images every host would otherwise fetch
     from the origin itself.
     Stopping one at cycle start -- or refusing to start because one is running --

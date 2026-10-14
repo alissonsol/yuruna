@@ -317,6 +317,7 @@ const DataqpsPlocmstatus = `{
   "status.config_field_chardelayms": "[!‮çħářĎéļáýⱮš‬ ~~~~~]",
   "status.config_field_cleanupvmnameprefixes": "[!‮çļéáñúƥṼɱÑáɱéƤřéƒíẋéš‬ ~~~~~~~~~]",
   "status.config_field_configservice": "[!‮çóñƒíğŠéřṽíçé‬ ~~~~~~]",
+  "status.config_field_configurationgiturl": "[!‮çóñƒíğúřáţíóñĞíţÚřļ‬ ~~~~~~~~]",
   "status.config_field_cycledelayseconds": "[!‮çýçļéĎéļáýŠéçóñďš‬ ~~~~~~~]",
   "status.config_field_discoveryintervalseconds": "[!‮ďíšçóṽéřýÍñţéřṽáļŠéçóñďš‬ ~~~~~~~~~~]",
   "status.config_field_downloadagentservice": "[!‮ďóŵñļóáďÁğéñţŠéřṽíçé‬ ~~~~~~~~]",
@@ -328,7 +329,6 @@ const DataqpsPlocmstatus = `{
   "status.config_field_ghtoken": "[!‮ğħŢóķéñ‬ ~~~]",
   "status.config_field_guestquarantine": "[!‮ğúéšţʠúářáñţíñé‬ ~~~~~~]",
   "status.config_field_guestsequence": "[!‮ğúéšţŠéʠúéñçé‬ ~~~~~~]",
-  "status.config_field_intentgiturl": "[!‮íñţéñţĞíţÚřļ‬ ~~~~~]",
   "status.config_field_labhealth": "[!‮ļáƀĦéáļţħ‬ ~~~~]",
   "status.config_field_language": "[!‮ļáñğúáğé‬ ~~~~]",
   "status.config_field_localclonepath": "[!‮ļóçáļÇļóñéƤáţħ‬ ~~~~~~]",
@@ -1360,6 +1360,35 @@ const DataqpsPlocmstatus = `{
     " ţó šţářţ á ţéšţ çýçļé.‬ ~~~~~~~~~~~~~~~]"
   ],
   "status.run_start_testrunner_ps1_to_start_a_test_cycle": "[!‮Řúñ Start-TestRunner.ps1 ţó šţářţ á ţéšţ çýçļé.‬ ~~~~~~~~~~~~~~~~~~~]",
+  "status.runner_attempt_failed": [
+    "[!‮Řúññéř áţţéɱƥţ ƒáíļéď: ",
+    {
+      "arg": "failureClass",
+      "type": "detail",
+      "trust": "external"
+    },
+    "‬ ~~~~~~~~~~~~~~~]"
+  ],
+  "status.runner_attempt_started": [
+    "[!‮Áţţéɱƥţ šţářţéď: ",
+    {
+      "arg": "startedAt",
+      "type": "detail",
+      "trust": "external"
+    },
+    "‬ ~~~~~~~~~~~~]"
+  ],
+  "status.runner_failure_record": "[!‮Ƒáíļúřé řéçóřď‬ ~~~~~~]",
+  "status.runner_failure_transcript": "[!‮Çóñƒíğúřáţíóñ ğáţé ţřáñšçříƥţ‬ ~~~~~~~~~~~~]",
+  "status.runner_framework_commit": [
+    "[!‮Ƒřáɱéŵóřķ çóɱɱíţ: ",
+    {
+      "arg": "commit",
+      "type": "detail",
+      "trust": "external"
+    },
+    "‬ ~~~~~~~~~~~]"
+  ],
   "status.save": "[!‮Šáṽé‬ ~~]",
   "status.save_and_start_cycle": "[!‮Šáṽé áñď šţářţ çýçļé‬ ~~~~~~~~]",
   "status.save_and_start_cycle_failed_value1": [

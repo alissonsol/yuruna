@@ -3,7 +3,7 @@
 
 // Command pool-control-service is the Yuruna pool-control service daemon: a small HTTP service
 // that serves the operator UI (board, hosts, pools, scan, diagnostics) and drives
-// the pool-intent git store by shelling out to the PowerShell pool-admin CLIs. It
+// the pool-configuration git store by shelling out to the PowerShell pool-admin CLIs. It
 // self-announces to the pool-aggregator service (beacon) so it shows up in the
 // Extension hosts table, exactly like the stash service.
 package main
@@ -19,9 +19,9 @@ import (
 	"yuruna.com/test/extension/extension-sdk/servicecfg"
 
 	"pool-control-service/internal/config"
+	"pool-control-service/internal/configuration"
 	"pool-control-service/internal/discovery"
 	"pool-control-service/internal/httpsrv"
-	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
 	"yuruna.com/test/extension/extension-sdk/beacon"
 	"yuruna.com/test/extension/extension-sdk/hostrefresh"
@@ -42,10 +42,10 @@ func run() error {
 	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "beacon re-announce cadence")
 	pwshPath := flag.String("pwsh", "pwsh", "path to the pwsh executable")
 	repoDir := flag.String("repo-dir", "", "path to the yuruna framework checkout (the pool-admin CLIs live at <repo-dir>/test/*.ps1) [required]")
-	intentGitURL := flag.String("intent-git-url", "", "writable pool-intent git URL forwarded to the CLIs (defaults to test.config.yml's pool.intentGitUrl when empty)")
+	configurationGitURL := flag.String("configuration-git-url", "", "writable pool-configuration git URL forwarded to the CLIs (defaults to test.config.yml's pool.configurationGitUrl when empty)")
 	stateDir := flag.String("state-dir", "", "directory (under poolStorageNetworkPath/pool-control-service/) for the audit log + status.json; empty disables persistence")
-	monitorInterval := flag.Duration("monitor-interval", 60*time.Second, "how often to probe the intent + refresh status.json")
-	configPath := flag.String("config-file", "/etc/yuruna/pool-control-service.env", "env file re-read before each intent operation for POOL_CONTROL_INTENT_GIT_URL (empty pins the launch flag)")
+	monitorInterval := flag.Duration("monitor-interval", 60*time.Second, "how often to probe the configuration + refresh status.json")
+	configPath := flag.String("config-file", "/etc/yuruna/pool-control-service.env", "env file re-read before each configuration operation for POOL_CONTROL_CONFIGURATION_GIT_URL (empty pins the launch flag)")
 	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the internal authentication key accepted as a bearer on the mutating routes (empty or missing leaves the dashboard's lab token as the only way in)")
 	refreshAuthorityFile := flag.String("refresh-authority-file", config.DefaultRefreshAuthorityFile, "file holding the host refresh signing authority (one yhra1 line, owner-only); missing, malformed or group/world-readable disables remote host refresh")
 	refreshCredentialFile := flag.String("refresh-credential-file", config.DefaultRefreshCredentialFile, "file holding the operator refresh credential (one yhrc1 line, owner-only) required in X-Yuruna-Refresh-Credential; missing, malformed or group/world-readable disables remote host refresh")
@@ -70,12 +70,12 @@ func run() error {
 	authToken := readTokenFile(*authTokenFile)
 	refreshAuthority, refreshCredential := readRefreshSecrets(*refreshAuthorityFile, *refreshCredentialFile, authToken)
 
-	runner := &intent.Runner{Pwsh: *pwshPath, RepoDir: *repoDir, IntentGitUrl: *intentGitURL, ConfigPath: *configPath}
+	runner := &configuration.Runner{Pwsh: *pwshPath, RepoDir: *repoDir, ConfigurationGitUrl: *configurationGitURL, ConfigPath: *configPath}
 	store := state.New(*stateDir, time.Now())
 	ui := httpsrv.New(runner, httpsrv.Options{
 		Addr: *httpAddr, Version: version, Store: store,
 		PwshPath: *pwshPath, RepoDir: *repoDir, StateDir: *stateDir,
-		AggregatorURL: *aggregatorURL, HostID: *hostID, IntentGitURL: *intentGitURL,
+		AggregatorURL: *aggregatorURL, HostID: *hostID, ConfigurationGitURL: *configurationGitURL,
 		AuthToken: authToken, AuthTokenFile: *authTokenFile,
 		RefreshAuthority: refreshAuthority, RefreshCredential: refreshCredential, RefreshAuthorityFile: *refreshAuthorityFile,
 		ScanCIDR: *scanCIDR, ScanPort: *scanPort, ScanInterval: *scanInterval, ScanTTL: *scanTTL,
@@ -111,9 +111,9 @@ func run() error {
 	}
 	go ui.RunDiscovery(ctx, *scanInterval)
 
-	// Continuous monitor: probe the intent store and refresh status.json (the
-	// heartbeat + intent-readable flag) under poolStorageNetworkPath so an operator (or a
-	// health check) can see the service is alive and the intent is reachable.
+	// Continuous monitor: probe the configuration store and refresh status.json (the
+	// heartbeat + configuration-readable flag) under poolStorageNetworkPath so an operator (or a
+	// health check) can see the service is alive and the configuration is reachable.
 	if store.Enabled() {
 		go func() {
 			tick := time.NewTicker(*monitorInterval)

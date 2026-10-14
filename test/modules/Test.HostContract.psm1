@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42a04c70-e7da-4354-977e-5dd4778e74a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,7 @@ function Stop-ConcurrentVM {
         VM names that may keep running. The service VMs are infrastructure the
         cycle CONSUMES, not competitors for the host: the caching proxy serves
         every guest install, the stash service receives the build's binaries, and
-        the pool-control service serves the intent store, and the download
+        the pool-control service serves the configuration store, and the download
         agent supplies base images. Stopping one at cycle
         start does not free the host for the cycle, it removes something the
         cycle is about to require -- the stash service in particular fails the

@@ -18,7 +18,7 @@ import (
 // a tool cannot answer differently from the route -- one body, produced once.
 //
 // The read tools wrap open routes and carry exactly their exposure. The
-// mutating tools rewrite the pool intent store by shelling out to the
+// mutating tools rewrite the pool configuration store by shelling out to the
 // pool-admin CLIs -- each one commits and pushes -- so they sit behind the
 // daemon's own write gate; see the mutating block below.
 func (s *Server) mcpRegistry() *mcp.Registry {
@@ -29,10 +29,10 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 		name, desc, route string
 		h                 http.HandlerFunc
 	}{
-		{"pool_control_board", "Read the operator board as of this instant: every pool, its hosts, and the framework and project repositories each one runs. The pool membership comes from the intent store this daemon last pulled, so it is as fresh as the last sync rather than live.", "/api/board", s.handleBoard},
+		{"pool_control_board", "Read the operator board as of this instant: every pool, its hosts, and the framework and project repositories each one runs. The pool membership comes from the configuration store this daemon last pulled, so it is as fresh as the last sync rather than live.", "/api/board", s.handleBoard},
 		{"pool_control_hosts", "Read every host the pool control service knows, with its current state.", "/api/hosts", s.handleHosts},
 		{"pool_control_host_facts", "Read the per-host facts behind the board's cards.", "/api/hosts/facts", s.handleHostFacts},
-		{"pool_control_state", "Read the daemon's own state: last write, last action, whether the intent store is readable.", "/api/state", s.handleState},
+		{"pool_control_state", "Read the daemon's own state: last write, last action, whether the configuration store is readable.", "/api/state", s.handleState},
 		{"pool_control_diagnostics", "Read the diagnostic report: what this service can reach, what it cannot, and why. Probes run when the route is called, so this is a live check and can take a few seconds. Use it when a read above answers but looks wrong.", "/api/diagnostics", s.handleDiagnostics},
 		{"pool_control_hostinfo", "Read this daemon's host id, stamped version and own addresses.", "/api/hostinfo", s.handleHostInfo},
 		{"pool_control_scan_status", "Read the network scan: whether one is running, the CIDR it covers, how far it has got, and every host it has found so far. This is what the Scan page shows.", "/api/scan", s.handleScanStatus},

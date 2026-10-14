@@ -16,7 +16,7 @@ if not re.fullmatch(r'\d{4}\.\d{2}\.\d{2}(?:\.\d+)?', version):
     raise SystemExit(f'Invalid VERSION: {version!r}')
 
 generated = {}
-for name in ('update', 'code', 'n8n', 'openclaw', 'postgresql'):
+for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
     body = root / f'guest/shared/ubuntu.{name}.sh'
     digest = hashlib.sha256(body.read_bytes()).hexdigest()
     text = f'''#!/bin/bash

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 421a5b0c-c7c1-4612-9a9e-d61b0c836775
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,24 +18,25 @@
 
 <#
 .SYNOPSIS
-    Validate every file in the pool intent store against its schema. Read-only.
+    Validate every file in the pool configuration store against its schema. Read-only.
 .DESCRIPTION
     See https://yuruna.link/42010605-0004.
 .EXAMPLE
-    test/pool/Test-PoolIntent.ps1 -IntentGitUrl /var/lib/yuruna/pool-intent.git
+    test/pool/Test-PoolConfiguration.ps1 -ConfigurationGitUrl /var/lib/yuruna/pool-configuration.git
 #>
 
 [CmdletBinding()]
 param(
-    [string]$IntentGitUrl,
-    [string]$IntentDir
+    [string]$ConfigurationGitUrl,
+    [string]$ConfigurationDir
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# --- REGION: https://yuruna.link/42162449-0004
+# --- REGION: Log level from environment
+# See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default. $InformationPreference
 # is re-read afterwards because the script-scoped assignment above shadows the
@@ -55,8 +56,8 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 # the clean exit-code path.
 Import-Module powershell-yaml -ErrorAction Stop
 
-# --- REGION: Open the intent store
-$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+# --- REGION: Open the configuration store
+$open = Open-YurunaPoolAdminStore -ConfigurationGitUrl $ConfigurationGitUrl -ConfigurationDir $ConfigurationDir -Confirm:$false
 $t = $open.Target
 if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
@@ -65,12 +66,12 @@ $failures = 0
 # pools.yml is REQUIRED: an absent one must not read as success -- the runners
 # pull whatever is committed, so a missing pools.yml would silently leave the
 # pool unconfigured. guests.compatibility.yml is optional
-# (Test-YurunaPoolIntentFile SKIPs it when absent).
-$poolsPath = Join-Path $t.IntentDir 'pools.yml'
+# (Test-YurunaPoolConfigurationFile SKIPs it when absent).
+$poolsPath = Join-Path $t.ConfigurationDir 'pools.yml'
 # The version is read raw, never through Read-YurunaPoolsDoc: that path upgrades
 # in memory, so an outdated store would read as current. An absent
-# schemaVersion reads as 2, the rule ConvertTo-PoolIntentSchemaV3 applies. A
-# file that is missing or will not parse is left to Test-YurunaPoolIntentFile.
+# schemaVersion reads as 2, the rule ConvertTo-PoolConfigurationSchemaV4 applies. A
+# file that is missing or will not parse is left to Test-YurunaPoolConfigurationFile.
 $storedVersion = $null
 if (Test-Path -LiteralPath $poolsPath) {
     try {
@@ -79,16 +80,16 @@ if (Test-Path -LiteralPath $poolsPath) {
     } catch { $storedVersion = $null }
 }
 $storedIsInteger = ($storedVersion -is [int]) -or ($storedVersion -is [long])
-$schemaOutdated  = $storedIsInteger -and ($storedVersion -lt 3)
-$schemaCurrent   = $storedIsInteger -and ($storedVersion -eq 3)
+$schemaOutdated  = $storedIsInteger -and ($storedVersion -lt 4)
+$schemaCurrent   = $storedIsInteger -and ($storedVersion -eq 4)
 if ($schemaOutdated) {
     # One finding that names the fix. Validating an outdated store against the
-    # v3 schema, or checking the v3 target-pool rule on it, would only restate
+    # v4 schema, or checking the v4 target-pool rule on it, would only restate
     # the same cause as a second failure or pass vacuously.
-    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.pool_intent_schema_outdated' -Arguments @{ found = "$storedVersion"; expected = 3 })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.pool_configuration_schema_outdated' -Arguments @{ found = "$storedVersion"; expected = 4 })
     $failures++
-} elseif (-not (Test-YurunaPoolIntentFile -Path $poolsPath -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required)) { $failures++ }
-if (-not (Test-YurunaPoolIntentFile -Path (Join-Path $t.IntentDir 'guests.compatibility.yml') -SchemaName 'guests.compatibility.schema.yml' -Label 'guests.compatibility.yml')) { $failures++ }
+} elseif (-not (Test-YurunaPoolConfigurationFile -Path $poolsPath -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required)) { $failures++ }
+if (-not (Test-YurunaPoolConfigurationFile -Path (Join-Path $t.ConfigurationDir 'guests.compatibility.yml') -SchemaName 'guests.compatibility.schema.yml' -Label 'guests.compatibility.yml')) { $failures++ }
 
 # Cross-pool invariant: a host belongs to AT MOST one pool. The schema cannot
 # express this (it spans array elements), so enforce it here.

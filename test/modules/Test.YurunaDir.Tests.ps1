@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b4865f-6a1d-415a-a630-1e2183bca862
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -125,7 +125,7 @@ Describe 'Get-YurunaHostId keys a host on its hardware, not on chance' {
 
     It 'derives the id its hardware implies rather than a random one' {
         # A host mints its id into the runtime dir, so anything that takes that
-        # dir away -- a reimage, a re-clone, a wiped checkout -- used to leave
+        # dir away -- a reimage, a re-clone, a wiped checkout -- would leave
         # the machine inventing a fresh identity. Its pool history then forked:
         # the aggregator and the scan list both key hosts by id, so one machine
         # occupied a row per id it had ever had, and pool membership stayed on
@@ -178,7 +178,7 @@ Describe 'Get-YurunaHostId keys a host on its hardware, not on chance' {
     It 'honors the escape hatch for an operator who means to re-key' {
         # Deriving from hardware would otherwise hand back the very id the
         # removed runtime dir had, taking away the deliberate re-key that
-        # removing that dir used to be.
+        # removing that dir is meant to produce.
         $prevSeed = $env:YURUNA_HOST_ID_SEED
         $env:YURUNA_HOST_ID_SEED = 'random'
         $ids = @()

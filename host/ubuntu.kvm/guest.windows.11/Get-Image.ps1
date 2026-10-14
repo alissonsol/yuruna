@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 422c7a57-c395-4a3c-9648-066af9dbee1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,8 +35,7 @@
     Apple Virtualization Framework guests on macOS UTM use the
     Win11 ARM64 ISO; KVM x86_64 hosts use the regular x64 ISO. ARM64
     Windows 11 on KVM aarch64 is not currently supported by this script
-    (UUP-dump-assembled ISOs work but are out of scope for the initial
-    scaffold).
+    (UUP-dump-assembled ISOs work but are out of scope).
 #>
 
 # --- REGION: Log level from environment
@@ -70,7 +69,7 @@ $virtioOrigin  = Join-Path $downloadDir 'virtio-win.txt'
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
-# --- REGION: Windows 11 ISO: manual download path
+# --- REGION: Seek the base image
 $downloadPage = 'https://www.microsoft.com/en-us/software-download/windows11'
 if (-not (Test-Path -LiteralPath $winIso)) {
     # --- REGION: https://yuruna.link/42e220c4-0003
@@ -144,6 +143,8 @@ if (-not (Test-Path -LiteralPath $winIso)) {
         }
     }
 }
+
+# --- REGION: Fallback: manual download instructions
 if (-not (Test-Path -LiteralPath $winIso)) {
     Write-Output ""
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_9a9f6a0905ffda91')
@@ -167,17 +168,13 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1af721e69b7a4d55'
 # Abort on a failed download or staging operation before reporting success.
 $ErrorActionPreference = 'Stop'
 
-# --- REGION: virtio-win ISO: Fedora's hosted bundle (signed)
+# --- REGION: virtio-win ISO
+# Fedora's hosted, signed driver bundle.
 # See https://yuruna.link/42e220c4-0003
 # Use the archived HTTPS URL to avoid downgrade redirects in the convenience URL.
 $virtioUrl = 'https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302.iso'
 
-# The KVM host driver brings the skip-if-same-source guard + sentinel writer
-# (Test-DownloadAlreadyCurrent / Write-ImageSentinel, the shared 4-line filename +
-# URL + size + Last-Modified format) AND the cache-aware Save-CachedHttpUri
-# wrapper used for the virtio-win download below. (The Windows ISO is a manual
-# download -- Microsoft serves it only via short-lived signed URLs -- so it
-# cannot route through the cache.)
+# See https://yuruna.link/42e220c4-0003
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force
 
@@ -254,7 +251,7 @@ if ($virtioAgentSkipped) {
         # --- REGION: https://yuruna.link/42e220c4-0003
         # Capture the download command before entering the retry module scope.
         $saveCmd = Get-Command -Name Save-CachedHttpUri
-        # --- REGION: https://yuruna.link/42e220c4-0003
+        # See https://yuruna.link/42e220c4-0003
         # Require a nonempty artifact before clearing a stale native discovery exit code.
         $dlLog = Join-Path $downloadDir 'virtio-win.download.log'
         Remove-Item $dlLog -Force -ErrorAction SilentlyContinue

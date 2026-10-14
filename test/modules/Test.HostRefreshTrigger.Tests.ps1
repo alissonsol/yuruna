@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4265d6db-e190-47e6-b2ae-7119aa42d885
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -749,43 +749,43 @@ Describe 'Get-HostRefreshAutoThreshold -- the knob, the pool override and the fl
     }
 }
 
-Describe 'Get-HostRefreshAutoPoolContext -- the pulled pool intent' {
+Describe 'Get-HostRefreshAutoPoolContext -- the pulled pool configuration' {
     AfterEach {
-        Remove-Item -LiteralPath 'Function:\Sync-YurunaPoolIntent', 'Function:\Resolve-YurunaPoolDesiredState', 'Function:\Get-YurunaPoolConfig' -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath 'Function:\Sync-YurunaPoolConfiguration', 'Function:\Resolve-YurunaPoolConfiguredState', 'Function:\Get-YurunaPoolConfig' -ErrorAction SilentlyContinue
     }
     It 'is run for a host with no pool sync loaded' {
         $c = Get-HostRefreshAutoPoolContext
-        $c.DesiredState | Should -Be 'run'
+        $c.ConfiguredState | Should -Be 'run'
         $c.Source | Should -Be 'no-pool-sync'
     }
     It 'is unknown when the pull throws' {
-        function global:Sync-YurunaPoolIntent { [CmdletBinding()] [OutputType([hashtable])] param() throw 'network' }
-        function global:Resolve-YurunaPoolDesiredState { [CmdletBinding()] [OutputType([string])] param($Pool) $null = $Pool; 'run' }
+        function global:Sync-YurunaPoolConfiguration { [CmdletBinding()] [OutputType([hashtable])] param() throw 'network' }
+        function global:Resolve-YurunaPoolConfiguredState { [CmdletBinding()] [OutputType([string])] param($Pool) $null = $Pool; 'run' }
         $c = Get-HostRefreshAutoPoolContext
-        $c.DesiredState | Should -Be 'unknown'
+        $c.ConfiguredState | Should -Be 'unknown'
         $c.Source | Should -Be 'error'
     }
     It 'is unknown when pool sync is on but the pull produced no pool record for this host' {
-        function global:Sync-YurunaPoolIntent { [CmdletBinding()] [OutputType([hashtable])] param() $null }
-        function global:Resolve-YurunaPoolDesiredState { [CmdletBinding()] [OutputType([string])] param($Pool) $null = $Pool; 'run' }
-        function global:Get-YurunaPoolConfig { [CmdletBinding()] [OutputType([pscustomobject])] param($Config, [switch]$IgnoreEnabled) $null = $Config, $IgnoreEnabled; [pscustomobject]@{ Enabled = $true; IntentGitUrl = 'http://p/i.git' } }
+        function global:Sync-YurunaPoolConfiguration { [CmdletBinding()] [OutputType([hashtable])] param() $null }
+        function global:Resolve-YurunaPoolConfiguredState { [CmdletBinding()] [OutputType([string])] param($Pool) $null = $Pool; 'run' }
+        function global:Get-YurunaPoolConfig { [CmdletBinding()] [OutputType([pscustomobject])] param($Config, [switch]$IgnoreEnabled) $null = $Config, $IgnoreEnabled; [pscustomobject]@{ Enabled = $true; ConfigurationGitUrl = 'http://p/i.git' } }
         $c = Get-HostRefreshAutoPoolContext
-        $c.DesiredState | Should -Be 'unknown' -Because 'the runner cycles as a single host, but an unattended restart cannot tell a paused fleet from an unreadable one'
+        $c.ConfiguredState | Should -Be 'unknown' -Because 'the runner cycles as a single host, but an unattended restart cannot tell a paused fleet from an unreadable one'
         $c.Source | Should -Be 'no-pool-record'
     }
     It 'is run when pool sync is off in the configuration' {
-        function global:Sync-YurunaPoolIntent { [CmdletBinding()] [OutputType([hashtable])] param() $null }
-        function global:Resolve-YurunaPoolDesiredState { [CmdletBinding()] [OutputType([string])] param($Pool) $null = $Pool; 'run' }
+        function global:Sync-YurunaPoolConfiguration { [CmdletBinding()] [OutputType([hashtable])] param() $null }
+        function global:Resolve-YurunaPoolConfiguredState { [CmdletBinding()] [OutputType([string])] param($Pool) $null = $Pool; 'run' }
         function global:Get-YurunaPoolConfig { [CmdletBinding()] [OutputType([pscustomobject])] param($Config, [switch]$IgnoreEnabled) if ($Config -or $IgnoreEnabled) { return $null }; return $null }
         $c = Get-HostRefreshAutoPoolContext
-        $c.DesiredState | Should -Be 'run'
+        $c.ConfiguredState | Should -Be 'run'
         $c.Source | Should -Be 'no-pool-sync'
     }
-    It 'returns the desired state and the pool testCycle map' {
-        function global:Sync-YurunaPoolIntent { [CmdletBinding()] [OutputType([hashtable])] param() @{ desiredState = 'paused'; config = @{ testCycle = @{ autoRefreshAfterStalls = 2 } } } }
-        function global:Resolve-YurunaPoolDesiredState { [CmdletBinding()] [OutputType([string])] param($Pool) [string]$Pool['desiredState'] }
+    It 'returns the configured state and the pool testCycle map' {
+        function global:Sync-YurunaPoolConfiguration { [CmdletBinding()] [OutputType([hashtable])] param() @{ configuredState = 'paused'; config = @{ testCycle = @{ autoRefreshAfterStalls = 2 } } } }
+        function global:Resolve-YurunaPoolConfiguredState { [CmdletBinding()] [OutputType([string])] param($Pool) [string]$Pool['configuredState'] }
         $c = Get-HostRefreshAutoPoolContext
-        $c.DesiredState | Should -Be 'paused'
+        $c.ConfiguredState | Should -Be 'paused'
         $c.Source | Should -Be 'pull'
         $c.TestCycleOverride['autoRefreshAfterStalls'] | Should -Be 2
     }
@@ -1159,7 +1159,7 @@ Describe 'Invoke-HostRefreshAutoDecision -- the post-dispatch decision' {
         $script:Now = Set-TestUtc '2026-09-25T10:00:00'
         $script:Result = New-ResultRecord
         Mock -ModuleName Test.HostRefreshTrigger Write-HostRefreshAutoLog { $script:Log.Add($Key) }
-        Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ DesiredState = 'run'; TestCycleOverride = @{}; Source = 'pull' } }
+        Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ ConfiguredState = 'run'; TestCycleOverride = @{}; Source = 'pull' } }
         Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshActiveRequest { $null }
         Mock -ModuleName Test.HostRefreshTrigger Request-HostRefreshAutoAttempt {
             $script:Log.Add('admission')
@@ -1185,7 +1185,7 @@ Describe 'Invoke-HostRefreshAutoDecision -- the post-dispatch decision' {
     }
 
     It 'lets a pool override engage a host whose own config is off' {
-        Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ DesiredState = 'run'; TestCycleOverride = @{ autoRefreshAfterStalls = 2 }; Source = 'pull' } }
+        Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ ConfiguredState = 'run'; TestCycleOverride = @{ autoRefreshAfterStalls = 2 }; Source = 'pull' } }
         $d = Invoke-HostRefreshAutoDecision -State (New-DecisionState -Threshold 0) -Cycle 5 -Branch failure -Accounting (New-Accounting) -Support (New-QualifiedSupport) -WorkerInvoker $script:Worker -NowUtc $script:Clock -Confirm:$false
         $d.Threshold | Should -Be 2
         $d.Action | Should -Be 'attempted'
@@ -1206,7 +1206,7 @@ Describe 'Invoke-HostRefreshAutoDecision -- the post-dispatch decision' {
     }
 
     It 'refuses while the pool is paused, draining or unknown, without reserving' {
-        Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ DesiredState = $script:Desired; TestCycleOverride = @{}; Source = 'pull' } }
+        Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ ConfiguredState = $script:Desired; TestCycleOverride = @{}; Source = 'pull' } }
         foreach ($desired in 'paused', 'drain', 'unknown') {
             $script:Desired = $desired
             $d = Invoke-HostRefreshAutoDecision -State (New-DecisionState) -Cycle 5 -Branch failure -Accounting (New-Accounting) -Support (New-QualifiedSupport) -WorkerInvoker $script:Worker -NowUtc $script:Clock -Confirm:$false
@@ -1486,10 +1486,10 @@ Describe 'Invoke-HostRefreshAutoDecision -- the post-dispatch decision' {
             $script:Workers.Count | Should -Be 1
         }
         It 'holds a resume while the pool is not run or a shutdown is pending' {
-            Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ DesiredState = 'paused'; TestCycleOverride = @{}; Source = 'pull' } }
+            Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ ConfiguredState = 'paused'; TestCycleOverride = @{}; Source = 'pull' } }
             (Invoke-HostRefreshAutoDecision -State (New-DecisionState) -Cycle 5 -Branch gated -Accounting (New-Accounting -Outcome 'refresh-gated') -Support (New-QualifiedSupport) -WorkerInvoker $script:Worker -NowUtc $script:Clock -Confirm:$false).Action |
                 Should -Be 'none'
-            Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ DesiredState = 'run'; TestCycleOverride = @{}; Source = 'pull' } }
+            Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ ConfiguredState = 'run'; TestCycleOverride = @{}; Source = 'pull' } }
             $state = New-DecisionState
             $state.ShutdownState.Requested = $true
             (Invoke-HostRefreshAutoDecision -State $state -Cycle 6 -Branch gated -Accounting (New-Accounting -Outcome 'refresh-gated') -Support (New-QualifiedSupport) -WorkerInvoker $script:Worker -NowUtc $script:Clock -Confirm:$false).Action |
@@ -1510,7 +1510,7 @@ Describe 'A day of automatic attempts through the real admission and ledger' {
         $script:SavedRuntimeDir = $env:YURUNA_RUNTIME_DIR
         $env:YURUNA_RUNTIME_DIR = New-CaseDir -Name 'runtime'
         Mock -ModuleName Test.HostRefreshTrigger Write-HostRefreshAutoLog { }
-        Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ DesiredState = 'run'; TestCycleOverride = @{}; Source = 'pull' } }
+        Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ ConfiguredState = 'run'; TestCycleOverride = @{}; Source = 'pull' } }
         Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoStatePath { $script:Budget }
         Mock -ModuleName Test.HostRefreshTrigger Get-YurunaHostRefreshAdmissionLockPath { $script:LockPath }
         Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshResult {
@@ -1697,7 +1697,7 @@ Describe 'The resident-loop call sequence around a dispatch' {
         $script:Rt = New-CaseDir -Name 'loop-runtime'
         $script:StreakFile = Join-Path (New-CaseDir -Name 'loop-private') 'host-refresh.auto-streak.json'
         Mock -ModuleName Test.HostRefreshTrigger Write-HostRefreshAutoLog { }
-        Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ DesiredState = 'run'; TestCycleOverride = @{}; Source = 'pull' } }
+        Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ ConfiguredState = 'run'; TestCycleOverride = @{}; Source = 'pull' } }
         Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshActiveRequest { [pscustomobject]@{ requestId = $script:RequestId; channel = 'automatic'; state = 'queued'; attempt = 0 } }
         Mock -ModuleName Test.HostRefreshTrigger Stop-HostRefreshQueuedRequest { [pscustomobject]@{ Stopped = $true; State = 'refused' } }
         Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoTriggerSupport { New-QualifiedSupport }

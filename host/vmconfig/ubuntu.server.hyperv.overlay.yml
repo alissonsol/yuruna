@@ -3,12 +3,12 @@
 # Hyper-V overlay for ubuntu.server.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
-  # See https://yuruna.link/42e220c4-0006
-  # Empty: Hyper-V uses its KVP and MAC-keyed neighbor discovery paths.
+    # See https://yuruna.link/42e220c4-0006
+    # Empty: Hyper-V uses its KVP and MAC-keyed neighbor discovery paths.
 # === YURUNA_OVERLAY_NETWORK ===
+  # --- REGION: network
   # See https://yuruna.link/4220a755-000b
   # Pin the installer lease before /target exists.
-  # --- REGION: network
   network:
     version: 2
     ethernets:
@@ -32,8 +32,32 @@
     # The live system's 15-minute tmpfiles-clean timer otherwise races curtin's /target/run unmount.
     - systemctl stop systemd-tmpfiles-clean.timer 2>/dev/null || true
 # === YURUNA_OVERLAY_LATE_HOST_AGENT ===
-    # Empty: nothing to enable -- see the package section above.
+    # --- REGION: https://yuruna.link/42e220c4-0007
+    # The host reads COM1 through a named pipe while the cycle runs. journald
+    # forwards every level there, so the serial log carries the guest's own
+    # account of a silence that leaves SSH and the console unanswered, while
+    # the framebuffer console the OCR reads stays quiet. A guest without a
+    # serial port logs one journald warning and nothing else.
+    - |
+      cat > /target/etc/systemd/journald.conf.d/70-yuruna-serial.conf << 'EOF'
+      # --- REGION: [Journal]
+      [Journal]
+      ForwardToConsole=yes
+      TTYPath=/dev/ttyS0
+      MaxLevelConsole=debug
+      EOF
+      chmod 0644 /target/etc/systemd/journald.conf.d/70-yuruna-serial.conf
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
+    # --- REGION: https://yuruna.link/42e220c4-0007
+    # The kernel's early boot and panic output reach COM1 only through a
+    # console= argument. tty0 stays last, so it remains the primary console
+    # and the framebuffer the OCR reads is unchanged; the quiet loglevel that
+    # follows applies to both, and journald's forwarding above carries the
+    # rest to the serial port.
+    - |
+      cat > /target/etc/default/grub.d/98-yuruna-serial.cfg << 'GRUBCFG'
+      GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} console=ttyS0,115200n8 console=tty0"
+      GRUBCFG
     # --- REGION: https://yuruna.link/429f3d06-001e
     - |
       mkdir -p /target/etc/dpkg/dpkg.cfg.d

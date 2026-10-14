@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42363f75-1d59-4ac0-a62f-c6d723656b28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -173,6 +173,7 @@ Write-Output "<<< GitHub CLI installation complete."
 Write-Output ""
 Write-Output ">>> Installing mkcert..."
 Invoke-GuestWingetInstall -PackageId 'FiloSottile.mkcert'
+
 # --- REGION: Refresh PATH
 # mkcert was just installed and must be discoverable for the certificate work below.
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -934,21 +934,10 @@ guard let best = clusters.max(by: { $0.total < $1.total }) else {
 }
 
 // --- REGION: Densest-cluster crop
-// CGImage.cropping uses image-data (top-left) origin, NOT the bottom-left
-// CGContext origin used elsewhere in CG. Mixing the two conventions
-// produces bottom-of-image crops where the caller meant top-of-image,
-// and Vision then sees a black tile and returns 0 obs.
-//
-// Crop BOTH x and y to the text bounding box. The x-axis crop was added
-// after the QEMU+VNC switch: VNC framebuffers of a Linux console at 1920
-// wide put the entire prompt in the leftmost ~700 px, so the cluster's
-// 1920 x ~80 strip is mostly black on the right two thirds. Empirically,
-// Vision's text detector silently returns 0 observations when the
-// text-to-image-area ratio drops below some threshold around the
-// 1200-wide mark (probed on macOS 26 / Vision 4.x with VNC captures of
-// `<host> login:` on a 1920 x 1080 framebuffer). The y-only crop fixed
-// the AVF/screencapture cases because those filled the full width with
-// UI chrome; the QEMU/VNC case needs both axes trimmed.
+// See https://yuruna.link/42607283-0006
+// CGImage.cropping takes the top-left image-data origin, not the bottom-left
+// CGContext one, and both axes are trimmed: Vision reads nothing from a wide,
+// mostly black image.
 let pad = 16
 let cropY0 = max(0, best.start - pad)
 let cropH  = min(h - cropY0, (best.end - cropY0) + pad + 1)

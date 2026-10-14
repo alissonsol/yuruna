@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4287c576-70ba-465a-5472-248e943d02a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,6 +171,8 @@
         }
         '.'
     )
+    'pool.configuration_git_url' = 'configuration git URL'
+    'pool.configuration_read_raw_invocation' = 'Configuration read — raw invocation'
     'pool.continue' = 'Continue'
     'pool.control' = 'Control'
     'pool.cores' = 'Cores'
@@ -271,22 +273,11 @@
     )
     'pool.detail' = 'Detail'
     'pool.diagnostic_auto_enrollment_assignment' = 'Hosts land here automatically and keep running their own project.'
-    'pool.diagnostic_configure_repo' = 'Pass --repo-dir pointing at the yuruna framework checkout.'
-    'pool.diagnostic_git_not_found' = @(
-        'not found on PATH: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'pool.diagnostic_install_git' = 'The pool-admin CLIs clone and push pool intent; install git in the guest.'
-    'pool.diagnostic_install_pwsh' = 'Install PowerShell in the guest. packages.microsoft.com has no powershell package for this Ubuntu release; use the GitHub-release tarball, then restart pool-control-service.service.'
-    'pool.diagnostic_intent_absent' = 'no intent URL to check'
-    'pool.diagnostic_intent_configure' = 'The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_INTENT_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.intentGitUrl in test/test.config.yml before rebuilding.'
-    'pool.diagnostic_intent_empty' = 'empty: no intent store resolved from the launch flag or the config file'
-    'pool.diagnostic_intent_initialize' = 'The pool NAS store is created by the guest bring-up; if the NAS mounted late, re-run the bring-up script or git init --bare it.'
-    'pool.diagnostic_intent_not_bare' = @(
+    'pool.diagnostic_configuration_absent' = 'no configuration URL to check'
+    'pool.diagnostic_configuration_configure' = 'The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_CONFIGURATION_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.configurationGitUrl in test/test.config.yml before rebuilding.'
+    'pool.diagnostic_configuration_empty' = 'empty: no configuration store resolved from the launch flag or the config file'
+    'pool.diagnostic_configuration_initialize' = 'The pool NAS store is created by the guest bring-up; if the NAS mounted late, re-run the bring-up script or git init --bare it.'
+    'pool.diagnostic_configuration_not_bare' = @(
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -300,7 +291,7 @@
         }
         ')'
     )
-    'pool.diagnostic_intent_not_writable' = @(
+    'pool.diagnostic_configuration_not_writable' = @(
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -313,7 +304,7 @@
             'trust' = 'external'
         }
     )
-    'pool.diagnostic_intent_override' = @(
+    'pool.diagnostic_configuration_override' = @(
         '  (config file overrides the launch flag '
         @{
             'arg' = 'flag'
@@ -322,10 +313,10 @@
         }
         ')'
     )
-    'pool.diagnostic_intent_permission' = 'Writes will fail at push. Check the pool NAS mount''s uid/gid against the service user.'
-    'pool.diagnostic_intent_pull_only' = 'An http(s) intent store is pull-only unless the server runs git-http-backend: reads will work and every write will fail at push. The writable store is the bare repo on the pool NAS.'
-    'pool.diagnostic_intent_remote' = 'remote URL; reachability is covered by intent-read'
-    'pool.diagnostic_intent_writable' = @(
+    'pool.diagnostic_configuration_permission' = 'Writes will fail at push. Check the pool NAS mount''s uid/gid against the service user.'
+    'pool.diagnostic_configuration_pull_only' = 'An http(s) configuration store is pull-only unless the server runs git-http-backend: reads will work and every write will fail at push. The writable store is the bare repo on the pool NAS.'
+    'pool.diagnostic_configuration_remote' = 'remote URL; reachability is covered by configuration-read'
+    'pool.diagnostic_configuration_writable' = @(
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -333,6 +324,17 @@
         }
         ': bare repo, writable'
     )
+    'pool.diagnostic_configure_repo' = 'Pass --repo-dir pointing at the yuruna framework checkout.'
+    'pool.diagnostic_git_not_found' = @(
+        'not found on PATH: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.diagnostic_install_git' = 'The pool-admin CLIs clone and push pool configuration; install git in the guest.'
+    'pool.diagnostic_install_pwsh' = 'Install PowerShell in the guest. packages.microsoft.com has no powershell package for this Ubuntu release; use the GitHub-release tarball, then restart pool-control-service.service.'
     'pool.diagnostic_no_output' = 'no output'
     'pool.diagnostic_not_configured' = 'not configured'
     'pool.diagnostic_persistence_configure' = 'Pass Options.StateDir alongside Options.Store so this check can probe the real path.'
@@ -931,8 +933,6 @@
         }
     }
     'pool.hosts_yuruna_pool_control' = 'Hosts — Yuruna Pool Control'
-    'pool.intent_git_url' = 'intent git URL'
-    'pool.intent_read_raw_invocation' = 'Intent read — raw invocation'
     'pool.ips' = 'IPs:'
     'pool.it_will_also_be_excluded_from_auto_enrollment_so_the_sweep_will_n' = "`n`nIt will also be excluded from auto-enrollment, so the sweep will not add it back."
     'pool.lab_token' = 'Lab token'
@@ -1108,6 +1108,7 @@
     'pool.pools' = 'Pools'
     'pool.pools_yuruna_pool_control' = 'Pools — Yuruna Pool Control'
     'pool.process' = 'Process'
+    'pool.process_environment' = 'Process environment'
     'pool.progress' = 'Progress'
     'pool.project' = 'Project'
     'pool.project_url' = 'Project URL'
@@ -1247,7 +1248,6 @@
     'pool.row_number' = 'Row number'
     'pool.running' = 'Running: '
     'pool.running_checks' = 'Running checks...'
-    'pool.runtime_environment' = 'Runtime environment'
     'pool.save_failed_value1' = @(
         'Save failed: '
         @{

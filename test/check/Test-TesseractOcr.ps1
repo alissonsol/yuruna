@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 424c7cc6-4425-4493-95dc-35c015c4f9ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@ Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c1879a78e88f9d94')
 Write-Output ""
 
-# --- REGION: Validate input
+# --- REGION: Validate the arguments
 if (-not (Test-Path $ImagePath)) {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_b89efb6414cd8157' -Arguments @{ imagePath = "$ImagePath" })
     exit 1

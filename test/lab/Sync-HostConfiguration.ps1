@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42e9ac75-3fda-482e-9c3e-944aff26fe2a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -117,7 +117,7 @@ Use-LogLevelFromEnv
 # --- REGION: Shared bootstrap
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
-# --- REGION: Elevation gate
+# --- REGION: Elevation check
 # See https://yuruna.link/42010605-0003
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $hostTarget = Resolve-YurunaHostScript -ScriptName 'Sync-HostConfiguration.ps1'

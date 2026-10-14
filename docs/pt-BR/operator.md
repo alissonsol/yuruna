@@ -655,7 +655,7 @@ SMB3. Em uma única máquina os dois ficam aqui, e
 raiz de armazenamento em `/srv/yuruna` (Ubuntu), `/Users/Shared/yuruna`
 (macOS) ou `<drive>\Shares\yuruna` (Windows, primeiro disco não do
 sistema). Ele chama o `New-Lab` para as pastas, o cofre do laboratório
-e o repositório de intenção, e então faz o que o `New-Lab`
+e o repositório de configuração, e então faz o que o `New-Lab`
 deliberadamente deixa de lado:
 
 - **Uma conta local por camada** -- `yuruna-pool` e `yuruna-stash`,
@@ -709,7 +709,7 @@ conjunto:
 As pastas de armazenamento mantêm o operador como dono; a conta de
 compartilhamento é adicionada ao lado (ACE herdada no Windows/macOS,
 grupo + setgid no Linux). Isso permite que o `New-Lab` crie o
-repositório de intenção do próximo laboratório na pasta do grupo, e
+repositório de configuração do próximo laboratório na pasta do grupo, e
 evita a recusa de "dubious ownership" do git que o chown para a conta
 de compartilhamento provocaria.
 
@@ -945,6 +945,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.11.1
+Última revisão: 2026.10.14
 
 Voltar para [Yuruna](../../README.md)

@@ -14,7 +14,7 @@ import (
 	"yuruna.com/test/extension/extension-sdk/jsonbody"
 
 	"pool-control-service/internal/config"
-	"pool-control-service/internal/intent"
+	"pool-control-service/internal/configuration"
 	"pool-control-service/internal/state"
 
 	"yuruna.com/test/extension/extension-sdk/i18n"
@@ -56,7 +56,7 @@ func (s *Server) routes() http.Handler {
 	// rewrites pool configuration.
 	mux.HandleFunc("POST /api/pool", s.gate.Require(s.handleNewPool))
 	mux.HandleFunc("DELETE /api/pool", s.gate.Require(s.handleRemovePool))
-	mux.HandleFunc("POST /api/pool/desired-state", s.gate.Require(s.handleDesiredState))
+	mux.HandleFunc("POST /api/pool/configured-state", s.gate.Require(s.handleConfiguredState))
 	// Pool-wide host control drives other machines rather than this service's
 	// own configuration, but it takes the same gate as the rest: it only ever
 	// pauses or continues work that is already running, and an operator holding
@@ -120,7 +120,7 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 
 // relayResult maps a CLI Result to the HTTP response: 200 {ok:true,...} on
 // success, 500 {ok:false,error,stderr} on failure (a failed push is a failure).
-func relayResult(w http.ResponseWriter, res intent.Result) {
+func relayResult(w http.ResponseWriter, res configuration.Result) {
 	if res.OK {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "output": strings.TrimSpace(res.Stdout)})
 		return
@@ -129,8 +129,8 @@ func relayResult(w http.ResponseWriter, res intent.Result) {
 }
 
 // relay records an audit entry (when a state store is configured) and relays the
-// result to the client. Every intent mutation flows through here.
-func (s *Server) relay(w http.ResponseWriter, action, target string, res intent.Result) {
+// result to the client. Every configuration mutation flows through here.
+func (s *Server) relay(w http.ResponseWriter, action, target string, res configuration.Result) {
 	if s.state != nil {
 		detail := ""
 		if !res.OK {
@@ -146,7 +146,7 @@ func (s *Server) relay(w http.ResponseWriter, action, target string, res intent.
 }
 
 // handleHealth serves the persisted status (last write, last-publish, heartbeat,
-// intent readability) when a state store is configured, else a plain "ok".
+// configuration readability) when a state store is configured, else a plain "ok".
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.state == nil {
 		_, _ = io.WriteString(w, "ok\n")
@@ -221,19 +221,19 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 
 // --- REGION: Handlers
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
-	res := s.intent.State(r.Context())
+	res := s.configuration.State(r.Context())
 	if !res.OK {
-		writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "pool intent read failed"))
+		writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "pool configuration read failed"))
 		return
 	}
-	// Get-PoolIntent.ps1 already emits a {ok,pools,autoEnrollment} JSON object; relay it.
+	// Get-PoolConfiguration.ps1 already emits a {ok,pools,autoEnrollment} JSON object; relay it.
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = io.WriteString(w, strings.TrimSpace(res.Stdout))
 }
 
 func (s *Server) handleNewPool(w http.ResponseWriter, r *http.Request) {
-	var body struct{ PoolID, DisplayName, DesiredState string }
+	var body struct{ PoolID, DisplayName, ConfiguredState string }
 	if !decode(w, r, &body) {
 		return
 	}
@@ -241,7 +241,7 @@ func (s *Server) handleNewPool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "poolId is required")
 		return
 	}
-	s.relay(w, "new-pool", body.PoolID, s.intent.NewPool(r.Context(), body.PoolID, body.DisplayName, body.DesiredState))
+	s.relay(w, "new-pool", body.PoolID, s.configuration.NewPool(r.Context(), body.PoolID, body.DisplayName, body.ConfiguredState))
 }
 
 func (s *Server) handleRemovePool(w http.ResponseWriter, r *http.Request) {
@@ -251,19 +251,19 @@ func (s *Server) handleRemovePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	force := r.URL.Query().Get("force") == "true"
-	s.relay(w, "remove-pool", poolID, s.intent.RemovePool(r.Context(), poolID, force))
+	s.relay(w, "remove-pool", poolID, s.configuration.RemovePool(r.Context(), poolID, force))
 }
 
-func (s *Server) handleDesiredState(w http.ResponseWriter, r *http.Request) {
-	var body struct{ PoolID, DesiredState string }
+func (s *Server) handleConfiguredState(w http.ResponseWriter, r *http.Request) {
+	var body struct{ PoolID, ConfiguredState string }
 	if !decode(w, r, &body) {
 		return
 	}
-	if body.PoolID == "" || body.DesiredState == "" {
-		writeErr(w, http.StatusBadRequest, "poolId and desiredState are required")
+	if body.PoolID == "" || body.ConfiguredState == "" {
+		writeErr(w, http.StatusBadRequest, "poolId and configuredState are required")
 		return
 	}
-	s.relay(w, "desired-state", body.PoolID, s.intent.SetDesiredState(r.Context(), body.PoolID, body.DesiredState))
+	s.relay(w, "configured-state", body.PoolID, s.configuration.SetConfiguredState(r.Context(), body.PoolID, body.ConfiguredState))
 }
 
 func (s *Server) handleAddHost(w http.ResponseWriter, r *http.Request) {
@@ -275,7 +275,7 @@ func (s *Server) handleAddHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "poolId and hostId are required")
 		return
 	}
-	s.relay(w, "add-host", body.PoolID, s.intent.AddHost(r.Context(), body.PoolID, body.HostID))
+	s.relay(w, "add-host", body.PoolID, s.configuration.AddHost(r.Context(), body.PoolID, body.HostID))
 }
 
 func (s *Server) handleRemoveHost(w http.ResponseWriter, r *http.Request) {
@@ -285,7 +285,7 @@ func (s *Server) handleRemoveHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "poolId and hostId are required")
 		return
 	}
-	s.relay(w, "remove-host", poolID, s.intent.RemoveHost(r.Context(), poolID, hostID, true))
+	s.relay(w, "remove-host", poolID, s.configuration.RemoveHost(r.Context(), poolID, hostID, true))
 }
 
 // handleSetPoolRepositories sets or clears the framework and project
@@ -323,10 +323,10 @@ func (s *Server) handleSetPoolRepositories(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if frameworkURL == "" {
-		s.relay(w, "clear-repositories", poolID, s.intent.ClearPoolRepositories(r.Context(), poolID))
+		s.relay(w, "clear-repositories", poolID, s.configuration.ClearPoolRepositories(r.Context(), poolID))
 		return
 	}
-	s.relay(w, "set-repositories", poolID, s.intent.SetPoolRepositories(r.Context(), poolID, frameworkURL, projectURL))
+	s.relay(w, "set-repositories", poolID, s.configuration.SetPoolRepositories(r.Context(), poolID, frameworkURL, projectURL))
 }
 
 // safeRepositoryURL reports whether an already-trimmed value may be handed to

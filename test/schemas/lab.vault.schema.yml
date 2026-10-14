@@ -27,7 +27,7 @@ additionalProperties: false
 properties:
   schemaVersion:
     description: Bumped only on a breaking shape change.
-    const: 1
+    const: 2
 
   lab:
     type: object
@@ -49,10 +49,10 @@ properties:
       stashPath:
         description: Filesystem path of the lab's yuruna.stash folder on the creating host.
         type: string
-      intentGitPath:
+      configurationGitPath:
         description: >
-          Path of the bare pool-intent repository inside yuruna.pool. pool-control service
-          serves this over git:// and that URL becomes the lab's intentGitUrl.
+          Path of the bare pool-configuration repository inside yuruna.pool. pool-control service
+          serves this over git:// and that URL becomes the lab's configurationGitUrl.
         type: string
 
   users:

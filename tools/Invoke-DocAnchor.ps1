@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42ab6d19-74c3-4f80-9e25-3d0c81af57b6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,14 +111,16 @@ function Get-RepoRootFor {
 # target in any language but English.
 #
 # Individual design records remain outside this registry. The design
-# overview is enrolled explicitly because its published links need stable
-# heading addresses; the other records remain unchanged.
+# overview and the ontology guide are enrolled explicitly because their
+# published links need stable heading addresses; the other records remain
+# unchanged.
 function Get-SourceDocument {
     $list = [Collections.Generic.List[hashtable]]::new()
     foreach ($f in (Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'docs') -Filter '*.md' -File | Sort-Object Name)) {
         $list.Add(@{ Repo = 'yuruna'; Source = "docs/$($f.Name)" })
     }
-    foreach ($extra in @('README.md', 'install/README.md', 'docs/design/README.md')) {
+    foreach ($extra in @('README.md', 'install/README.md', 'docs/design/README.md', 'docs/ontology/README.md',
+                         'docs/ontology/2026/10/README.md')) {
         $list.Add(@{ Repo = 'yuruna'; Source = $extra })
     }
     foreach ($extra in @('README.md', 'template/README.md', 'example/README.md',

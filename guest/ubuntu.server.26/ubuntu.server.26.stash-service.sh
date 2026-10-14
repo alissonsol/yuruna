@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # See https://yuruna.link/42e220c4-0005
@@ -35,7 +35,7 @@ if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
 fi
 
 # --- REGION: Service user
-# Prefer cloud-init's account; allow an explicit override or the current caller.
+# Prefer cloud-init's account; otherwise use an explicit override or the current caller.
 # The CIFS mount maps every file to this user's uid/gid.
 if id -u stash-admin >/dev/null 2>&1; then
   SERVICE_USER=stash-admin
@@ -55,12 +55,14 @@ done
 # shellcheck source=../../automation/yuruna-service-bringup.sh
 . "$SERVICE_LIB"
 
-# --- REGION: Service tunables
+# --- REGION: Service locale
 # See https://yuruna.link/42fffc2c-000d
 SERVICE_LANGUAGE="$(sed -n 's/^YURUNA_LANGUAGE=//p' /etc/yuruna/globalization.env 2>/dev/null | head -1 || true)"
 [ -n "$SERVICE_LANGUAGE" ] || SERVICE_LANGUAGE=auto
 SERVICE_ALLOW_PSEUDO_LOCALE="$(sed -n 's/^YURUNA_ALLOW_PSEUDO_LOCALE=//p' /etc/yuruna/globalization.env 2>/dev/null | head -1 || true)"
 [ "$SERVICE_ALLOW_PSEUDO_LOCALE" = true ] || SERVICE_ALLOW_PSEUDO_LOCALE=false
+
+# --- REGION: Service tunables
 HTTP_ADDR="${STASH_HTTP_ADDR-0.0.0.0:80}"
 POOL_WINDOW_DAYS="${STASH_POOL_WINDOW_DAYS:-30}"
 AGGREGATOR_URL_SEED=$(sed -nE "s/^YURUNA_AGGREGATOR_URL='(.*)'\$/\1/p" /etc/yuruna/pool.env 2>/dev/null | head -n1 || true)
@@ -242,6 +244,7 @@ if ! yuruna_service_wait_active stash-service.service 30 "$SERVICE_HEALTH_URL"; 
 fi
 ss -ltnp '( sport = :22 or sport = :80 )' 2>/dev/null | sed -n '1,6p' || true
 
+# --- REGION: Installation summary
 echo ""
 echo "== stash service ready =="
 echo "  Binary     : /usr/local/bin/stash-service"

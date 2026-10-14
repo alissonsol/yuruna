@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f19503-4d18-8300-0c4e-b20b03572b60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,72 @@
 # locale: pt-BR  domain: exceptions
 
 @{
+    'exceptions.config_naming_blocked_path' = @(
+        'Não é possível migrar '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' para '''
+        @{
+            'arg' = 'replacement'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': um escalar bloqueia o caminho de substituição. O arquivo não foi alterado.'
+    )
+    'exceptions.config_naming_conflict' = @(
+        'Conflito de nomes de configuração: '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' e '''
+        @{
+            'arg' = 'replacement'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' contêm valores preenchidos diferentes. Mantenha um valor antes de tentar novamente. O arquivo não foi alterado.'
+    )
+    'exceptions.config_naming_duplicate_parked' = @(
+        'Há entradas de configuração obsoletas conflitantes para '''
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. Mantenha um valor antes de tentar novamente. O arquivo não foi alterado.'
+    )
+    'exceptions.config_naming_invalid_duration' = @(
+        'Não é possível migrar a chave de configuração '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': era esperada uma duração numérica. O arquivo não foi alterado.'
+    )
+    'exceptions.config_naming_invalid_parked_scalar' = @(
+        'Não é possível migrar a chave de configuração obsoleta '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': era esperado um escalar YAML válido. O arquivo não foi alterado.'
+    )
+    'exceptions.config_naming_save_failed' = @(
+        'Não foi possível salvar a migração de nomes de configuração em '''
+        @{
+            'arg' = 'configPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''; o arquivo original e o backup continuam disponíveis.'
+    )
     'exceptions.host_1568d9e12a12e190' = 'Esta é a variante Ubuntu KVM; execute host/<type>/Sync-HostConfiguration.ps1 para esta plataforma.'
     'exceptions.host_1c714189825ec0e2' = @(
         'Hyper-V\Remove-VM falhou para '''
@@ -601,6 +667,7 @@
             'trust' = 'external'
         }
     )
+    'exceptions.host_ffd2efb19a40de43' = 'Enable-TestAutomation.ps1 (host/windows.hyper-v) só é executado no Windows.'
     'exceptions.host_refresh_auth_authority_incomplete' = @(
         @{
             'arg' = 'path'
@@ -757,6 +824,24 @@
             'trust' = 'internal'
         }
         '''.'
+    )
+    'exceptions.pool_configuration_legacy_state' = @(
+        'O grupo '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' usa desiredState em schemaVersion 4; use configuredState.'
+    )
+    'exceptions.pool_configuration_state_conflict' = @(
+        'O grupo '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' declara valores conflitantes em desiredState e configuredState; remova o campo obsoleto após escolher o configuredState pretendido.'
     )
     'exceptions.runner_037f5a478339db90' = @(
         'A configuração do executor não tem entradas ''sequências'': '

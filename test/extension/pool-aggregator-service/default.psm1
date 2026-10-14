@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42cccee0-5874-465b-83ed-85e8f9c9e9d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,6 +138,7 @@ function Get-PoolExtensionHost {
         [string]$BaseUrl
     )
 
+    Set-PoolLookupOutcome -Outcome 'none' -Confirm:$false
     if ($BaseUrl) { return (Get-PoolExtensionHostFrom -BaseUrl $BaseUrl -Area $Area -TimeoutSeconds $TimeoutSeconds) }
     if (-not (Get-Command Get-PoolAggregatorServiceSeedUrl -ErrorAction SilentlyContinue)) {
         $cachingProxy = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules' |
@@ -190,6 +191,7 @@ function Get-PoolExtensionHostFrom {
         [int]$TimeoutSeconds = 5
     )
 
+    Set-PoolLookupOutcome -Outcome 'none' -Confirm:$false
     # Route from the manifest, not a second literal: a copy here is a copy that
     # keeps answering the old path after the map is corrected.
     $route = (Get-PoolAggregatorServiceManifest).Endpoints.ExtensionHosts

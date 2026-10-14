@@ -3,6 +3,30 @@
   "domain": "exceptions",
   "locale": "he-IL",
   "messages": {
+    "exceptions.config_naming_blocked_path": {
+      "sourceHash": "5c2449d5da16df5ff18b6d4fff663854968d339d59c6f52e3edb0227d71291fd",
+      "message": "לא ניתן להעביר את '{old}' אל '{replacement}': ערך סקלרי חוסם את נתיב ההחלפה. הקובץ לא שונה."
+    },
+    "exceptions.config_naming_conflict": {
+      "sourceHash": "373f80db871e1a1e1cdda17730bd2a2bdf1abef8a9c3c3feef3ce686a186a3b8",
+      "message": "התנגשות בשמות התצורה: '{old}' ו־'{replacement}' מכילים ערכים שונים שאינם ריקים. יש להשאיר ערך אחד לפני ניסיון נוסף. הקובץ לא שונה."
+    },
+    "exceptions.config_naming_duplicate_parked": {
+      "sourceHash": "4c83129fbf1aff8b061c0a43cf13fb7794a2aeaae4f8e003243f012afecf9369",
+      "message": "רשומות תצורה מיושנות סותרות עבור '{path}'. יש להשאיר ערך אחד לפני ניסיון נוסף. הקובץ לא שונה."
+    },
+    "exceptions.config_naming_invalid_duration": {
+      "sourceHash": "2ea5c31fae97084d3e98c41e62de3c3d345d314a88a295f81d210713952db21f",
+      "message": "לא ניתן להעביר את מפתח התצורה '{old}': נדרש משך זמן מספרי. הקובץ לא שונה."
+    },
+    "exceptions.config_naming_invalid_parked_scalar": {
+      "sourceHash": "03b90828b0e903c6b84df27253871dbae2ee9ba7356a1a56e7d9b87ae1f10022",
+      "message": "לא ניתן להעביר את מפתח התצורה המיושן '{old}': נדרש ערך סקלרי תקין של YAML. הקובץ לא שונה."
+    },
+    "exceptions.config_naming_save_failed": {
+      "sourceHash": "d892878091e7bc9fcce7c17b23851f687c285ef5a279b66aaab412365e05d3af",
+      "message": "לא ניתן לשמור את העברת שמות התצורה אל '{configPath}'; הקובץ המקורי והגיבוי עדיין זמינים."
+    },
     "exceptions.host_1568d9e12a12e190": {
       "sourceHash": "9cc77f3c54a394b1b7a763daa4814966a64bef4ceac1d12fe95e915728bba559",
       "origin": "machine",
@@ -753,6 +777,11 @@
       "origin": "machine",
       "message": "⁦Disable-TestAutomation.ps1⁩ (host⁦/windows.hyper-v⁩) פועל רק במערכת Windows."
     },
+    "exceptions.host_ffd2efb19a40de43": {
+      "sourceHash": "0497a02293b580afcea68e537847e46fbcff857f781ea5ae043c9898a9bf38d9",
+      "origin": "machine",
+      "message": "⁦Enable-TestAutomation.ps1⁩ (host⁦/windows.hyper-v⁩) פועל רק במערכת Windows."
+    },
     "exceptions.host_9e776665909b3868": {
       "sourceHash": "95cf873f3e4775e0297e0914a24b75b182f32d256dc36192071ec44cbc45fe12",
       "origin": "machine",
@@ -807,6 +836,16 @@
       "sourceHash": "ce537a8b87a896bca9fae49f7e4571be33333f0b3e98ead86775cc98bacb17a5",
       "origin": "machine",
       "message": "לא ניתן להפעיל את שרת SMB של macOS. הפעילו את שיתוף קבצים בהגדרות המערכת > כללי > שיתוף והריצו שוב. (launchctl enable: {output}; start: {output2})"
+    },
+    "exceptions.pool_configuration_state_conflict": {
+      "sourceHash": "4bb54de27552870277ea39b49326bfdf2c6bdd5b73d248cfd99a572aa0e50af9",
+      "message": "המאגר '{poolId}' מצהיר על ערכים סותרים עבור ⁦desiredState⁩ ו־⁦configuredState⁩; לאחר בחירת ערך ⁦configuredState⁩ הרצוי, הסירו את השדה המיושן.",
+      "origin": "machine"
+    },
+    "exceptions.pool_configuration_legacy_state": {
+      "sourceHash": "452def7ac03c859d673da4abd0a9b989702fb80f54d822a9b7797d333603600f",
+      "message": "המאגר '{poolId}' משתמש ב־⁦desiredState⁩ ב־⁦schemaVersion 4⁩; השתמשו ב־⁦configuredState⁩.",
+      "origin": "machine"
     }
   }
 }

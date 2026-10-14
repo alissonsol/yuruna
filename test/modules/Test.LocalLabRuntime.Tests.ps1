@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 427d7835-537a-46e8-a963-5fe9f73d0a55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,8 +86,8 @@ Describe 'local account elevation forwards identity fields' {
 
 Describe 'discovery seeds and heals a local pool binding' {
     It 'writes the discovered proxy for a <Existing> binding' -TestCases @(
-        @{ Existing=''; Expected='http://192.0.2.42/pool-intent.git' }
-        @{ Existing='http://192.0.2.11/pool-intent.git'; Expected='http://192.0.2.42/pool-intent.git' }
+        @{ Existing=''; Expected='http://192.0.2.42/pool-configuration.git' }
+        @{ Existing='http://192.0.2.11/pool-configuration.git'; Expected='http://192.0.2.42/pool-configuration.git' }
         @{ Existing='ssh://git.example/custom.git'; Expected='ssh://git.example/custom.git' }
     ) {
         param($Existing, $Expected)
@@ -95,7 +95,7 @@ Describe 'discovery seeds and heals a local pool binding' {
         $labDir = Join-Path $fixtureRoot lab
         $null = New-Item -ItemType Directory $labDir -Force
         $config = Join-Path $fixtureRoot test.config.yml
-        @{ pool=@{ intentGitUrl=$Existing }; language='en-US' } | ConvertTo-Yaml | Set-Content $config
+        @{ pool=@{ configurationGitUrl=$Existing }; language='en-US' } | ConvertTo-Yaml | Set-Content $config
         Mock Import-Module { }
         $region = Get-FixtureRegion -Path 'lab/Set-LabToken.ps1' -Start '$poolHost = if' -End '$took = '
         $fragment = Join-Path $labDir seed-fixture.ps1
@@ -105,7 +105,7 @@ Describe 'discovery seeds and heals a local pool binding' {
             & $fragment
         } '' 'http://192.0.2.42:9400/' @{ok=$true} $false
         $read = Get-Content -Raw $config | ConvertFrom-Yaml
-        $read.pool.intentGitUrl | Should -Be $Expected
+        $read.pool.configurationGitUrl | Should -Be $Expected
         if ($Existing -ne 'ssh://git.example/custom.git') { $read.pool.enabled | Should -BeTrue }
         $read.language | Should -Be 'en-US'
     }
@@ -300,14 +300,14 @@ Describe 'host-side pool-control launch boundaries' {
         $build = Get-FixtureRegion -Path 'service/Start-PoolControlServiceVM.ps1' -Start '$goArgs = ' -End '# A stop published'
         $launch = Get-FixtureRegion -Path 'service/Start-PoolControlServiceVM.ps1' -Start '    $launch = ' -End '    Start-Sleep -Seconds 1'
         & {
-            param($repoRoot, $pwshExe, $poolControlLanguage, $intentGitUrl, $AggregatorUrl, $hostId, $Port, $AllowPseudoLocale)
+            param($repoRoot, $pwshExe, $poolControlLanguage, $configurationGitUrl, $AggregatorUrl, $hostId, $Port, $AllowPseudoLocale)
             . $build
             . $launch
             try { $proc.WaitForExit(); $proc.ExitCode | Should -Be 0 } finally { $proc.Dispose() }
         } 'C:\repository folder' 'C:\Program Files\PowerShell\pwsh.exe' 'en-US' 'https://example.test/a b.git' 'https://192.0.2.42:9400' 'fixture-host-id' 8081 $true
         $argv = @(Get-Content -Raw $outputPath | ConvertFrom-Json)
         $argv | Should -Be @('--http-addr','0.0.0.0:8081','--repo-dir','C:\repository folder','--pwsh','C:\Program Files\PowerShell\pwsh.exe',
-            '--language','en-US','--intent-git-url','https://example.test/a b.git','--aggregator-url','https://192.0.2.42:9400','--host-id','fixture-host-id','--allow-pseudo-locale')
+            '--language','en-US','--configuration-git-url','https://example.test/a b.git','--aggregator-url','https://192.0.2.42:9400','--host-id','fixture-host-id','--allow-pseudo-locale')
     }
     It 'initializes identity and writes registration from the host-proof path' {
         function Get-YurunaHostId { 'fixture-host-id' }

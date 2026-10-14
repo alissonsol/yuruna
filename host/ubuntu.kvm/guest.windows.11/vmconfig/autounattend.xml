@@ -236,6 +236,7 @@
                     <Description>Disable auto-logon after first boot</Description>
                 </SynchronousCommand>
                 <!-- See https://yuruna.link/42e220c4-000c -->
+                <!-- The initial password is not expired: Windows SSH cannot perform the password-change challenge. -->
                 <SynchronousCommand wcm:action="add">
                     <Order>5</Order>
                     <CommandLine>powershell.exe -NoProfile -Command "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0"</CommandLine>

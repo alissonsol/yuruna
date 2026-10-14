@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42bf60de-1efd-47a3-9c1c-7472978c1c6d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -196,6 +196,39 @@ function Write-RunnerPhase {
     } catch {
         Write-Verbose "Write-RunnerPhase('$Phase') failed (non-fatal): $($_.Exception.Message)"
     }
+    # The next attempt overwrites runner.phase; retain the transition timeline
+    # independently so an earlier watchdog kill remains attributable.
+    try {
+        $stamp = [DateTime]::UtcNow.ToString('o')
+        $line = "$stamp [inner phase] pid=$PID generation=$env:YURUNA_CYCLE_GENERATION phase=$Phase"
+        [IO.File]::AppendAllText((Join-Path $env:YURUNA_RUNTIME_DIR 'outer.log'), $line + [Environment]::NewLine)
+    } catch {
+        Write-Verbose "Write-RunnerPhase('$Phase') timeline unavailable (non-fatal): $($_.Exception.Message)"
+    }
+}
+
+# --- REGION: Write-RunnerStepHeartbeat
+function Write-RunnerStepHeartbeat {
+    <#
+    .SYNOPSIS
+        Report completed work from the runner's active runspace.
+    .DESCRIPTION
+        Called after a step boundary or a completed control poll. A background
+        timer must never call this: a blocked probe or an abandoned hold must
+        still age out under the watchdog's normal bound.
+    .PARAMETER RuntimeDir
+        Directory holding the runner's progress heartbeat.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Updates a runner-local liveness marker; gating this telemetry write would manufacture a stalled runspace.')]
+    param([string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR)
+    if ([string]::IsNullOrWhiteSpace($RuntimeDir)) { return }
+    try {
+        [IO.File]::WriteAllText((Join-Path $RuntimeDir 'runner.stepHeartbeat'), [datetime]::UtcNow.ToString('o'))
+    } catch {
+        Write-Verbose "Write-RunnerStepHeartbeat: $($_.Exception.Message)"
+    }
 }
 
 function Clear-RunnerPhase {
@@ -245,4 +278,4 @@ function Clear-RunnerPhase {
     }
 }
 
-Export-ModuleMember -Function Start-RunnerHeartbeat, Stop-RunnerHeartbeat, Get-RunnerHeartbeatError, Write-RunnerPhase, Clear-RunnerPhase
+Export-ModuleMember -Function Start-RunnerHeartbeat, Stop-RunnerHeartbeat, Get-RunnerHeartbeatError, Write-RunnerPhase, Clear-RunnerPhase, Write-RunnerStepHeartbeat

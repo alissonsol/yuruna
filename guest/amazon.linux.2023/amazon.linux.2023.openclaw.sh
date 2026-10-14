@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -53,6 +53,9 @@ sudo npm install -g openclaw@latest
 openclaw onboard --install-daemon --non-interactive --accept-risk --workspace ~/openclaw
 
 openclaw doctor --non-interactive
+# The NodeSource RPM puts node and npm under /usr, so the global openclaw link
+# already sits on the default PATH and no command-exposure step follows.
+# See https://yuruna.link/4213a0b3-0194
 
 # --- REGION: Installation summary
 echo ""

@@ -26,6 +26,13 @@ mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
 EVICTS the global copy other modules call via qualified names (e.g.
 Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
 
+`Resolve-HostTag` also protects retained function references after a forced
+re-import tears down their original module state. An empty `$script:HostTag`
+fails the dispatcher's mandatory host binding; console input can then remain
+half typed and join the next command. Each driver restores its compile-time
+host tag when that state is empty, so dispatch remains valid for the retained
+reference and any other reader of that scope.
+
 <a id="42e5cdfd-0003"></a>
 
 ## host/macos.utm/modules/Yuruna.Host.psm1: Start-UtmVM
@@ -122,6 +129,8 @@ positive 'stopped' reading, never from 'unknown'.
 A read the deadline had no time left for never replaces an answer
 already obtained.
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0002).
+
 <a id="42e5cdfd-0007"></a>
 
 ## host/macos.utm/modules/Yuruna.Host.psm1: Rename-VM
@@ -139,6 +148,8 @@ This relaunch is the one moment the file is authoritative again.
 It matters because bundles are built under a single per-kind test
 name -- every VM promoted out of that namespace inherits the same
 display, and only the first of them can bind the port.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0003).
 
 <a id="42e5cdfd-0008"></a>
 
@@ -359,6 +370,8 @@ a domain that cannot boot. Files kept here stay claimed by the
 surviving domain, which is exactly what the orphan-file sweep
 expects to skip.
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0004).
+
 <a id="42e5cdfd-0013"></a>
 
 ## host/ubuntu.kvm/modules/Yuruna.Host.psm1: Get-KvmNeighborIp
@@ -427,6 +440,8 @@ qemu-guest-agent that has finished starting, so it is absent for the
 whole boot window after each snapshot restore, which is exactly when a
 cycle does most of its address lookups. The cache rungs stay beneath it
 for that window, unchanged.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0005).
 
 <a id="42e5cdfd-0016"></a>
 
@@ -512,6 +527,8 @@ be carrying the host's connectivity.
    of the boot and would silently pin the backend choice to
    netplan on hosts that should use nmcli.
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0006).
+
 <a id="42e5cdfd-0019"></a>
 
 ## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaExternalNetwork
@@ -528,6 +545,8 @@ The default-route interface can also BE a bridge already (a
 netplan-built bridge holds the route after a reboot) -- reuse it
 directly; treating it as a NIC to enslave would try to put a
 bridge inside itself.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0007).
 
 <a id="42e5cdfd-001a"></a>
 
@@ -547,6 +566,8 @@ this branch now avoids). netplan (systemd-networkd) is the native backend
 there. When NM does manage the NIC (desktop / NM-rendered hosts) nmcli is
 correct; fall back to netplan if it fails anyway so a plugin/version quirk
 doesn't cost the LAN exposure + pool dashboard.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0008).
 
 <a id="42e5cdfd-001b"></a>
 
@@ -587,6 +608,8 @@ This is the moment SSH sessions over $Nic flap; with the cloned
 MAC above the new DHCP lease should be the same IP and SSH
 reconnects within a few seconds.
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0009).
+
 <a id="42e5cdfd-001c"></a>
 
 ## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaBridgeViaNetplan
@@ -618,6 +641,8 @@ view of the NIC until told to re-read. On a pure-networkd host
 that re-hands the NIC to the surviving original netplan config and
 restores its DHCP; without it a failed build leaves the host
 addressless until a manual apply or reboot.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-000a).
 
 <a id="42e5cdfd-001d"></a>
 
@@ -668,6 +693,8 @@ the file. Reported on two surfaces because neither is complete alone: the
 warning reaches the console and the process transcript but not the cycle's
 own event stream, and the degradation event lands beside the missing artifact
 but is dropped silently when no cycle folder is open.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-000b).
 
 <a id="42e5cdfd-0020"></a>
 
@@ -835,6 +862,8 @@ candidates to rank against ARP results below, and the shared helper
 deliberately answers with one address. The rejection rule it applies is the
 same one; change both together.
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-000c).
+
 <a id="42e5cdfd-0029"></a>
 
 ## host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-OrCreateYurunaExternalSwitch
@@ -889,6 +918,8 @@ Verbose, not Warning: the PrintWindow/vmconnect fallback
 below recovers a usable framebuffer, so a headless host
 keeps passing -- raise the log level to see the
 troubleshooting pointer when OCR does start timing out.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-000d).
 
 <a id="42e5cdfd-002c"></a>
 
@@ -951,9 +982,11 @@ Get-VMSwitch needs Hyper-V administrator rights, and not every caller has
 them, while the default route is readable by anyone and is on the
 LAN-facing adapter whatever it happens to be called.
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-000e).
+
 <a id="42e5cdfd-002f"></a>
 
-## host/windows.hyper-v/Remove-OrphanedVMFiles.ps1: Elevation gate
+## host/windows.hyper-v/Remove-OrphanedVMFiles.ps1: Elevation check
 
 Applies to:
 
@@ -1041,6 +1074,8 @@ YURUNA_CACHING_PROXY_SERVICE_IP=<host-lan-ip> pointing back at this Mac.
 No-op on a fresh install. Stop-CachingProxyServiceVM.ps1 also calls this
 symmetrically.
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-000f).
+
 <a id="42e5cdfd-0034"></a>
 
 ## test/service/Start-CachingProxyServiceVM.ps1: Host status-service bootstrap
@@ -1091,6 +1126,8 @@ its ystash-nas/ypool-nas credentials from this endpoint at boot. A service that
 is DOWN at build time is the silent cause of a cache VM that bakes EMPTY mTLS
 materials, never mounts ystash-nas, and shows an empty "Extension hosts" panel.
 Surface it now (loudly) instead of leaving the operator to discover it later.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0010).
 
 <a id="42e5cdfd-0037"></a>
 
@@ -1150,6 +1187,8 @@ A status that never answered is its own fourth case -- utmctl reaches
 UTM over Apple Events, which a host that has not granted Automation
 denies outright -- so it is reported as silence rather than dressed up
 as a state UTM never named.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0011).
 
 <a id="42e5cdfd-0038"></a>
 
@@ -1216,6 +1255,8 @@ provisioners base64-embed the CA cert by fetching it via
 The re-import is mandatory after Step 5's Initialize-YurunaHost:
 docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0012).
+
 <a id="42e5cdfd-003a"></a>
 
 ## test/service/Start-CachingProxyServiceVM.ps1: Linux -- re-query the cache VM IP for persistence + summary
@@ -1275,6 +1316,8 @@ the only LAN-reachable path on this Hyper-V host (the user-
 mode pwsh forwarder is silently dropped by Defender / EDR /
 WFP regardless of rules -- see docs/caching.md).
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0013).
+
 <a id="42e5cdfd-003c"></a>
 
 ## test/service/Start-CachingProxyServiceVM.ps1: Report the service state
@@ -1292,6 +1335,8 @@ forwarders at $cacheLanIp exist ONLY for remote LAN hosts and are
 best-effort: any cycle that runs Remove-PortMap (a test run, a
 status-service restart) tears them down, so $cacheLanIp is not a
 reliable steady-state address.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0014).
 
 <a id="42e5cdfd-003d"></a>
 
@@ -1316,6 +1361,8 @@ this script would block every later start for the life of that process:
 every exit below releases it first, and the trap releases it on any
 uncaught error while letting the error propagate unchanged (the tagged
 port-conflict exception included).
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0015).
 
 <a id="42e5cdfd-003e"></a>
 
@@ -1368,6 +1415,8 @@ and aborts the entry point cleanly; a standalone run exits non-zero on the
 uncaught throw. The detection is OS-agnostic (HttpListener bind probe), so
 this fires identically on macOS/UTM, Ubuntu/KVM, and Windows/Hyper-V.
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0016).
+
 <a id="42e5cdfd-0040"></a>
 
 ## test/service/Start-StatusService.ps1: Ensure repoUrl is set in status.json
@@ -1387,6 +1436,8 @@ locations. A checkout upgrade can leave those untracked (no longer
 operator runs land on a clean status dir.
 The refresh-safe start skips this sweep: it removes the break sidecar and
 the continue flag, which a held runner still needs.
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0017).
 
 <a id="42e5cdfd-0041"></a>
 
@@ -1591,6 +1642,8 @@ second writer here would either re-open a banner the gate had just cleared or
 freeze the count at whatever the last service start happened to see -- this
 service is long-lived and restarts far more rarely than a cycle runs.
 
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0018).
+
 <a id="42e5cdfd-0045"></a>
 
 ## test/service/Start-StatusService.ps1: Detached server launch
@@ -1661,6 +1714,8 @@ so `&` places the server in its OWN process group (bash setpgid's it).
 tty, so the server cleanly outlives the caller. (macOS has no `setsid`,
 so a new session is not available here -- a new process group plus
 nohup is what decouples it from the caller's exit.)
+
+Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0019).
 
 <a id="42e5cdfd-0046"></a>
 

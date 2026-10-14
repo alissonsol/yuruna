@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 426d4c3d-0ae7-41c9-8bac-5f42f9255e5b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,13 +17,7 @@
 #requires -version 7
 
 # --- REGION: https://yuruna.link/4220a755-0019
-# A second, stable libvirt-NAT address per guest, for guests that must reach
-# EACH OTHER. KVM-only: every consumer treats a rail address as an optimization
-# that may be absent, never as a dependency.
-# NOTHING CALLS THIS. Get-GuestRailAddress keys on the transient VM name, so
-# wiring it back as it stands breaks VM creation on the second guest of every
-# cycle. It is kept for the derivation and its tests --
-# https://yuruna.link/4220a755-001a
+# See https://yuruna.link/4220a755-001a
 
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:RailNetwork = 'default'

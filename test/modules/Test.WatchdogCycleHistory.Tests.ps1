@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 426ffdec-7946-4b27-9d2c-487151f04ec7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -206,14 +206,14 @@ Describe 'A cycle the watchdog killed reaches the host page history' {
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
-    It 'names a killed cycle when it got past the preamble' {
+    It 'does not infer a watchdog kill from a bare exit alone' {
         $dir = Initialize-TempRuntimeDir
         try {
             $path = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument)
             $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' `
                 -Reason 'inner exited 137' -FailureRecordPath '' -Confirm:$false
 
-            (Read-StatusDocument -Path $path).lastFailure.failureClass | Should -Be 'cycle_killed'
+            (Read-StatusDocument -Path $path).lastFailure.failureClass | Should -Be 'inner_exited'
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
@@ -308,7 +308,7 @@ Describe 'Get-RunnerFaultCause' {
 
     It 'falls back to the reason when no record explains the kill' {
         $cause = Get-RunnerFaultCause -FailureRecordPath '' -Reason 'inner exited 137'
-        $cause.failureClass | Should -Be 'cycle_killed'
+        $cause.failureClass | Should -Be 'inner_exited'
         $cause.errorMessage | Should -Be 'inner exited 137'
         $cause.severity     | Should -Be 'hard'
     }
@@ -322,7 +322,7 @@ Describe 'Get-RunnerFaultCause' {
             # so it must degrade to the synthesized cause rather than throw and
             # cost the cycle its only record.
             $cause = Get-RunnerFaultCause -FailureRecordPath $bad -Reason 'inner exited 137'
-            $cause.failureClass | Should -Be 'cycle_killed'
+            $cause.failureClass | Should -Be 'inner_exited'
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -423,5 +423,175 @@ Describe 'A diagnostic capture cannot spend a budget it has already used' {
             param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
                       $n.Left.Extent.Text -match '^\$manifest\.(budgetExceeded|elapsedSeconds)$' }, $true)
         @($measurements).Count | Should -Be 2
+    }
+}
+
+Describe 'Pre-cycle refusal preserves the previous completed cycle' {
+    It 'records its own attempt and artifacts without repainting the previous pass or cause' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            $previous = New-RunningStatusDocument
+            $previous.overallStatus = 'pass'; $previous.finishedAt = '2026-09-19T18:00:00Z'
+            $previous.lastFailure = @{ failureClass = 'historical-soft-failure' }
+            $previous.history = @(@{ cycle = 1234; overallStatus = 'pass' })
+            $path = Write-StatusDocument -Dir $dir -Document $previous
+            $evidence = @{ frameworkCommitSha = 'new-sha'; recordPath = 'runner-attempts/new/config-gate.json'; transcriptPath = 'runner-attempts/new/config-gate.log' }
+            $spawned = [datetime]'2026-09-19T18:01:00Z'
+            foreach ($state in 'fault', 'paused') {
+                $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState $state -Reason 'configuration gate refused to start' `
+                    -FailureClass 'config_gate_failed' -AttemptGeneration 'runner:8' -SpawnedAtUtc $spawned -AttemptEvidence $evidence -Confirm:$false
+            }
+            $doc = Read-StatusDocument -Path $path
+            $doc.overallStatus | Should -Be 'pass'
+            $doc.gitCommits[0].sha | Should -Be 'abc1234'
+            $doc.cycle | Should -Be 1234
+            $doc.lastFailure.failureClass | Should -Be 'historical-soft-failure'
+            @($doc.history).Count | Should -Be 1
+            $doc.history[0].overallStatus | Should -Be 'pass'
+            $doc.runnerFault.failureClass | Should -Be 'config_gate_failed'
+            $doc.runnerFault.stepName | Should -Be 'config-gate'
+            $doc.runnerFault.attemptGeneration | Should -Be 'runner:8'
+            $doc.runnerFault.frameworkCommitSha | Should -Be 'new-sha'
+            $doc.runnerFault.transcriptPath | Should -Be $evidence.transcriptPath
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'Attempt evidence distinguishes refusals and watchdog kills' {
+    It 'ignores a leftover preamble marker when the child exited without a watchdog action' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            Set-Content -LiteralPath (Join-Path $dir 'runner.phase') -Value 'config-gate'
+            $fault = Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2'
+            $fault.StalledPhase | Should -BeNullOrEmpty
+            $fault.FailureClass | Should -Be 'inner_exited'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'attributes a prompt gate exit to validation and never to a crash or stall' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            $spawned = [datetime]::UtcNow.AddSeconds(-27)
+            Set-Content -LiteralPath (Join-Path $dir 'runner.configGate.json') -Value (@{ attemptGeneration = 'runner:2'; startedAtUtc = [datetime]::UtcNow.ToString('o'); passed = $false; exitCode = 1 } | ConvertTo-Json)
+            Set-Content -LiteralPath (Join-Path $dir 'runner.phase') -Value 'config-gate'
+            $fault = Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2' -SpawnedAtUtc $spawned
+            $fault.FailureClass | Should -Be 'config_gate_failed'
+            $fault.IsCrash | Should -BeFalse
+            $fault.StalledPhase | Should -BeNullOrEmpty
+            $null = Update-RunnerCrashGating -RuntimeDir $dir -SpawnedAtUtc $spawned -FailureClass $fault.FailureClass -IsCrash $fault.IsCrash -Confirm:$false
+            $gating = Get-Content -Raw -LiteralPath (Join-Path $dir 'runner.gating.json') | ConvertFrom-Json
+            $gating.consecutiveFailures | Should -Be 1
+            $gating.consecutiveCrashes | Should -Be 0
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'recognizes a real watchdog action and rejects stale or mismatched attempt records' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            $spawned = [datetime]::UtcNow.AddMinutes(-12)
+            $killPath = Join-Path $dir 'runner.watchdog-kill.json'
+            $kill = @{ attemptGeneration = 'runner:2'; startedAtUtc = [datetime]::UtcNow.AddMinutes(-11).ToString('o'); failureClass = 'preamble_stall'; phase = 'config-gate' }
+            Set-Content -LiteralPath $killPath -Value ($kill | ConvertTo-Json)
+            $fault = Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2' -SpawnedAtUtc $spawned
+            $fault.FailureClass | Should -Be 'preamble_stall'
+            $fault.StalledPhase | Should -Be 'config-gate'
+            $fault.IsCrash | Should -BeTrue
+            (Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:3' -SpawnedAtUtc $spawned).FailureClass | Should -Be 'inner_exited'
+            (Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2' -SpawnedAtUtc ([datetime]::UtcNow)).FailureClass | Should -Be 'inner_exited'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'publishes the trusted watchdog evidence link through fault status with recorded path <RecordedPath>' -TestCases @(
+        @{ RecordedPath = $null }
+        @{ RecordedPath = '../untrusted.json' }
+    ) {
+        param($RecordedPath)
+        $dir = Initialize-TempRuntimeDir
+        try {
+            $spawned = [datetime]::UtcNow.AddMinutes(-12)
+            $document = New-RunningStatusDocument -CycleStartUtc $spawned.AddSeconds(1).ToString('o')
+            $document['cycleGeneration'] = 'runner:2'
+            $path = Write-StatusDocument -Dir $dir -Document $document
+            $kill = @{ attemptGeneration = 'runner:2'; timestamp = [datetime]::UtcNow.ToString('o'); failureClass = 'wait_timeout'; phase = '' }
+            if ($null -ne $RecordedPath) { $kill['recordPath'] = $RecordedPath }
+            Set-Content -LiteralPath (Join-Path $dir 'runner.watchdog-kill.json') -Value ($kill | ConvertTo-Json)
+
+            $fault = Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2' -SpawnedAtUtc $spawned
+            Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' -FailureClass $fault.FailureClass `
+                -StalledPhase $fault.StalledPhase -AttemptGeneration 'runner:2' -SpawnedAtUtc $spawned `
+                -AttemptEvidence $fault.Evidence -Confirm:$false | Should -BeTrue
+
+            $result = Read-StatusDocument -Path $path
+            $result.runnerFault.failureClass | Should -Be 'wait_timeout'
+            $result.runnerFault.recordPath | Should -BeExactly 'runner.watchdog-kill.json'
+            Test-Path -LiteralPath (Join-Path $dir $result.runnerFault.recordPath) -PathType Leaf | Should -BeTrue
+            $result.overallStatus | Should -Be 'fail'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'Fault status uses cycle generation before timestamp heuristics' {
+    It 'does not rewrite a different generation even when its timestamp is recent' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            $doc = New-RunningStatusDocument -CycleStartUtc ([datetime]::UtcNow.ToString('o'))
+            $doc['cycleGeneration'] = 'old:1'
+            $path = Write-StatusDocument -Dir $dir -Document $doc
+            $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' -FailureClass 'config_gate_failed' `
+                -AttemptGeneration 'new:1' -SpawnedAtUtc ([datetime]::UtcNow.AddMinutes(-2)) -Confirm:$false
+            $result = Read-StatusDocument -Path $path
+            $result.overallStatus | Should -Be 'running'
+            @($result.history).Count | Should -Be 0
+            $result.runnerFault.attemptGeneration | Should -Be 'new:1'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'keeps a completed failed cycle as a test verdict without inventing a runner fault' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            $doc = New-RunningStatusDocument
+            $doc['cycleGeneration'] = 'runner:2'; $doc.overallStatus = 'fail'; $doc.finishedAt = [datetime]::UtcNow.ToString('o')
+            $doc.lastFailure = @{ failureClass = 'script_error' }
+            $path = Write-StatusDocument -Dir $dir -Document $doc
+            $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'paused' -AttemptGeneration 'runner:2' -Confirm:$false
+            $result = Read-StatusDocument -Path $path
+            $result.overallStatus | Should -Be 'fail'
+            $result.lastFailure.failureClass | Should -Be 'script_error'
+            $result.runnerFault | Should -BeNullOrEmpty
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'Reserved gate refusal code is confined to pre-cycle execution' {
+    It 'recognizes a refusal without artifacts and keeps crash accounting at zero' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            Set-Content -LiteralPath (Join-Path $dir 'runner.phase') -Value 'config-gate'
+            $fault = Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2' -ExitCode 78 -SpawnedAtUtc ([datetime]::UtcNow.AddMinutes(-1))
+            $fault.FailureClass | Should -Be 'config_gate_failed'
+            $fault.IsCrash | Should -BeFalse
+            $null = Update-RunnerCrashGating -RuntimeDir $dir -SpawnedAtUtc ([datetime]::UtcNow.AddMinutes(-1)) -FailureClass $fault.FailureClass -IsCrash $fault.IsCrash -Confirm:$false
+            (Get-Content -Raw -LiteralPath (Join-Path $dir 'runner.gating.json') | ConvertFrom-Json).consecutiveCrashes | Should -Be 0
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'does not reclassify exit 78 after a current cycle has started, even with a leftover phase marker' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            Set-Content -LiteralPath (Join-Path $dir 'runner.phase') -Value 'config-gate'
+            $doc = New-RunningStatusDocument
+            $doc['cycleGeneration'] = 'runner:2'
+            $null = Write-StatusDocument -Dir $dir -Document $doc
+            (Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2' -ExitCode 78).FailureClass | Should -Be 'inner_exited'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'reports failed fault-status writes truthfully' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            $null = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument)
+            Mock -ModuleName Test.RunnerOuterLoop Write-YurunaStateFileJson { $false }
+            Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' -FailureClass 'config_gate_failed' -Confirm:$false | Should -BeFalse
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

@@ -139,7 +139,7 @@ map a non-empty `vaultKey` and `Set-Password` it.
 
 ```
 <poolStorageLocalPath>/
-  pool-intent.git/                           # bare pool intent repository
+  pool-configuration.git/                           # bare pool configuration repository
   pool-control-service/
     audit.jsonl                             # pool-control UI/API mutations
     status.json                             # last-write / heartbeat snapshot
@@ -286,7 +286,7 @@ shared rule -- `free >= ceil(size x 1.10) + 2 GiB reserve`:
   and nothing is deleted; the cycle is marked failed.
 
 The 2 GiB reserve protects the share's **other** tenants -- the guest-image download
-pool, the proxy's observability archive, `pool-intent.git` -- from being squeezed to
+pool, the proxy's observability archive, `pool-configuration.git` -- from being squeezed to
 zero by archiving. Thresholds are code constants in `Test.PoolStorage.psm1`, next to
 the wall-clock caps.
 
@@ -784,23 +784,23 @@ or storage.
 
 <a id="428405a0-0014"></a>
 
-## Pool harness -- membership, intent, and assigned-project execution
+## Pool harness -- membership, configuration, and assigned-project execution
 
 The **pool-control service plane** -- creating pools, adding hosts, assigning already-developed
 test sequences, and operating the fleet -- is documented step by step in
 **[pool-admin.md](pool-admin.md)**; read that to *use* pools. This
 page covers only the NAS replication of pool observability data described above.
 
-In brief: the operator authors slow-changing **intent** (pool membership +
-`desiredState` + the pool's framework and project repositories) into a small **git repo
-on the caching-proxy-service** (`/mnt/ypool-nas/pool-intent.git`, served read-only over
+In brief: the operator authors slow-changing **configuration** (pool membership +
+`configuredState` + the pool's framework and project repositories) into a small **git repo
+on the caching-proxy-service** (`/mnt/ypool-nas/pool-configuration.git`, served read-only over
 HTTP). Each runner pulls it at cycle start, finds its pool by locating its `hostId` in
 `members[]`, and -- when the pool carries repositories -- switches to that framework and
 project for the cycle and runs the project's own `test.runner.yml` instead of its local
 one (decentralized: members do not coordinate, each runs the whole plan, and no
 runner reads `guests.compatibility.yml` to narrow it). Everything is best-effort
 and default-off: an unreachable store, an unpooled host, or a pool with no
-repositories all fall back to single-host behavior. The intent repo holds only
+repositories all fall back to single-host behavior. The configuration repository holds only
 **non-secret** files; no credential is
 ever routed through it.
 
@@ -810,6 +810,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

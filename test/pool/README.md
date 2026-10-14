@@ -1,7 +1,7 @@
 # Pool admin
 
 The whole pool-admin CLI -- everything that reads or writes a lab's pool
-intent store -- plus the sample intent files under [`examples/`](examples/).
+configuration store -- plus the sample configuration files under [`examples/`](examples/).
 
 | Script | Purpose |
 |---|---|
@@ -9,21 +9,21 @@ intent store -- plus the sample intent files under [`examples/`](examples/).
 | `Remove-Pool.ps1` | delete one |
 | `Add-HostToPool.ps1` | add a host to a pool's members |
 | `Remove-HostFromPool.ps1` | remove a host from ONE pool's members |
-| `Move-PoolHostIdentity.ps1` | replace a re-keyed host ID in one pool-intent commit |
+| `Move-PoolHostIdentity.ps1` | replace a re-keyed host ID in one pool-configuration commit |
 | `Remove-PoolHost.ps1` | purge a stale host: delete its NAS records and strip ALL memberships |
 | `Set-PoolRepository.ps1` | set a pool's framework and project repository URLs (both, replacing any previous pair), or clear them with `-Clear` |
-| `Set-PoolDesiredState.ps1` | flip a pool between `run`, `paused` and `drain` |
-| `Get-PoolIntent.ps1` | dump the whole intent store as JSON |
+| `Set-PoolConfiguredState.ps1` | flip a pool between `run`, `paused` and `drain` |
+| `Get-PoolConfiguration.ps1` | dump the whole configuration store as JSON |
 | `Get-PoolStatus.ps1` | read a pool's members and its framework and project repositories |
-| `Test-PoolIntent.ps1` | schema-validate `pools.yml` (+ `guests.compatibility.yml`) and enforce the one-pool-per-host invariant |
-| `Update-PoolIntentSchema.ps1` | migrate the intent store to `pools.yml` schemaVersion 3 once; a re-run changes nothing |
+| `Test-PoolConfiguration.ps1` | schema-validate `pools.yml` (+ `guests.compatibility.yml`) and enforce the one-pool-per-host invariant |
+| `Update-PoolConfigurationSchema.ps1` | migrate the configuration store to `pools.yml` schemaVersion 4 once; a re-run changes nothing |
 | `Convert-ToPoolWorker.ps1` | turn a standalone machine into a worker of an existing lab |
 | `Sync-PoolDashboardOnProxy.ps1` | push the canonical dashboard assets to the lab's caching-proxy-service |
 | `Sync-PoolHostMetricsOnProxy.ps1` | push host metrics configuration to the lab's caching-proxy-service |
 
 ```
-pwsh test/pool/Test-PoolIntent.ps1
-pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId lab -State paused -IntentGitUrl <writable-url>
+pwsh test/pool/Test-PoolConfiguration.ps1
+pwsh test/pool/Set-PoolConfiguredState.ps1 -PoolId lab -State paused -ConfigurationGitUrl <writable-url>
 ```
 
 Full command table, parameters and workflow:
@@ -34,9 +34,9 @@ Full command table, parameters and workflow:
 `test/extension/pool-control-service/` drives this CLI rather than
 reimplementing git + YAML + schema validation in Go. It carries each script
 as a `test/`-relative path -- the `exec` calls in
-`server/internal/intent/intent.go`, the `poolAdminCLIs` presence probe in
+`server/internal/configuration/configuration.go`, the `poolAdminCLIs` presence probe in
 `server/internal/httpsrv/diagnostics.go`, and the skip guard in
-`server/internal/intent/cliargs_test.go`. Moving a script out of this folder
+`server/internal/configuration/cliargs_test.go`. Moving a script out of this folder
 means editing all three, and the last one matters most: it guards the only
 check that catches Go/PowerShell parameter drift, and a wrong path there
 makes that check *skip* rather than fail.

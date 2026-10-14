@@ -4,12 +4,12 @@ $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/pools.schema.yml
 title: Yuruna pool definitions
 description: >
-  The slow-changing pool INTENT, authored by the operator (pool admin CLI) and
+  The slow-changing pool CONFIGURATION, authored by the operator (pool admin CLI) and
   pulled by each runner over the LAN from the bare git repo on the caching-proxy-service.
   `members[]` (a list of stable hostIds) is the SINGLE source of truth for which
   host belongs to which pool: a runner finds its own pool by locating its hostId
   here (a host belongs to AT MOST one pool); the aggregator labels each host's
-  telemetry by the same mapping. `desiredState` gates the runner
+  telemetry by the same mapping. `configuredState` gates the runner
   (run/paused/drain); `repositories` (the pool's framework and project
   repository URLs) is what a pooled host runs; `config` overrides the
   per-host testCycle knobs; `gating` is the advisory pool alert/quorum policy
@@ -23,10 +23,10 @@ properties:
 
   schemaVersion:
     type: integer
-    const: 3
+    const: 4
     description: >
-      Schema contract version. v3: a pool carries a stable `poolGuid` and
-      optional `repositories` (its framework and project repository URLs).
+      Schema contract version. v4 uses `configuredState` and retains a stable
+      `poolGuid` and optional `repositories` (the framework and project repository URLs).
 
   pools:
     type: array
@@ -36,14 +36,6 @@ properties:
   autoEnrollment:
     type: object
     description: >
-      Accepted but not yet emitted: declared here so every intent WRITER accepts a
-      document containing it before any writer emits it. Every admin write
-      re-validates the WHOLE document against the writing checkout's own copy of
-      this schema, and this file is `additionalProperties: false` at the root --
-      so a store written by a newer checkout would otherwise fail validation on
-      every older one, breaking pool administration LAN-wide. Ship this schema
-      everywhere first; only then start writing the block.
-
       Policy for the sweep that adds lab-token-enrolled hosts to a pool
       automatically. A host is a candidate only when the aggregator reports
       `control: ready` for it AND it belongs to no pool at all, so the
@@ -63,7 +55,7 @@ properties:
           pool is FORBIDDEN from carrying repositories -- hosts arrive here
           without anyone choosing it for them, so repositories here would
           silently repoint every auto-enrolled host in the lab. Enforced in code
-          (Test-PoolIntent.ps1 / Set-PoolRepository.ps1), because a cross-field
+          (Test-PoolConfiguration.ps1 / Set-PoolRepository.ps1), because a cross-field
           constraint of this shape is not expressible in JSON Schema.
       excluded:
         type: array
@@ -119,7 +111,7 @@ $defs:
           The framework and project repositories every member of this pool
           runs. A pooled runner overrides its own repositories.frameworkUrl /
           repositories.projectUrl with these for the cycle (its GH_TOKEN stays
-          host-local, never in pool intent) and then runs that project's own
+          host-local, never in pool configuration) and then runs that project's own
           test.runner.yml. Absent when the pool sets none: each member then
           runs its own configured repositories. Set or cleared with
           test/pool/Set-PoolRepository.ps1 or on the pool-control Pools page.
@@ -182,11 +174,11 @@ $defs:
                 minimum: 0
                 description: Seconds below the threshold before the pool is "degraded". Default 1800.
 
-      desiredState:
+      configuredState:
         type: string
         enum: [run, paused, drain]
         description: >
-          Gates the runner (pulled intent, mirroring the
+          Gates the runner (pulled configuration, mirroring the
           local control.cycle-restart flag). run = cycle normally; paused = finish
           the in-flight cycle then hold; drain = stop after the current cycle.
           Default "run" when absent.

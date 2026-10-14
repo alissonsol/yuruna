@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42078042-0ea1-4de8-bb69-d88309b26736
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,6 +175,23 @@ Describe 'pool-extension-lookup' {
 }
 
 Describe 'extension-host address list' {
+
+    It 'does not attach a previous area response to a caught pool lookup exception' {
+        Mock Invoke-WebRequest -ModuleName default {
+            return [pscustomobject]@{ StatusCode = 404; Content = 'no download-agent host' }
+        }
+        $null = Get-PoolExtensionHostFrom -BaseUrl 'http://pool.example' -Area 'download-agent-service'
+        (Get-PoolExtensionHostLastOutcome).Uri | Should -Match 'download-agent-service'
+        Mock Get-PoolExtensionHost -ModuleName Test.Extension { throw 'pool URL resolution failed' }
+        $addresses = @(Get-ExtensionHostAddress -HostType 'stash-service' -VMName '' -AggregatorBaseUrl 'http://pool.example')
+        $addresses.Count | Should -Be 0
+        $outcome = Get-ExtensionHostLastOutcome
+        $outcome.Area | Should -Be 'stash-service'
+        $outcome.Outcome | Should -Be 'lookup-error'
+        $outcome.Detail | Should -Be 'pool URL resolution failed'
+        $outcome.Uri | Should -BeNullOrEmpty
+    }
+
 
     It 'answers with a list, so the caller can pick' {
         $bound = Get-LoopbackHttpListener

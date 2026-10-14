@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-package intent
+package configuration
 
 import (
 	"go/ast"
@@ -16,7 +16,7 @@ import (
 )
 
 // scriptsDir is the test/ directory relative to this package. The script names
-// this file joins onto it come from intent.go's own exec calls, which carry the
+// this file joins onto it come from configuration.go's own exec calls, which carry the
 // test/-relative subfolder ("pool/New-Pool.ps1"), so a CLI that moves folders
 // needs no edit here -- only the presence probe below names a path directly.
 const scriptsDir = "../../../../.."
@@ -33,19 +33,19 @@ var paramNameRE = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
 // triggers that one operation -- at which point pwsh rejects it at parameter
 // bind time with "A parameter cannot be found that matches parameter name X".
 // Parameters with the same meaning are deliberately NOT named identically
-// across the CLIs (-State vs -DesiredState), so the mismatch is easy to
+// across the CLIs (-State vs -ConfiguredState), so the mismatch is easy to
 // reintroduce by analogy.
 func TestRunnerFlagsMatchScriptParameters(t *testing.T) {
 	// A skip here silently retires the only check that catches Go/PowerShell
 	// parameter drift, so this path has to track the CLIs when they move.
-	if _, err := os.Stat(filepath.Join(scriptsDir, "pool/Get-PoolIntent.ps1")); err != nil {
+	if _, err := os.Stat(filepath.Join(scriptsDir, "pool/Get-PoolConfiguration.ps1")); err != nil {
 		t.Skipf("pool-admin CLIs not present next to this package: %v", err)
 	}
 
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "intent.go", nil, 0)
+	file, err := parser.ParseFile(fset, "configuration.go", nil, 0)
 	if err != nil {
-		t.Fatalf("parse intent.go: %v", err)
+		t.Fatalf("parse configuration.go: %v", err)
 	}
 
 	found := 0
@@ -64,9 +64,9 @@ func TestRunnerFlagsMatchScriptParameters(t *testing.T) {
 			t.Errorf("%s: %v", fn.Name.Name, err)
 			continue
 		}
+		// Every invocation receives the resolved store URL from exec.
+		flags = append(flags, "-ConfigurationGitUrl")
 		for _, flag := range flags {
-			// -IntentGitUrl is appended by exec, not by the method bodies, and
-			// every CLI accepts it; the loop below still verifies it if seen.
 			if !params[strings.ToLower(strings.TrimPrefix(flag, "-"))] {
 				t.Errorf("%s passes %s to %s, which has no such parameter", fn.Name.Name, flag, script)
 			}

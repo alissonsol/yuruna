@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2310,6 +2310,12 @@ function Invoke-GuestDiagnosticCapture {
     # All rungs exhausted -- surface whatever output we collected so the
     # operator sees error text instead of an empty folder.
     if (-not $result) {
+        # Every rung failed. The step itself stays advisory, but a guest that
+        # answers neither SSH nor its console is the earliest symptom later
+        # failures will be traced back to, so it is recorded where the failure
+        # record and the event stream can see it, instead of only in this
+        # function's verbose log.
+        Publish-GuestDiagnosticSilence -VMName $VMName -Attempted $attempted -LastResult $lastResult
         if (-not $lastResult) {
             # No rung produced any guest output (all failed early or were
             # skipped for budget). A header-only stub reads like a capture
@@ -2364,6 +2370,34 @@ function Invoke-GuestDiagnosticCapture {
         skipped   = $false
         reason    = if ($result.success) { $null } else { (Format-YurunaOperatorMessage -Key 'runner.operator_ed0c49bb24ec78e3') }
         rungEvidence = @($rungEvidence)
+    }
+}
+
+# --- REGION: Guest silence from a failed diagnostic
+# The sequence failure store and the degradation emitter are optional here:
+# the diagnostic module also runs outside a sequence, where neither exists.
+function Publish-GuestDiagnosticSilence {
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [string[]]$Attempted = @(),
+        [AllowNull()]$LastResult
+    )
+    $transportDropped = [bool]($LastResult -and $LastResult.transportLost)
+    $source = if ($transportDropped) { 'saveSystemDiagnostic: SSH transport dropped mid-command' } else { 'saveSystemDiagnostic: no rung reached the guest' }
+    try {
+        if (Get-Command Get-SequenceFailureState -ErrorAction SilentlyContinue) {
+            $state = Get-SequenceFailureState
+            if (-not $state.FirstGuestSilenceUtc) {
+                $state.FirstGuestSilenceUtc = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                $state.FirstGuestSilenceSource = $source
+            }
+        }
+    } catch { Write-Verbose "  Diagnostics: silence marker not recorded: $($_.Exception.Message)" }
+    if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+        Send-YurunaDegradation -Dependency 'guest-diagnostics' -Primary ($(if ($Attempted.Count) { $Attempted -join ',' } else { 'none' })) `
+            -Fallback 'no-capture' -Reason "'$VMName': $source" -Severity soft
     }
 }
 

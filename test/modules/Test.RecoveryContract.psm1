@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42aaece2-9ccd-4d9f-b467-c4468bc981ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,7 @@ $script:StepEnum          = @('checkout', 'admission', 'replay', 'cycle')
 # lastFailure.failureClass; they stay out of the shared failure taxonomy because
 # they describe the machinery around a cycle rather than a sequence step, so no
 # remediation handler is registered for them.
-$script:RunnerFaultClassEnum = @('outcome_unrecorded', 'vm_admission_occupied', 'vm_admission_unknown', 'preamble_stall', 'cycle_killed', 'cycle_spawn_failed')
+$script:RunnerFaultClassEnum = @('config_gate_failed', 'inner_exited', 'outcome_unrecorded', 'vm_admission_occupied', 'vm_admission_unknown', 'preamble_stall', 'cycle_killed', 'cycle_spawn_failed')
 $script:GenerationPattern = '^[0-9a-f]{32}:[1-9][0-9]{0,8}$'
 $script:FingerprintPattern = '^fp1-[0-9a-f]{16}$'
 $script:ResultFileName  = 'recovery.result.json'
@@ -565,6 +565,17 @@ function Get-RecoveryResultHistory {
 # code space.
 $script:UnrecordedOutcomeExitCode = 70
 
+function Get-ConfigGateFailureExitCode {
+    <#
+    .SYNOPSIS
+        Exit code reserved for a configuration refusal before a cycle starts.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+    return 78
+}
+
 function Get-UnrecordedOutcomeExitCode {
     <#
     .SYNOPSIS
@@ -996,6 +1007,18 @@ function ConvertTo-RunnerRecoveryResult {
     $evidence = @()
     $outcome = 'failed'; $class = ''; $stage = ''; $reason = ''; $sequence = ''; $verb = ''
     switch -Exact ($name) {
+        'config-gate-failed' {
+            $outcome = 'cannot-run'; $class = 'config_gate_failed'; $stage = 'ConfigGate'
+            $reason = "configuration validation refused to start the cycle; child exited $exitCode"
+            $gatePath = Join-Path $RuntimeDir 'runner.configGate.json'
+            $evidence = @(Get-RecoveryEvidenceFromPath -Pair @(@{ Path = $gatePath; Note = 'the configuration gate verdict' }))
+            try {
+                $gate = Get-Content -Raw -LiteralPath $gatePath -ErrorAction Stop | ConvertFrom-Json -AsHashtable
+                if ($gate['attemptGeneration'] -ceq $CycleGeneration -and $gate['transcriptPath']) {
+                    $evidence += @(Get-RecoveryEvidenceFromPath -Pair @(@{ Path = (Join-Path $RuntimeDir $gate['transcriptPath']); Note = 'the configuration gate transcript' }))
+                }
+            } catch { $null = $_ }
+        }
         'outcome-unrecorded' {
             $outcome = 'infrastructure-fault'; $class = 'outcome_unrecorded'; $stage = 'CycleOutcome'
             $reason = "outcome record $(& $property 'OutcomeReason'): $(& $property 'OutcomeDetail'); child exited $exitCode"
@@ -1040,7 +1063,7 @@ function ConvertTo-RunnerRecoveryResult {
             }
         }
     }
-    if ($fact -and $outcome -ne 'passed') {
+    if ($fact -and $outcome -ne 'passed' -and $name -ne 'config-gate-failed') {
         $evidence = @($evidence) + @(Get-RecoveryEvidenceFromPath -Pair @(@{ Path = $fact.Path; Note = 'the failure record' }))
     }
     return New-RecoveryResult -EntryPoint runner -CycleGeneration $CycleGeneration -Outcome $outcome -ExitCode $exitCode `
@@ -1123,6 +1146,6 @@ Export-ModuleMember -Function Get-RecoveryOutcomeEnum, Get-RecoveryEntryPointEnu
     Test-RecoveryFailureClass, ConvertTo-RecoverySafeText, Get-FailureFingerprint, New-RecoveryEvidence, New-RecoveryStepResult, `
     New-CycleGeneration, Get-CycleGeneration, New-RecoveryResult, Test-RecoveryResult, Get-RecoveryResultPath, `
     Write-RecoveryResult, Read-RecoveryResult, Get-RecoveryResultHistory, `
-    Get-UnrecordedOutcomeExitCode, Read-CycleOutcomeRecord, Read-VmAdmissionRecord, Publish-CycleOutcomeRecord, `
+    Get-UnrecordedOutcomeExitCode, Get-ConfigGateFailureExitCode, Read-CycleOutcomeRecord, Read-VmAdmissionRecord, Publish-CycleOutcomeRecord, `
     Get-LastFailureFact, Get-StepExitCode, Invoke-CycleCheckoutStep, Invoke-CycleAdmissionStep, Resolve-CycleReplayStep, `
     Get-RecoveryEvidenceFromPath, ConvertTo-RunnerRecoveryResult, ConvertTo-ExitRecoveryResult, Save-RecoveryResult

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -107,6 +107,10 @@ $script:TypedField = @{
     causeBlankScreenSeconds = 'int'
     causeGuestLivelocked = 'bool'
     causeGuestLivelockedSeconds = 'int'
+    causeVmState        = 'string'
+    causeVmStateWaitedSeconds = 'int'
+    firstGuestSilenceUtc = 'string'
+    firstGuestSilenceSource = 'string'
     staleEvidence       = 'array'
     error               = 'string'
     reason              = 'string'

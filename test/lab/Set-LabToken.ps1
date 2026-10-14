@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42267d15-1bc0-481c-b068-2bb6d74f5ffb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@ param(
     [Parameter()][string]$CachingProxyService,
     [switch]$BounceStatusService,
     [switch]$NonInteractive,
-    # Skip seeding pool.enabled / pool.intentGitUrl into test.config.yml.
+    # Skip seeding pool.enabled / pool.configurationGitUrl into test.config.yml.
     # Enrollment is the natural moment to do it -- the operator is present and has
     # just named the proxy -- but a host that must stay standalone can opt out.
     [switch]$NoPoolConfig
@@ -60,6 +60,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
+# --- REGION: Log level from environment
 # See https://yuruna.link/42010605-0003
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
@@ -182,7 +183,7 @@ if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'pr
     }
 }
 
-# --- REGION: Seed the pool intent store binding
+# --- REGION: Seed the pool configuration store binding
 # See https://yuruna.link/42010605-0003
 $poolHost = if ($proxyAddress) { $proxyAddress } elseif ($baseUrl) { ([uri]$baseUrl).Host } else { '' }
 if ($provision.ok -and $poolHost -and -not $NoPoolConfig) {
@@ -197,28 +198,28 @@ if ($provision.ok -and $poolHost -and -not $NoPoolConfig) {
             $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
             if ($null -eq $cfg) { $cfg = [ordered]@{} }
             if (-not ($cfg['pool'] -is [System.Collections.IDictionary])) { $cfg['pool'] = [ordered]@{} }
-            $existingUrl = "$($cfg['pool']['intentGitUrl'])".Trim()
+            $existingUrl = "$($cfg['pool']['configurationGitUrl'])".Trim()
             # The READ-ONLY http url. The writable path (a file:// or local
             # path to the bare repo) is for admin commands run ON the proxy;
             # a runner must never hold a writable remote.
-            $intentUrl = "http://$poolHost/pool-intent.git"
+            $configurationUrl = "http://$poolHost/pool-configuration.git"
             # See https://yuruna.link/42010605-0003
             $isOwnStaleSeed = $existingUrl -and
-                              ($existingUrl -ne $intentUrl) -and
-                              ($existingUrl -match '^http://[^/]+/pool-intent\.git$')
+                              ($existingUrl -ne $configurationUrl) -and
+                              ($existingUrl -match '^http://[^/]+/pool-configuration\.git$')
             if ($existingUrl -and -not $isOwnStaleSeed) {
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_416973ff9c4b82f2' -Arguments @{ existingUrl = "$existingUrl" }) -InformationAction Continue
             } else {
                 if ($isOwnStaleSeed) {
-                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b5e4a53c200e2211' -Arguments @{ existingUrl = "$existingUrl"; intentUrl = "$intentUrl" }) -InformationAction Continue
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b5e4a53c200e2211' -Arguments @{ existingUrl = "$existingUrl"; configurationUrl = "$configurationUrl" }) -InformationAction Continue
                 }
-                $cfg['pool']['intentGitUrl'] = $intentUrl
-                # enabled goes WITH the url: intentGitUrl alone is inert, so
+                $cfg['pool']['configurationGitUrl'] = $configurationUrl
+                # enabled goes WITH the url: configurationGitUrl alone is inert, so
                 # seeding one without the other would look configured and do
                 # nothing.
                 $cfg['pool']['enabled'] = $true
                 if (-not (Write-DocumentedTestConfig -ConfigPath $configPath -Config $cfg -Confirm:$false)) { throw 'Configuration update could not be written.' }
-                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e178d69f96491585' -Arguments @{ intentUrl = "$intentUrl" }) -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e178d69f96491585' -Arguments @{ configurationUrl = "$configurationUrl" }) -InformationAction Continue
             }
         }
     } catch {

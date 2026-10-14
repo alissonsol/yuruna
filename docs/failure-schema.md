@@ -116,8 +116,9 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `cycleFolder` | The cycle's stable identity (step failures only) -- the same value the NDJSON stream stamps, so this file joins to the event stream and resolves to the folder on disk. |
 | `failureScreenshotPath` / `failureOcrPath` | Cycle-dir-relative names of this failure's screen evidence (step failures only). **Absent** unless the artifact exists and was last written after the failing step began: both are sticky per-VM files that only the screen-reading verbs rewrite, so a failure in a verb that reads no text would otherwise point at an earlier step's screen. A reader follows these; nothing audits them, so a present name is a claim the record has to be able to keep. |
 | `staleEvidence` | Each artifact dropped from the two pointers above, named with how many seconds before the failing step it was last written; `[]` when none was. The file is still in the cycle folder under that name, so evidence belonging to an earlier step stays findable while the pointers stay trustworthy -- and an absent pointer is never read as "no screen evidence exists at all", which is a different fact with a different next step. |
-| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. `patternsSought` is recorded on every timed-out wait, including one whose console never showed readable text. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds` and `pauseReleasedAtUtc` (below). |
+| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. `patternsSought` is recorded on every timed-out wait, including one whose console never showed readable text. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds`, `pauseReleasedAtUtc`, `vmState`, `vmStateWaitedSeconds`, `vmStateRequestedAtUtc`, `firstGuestSilenceUtc` and `firstGuestSilenceSource` (below). |
 | `crash` | Crash records only: `{ error, origin, stack }`. |
+| `dependencyFailures` | Optional infra evidence for unavailable lab services. Lab-health entries include area, attempted and last known addresses, last success, detail and pool discovery outcome. Stash preflight entries include area, address, endpoint, source, outcome, detail and retry attempt. Discovery HTTP responses remain available to distinguish missing registration from an unreachable service. Mirrored as `dependencyFailures` on the event. |
 | `hostMemory` | Infra records only, and only when the host driver could measure the machine: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A VM's startup memory is charged against the system commit limit -- physical memory plus the current page-file size -- and not against free physical memory, so a provisioning refusal is explained by the commit figures while free physical memory can be at its highest in the same instant. **Absent** when nothing measured, never zeroed: a zeroed block reads as a machine that was measured and found empty, which is a different fact with a different next step. Mirrored flat on the event as `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
 
 <a id="42820e91-0006"></a>
@@ -136,6 +137,8 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `progressAdvisory` | Independent observations: `outputStaticSeconds`, `heartbeatAgeSeconds`, SSH responsiveness and an advisory verdict. At least two sustained signals yield `progress-suspect`; absent measurements stay null/unavailable. Output is observed during tail-confined waits too, without enabling their disabled recovery signals. `automaticRecoveryAllowed` is always false. |
 | `pauseBeforeStepSeconds` | Seconds an operator hold ran, when one was released before the failing step. The pause gate holds the runner and not the guest, so a prompt the guest printed once during the hold is off the screen the resumed step then has to read -- which looks identical to a prompt that never printed. `0` when there was no hold. |
 | `pauseReleasedAtUtc` | When that hold ended, so it can be placed against the step's own start. `''` when there was no hold. |
+| `vmState` / `vmStateWaitedSeconds` / `vmStateRequestedAtUtc` | Set by `stopVm` and `startVm` when the guest never reached the stopped state: the state the host reported when the wait gave up, how long it waited, and when the shutdown was requested. The class is then `wait_timeout`, and the event carries `causeVmState` and `causeVmStateWaitedSeconds`. `''` and `0` otherwise. |
+| `firstGuestSilenceUtc` / `firstGuestSilenceSource` | The earliest moment in the current sequence at which the guest stopped answering, and the mechanism that saw it: an SSH transport dropped mid-command, typed input the console never acknowledged, a diagnostic no rung could reach, or a shutdown request the guest ignored. Set once per sequence by the first observer and never cleared by a later step, so a record names the first symptom rather than the step that finally gave up. `''` when nothing observed a silence. |
 
 The write is atomic (temp-file + rename via `Write-YurunaStateFile`) so a
 remediator or the status service never observes a truncated record.
@@ -407,6 +410,13 @@ terms. `/control/start-cycle` clears it too. And at `maxHoldAttempts` -- clamped
 to a compiled **999**, about sixteen hours at the backoff cap -- the gate records
 `lab_dependency_down` and the cycle ends the way any hard infra failure ends.
 
+Completed health probes and operator-pause polls refresh `runner.stepHeartbeat`,
+so a live hold can exceed the ordinary step timeout. A blocked probe or abandoned
+hold does not refresh it and remains subject to watchdog termination. Exhaustion
+retains the unavailable service's addresses and discovery details in
+`context.dependencyFailures`; child stash preflight failures use the same
+classified evidence instead of an unexplained `unknown` failure.
+
 Three events ride the NDJSON stream: `lab_health_change` (with `fromVerdict` /
 `toVerdict` / `areas` / `armed`, and `attempts` + `heldSeconds` on the way back
 up), `lab_health_released`, and `lab_health_exhausted`. `status.json` carries
@@ -510,7 +520,10 @@ queryable in `cycle.events.ndjson`, not just buried in the human log:
   `retrySuppressionReason` so the cause remains visible without joining events.
   Each sequence `retry_attempt` also carries `guestLivelocked` and
   `guestLivelockedSeconds`, the host livelock verdict when the attempt failed,
-  so restarts that verdict justified can be counted.
+  so restarts that verdict justified can be counted. Its `installerRunning`
+  field records whether the failed wait's OCR tail still showed the live
+  installer's `subiquity/` event lines; on that evidence an ARM64 Hyper-V
+  login-wait restart boots the installer DVD instead of the target disk.
 - **The guest bash lib** (`automation/yuruna-retry.sh`) can't reach the host
   stream, so it prints a `YURUNA_RETRY {stack,label,attempt,maxAttempts,rc,
   permanent}` marker to stderr; on the SSH verbs (`sshExec` /
@@ -865,7 +878,7 @@ how the run ends.
 | `exitCode` | The exit code the entry point (or, for the runner, the cycle) ended with. |
 | `failureClass` | Empty, a [failure class](#why-each-infra-failure-class-exists) of the shared taxonomy, or a runner fault class (below). |
 | `fingerprint` | `fp1-` plus 16 hex characters: the SHA-256 of failure class, stage, sequence name and action verb, each trimmed and lowercased. Counts, timestamps, VM names and addresses are never inputs, so the same failure has the same fingerprint on the next cycle and after a restart. Empty for a pass or a failure without a class. |
-| `stage` | The stage of an infrastructure failure (`ProjectClone`, `FrameworkPull`, `VmAdmission`, `CycleOutcome`, `CycleStart`, `CycleSpawn`, `PoolStorage`) or empty. |
+| `stage` | The stage of an infrastructure failure (`ConfigGate`, `ProjectClone`, `FrameworkPull`, `VmAdmission`, `CycleOutcome`, `CycleStart`, `CycleSpawn`, `PoolStorage`) or empty. |
 | `reason` | Short text, redacted (credentials in URLs, `password=` style pairs, long opaque tokens) and cut at 300 characters. |
 | `evidence` | Pointers: `{ kind: file\|record\|event\|command, ref, note }`, for example the `last_failure.json` path or the rejected outcome record. |
 | `steps` | The shared steps the run took (`checkout`, `admission`, `replay`, `cycle`), each `{ step, ok, failureClass, reason }`. |
@@ -885,13 +898,32 @@ normal failure pause, which is where an operator comes in.
 
 ### Runner fault classes
 
-Six classes describe the runner rather than a sequence step. They are not in the
-shared taxonomy and have no dispatcher handler: `outcome_unrecorded` (a cycle left
-no usable outcome record), `vm_admission_occupied` and `vm_admission_unknown` (the
-cycle-start check refused), `preamble_stall` and `cycle_killed` (the watchdog
-killed the inner), and `cycle_spawn_failed` (the cycle process could not be
-started). They appear in `status.json`'s `lastFailure.failureClass` and in a
-result's `failureClass`.
+Eight entries in `RunnerFaultClassEnum` describe the runner rather than a
+sequence step. They are outside the shared taxonomy and have no dispatcher
+handler:
+
+| Class | Meaning |
+|---|---|
+| `config_gate_failed` | Configuration validation refused to start a cycle; a failed validation is distinct from a stalled validator. |
+| `inner_exited` | The inner process exited unexpectedly without matching configuration-gate or watchdog evidence. |
+| `outcome_unrecorded` | A cycle left no usable outcome record. |
+| `vm_admission_occupied` | The cycle-start admission check found an occupied host. |
+| `vm_admission_unknown` | The cycle-start admission check could not establish whether the host was available. |
+| `preamble_stall` | The watchdog stopped the inner process after its heartbeat expired during a named preamble phase. |
+| `cycle_killed` | The legacy classification for an abrupt or aborted cycle, including a cycle process that exited before reporting an outcome. |
+| `cycle_spawn_failed` | The cycle process could not be started. |
+
+A watchdog stop during an active cycle uses `wait_timeout` from the shared
+taxonomy. `cycle_killed` does not establish that the watchdog stopped a process;
+the watchdog records its own decision as `preamble_stall` or `wait_timeout`.
+
+For an attempt that has not completed a cycle, the current fault appears in
+`status.json`'s `runnerFault.failureClass`, alongside the attempt identity,
+timing, framework commit and evidence pointers. A new attempt fault preserves
+the prior completed cycle's verdict, `lastFailure` and history. If the same
+attempt started a cycle that is still running, the runner marks that cycle as
+failed and supplies a missing `lastFailure` and history row. Runner fault
+classes may also appear in a typed result's `failureClass`.
 
 <a id="42820e91-0022"></a>
 
@@ -1004,6 +1036,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

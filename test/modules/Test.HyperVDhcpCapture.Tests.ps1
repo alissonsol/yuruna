@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4211664b-fb87-4dab-a225-c1006746d404
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -174,3 +174,42 @@ Describe 'hyper-v DHCP capture: one line says whether the guest ever asked' {
 }
 
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Describe 'hyper-v serial console capture: the guest-side record of a silence' {
+    BeforeAll {
+        $script:NewVmText = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $script:DriverPath) 'New-UbuntuServerVM.ps1')
+        $script:OverlayText = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSCommandPath) '../../host/vmconfig/ubuntu.server.hyperv.overlay.yml')
+    }
+    It 'gives the guest a COM1 named pipe at creation, without making the pipe a precondition' {
+        $script:NewVmText | Should -Match 'Set-VMComPort -VMName \$VMName -Number 1 -Path'
+        $script:NewVmText | Should -Match 'pipe\\yuruna-serial-\$VMName' -Because 'the reader connects to the pipe by this name'
+        $script:NewVmText | Should -Match '(?s)try \{\s*Hyper-V\\Set-VMComPort.*?\} catch \{' -Because 'a platform without COM ports must still create the VM'
+    }
+    It 'arms the reader beside the DHCP capture, gated on the start succeeding' {
+        $fn = [regex]::Match($script:DriverText, '(?s)function Start-VM \{.*?\n\}').Value
+        $fn | Should -Match 'Start-VMSerialCapture'
+        $fn | Should -Match '\.success'
+    }
+    It 'reads the pipe in its own process so a blocked reader can never stall the cycle' {
+        $fn = [regex]::Match($script:DriverText, '(?s)function Start-VMSerialCapture \{.*?\n\}').Value
+        $fn | Should -Match 'Start-Job'
+        $fn | Should -Match 'NamedPipeClientStream'
+        $fn | Should -Match '\$using:pipeName'
+    }
+    It 'saves the log with the failure and says when nothing was received' {
+        $fn = [regex]::Match($script:DriverText, '(?s)function Save-VMSerialCapture \{.*?\n\}').Value
+        $fn | Should -Match 'serial-console\.log'
+        $fn | Should -Match 'serial-console\.info\.txt' -Because 'an empty capture and a capture that never ran must stay distinguishable'
+        $script:RunnerText | Should -Match 'Save-VMSerialCapture'
+    }
+    It 'discards the reader on the clean teardown' {
+        $fn = [regex]::Match($script:DriverText, '(?s)function Remove-VM \{.*?\n\}').Value
+        $fn | Should -Match 'Stop-VMSerialCapture'
+    }
+    It 'has the guest write to the port: journald forwards every level and the kernel adds a serial console' {
+        $script:OverlayText | Should -Match '70-yuruna-serial\.conf'
+        $script:OverlayText | Should -Match 'ForwardToConsole=yes'
+        $script:OverlayText | Should -Match 'TTYPath=/dev/ttyS0'
+        $script:OverlayText | Should -Match 'console=ttyS0,115200n8 console=tty0' -Because 'tty0 must stay last so the framebuffer the OCR reads remains the primary console'
+    }
+}

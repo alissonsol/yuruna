@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b78fbd-8036-4aa8-93eb-161e72bdba4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
 .DESCRIPTION
     This is the volatile half of the runner. Everything that changes when the inner
     runner changes lives here or in the modules this script imports: the framework
-    repo pull, the pool-intent gate, the pre-spawn cleanup, the watchdog, the inner
+    repo pull, the pool-configuration gate, the pre-spawn cleanup, the watchdog, the inner
     spawn itself, and the cycle-end hooks.
 
     It exists as a separate PROCESS so that an edit to it -- or to any module it
@@ -117,9 +117,10 @@ if (-not (Test-Path -LiteralPath $InnerScript)) {
     exit 1
 }
 
-# --- REGION: Re-import modules (fresh per cycle)
-# -Force on every import is the point of this process: the modules are re-read from
-# disk each cycle, so a fix lands without restarting the runner.
+# --- REGION: Re-import modules
+# Fresh per cycle. -Force on every import is the point of this process: the
+# modules are re-read from disk each cycle, so a fix lands without restarting
+# the runner.
 Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
 
 # --- REGION: Bootstrap runtime + log dirs

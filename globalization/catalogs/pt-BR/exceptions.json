@@ -3,6 +3,30 @@
   "domain": "exceptions",
   "locale": "pt-BR",
   "messages": {
+    "exceptions.config_naming_blocked_path": {
+      "sourceHash": "5c2449d5da16df5ff18b6d4fff663854968d339d59c6f52e3edb0227d71291fd",
+      "message": "Não é possível migrar '{old}' para '{replacement}': um escalar bloqueia o caminho de substituição. O arquivo não foi alterado."
+    },
+    "exceptions.config_naming_conflict": {
+      "sourceHash": "373f80db871e1a1e1cdda17730bd2a2bdf1abef8a9c3c3feef3ce686a186a3b8",
+      "message": "Conflito de nomes de configuração: '{old}' e '{replacement}' contêm valores preenchidos diferentes. Mantenha um valor antes de tentar novamente. O arquivo não foi alterado."
+    },
+    "exceptions.config_naming_duplicate_parked": {
+      "sourceHash": "4c83129fbf1aff8b061c0a43cf13fb7794a2aeaae4f8e003243f012afecf9369",
+      "message": "Há entradas de configuração obsoletas conflitantes para '{path}'. Mantenha um valor antes de tentar novamente. O arquivo não foi alterado."
+    },
+    "exceptions.config_naming_invalid_duration": {
+      "sourceHash": "2ea5c31fae97084d3e98c41e62de3c3d345d314a88a295f81d210713952db21f",
+      "message": "Não é possível migrar a chave de configuração '{old}': era esperada uma duração numérica. O arquivo não foi alterado."
+    },
+    "exceptions.config_naming_invalid_parked_scalar": {
+      "sourceHash": "03b90828b0e903c6b84df27253871dbae2ee9ba7356a1a56e7d9b87ae1f10022",
+      "message": "Não é possível migrar a chave de configuração obsoleta '{old}': era esperado um escalar YAML válido. O arquivo não foi alterado."
+    },
+    "exceptions.config_naming_save_failed": {
+      "sourceHash": "d892878091e7bc9fcce7c17b23851f687c285ef5a279b66aaab412365e05d3af",
+      "message": "Não foi possível salvar a migração de nomes de configuração em '{configPath}'; o arquivo original e o backup continuam disponíveis."
+    },
     "exceptions.host_1568d9e12a12e190": {
       "sourceHash": "9cc77f3c54a394b1b7a763daa4814966a64bef4ceac1d12fe95e915728bba559",
       "message": "Esta é a variante Ubuntu KVM; execute host/<type>/Sync-HostConfiguration.ps1 para esta plataforma."
@@ -130,6 +154,10 @@
     "exceptions.host_8c0479442a041d98": {
       "sourceHash": "5248a43530cb75b174acad5341a03ef15702b5ef9905f8ff93f55c386c955ea8",
       "message": "Disable-TestAutomation.ps1 (host/windows.hyper-v) só é executado no Windows."
+    },
+    "exceptions.host_ffd2efb19a40de43": {
+      "sourceHash": "0497a02293b580afcea68e537847e46fbcff857f781ea5ae043c9898a9bf38d9",
+      "message": "Enable-TestAutomation.ps1 (host/windows.hyper-v) só é executado no Windows."
     },
     "exceptions.host_8d770e16b147abe9": {
       "sourceHash": "9680a39856b3baa5c5e36a6631a5147cdc8516322b4f6f539d1599e129375485",
@@ -664,6 +692,16 @@
       "sourceHash": "f5448705366e6cab223613fe65dff180aff535c769774b8ccb36837ababc30ed",
       "origin": "machine",
       "message": "{service}: mantido intacto porque {reason}; nada foi parado, removido ou recriado. Execute novamente quando isso for resolvido, ou passe -Rebuild para substituí-lo."
+    },
+    "exceptions.pool_configuration_state_conflict": {
+      "sourceHash": "4bb54de27552870277ea39b49326bfdf2c6bdd5b73d248cfd99a572aa0e50af9",
+      "message": "O grupo '{poolId}' declara valores conflitantes em desiredState e configuredState; remova o campo obsoleto após escolher o configuredState pretendido.",
+      "origin": "machine"
+    },
+    "exceptions.pool_configuration_legacy_state": {
+      "sourceHash": "452def7ac03c859d673da4abd0a9b989702fb80f54d822a9b7797d333603600f",
+      "message": "O grupo '{poolId}' usa desiredState em schemaVersion 4; use configuredState.",
+      "origin": "machine"
     }
   }
 }

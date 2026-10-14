@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42fa2e2a-4fa0-4919-9c5c-c40875c57b71
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ BeforeAll {
         'broken/bad.sh'   = "#!/bin/bash`nset -euo pipefail`n`nif [ -n `"`$1`" ; then`n  echo `"yes`"`nfi`n"
         'noisy/noisy.sh'  = "#!/bin/bash`nset -euo pipefail`n`ntarget=`$1`necho `$target`n"
         'hook/pre-commit' = "#!/bin/sh`nif [ -z `"`$1`" ; then`n  exit 1`nfi`nexit 0`n"
-        'plain/VERSION'   = "2026.10.11.1`n"
+        'plain/VERSION'   = "2026.10.14`n"
         'plain/notes'     = "not a shell script`n"
     }
 
@@ -85,6 +85,10 @@ BeforeAll {
         Copy-Item -LiteralPath (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'tools/Invoke-ShellCheck.ps1') `
             -Destination (Join-Path $gateDir 'Invoke-ShellCheck.ps1')
         $script:SandboxGate = Join-Path $gateDir 'Invoke-ShellCheck.ps1'
+        # The gate imports its scope rules from its own directory, so the module
+        # travels with it into the sandbox.
+        Copy-Item -LiteralPath (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'tools/Gate.Scope.psm1') `
+            -Destination (Join-Path $gateDir 'Gate.Scope.psm1')
 
         foreach ($name in $script:Fixtures.Keys) {
             $target = Join-Path $script:Sandbox $name
@@ -143,11 +147,71 @@ Describe 'which files the gate picks up' {
         Assert-Match 'hook/pre-commit:\d+' $run.Output 'The finding must name the hook it came from.'
     }
 
-    It 'leaves alone a file that is neither *.sh nor shebanged' {
+    It 'refuses an explicit scope that selects only non-shell files' {
         if ($script:GateBlocker) { Set-ItResult -Skipped -Because $script:GateBlocker; return }
         $run = Invoke-GateUnderTest @('-Path', 'plain')
-        Assert-Equal 0 $run.ExitCode "Non-shell files must not reach shellcheck. Output: $($run.Output)"
-        Assert-Match 'No shell files to scan' $run.Output 'An empty selection must say so rather than report a clean scan.'
+        Assert-Equal 2 $run.ExitCode "A scope that selects no shell source must fail, not pass. Output: $($run.Output)"
+        Assert-Match 'matches explicit scope' $run.Output 'An empty explicit selection must say so rather than report a clean scan.'
+        Assert-True ($run.Output -notmatch 'shellcheck: \d+ finding') 'A non-shell scope must never reach the summary of a completed scan.'
+    }
+}
+
+Describe 'explicit scopes name one file or directory and always select source' {
+    It 'scans the one shell file a scope names' {
+        if ($script:GateBlocker) { Set-ItResult -Skipped -Because $script:GateBlocker; return }
+        $run = Invoke-GateUnderTest @('-Path', 'clean/ok.sh')
+        Assert-Equal 0 $run.ExitCode "A clean single-file scope must pass. Output: $($run.Output)"
+        Assert-Match 'across 1 tracked/new shell file' $run.Output 'A single-file scope must select exactly that file.'
+    }
+
+    It 'reports a finding in the one shell file a scope names' {
+        if ($script:GateBlocker) { Set-ItResult -Skipped -Because $script:GateBlocker; return }
+        $run = Invoke-GateUnderTest @('-Path', 'broken/bad.sh')
+        Assert-Equal 1 $run.ExitCode "A defective single-file scope must fail. Output: $($run.Output)"
+        Assert-Match 'broken/bad\.sh:\d+:\d+\s+SC\d+' $run.Output 'The finding must name the file it came from.'
+    }
+
+    It 'accepts the same file as an absolute path inside the repository' {
+        if ($script:GateBlocker) { Set-ItResult -Skipped -Because $script:GateBlocker; return }
+        $run = Invoke-GateUnderTest @('-Path', (Join-Path $script:Sandbox 'broken/bad.sh'))
+        Assert-Equal 1 $run.ExitCode "An absolute path inside the repository must select the same file. Output: $($run.Output)"
+        Assert-Match 'broken/bad\.sh:\d+:\d+\s+SC\d+' $run.Output 'The finding must name the repository-relative file.'
+    }
+
+    It 'scans an absolute shell file outside the repository and names it in the finding' {
+        if ($script:GateBlocker) { Set-ItResult -Skipped -Because $script:GateBlocker; return }
+        $outside = New-YurunaTestTempDir -Prefix 'yuruna-shellcheck-external'
+        try {
+            $external = Join-Path $outside 'external-bad.sh'
+            [IO.File]::WriteAllText($external, $script:Fixtures['broken/bad.sh'], [Text.UTF8Encoding]::new($false))
+            $run = Invoke-GateUnderTest @('-Path', $external)
+            Assert-Equal 1 $run.ExitCode "An absolute shell file outside the repository must be scanned. Output: $($run.Output)"
+            Assert-Match 'external-bad\.sh:\d+:\d+\s+SC\d+' $run.Output 'The finding must name the external file.'
+        } finally {
+            Remove-YurunaTestTempDir $outside
+        }
+    }
+
+    It 'refuses a parent-directory scope' {
+        if ($script:GateBlocker) { Set-ItResult -Skipped -Because $script:GateBlocker; return }
+        $run = Invoke-GateUnderTest @('-Path', '../clean')
+        Assert-Equal 2 $run.ExitCode "A scope that leaves the repository must not be scanned. Output: $($run.Output)"
+        Assert-Match 'cannot traverse parent directories' $run.Output 'The refusal must say why.'
+    }
+
+    It 'refuses an absolute scope that names no shell source' {
+        if ($script:GateBlocker) { Set-ItResult -Skipped -Because $script:GateBlocker; return }
+        $run = Invoke-GateUnderTest @('-Path', (Join-Path $script:Sandbox 'absent.sh'))
+        Assert-Equal 2 $run.ExitCode "A missing path inside the repository must fail. Output: $($run.Output)"
+        Assert-Match 'matches explicit scope' $run.Output 'The refusal must name the scope.'
+    }
+
+    It 'refuses an absolute scope outside the repository that does not exist' {
+        if ($script:GateBlocker) { Set-ItResult -Skipped -Because $script:GateBlocker; return }
+        $missing = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-absent-' + [Guid]::NewGuid().ToString('n') + '.sh')
+        $run = Invoke-GateUnderTest @('-Path', $missing)
+        Assert-Equal 2 $run.ExitCode "A missing external path must fail. Output: $($run.Output)"
+        Assert-Match 'does not exist' $run.Output 'The refusal must say the scope does not exist.'
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 421267e3-f5fa-3558-ead4-2600d7d08c6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -536,7 +536,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_159f23f7bbf09a33' = '1. add autoInrollment: { activado: true, targetPoolId: default } to pools.yml in the intention store'
+    'automation.operator_159f23f7bbf09a33' = '  1. adicione autoEnrollment: { enabled: true, targetPoolId: default } a pools.yml no repositório de configuração'
     'automation.operator_163577cbcc97e68e' = @(
         '«'
         @{
@@ -1368,7 +1368,7 @@
         ' seria deixado para o sistema operacional, o hipervisor e esta execução'
     )
     'automation.operator_45ac4b861def17e9' = 'Heurística 4: imagem de registro local não referenciada por nenhum pod'
-    'automation.operator_47229a44b80ae93b' = '(não há nós Prontos -- o cluster não está em cima; não existe uma lacuna de implantação, veja a seção KUBE)'
+    'automation.operator_47229a44b80ae93b' = '(nenhum nó Ready -- o cluster não está ativo; as verificações de implantação estão indisponíveis, veja a seção KUBE)'
     'automation.operator_4788a5c9b68d9b0a' = @(
         @{
             'arg' = 'problemTag'
@@ -1557,19 +1557,19 @@
         }
     }
     'automation.operator_4b5000e2da8b0a45' = @(
-        'GAP: '
+        'Observação de diagnóstico: '
         @{
             'arg' = 'count'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' image(s) pressionada(s) para o registro local, mas não referenciada por qualquer pod -- '
+        ' imagem(ns) enviada(s) ao registro local, mas sem referência em nenhum pod -- '
         @{
             'arg' = 'join'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. A fase de cargas de trabalho ou não implantou um gráfico que usa essas imagens, ou o gráfico renderizou-as com um diferente prefixo de registro (verifique componentesRegistry.registryLocalização em resources.output.yml). Uma imagem que só serve como uma etapa de compilação é esperada aqui e não é propriamente uma lacuna de implantação.'
+        '. A fase de cargas de trabalho pode não ter implantado um chart que usa essas imagens, ou o chart pode tê-las renderizado com outro prefixo de registro (verifique componentsRegistry.registryLocation em resources.output.yml). Uma imagem usada apenas como etapa de compilação é esperada aqui e, por si só, não comprova uma divergência de configuração.'
     )
     'automation.operator_4ba3081aa0af2a76' = '(toda a janela é a votação deste arnês -- nada mais foi registrado)'
     'automation.operator_4bcda64ddc713b3c' = @(
@@ -1960,19 +1960,19 @@
         ' -- as falhas do DHCP convidado capturam nenhuma evidência do fio.'
     )
     'automation.operator_6026e7f1ae4f2ef0' = @(
-        'GAP: namespace '''
+        'Divergência de configuração: o namespace '''
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' declarado em '
+        ''' está declarado em '
         @{
             'arg' = 'file'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' mas não existe no cluster -- a fase de cargas de trabalho nunca o criou (helm install / kubectl create namespace não foi executado ou errou).'
+        ', mas não existe no cluster. Verifique se a fase de cargas de trabalho o criou e se helm install / kubectl create namespace foi concluído com sucesso.'
     )
     'automation.operator_6036ef007d775983' = @(
         'Disponível%: '
@@ -2301,13 +2301,13 @@
     )
     'automation.operator_726f2fd533779220' = '(helm not in PATH -- as cargas de trabalho baseadas em gráficos não serão implantadas)'
     'automation.operator_72c1075973a89231' = @(
-        'GAP: '
+        'Observação de diagnóstico: há '
         @{
             'arg' = 'tfStateCount'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' tofu.tfstate arquivo(s) presente(s), mas leme tem 0 lançamentos em todos os espaços de nomes -- a fase de cargas de trabalho parece ter sido ignorada ou saiu 0 sem chamar Set-Workload. Verifique os arquivos helm.stderr.log acima e as últimas linhas do script.'
+        ' arquivo(s) tofu.tfstate, mas o helm não tem releases em nenhum namespace. A fase de cargas de trabalho pode ter sido ignorada ou terminado com código 0 sem chamar Set-Workload. Verifique os arquivos helm.stderr.log acima e as últimas linhas do script que chama essa fase.'
     )
     'automation.operator_72e28a58e0301f9b' = '-> Implementações de gráficos não podem ser executadas sem ele.'
     'automation.operator_72e2cb646e4c4115' = 'NETWORK: tcpdump não possui CAP_NET_RAW, então um convidado que não consegue obter uma locação DHCP não deixa nenhuma evidência de fio. Conceda-a: sudo setcap cap_net_raw,cap_net_admin=eip $(command -v tcpdump)'
@@ -2518,13 +2518,13 @@
     )
     'automation.operator_7cf438f650a43df4' = 'Comutadores virtuais Hyper-V'
     'automation.operator_7d384e5a632109dd' = @(
-        '(nenhum diretório de projeto no '
+        '(nenhum diretório de projeto em '
         @{
             'arg' = 'candidate'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' -- pulando heurísticas de gap)'
+        ' -- as verificações de implantação serão ignoradas)'
     )
     'automation.operator_7f64bfad9ab853d4' = 'Autenticação docker-generic: ''docker'' CLI não no PATH.'
     'automation.operator_7fcfb4c365b13187' = 'Tampão de anel de Kernel (dmesg -- precisa de root; caso contrário, mostra o log do sudo)'
@@ -3533,13 +3533,13 @@
         }
     )
     'automation.operator_b2e83136c96ad810' = @(
-        'GAP: cluster tem o(s) nó(s) '
+        'Observação de diagnóstico: o cluster tem '
         @{
             'arg' = 'count'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' Ready (s) mas zero pods fora dos espaços de nomes do sistema -- nada foi implantado (a fase de carga de trabalho/componentes não pousou).'
+        ' nó(s) Ready, mas nenhum pod fora dos namespaces do sistema. Verifique se a fase de cargas de trabalho/componentes implantou a aplicação esperada.'
     )
     'automation.operator_b31e13c9f6666800' = @(
         'não foi possível limpar: '
@@ -5259,6 +5259,96 @@
             'trust' = 'external'
         }
         ' que um convidado baixa. Uma recusa é uma resposta, não uma cópia em andamento: todo convidado que pedir essas imagens recebe a mesma resposta até que a causa seja corrigida. O log de sincronização do zot informa a causa no painel "Sync / upstream lines" do dashboard de saúde do cache.'
+    )
+    'automation.system_diagnostic_registry_zot_compat_repaired' = @(
+        'REGISTRY: o zot '
+        @{
+            'arg' = 'version'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' do cache só sincroniza as imagens do laboratório porque o autoteste de sincronização adicionou http.compat '
+        @{
+            'arg' = 'modes'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' a /etc/zot/config.json, que falta na configuração que esta versão do Yuruna entrega; cada reconstrução repete o reparo. Relate o problema para que uma versão inclua o modo. Detalhes: '
+        @{
+            'arg' = 'healthUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'automation.system_diagnostic_registry_zot_incompatible' = @(
+        'REGISTRY: o zot '
+        @{
+            'arg' = 'version'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' do cache recusa imagens que o laboratório baixa: o autoteste de sincronização recebeu HTTP '
+        @{
+            'arg' = 'status'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' para '
+        @{
+            'arg' = 'image'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', que a origem disponibiliza, e o log do zot pede http.compat '
+        @{
+            'arg' = 'modes'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'refused'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' imagem(ns) de teste recusada(s)). Executar de novo não resolve. Correções que não exigem alterar código: no cache, execute sudo /usr/local/bin/zot-sync-selftest.py --heal; ou defina vmStart.cachingProxyZotVersion e vmStart.cachingProxyZotSha256 em test/test.config.yml com uma versão do zot que funcione e reconstrua o cache; ou atualize o Yuruna e reconstrua o cache. Detalhes: '
+        @{
+            'arg' = 'healthUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'automation.system_diagnostic_registry_zot_incompatible_unexplained' = @(
+        'REGISTRY: o zot '
+        @{
+            'arg' = 'version'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' do cache recusa imagens que o laboratório baixa: o autoteste de sincronização recebeu HTTP '
+        @{
+            'arg' = 'status'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' para '
+        @{
+            'arg' = 'image'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', que a origem disponibiliza ('
+        @{
+            'arg' = 'refused'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' imagem(ns) de teste recusada(s)). Executar de novo não resolve. Correções que não exigem alterar código: altere /etc/zot/config.json no cache conforme a linha do log do zot na página de saúde, reinicie o zot e execute sudo /usr/local/bin/zot-sync-selftest.py; ou defina vmStart.cachingProxyZotVersion e vmStart.cachingProxyZotSha256 em test/test.config.yml com uma versão do zot que funcione e reconstrua o cache; ou atualize o Yuruna e reconstrua o cache. Detalhes: '
+        @{
+            'arg' = 'healthUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'automation.system_diagnostic_utmctl_list_incomplete' = @(
         '  utmctl list não retornou uma resposta completa em '

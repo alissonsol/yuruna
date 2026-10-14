@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d54579-288d-4a9f-a983-d5f9e1894a16
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -344,6 +344,21 @@ Describe 'affected-slice map generation' {
         $run = Invoke-FixtureMap -Fixture $fixture
         Assert-Equal -Expected 1 -Actual $run.Code -Because 'a deleted known consumer was accepted'
         Assert-Match -Pattern 'known boundary consumer was deleted' -Actual $run.Output
+    }
+
+    It 'scans the working tree after an unstaged rename of an unrelated source file' {
+        $fixture = New-SliceMapFixture
+        & git -C $fixture.Root init --quiet
+        $old = Join-Path $fixture.Root 'src/old-name.ps1'
+        [IO.File]::WriteAllText($old, "'unrelated'`n")
+        & git -C $fixture.Root add .
+        Move-Item -LiteralPath $old -Destination (Join-Path $fixture.Root 'src/new-name.ps1')
+        $run = Invoke-FixtureMap -Fixture $fixture -Update
+        Assert-Equal -Expected 0 -Actual $run.Code -Because $run.Output
+        Remove-Item -LiteralPath (Join-Path $fixture.Root 'src/consumer.js') -Force
+        $deleted = Invoke-FixtureMap -Fixture $fixture
+        Assert-Equal -Expected 1 -Actual $deleted.Code -Because 'declared consumers still require an existing file'
+        Assert-Match -Pattern 'known boundary consumer was deleted' -Actual $deleted.Output
     }
 
     It 'rejects a declared edge whose code appears only in a comment' {

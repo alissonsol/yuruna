@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1363,15 +1363,9 @@ public class HyperVMouse {
         if (!dpiAware) { SetProcessDPIAware(); dpiAware = true; }
     }
 
-    // Click-by-OCR feeds the captured image's pixel coordinates straight back
-    // as client coordinates -- the capture is taken so image (x,y) == vmconnect
-    // client (x,y). HyperVCapture grabs that frame under Per-Monitor-V2, so the
-    // image is in the window's true physical pixels; the click must map those
-    // same physical client coords, hence ClientToScreen/SetCursorPos run under
-    // a matching Per-Monitor-V2 context. A system-DPI-aware mapping on a
-    // >100%-scaled monitor would land the click off-target by the scale factor.
-    // Thread-scoped + reversible; IntPtr.Zero means the API is absent and the
-    // EnsureDpiAware process awareness stays in force.
+    // Click-by-OCR maps image pixels straight to client coordinates, and the
+    // capture is in physical pixels, so the mapping runs under Per-Monitor-V2.
+    // See https://yuruna.link/4222e5f2-000c
     static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
     static IntPtr EnterPerMonitorV2() {
         try { return SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4250adff-0991-409e-81bf-56dfdf1149db
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -277,16 +277,7 @@ Describe 'hyper-v-guest-new-vm-switch-fallback' {
     }
 }
 
-# The seed carries an address the guest can correct later; Get-BestHostIp is
-# the other half of that -- what this host publishes about ITSELF, to the pool
-# directory the guest corrects against. A wrong answer here is worse than a
-# stale seed: it does not merely age, it never changes, so a host that is
-# renumbering constantly looks perfectly still and no guest is ever told.
-#
-# Behavioral rather than AST, because what has to hold is the choice the
-# function makes among adapters, and no call shape expresses that. The function
-# body is lifted out of the module and run against a recorded inventory, so
-# these cases need neither a live hypervisor nor a Windows host.
+# See https://yuruna.link/42e220c4-0014
 Describe 'hyper-v-host-own-address' {
 
     BeforeAll {

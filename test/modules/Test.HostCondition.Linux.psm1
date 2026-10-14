@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4264541c-67da-418e-bf26-a11eb9662af8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -251,10 +251,12 @@ function Assert-LinuxHostConditionSet {
     [OutputType([bool])]
     param([string]$HostType)
     if ($HostType -ne 'host.ubuntu.kvm') { return $true }
-    # --- REGION: https://yuruna.link/42d38664-001a
+    # --- REGION: Host clock drift warning
+    # See https://yuruna.link/42d38664-001a
     # Warn-only and once per cycle: the repair needs a privilege this process
     # cannot ask for, so a drifted host runs and says so rather than refusing
-    # every cycle until an operator notices.
+    # every cycle until an operator notices. First here, unlike the other
+    # platforms: the passing virtualization check below returns early.
     Write-HostClockDriftWarning -HostType $HostType
     # The runner calls Initialize-YurunaHost before invoking this
     # function; that imports host/ubuntu.kvm/modules/Yuruna.Host.psm1

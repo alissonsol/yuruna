@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d7a1c5-8e60-4b3f-9a52-6cb0f4e21d78
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -235,7 +235,7 @@ function Get-EmbeddedBlock {
     # A script whose page already loaded a runtime gets the message tables and
     # nothing else. Repeating the kernel, the stand-in and the locale table
     # there would be twenty-odd kilobytes every page of that service downloads
-    # to define what the previous script already defined.
+    # to define what the loaded runtime already defined.
     if (-not $DomainsOnly) {
         $setPath = Join-Path $RepoRoot 'globalization/manifests/catalog-set.json'
         $catalogProvenance = [ordered]@{ version = ''; hash = '' }
@@ -549,7 +549,7 @@ foreach ($target in $Targets) {
     }
 }
 
-# --- REGION: The Go side: one shared locale table in the SDK, and the message data
+# --- REGION: Go locale data
 # copied into each consuming module. A Go service cannot import across a module
 # boundary it does not own, so distribution is the only way its data gets there.
 

@@ -33,7 +33,7 @@ by what it acts on:
 | Folder | Holds |
 |---|---|
 | [`lab/`](lab/) | standing a lab up on this host: the four host-neutral entry points, lab creation, local storage, token enrollment |
-| [`pool/`](pool/) | the pool-admin CLI -- everything that reads or writes a lab's pool intent -- and the sample intent files |
+| [`pool/`](pool/) | the pool-admin CLI -- everything that reads or writes a lab's pool configuration -- and the sample intent files |
 | [`service/`](service/) | start/stop pairs for the service VMs and the host config/status services (`Start-StatusService.ps1` among them), plus the caching-proxy-service operations |
 | [`check/`](check/) | standalone host-capability checks (OCR engines) |
 | [`modules/`](modules/) | harness modules and the two per-cycle children; not invoked directly |
@@ -184,6 +184,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

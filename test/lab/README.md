@@ -1,7 +1,7 @@
 # Lab setup
 
 Standing a lab up on a machine, and the host-level settings a test host
-needs to run unattended. These act on *this* host; the pool intent that
+needs to run unattended. These act on *this* host; the pool configuration that
 ties hosts together lives in [`../pool/`](../pool/).
 
 ## Host-neutral entry points

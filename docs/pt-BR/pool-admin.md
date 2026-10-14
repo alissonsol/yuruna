@@ -18,25 +18,25 @@
 
 Um **grupo** é um conjunto nomeado de hospedeiros de teste que executam o mesmo trabalho atribuído e apresentam relatórios
 sob um único rótulo (o `poolId`). Você gerencia um grupo editando um pequeno arquivo
-de **intenção** -- `pools.yml` -- por meio de alguns comandos de administração. Você nunca acessa os
-hospedeiros diretamente: cada executor **busca** a intenção a cada ciclo e age de acordo com ela.
+de **configuração** -- `pools.yml` -- por meio de alguns comandos de administração. Você nunca acessa os
+hospedeiros diretamente: cada executor **busca** a configuração a cada ciclo e age de acordo com ela.
 
-A intenção tem três partes:
+A configuração tem três partes:
 
 - **members** -- quais hospedeiros pertencem ao grupo (por seu ID estável de hospedeiro).
 - **repositories** -- os repositórios do framework e do projeto que o grupo executa (suas
   **Framework URL** e **Project URL**); o `test.runner.yml` do próprio projeto define
   o trabalho. Um grupo sem esses repositórios mantém cada membro nos repositórios que ele próprio
   configurou.
-- **desiredState** -- se o grupo está em execução, em pausa ou finalizando o ciclo atual.
+- **configuredState** -- se o grupo está em execução, em pausa ou finalizando o ciclo atual.
 
 ```
-  you --run--> admin CLI --writes--> pools.yml  (intent git repo on the caching-proxy-service)
+  you --run--> admin CLI --writes--> pools.yml  (configuration git repo on the caching-proxy-service)
                                           |
   every host --pulls read-only each cycle-+--> runs the pool's project, reports under <poolId>
 ```
 
-O repositório de intenção contém **apenas arquivos sem segredos** (`pools.yml`,
+O repositório de configuração contém **apenas arquivos sem segredos** (`pools.yml`,
 `guests.compatibility.yml`). Nenhuma credencial passa por ele.
 
 **O planejamento é descentralizado -- não há despacho central.** Um membro de um
@@ -44,17 +44,17 @@ grupo que contém repositórios muda para o framework e o projeto do grupo duran
 o ciclo e resolve, por conta própria, o plano do `test.runner.yml` desse projeto, exatamente
 como um hospedeiro independente resolve o seu. Os membros não coordenam nem dividem
 o trabalho: cada um executa o plano inteiro. `guests.compatibility.yml` também não restringe
-o plano -- `Test-PoolIntent.ps1` valida esse arquivo, e nenhum executor o lê.
+o plano -- `Test-PoolConfiguration.ps1` valida esse arquivo, e nenhum executor o lê.
 A mudança apenas acrescenta essa possibilidade e faz o melhor esforço -- um grupo sem repositórios,
 ou um manifesto de grupo que o executor não consegue ler, mantém o hospedeiro em seus próprios
 repositórios configurados, em vez de gerar uma exceção ou interromper o laço.
 
 **A própria busca** é uma pequena estrutura Git, opcional e desabilitada por padrão: um hospedeiro
-com `pool.enabled: false`, ou cujo armazenamento de intenção está inacessível, simplesmente
-continua executando ciclos como hospedeiro único. Cada executor clona/busca o repositório de intenção
+com `pool.enabled: false`, ou cujo armazenamento de configuração está inacessível, simplesmente
+continua executando ciclos como hospedeiro único. Cada executor clona/busca o repositório de configuração
 pela LAN, encontra seu grupo ao localizar seu `hostId` estável em
 `members[]` -- a única fonte de verdade para a composição do grupo -- e aplica
-o `desiredState` obtido (`run`/`paused`/`drain`) ao laço externo
+o `configuredState` obtido (`run`/`paused`/`drain`) ao laço externo
 exatamente como faz com o sinalizador local `control.cycle-restart`. Toda chamada Git tem
 um limite de tempo de relógio e proteção contra solicitações de credenciais
 (`GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS` vazio, `GCM_INTERACTIVE=never`,
@@ -68,15 +68,15 @@ um laço interativo.
 
 ## Antes de começar
 
-1. **O armazenamento de intenção existe.** A VM do caching-proxy-service inicializa um repositório Git bare em
-   `/mnt/ypool-nas/pool-intent.git` e o disponibiliza **somente para leitura por HTTP** em
-   `http://<proxy>/pool-intent.git`. Isso é configurado automaticamente quando o caching-proxy-service é
+1. **O armazenamento de configuração existe.** A VM do caching-proxy-service inicializa um repositório Git bare em
+   `/mnt/ypool-nas/pool-configuration.git` e o disponibiliza **somente para leitura por HTTP** em
+   `http://<proxy>/pool-configuration.git`. Isso é configurado automaticamente quando o caching-proxy-service é
    provisionado.
 2. **Cada hospedeiro habilitou a participação.** No `test/test.config.yml` de cada hospedeiro, defina o bloco `pool`:
    ```yaml
    pool:
      enabled: true
-     intentGitUrl: http://<proxy>/pool-intent.git   # the READ-ONLY HTTP url
+     configurationGitUrl: http://<proxy>/pool-configuration.git   # the READ-ONLY HTTP url
      localClonePath: ''                              # optional; defaults under runtime/
    ```
    Um hospedeiro com `pool.enabled: false` (o padrão) executa de forma independente.
@@ -84,19 +84,19 @@ um laço interativo.
    cadeia hexadecimal de 32 caracteres com prefixo `42`, também exibida como `hostId` na página de status do próprio hospedeiro e
    no painel do grupo. Sempre que um ID COMPLETO é apresentado, ele usa
    hífens no formato GUID (`42abcdef-0123-4567-89ab-cdef01234567`); os armazenamentos contêm apenas o hexadecimal.
-4. **Você pode gravar no repositório de intenção.** A URL HTTP acima é somente para leitura. Os comandos de administração
+4. **Você pode gravar no repositório de configuração.** A URL HTTP acima é somente para leitura. Os comandos de administração
    precisam de um caminho/URL **gravável**, portanto execute-os **no caching-proxy-service** sobre o repositório local
-   (`/mnt/ypool-nas/pool-intent.git`), ou sobre qualquer remoto gravável com autenticação prévia.
-   Informe-o com `-IntentGitUrl <writable-url>`, ou defina `pool.intentGitUrl` com um valor gravável
+   (`/mnt/ypool-nas/pool-configuration.git`), ou sobre qualquer remoto gravável com autenticação prévia.
+   Informe-o com `-ConfigurationGitUrl <writable-url>`, ou defina `pool.configurationGitUrl` com um valor gravável
    no `test.config.yml` de onde você executa a CLI de administração (assim, pode omitir o sinalizador).
    As CLIs de administração reutilizam o mesmo invólucro Git de `Test.PoolSync`, com tempo limitado e proteção contra prompts,
    usado pelo caminho de busca do executor, e cada alteração é validada pelo esquema **antes** do commit,
-   portanto uma intenção malformada nunca alcança o armazenamento do qual o grupo inteiro busca dados.
+   portanto uma configuração malformada nunca alcança o armazenamento do qual o grupo inteiro busca dados.
 
 Execute os comandos abaixo a partir da raiz do repositório. As etapas 1, 2 e 4 também indicam a
 página do pool-control service (`http://<pool-control>/`) que faz a mesma alteração
 executando o mesmo comando; uma alteração feita lá é desbloqueada com o token do laboratório
-([Desbloqueio das ações](#4207d71a-0012)), em vez de receber `-IntentGitUrl`.
+([Desbloqueio das ações](#4207d71a-0012)), em vez de receber `-ConfigurationGitUrl`.
 
 <a id="4207d71a-0004"></a>
 
@@ -105,13 +105,13 @@ executando o mesmo comando; uma alteração feita lá é desbloqueada com o toke
 ## Etapa 1 -- Crie o grupo
 
 ```powershell
-pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <writable-url>
+pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -ConfigurationGitUrl <writable-url>
 ```
 
 - `-PoolId` é um nome curto, em minúsculas, válido para DNS (`a-z 0-9 -`). Ele se torna o **rótulo
   permanente** da telemetria desse grupo no painel, portanto escolha-o com cuidado -- renomeá-lo
   depois divide o histórico.
-- O grupo começa vazio (`desiredState: run`, sem membros e sem repositórios).
+- O grupo começa vazio (`configuredState: run`, sem membros e sem repositórios).
 - No pool-control service: a página Pools (`/pools`) recebe **Pool id**
   e, opcionalmente, **Display name**; depois, selecione **Create pool**.
 
@@ -124,7 +124,7 @@ pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <w
 Execute uma vez por hospedeiro:
 
 ```powershell
-pwsh test/pool/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01234567 -IntentGitUrl <writable-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01234567 -ConfigurationGitUrl <writable-url>
 ```
 
 - `-HostId` é o `runtime/host.uuid` do hospedeiro (`42` + 30 caracteres hexadecimais). A coluna
@@ -149,7 +149,7 @@ o trabalho). Quando um grupo contém ambas, cada membro substitui seus próprios
 e executa o plano do `test.runner.yml` desse projeto. Um grupo que não contém nenhuma mantém
 cada membro em seus próprios repositórios configurados.
 
-`GH_TOKEN` nunca é armazenado na intenção do grupo; ele permanece local ao hospedeiro, portanto a
+`GH_TOKEN` nunca é armazenado na configuração do grupo; ele permanece local ao hospedeiro, portanto a
 credencial de cada membro deve poder ler ambos os repositórios (veja
 [Acesso ao projeto](#4207d71a-000f)). Nada é cadastrado antecipadamente: a Etapa 4
 registra ambas as URLs diretamente no grupo.
@@ -161,8 +161,8 @@ registra ambas as URLs diretamente no grupo.
 ## Etapa 4 -- Defina os repositórios do grupo
 
 ```powershell
-pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
-pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -Clear -IntentGitUrl <writable-url>   # back to each member's own repositories
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -FrameworkUrl <framework-url> -ProjectUrl <project-url> -ConfigurationGitUrl <writable-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -Clear -ConfigurationGitUrl <writable-url>   # back to each member's own repositories
 ```
 
 - Um grupo contém **exatamente um** par; defini-lo substitui o anterior, e
@@ -174,10 +174,10 @@ pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -Clear -IntentGitUrl <writable
   autossuficiente -- nenhum arquivo do repositório do projeto participa dela:
 
   ```yaml
-  schemaVersion: 3
+  schemaVersion: 4
   pools:
     - poolId: lab
-      # ...poolGuid, displayName, members, desiredState...
+      # ...poolGuid, displayName, members, configuredState...
       repositories:
         frameworkUrl: <framework-url>
         projectUrl: <project-url>
@@ -199,39 +199,51 @@ pwsh test/pool/Set-PoolRepository.ps1 -PoolId lab -Clear -IntentGitUrl <writable
 ## Etapa 5 -- Verifique
 
 ```powershell
-pwsh test/pool/Test-PoolIntent.ps1             # schema-validates pools.yml (+ guests.compatibility.yml); host-in-one-pool invariant
-pwsh test/pool/Get-PoolStatus.ps1 -PoolId lab  # shows members, desiredState, and repositories
+pwsh test/pool/Test-PoolConfiguration.ps1             # schema-validates pools.yml (+ guests.compatibility.yml); host-in-one-pool invariant
+pwsh test/pool/Get-PoolStatus.ps1 -PoolId lab  # shows members, configuredState, and repositories
 ```
 
-Não há nada para "implantar": cada executor recebe a nova intenção no início de seu
+Não há nada para "implantar": cada executor recebe a nova configuração no início de seu
 **próximo ciclo**, portanto não é preciso reiniciar o hospedeiro. Depois que um hospedeiro do grupo concluir um ciclo,
 confirme o efeito no painel **Yuruna hosts** do Grafana (ele agrupa todos os hospedeiros sob
 seu `poolId`), ou diretamente: `curl -sk https://<proxy>:9400/api/v1/pool-status`.
 
-`Test-PoolIntent.ps1` lê `pools.yml` como está armazenado, e sua verificação `schema-version`
-falha em um armazenamento anterior a `schemaVersion: 3`. Os outros comandos de administração
-já leem esse armazenamento como `schemaVersion: 3` e o armazenam nesse formato na
-próxima gravação; para migrá-lo imediatamente, execute uma vez:
+`Test-PoolConfiguration.ps1` valida o documento armazenado pelo schemaVersion 4.
+Os leitores aceitam as versões 2 e 3 em memória e preservam `run`, `paused` e
+`drain` ao converter `desiredState` em `configuredState`. As URLs do `testSet`
+da versão 2 passam para `repositories`. Campos de estado duplicados com o
+mesmo valor são unificados durante a migração; valores conflitantes são
+recusados antes de qualquer alteração. A versão 4 aceita apenas `configuredState`.
+
+Atualize o framework em todos os executores, na VM pool-control-service e nos
+checkouts de administração antes de migrar o repositório compartilhado.
+Binários antigos não reconhecem o novo campo e não devem continuar usando
+um repositório da versão 4. Em seguida, execute:
 
 ```powershell
-pwsh test/pool/Update-PoolIntentSchema.ps1 -IntentGitUrl <writable-url>
+pwsh tools/Update-TestConfigNaming.ps1 -ConfigPath <test.config.yml>
+pwsh test/pool/Update-PoolConfigurationSchema.ps1 -ConfigurationGitUrl <writable-url>
 ```
 
-Ele reescreve `pools.yml` com `schemaVersion: 3`, move as URLs de framework e
-projeto de cada grupo para `repositories`, exclui os arquivos de intenção que nada lê,
-valida o resultado e faz commit e push; quando executado novamente, informa que o
-armazenamento já está atualizado. Atualize primeiro a VM do pool-control service e todos os checkouts de
-administração: um checkout que espera um `schemaVersion` antigo recusa
-gravar no armazenamento migrado.
+O primeiro comando renomeia `pool.intentGitUrl` para `pool.configurationGitUrl`
+e preserva o valor da URL. O segundo valida, faz commit e push da migração
+quando executado pelo operador; um repositório atualizado permanece intacto.
+Atualizar este checkout por si só não migra nenhum grupo em execução.
 
-Os membros não mudam de formato ao mesmo tempo, e ambos os lados da mudança
-retornam ao projeto configurado pelo próprio membro. Um membro cujo checkout do framework
-ainda espera `schemaVersion` 2 ignora `repositories` e executa seu
-próprio projeto até que seu framework seja atualizado. Um membro já no framework
-atual obtém as URLs apenas de `repositories`, portanto, enquanto o armazenamento ainda estiver
-antes de `schemaVersion: 3`, ele também executa seu próprio projeto. Execute a migração logo
-após atualizar a VM do serviço e os checkouts de administração para manter esse intervalo
-curto.
+Novas instalações usam `pool-configuration.git`. Executar novamente
+`New-Lab.ps1` ou a inicialização do serviço adota um repositório gerenciado
+`pool-intent.git` existente, preservando seu histórico Git. `New-Lab.ps1`
+também atualiza os metadados do vault para schemaVersion 2
+(`configurationGitPath`), preservando as credenciais. Atualize URLs explícitas
+de sistema de arquivos ou `git://` para o caminho adotado; o proxy mantém a
+rota HTTP antiga como alias de atualização. URLs personalizadas não são
+reescritas automaticamente.
+
+O comando público é `Set-PoolConfiguredState.ps1`; sua rota de API e operação
+de retransmissão são `/api/pool/configured-state` e `configured-state`. O daemon
+usa `--configuration-git-url` e `POOL_CONTROL_CONFIGURATION_GIT_URL`.
+A chave de ambiente antiga é lida apenas como alternativa de atualização,
+com precedência para a nova chave. Atualize a unidade do serviço junto com o binário.
 
 <a id="4207d71a-0009"></a>
 
@@ -240,8 +252,8 @@ curto.
 ## Etapa 6 -- Opere o grupo
 
 ```powershell
-pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId lab -State paused -IntentGitUrl <writable-url>   # run | paused | drain
-pwsh test/pool/Remove-HostFromPool.ps1  -PoolId lab -HostId 42<...30 hex...> -IntentGitUrl <writable-url>
+pwsh test/pool/Set-PoolConfiguredState.ps1 -PoolId lab -State paused -ConfigurationGitUrl <writable-url>   # run | paused | drain
+pwsh test/pool/Remove-HostFromPool.ps1  -PoolId lab -HostId 42<...30 hex...> -ConfigurationGitUrl <writable-url>
 ```
 
 - **run** -- execute ciclos normalmente.
@@ -262,7 +274,7 @@ Os ciclos em andamento sempre terminam, portanto pausa/finalização nunca corro
 Quando uma máquina recebe uma nova imagem ou um novo clone, ela pode responder com um novo ID de hospedeiro enquanto
 o agregador ainda lembra seu ID anterior. Na página `/hosts` do pool-control,
 **Hand over** aparece na linha antiga apenas quando o novo ID responde no
-mesmo endereço. A ação move a participação no grupo em um único commit no armazenamento de intenção, registra
+mesmo endereço. A ação move a participação no grupo em um único commit no armazenamento de configuração, registra
 no agregador um alias persistente da identidade antiga para a nova e remove imediatamente a linha ativa
 antiga. Ela informa uma falha se o agregador não conseguir persistir o alias;
 tente novamente com o mesmo par após corrigir o erro. Repetir uma transferência concluída é
@@ -304,7 +316,7 @@ pwsh test/pool/Remove-PoolHost.ps1 -HostId 42<...30 hex...>          # add -What
 
 Ele (1) lê `networkStorage.poolStorageLocalPath` de `test.config.yml` e exclui
 `<poolStorageLocalPath>/hosts/info.<hostId>.yml` + `<poolStorageLocalPath>/hosts/<hostId>/` + o caminho legado `<poolStorageLocalPath>/<hostId>/`; (2) remove
-o ID de `members[]` de TODOS os grupos (precisa de `pool.intentGitUrl`; sem ele, os registros do NAS
+o ID de `members[]` de TODOS os grupos (precisa de `pool.configurationGitUrl`; sem ele, os registros do NAS
 ainda são removidos e a alteração da composição é ignorada com um aviso); e (3) pede
 ao agregador que **esqueça** o hospedeiro (`POST /api/v1/forget-host`), para que ele saia do
 painel AGORA, em vez de após o TTL de hospedeiro. A etapa 3 exige habilitação e faz o melhor esforço: ela
@@ -325,23 +337,23 @@ Todos os comandos abaixo ficam em `test/pool/`.
 
 | Comando | Ação | Parâmetros principais |
 |---|---|---|
-| `New-Pool.ps1` | criar um grupo | `-PoolId` (obrigatório), `-DisplayName`, `-DesiredState` |
+| `New-Pool.ps1` | criar um grupo | `-PoolId` (obrigatório), `-DisplayName`, `-ConfiguredState` |
 | `Remove-Pool.ps1` | excluir um grupo (recusa um que ainda tenha membros, a menos que `-Force`) | `-PoolId` (obrigatório), `-Force` |
 | `Add-HostToPool.ps1` | adicionar um hospedeiro | `-PoolId` (obrigatório), `-HostId` (obrigatório) |
 | `Remove-HostFromPool.ps1` | remover um hospedeiro dos membros de UM grupo | `-PoolId` (obrigatório), `-HostId` (obrigatório) |
-| `Move-PoolHostIdentity.ps1` | substituir o ID de um hospedeiro com identidade renovada em um único commit no armazenamento de intenção | `-OldHostId` (obrigatório), `-NewHostId` (obrigatório) |
+| `Move-PoolHostIdentity.ps1` | substituir o ID de um hospedeiro com identidade renovada em um único commit no armazenamento de configuração | `-OldHostId` (obrigatório), `-NewHostId` (obrigatório) |
 | `Remove-PoolHost.ps1` | **excluir completamente** um hospedeiro obsoleto: excluir seus registros do NAS e remover TODAS as participações | `-HostId` (obrigatório), `-Force`, `-ConfigPath` |
 | `Set-PoolRepository.ps1` | definir as URLs de framework e projeto do grupo (substitui as existentes), ou removê-las | `-PoolId` (obrigatório), depois `-FrameworkUrl` + `-ProjectUrl` (obrigatórios juntos) ou `-Clear` |
-| `Set-PoolDesiredState.ps1` | executar / pausar / finalizar o ciclo | `-PoolId` (obrigatório), `-State` (obrigatório) |
-| `Get-PoolStatus.ps1` | ler os membros e os repositórios do grupo (intenção) | `-PoolId` |
-| `Get-PoolIntent.ps1` | exibir o armazenamento de intenção inteiro como JSON (o que o painel lê) | -- |
-| `Test-PoolIntent.ps1` | validar os arquivos de intenção | -- |
-| `Update-PoolIntentSchema.ps1` | migrar `pools.yml` para `schemaVersion: 3` uma vez (uma nova execução não altera nada) | -- |
+| `Set-PoolConfiguredState.ps1` | executar / pausar / finalizar o ciclo | `-PoolId` (obrigatório), `-State` (obrigatório) |
+| `Get-PoolStatus.ps1` | ler os membros e os repositórios do grupo (configuração) | `-PoolId` |
+| `Get-PoolConfiguration.ps1` | exibir o armazenamento de configuração inteiro como JSON (o que o painel lê) | -- |
+| `Test-PoolConfiguration.ps1` | validar os arquivos de configuração | -- |
+| `Update-PoolConfigurationSchema.ps1` | migrar `pools.yml` para `schemaVersion: 4` uma vez (uma nova execução não altera nada) | -- |
 | `Convert-ToPoolWorker.ps1` | transformar uma máquina independente em um trabalhador de um laboratório existente | `-ReferenceHost` (obrigatório), `-InternalAuthKey`, `-KeepCachingProxy` |
 
 Todos os comandos que fazem alterações aceitam `-WhatIf` (prévia) e `-Confirm`, validam contra os
-esquemas **antes** de gravar e fazem `git commit` + `push` por você. Quando omitido, `-IntentGitUrl` usa
-`pool.intentGitUrl` de `test.config.yml`. Um push malsucedido **faz o comando falhar**
+esquemas **antes** de gravar e fazem `git commit` + `push` por você. Quando omitido, `-ConfigurationGitUrl` usa
+`pool.configurationGitUrl` de `test.config.yml`. Um push malsucedido **faz o comando falhar**
 (saída diferente de zero): uma alteração com commit local, mas sem push, não é persistente, e um comando de administração
 posterior a descarta -- recupere executando novamente a partir de um local gravável (no proxy: um `file://`
 ou caminho local para o repositório bare), ou exclua a pasta do clone de administração para descartar a alteração local e
@@ -350,8 +362,8 @@ clonar novamente do remoto. Todos os comandos têm ajuda completa: por exemplo, 
 
 ## Pool-control service
 
-O Pool-control service é a interface do operador e a API para a intenção dos grupos na LAN. Ele
-controla o armazenamento Git da intenção dos grupos; os executores apenas
+O Pool-control service é a interface do operador e a API para a configuração dos grupos na LAN. Ele
+controla o armazenamento Git da configuração dos grupos; os executores apenas
 BUSCAM esse armazenamento em modo somente leitura. Todos os botões usam as CLIs de administração acima,
 portanto a interface e a linha de comando não podem divergir.
 
@@ -455,7 +467,7 @@ contagem regressiva do rodapé.
 
 Um grupo pode atribuir a um hospedeiro um `projectUrl` que sua credencial Git não consegue ler:
 a atribuição é central, a credencial é local ao hospedeiro, e `GH_TOKEN`
-deliberadamente nunca passa pela intenção do grupo. Portanto, cada hospedeiro também executa um
+deliberadamente nunca passa pela configuração do grupo. Portanto, cada hospedeiro também executa um
 `git ls-remote` sobre uma URL **atribuída pelo grupo** no início de um ciclo, *antes*
 do clone -- o problema é identificado no hospedeiro que o tem, em vez de aparecer
 minutos depois como um erro genérico de inicialização. Apenas uma URL atribuída pelo grupo é consultada
@@ -512,12 +524,12 @@ membro não respondeu (os hospedeiros divergentes são listados abaixo do
 seletor), `--` quando nenhum respondeu. Os hospedeiros continuam podendo ser controlados individualmente por
 suas próprias páginas de status; esta ação altera todos e depois lê o estado deles novamente.
 
-Isso **não** é o `desiredState` do grupo (`run`/`paused`/`drain`): esse
-é uma intenção persistente no Git, aplicada em um limite de
+Isso **não** é o `configuredState` do grupo (`run`/`paused`/`drain`): esse
+é uma configuração persistente no Git, aplicada em um limite de
 ciclo, e `drain` encerra o processo executor. Pool Status atua nos sinalizadores de pausa
 ativos &mdash; o significado de "pare o laboratório agora e depois deixe-o continuar"
-no meio do ciclo. `desiredState` não tem página própria; grave-o com
-`Set-PoolDesiredState.ps1` (tabela acima).
+no meio do ciclo. `configuredState` não tem página própria; grave-o com
+`Set-PoolConfiguredState.ps1` (tabela acima).
 
 Controlar as rotas de controle de outro hospedeiro exige uma **prova de controle** (veja
 [control-routes.md](../control-routes.md)), que o serviço obtém de uma das duas
@@ -615,7 +627,7 @@ Um pequeno daemon Go (`test/extension/pool-control-service/server`, módulo `poo
   |---|---|
   | aberta (GET) | `/healthz`, `/api/hostinfo`, `/api/session`, `/api/board`, `/api/hosts`, `/api/hosts/facts`, `/api/state`, `/api/scan`, `/api/diagnostics`, `/api/pool/host-control` |
   | aberta (POST) | `/api/login`, `/api/unlock-proof` -- as duas formas de ENTRAR na barreira |
-  | lab-token | `/api/pool` (POST, DELETE), `/api/pool/desired-state`, `/api/pool/host`  (POST, DELETE), `/api/pool/move-host`, `/api/pool/adopt-rekey`, `/api/pool/repositories`, `/api/pool/host-control`, `/api/scan`, `/api/scan/forget`, `/api/hosts/history` (GET) |
+  | lab-token | `/api/pool` (POST, DELETE), `/api/pool/configured-state`, `/api/pool/host`  (POST, DELETE), `/api/pool/move-host`, `/api/pool/adopt-rekey`, `/api/pool/repositories`, `/api/pool/host-control`, `/api/scan`, `/api/scan/forget`, `/api/hosts/history` (GET) |
   | lab-token **e** credencial de atualização | `/api/host/refresh` (POST) -- veja [Atualização remota do hospedeiro](#remote-host-refresh) |
 
   As leituras são abertas na LAN confiável, para que uma tela de parede não precise de credencial;
@@ -623,30 +635,30 @@ Um pequeno daemon Go (`test/extension/pool-control-service/server`, módulo `poo
 - **Lê `GET /api/v1/pool-stats` do agregador** para obter os números dos
   cartões do painel: contagens de ciclos concluídos por **hospedeiro** em um intervalo predefinido.
   Por hospedeiro, e não por grupo, porque essa rota retorna apenas o que o Loki consegue
-  responder, e a composição do grupo fica no armazenamento de intenção que o agregador nunca
+  responder, e a composição do grupo fica no armazenamento de configuração que o agregador nunca
   leu -- sua única noção de grupo é o `poolId` que um hospedeiro anuncia sobre si. O
   serviço de controle faz essa junção porque já lê `members[]`. Essa
   divisão permite que o painel mostre um cartão para um grupo cujos hospedeiros estão todos
   silenciosos (`0` apresentando relatórios), em vez de o grupo desaparecer porque nenhum fluxo do Loki
   o mencionou. Somente leitura e aberto, como `pool-status`.
-- **Executa as CLIs PowerShell de administração de grupos** em `test/pool/` (`Get-PoolIntent.ps1`,
-  `New-Pool.ps1`, `Remove-Pool.ps1`, `Set-PoolDesiredState.ps1`,
+- **Executa as CLIs PowerShell de administração de grupos** em `test/pool/` (`Get-PoolConfiguration.ps1`,
+  `New-Pool.ps1`, `Remove-Pool.ps1`, `Set-PoolConfiguredState.ps1`,
   `Add-HostToPool.ps1`, `Remove-HostFromPool.ps1`, `Move-PoolHostIdentity.ps1`,
   `Set-PoolRepository.ps1`), em vez de reimplementar
   Git + YAML + validação de esquema + commit/push em Go &mdash; uma única implementação
   oficial. Um push malsucedido aparece na interface como erro.
 - **Controla as rotas de controle dos próprios membros** para Pool Status
   (`/api/pool/host-control`): a única parte daqui que atua em outras máquinas,
-  em vez de no armazenamento de intenção. A composição vem da intenção e os endereços
+  em vez de no armazenamento de configuração. A composição vem da configuração e os endereços
   vêm do agregador, pois a noção de grupo do agregador é um rótulo que um
   hospedeiro anuncia sobre si &mdash; ele não consegue dizer quem pertence ao grupo.
 - **Anuncia a si mesmo** ao pool-aggregator service (beacon, área `pool-control-service`) e, por meio
   do marcador `runtime/pool-control-service.json` e de `host.registration.json`, aparece na
   tabela Extension hosts (exibido como "Pool-control service"). Qualquer um dos caminhos sozinho exibe a linha.
 - Persiste um **log de auditoria** (`audit.jsonl`) e **status.json** (última gravação,
-  resultado da última publicação, sinal de vida, legibilidade da intenção, saúde) em
+  resultado da última publicação, sinal de vida, legibilidade da configuração, saúde) em
   `poolStorageNetworkPath/pool-control-service/` (o NAS do grupo), sobrevivendo a reinicializações. `/healthz`
-  serve esse status. Um laço de monitoramento consulta a intenção a cada `--monitor-interval`.
+  serve esse status. Um laço de monitoramento consulta a configuração a cada `--monitor-interval`.
 
 O próprio `default.psm1` da área é sua presença no hospedeiro: ele torna a área
 visível para `Get-ExtensionAreaName`, dá a ela uma entrada na matriz de capacidades e
@@ -917,7 +929,7 @@ Precisa de `go` + `pwsh` no PATH e do checkout do framework (as CLIs ficam em
 
 Um hospedeiro que cadastrou seu token do laboratório e não está em **nenhum grupo** pode entrar em um
 grupo sem que você o adicione. Esse recurso **vem desabilitado**: a varredura só ocorre quando um
-bloco `autoEnrollment` no `pools.yml` do armazenamento de intenção define `enabled: true` e indica um grupo de destino
+bloco `autoEnrollment` no `pools.yml` do armazenamento de configuração define `enabled: true` e indica um grupo de destino
 *e* o daemon é executado com `--auto-enroll` (`--auto-enroll-interval`, padrão 60s,
 define a frequência).
 
@@ -943,7 +955,7 @@ push, portanto uma falha no meio deixa os hospedeiros anteriores inscritos. A in
 
 **O grupo de destino nunca contém repositórios.** Seus membros continuam executando seus
 próprios projetos configurados: `Set-PoolRepository.ps1` recusa definir repositórios
-ali, `Test-PoolIntent.ps1` reprova um armazenamento que os contém, a página Pools
+ali, `Test-PoolConfiguration.ps1` reprova um armazenamento que os contém, a página Pools
 mostra as caixas **Framework / Project** do grupo desabilitadas, e um executor que ainda
 as encontra as ignora com um aviso. Para remover repositórios deixados ali por uma edição
 manual, use **Clear** na página Pools ou
@@ -968,7 +980,7 @@ web na mesma porta não basta. Depois, cada hospedeiro que responde é consultad
 seu próprio registro de cadastro, de onde vêm seu ID de hospedeiro, nome de máquina e tipo;
 um hospedeiro que não informa seu nome ainda é registrado, pelo endereço.
 
-**O que ela não faz.** Nada muda nos hospedeiros examinados, e a intenção do grupo
+**O que ela não faz.** Nada muda nos hospedeiros examinados, e a configuração do grupo
 nunca é gravada: um hospedeiro descoberto é **monitorado, não inscrito**. Ele aparece
 na página Hosts marcado como `discovered`, sem grupo e com sua coluna **Control**
 vazia &mdash; essa é a leitura que o grupo faz de um *membro*. Suas colunas de hardware e
@@ -1141,7 +1153,7 @@ que define `downloadAgentService.enabled: true`, sempre que o armazenamento est�
 - **Um par de framework e projeto por grupo** -- divida os hospedeiros em dois grupos para
   executar dois conjuntos de testes lado a lado.
 - **As URLs dos repositórios não são consultadas** -- `Set-PoolRepository.ps1` e a página Pools
-  registram as URLs dos repositórios sem cloná-los, e `Test-PoolIntent.ps1`
+  registram as URLs dos repositórios sem cloná-los, e `Test-PoolConfiguration.ps1`
   verifica o formato, não a acessibilidade.
 - **Os membros não dividem o trabalho** -- cada membro executa o
   plano completo do `test.runner.yml` do projeto atribuído; não há agendamento por convidado entre os membros.
@@ -1153,7 +1165,7 @@ que define `downloadAgentService.enabled: true`, sempre que o armazenamento est�
 ## Avançado: mais dois blocos opcionais de `pools.yml`
 
 Eles ainda não têm um comando dedicado -- escreva-os diretamente em `pools.yml` (valide com
-`Test-PoolIntent.ps1`); veja [`test/schemas/pools.schema.yml`](../../test/schemas/pools.schema.yml):
+`Test-PoolConfiguration.ps1`); veja [`test/schemas/pools.schema.yml`](../../test/schemas/pools.schema.yml):
 
 - **`config.testCycle`** -- substitui os ajustes de ciclo de teste para todo o grupo (por exemplo,
   `stepTimeoutSeconds`, `autoRemediation.enabled`); o valor do grupo tem prioridade sobre a configuração de cada hospedeiro.
@@ -1169,7 +1181,7 @@ Eles ainda não têm um comando dedicado -- escreva-os diretamente em `pools.yml
 
 A camada de grupos exige habilitação em todas as suas partes: um hospedeiro sem bloco `pool`, ou um grupo sem
 membros ou sem repositórios, executa seu `test.runner.yml` local exatamente como um
-hospedeiro independente. Um armazenamento de intenção inacessível faz o executor recorrer à última cópia válida
+hospedeiro independente. Um armazenamento de configuração inacessível faz o executor recorrer à última cópia válida
 e depois à execução independente -- um grupo nunca impede um hospedeiro de testar.
 
 <a id="4207d71a-001e"></a>
@@ -1192,6 +1204,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Voltar para [Yuruna](../../README.md)

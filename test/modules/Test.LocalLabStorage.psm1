@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 421fc09f-36ed-4d1d-872e-0167bfb4583f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -862,8 +862,8 @@ Grants the tier's account write access to its storage folder, so the SMB server 
 .DESCRIPTION
 The grant never takes ownership away from the invoking operator, for two reasons that both surface on a machine that is its own storage server:
 
-  * `New-Lab.ps1` creates each lab's pool-intent repository directly on disk under the pool folder. An operator locked out of that folder cannot add a second lab to the machine at all.
-  * git refuses to operate on a repository owned by a different user ("detected dubious ownership"), so chowning the pool folder would break every later git operation on an intent repository already inside it.
+  * `New-Lab.ps1` creates each lab's pool-configuration repository directly on disk under the pool folder. An operator locked out of that folder cannot add a second lab to the machine at all.
+  * git refuses to operate on a repository owned by a different user ("detected dubious ownership"), so chowning the pool folder would break every later git operation on an configuration repository already inside it.
 
 So the account is added alongside the existing owner -- an inherited ACE on Windows, an inherited ACL entry on macOS, and group ownership plus setgid on Linux, where the setgid bit is what makes files created under the share carry the tier's group instead of the creator's.
 #>
@@ -896,7 +896,7 @@ function Set-LocalLabStorageFolderAccess {
         # group; without it a file's group follows the creator and the SMB server
         # can be denied its own archive.
         $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('chmod', '2770', $Tier.FolderPath) -AllowFailure
-        # Existing content predating the grant (an intent repository New-Lab
+        # Existing content predating the grant (a configuration repository New-Lab
         # already created) needs the group bits too; X sets execute only where
         # it already applies, so files do not become executable.
         $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('chmod', '-R', 'g+rwX', $Tier.FolderPath) -AllowFailure

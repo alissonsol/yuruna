@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4236c7a4-0e24-4a2c-beef-a19ebb5235fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,16 +41,7 @@ $script:Alphabet       = [char[]]('abcdefghijklmnopqrstuvwxyz' +
                                   'ABCDEFGHIJKLMNOPQRSTUVWXYZ' +
                                   '0123456789' +
                                   '!@#$%^&*()-_=+')
-# Leading-character alphabet: alphanumerics ONLY (no symbols). A symbol in the
-# first position -- notably a YAML indicator (! @ # % & *) -- makes the YAML
-# serializer single-quote the whole scalar when the vault is written. The
-# cloud-init seed then substitutes it UNQUOTED into `password: <value>` via
-# literal .Replace (New-CloudInitUserData), where a leading indicator is an
-# invalid scalar: it silently mangles the guest's chpasswd (login impossible)
-# and can abort the cloud-config stage, so the VM never finishes cloud-init and
-# never gets an IP. Interior symbols are safe -- the password has no spaces, so
-# no `: ` / ` #` sequence forms and nothing needs quoting -- and the quoting
-# characters (' ") are already absent from $script:Alphabet.
+# See https://yuruna.link/42e220c4-0013
 $script:AlphabetLeading = [char[]]('abcdefghijklmnopqrstuvwxyz' +
                                    'ABCDEFGHIJKLMNOPQRSTUVWXYZ' +
                                    '0123456789')

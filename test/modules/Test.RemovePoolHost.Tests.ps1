@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42e437e6-8cf0-45ba-9f8c-03558f1d5809
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,8 +26,8 @@
     Each case builds a throwaway pool share + a -ConfigPath fixture pointing at
     it, runs the script in a child pwsh, and asserts exit code + on-disk state.
     The recency case guards the specific regression where the guard's terminating
-    Write-Error was swallowed by the parse try/catch. Membership (intent store) is
-    not exercised here -- the fixture config has no pool.intentGitUrl, so the
+    Write-Error was swallowed by the parse try/catch. Membership (configuration store) is
+    not exercised here -- the fixture config has no pool.configurationGitUrl, so the
     script takes the storage-only path. Throw-based assertions (Pester 5.x); runs the script as a child so its `exit` codes are observable.
 #>
 

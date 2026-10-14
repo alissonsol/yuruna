@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"pool-control-service/internal/configuration"
 	"pool-control-service/internal/hostctl"
-	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
 )
 
@@ -112,19 +112,19 @@ func ctlAggregator(t *testing.T, addr map[string]string, fallbackProof string) *
 	return srv
 }
 
-// ctlIntent is two pools: "lab" with two members, "solo" with one, plus a host
+// ctlConfiguration is two pools: "lab" with two members, "solo" with one, plus a host
 // in no pool at all.
-func ctlIntent(members ...string) *fakeIntent {
+func ctlConfiguration(members ...string) *fakeConfiguration {
 	quoted := make([]string, 0, len(members))
 	for _, m := range members {
 		quoted = append(quoted, `"`+m+`"`)
 	}
 	doc := `{"ok":true,"pools":[{"poolId":"lab","poolGuid":"42l","members":[` + strings.Join(quoted, ",") + `]},
 	         {"poolId":"empty","poolGuid":"42e","members":[]}]}`
-	return &fakeIntent{stateRes: intent.Result{OK: true, Stdout: doc}}
+	return &fakeConfiguration{stateRes: configuration.Result{OK: true, Stdout: doc}}
 }
 
-func ctlServer(t *testing.T, f *fakeIntent, aggURL, token string) *httptest.Server {
+func ctlServer(t *testing.T, f *fakeConfiguration, aggURL, token string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(New(f, Options{AggregatorURL: aggURL, AuthToken: token}).Handler())
 	t.Cleanup(srv.Close)
@@ -170,7 +170,7 @@ func hostRows(t *testing.T, m map[string]any) map[string]map[string]any {
 func TestApplyDrivesEveryMember(t *testing.T) {
 	a, b := newCtlHost(t, ""), newCtlHost(t, "")
 	agg := ctlAggregator(t, map[string]string{"42aa": a.srv.URL, "42bb": b.srv.URL}, "")
-	srv := ctlServer(t, ctlIntent("42aa", "42bb"), agg.URL, testBearer)
+	srv := ctlServer(t, ctlConfiguration("42aa", "42bb"), agg.URL, testBearer)
 
 	resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"pause-after-cycle"}`)
 	if resp.StatusCode != 200 || m["ok"] != true {
@@ -192,7 +192,7 @@ func TestApplyDrivesEveryMember(t *testing.T) {
 func TestApplyPresentsAProofFromTheServiceToken(t *testing.T) {
 	h := newCtlHost(t, "")
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
-	srv := ctlServer(t, ctlIntent("42aa"), agg.URL, testBearer)
+	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
 
 	if _, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"continue"}`); m["ok"] != true {
 		t.Fatalf("apply: %v", m)
@@ -223,7 +223,7 @@ func TestApplyReportsEachMemberSeparately(t *testing.T) {
 	refusing.body = `{"ok":false,"reason":"host-token-missing","error":"follow guidance at https://yuruna.link/42185271-0007"}`
 	// 42cc is a member the aggregator has no address for at all.
 	agg := ctlAggregator(t, map[string]string{"42aa": ok.srv.URL, "42bb": refusing.srv.URL}, "")
-	srv := ctlServer(t, ctlIntent("42aa", "42bb", "42cc"), agg.URL, testBearer)
+	srv := ctlServer(t, ctlConfiguration("42aa", "42bb", "42cc"), agg.URL, testBearer)
 
 	resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"pause-after-step"}`)
 	if resp.StatusCode != 200 {
@@ -250,13 +250,13 @@ func TestApplyReportsEachMemberSeparately(t *testing.T) {
 	}
 }
 
-// Membership comes from the intent store, never from the aggregator: its notion
+// Membership comes from the configuration store, never from the aggregator: its notion
 // of a pool is a label a host self-advertises, so driving by that would reach
 // machines that merely claim the name.
 func TestApplyDrivesMembersNotAdvertisers(t *testing.T) {
 	member, stranger := newCtlHost(t, ""), newCtlHost(t, "")
 	agg := ctlAggregator(t, map[string]string{"42aa": member.srv.URL, "42no": stranger.srv.URL}, "")
-	srv := ctlServer(t, ctlIntent("42aa"), agg.URL, testBearer)
+	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
 
 	if _, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"continue"}`); m["ok"] != true {
 		t.Fatalf("apply: %v", m)
@@ -279,7 +279,7 @@ func TestApplyFallsBackToTheAggregatorForAProof(t *testing.T) {
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, minted)
 	// No AuthToken: the bearer route into the gate is closed too, so this call
 	// arrives on a lab-token session instead.
-	srv := httptest.NewServer(New(ctlIntent("42aa"), Options{AggregatorURL: agg.URL}).Handler())
+	srv := httptest.NewServer(New(ctlConfiguration("42aa"), Options{AggregatorURL: agg.URL}).Handler())
 	defer srv.Close()
 
 	req, _ := http.NewRequest("POST", srv.URL+"/api/pool/host-control", strings.NewReader(`{"poolId":"lab","action":"continue"}`))
@@ -307,7 +307,7 @@ func TestApplyWithoutAnyProofRefusesOnce(t *testing.T) {
 	// No token here and none at the aggregator either: its /go/host redirect
 	// carries no fragment, which is what a lab with no internal authentication key looks like.
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
-	srv := httptest.NewServer(New(ctlIntent("42aa"), Options{AggregatorURL: agg.URL}).Handler())
+	srv := httptest.NewServer(New(ctlConfiguration("42aa"), Options{AggregatorURL: agg.URL}).Handler())
 	defer srv.Close()
 
 	req, _ := http.NewRequest("POST", srv.URL+"/api/pool/host-control", strings.NewReader(`{"poolId":"lab","action":"continue"}`))
@@ -334,7 +334,7 @@ func TestApplyWithoutAnyProofRefusesOnce(t *testing.T) {
 func TestApplyValidatesItsRequest(t *testing.T) {
 	h := newCtlHost(t, "")
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
-	srv := ctlServer(t, ctlIntent("42aa"), agg.URL, testBearer)
+	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
 
 	cases := []struct {
 		body string
@@ -342,7 +342,7 @@ func TestApplyValidatesItsRequest(t *testing.T) {
 	}{
 		{`{"action":"continue"}`, http.StatusBadRequest},
 		{`{"poolId":"lab"}`, http.StatusBadRequest},
-		// The intent store's vocabulary is a different mechanism, and silently
+		// The configuration store's vocabulary is a different mechanism, and silently
 		// accepting it would look like it had done something.
 		{`{"poolId":"lab","action":"paused"}`, http.StatusBadRequest},
 		{`{"poolId":"lab","action":"drain"}`, http.StatusBadRequest},
@@ -368,7 +368,7 @@ func TestApplyValidatesItsRequest(t *testing.T) {
 func TestApplyRefusesRefreshOverHTTPRegardlessOfKnownAction(t *testing.T) {
 	h := newCtlHost(t, "")
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
-	srv := ctlServer(t, ctlIntent("42aa"), agg.URL, testBearer)
+	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
 
 	resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"refresh"}`)
 	if resp.StatusCode != http.StatusBadRequest {
@@ -391,7 +391,7 @@ func TestApplyRefusesRefreshOverHTTPRegardlessOfKnownAction(t *testing.T) {
 func TestApplyRefusesRefreshOverMCPRegardlessOfKnownAction(t *testing.T) {
 	h := newCtlHost(t, "")
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
-	srv := New(ctlIntent("42aa"), Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+	srv := New(ctlConfiguration("42aa"), Options{AggregatorURL: agg.URL, AuthToken: testBearer})
 
 	tool, ok := srv.mcpRegistry().Get("pool_control_set_host_control")
 	if !ok {
@@ -412,7 +412,7 @@ func TestApplyRefusesRefreshOverMCPRegardlessOfKnownAction(t *testing.T) {
 // An empty pool is not an error: it accepts the call and changes nothing.
 func TestApplyToAnEmptyPool(t *testing.T) {
 	agg := ctlAggregator(t, map[string]string{}, "")
-	srv := ctlServer(t, ctlIntent("42aa"), agg.URL, testBearer)
+	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
 	resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"empty","action":"continue"}`)
 	if resp.StatusCode != 200 || m["ok"] != true {
 		t.Fatalf("empty pool: %d %v", resp.StatusCode, m)
@@ -435,7 +435,7 @@ func TestApplyIsAudited(t *testing.T) {
 	store.Record(time.Now(), state.AuditEntry{
 		Publish: true, TimeUTC: publishedAt, Action: "new-pool", Target: "lab", OK: true,
 	})
-	srv := httptest.NewServer(New(ctlIntent("42aa", "42bb"), Options{AggregatorURL: agg.URL, AuthToken: testBearer, Store: store}).Handler())
+	srv := httptest.NewServer(New(ctlConfiguration("42aa", "42bb"), Options{AggregatorURL: agg.URL, AuthToken: testBearer, Store: store}).Handler())
 	defer srv.Close()
 
 	resp, result := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"pause-after-cycle"}`)
@@ -463,7 +463,7 @@ func TestApplyIsAudited(t *testing.T) {
 	resp, health := do(t, "GET", srv.URL+"/healthz", "")
 	if resp.StatusCode != http.StatusOK || health["lastAction"] != "new-pool" || health["lastWriteUtc"] != publishedAt ||
 		health["lastPublishOk"] != true || health["writes"] != float64(1) {
-		t.Fatalf("host-control changed intent-publish health: HTTP %d %v", resp.StatusCode, health)
+		t.Fatalf("host-control changed configuration-publish health: HTTP %d %v", resp.StatusCode, health)
 	}
 }
 
@@ -496,7 +496,7 @@ func TestPoolStateAggregation(t *testing.T) {
 				members = append(members, id)
 			}
 			agg := ctlAggregator(t, addr, "")
-			srv := ctlServer(t, ctlIntent(members...), agg.URL, testBearer)
+			srv := ctlServer(t, ctlConfiguration(members...), agg.URL, testBearer)
 
 			resp, m := do(t, "GET", srv.URL+"/api/pool/host-control", "")
 			if resp.StatusCode != 200 {
@@ -531,7 +531,7 @@ func TestPoolStateAggregation(t *testing.T) {
 func TestBothSwitchesArmedIsReported(t *testing.T) {
 	h := newCtlHost(t, `{"stepPaused":true,"cyclePaused":true}`)
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
-	srv := ctlServer(t, ctlIntent("42aa"), agg.URL, testBearer)
+	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
 
 	_, m := do(t, "GET", srv.URL+"/api/pool/host-control", "")
 	pools, _ := m["pools"].(map[string]any)
@@ -546,7 +546,7 @@ func TestBothSwitchesArmedIsReported(t *testing.T) {
 func TestHostControlGating(t *testing.T) {
 	h := newCtlHost(t, `{"stepPaused":false,"cyclePaused":false}`)
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
-	srv := ctlServer(t, ctlIntent("42aa"), agg.URL, testBearer)
+	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
 
 	resp, err := http.Get(srv.URL + "/api/pool/host-control")
 	if err != nil {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,29 +34,17 @@ $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Pat
 $script:TestModulesDir = Join-Path $script:RepoRoot 'test/modules'
 $script:HostFolder     = Join-Path $script:RepoRoot 'host/macos.utm'
 
-<#
-.SYNOPSIS
-    Returns this driver's host tag, repairing it if module state was lost.
-.DESCRIPTION
-    $script: state does not survive this module being -Force re-imported
-    (feedback_module_script_state_reset_by_force_reimport). A caller holding
-    an already-resolved reference to a contract function keeps running against
-    the evicted instance, whose session state has been torn down, and
-    $script:HostTag then reads as an empty string.
-
-    That empty string is load-bearing: binding it to the dispatcher's
-    -HostType fails with "Cannot bind argument to parameter 'HostType'
-    because it is an empty string", so the keystroke types nothing while the
-    caller sees only a non-terminating error and carries on. A console line
-    left half-typed that way stays in the tty and the next text sent to the
-    guest is appended to it, surfacing much later as a command nobody wrote.
-
-    The tag is a compile-time constant for this driver, so resolving it
-    through a literal fallback makes the empty binding impossible regardless
-    of module lifetime, and restores the variable for any other reader that
-    can still reach this scope.
-#>
+# --- REGION: Resolve-HostTag
 function Resolve-HostTag {
+    <#
+    .SYNOPSIS
+        Returns this driver's host tag, repairing it if module state was lost.
+    .DESCRIPTION
+        Uses the driver's literal tag when a retained function reference has
+        lost its module state after a forced re-import.
+    .LINK
+        https://yuruna.link/42e5cdfd-0002
+    #>
     [OutputType([string])]
     param()
     if ([string]::IsNullOrWhiteSpace($script:HostTag)) { $script:HostTag = 'host.macos.utm' }
@@ -75,13 +63,7 @@ Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.DownloadAgent.psm1') -Force -DisableNameChecking -Global
 # See https://yuruna.link/42ec97cd-0017
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
-# The GUI-session probe and the in-bundle utmctl path come from the macOS
-# host-condition module. -Global without -Force: a copy the host-condition
-# facade already loaded is reused as is, rather than re-run and reset under
-# its other callers every time this driver is re-imported. A long-lived
-# process can hold a copy loaded before those two entry points existed; that
-# copy is replaced (still -Global, so every caller sees the same one) rather
-# than left to fail the driver's first call into it.
+# See https://yuruna.link/42e220c4-0004
 Import-Module (Join-Path $script:TestModulesDir 'Test.HostCondition.Mac.psm1') -Global -DisableNameChecking
 $macSessionCommand = Get-Command -Name 'Get-MacSessionKind' -CommandType Function -ErrorAction SilentlyContinue
 if (-not (Get-Command -Name 'Get-MacUtmctlBundlePath' -CommandType Function -ErrorAction SilentlyContinue) -or
@@ -306,12 +288,7 @@ $script:UtmHelperProcessPattern        = 'QEMUHelper'
 $script:UtmHelperCommandPattern        = '/QEMUHelper[.]xpc/|^QEMUHelper( |$)'
 $script:UtmNotFoundPattern             = 'not found'
 $script:UtmSharedLeasePath             = '/var/db/dhcpd_leases'
-# The one wording table for utmctl's Apple Event failures. utmctl exits 0 on
-# most of them and prints the OSStatus text instead, so the text is the only
-# evidence, and the ORDER is the classification: a denial (-1743) or timeout
-# (-1712) message also carries the generic OSStatus phrasing, so the specific
-# rows must be tried before the catch-all. Every wording the repository has
-# seen (driver and installer gate) belongs here, each pinned by a fixture.
+# See https://yuruna.link/42e220c4-0004
 $script:UtmAppleEventReasonPattern = [ordered]@{
     'permission-denied' = '-1743\b|Not authorized to send Apple events'
     'timeout'           = '-1712\b|AppleEvent timed out'
@@ -715,427 +692,19 @@ function Resolve-UtmctlExecutable {
     }
 }
 
-# --- REGION: Port-map helpers
-# --- REGION: Start-CachingProxyServiceForwarder
-function Start-CachingProxyServiceForwarder {
-    <#
-    .SYNOPSIS
-        Launches (or stops) the caching-proxy-service TCP forwarder on the Mac host.
-
-    .DESCRIPTION
-        Exposes the Shared-NAT caching-proxy-service VM to REMOTE LAN hosts: it binds
-        a cache port on the host's LAN IP and tunnels to $CacheIp on the
-        192.168.64.0/24 vmnet subnet, so machines elsewhere on the LAN can use
-        the cache. Same-Mac UTM guests do NOT need this -- on macOS 26 every
-        vmnet-shared VM joins one bridge (192.168.64.1) and guests reach a
-        sibling VM's 192.168.64.x IP directly. (An older belief that shared-NAT
-        blocks guest-to-guest ARP on 192.168.64.0/24 did not reproduce there.)
-
-        Start-CachingProxyServiceForwarder spawns Start-CachingProxyServiceForwarder.ps1
-        as a detached `pwsh` subprocess that binds :3128 on the host and
-        tunnels to $CacheIp:3128. Detached so the forwarder outlives
-        Start-CachingProxyServiceVM.ps1 (it survives the launcher exiting -- it is
-        reparented to launchd -- but any Remove-PortMap still tears it down).
-
-        PID is written to $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid.
-        Stop-CachingProxyServiceForwarder reads it and sends SIGTERM.
-        Get-CachingProxyServiceForwarder reports liveness without signaling.
-
-        Returns $true when the forwarder is verified listening (Start),
-        terminated (Stop), or currently running (Get).
-
-    .PARAMETER CacheIp
-        IP of the caching-proxy-service VM (Start-CachingProxyServiceForwarder only). Typically
-        192.168.64.X discovered by Start-CachingProxyServiceVM.ps1's subnet probe.
-    #>
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)][string]$CacheIp,
-        [int]$Port = $(Get-CachingProxyServicePort -Scheme http),
-        [int]$VMPort = 0,
-        [switch]$PrependProxyV1
-    )
-    # 0 sentinel -- when unspecified, host port == VM port (the common case;
-    # proxy/Grafana/etc.). Split ports kick in for SSH (8022 -> 22) and any
-    # other future host:VM remap. Pidfile name uses HOST port (predictable;
-    # what `lsof -i :<host>` would show).
-    if ($VMPort -eq 0) { $VMPort = $Port }
-    # Forwarder script lives at host/macos.utm/Start-CachingProxyServiceForwarder.ps1.
-    # Use $script:HostFolder (set at module load) instead of $PSScriptRoot:
-    # the module-scoped variable is anchored to the .psm1's directory, so
-    # the lookup is independent of how the function is dispatched.
-    $forwarderScript = Join-Path $script:HostFolder "Start-CachingProxyServiceForwarder.ps1"
-    if (-not (Test-Path $forwarderScript)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e22e1a85f32b3a0b' -Arguments @{ forwarderScript = "$forwarderScript" })
-        return $false
-    }
-    if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${Port} -> ${CacheIp}:${VMPort}", (Format-YurunaOperatorMessage -Key 'host.operator_67195d8019562611'))) {
-        return $false
-    }
-    $stateDir = Join-Path $HOME "yuruna/image/caching-proxy-service"
-    if (-not (Test-Path $stateDir)) {
-        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
-    }
-    # Pidfile/log are PER PORT so concurrent forwarders (squid :3128,
-    # Grafana :3000, etc.) never fight over the same path. Port-named
-    # files make discovery and selective teardown trivial.
-    $pidFile = Join-Path $stateDir "forwarder.$Port.pid"
-    $logFile = Join-Path $stateDir "forwarder.$Port.log"
-
-    $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
-    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_c22cbc5129006aa6' -Arguments @{ port = "${Port}"; cacheIp = "${CacheIp}"; vMPort = "${VMPort}"; proxyTag = "${proxyTag}" }) -InformationAction Continue
-    # RedirectStandard* is required: without them pwsh inherits the
-    # parent TTY and dies when Start-CachingProxyServiceVM.ps1 exits. The
-    # forwarder's own log gets live traffic; stdout/stderr go to files.
-    $forwarderParams = @{ CacheIp = $CacheIp; Port = $Port; VMPort = $VMPort; PidFile = $pidFile; LogFile = $logFile }
-    if ($PrependProxyV1) { $forwarderParams.PrependProxyV1 = $true }
-    $parameterJson = ConvertTo-Json -InputObject $forwarderParams -Compress
-    $parameterBlob = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($parameterJson))
-    $escapedScript = $forwarderScript -replace "['\u2018\u2019]", '$0$0'
-    $command = '$p = ConvertFrom-Json -AsHashtable -InputObject ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(''{0}''))); & ''{1}'' @p' -f $parameterBlob, $escapedScript
-    $procArgs = @('-NoProfile', '-NoLogo', '-EncodedCommand', [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command)))
-    # Ports below 1024 need root on macOS. Spawn via `sudo -E pwsh` when not
-    # already root; the caller pre-caches credentials via `sudo -v` so the
-    # detached subprocess can bind the port without an interactive tty prompt.
-    # sudo exec's pwsh (no fork), so the pidfile PID matches the sudo PID.
-    # An unreadable uid is treated as non-root: the sudo -n spawn below then
-    # fails fast when root is not reachable, instead of binding as nobody.
-    $isRoot = ((Get-UtmCurrentUid) -eq '0')
-    $needsSudo = ($Port -lt 1024) -and (-not $isRoot)
-
-    # If the privileged forwarder is already running (root-owned, started by
-    # Start-CachingProxyServiceVM.ps1 which called `sudo -v` first), leave it alone.
-    # Killing a root process requires sudo credentials that the caller
-    # (e.g. Start-TestRunner) may not have cached -- and the correct CacheIp
-    # is already baked into the running process. Only restart if crashed.
-    if ($needsSudo -and (Get-CachingProxyServiceForwarder -Port $Port)) {
-        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_fac89af7ceb85a93' -Arguments @{ port = "${Port}" }) -InformationAction Continue
-        return $true
-    }
-
-    # A failed stop retains the pidfile and must not start a second listener.
-    if (-not (Stop-CachingProxyServiceForwarder -Port $Port -Quiet)) { return $false }
-
-    # -n on the sudo spawn: this is a DETACHED process whose stdout and stderr
-    # are redirected to files, so a password prompt would be written to a log
-    # and the forwarder would sit there unbound until something noticed. With -n
-    # a missing credential fails immediately and the bind wait below reports it.
-    $spawnFile = if ($needsSudo) { 'sudo' } else { 'pwsh' }
-    $spawnArgs = if ($needsSudo) { @('-n', '-E', 'pwsh') + $procArgs } else { $procArgs }
-
-    try {
-        $proc = Start-Process -FilePath $spawnFile `
-            -ArgumentList $spawnArgs `
-            -RedirectStandardOutput "$stateDir/forwarder.$Port.stdout.log" `
-            -RedirectStandardError  "$stateDir/forwarder.$Port.stderr.log" `
-            -PassThru
-    } catch {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_368bbdea275958b3' -Arguments @{ message = "$($_.Exception.Message)" })
-        return $false
-    }
-    # Wait briefly for the listener to bind and the pidfile to be written.
-    # 3s is generous; pwsh startup + TcpListener.Start() is sub-second.
-    $deadline = (Get-Date).AddSeconds(3)
-    while ((Get-Date) -lt $deadline) {
-        $tcp = [System.Net.Sockets.TcpClient]::new()
-        try {
-            $h = $tcp.BeginConnect("127.0.0.1", $Port, $null, $null)
-            if ($h.AsyncWaitHandle.WaitOne(150) -and $tcp.Connected) {
-                $tcp.Close()
-                $actualPid = if (Test-Path $pidFile) { (Get-Content $pidFile -Raw).Trim() } else { $proc.Id }
-                $upMsg = if ($Port -eq $VMPort) {
-                    "Forwarder up (pid $actualPid). Guests should use http://192.168.64.1:${Port}"
-                } else {
-                    "Forwarder up (pid $actualPid): host :${Port} -> ${CacheIp}:${VMPort}"
-                }
-                Write-Information "  $upMsg" -InformationAction Continue
-                return $true
-            }
-        } catch {
-            # Expected while the child is still booting (pwsh startup +
-            # TcpListener.Start). Retry until the deadline.
-            $null = $_
-        } finally { $tcp.Close() }
-        Start-Sleep -Milliseconds 100
-    }
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_9b8f576034f602fb' -Arguments @{ id = "$($proc.Id)"; port = "${Port}" })
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0b768b57cdd33d5e' -Arguments @{ stateDir = "$stateDir" })
-    # A non-answering child may still be half-bound (listener up, connect
-    # racing) or wedged. Tear it down so it is not orphaned holding the
-    # port past our return. Prefer the pidfile-driven, identity-verified
-    # stop (matches Start-CachingProxyServiceForwarder.ps1, honors root ownership);
-    # if the child never wrote its pidfile, signal the spawned pid directly.
-    if (Test-Path $pidFile) {
-        [void](Stop-CachingProxyServiceForwarder -Port $Port -Quiet)
-    } else {
-        try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop }
-        catch { Write-Verbose "Could not stop orphaned forwarder pid $($proc.Id): $_" }
-    }
-    return $false
-}
-
-<#
-.SYNOPSIS
-    Terminates the host-side caching-proxy-service TCP forwarder if it is running.
-
-.DESCRIPTION
-    Reads $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid and verifies the
-    PID belongs to Start-CachingProxyServiceForwarder.ps1 (via /bin/ps -o
-    command=) before signaling -- a stale pidfile pointing at an
-    unrelated process must NOT be killed. Sends SIGTERM and waits up to
-    2s; escalates to SIGKILL if no response. The pidfile is removed on
-    every success path and on stale-pidfile detection so the next Start
-    call is clean.
-
-.PARAMETER Quiet
-    Suppress the informational Write-Output lines. Start-CachingProxyServiceForwarder
-    passes this when preflight-stopping a stale forwarder so the happy
-    path stays quiet.
-
-.OUTPUTS
-    [bool] $true on any exit where the pidfile is in a coherent state
-    (process stopped or never running); $false when the recorded pid could
-    not be read within its time limit, in which case the pidfile is kept and
-    nothing was signaled.
-#>
-function Stop-CachingProxyServiceForwarder {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param(
-        [int]$Port = $(Get-CachingProxyServicePort -Scheme http),
-        [switch]$Quiet
-    )
-    $pidFile = Join-Path $HOME "yuruna/image/caching-proxy-service/forwarder.$Port.pid"
-    if (-not (Test-Path $pidFile)) {
-        if (-not $Quiet) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_51cfbd5426e42f8d') -InformationAction Continue }
-        return $true
-    }
-    $forwarderPid = (Get-Content $pidFile -Raw).Trim()
-    if (-not ($forwarderPid -as [int])) {
-        if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2b5a075a69fb02ea' -Arguments @{ pidFile = "$pidFile"; forwarderPid = "$forwarderPid" }) }
-        Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-        return $true
-    }
-    # Verify the process looks like our forwarder before killing.
-    # -o command= prints full argv so we can match
-    # Start-CachingProxyServiceForwarder.ps1 and avoid killing an unrelated pid
-    # that matches a stale pidfile. Bounded: a read that did not finish proves
-    # nothing either way, so the pidfile is kept and nothing is signaled.
-    $identity = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$forwarderPid", '-o', 'command=') -TimeoutSeconds 5
-    if (-not (Test-UtmBoundedResultComplete -Result $identity)) {
-        if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.forwarder_identity_unverified' -Arguments @{ forwarderPid = "$forwarderPid" }) }
-        return $false
-    }
-    $cmd = "$($identity.StdOut)".Trim()
-    if ($identity.ExitCode -ne 0 -or -not $cmd) {
-        if (-not $Quiet) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_7934de6bf4f9bbe6' -Arguments @{ forwarderPid = "$forwarderPid" }) -InformationAction Continue }
-        Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-        return $true
-    }
-    if ($cmd -notmatch 'Start-CachingProxyServiceForwarder\.ps1') {
-        if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5c93ad943c43270c' -Arguments @{ forwarderPid = "$forwarderPid"; cmd = "$cmd" }) }
-        Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-        return $true
-    }
-    if (-not $PSCmdlet.ShouldProcess("pid $forwarderPid (Start-CachingProxyServiceForwarder.ps1)", (Format-YurunaOperatorMessage -Key 'host.operator_378bec0a86550e8e'))) {
-        return $false
-    }
-    if (-not $Quiet) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_0dbaee5477554260' -Arguments @{ forwarderPid = "$forwarderPid" }) -InformationAction Continue }
-    # /bin/kill sends SIGTERM (default). PowerShell 7's Stop-Process on
-    # Unix maps to Process.Kill() == SIGKILL unconditionally, bypassing
-    # graceful shutdown -- hence the external binary for TERM-then-KILL.
-    # Port 80's forwarder is root-owned (spawned via sudo); a regular user
-    # cannot signal it -- detect and escalate via sudo kill if needed.
-    $owner     = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$forwarderPid", '-o', 'user=') -TimeoutSeconds 5
-    $procOwner = "$($owner.StdOut)".Trim()
-    $meIsRoot  = ((Get-UtmCurrentUid) -eq '0')
-    $useSudo   = ($procOwner -eq 'root') -and (-not $meIsRoot)
-    # Every signal is bounded. Through sudo it always carries -n: this runs
-    # inside teardown paths whose console belongs to a caller, and sudo takes
-    # its password from /dev/tty regardless of how stdin was set up -- so a
-    # cold credential here would stall the teardown on a prompt nobody sees,
-    # rather than reporting that root was unavailable.
-    $sendSignal = {
-        param([string[]]$SignalArgument)
-        if ($useSudo) {
-            return (Invoke-UtmHostTool -Tool 'sudo' -ArgumentList (@('-n', [string]$script:UtmHostTool['kill']) + $SignalArgument + @("$forwarderPid")) -TimeoutSeconds 5)
-        }
-        return (Invoke-UtmHostTool -Tool 'kill' -ArgumentList ($SignalArgument + @("$forwarderPid")) -TimeoutSeconds 5)
-    }
-    $term = & $sendSignal @()
-    if ($useSudo -and -not ((Test-UtmBoundedResultComplete -Result $term) -and $term.ExitCode -eq 0) -and -not $Quiet) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_7bbd97967255a376' -Arguments @{ forwarderPid = "$forwarderPid" })
-    }
-    $exitWait = New-YurunaDeadline -TotalMilliseconds 2000
-    while (Wait-UtmInterval -Milliseconds 100 -Deadline $exitWait) {
-        $alive = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$forwarderPid", '-o', 'pid=') -TimeoutSeconds 5
-        if ((Test-UtmBoundedResultComplete -Result $alive) -and $alive.ExitCode -ne 0) {
-            Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-            return $true
-        }
-    }
-    if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fd3a364b69ecd8d4' -Arguments @{ forwarderPid = "$forwarderPid" }) }
-    $kill = & $sendSignal @('-9')
-    if ($useSudo -and -not ((Test-UtmBoundedResultComplete -Result $kill) -and $kill.ExitCode -eq 0) -and -not $Quiet) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_157f9a28bfef1ebf' -Arguments @{ forwarderPid = "$forwarderPid" })
-    }
-    Start-Sleep -Milliseconds 200
-    $alive = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$forwarderPid", '-o', 'pid=') -TimeoutSeconds 5
-    if (-not (Test-UtmBoundedResultComplete -Result $alive) -or $alive.ExitCode -eq 0) {
-        return $false
-    }
-    Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-    return $true
-}
-
-<#
-.SYNOPSIS
-    Reports whether the host-side caching-proxy-service TCP forwarder is running.
-
-.DESCRIPTION
-    Pure observer -- never signals, never removes files. Returns $true
-    iff $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid exists, parses as
-    an int, and refers to a live process (via /bin/ps). Does NOT verify
-    the process is actually our forwarder; Stop-CachingProxyServiceForwarder
-    handles that stricter identity check on the write path.
-
-.OUTPUTS
-    [bool] $true if the pidfile points at a live process, $false
-    otherwise (missing pidfile, malformed content, or dead pid).
-#>
-function Get-CachingProxyServiceForwarder {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param([int]$Port = $(Get-CachingProxyServicePort -Scheme http))
-    $pidFile = Join-Path $HOME "yuruna/image/caching-proxy-service/forwarder.$Port.pid"
-    if (-not (Test-Path $pidFile)) { return $false }
-    $forwarderPid = (Get-Content $pidFile -Raw).Trim()
-    if (-not ($forwarderPid -as [int])) { return $false }
-    $alive = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$forwarderPid", '-o', 'pid=') -TimeoutSeconds 5
-    return [bool]((Test-UtmBoundedResultComplete -Result $alive) -and $alive.ExitCode -eq 0)
-}
-
-<#
-.SYNOPSIS
-    Stop every caching-proxy-service port forwarder the host currently has.
-
-.DESCRIPTION
-    Enumerates $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid entries
-    and sends SIGTERM to each (SIGKILL escalation per port via
-    Stop-CachingProxyServiceForwarder). Missing directory / no pidfiles is a
-    no-op; safe to call even when nothing is running.
-
-    The host-contract `Add-PortMap` / `Remove-PortMap` (declared in
-    host/Yuruna.Host.Contract.psm1, implemented per platform) dispatch to
-    Start-CachingProxyServiceForwarder + this function on macOS.
-
-.OUTPUTS
-    [int[]] -- ports whose forwarder was stopped (may be empty).
-#>
-function Stop-AllCachingProxyServiceForwarder {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([int[]], [System.Object[]])]
-    param([switch]$Quiet)
-    $stateDir = Join-Path $HOME "yuruna/image/caching-proxy-service"
-    if (-not (Test-Path $stateDir)) { return @() }
-    $stopped = @()
-    # Glob forwarder.<N>.pid; BaseName strips ".pid" so the regex only
-    # needs the middle token.
-    Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            if ($_.BaseName -match '^forwarder\.(\d+)$') {
-                $portInt = [int]$matches[1]
-                if ($PSCmdlet.ShouldProcess("port $portInt", (Format-YurunaOperatorMessage -Key 'host.operator_36b84d687b0706c6'))) {
-                    if (Stop-CachingProxyServiceForwarder -Port $portInt -Quiet:$Quiet) { $stopped += $portInt }
-                }
-            }
-        }
-    return ,$stopped
-}
-
-<#
-.SYNOPSIS
-    The host port forwarders this driver started, as recorded by their
-    pidfiles: host port, target address and port, and whether the pid is
-    verified to still be that forwarder.
-.DESCRIPTION
-    Read-only. Each forwarder.<Port>.pid is read, and the recorded pid's
-    command line is read back through one bounded `ps`; OwnerVerified is
-    $true only when that command line is the forwarder script, which is also
-    where the target address and port are read from. A pidfile whose pid
-    cannot be read or no longer runs the forwarder is still reported, with
-    OwnerVerified $false, because an unverified mapping is collateral a
-    caller must account for rather than silently drop.
-.PARAMETER Deadline
-    Optional shared deadline (New-YurunaDeadline) bounding the reads.
-.OUTPUTS
-    [pscustomobject] per pidfile: HostPort, TargetAddress, TargetPort,
-    OwnerPid, OwnerVerified, Origin ('forwarder-pidfile').
-#>
-function Get-PortMapTarget {
-    [CmdletBinding()]
-    [OutputType([pscustomobject])]
-    param($Deadline)
-    $stateDir = Join-Path $HOME 'yuruna/image/caching-proxy-service'
-    if (-not [System.IO.Directory]::Exists($stateDir)) { return }
-    foreach ($file in @([System.IO.Directory]::GetFiles($stateDir, 'forwarder.*.pid') | Sort-Object)) {
-        $name = [System.IO.Path]::GetFileNameWithoutExtension($file)
-        if ($name -notmatch '^forwarder\.(\d+)$') { continue }
-        $hostPort = [int]$Matches[1]
-        $ownerPid = 0
-        $pidText = ''
-        try { $pidText = [System.IO.File]::ReadAllText($file).Trim() } catch { $pidText = '' }
-        [void][int]::TryParse($pidText, [ref]$ownerPid)
-        $targetAddress = ''
-        $targetPort = 0
-        $verified = $false
-        if ($ownerPid -gt 0) {
-            $read = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$ownerPid", '-o', 'command=') -TimeoutSeconds 5 -Deadline $Deadline
-            $command = if ((Test-UtmBoundedResultComplete -Result $read) -and $read.ExitCode -eq 0) { "$($read.StdOut)".Trim() } else { '' }
-            if ($command -match 'Start-CachingProxyServiceForwarder\.ps1') {
-                $verified = $true
-                if ($command -match '-CacheIp\s+(\S+)') { $targetAddress = $Matches[1] }
-                if ($command -match '-VMPort\s+(\d+)') { $targetPort = [int]$Matches[1] }
-                elseif ($command -match '-Port\s+(\d+)') { $targetPort = [int]$Matches[1] }
-            }
-        }
-        [pscustomobject]@{
-            PSTypeName    = 'Yuruna.PortMapTarget'
-            HostPort      = $hostPort
-            TargetAddress = $targetAddress
-            TargetPort    = $targetPort
-            OwnerPid      = $ownerPid
-            OwnerVerified = $verified
-            Origin        = 'forwarder-pidfile'
-        }
-    }
-}
-
 # --- REGION: Caching-proxy service IP discovery
 # --- REGION: Resolve-CacheHostIp
 function Resolve-CacheHostIp {
     <#
     .SYNOPSIS
-        Returns the IP of a reachable caching-proxy-service (probed on :3128), or
-        $null when no cache is currently usable. Prefers the direct VM IP
-        so SSL-bump (:3129) and the CA endpoint (:80) are also reachable;
-        falls back to 127.0.0.1 (host forwarder) for HTTP-only.
-
+        Returns a reachable caching-proxy-service IP, or $null when unavailable.
     .DESCRIPTION
-        Discovery order:
-          1. The cache VM IP recorded in the yuruna-caching-proxy-service state
-             file (<track>/yuruna-caching-proxy-service.yml, written by
-             Start-CachingProxyServiceVM.ps1 with the VM's 192.168.64.X address).
-             If reachable, return THIS IP; the caller can hit :80 / :3128
-             / :3129 on it directly across Apple Virtualization shared NAT.
-          2. 127.0.0.1 -- the local Start-CachingProxyServiceForwarder bridges
-             host:3128 -> VM:3128. Useful for HTTP origins; SSL-bump
-             (:3129) won't work via the forwarder since only :3128 is
-             bridged. Save-CachedHttpUri detects that case via separate
-             :3129 probes and falls through to direct download.
+        Honors the explicit remote-cache override before local discovery.
+        An unreachable override returns $null rather than using a local cache.
     .OUTPUTS
-        [string] IPv4 like '192.168.64.5' or '127.0.0.1', or $null.
+        [string] Reachable cache IP address, or $null.
+    .LINK
+        https://yuruna.link/42ec97cd-0018
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -1158,16 +727,16 @@ function Resolve-CacheHostIp {
     return $null
 }
 
-<#
-.SYNOPSIS
-    Download $Uri to $OutFile through the UTM caching-proxy service, falling back to
-    a direct fetch when no cache is reachable.
-.DESCRIPTION
-    Thin driver-local wrapper over the shared download stack. The closure binds
-    this driver's Resolve-CacheHostIp (UTM cache discovery) so the shared module
-    stays platform-agnostic while still reaching macOS-specific cache lookup.
-#>
+# --- REGION: Save-CachedHttpUri
 function Save-CachedHttpUri {
+    <#
+    .SYNOPSIS
+        Downloads $Uri to $OutFile through the cache, with a direct fallback.
+    .DESCRIPTION
+        Binds this driver's cache discovery to the shared download pipeline.
+    .LINK
+        https://yuruna.link/42ec97cd-0018
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Uri,
@@ -1178,7 +747,7 @@ function Save-CachedHttpUri {
 
 # --- REGION: VM lifecycle helpers
 # UTM-internal helpers consumed by Yuruna.Host's contract entry points
-# above. Not part of the test-facing host driver contract; test code
+# below. Not part of the test-facing host driver contract; test code
 # calls the contract verbs (New-VM / Start-VM / ...) which delegate here.
 
 # --- REGION: UTM dialog watchdog
@@ -1696,12 +1265,7 @@ function Remove-UtmTestVM {
         return $false
     }
     if (-not (Remove-UtmVMRegistration -VMName $VMName -Confirm:$false)) {
-        # Leaving the bundle on disk is the point. UTM deletes a VM by moving
-        # its bundle to the trash, so removing the files under a registration
-        # that survived strands the name in UTM with nothing left to delete --
-        # and a stranded name is worse than a stranded bundle, because it still
-        # answers `utmctl status` and so reads as a reusable VM to the sequence
-        # engine, which then starts a VM that has no disk.
+        # See https://yuruna.link/42e220c4-0004
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4b393323b168a09a' -Arguments @{ vMName = "$VMName" })
         return $false
     }
@@ -1885,13 +1449,7 @@ function Invoke-UtmVMStartWithRetry {
             else { Format-YurunaOperatorMessage -Key 'host.utm_start_exit_code' -Arguments @{ exitCode = "$($start.ExitCode)" } }
         } elseif ($lastKind -ne 'none') { $text } else { '' }
 
-        # Polled even when the verb reported an error: a start that printed an
-        # Apple Event timeout can still have been carried out, and the state is
-        # what settles it.
-        # The guard reads the shared deadline, not the settle window: the
-        # window only paces polling, and a window of exactly one second is
-        # already under a second by the time it is measured, which would
-        # refuse every short settle regardless of the time actually left.
+        # See https://yuruna.link/42e220c4-0004
         $settle = Get-UtmChildDeadline -Milliseconds $settleMs -Parent $Deadline
         if ($Deadline -and (Get-YurunaDeadlineRemainingMs -Deadline $Deadline) -lt 1000) {
             return (& $unresolved (Format-YurunaOperatorMessage -Key 'host.operator_b0d08bfb4f337561' -Arguments @{ vMName = "$VMName" }) $attempt)
@@ -2006,7 +1564,7 @@ function Start-UtmVM {
 
 <#
 .SYNOPSIS
-    Stop a UTM VM via utmctl.
+    Request a guest operating system shutdown via utmctl.
 #>
 function Stop-UtmVM {
     [CmdletBinding(SupportsShouldProcess)]
@@ -2014,7 +1572,8 @@ function Stop-UtmVM {
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_ec02730efdb72c13'))) { return $true }
     Stop-UtmDialogWatchdog
-    $stop = Invoke-UtmctlLifecycle -Verb 'stop' -VMName $VMName
+    # Bare utmctl stop defaults to forced power-off and can lose guest writes.
+    $stop = Invoke-UtmctlLifecycle -Verb 'stop' -VMName $VMName -Request
     if ($stop.OutcomeKnown -and $stop.ExitCode -eq 0) {
         Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_ad3787aa98e176ba' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
         Start-Sleep -Seconds 2
@@ -2121,12 +1680,7 @@ function Wait-UtmVMPoweredOff {
             $null = Invoke-UtmctlLifecycle -Verb 'stop' -VMName $VMName -Kill -Deadline $wait
             $killIssued = $true
         }
-        # Gate on a positive stopped reading FIRST: if UTM runs QEMU without
-        # an enforced write lock, the qemu-img probe below would pass while
-        # the process is still alive, so the lock check alone is not
-        # sufficient. Status can flip to 'stopped' a beat before QEMUHelper
-        # releases the file handle -- qemu-img info WITHOUT -U fails while
-        # the lock is held, so a clean exit on every disk is the all-clear.
+        # See https://yuruna.link/42e220c4-0004
         if (($reading.State -eq 'stopped' -and -not $holdsDisk) -or $reading.State -eq 'absent') {
             $allFree = $true
             foreach ($disk in @(Get-ChildItem -LiteralPath $dataDir -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)) {
@@ -2193,12 +1747,7 @@ function Get-RunningVmName {
     [CmdletBinding()]
     [OutputType([string[]])]
     param()
-    # Emits the names one by one: zero elements for an empty set, N for N.
-    # Callers MUST normalize with `@(Get-RunningVmName)` to get a proper
-    # array regardless of count. Do NOT use `return ,@($arr)` here: the
-    # comma wrapper inverts for empty arrays (caller's @() then receives
-    # a 1-element array whose single element is the empty array itself,
-    # surfacing as a phantom "running VM" with empty name).
+    # See https://yuruna.link/42e220c4-0004
     $inventory = Get-UtmRunningVmInventory
     if (-not $inventory.Listed) { return }
     foreach ($name in $inventory.Name) { if ($name) { $name } }
@@ -2323,7 +1872,7 @@ function Test-UtmctlResponsive {
       * the service VMs (Get-YurunaServiceVmName) -- infrastructure meant to run
         alongside cycles, and consumed BY them. Test guests take squid from the
         caching proxy and, on the shared bridge, reach it directly at its
-        192.168.64.x IP; the build uploads to the stash service; the intent store
+        192.168.64.x IP; the build uploads to the stash service; the configuration store
         is served by pool-control. A running service is a dependency, not an
         offender, and refusing over one blocks the cycle on something it needs.
       * $ExceptVmName -- the dev-loop case where Debug-TestSequence is re-invoked
@@ -2422,6 +1971,9 @@ function Restart-UtmConsole {
 .PARAMETER Kill
     With 'stop' only: `utmctl stop --kill`, which ends the VM process instead
     of sending the power-off event.
+.PARAMETER Request
+    With 'stop' only: `utmctl stop --request`, which asks the guest operating
+    system to shut down and flush its filesystems. Mutually exclusive with Kill.
 .PARAMETER Deadline
     Optional shared deadline (New-YurunaDeadline).
 .PARAMETER TimeoutSeconds
@@ -2435,12 +1987,13 @@ function Restart-UtmConsole {
     'apple-event' | 'none') and Text (the non-empty output lines joined).
 #>
 function Invoke-UtmctlLifecycle {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Default')]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][ValidateSet('start', 'stop', 'delete')][string]$Verb,
         [Parameter(Mandatory)][string]$VMName,
-        [switch]$Kill,
+        [Parameter(ParameterSetName = 'Kill')][switch]$Kill,
+        [Parameter(ParameterSetName = 'Request')][switch]$Request,
         $Deadline,
         [ValidateRange(1, 600)][int]$TimeoutSeconds,
         [switch]$Quiet
@@ -2454,6 +2007,7 @@ function Invoke-UtmctlLifecycle {
            else { 120 }
     $argv = @($Verb, $VMName)
     if ($Kill) { $argv += '--kill' }
+    if ($Request) { $argv += '--request' }
     if ($Deadline) {
         $bounded = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling $cap
         if ($null -eq $bounded) {
@@ -2827,12 +2381,7 @@ function Stop-UtmApplication {
     } while (Wait-UtmInterval -Milliseconds $script:UtmStatePollMilliseconds -Deadline $wait)
 
     if ($current.State -ne 'absent' -and $AllowHardStop) {
-        # Every remaining process's identity is read once, before the first
-        # signal: a helper's baseline read after UTM's own TERM/KILL waits
-        # would be seconds younger than the census that listed it. The census
-        # is only a candidate list, so each baseline must already be this
-        # user's UTM or helper executable; each signal then revalidates
-        # against the baseline taken here.
+        # See https://yuruna.link/42e220c4-0004
         $uid = Get-UtmCurrentUid -Deadline $Deadline
         $candidates = @(
             foreach ($id in @($current.UtmPid))    { [pscustomobject]@{ ProcessId = [int]$id; ProcessName = 'UTM'; Kind = 'app' } }
@@ -3375,6 +2924,398 @@ function Remove-MacHostProxy {
     Invoke-MacNetworksetup @('-setsecurewebproxystate', $NetworkService, 'off')
     $markerPath = Get-MacProxyMarkerPath
     if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue }
+}
+
+# --- REGION: Port-map helpers
+# --- REGION: Start-CachingProxyServiceForwarder
+function Start-CachingProxyServiceForwarder {
+    <#
+    .SYNOPSIS
+        Launches (or stops) the caching-proxy-service TCP forwarder on the Mac host.
+
+    .DESCRIPTION
+        Exposes the Shared-NAT caching-proxy-service VM to REMOTE LAN hosts: it binds
+        a cache port on the host's LAN IP and tunnels to $CacheIp on the
+        192.168.64.0/24 vmnet subnet, so machines elsewhere on the LAN can use
+        the cache. Same-Mac UTM guests do NOT need this -- on macOS 26 every
+        vmnet-shared VM joins one bridge (192.168.64.1) and guests reach a
+        sibling VM's 192.168.64.x IP directly. (An older belief that shared-NAT
+        blocks guest-to-guest ARP on 192.168.64.0/24 did not reproduce there.)
+
+        Start-CachingProxyServiceForwarder spawns Start-CachingProxyServiceForwarder.ps1
+        as a detached `pwsh` subprocess that binds :3128 on the host and
+        tunnels to $CacheIp:3128. Detached so the forwarder outlives
+        Start-CachingProxyServiceVM.ps1 (it survives the launcher exiting -- it is
+        reparented to launchd -- but any Remove-PortMap still tears it down).
+
+        PID is written to $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid.
+        Stop-CachingProxyServiceForwarder reads it and sends SIGTERM.
+        Get-CachingProxyServiceForwarder reports liveness without signaling.
+
+        Returns $true when the forwarder is verified listening (Start),
+        terminated (Stop), or currently running (Get).
+
+    .PARAMETER CacheIp
+        IP of the caching-proxy-service VM (Start-CachingProxyServiceForwarder only). Typically
+        192.168.64.X discovered by Start-CachingProxyServiceVM.ps1's subnet probe.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [int]$Port = $(Get-CachingProxyServicePort -Scheme http),
+        [int]$VMPort = 0,
+        [switch]$PrependProxyV1
+    )
+    # 0 sentinel -- when unspecified, host port == VM port (the common case;
+    # proxy/Grafana/etc.). Split ports kick in for SSH (8022 -> 22) and any
+    # other future host:VM remap. Pidfile name uses HOST port (predictable;
+    # what `lsof -i :<host>` would show).
+    if ($VMPort -eq 0) { $VMPort = $Port }
+    # Forwarder script lives at host/macos.utm/Start-CachingProxyServiceForwarder.ps1.
+    # Use $script:HostFolder (set at module load) instead of $PSScriptRoot:
+    # the module-scoped variable is anchored to the .psm1's directory, so
+    # the lookup is independent of how the function is dispatched.
+    $forwarderScript = Join-Path $script:HostFolder "Start-CachingProxyServiceForwarder.ps1"
+    if (-not (Test-Path $forwarderScript)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e22e1a85f32b3a0b' -Arguments @{ forwarderScript = "$forwarderScript" })
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${Port} -> ${CacheIp}:${VMPort}", (Format-YurunaOperatorMessage -Key 'host.operator_67195d8019562611'))) {
+        return $false
+    }
+    $stateDir = Join-Path $HOME "yuruna/image/caching-proxy-service"
+    if (-not (Test-Path $stateDir)) {
+        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+    }
+    # Pidfile/log are PER PORT so concurrent forwarders (squid :3128,
+    # Grafana :3000, etc.) never fight over the same path. Port-named
+    # files make discovery and selective teardown trivial.
+    $pidFile = Join-Path $stateDir "forwarder.$Port.pid"
+    $logFile = Join-Path $stateDir "forwarder.$Port.log"
+
+    $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_c22cbc5129006aa6' -Arguments @{ port = "${Port}"; cacheIp = "${CacheIp}"; vMPort = "${VMPort}"; proxyTag = "${proxyTag}" }) -InformationAction Continue
+    # RedirectStandard* is required: without them pwsh inherits the
+    # parent TTY and dies when Start-CachingProxyServiceVM.ps1 exits. The
+    # forwarder's own log gets live traffic; stdout/stderr go to files.
+    $forwarderParams = @{ CacheIp = $CacheIp; Port = $Port; VMPort = $VMPort; PidFile = $pidFile; LogFile = $logFile }
+    if ($PrependProxyV1) { $forwarderParams.PrependProxyV1 = $true }
+    $parameterJson = ConvertTo-Json -InputObject $forwarderParams -Compress
+    $parameterBlob = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($parameterJson))
+    $escapedScript = $forwarderScript -replace "['\u2018\u2019]", '$0$0'
+    $command = '$p = ConvertFrom-Json -AsHashtable -InputObject ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(''{0}''))); & ''{1}'' @p' -f $parameterBlob, $escapedScript
+    $procArgs = @('-NoProfile', '-NoLogo', '-EncodedCommand', [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command)))
+    # See https://yuruna.link/42e220c4-0004
+    $isRoot = ((Get-UtmCurrentUid) -eq '0')
+    $needsSudo = ($Port -lt 1024) -and (-not $isRoot)
+
+    # If the privileged forwarder is already running (root-owned, started by
+    # Start-CachingProxyServiceVM.ps1 which called `sudo -v` first), leave it alone.
+    # Killing a root process requires sudo credentials that the caller
+    # (e.g. Start-TestRunner) may not have cached -- and the correct CacheIp
+    # is already baked into the running process. Only restart if crashed.
+    if ($needsSudo -and (Get-CachingProxyServiceForwarder -Port $Port)) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_fac89af7ceb85a93' -Arguments @{ port = "${Port}" }) -InformationAction Continue
+        return $true
+    }
+
+    # A failed stop retains the pidfile and must not start a second listener.
+    if (-not (Stop-CachingProxyServiceForwarder -Port $Port -Quiet)) { return $false }
+
+    # -n on the sudo spawn: this is a DETACHED process whose stdout and stderr
+    # are redirected to files, so a password prompt would be written to a log
+    # and the forwarder would sit there unbound until something noticed. With -n
+    # a missing credential fails immediately and the bind wait below reports it.
+    $spawnFile = if ($needsSudo) { 'sudo' } else { 'pwsh' }
+    $spawnArgs = if ($needsSudo) { @('-n', '-E', 'pwsh') + $procArgs } else { $procArgs }
+
+    try {
+        $proc = Start-Process -FilePath $spawnFile `
+            -ArgumentList $spawnArgs `
+            -RedirectStandardOutput "$stateDir/forwarder.$Port.stdout.log" `
+            -RedirectStandardError  "$stateDir/forwarder.$Port.stderr.log" `
+            -PassThru
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_368bbdea275958b3' -Arguments @{ message = "$($_.Exception.Message)" })
+        return $false
+    }
+    # Wait briefly for the listener to bind and the pidfile to be written.
+    # 3s is generous; pwsh startup + TcpListener.Start() is sub-second.
+    $deadline = (Get-Date).AddSeconds(3)
+    while ((Get-Date) -lt $deadline) {
+        $tcp = [System.Net.Sockets.TcpClient]::new()
+        try {
+            $h = $tcp.BeginConnect("127.0.0.1", $Port, $null, $null)
+            if ($h.AsyncWaitHandle.WaitOne(150) -and $tcp.Connected) {
+                $tcp.Close()
+                $actualPid = if (Test-Path $pidFile) { (Get-Content $pidFile -Raw).Trim() } else { $proc.Id }
+                $upMsg = if ($Port -eq $VMPort) {
+                    "Forwarder up (pid $actualPid). Guests should use http://192.168.64.1:${Port}"
+                } else {
+                    "Forwarder up (pid $actualPid): host :${Port} -> ${CacheIp}:${VMPort}"
+                }
+                Write-Information "  $upMsg" -InformationAction Continue
+                return $true
+            }
+        } catch {
+            # Expected while the child is still booting (pwsh startup +
+            # TcpListener.Start). Retry until the deadline.
+            $null = $_
+        } finally { $tcp.Close() }
+        Start-Sleep -Milliseconds 100
+    }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_9b8f576034f602fb' -Arguments @{ id = "$($proc.Id)"; port = "${Port}" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0b768b57cdd33d5e' -Arguments @{ stateDir = "$stateDir" })
+    # A non-answering child may still be half-bound (listener up, connect
+    # racing) or wedged. Tear it down so it is not orphaned holding the
+    # port past our return. Prefer the pidfile-driven, identity-verified
+    # stop (matches Start-CachingProxyServiceForwarder.ps1, honors root ownership);
+    # if the child never wrote its pidfile, signal the spawned pid directly.
+    if (Test-Path $pidFile) {
+        [void](Stop-CachingProxyServiceForwarder -Port $Port -Quiet)
+    } else {
+        try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop }
+        catch { Write-Verbose "Could not stop orphaned forwarder pid $($proc.Id): $_" }
+    }
+    return $false
+}
+
+<#
+.SYNOPSIS
+    Terminates the host-side caching-proxy-service TCP forwarder if it is running.
+
+.DESCRIPTION
+    Reads $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid and verifies the
+    PID belongs to Start-CachingProxyServiceForwarder.ps1 (via /bin/ps -o
+    command=) before signaling -- a stale pidfile pointing at an
+    unrelated process must NOT be killed. Sends SIGTERM and waits up to
+    2s; escalates to SIGKILL if no response. The pidfile is removed on
+    every success path and on stale-pidfile detection so the next Start
+    call is clean.
+
+.PARAMETER Quiet
+    Suppress the informational Write-Output lines. Start-CachingProxyServiceForwarder
+    passes this when preflight-stopping a stale forwarder so the happy
+    path stays quiet.
+
+.OUTPUTS
+    [bool] $true on any exit where the pidfile is in a coherent state
+    (process stopped or never running); $false when the recorded pid could
+    not be read within its time limit, in which case the pidfile is kept and
+    nothing was signaled.
+#>
+function Stop-CachingProxyServiceForwarder {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [int]$Port = $(Get-CachingProxyServicePort -Scheme http),
+        [switch]$Quiet
+    )
+    $pidFile = Join-Path $HOME "yuruna/image/caching-proxy-service/forwarder.$Port.pid"
+    if (-not (Test-Path $pidFile)) {
+        if (-not $Quiet) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_51cfbd5426e42f8d') -InformationAction Continue }
+        return $true
+    }
+    $forwarderPid = (Get-Content $pidFile -Raw).Trim()
+    if (-not ($forwarderPid -as [int])) {
+        if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2b5a075a69fb02ea' -Arguments @{ pidFile = "$pidFile"; forwarderPid = "$forwarderPid" }) }
+        Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+        return $true
+    }
+    # Verify the process looks like our forwarder before killing.
+    # -o command= prints full argv so we can match
+    # Start-CachingProxyServiceForwarder.ps1 and avoid killing an unrelated pid
+    # that matches a stale pidfile. Bounded: a read that did not finish proves
+    # nothing either way, so the pidfile is kept and nothing is signaled.
+    $identity = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$forwarderPid", '-o', 'command=') -TimeoutSeconds 5
+    if (-not (Test-UtmBoundedResultComplete -Result $identity)) {
+        if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.forwarder_identity_unverified' -Arguments @{ forwarderPid = "$forwarderPid" }) }
+        return $false
+    }
+    $cmd = "$($identity.StdOut)".Trim()
+    if ($identity.ExitCode -ne 0 -or -not $cmd) {
+        if (-not $Quiet) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_7934de6bf4f9bbe6' -Arguments @{ forwarderPid = "$forwarderPid" }) -InformationAction Continue }
+        Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+        return $true
+    }
+    if ($cmd -notmatch 'Start-CachingProxyServiceForwarder\.ps1') {
+        if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5c93ad943c43270c' -Arguments @{ forwarderPid = "$forwarderPid"; cmd = "$cmd" }) }
+        Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+        return $true
+    }
+    if (-not $PSCmdlet.ShouldProcess("pid $forwarderPid (Start-CachingProxyServiceForwarder.ps1)", (Format-YurunaOperatorMessage -Key 'host.operator_378bec0a86550e8e'))) {
+        return $false
+    }
+    if (-not $Quiet) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_0dbaee5477554260' -Arguments @{ forwarderPid = "$forwarderPid" }) -InformationAction Continue }
+    # /bin/kill sends SIGTERM (default). PowerShell 7's Stop-Process on
+    # Unix maps to Process.Kill() == SIGKILL unconditionally, bypassing
+    # graceful shutdown -- hence the external binary for TERM-then-KILL.
+    # Port 80's forwarder is root-owned (spawned via sudo); a regular user
+    # cannot signal it -- detect and escalate via sudo kill if needed.
+    $owner     = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$forwarderPid", '-o', 'user=') -TimeoutSeconds 5
+    $procOwner = "$($owner.StdOut)".Trim()
+    $meIsRoot  = ((Get-UtmCurrentUid) -eq '0')
+    $useSudo   = ($procOwner -eq 'root') -and (-not $meIsRoot)
+    # Every signal is bounded. Through sudo it always carries -n: this runs
+    # inside teardown paths whose console belongs to a caller, and sudo takes
+    # its password from /dev/tty regardless of how stdin was set up -- so a
+    # cold credential here would stall the teardown on a prompt nobody sees,
+    # rather than reporting that root was unavailable.
+    $sendSignal = {
+        param([string[]]$SignalArgument)
+        if ($useSudo) {
+            return (Invoke-UtmHostTool -Tool 'sudo' -ArgumentList (@('-n', [string]$script:UtmHostTool['kill']) + $SignalArgument + @("$forwarderPid")) -TimeoutSeconds 5)
+        }
+        return (Invoke-UtmHostTool -Tool 'kill' -ArgumentList ($SignalArgument + @("$forwarderPid")) -TimeoutSeconds 5)
+    }
+    $term = & $sendSignal @()
+    if ($useSudo -and -not ((Test-UtmBoundedResultComplete -Result $term) -and $term.ExitCode -eq 0) -and -not $Quiet) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_7bbd97967255a376' -Arguments @{ forwarderPid = "$forwarderPid" })
+    }
+    $exitWait = New-YurunaDeadline -TotalMilliseconds 2000
+    while (Wait-UtmInterval -Milliseconds 100 -Deadline $exitWait) {
+        $alive = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$forwarderPid", '-o', 'pid=') -TimeoutSeconds 5
+        if ((Test-UtmBoundedResultComplete -Result $alive) -and $alive.ExitCode -ne 0) {
+            Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+            return $true
+        }
+    }
+    if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fd3a364b69ecd8d4' -Arguments @{ forwarderPid = "$forwarderPid" }) }
+    $kill = & $sendSignal @('-9')
+    if ($useSudo -and -not ((Test-UtmBoundedResultComplete -Result $kill) -and $kill.ExitCode -eq 0) -and -not $Quiet) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_157f9a28bfef1ebf' -Arguments @{ forwarderPid = "$forwarderPid" })
+    }
+    Start-Sleep -Milliseconds 200
+    $alive = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$forwarderPid", '-o', 'pid=') -TimeoutSeconds 5
+    if (-not (Test-UtmBoundedResultComplete -Result $alive) -or $alive.ExitCode -eq 0) {
+        return $false
+    }
+    Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Reports whether the host-side caching-proxy-service TCP forwarder is running.
+
+.DESCRIPTION
+    Pure observer -- never signals, never removes files. Returns $true
+    iff $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid exists, parses as
+    an int, and refers to a live process (via /bin/ps). Does NOT verify
+    the process is actually our forwarder; Stop-CachingProxyServiceForwarder
+    handles that stricter identity check on the write path.
+
+.OUTPUTS
+    [bool] $true if the pidfile points at a live process, $false
+    otherwise (missing pidfile, malformed content, or dead pid).
+#>
+function Get-CachingProxyServiceForwarder {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([int]$Port = $(Get-CachingProxyServicePort -Scheme http))
+    $pidFile = Join-Path $HOME "yuruna/image/caching-proxy-service/forwarder.$Port.pid"
+    if (-not (Test-Path $pidFile)) { return $false }
+    $forwarderPid = (Get-Content $pidFile -Raw).Trim()
+    if (-not ($forwarderPid -as [int])) { return $false }
+    $alive = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$forwarderPid", '-o', 'pid=') -TimeoutSeconds 5
+    return [bool]((Test-UtmBoundedResultComplete -Result $alive) -and $alive.ExitCode -eq 0)
+}
+
+<#
+.SYNOPSIS
+    Stop every caching-proxy-service port forwarder the host currently has.
+
+.DESCRIPTION
+    Enumerates $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid entries
+    and sends SIGTERM to each (SIGKILL escalation per port via
+    Stop-CachingProxyServiceForwarder). Missing directory / no pidfiles is a
+    no-op; safe to call even when nothing is running.
+
+    The host-contract `Add-PortMap` / `Remove-PortMap` (declared in
+    host/Yuruna.Host.Contract.psm1, implemented per platform) dispatch to
+    Start-CachingProxyServiceForwarder + this function on macOS.
+
+.OUTPUTS
+    [int[]] -- ports whose forwarder was stopped (may be empty).
+#>
+function Stop-AllCachingProxyServiceForwarder {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int[]], [System.Object[]])]
+    param([switch]$Quiet)
+    $stateDir = Join-Path $HOME "yuruna/image/caching-proxy-service"
+    if (-not (Test-Path $stateDir)) { return @() }
+    $stopped = @()
+    # Glob forwarder.<N>.pid; BaseName strips ".pid" so the regex only
+    # needs the middle token.
+    Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            if ($_.BaseName -match '^forwarder\.(\d+)$') {
+                $portInt = [int]$matches[1]
+                if ($PSCmdlet.ShouldProcess("port $portInt", (Format-YurunaOperatorMessage -Key 'host.operator_36b84d687b0706c6'))) {
+                    if (Stop-CachingProxyServiceForwarder -Port $portInt -Quiet:$Quiet) { $stopped += $portInt }
+                }
+            }
+        }
+    return ,$stopped
+}
+
+<#
+.SYNOPSIS
+    The host port forwarders this driver started, as recorded by their
+    pidfiles: host port, target address and port, and whether the pid is
+    verified to still be that forwarder.
+.DESCRIPTION
+    Read-only. Each forwarder.<Port>.pid is read, and the recorded pid's
+    command line is read back through one bounded `ps`; OwnerVerified is
+    $true only when that command line is the forwarder script, which is also
+    where the target address and port are read from. A pidfile whose pid
+    cannot be read or no longer runs the forwarder is still reported, with
+    OwnerVerified $false, because an unverified mapping is collateral a
+    caller must account for rather than silently drop.
+.PARAMETER Deadline
+    Optional shared deadline (New-YurunaDeadline) bounding the reads.
+.OUTPUTS
+    [pscustomobject] per pidfile: HostPort, TargetAddress, TargetPort,
+    OwnerPid, OwnerVerified, Origin ('forwarder-pidfile').
+#>
+function Get-PortMapTarget {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param($Deadline)
+    $stateDir = Join-Path $HOME 'yuruna/image/caching-proxy-service'
+    if (-not [System.IO.Directory]::Exists($stateDir)) { return }
+    foreach ($file in @([System.IO.Directory]::GetFiles($stateDir, 'forwarder.*.pid') | Sort-Object)) {
+        $name = [System.IO.Path]::GetFileNameWithoutExtension($file)
+        if ($name -notmatch '^forwarder\.(\d+)$') { continue }
+        $hostPort = [int]$Matches[1]
+        $ownerPid = 0
+        $pidText = ''
+        try { $pidText = [System.IO.File]::ReadAllText($file).Trim() } catch { $pidText = '' }
+        [void][int]::TryParse($pidText, [ref]$ownerPid)
+        $targetAddress = ''
+        $targetPort = 0
+        $verified = $false
+        if ($ownerPid -gt 0) {
+            $read = Invoke-UtmHostTool -Tool 'ps' -ArgumentList @('-p', "$ownerPid", '-o', 'command=') -TimeoutSeconds 5 -Deadline $Deadline
+            $command = if ((Test-UtmBoundedResultComplete -Result $read) -and $read.ExitCode -eq 0) { "$($read.StdOut)".Trim() } else { '' }
+            if ($command -match 'Start-CachingProxyServiceForwarder\.ps1') {
+                $verified = $true
+                if ($command -match '-CacheIp\s+(\S+)') { $targetAddress = $Matches[1] }
+                if ($command -match '-VMPort\s+(\d+)') { $targetPort = [int]$Matches[1] }
+                elseif ($command -match '-Port\s+(\d+)') { $targetPort = [int]$Matches[1] }
+            }
+        }
+        [pscustomobject]@{
+            PSTypeName    = 'Yuruna.PortMapTarget'
+            HostPort      = $hostPort
+            TargetAddress = $targetAddress
+            TargetPort    = $targetPort
+            OwnerPid      = $ownerPid
+            OwnerVerified = $verified
+            Origin        = 'forwarder-pidfile'
+        }
+    }
 }
 
 # --- REGION: Screenshot helpers
@@ -4125,11 +4066,24 @@ function Stop-VM {
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$VMName,
-        [switch]$Force
+        [switch]$Force,
+        # When set, confirms the VM reports stopped within this many seconds
+        # after the power-off request; 0 reports only that the request was sent.
+        [int]$ShutdownTimeoutSeconds = 0,
+        # Accepted for contract parity: this driver never escalates on its own.
+        [switch]$NoForce
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, ($Force ? (Format-YurunaOperatorMessage -Key 'host.operator_872a5355019f83c5') : (Format-YurunaOperatorMessage -Key 'host.operator_156e139837bd477d')))) { return $false }
+    if ($NoForce) { Write-Verbose 'Stop-VM: -NoForce is the default on UTM; the power-off request is never escalated here.' }
     if ($Force) { return [bool](Stop-VMForce -VMName $VMName -Confirm:$false) }
-    return [bool](Stop-UtmVM -VMName $VMName -Confirm:$false)
+    $requested = [bool](Stop-UtmVM -VMName $VMName -Confirm:$false)
+    if (-not $requested -or $ShutdownTimeoutSeconds -le 0) { return $requested }
+    $deadline = (Get-Date).AddSeconds($ShutdownTimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if ((Get-VMState -VMName $VMName) -in @('stopped', 'absent')) { return $true }
+        Start-Sleep -Seconds 1
+    }
+    return $false
 }
 
 # --- REGION: Stop-VMForce
@@ -4181,574 +4135,6 @@ function Remove-VM {
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_12924e738438f274'))) { return $false }
     return [bool](Remove-UtmTestVM -VMName $VMName -Confirm:$false)
-}
-
-# --- REGION: Get-VMName
-function Get-VMName {
-    <#
-    .SYNOPSIS
-        Return the names of every VM registered with UTM, optionally filtered
-        to those starting with one of $Prefix.
-    .DESCRIPTION
-        Host-neutral inventory call (see the contract's VM inventory block).
-        Every VM UTM knows about is returned regardless of run state, so a
-        caller sweeping by prefix removes stopped leftovers as well as
-        running ones.
-
-        THROWS when utmctl cannot reach UTM.app rather than returning an
-        empty list. utmctl exits 0 and prints its error to stderr when Apple
-        Events are denied (OSStatus -1743, typical from an SSH session or a
-        process without Automation access), when a request times out (-1712),
-        and for other Apple Event faults besides -- so an exit-code check alone
-        reads "cannot ask" as "nothing registered". A sweep that accepted that
-        empty list would report a clean host, and the orphan-file pass behind
-        it would delete bundles UTM still has registered.
-
-        Matched on ANY Apple Event wording the driver recognizes -- any OSStatus
-        code, a denial, a timeout, an SSH session -- rather than an enumerated
-        few. The set that can appear here is open, the consequence of missing one
-        is deleting a VM's disk, and there is no OSStatus value whose correct
-        reading is "believe the empty list". A listing that did not finish
-        draining or was cut at the capture cap is incomplete and throws too.
-    .PARAMETER Prefix
-        Zero or more name prefixes. A VM is returned when its name starts
-        with any of them. Omit (or pass none) to return every VM.
-    .OUTPUTS
-        [string[]] matching VM names; empty when none match.
-    #>
-    [CmdletBinding()]
-    [OutputType([string[]])]
-    param([string[]]$Prefix)
-    $resolver = Resolve-UtmctlExecutable
-    if ($resolver.Source -eq 'missing') {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_81fb05f8b6924bce')
-    }
-    $listing = Invoke-UtmctlProbe -Arguments @('list') -UtmctlPath $resolver.Path
-    $text = "$($listing.StdOut)`n$($listing.StdErr)".Trim()
-    if ($listing.TimedOut) {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_76bccb579d55bc73')
-    }
-    if (-not $listing.Started -or $listing.ExitCode -ne 0 -or $listing.DrainTimedOut -or $listing.OutputTruncated -or
-        (Get-UtmStartFailureKind -Text $text) -ne 'none') {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_7c4b552da601ab61' -Arguments @{ text = "$text" })
-    }
-    $parsed = ConvertFrom-UtmctlListResult -Result $listing
-    if (-not $parsed.Recognized) {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_7c4b552da601ab61' -Arguments @{ text = "$text" })
-    }
-    return Select-NameByPrefix -Name @($parsed.Row | ForEach-Object { $_.Name }) -Prefix $Prefix
-}
-
-# --- REGION: Get-VMState
-function Get-VMState {
-    <#
-    .SYNOPSIS
-        Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
-    .DESCRIPTION
-        'unknown' covers everything that is not a positively recognized answer:
-        no utmctl on PATH or in the UTM bundle, a launch failure, a timeout, a
-        denied Apple Event, "does not work from SSH", output that did not finish
-        draining, or any other unrecognized answer. Only a completed response
-        that names the VM as not found is 'absent'. Callers treat 'absent' as
-        license to build or reuse a name (Start-CachingProxyServiceVM.ps1,
-        Debug-TestSequence.ps1, Test.Orchestrator, Test.SnapshotManifest,
-        Rename-VM's preconditions, Remove-UtmVMRegistration) and
-        Restore-YurunaServiceVM treats it as "not built on this host" -- a probe
-        UTM merely refused to answer must never produce that, least of all on a
-        host whose UTM has stopped answering. Get-VMStateRecord returns the same
-        answer with its reason.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([Parameter(Mandatory)][string]$VMName)
-    return [string](Get-VMStateRecord -VMName $VMName).State
-}
-
-<#
-.SYNOPSIS
-    The VM's state as a record: the state Get-VMState returns, the raw
-    status word, registration evidence and the reason.
-.DESCRIPTION
-    One bounded `utmctl status` call, classified by
-    ConvertFrom-UtmctlStatusResult; Get-VMState and
-    Get-UtmVMRegistrationState are both read from this record, so the state
-    and the registration can never disagree about one answer. With -Deadline
-    the call gets at most what the deadline has left, and nothing is
-    launched when under one second remains.
-.PARAMETER VMName
-    The VM to read.
-.PARAMETER Deadline
-    Optional shared deadline (New-YurunaDeadline).
-.PARAMETER TimeoutSeconds
-    This call's own cap.
-.OUTPUTS
-    [pscustomobject] VMName, State ('running' | 'stopped' | 'absent' |
-    'unknown'), RawState, Registration ('Registered' | 'Absent' | 'Unknown'),
-    Reason ('observed' | 'not-found' | 'missing-client' | 'timeout' |
-    'permission-denied' | 'no-session' | 'provider-error' | 'invalid-response'
-    | 'deadline-exhausted'), ExitCode, ElapsedMs.
-#>
-function Get-VMStateRecord {
-    [CmdletBinding()]
-    [OutputType([pscustomobject])]
-    param(
-        [Parameter(Mandatory)][string]$VMName,
-        $Deadline,
-        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20
-    )
-    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $resolver = Resolve-UtmctlExecutable
-    $probe = if ($resolver.Source -eq 'missing') {
-        @{ ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $false; Started = $false; DeadlineExhausted = $false }
-    } else {
-        Invoke-UtmctlProbe -Arguments @('status', $VMName) -TimeoutSeconds $TimeoutSeconds -UtmctlPath $resolver.Path -Deadline $Deadline
-    }
-    $classified = ConvertFrom-UtmctlStatusResult -Result $probe
-    return [pscustomobject]@{
-        PSTypeName   = 'Yuruna.UtmVMState'
-        VMName       = $VMName
-        State        = $classified.State
-        RawState     = $classified.RawState
-        Registration = $classified.Registration
-        Reason       = $classified.Reason
-        ExitCode     = [int]$probe['ExitCode']
-        ElapsedMs    = $stopwatch.ElapsedMilliseconds
-    }
-}
-
-# --- REGION: Test-VirtualizationResponsive
-function Test-VirtualizationResponsive {
-    <#
-    .SYNOPSIS
-        Bounded, structured probe of UTM's control channel (record v1).
-    .DESCRIPTION
-        Evaluated in order, each step bounded by the probe's own deadline (the
-        smaller of -TimeoutSeconds and what -Deadline has left):
-          1. utmctl on PATH or in the UTM bundle; none -> Undetermined/missing-client.
-          2. the GUI session; anything but Aqua -> Undetermined/no-session, and
-             utmctl is not invoked (from SSH it can only fail, or hang on a
-             consent dialog nobody can see).
-          3. the same-user UTM process census, with no Apple Event; positively
-             no UTM and no helper -> Unresponsive/app-stopped, and utmctl is not
-             invoked (an Apple Event to a UTM that is not running launches it).
-          4. `utmctl list`: a recognized listing -> Responsive; Apple Event
-             denial (-1743) -> Undetermined/permission-denied; an SSH refusal ->
-             no-session; another OSStatus failure -> provider-error; output not
-             fully drained or cut at the cap -> invalid-response even at exit 0;
-             anything unrecognized -> invalid-response; a cap hit or -1712 -> a
-             timeout candidate.
-        A timeout is not, by itself, evidence that UTM is hung: an unanswered
-        Automation consent dialog blocks the sender and looks exactly like one.
-        Without -Corroborate a timeout is Undetermined/timeout. With
-        -Corroborate the probe waits out -DialogWindowSeconds, re-reads the
-        process census, and probes once more; only a second timeout, with UTM
-        positively still running, no Apple Event denial, and this process's
-        Automation subject among -RecordedAutomationSubject, is
-        Unresponsive/timeout with corroborated=$true. A later denial, a missing
-        session or an unclassified answer on the second probe invalidates the
-        first. When the deadline cannot fit the window plus one probe the result
-        stays Undetermined/timeout.
-
-        Read-only: never writes, never repairs the utmctl link, never throws.
-        Diagnostic text goes only to the private 'diagnostic' field.
-    .PARAMETER TimeoutSeconds
-        Cap for each utmctl call.
-    .PARAMETER Deadline
-        Optional shared deadline (New-YurunaDeadline).
-    .PARAMETER Corroborate
-        Qualify a timeout as described above.
-    .PARAMETER DialogWindowSeconds
-        How long a consent dialog is given to be answered before the second probe.
-    .PARAMETER RecordedAutomationSubject
-        Automation subjects previously seen to complete a responsive round trip.
-    .PARAMETER IncludeInventory
-        With a Responsive result, attach the parsed listing as 'inventory'.
-    .OUTPUTS
-        [pscustomobject] PSTypeName 'Yuruna.VirtualizationProbe': schemaVersion,
-        hostType, state, reason, started, timedOut, deadlineExhausted,
-        corroborated, observedUtc, observedTick, elapsedMs, evidence
-        {utmctlSource; sessionKind; appState; automationGrant; exitCode;
-        drainTimedOut; outputTruncated}, diagnostic, automationSubject,
-        inventory.
-    #>
-    [CmdletBinding()]
-    [OutputType([pscustomobject])]
-    param(
-        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20,
-        $Deadline,
-        [switch]$Corroborate,
-        [ValidateRange(0, 600)][int]$DialogWindowSeconds = 120,
-        [string[]]$RecordedAutomationSubject = @(),
-        [switch]$IncludeInventory
-    )
-    $stopwatch   = [System.Diagnostics.Stopwatch]::StartNew()
-    $observedUtc = [DateTime]::UtcNow.ToString('o')
-    $facts = [ordered]@{
-        utmctlSource = 'missing'; sessionKind = 'Unknown'; appState = 'unknown'; automationGrant = 'unknown'
-        exitCode = -1; drainTimedOut = $false; outputTruncated = $false
-        started = $false; timedOut = $false; deadlineExhausted = $false; corroborated = $false
-        diagnostic = ''; subject = ''; inventory = $null
-    }
-    $emit = {
-        param([string]$State, [string]$Reason)
-        [pscustomobject]@{
-            PSTypeName        = 'Yuruna.VirtualizationProbe'
-            schemaVersion     = 1
-            hostType          = 'host.macos.utm'
-            state             = $State
-            reason            = $Reason
-            started           = [bool]$facts.started
-            timedOut          = [bool]$facts.timedOut
-            deadlineExhausted = [bool]$facts.deadlineExhausted
-            corroborated      = [bool]$facts.corroborated
-            observedUtc       = $observedUtc
-            observedTick      = [long](Get-UtmClockTick -Deadline $Deadline)
-            elapsedMs         = [long]$stopwatch.ElapsedMilliseconds
-            evidence          = [pscustomobject]@{
-                utmctlSource    = [string]$facts.utmctlSource
-                sessionKind     = [string]$facts.sessionKind
-                appState        = [string]$facts.appState
-                automationGrant = [string]$facts.automationGrant
-                exitCode        = [int]$facts.exitCode
-                drainTimedOut   = [bool]$facts.drainTimedOut
-                outputTruncated = [bool]$facts.outputTruncated
-            }
-            diagnostic        = ConvertTo-UtmDiagnosticText -Text ([string]$facts.diagnostic)
-            automationSubject = [string]$facts.subject
-            inventory         = $facts.inventory
-        }
-    }
-    # One bounded utmctl list, classified; returns the probe-level verdict
-    # ('responsive', 'timeout', or an Undetermined reason) and records facts.
-    $probeOnce = {
-        param($Window, [string]$UtmctlPath, [int]$CapSeconds, [bool]$WithInventory)
-        $listing = Invoke-UtmctlProbe -Arguments @('list') -TimeoutSeconds $CapSeconds -UtmctlPath $UtmctlPath -Deadline $Window -Quiet
-        $facts.timedOut        = $false
-        $facts.started         = [bool]$listing['Started']
-        $facts.exitCode        = [int]$listing['ExitCode']
-        $facts.drainTimedOut   = [bool]$listing['DrainTimedOut']
-        $facts.outputTruncated = [bool]$listing['OutputTruncated']
-        $facts.diagnostic      = "$($listing['StdOut'])`n$($listing['StdErr'])"
-        if ($listing['DeadlineExhausted']) { $facts.deadlineExhausted = $true; return 'deadline-exhausted' }
-        if (-not $listing['Started']) { return 'missing-client' }
-        if ($listing['TimedOut']) { $facts.timedOut = $true; return 'timeout' }
-        $parsed = ConvertFrom-UtmctlListResult -Result $listing
-        if ($parsed.Reason -eq 'timeout') { $facts.timedOut = $true; return 'timeout' }
-        if (-not $parsed.Recognized) { return [string]$parsed.Reason }
-        if ($WithInventory) { $facts.inventory = ConvertTo-UtmInventoryRecord -Parsed $parsed }
-        return 'responsive'
-    }
-    try {
-        if ($Deadline -and (Get-YurunaDeadlineRemainingMs -Deadline $Deadline) -lt 1000) {
-            $facts.deadlineExhausted = $true
-            return (& $emit 'Undetermined' 'deadline-exhausted')
-        }
-        $resolver = Resolve-UtmctlExecutable
-        $facts.utmctlSource = $resolver.Source
-        if ($resolver.Source -eq 'missing') { return (& $emit 'Undetermined' 'missing-client') }
-
-        $facts.sessionKind = Get-UtmProbeSessionKind -Deadline $Deadline
-        if ($facts.sessionKind -ne 'Aqua') { return (& $emit 'Undetermined' 'no-session') }
-
-        $facts.subject = Get-UtmAutomationSubject -Deadline $Deadline
-        if (Test-UtmAutomationSubjectQualified -Subject $facts.subject -RecordedSubject $RecordedAutomationSubject) { $facts.automationGrant = 'recorded' }
-
-        $app = Get-UtmApplicationState -Deadline $Deadline
-        $facts.appState = $app.State
-        if ($app.State -eq 'absent') { return (& $emit 'Unresponsive' 'app-stopped') }
-
-        $first = & $probeOnce $Deadline $resolver.Path $TimeoutSeconds ([bool]$IncludeInventory)
-        if ($first -eq 'responsive') { return (& $emit 'Responsive' 'responsive') }
-        if ($first -ne 'timeout') { return (& $emit 'Undetermined' $first) }
-        if (-not $Corroborate) { return (& $emit 'Undetermined' 'timeout') }
-
-        # Corroboration needs the whole dialog window and one more probe of
-        # at least a second; a deadline that cannot fit both leaves the
-        # timeout uncorroborated rather than cutting the window short.
-        $windowMs = [long]$DialogWindowSeconds * 1000
-        if ($Deadline -and (Get-YurunaDeadlineRemainingMs -Deadline $Deadline) -lt ($windowMs + 1000)) {
-            return (& $emit 'Undetermined' 'timeout')
-        }
-        if ($windowMs -gt 0) { $null = Wait-UtmInterval -Milliseconds ([int]$windowMs) -Deadline $Deadline }
-        $again = Get-UtmApplicationState -Deadline $Deadline
-        $facts.appState = $again.State
-        if ($again.State -eq 'absent') { return (& $emit 'Unresponsive' 'app-stopped') }
-        if ($again.State -ne 'running') { return (& $emit 'Undetermined' 'timeout') }
-        $second = & $probeOnce $Deadline $resolver.Path $TimeoutSeconds ([bool]$IncludeInventory)
-        if ($second -eq 'responsive') { return (& $emit 'Responsive' 'responsive') }
-        if ($second -ne 'timeout') { return (& $emit 'Undetermined' $second) }
-        $facts.timedOut = $true
-        if ($facts.automationGrant -eq 'recorded') {
-            $facts.corroborated = $true
-            return (& $emit 'Unresponsive' 'timeout')
-        }
-        return (& $emit 'Undetermined' 'timeout')
-    } catch {
-        $facts.diagnostic = "$($_.Exception.Message)"
-        return (& $emit 'Undetermined' 'invalid-response')
-    }
-}
-
-# --- REGION: Start-VirtualizationServiceIfStopped
-function Start-VirtualizationServiceIfStopped {
-    <#
-    .SYNOPSIS
-        Launch UTM for this user only when it is positively not running (the
-        start-if-stopped repair for macOS), result record v1.
-    .DESCRIPTION
-        Runs its own detection immediately before acting and never trusts an
-        earlier probe: a GUI (Aqua) session, a known non-root uid, and a
-        same-user process census that shows neither UTM nor its helpers. UTM
-        already running for this user is 'already-running'; anything that cannot
-        be established refuses and launches nothing. The launch is
-        Start-UtmApplication -RequireGuiSession, whose outcomes map as
-        launched -> started, already-running -> already-running, launch-failed
-        -> failed, not-observed -> unknown, refused -> refused.
-
-        Under -WhatIf only the bounded read-only detection runs and the outcome
-        is 'preview'. Never prompts and never throws. -DependentVMName is
-        accepted for the shared signature; UTM has no separate network service
-        for it to decide on.
-    .PARAMETER TimeoutSeconds
-        Budget for detection plus the launch wait.
-    .PARAMETER Deadline
-        Optional shared deadline (New-YurunaDeadline).
-    .PARAMETER DependentVMName
-        Guests whose restoration depends on this hypervisor; unused on macOS.
-    .OUTPUTS
-        [pscustomobject] PSTypeName 'Yuruna.VirtualizationStartResult':
-        schemaVersion, hostType, outcome ('started' | 'already-running' |
-        'refused' | 'failed' | 'unknown' | 'unavailable' | 'preview'), reason,
-        layout ('not-applicable'), actions [object[]], observedUtc, elapsedMs.
-    #>
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([pscustomobject])]
-    param(
-        [ValidateRange(1, 600)][int]$TimeoutSeconds = 120,
-        $Deadline,
-        [string[]]$DependentVMName = @()
-    )
-    $stopwatch   = [System.Diagnostics.Stopwatch]::StartNew()
-    $observedUtc = [DateTime]::UtcNow.ToString('o')
-    $actions = [System.Collections.Generic.List[object]]::new()
-    $emit = {
-        param([string]$Outcome, [string]$Reason)
-        [pscustomobject]@{
-            PSTypeName    = 'Yuruna.VirtualizationStartResult'
-            schemaVersion = 1
-            hostType      = 'host.macos.utm'
-            outcome       = $Outcome
-            reason        = $Reason
-            layout        = 'not-applicable'
-            actions       = [object[]]$actions.ToArray()
-            observedUtc   = $observedUtc
-            elapsedMs     = [long]$stopwatch.ElapsedMilliseconds
-        }
-    }
-    $addAction = {
-        param([string]$Kind, [string]$Before, [string]$After, [string]$Result, [string]$Reason, $ExitCode, [bool]$TimedOut, [long]$ElapsedMs)
-        $actions.Add([pscustomobject]@{
-            target = 'UTM'; kind = $Kind; before = $Before; after = $After; result = $Result; reason = $Reason
-            command = [string[]]@('open', '-a', 'UTM'); exitCode = $ExitCode; timedOut = $TimedOut; elapsedMs = $ElapsedMs
-        })
-    }
-    try {
-        if ($DependentVMName.Count -gt 0) { Write-Verbose "Start-VirtualizationServiceIfStopped on host.macos.utm: -DependentVMName is not used; UTM has no separate network service." }
-        $budget = Get-UtmChildDeadline -Milliseconds ([long]$TimeoutSeconds * 1000) -Parent $Deadline
-        if ((Get-YurunaDeadlineRemainingMs -Deadline $budget) -lt 1000) { return (& $emit 'refused' 'deadline-exhausted') }
-        # No utmctl on PATH or in the bundle: UTM is not installed where this
-        # driver expects it, and `open -a UTM` has nothing to launch.
-        if ((Resolve-UtmctlExecutable).Source -eq 'missing') { return (& $emit 'refused' 'missing-client') }
-        $prerequisite = Get-UtmControlPrerequisite -Deadline $budget
-        $beforeState = if ($prerequisite.AppState) { [string]$prerequisite.AppState.State } else { 'unknown' }
-        if (-not $prerequisite.Ok) {
-            & $addAction 'app-launch' $beforeState $beforeState 'refused' $prerequisite.Reason $null $false 0
-            return (& $emit 'refused' $prerequisite.Reason)
-        }
-        if (@($prerequisite.AppState.UtmPid).Count -gt 0) {
-            & $addAction 'app-launch' 'running' 'running' 'already-running' 'already-running' $null $false 0
-            return (& $emit 'already-running' 'already-running')
-        }
-        if (@($prerequisite.AppState.HelperPid).Count -gt 0) {
-            & $addAction 'app-launch' 'running' 'running' 'refused' 'helpers-without-app' $null $false 0
-            return (& $emit 'refused' 'helpers-without-app')
-        }
-        if (-not $PSCmdlet.ShouldProcess('UTM', (Format-YurunaOperatorMessage -Key 'host.utm_app_launch_action'))) {
-            & $addAction 'app-launch' 'absent' 'absent' 'preview' 'preview' $null $false 0
-            return (& $emit 'preview' 'preview')
-        }
-        $launchWait = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 600
-        if ($null -eq $launchWait) { return (& $emit 'refused' 'deadline-exhausted') }
-        $launch = Start-UtmApplication -Deadline $budget -LaunchWaitSeconds ([int]$launchWait) -RequireGuiSession -Confirm:$false -WhatIf:$false
-        $afterState = if (@($launch.UtmPid).Count -gt 0) { 'running' } else { 'unknown' }
-        $timedOut = ($launch.Outcome -eq 'not-observed')
-        switch ($launch.Outcome) {
-            'launched' {
-                & $addAction 'app-launch' 'absent' 'running' 'started' 'started' $launch.LaunchExitCode $false $launch.ElapsedMs
-                return (& $emit 'started' 'started')
-            }
-            'already-running' {
-                & $addAction 'app-launch' 'absent' 'running' 'already-running' 'already-running' $null $false $launch.ElapsedMs
-                return (& $emit 'already-running' 'already-running')
-            }
-            'launch-failed' {
-                & $addAction 'app-launch' 'absent' $afterState 'failed' 'start-failed' $launch.LaunchExitCode $false $launch.ElapsedMs
-                return (& $emit 'failed' 'start-failed')
-            }
-            'not-observed' {
-                & $addAction 'app-launch' 'absent' $afterState 'unknown' 'not-observed' $launch.LaunchExitCode $timedOut $launch.ElapsedMs
-                return (& $emit 'unknown' 'not-observed')
-            }
-            'deadline-exhausted' {
-                & $addAction 'app-launch' 'absent' 'absent' 'refused' 'deadline-exhausted' $null $false $launch.ElapsedMs
-                return (& $emit 'refused' 'deadline-exhausted')
-            }
-            default {
-                & $addAction 'app-launch' 'absent' $afterState 'refused' ([string]$launch.Reason) $null $false $launch.ElapsedMs
-                return (& $emit 'refused' ([string]$launch.Reason))
-            }
-        }
-    } catch {
-        Write-Verbose "Start-VirtualizationServiceIfStopped on host.macos.utm failed: $($_.Exception.Message)"
-        return (& $emit 'failed' 'start-failed')
-    }
-}
-
-<#
-.SYNOPSIS
-    Bring the named service VMs back to `started` after UTM.app has been
-    quit and relaunched. Returns the names that did NOT come back.
-
-.DESCRIPTION
-    UTM saves the state of every running VM on its way out, so a VM that
-    was `started` before UTM was quit is `suspended` when UTM returns --
-    and it stays that way, because nothing resumes it automatically. For
-    the service VMs that is not a cosmetic difference: guests take their
-    packages through the caching proxy, the build uploads to the stash
-    service, and the intent store is served by pool-control, so every one
-    of those consumers fails for as long as the service sits suspended.
-
-    `utmctl start` is also the resume verb -- on a suspended VM it
-    restores the saved state instead of cold-booting -- so a caller can
-    restore the pre-quit set without having to know whether UTM chose to
-    suspend or to fully stop each one. That is the only start issued here:
-    never Start-UtmVM or Start-VM, which delete the saved state to force a
-    cold boot, and nothing here touches the bundle's saved state.
-
-    A start is issued only from a positive 'stopped' reading; 'absent' and
-    'unknown' are waited through and then reported, never started.
-
-    Best-effort by design. A caller reaches this only after its own work
-    is done, and a service that refuses to come back is something for the
-    operator to see, not a reason to report that work as failed.
-
-.PARAMETER VMName
-    Names captured (while UTM was still up) as `started`. Empty is fine.
-
-.PARAMETER TimeoutSeconds
-    Per-VM budget covering re-registration, the start and its settle.
-
-.PARAMETER Deadline
-    Optional shared deadline (New-YurunaDeadline) for the whole set: each
-    VM gets the smaller of -TimeoutSeconds and what remains of it, so
-    several services draw on one reserve instead of each adding its own.
-
-.PARAMETER NoDialogWatchdog
-    Do not start the UTM dialog watchdog around each start. A caller that
-    must not auto-click dialogs passes it; a dialog that then blocks the
-    start leaves the service unresolved.
-
-.PARAMETER Detailed
-    Emit one record per VM instead of the failed names.
-
-.OUTPUTS
-    [string[]] the names that did not return to `started`; empty on full
-    success. Callers must normalize with `@(...)`. With -Detailed, one
-    [pscustomobject] per VM: VMName, Outcome ('running' | 'resumed' |
-    'absent' | 'unknown' | 'start-failed' | 'unresolved' |
-    'deadline-exhausted'), Reason, Attempts.
-#>
-function Resume-YurunaServiceVM {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([string[]], [pscustomobject])]
-    param(
-        [string[]]$VMName,
-        [int]$TimeoutSeconds = 90,
-        $Deadline,
-        [switch]$NoDialogWatchdog,
-        [switch]$Detailed
-    )
-    $names = @($VMName | Where-Object { $_ })
-    if ($names.Count -eq 0) { return }
-    $failed = New-Object System.Collections.Generic.List[string]
-    $records = New-Object System.Collections.Generic.List[object]
-    $note = {
-        param([string]$Name, [string]$Outcome, [string]$Reason, [int]$Attempts)
-        $records.Add([pscustomobject]@{ PSTypeName = 'Yuruna.ServiceVmResume'; VMName = $Name; Outcome = $Outcome; Reason = $Reason; Attempts = $Attempts })
-        if ($Outcome -notin @('running', 'resumed')) { [void]$failed.Add($Name) }
-    }
-    foreach ($name in $names) {
-        if (-not $PSCmdlet.ShouldProcess($name, (Format-YurunaOperatorMessage -Key 'host.operator_87abce329e878b18'))) { continue }
-        if ($Deadline -and (Get-YurunaDeadlineRemainingMs -Deadline $Deadline) -lt 1000) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.utm_resume_deadline_exhausted' -Arguments @{ name = "$name" })
-            & $note $name 'deadline-exhausted' 'deadline-exhausted' 0
-            continue
-        }
-        # One deadline per VM, never later than the shared one: registration,
-        # the start and its settle all draw on it.
-        $vmDeadline = New-YurunaDeadline -TotalMilliseconds ([long][Math]::Max(0, $TimeoutSeconds) * 1000)
-        if ($Deadline) { $vmDeadline = Get-UtmChildDeadline -Milliseconds ([long][Math]::Max(0, $TimeoutSeconds) * 1000) -Parent $Deadline }
-        # See https://yuruna.link/42e5cdfd-0006
-        $reading = $null
-        while (-not (Test-YurunaDeadlineExpired -Deadline $vmDeadline)) {
-            $next = Get-VMStateRecord -VMName $name -Deadline $vmDeadline
-            if (-not $reading -or $next.Reason -ne 'deadline-exhausted') { $reading = $next }
-            if ($reading.State -eq 'running' -or $reading.State -eq 'stopped') { break }
-            $null = Wait-UtmInterval -Milliseconds $script:UtmStatePollMilliseconds -Deadline $vmDeadline
-        }
-        $state  = if ($reading) { [string]$reading.State } else { 'unknown' }
-        $reason = if ($reading) { [string]$reading.Reason } else { 'deadline-exhausted' }
-        if ($state -eq 'running') { & $note $name 'running' $reason 0; continue }
-        if ($state -eq 'absent') {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a986b71028c74af3' -Arguments @{ name = "$name"; timeoutSeconds = "$TimeoutSeconds" })
-            & $note $name 'absent' $reason 0
-            continue
-        }
-        if ($state -ne 'stopped') {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_dbd4e4ba20849958' -Arguments @{ name = "$name"; timeoutSeconds = "$TimeoutSeconds" })
-            & $note $name 'unknown' $reason 0
-            continue
-        }
-        # Only a positive 'stopped' reading reaches here.
-        # The watchdog is started HERE rather than left to the caller. The path
-        # that leads to a resume quits UTM, and the Stop-VM on the way in reaps
-        # any watchdog with it -- so this is the one place a service VM is
-        # launched with nothing to dismiss the launch-time custom-QEMU-args
-        # confirmation that service VMs carry, and a start waiting on a
-        # modal nobody answers looks exactly like a start that was refused.
-        if (-not $NoDialogWatchdog) { Start-UtmDialogWatchdog }
-        try {
-            # The retry budget is spread ACROSS the VM's deadline rather than
-            # added on top of it, so a caller's timeout still means what it
-            # says while a momentary refusal can use up to three attempts.
-            $remainingMs   = Get-YurunaDeadlineRemainingMs -Deadline $vmDeadline
-            $settleSeconds = [Math]::Max(1, [Math]::Min([int]($TimeoutSeconds / 3), [int]($remainingMs / 1000)))
-            $start = Invoke-UtmVMStartWithRetry -VMName $name -Confirm:$false `
-                -SettleSeconds $settleSeconds -Deadline $vmDeadline
-        } finally {
-            if (-not $NoDialogWatchdog) { Stop-UtmDialogWatchdog }
-        }
-        if ($start.success) {
-            Write-Verbose "Resume-YurunaServiceVM: '$name' is running again (attempt $($start.attempts))."
-            & $note $name 'resumed' 'started' ([int]$start.attempts)
-        } else {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_126a49ca0c55779b' -Arguments @{ name = "$name"; errorMessage = "$($start.errorMessage)" })
-            $outcome = if ($start.kind -eq 'unresolved') { 'unresolved' } else { 'start-failed' }
-            & $note $name $outcome ([string]$start.kind) ([int]$start.attempts)
-        }
-    }
-    if ($Detailed) { return $records.ToArray() }
-    return $failed.ToArray()
 }
 
 # --- REGION: Rename-VM
@@ -4869,13 +4255,7 @@ function Rename-VM {
         return $false
     }
 
-    # Quitting UTM is collateral damage for every OTHER VM that happens to
-    # be running: UTM saves their state on the way out and they come back
-    # suspended, not started. The service VMs are the ones that matter --
-    # a cycle consumes them from beginning to end -- so record which are up
-    # now, while UTM can still be asked, and resume them after the relaunch.
-    # A listing that could not be read is not an empty one: quitting on it
-    # would resume nothing and strand every service suspended.
+    # See https://yuruna.link/42e5cdfd-0007
     $inventory = Get-UtmRunningVmInventory
     if (-not $inventory.Listed) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.rename_vm_inventory_unavailable' -Arguments @{ reason = "$($inventory.Reason)"; vmName = "$VMName" })
@@ -4939,13 +4319,7 @@ function Rename-VM {
             return $false
         }
 
-        # A bundle still holding the address the OLD name derives is holding that
-        # NAME's address rather than the guest's, and the name is being vacated --
-        # so it moves here, in the same window and for the same reason as the
-        # display below: both are per-name values, and this relaunch is the one
-        # moment the file is authoritative again. A bundle on any other address was
-        # pinned at build time to the identity its guest keeps for life; moving that
-        # one re-DHCPs a guest whose own state records the address it has.
+        # See https://yuruna.link/42e5cdfd-0007
         $bundleMac = [string]((Get-UtmBundleNetwork -VMName $NewName).MacAddress)
         if (Test-YurunaGuestMacMatchesName -MacAddress $bundleMac -VMName $VMName) {
             if (-not (Set-GuestMacInBundle -VMName $NewName -Confirm:$false)) {
@@ -4973,12 +4347,7 @@ function Rename-VM {
     } finally {
         $relaunch = Start-UtmApplication -LaunchWaitSeconds $script:UtmRenameLaunchWaitSeconds -FlushPreferenceCache:$flushOnRelaunch -Confirm:$false
         if ($relaunch.Started) {
-            # The failed list is NOT discarded. This function's caller judges
-            # the rename, and a rename can succeed while the services it took
-            # down stay down -- which reads as a passing step that quietly
-            # hands every later step, and the next cycle, a host with no cache
-            # and no stash. The rename verdict is still the return value; this
-            # makes the collateral damage say so at the point it happened.
+            # See https://yuruna.link/42e5cdfd-0007
             $resumeFailed = @(Resume-YurunaServiceVM -VMName $serviceVmToResume -Confirm:$false)
             if ($renamed -and $resumeFailed.Count -gt 0) {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_84987470d9b561d8' -Arguments @{ newName = "$NewName"; count = "$($resumeFailed.Count)"; join = "$($resumeFailed -join ', ')"; join2 = "$(($resumeFailed | ForEach-Object { "utmctl start '$_'" }) -join '; ')" })
@@ -5010,57 +4379,270 @@ function Rename-VM {
 
 <#
 .SYNOPSIS
-    Save a disk-only snapshot of each qcow2 disk in the UTM bundle,
-    then attempt to rename the VM (best-effort) so it persists across
-    test-cycle cleanup.
+    Bring the named service VMs back to `started` after UTM.app has been
+    quit and relaunched. Returns the names that did NOT come back.
+
 .DESCRIPTION
-    UTM owns its QEMU process and does not expose a stable QMP/CLI
-    snapshot verb, so this contract drops to qemu-img with the VM
-    offline. The .utm bundle lives at $HOME/yuruna/guest.nosync/<vm>.utm
-    and disks are *.qcow2 under <bundle>/Data/. For multi-disk VMs the
-    same Id is written into every qcow2 -- Restore-VMDiskSnapshot
-    reverts the same set as a group so the disks stay coherent.
+    UTM saves the state of every running VM on its way out, so a VM that
+    was `started` before UTM was quit is `suspended` when UTM returns --
+    and it stays that way, because nothing resumes it automatically. For
+    the service VMs that is not a cosmetic difference: guests take their
+    packages through the caching proxy, the build uploads to the stash
+    service, and the configuration store is served by pool-control, so every one
+    of those consumers fails for as long as the service sits suspended.
 
-    After a successful snapshot, Rename-VM renames the VM to $Id by
-    on-disk surgery (bundle dir + config.plist + UTM Registry) so the
-    snapshot survives the next cycle's Remove-TestVMFiles sweep. If the
-    rename fails, the qcow2 snapshot is still on disk and can be
-    restored manually from the original bundle path.
+    `utmctl start` is also the resume verb -- on a suspended VM it
+    restores the saved state instead of cold-booting -- so a caller can
+    restore the pre-quit set without having to know whether UTM chose to
+    suspend or to fully stop each one. That is the only start issued here:
+    never Start-UtmVM or Start-VM, which delete the saved state to force a
+    cold boot, and nothing here touches the bundle's saved state.
+
+    A start is issued only from a positive 'stopped' reading; 'absent' and
+    'unknown' are waited through and then reported, never started.
+
+    Best-effort by design. A caller reaches this only after its own work
+    is done, and a service that refuses to come back is something for the
+    operator to see, not a reason to report that work as failed.
+
+.PARAMETER VMName
+    Names captured (while UTM was still up) as `started`. Empty is fine.
+
+.PARAMETER TimeoutSeconds
+    Per-VM budget covering re-registration, the start and its settle.
+
+.PARAMETER Deadline
+    Optional shared deadline (New-YurunaDeadline) for the whole set: each
+    VM gets the smaller of -TimeoutSeconds and what remains of it, so
+    several services draw on one reserve instead of each adding its own.
+
+.PARAMETER NoDialogWatchdog
+    Do not start the UTM dialog watchdog around each start. A caller that
+    must not auto-click dialogs passes it; a dialog that then blocks the
+    start leaves the service unresolved.
+
+.PARAMETER Detailed
+    Emit one record per VM instead of the failed names.
+
+.OUTPUTS
+    [string[]] the names that did not return to `started`; empty on full
+    success. Callers must normalize with `@(...)`. With -Detailed, one
+    [pscustomobject] per VM: VMName, Outcome ('running' | 'resumed' |
+    'absent' | 'unknown' | 'start-failed' | 'unresolved' |
+    'deadline-exhausted'), Reason, Attempts.
 #>
-function Get-UtmBundleDisk {
-    <#
-    .SYNOPSIS
-        Resolves bundle disks and the common snapshot prerequisites.
-    .PARAMETER VMName
-        The UTM bundle name.
-    #>
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param([string]$VMName)
-    $bundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
-    $data = Join-Path $bundle 'Data'
-    $disks = @(Get-ChildItem -LiteralPath $data -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
-    $reason = if (-not (Test-Path -LiteralPath $data)) { 'missing-directory' } elseif ($disks.Count -eq 0) { 'missing-disk' } elseif (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) { 'missing-tool' } else { '' }
-    return @{ Ready = -not $reason; Reason = $reason; Bundle = $bundle; DataDir = $data; Disk = $disks }
+function Resume-YurunaServiceVM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string[]], [pscustomobject])]
+    param(
+        [string[]]$VMName,
+        [int]$TimeoutSeconds = 90,
+        $Deadline,
+        [switch]$NoDialogWatchdog,
+        [switch]$Detailed
+    )
+    $names = @($VMName | Where-Object { $_ })
+    if ($names.Count -eq 0) { return }
+    $failed = New-Object System.Collections.Generic.List[string]
+    $records = New-Object System.Collections.Generic.List[object]
+    $note = {
+        param([string]$Name, [string]$Outcome, [string]$Reason, [int]$Attempts)
+        $records.Add([pscustomobject]@{ PSTypeName = 'Yuruna.ServiceVmResume'; VMName = $Name; Outcome = $Outcome; Reason = $Reason; Attempts = $Attempts })
+        if ($Outcome -notin @('running', 'resumed')) { [void]$failed.Add($Name) }
+    }
+    foreach ($name in $names) {
+        if (-not $PSCmdlet.ShouldProcess($name, (Format-YurunaOperatorMessage -Key 'host.operator_87abce329e878b18'))) { continue }
+        if ($Deadline -and (Get-YurunaDeadlineRemainingMs -Deadline $Deadline) -lt 1000) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.utm_resume_deadline_exhausted' -Arguments @{ name = "$name" })
+            & $note $name 'deadline-exhausted' 'deadline-exhausted' 0
+            continue
+        }
+        # One deadline per VM, never later than the shared one: registration,
+        # the start and its settle all draw on it.
+        $vmDeadline = New-YurunaDeadline -TotalMilliseconds ([long][Math]::Max(0, $TimeoutSeconds) * 1000)
+        if ($Deadline) { $vmDeadline = Get-UtmChildDeadline -Milliseconds ([long][Math]::Max(0, $TimeoutSeconds) * 1000) -Parent $Deadline }
+        # See https://yuruna.link/42e5cdfd-0006
+        $reading = $null
+        while (-not (Test-YurunaDeadlineExpired -Deadline $vmDeadline)) {
+            $next = Get-VMStateRecord -VMName $name -Deadline $vmDeadline
+            if (-not $reading -or $next.Reason -ne 'deadline-exhausted') { $reading = $next }
+            if ($reading.State -eq 'running' -or $reading.State -eq 'stopped') { break }
+            $null = Wait-UtmInterval -Milliseconds $script:UtmStatePollMilliseconds -Deadline $vmDeadline
+        }
+        $state  = if ($reading) { [string]$reading.State } else { 'unknown' }
+        $reason = if ($reading) { [string]$reading.Reason } else { 'deadline-exhausted' }
+        if ($state -eq 'running') { & $note $name 'running' $reason 0; continue }
+        if ($state -eq 'absent') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a986b71028c74af3' -Arguments @{ name = "$name"; timeoutSeconds = "$TimeoutSeconds" })
+            & $note $name 'absent' $reason 0
+            continue
+        }
+        if ($state -ne 'stopped') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_dbd4e4ba20849958' -Arguments @{ name = "$name"; timeoutSeconds = "$TimeoutSeconds" })
+            & $note $name 'unknown' $reason 0
+            continue
+        }
+        # See https://yuruna.link/42e5cdfd-0006
+        if (-not $NoDialogWatchdog) { Start-UtmDialogWatchdog }
+        try {
+            # The retry budget is spread ACROSS the VM's deadline rather than
+            # added on top of it, so a caller's timeout still means what it
+            # says while a momentary refusal can use up to three attempts.
+            $remainingMs   = Get-YurunaDeadlineRemainingMs -Deadline $vmDeadline
+            $settleSeconds = [Math]::Max(1, [Math]::Min([int]($TimeoutSeconds / 3), [int]($remainingMs / 1000)))
+            $start = Invoke-UtmVMStartWithRetry -VMName $name -Confirm:$false `
+                -SettleSeconds $settleSeconds -Deadline $vmDeadline
+        } finally {
+            if (-not $NoDialogWatchdog) { Stop-UtmDialogWatchdog }
+        }
+        if ($start.success) {
+            Write-Verbose "Resume-YurunaServiceVM: '$name' is running again (attempt $($start.attempts))."
+            & $note $name 'resumed' 'started' ([int]$start.attempts)
+        } else {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_126a49ca0c55779b' -Arguments @{ name = "$name"; errorMessage = "$($start.errorMessage)" })
+            $outcome = if ($start.kind -eq 'unresolved') { 'unresolved' } else { 'start-failed' }
+            & $note $name $outcome ([string]$start.kind) ([int]$start.attempts)
+        }
+    }
+    if ($Detailed) { return $records.ToArray() }
+    return $failed.ToArray()
 }
 
-function Test-UtmDiskHasSnapshot {
+# --- REGION: Get-VMState
+function Get-VMState {
     <#
     .SYNOPSIS
-        Verifies snapshot metadata with a bounded, complete qemu-img read.
-    .PARAMETER Disk
-        The qcow2 disk path.
-    .PARAMETER Id
-        The exact snapshot identifier.
+        Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
+    .DESCRIPTION
+        'unknown' covers everything that is not a positively recognized answer:
+        no utmctl on PATH or in the UTM bundle, a launch failure, a timeout, a
+        denied Apple Event, "does not work from SSH", output that did not finish
+        draining, or any other unrecognized answer. Only a completed response
+        that names the VM as not found is 'absent'. Callers treat 'absent' as
+        license to build or reuse a name (Start-CachingProxyServiceVM.ps1,
+        Debug-TestSequence.ps1, Test.Orchestrator, Test.SnapshotManifest,
+        Rename-VM's preconditions, Remove-UtmVMRegistration) and
+        Restore-YurunaServiceVM treats it as "not built on this host" -- a probe
+        UTM merely refused to answer must never produce that, least of all on a
+        host whose UTM has stopped answering. Get-VMStateRecord returns the same
+        answer with its reason.
     #>
     [CmdletBinding()]
-    [OutputType([bool])]
-    param([string]$Disk, [string]$Id)
-    $probe = Invoke-UtmHostTool -Tool 'qemu-img' -ArgumentList @('snapshot', '-l', '-U', $Disk) -TimeoutSeconds 10
-    if (-not (Test-BoundedNativeResultComplete -Result $probe) -or $probe.ExitCode -ne 0) { return $false }
-    return [bool]([regex]::IsMatch($probe.StdOut, '(?m)^\s*\d+\s+' + [regex]::Escape($Id) + '\s'))
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    return [string](Get-VMStateRecord -VMName $VMName).State
 }
 
+<#
+.SYNOPSIS
+    The VM's state as a record: the state Get-VMState returns, the raw
+    status word, registration evidence and the reason.
+.DESCRIPTION
+    One bounded `utmctl status` call, classified by
+    ConvertFrom-UtmctlStatusResult; Get-VMState and
+    Get-UtmVMRegistrationState are both read from this record, so the state
+    and the registration can never disagree about one answer. With -Deadline
+    the call gets at most what the deadline has left, and nothing is
+    launched when under one second remains.
+.PARAMETER VMName
+    The VM to read.
+.PARAMETER Deadline
+    Optional shared deadline (New-YurunaDeadline).
+.PARAMETER TimeoutSeconds
+    This call's own cap.
+.OUTPUTS
+    [pscustomobject] VMName, State ('running' | 'stopped' | 'absent' |
+    'unknown'), RawState, Registration ('Registered' | 'Absent' | 'Unknown'),
+    Reason ('observed' | 'not-found' | 'missing-client' | 'timeout' |
+    'permission-denied' | 'no-session' | 'provider-error' | 'invalid-response'
+    | 'deadline-exhausted'), ExitCode, ElapsedMs.
+#>
+function Get-VMStateRecord {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        $Deadline,
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20
+    )
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $resolver = Resolve-UtmctlExecutable
+    $probe = if ($resolver.Source -eq 'missing') {
+        @{ ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $false; Started = $false; DeadlineExhausted = $false }
+    } else {
+        Invoke-UtmctlProbe -Arguments @('status', $VMName) -TimeoutSeconds $TimeoutSeconds -UtmctlPath $resolver.Path -Deadline $Deadline
+    }
+    $classified = ConvertFrom-UtmctlStatusResult -Result $probe
+    return [pscustomobject]@{
+        PSTypeName   = 'Yuruna.UtmVMState'
+        VMName       = $VMName
+        State        = $classified.State
+        RawState     = $classified.RawState
+        Registration = $classified.Registration
+        Reason       = $classified.Reason
+        ExitCode     = [int]$probe['ExitCode']
+        ElapsedMs    = $stopwatch.ElapsedMilliseconds
+    }
+}
+
+# --- REGION: VM inventory
+# --- REGION: Get-VMName
+function Get-VMName {
+    <#
+    .SYNOPSIS
+        Return the names of every VM registered with UTM, optionally filtered
+        to those starting with one of $Prefix.
+    .DESCRIPTION
+        Host-neutral inventory call (see the contract's VM inventory block).
+        Every VM UTM knows about is returned regardless of run state, so a
+        caller sweeping by prefix removes stopped leftovers as well as
+        running ones.
+
+        THROWS when utmctl cannot reach UTM.app rather than returning an
+        empty list. utmctl exits 0 and prints its error to stderr when Apple
+        Events are denied (OSStatus -1743, typical from an SSH session or a
+        process without Automation access), when a request times out (-1712),
+        and for other Apple Event faults besides -- so an exit-code check alone
+        reads "cannot ask" as "nothing registered". A sweep that accepted that
+        empty list would report a clean host, and the orphan-file pass behind
+        it would delete bundles UTM still has registered.
+
+        Matched on ANY Apple Event wording the driver recognizes -- any OSStatus
+        code, a denial, a timeout, an SSH session -- rather than an enumerated
+        few. The set that can appear here is open, the consequence of missing one
+        is deleting a VM's disk, and there is no OSStatus value whose correct
+        reading is "believe the empty list". A listing that did not finish
+        draining or was cut at the capture cap is incomplete and throws too.
+    .PARAMETER Prefix
+        Zero or more name prefixes. A VM is returned when its name starts
+        with any of them. Omit (or pass none) to return every VM.
+    .OUTPUTS
+        [string[]] matching VM names; empty when none match.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([string[]]$Prefix)
+    $resolver = Resolve-UtmctlExecutable
+    if ($resolver.Source -eq 'missing') {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_81fb05f8b6924bce')
+    }
+    $listing = Invoke-UtmctlProbe -Arguments @('list') -UtmctlPath $resolver.Path
+    $text = "$($listing.StdOut)`n$($listing.StdErr)".Trim()
+    if ($listing.TimedOut) {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_76bccb579d55bc73')
+    }
+    if (-not $listing.Started -or $listing.ExitCode -ne 0 -or $listing.DrainTimedOut -or $listing.OutputTruncated -or
+        (Get-UtmStartFailureKind -Text $text) -ne 'none') {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_7c4b552da601ab61' -Arguments @{ text = "$text" })
+    }
+    $parsed = ConvertFrom-UtmctlListResult -Result $listing
+    if (-not $parsed.Recognized) {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_7c4b552da601ab61' -Arguments @{ text = "$text" })
+    }
+    return Select-NameByPrefix -Name @($parsed.Row | ForEach-Object { $_.Name }) -Prefix $Prefix
+}
+
+# --- REGION: Disk snapshots
 # --- REGION: Save-VMDiskSnapshot
 function Save-VMDiskSnapshot {
     <# .SYNOPSIS
@@ -5112,33 +4694,6 @@ function Save-VMDiskSnapshot {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3d4bd722f2cfda09' -Arguments @{ id = "$Id"; utmBundle = "$utmBundle"; vMName = "$VMName" })
             return $false
         }
-    }
-    return $true
-}
-
-# --- REGION: Test-VMDiskSnapshot
-function Test-VMDiskSnapshot {
-    <#
-    .SYNOPSIS
-        Returns $true when snapshot $Id is present on every qcow2 disk of
-        the UTM bundle for $VMName. False on missing bundle, missing
-        qemu-img, or any disk lacking the snapshot. Used by Debug-TestSequence's
-        requiresSnapshot warm-path probe before deciding whether to walk
-        the baseline chain.
-    #>
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)][string]$VMName,
-        [Parameter(Mandatory)][string]$Id
-    )
-    $bundleDisk = Get-UtmBundleDisk -VMName $VMName
-    $disks = @($bundleDisk.Disk)
-    if (-not $bundleDisk.Ready) {
-        return $false
-    }
-    foreach ($disk in $disks) {
-        if (-not (Test-UtmDiskHasSnapshot -Disk $disk.FullName -Id $Id)) { return $false }
     }
     return $true
 }
@@ -5198,6 +4753,87 @@ function Restore-VMDiskSnapshot {
     return $true
 }
 
+# --- REGION: Test-VMDiskSnapshot
+function Test-VMDiskSnapshot {
+    <#
+    .SYNOPSIS
+        Returns $true when snapshot $Id is present on every qcow2 disk of
+        the UTM bundle for $VMName. False on missing bundle, missing
+        qemu-img, or any disk lacking the snapshot. Used by Debug-TestSequence's
+        requiresSnapshot warm-path probe before deciding whether to walk
+        the baseline chain.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    $bundleDisk = Get-UtmBundleDisk -VMName $VMName
+    $disks = @($bundleDisk.Disk)
+    if (-not $bundleDisk.Ready) {
+        return $false
+    }
+    foreach ($disk in $disks) {
+        if (-not (Test-UtmDiskHasSnapshot -Disk $disk.FullName -Id $Id)) { return $false }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Save a disk-only snapshot of each qcow2 disk in the UTM bundle,
+    then attempt to rename the VM (best-effort) so it persists across
+    test-cycle cleanup.
+.DESCRIPTION
+    UTM owns its QEMU process and does not expose a stable QMP/CLI
+    snapshot verb, so this contract drops to qemu-img with the VM
+    offline. The .utm bundle lives at $HOME/yuruna/guest.nosync/<vm>.utm
+    and disks are *.qcow2 under <bundle>/Data/. For multi-disk VMs the
+    same Id is written into every qcow2 -- Restore-VMDiskSnapshot
+    reverts the same set as a group so the disks stay coherent.
+
+    After a successful snapshot, Rename-VM renames the VM to $Id by
+    on-disk surgery (bundle dir + config.plist + UTM Registry) so the
+    snapshot survives the next cycle's Remove-TestVMFiles sweep. If the
+    rename fails, the qcow2 snapshot is still on disk and can be
+    restored manually from the original bundle path.
+#>
+function Get-UtmBundleDisk {
+    <#
+    .SYNOPSIS
+        Resolves bundle disks and the common snapshot prerequisites.
+    .PARAMETER VMName
+        The UTM bundle name.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$VMName)
+    $bundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
+    $data = Join-Path $bundle 'Data'
+    $disks = @(Get-ChildItem -LiteralPath $data -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
+    $reason = if (-not (Test-Path -LiteralPath $data)) { 'missing-directory' } elseif ($disks.Count -eq 0) { 'missing-disk' } elseif (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) { 'missing-tool' } else { '' }
+    return @{ Ready = -not $reason; Reason = $reason; Bundle = $bundle; DataDir = $data; Disk = $disks }
+}
+
+function Test-UtmDiskHasSnapshot {
+    <#
+    .SYNOPSIS
+        Verifies snapshot metadata with a bounded, complete qemu-img read.
+    .PARAMETER Disk
+        The qcow2 disk path.
+    .PARAMETER Id
+        The exact snapshot identifier.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$Disk, [string]$Id)
+    $probe = Invoke-UtmHostTool -Tool 'qemu-img' -ArgumentList @('snapshot', '-l', '-U', $Disk) -TimeoutSeconds 10
+    if (-not (Test-BoundedNativeResultComplete -Result $probe) -or $probe.ExitCode -ne 0) { return $false }
+    return [bool]([regex]::IsMatch($probe.StdOut, '(?m)^\s*\d+\s+' + [regex]::Escape($Id) + '\s'))
+}
+
+# --- REGION: VM console
 # --- REGION: Test-VMConsoleOpen
 function Test-VMConsoleOpen {
     <#
@@ -5932,6 +5568,7 @@ function Get-VMMac {
     return ([string]$bundleNetwork.MacAddress).ToUpperInvariant()
 }
 
+# --- REGION: Neighbor cache refresh
 # --- REGION: Update-GuestNeighborCache
 function Update-GuestNeighborCache {
     <#
@@ -6582,12 +6219,7 @@ function Test-MacUplinkNotBridgeable {
     param()
     $iface = Get-MacDefaultRouteInterface
     if (-not $iface) { return $false }
-    # networksetup -listallhardwareports prints stanzas of the form:
-    #   Hardware Port: Wi-Fi
-    #   Device: en0
-    #   Ethernet Address: ...
-    # Collect the Device of every Wi-Fi port, then test the default-route
-    # interface for membership.
+    # See https://yuruna.link/42e220c4-0004
     $wifiDevices = [System.Collections.Generic.List[string]]::new()
     $portIsWifi  = $false
     foreach ($line in (& '/usr/sbin/networksetup' -listallhardwareports 2>$null)) {
@@ -6634,6 +6266,7 @@ function Test-CacheVMOnExternalNetwork {
     return [bool]($network -and $network.Readable -and $network.Mode -eq 'Bridged')
 }
 
+# --- REGION: Port mapping
 # --- REGION: Add-PortMap
 function Add-PortMap {
     <#
@@ -6861,7 +6494,6 @@ function Get-GuestReachableHostIp {
     return '192.168.64.1'
 }
 
-# --- REGION: Caching-proxy service
 # --- REGION: Get-HostLanPrefix
 function Get-HostLanPrefix {
     <#
@@ -6896,6 +6528,7 @@ function Get-HostLanPrefix {
     return ($matches[1] + '.')
 }
 
+# --- REGION: Caching-proxy service
 # --- REGION: Test-CachingProxyServiceAvailable
 function Test-CachingProxyServiceAvailable {
     <#
@@ -7075,6 +6708,305 @@ function Assert-Virtualization {
     # function. UTM's presence + Apple Virtualization availability is
     # the practical signal here.
     return [bool](Test-Path '/Applications/UTM.app')
+}
+
+# --- REGION: Virtualization repair
+# --- REGION: Test-VirtualizationResponsive
+function Test-VirtualizationResponsive {
+    <#
+    .SYNOPSIS
+        Bounded, structured probe of UTM's control channel (record v1).
+    .DESCRIPTION
+        Evaluated in order, each step bounded by the probe's own deadline (the
+        smaller of -TimeoutSeconds and what -Deadline has left):
+          1. utmctl on PATH or in the UTM bundle; none -> Undetermined/missing-client.
+          2. the GUI session; anything but Aqua -> Undetermined/no-session, and
+             utmctl is not invoked (from SSH it can only fail, or hang on a
+             consent dialog nobody can see).
+          3. the same-user UTM process census, with no Apple Event; positively
+             no UTM and no helper -> Unresponsive/app-stopped, and utmctl is not
+             invoked (an Apple Event to a UTM that is not running launches it).
+          4. `utmctl list`: a recognized listing -> Responsive; Apple Event
+             denial (-1743) -> Undetermined/permission-denied; an SSH refusal ->
+             no-session; another OSStatus failure -> provider-error; output not
+             fully drained or cut at the cap -> invalid-response even at exit 0;
+             anything unrecognized -> invalid-response; a cap hit or -1712 -> a
+             timeout candidate.
+        A timeout is not, by itself, evidence that UTM is hung: an unanswered
+        Automation consent dialog blocks the sender and looks exactly like one.
+        Without -Corroborate a timeout is Undetermined/timeout. With
+        -Corroborate the probe waits out -DialogWindowSeconds, re-reads the
+        process census, and probes once more; only a second timeout, with UTM
+        positively still running, no Apple Event denial, and this process's
+        Automation subject among -RecordedAutomationSubject, is
+        Unresponsive/timeout with corroborated=$true. A later denial, a missing
+        session or an unclassified answer on the second probe invalidates the
+        first. When the deadline cannot fit the window plus one probe the result
+        stays Undetermined/timeout.
+
+        Read-only: never writes, never repairs the utmctl link, never throws.
+        Diagnostic text goes only to the private 'diagnostic' field.
+    .PARAMETER TimeoutSeconds
+        Cap for each utmctl call.
+    .PARAMETER Deadline
+        Optional shared deadline (New-YurunaDeadline).
+    .PARAMETER Corroborate
+        Qualify a timeout as described above.
+    .PARAMETER DialogWindowSeconds
+        How long a consent dialog is given to be answered before the second probe.
+    .PARAMETER RecordedAutomationSubject
+        Automation subjects previously seen to complete a responsive round trip.
+    .PARAMETER IncludeInventory
+        With a Responsive result, attach the parsed listing as 'inventory'.
+    .OUTPUTS
+        [pscustomobject] PSTypeName 'Yuruna.VirtualizationProbe': schemaVersion,
+        hostType, state, reason, started, timedOut, deadlineExhausted,
+        corroborated, observedUtc, observedTick, elapsedMs, evidence
+        {utmctlSource; sessionKind; appState; automationGrant; exitCode;
+        drainTimedOut; outputTruncated}, diagnostic, automationSubject,
+        inventory.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20,
+        $Deadline,
+        [switch]$Corroborate,
+        [ValidateRange(0, 600)][int]$DialogWindowSeconds = 120,
+        [string[]]$RecordedAutomationSubject = @(),
+        [switch]$IncludeInventory
+    )
+    $stopwatch   = [System.Diagnostics.Stopwatch]::StartNew()
+    $observedUtc = [DateTime]::UtcNow.ToString('o')
+    $facts = [ordered]@{
+        utmctlSource = 'missing'; sessionKind = 'Unknown'; appState = 'unknown'; automationGrant = 'unknown'
+        exitCode = -1; drainTimedOut = $false; outputTruncated = $false
+        started = $false; timedOut = $false; deadlineExhausted = $false; corroborated = $false
+        diagnostic = ''; subject = ''; inventory = $null
+    }
+    $emit = {
+        param([string]$State, [string]$Reason)
+        [pscustomobject]@{
+            PSTypeName        = 'Yuruna.VirtualizationProbe'
+            schemaVersion     = 1
+            hostType          = 'host.macos.utm'
+            state             = $State
+            reason            = $Reason
+            started           = [bool]$facts.started
+            timedOut          = [bool]$facts.timedOut
+            deadlineExhausted = [bool]$facts.deadlineExhausted
+            corroborated      = [bool]$facts.corroborated
+            observedUtc       = $observedUtc
+            observedTick      = [long](Get-UtmClockTick -Deadline $Deadline)
+            elapsedMs         = [long]$stopwatch.ElapsedMilliseconds
+            evidence          = [pscustomobject]@{
+                utmctlSource    = [string]$facts.utmctlSource
+                sessionKind     = [string]$facts.sessionKind
+                appState        = [string]$facts.appState
+                automationGrant = [string]$facts.automationGrant
+                exitCode        = [int]$facts.exitCode
+                drainTimedOut   = [bool]$facts.drainTimedOut
+                outputTruncated = [bool]$facts.outputTruncated
+            }
+            diagnostic        = ConvertTo-UtmDiagnosticText -Text ([string]$facts.diagnostic)
+            automationSubject = [string]$facts.subject
+            inventory         = $facts.inventory
+        }
+    }
+    # One bounded utmctl list, classified; returns the probe-level verdict
+    # ('responsive', 'timeout', or an Undetermined reason) and records facts.
+    $probeOnce = {
+        param($Window, [string]$UtmctlPath, [int]$CapSeconds, [bool]$WithInventory)
+        $listing = Invoke-UtmctlProbe -Arguments @('list') -TimeoutSeconds $CapSeconds -UtmctlPath $UtmctlPath -Deadline $Window -Quiet
+        $facts.timedOut        = $false
+        $facts.started         = [bool]$listing['Started']
+        $facts.exitCode        = [int]$listing['ExitCode']
+        $facts.drainTimedOut   = [bool]$listing['DrainTimedOut']
+        $facts.outputTruncated = [bool]$listing['OutputTruncated']
+        $facts.diagnostic      = "$($listing['StdOut'])`n$($listing['StdErr'])"
+        if ($listing['DeadlineExhausted']) { $facts.deadlineExhausted = $true; return 'deadline-exhausted' }
+        if (-not $listing['Started']) { return 'missing-client' }
+        if ($listing['TimedOut']) { $facts.timedOut = $true; return 'timeout' }
+        $parsed = ConvertFrom-UtmctlListResult -Result $listing
+        if ($parsed.Reason -eq 'timeout') { $facts.timedOut = $true; return 'timeout' }
+        if (-not $parsed.Recognized) { return [string]$parsed.Reason }
+        if ($WithInventory) { $facts.inventory = ConvertTo-UtmInventoryRecord -Parsed $parsed }
+        return 'responsive'
+    }
+    try {
+        if ($Deadline -and (Get-YurunaDeadlineRemainingMs -Deadline $Deadline) -lt 1000) {
+            $facts.deadlineExhausted = $true
+            return (& $emit 'Undetermined' 'deadline-exhausted')
+        }
+        $resolver = Resolve-UtmctlExecutable
+        $facts.utmctlSource = $resolver.Source
+        if ($resolver.Source -eq 'missing') { return (& $emit 'Undetermined' 'missing-client') }
+
+        $facts.sessionKind = Get-UtmProbeSessionKind -Deadline $Deadline
+        if ($facts.sessionKind -ne 'Aqua') { return (& $emit 'Undetermined' 'no-session') }
+
+        $facts.subject = Get-UtmAutomationSubject -Deadline $Deadline
+        if (Test-UtmAutomationSubjectQualified -Subject $facts.subject -RecordedSubject $RecordedAutomationSubject) { $facts.automationGrant = 'recorded' }
+
+        $app = Get-UtmApplicationState -Deadline $Deadline
+        $facts.appState = $app.State
+        if ($app.State -eq 'absent') { return (& $emit 'Unresponsive' 'app-stopped') }
+
+        $first = & $probeOnce $Deadline $resolver.Path $TimeoutSeconds ([bool]$IncludeInventory)
+        if ($first -eq 'responsive') { return (& $emit 'Responsive' 'responsive') }
+        if ($first -ne 'timeout') { return (& $emit 'Undetermined' $first) }
+        if (-not $Corroborate) { return (& $emit 'Undetermined' 'timeout') }
+
+        # Corroboration needs the whole dialog window and one more probe of
+        # at least a second; a deadline that cannot fit both leaves the
+        # timeout uncorroborated rather than cutting the window short.
+        $windowMs = [long]$DialogWindowSeconds * 1000
+        if ($Deadline -and (Get-YurunaDeadlineRemainingMs -Deadline $Deadline) -lt ($windowMs + 1000)) {
+            return (& $emit 'Undetermined' 'timeout')
+        }
+        if ($windowMs -gt 0) { $null = Wait-UtmInterval -Milliseconds ([int]$windowMs) -Deadline $Deadline }
+        $again = Get-UtmApplicationState -Deadline $Deadline
+        $facts.appState = $again.State
+        if ($again.State -eq 'absent') { return (& $emit 'Unresponsive' 'app-stopped') }
+        if ($again.State -ne 'running') { return (& $emit 'Undetermined' 'timeout') }
+        $second = & $probeOnce $Deadline $resolver.Path $TimeoutSeconds ([bool]$IncludeInventory)
+        if ($second -eq 'responsive') { return (& $emit 'Responsive' 'responsive') }
+        if ($second -ne 'timeout') { return (& $emit 'Undetermined' $second) }
+        $facts.timedOut = $true
+        if ($facts.automationGrant -eq 'recorded') {
+            $facts.corroborated = $true
+            return (& $emit 'Unresponsive' 'timeout')
+        }
+        return (& $emit 'Undetermined' 'timeout')
+    } catch {
+        $facts.diagnostic = "$($_.Exception.Message)"
+        return (& $emit 'Undetermined' 'invalid-response')
+    }
+}
+
+# --- REGION: Start-VirtualizationServiceIfStopped
+function Start-VirtualizationServiceIfStopped {
+    <#
+    .SYNOPSIS
+        Launch UTM for this user only when it is positively not running (the
+        start-if-stopped repair for macOS), result record v1.
+    .DESCRIPTION
+        Runs its own detection immediately before acting and never trusts an
+        earlier probe: a GUI (Aqua) session, a known non-root uid, and a
+        same-user process census that shows neither UTM nor its helpers. UTM
+        already running for this user is 'already-running'; anything that cannot
+        be established refuses and launches nothing. The launch is
+        Start-UtmApplication -RequireGuiSession, whose outcomes map as
+        launched -> started, already-running -> already-running, launch-failed
+        -> failed, not-observed -> unknown, refused -> refused.
+
+        Under -WhatIf only the bounded read-only detection runs and the outcome
+        is 'preview'. Never prompts and never throws. -DependentVMName is
+        accepted for the shared signature; UTM has no separate network service
+        for it to decide on.
+    .PARAMETER TimeoutSeconds
+        Budget for detection plus the launch wait.
+    .PARAMETER Deadline
+        Optional shared deadline (New-YurunaDeadline).
+    .PARAMETER DependentVMName
+        Guests whose restoration depends on this hypervisor; unused on macOS.
+    .OUTPUTS
+        [pscustomobject] PSTypeName 'Yuruna.VirtualizationStartResult':
+        schemaVersion, hostType, outcome ('started' | 'already-running' |
+        'refused' | 'failed' | 'unknown' | 'unavailable' | 'preview'), reason,
+        layout ('not-applicable'), actions [object[]], observedUtc, elapsedMs.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 120,
+        $Deadline,
+        [string[]]$DependentVMName = @()
+    )
+    $stopwatch   = [System.Diagnostics.Stopwatch]::StartNew()
+    $observedUtc = [DateTime]::UtcNow.ToString('o')
+    $actions = [System.Collections.Generic.List[object]]::new()
+    $emit = {
+        param([string]$Outcome, [string]$Reason)
+        [pscustomobject]@{
+            PSTypeName    = 'Yuruna.VirtualizationStartResult'
+            schemaVersion = 1
+            hostType      = 'host.macos.utm'
+            outcome       = $Outcome
+            reason        = $Reason
+            layout        = 'not-applicable'
+            actions       = [object[]]$actions.ToArray()
+            observedUtc   = $observedUtc
+            elapsedMs     = [long]$stopwatch.ElapsedMilliseconds
+        }
+    }
+    $addAction = {
+        param([string]$Kind, [string]$Before, [string]$After, [string]$Result, [string]$Reason, $ExitCode, [bool]$TimedOut, [long]$ElapsedMs)
+        $actions.Add([pscustomobject]@{
+            target = 'UTM'; kind = $Kind; before = $Before; after = $After; result = $Result; reason = $Reason
+            command = [string[]]@('open', '-a', 'UTM'); exitCode = $ExitCode; timedOut = $TimedOut; elapsedMs = $ElapsedMs
+        })
+    }
+    try {
+        if ($DependentVMName.Count -gt 0) { Write-Verbose "Start-VirtualizationServiceIfStopped on host.macos.utm: -DependentVMName is not used; UTM has no separate network service." }
+        $budget = Get-UtmChildDeadline -Milliseconds ([long]$TimeoutSeconds * 1000) -Parent $Deadline
+        if ((Get-YurunaDeadlineRemainingMs -Deadline $budget) -lt 1000) { return (& $emit 'refused' 'deadline-exhausted') }
+        # No utmctl on PATH or in the bundle: UTM is not installed where this
+        # driver expects it, and `open -a UTM` has nothing to launch.
+        if ((Resolve-UtmctlExecutable).Source -eq 'missing') { return (& $emit 'refused' 'missing-client') }
+        $prerequisite = Get-UtmControlPrerequisite -Deadline $budget
+        $beforeState = if ($prerequisite.AppState) { [string]$prerequisite.AppState.State } else { 'unknown' }
+        if (-not $prerequisite.Ok) {
+            & $addAction 'app-launch' $beforeState $beforeState 'refused' $prerequisite.Reason $null $false 0
+            return (& $emit 'refused' $prerequisite.Reason)
+        }
+        if (@($prerequisite.AppState.UtmPid).Count -gt 0) {
+            & $addAction 'app-launch' 'running' 'running' 'already-running' 'already-running' $null $false 0
+            return (& $emit 'already-running' 'already-running')
+        }
+        if (@($prerequisite.AppState.HelperPid).Count -gt 0) {
+            & $addAction 'app-launch' 'running' 'running' 'refused' 'helpers-without-app' $null $false 0
+            return (& $emit 'refused' 'helpers-without-app')
+        }
+        if (-not $PSCmdlet.ShouldProcess('UTM', (Format-YurunaOperatorMessage -Key 'host.utm_app_launch_action'))) {
+            & $addAction 'app-launch' 'absent' 'absent' 'preview' 'preview' $null $false 0
+            return (& $emit 'preview' 'preview')
+        }
+        $launchWait = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 600
+        if ($null -eq $launchWait) { return (& $emit 'refused' 'deadline-exhausted') }
+        $launch = Start-UtmApplication -Deadline $budget -LaunchWaitSeconds ([int]$launchWait) -RequireGuiSession -Confirm:$false -WhatIf:$false
+        $afterState = if (@($launch.UtmPid).Count -gt 0) { 'running' } else { 'unknown' }
+        $timedOut = ($launch.Outcome -eq 'not-observed')
+        switch ($launch.Outcome) {
+            'launched' {
+                & $addAction 'app-launch' 'absent' 'running' 'started' 'started' $launch.LaunchExitCode $false $launch.ElapsedMs
+                return (& $emit 'started' 'started')
+            }
+            'already-running' {
+                & $addAction 'app-launch' 'absent' 'running' 'already-running' 'already-running' $null $false $launch.ElapsedMs
+                return (& $emit 'already-running' 'already-running')
+            }
+            'launch-failed' {
+                & $addAction 'app-launch' 'absent' $afterState 'failed' 'start-failed' $launch.LaunchExitCode $false $launch.ElapsedMs
+                return (& $emit 'failed' 'start-failed')
+            }
+            'not-observed' {
+                & $addAction 'app-launch' 'absent' $afterState 'unknown' 'not-observed' $launch.LaunchExitCode $timedOut $launch.ElapsedMs
+                return (& $emit 'unknown' 'not-observed')
+            }
+            'deadline-exhausted' {
+                & $addAction 'app-launch' 'absent' 'absent' 'refused' 'deadline-exhausted' $null $false $launch.ElapsedMs
+                return (& $emit 'refused' 'deadline-exhausted')
+            }
+            default {
+                & $addAction 'app-launch' 'absent' $afterState 'refused' ([string]$launch.Reason) $null $false $launch.ElapsedMs
+                return (& $emit 'refused' ([string]$launch.Reason))
+            }
+        }
+    } catch {
+        Write-Verbose "Start-VirtualizationServiceIfStopped on host.macos.utm failed: $($_.Exception.Message)"
+        return (& $emit 'failed' 'start-failed')
+    }
 }
 
 # --- REGION: Write-UtmBundleConfiguration

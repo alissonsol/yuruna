@@ -132,7 +132,7 @@ only **mounts** what `networkStorage.*` already names -- it creates
 nothing on the NAS, so do the commands above first. A failed mount
 asks whether to stop or fall back to local shares; unattended,
 `storage.onFailure` decides (default `stop`). A lab cannot decline
-shared storage: the stash service and the pool intent store both need
+shared storage: the stash service and the pool configuration store both need
 it.
 
 <a id="42383647-0005"></a>
@@ -192,7 +192,7 @@ enrolls this host in the lab.
 **Guided path** -- `install/setup.ps1` does both lines, reading the
 rotating token from the aggregator's metrics endpoint -- no tile to
 copy -- and printing a copy-pasteable command if it could not. It
-also ensures the `default` pool exists and validates the intent store;
+also ensures the `default` pool exists and validates the configuration store;
 [pool-admin.md](pool-admin.md) covers manual administration. It does not turn on
 auto-enrollment ([B.5](#b5-start-the-pool-control-service)).
 
@@ -225,7 +225,7 @@ leave the runner cycling -- it serves the status dashboard at
 created `test/test.config.yml`, set `repositories.projectUrl` (if
 given) and `vmStart.cachingProxyIp`, and run this `Test-Config` gate;
 the [A.5](#a5-start-the-pool-control-service) enrollment also seeds
-`pool.enabled` and `pool.intentGitUrl`. `guestSequence` and `GH_TOKEN`
+`pool.enabled` and `pool.configurationGitUrl`. `guestSequence` and `GH_TOKEN`
 are never touched. It runs no cycles -- `Invoke-TestProject.ps1` and
 `Start-TestRunner.ps1` are left to you.
 
@@ -312,7 +312,7 @@ An interactive run writes the answers it *resolved* to
 `install/setup.answers.lab.yml`; feed that back with `-AnswerFile` to
 build the next beacon the same way. The only lab key is `lab.name` on
 top of the standalone set. The `default` pool is not a choice: every
-run creates it in the intent store when none is there, leaving an
+run creates it in the configuration store when none is there, leaving an
 existing one untouched.
 
 An unattended `storage.kind: local` run also needs
@@ -320,7 +320,7 @@ An unattended `storage.kind: local` run also needs
 `New-LocalLabStorage.ps1` runs as a child with its stdin closed, so it
 cannot be asked. An interactive run does not ask either: it takes the
 platform's convention and records that in the run log. On a beacon,
-storage failing ends the run, because the pool intent store and the
+storage failing ends the run, because the pool configuration store and the
 stash service both live on it.
 
 Parameters, re-run semantics, and what makes a run fail are shared
@@ -368,7 +368,7 @@ Durable network tiers ([pool-storage.md](pool-storage.md),
 [stash-guide.md](stash-guide.md)) are backed by two SMB3 shares --
 `yuruna.pool` and `yuruna.stash` -- on a NAS if you have one, otherwise
 on the machine hosting the shared services. `test/lab/New-Lab.ps1` creates
-the folders, the lab vault, and the seeded pool-intent repository in
+the folders, the lab vault, and the seeded pool-configuration repository in
 one idempotent step, run where the storage lives; commands:
 [A.2](#a2-create-lab-storage).
 
@@ -476,7 +476,7 @@ pwsh test/service/Start-PoolControlServiceVM.ps1
 ```
 
 Brings up the `yuruna-pool-control-service` VM -- operator UI + API for
-pool intent: create pools, add hosts, set each pool's repositories. Elevated on
+pool configuration: create pools, add hosts, set each pool's repositories. Elevated on
 Windows, unelevated on macOS. On a Wi-Fi macOS host it is built on UTM
 Shared NAT ([B.4](#b4-start-the-stash-service)) and forwarded -- peers
 open `http://<host-lan-ip>:8081/` (the per-service forwards never
@@ -491,7 +491,7 @@ table. Enroll this host with `test/lab/Set-LabToken.ps1 -LabToken <code>`
 (the "Lab token" tile value); the script fetches the shared
 internal authentication key into the host vault. `install/setup.ps1` does this
 for the beacon -- but **auto-enrollment stays off** until an
-`autoEnrollment` block names a target pool in the intent store's
+`autoEnrollment` block names a target pool in the configuration store's
 `pools.yml` *and* the daemon runs with `--auto-enroll`; until then, an
 enrolled host joins no pool on its own. Add `-HostSideProof` to run it
 directly on this host (UI at `http://<host>:8090/`, needs `go` +
@@ -688,8 +688,8 @@ Assume four hosts registered and green standalone
 ([B.7](#b7-each-additional-machine)), the pool NAS
 ([B.2](#b2-lab-storage-pool-and-stash-shares-ideally-on-a-nas)), and
 the pool-control-service VM
-([B.5](#b5-start-the-pool-control-service)). `<intent-url>` is the
-writable pool-intent git URL; every command that mutates intent takes
+([B.5](#b5-start-the-pool-control-service)). `<configuration-url>` is the
+writable pool-configuration git URL; every command that mutates configuration takes
 it.
 
 <a id="42383647-0015"></a>
@@ -700,7 +700,7 @@ Each pool runs one framework/project repo **pair**: a pooled member
 overrides its `repositories.*` URLs with the pool's pair for the cycle
 and runs that project's `test.runner.yml` plan. Two bodies of tests
 therefore mean two project repos -- or two branches or forks of one.
-`GH_TOKEN` is never stored in pool intent; it stays host-local.
+`GH_TOKEN` is never stored in pool configuration; it stays host-local.
 Nothing is registered up front: step 4 sets each pair directly on its
 pool.
 
@@ -709,8 +709,8 @@ pool.
 ### 2. Create both pools
 
 ```powershell
-pwsh test/pool/New-Pool.ps1 -PoolId poola -DisplayName 'Pool A' -IntentGitUrl <intent-url>
-pwsh test/pool/New-Pool.ps1 -PoolId poolb -DisplayName 'Pool B' -IntentGitUrl <intent-url>
+pwsh test/pool/New-Pool.ps1 -PoolId poola -DisplayName 'Pool A' -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/New-Pool.ps1 -PoolId poolb -DisplayName 'Pool B' -ConfigurationGitUrl <configuration-url>
 ```
 
 `-PoolId` is permanent -- `New-Pool.ps1` mints a stable `poolGuid` for
@@ -725,10 +725,10 @@ A host belongs to **at most one pool**, which is what makes the split
 meaningful. Each `-HostId` is that host's `runtime/host.uuid`:
 
 ```powershell
-pwsh test/pool/Add-HostToPool.ps1 -PoolId poola -HostId <host-1-uuid> -IntentGitUrl <intent-url>
-pwsh test/pool/Add-HostToPool.ps1 -PoolId poola -HostId <host-2-uuid> -IntentGitUrl <intent-url>
-pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-3-uuid> -IntentGitUrl <intent-url>
-pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -IntentGitUrl <intent-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poola -HostId <host-1-uuid> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poola -HostId <host-2-uuid> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-3-uuid> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -ConfigurationGitUrl <configuration-url>
 ```
 
 <a id="42383647-0018"></a>
@@ -736,8 +736,8 @@ pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -IntentGit
 ### 4. Set each pool's framework and project URLs
 
 ```powershell
-pwsh test/pool/Set-PoolRepository.ps1 -PoolId poola -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
-pwsh test/pool/Set-PoolRepository.ps1 -PoolId poolb -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId poola -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId poolb -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -ConfigurationGitUrl <configuration-url>
 ```
 
 From the pool-control UI, type the same two URLs into each pool's
@@ -752,37 +752,37 @@ its full plan, reporting under the pool.
 ### 5. Verify before the next cycle
 
 ```powershell
-pwsh test/pool/Test-PoolIntent.ps1 -IntentGitUrl <intent-url>          # schema-validates the intent files
-pwsh test/pool/Get-PoolStatus.ps1  -PoolId poola -IntentGitUrl <intent-url>
-pwsh test/pool/Get-PoolStatus.ps1  -PoolId poolb -IntentGitUrl <intent-url>
+pwsh test/pool/Test-PoolConfiguration.ps1 -ConfigurationGitUrl <configuration-url>          # schema-validates the configuration files
+pwsh test/pool/Get-PoolStatus.ps1  -PoolId poola -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Get-PoolStatus.ps1  -PoolId poolb -ConfigurationGitUrl <configuration-url>
 ```
 
-`Test-PoolIntent.ps1` also enforces the one-pool-per-host rule;
-`Get-PoolStatus.ps1` shows members, `desiredState`, and the pool's
+`Test-PoolConfiguration.ps1` also enforces the one-pool-per-host rule;
+`Get-PoolStatus.ps1` shows members, `configuredState`, and the pool's
 framework and project URLs. Neither probes the repo URLs -- a typo first
-surfaces when a member's next cycle clones. Each runner pulls intent at
+surfaces when a member's next cycle clones. Each runner pulls configuration at
 cycle start, so a change takes effect next cycle with no restart.
 
 <a id="42383647-001a"></a>
 
 ### 6. Operate the two pools independently
 
-`desiredState` is per pool, so one can be paused while the other keeps
+`configuredState` is per pool, so one can be paused while the other keeps
 cycling:
 
 ```powershell
-pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId poolb -State paused -IntentGitUrl <intent-url>
-pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId poolb -State run    -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolConfiguredState.ps1 -PoolId poolb -State paused -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Set-PoolConfiguredState.ps1 -PoolId poolb -State run    -ConfigurationGitUrl <configuration-url>
 ```
 
 To move a host from Pool A to Pool B, drain it first, let its current
 cycle finish, then remove and re-add:
 
 ```powershell
-pwsh test/pool/Set-PoolDesiredState.ps1  -PoolId poola -State drain  -IntentGitUrl <intent-url>
-pwsh test/pool/Remove-HostFromPool.ps1   -PoolId poola -HostId <host-2-uuid> -IntentGitUrl <intent-url>
-pwsh test/pool/Add-HostToPool.ps1        -PoolId poolb -HostId <host-2-uuid> -IntentGitUrl <intent-url>
-pwsh test/pool/Set-PoolDesiredState.ps1  -PoolId poola -State run    -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolConfiguredState.ps1  -PoolId poola -State drain  -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Remove-HostFromPool.ps1   -PoolId poola -HostId <host-2-uuid> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Add-HostToPool.ps1        -PoolId poolb -HostId <host-2-uuid> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Set-PoolConfiguredState.ps1  -PoolId poola -State run    -ConfigurationGitUrl <configuration-url>
 ```
 
 Draining stops the runner process on every Pool A member, so restart
@@ -796,6 +796,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42e93b58-71a4-4c60-b3d7-2f8a1e604c93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -142,19 +142,7 @@ Describe 'every caller' {
     }
 
     It 'leaves no unpiped sysadminctl -screenLock call anywhere in the tree' {
-        # The regression is easy to reintroduce, because the unpiped form is
-        # shorter and appears to work -- the password is accepted, it is merely
-        # also displayed.
-        #
-        # Invocations, read from the AST -- not matching lines. Comment-based
-        # help quotes the wrong form on purpose, and the copy-paste one-liner is
-        # a string literal, so a line scan reports both and the guard gets
-        # muted. A CommandAst is a thing that actually runs.
-        #
-        # The test for "piped" is structural: the invocation must not be the
-        # first element of its pipeline. Something ahead of it in the pipeline
-        # IS its stdin, which is the whole difference between a password that is
-        # fed in and one that a person types at an unmasked prompt.
+        # See https://yuruna.link/42e220c4-0014
         $suspects = [System.Collections.Generic.List[string]]::new()
         $files = Get-ChildItem -LiteralPath $script:RepoRootPath -Recurse -Include '*.ps1', '*.psm1' -File -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -notmatch '[\\/](project|dev-only)[\\/]' }

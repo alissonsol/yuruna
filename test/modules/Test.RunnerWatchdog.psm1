@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42547b68-a60f-4a35-be1d-21d02f08f7bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,11 +121,13 @@ function Start-Watchdog {
     # PreambleTimeoutSeconds needs no such suppression -- it is read directly
     # here (the collapse rule below), so PSSA sees the use.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'PollSeconds')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'CycleGeneration')]
     param(
         [Parameter(Mandatory)][int]$StepTimeoutSeconds,
         [Parameter(Mandatory)][string]$RuntimeDir,
         [Parameter(Mandatory)][int]$PollSeconds,
-        [Parameter()][int]$PreambleTimeoutSeconds = 600
+        [Parameter()][int]$PreambleTimeoutSeconds = 600,
+        [Parameter()][string]$CycleGeneration = ''
     )
     if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_f865490d58581482' -Arguments @{ runtimeDir = "$RuntimeDir"; stepTimeoutSeconds = "${StepTimeoutSeconds}"; preambleTimeoutSeconds = "${PreambleTimeoutSeconds}" }), 'Start-Job')) { return $null }
     $thresholdSeconds = $StepTimeoutSeconds
@@ -257,6 +259,29 @@ function Start-Watchdog {
                     # hunting through a cycle that never reached step 1.
                     $whereMsg = if ($phase) { "preamble phase '$phase' (bound ${preambleSeconds}s)" } else { "bound ${thresholdSeconds}s" }
                     Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s > $whereMsg; killing inner PID $innerPid and its descendants"
+                    # Record the decision while the armed identity is still proven.
+                    # A phase marker or old heartbeat alone cannot establish a kill.
+                    $killRecord = [ordered]@{
+                        schemaVersion = 1
+                        recordPath = 'runner.watchdog-kill.json'
+                        attemptGeneration = $using:CycleGeneration
+                        startedAtUtc = $innerStartUtc
+                        timestamp = [DateTime]::UtcNow.ToString('o')
+                        innerPid = $innerPid
+                        phase = [string]$phase
+                        failureClass = if ($phase) { 'preamble_stall' } else { 'wait_timeout' }
+                        description = "step heartbeat stale $([int]$age)s > ${effectiveThreshold}s; watchdog killing inner PID $innerPid"
+                        stepHeartbeatAgeSeconds = [int]$age
+                        timeoutSeconds = $effectiveThreshold
+                    }
+                    try {
+                        $killPath = Join-Path $runtimeDir 'runner.watchdog-kill.json'
+                        $killTemp = $killPath + '.' + [Guid]::NewGuid().ToString('n') + '.tmp'
+                        [IO.File]::WriteAllText($killTemp, ($killRecord | ConvertTo-Json -Depth 6))
+                        [IO.File]::Move($killTemp, $killPath, $true)
+                    } catch {
+                        Add-Content -LiteralPath $outerLog -Value "$([DateTime]::UtcNow.ToString('o')) [watchdog] kill evidence write failed: $($_.Exception.Message)"
+                    }
                     # Kill the whole tree, not just the inner pwsh: a wedged
                     # step usually has live children (console capture, OCR,
                     # ssh) that would otherwise orphan, keep handles open,

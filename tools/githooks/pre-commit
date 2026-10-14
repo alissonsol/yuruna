@@ -20,14 +20,16 @@
 # unique 42-prefixed GUID. It runs before the slow passes so a refusal costs
 # nothing.
 #
-# Four passes write rather than check: the Ubuntu workflow pass below refreshes
-# and stages runtime checksum pins; the fourth drafts translations for new
+# Five passes write rather than check: the Ubuntu workflow pass below refreshes
+# and stages runtime checksum pins; the zot pass after it qualifies a changed
+# zot pin, configuration or probe list by a live sync and stages the record of
+# that pass; the fourth drafts translations for new
 # English and stages them; the fifth regenerates the compiled message catalogs
 # and the runtime copies embedding them; the sixth regenerates the
 # translation-surface census when both checkouts are clean enough, and stages it.
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-# --- REGION: SBOM
+# --- REGION: run_sbom
 # See https://yuruna.link/sbom
 run_sbom() {
     sbom_generator="$repo_root/tools/Sync-Sbom.py"
@@ -76,7 +78,7 @@ fi
 workflow_generator="$repo_root/tools/Sync-GuestWorkflows.py"
 workflow_paths='VERSION tools/Sync-GuestWorkflows.py'
 workflow_outputs=''
-for workflow_name in update code n8n openclaw postgresql; do
+for workflow_name in update code k8s n8n openclaw postgresql; do
     workflow_paths="$workflow_paths guest/shared/ubuntu.$workflow_name.sh"
     for workflow_release in 24 26; do
         workflow_output="guest/ubuntu.server.$workflow_release/ubuntu.server.$workflow_release.$workflow_name.sh"
@@ -124,6 +126,59 @@ if ! git diff --cached --quiet -- $workflow_paths; then
             exit 1
         fi
         echo 'pre-commit: WARNING: regenerated and staged Ubuntu workflow checksum pins.' >&2
+    fi
+fi
+
+# zot release qualification. A zot release can accept the caching proxy's
+# configuration and still refuse every image the lab pulls, so a staged change
+# to the pinned release, its configuration or its probe images is proven by a
+# live sync before it is committed (feedback_zot-upgrade-needs-a-live-sync-test).
+# The offline --check settles every other seed edit in well under a second;
+# only a change to those inputs downloads the pinned release (once) and syncs.
+# A test that cannot run blocks the commit as firmly as one that fails: the
+# release gate refuses an unqualified pin either way, and finding out here is
+# cheaper. Python 3.8 or newer is required for this pass.
+zot_tool="$repo_root/tools/Test-ZotRelease.py"
+zot_paths='host/vmconfig/caching-proxy-service.base.user-data host/vmconfig/caching-proxy-service.zot-qualified.json'
+# shellcheck disable=SC2086 # fixed, space-free repository paths
+if ! git diff --cached --quiet -- $zot_paths; then
+    if [ ! -f "$zot_tool" ]; then
+        echo 'pre-commit: tools/Test-ZotRelease.py is missing; the caching-proxy seed cannot be checked for an unqualified zot release.' >&2
+        exit 1
+    fi
+    # The qualification reads the working tree, so it must match what is staged.
+    # shellcheck disable=SC2086 # fixed, space-free repository paths
+    if ! git diff --quiet -- $zot_paths; then
+        echo 'pre-commit: the caching-proxy seed or its zot qualification record has unstaged edits; stage or stash them so the zot release is qualified against what this commit carries.' >&2
+        exit 1
+    fi
+    zot_python=''
+    for zot_candidate in python3 python; do
+        if command -v "$zot_candidate" >/dev/null 2>&1 &&
+            "$zot_candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+            zot_python=$zot_candidate
+            break
+        fi
+    done
+    if [ -z "$zot_python" ]; then
+        echo 'pre-commit: Python 3.8 or newer is required to check the zot release the caching-proxy seed pins; the commit is blocked.' >&2
+        exit 1
+    fi
+    if ! "$zot_python" "$zot_tool" --check --quiet; then
+        zot_index=${GIT_INDEX_FILE:-index}
+        zot_index=${zot_index##*/}
+        zot_index=${zot_index##*\\}
+        case $zot_index in
+            next-index-*)
+                echo 'pre-commit: this partial commit changes what the zot release is qualified against; stage the seed and commit without path arguments so the hook can stage the qualification record.' >&2
+                exit 1 ;;
+        esac
+        echo 'pre-commit: qualifying the zot release with a live sync (tools/Test-ZotRelease.py) ...' >&2
+        if ! "$zot_python" "$zot_tool" --stage; then
+            echo 'pre-commit: the zot release did not qualify, or the qualification could not run (see above); the commit is blocked.' >&2
+            echo '            git commit --no-verify skips this check, but the release gate still refuses a pin without a passing record.' >&2
+            exit 1
+        fi
     fi
 fi
 
@@ -199,15 +254,15 @@ test/Start-ConfigService.ps1|test/service/Start-ConfigService.ps1
 test/Stop-ConfigService.ps1|test/service/Stop-ConfigService.ps1
 test/Start-StatusService.ps1|test/service/Start-StatusService.ps1
 test/Stop-StatusService.ps1|test/service/Stop-StatusService.ps1
-test/Set-PoolDesiredState.ps1|test/pool/Set-PoolDesiredState.ps1
+test/Set-PoolDesiredState.ps1|test/pool/Set-PoolConfiguredState.ps1
 test/Set-PoolTestSet.ps1|test/pool/Set-PoolRepository.ps1
 test/pool/Set-PoolTestSet.ps1|test/pool/Set-PoolRepository.ps1
-test/Test-PoolIntent.ps1|test/pool/Test-PoolIntent.ps1
+test/Test-PoolIntent.ps1|test/pool/Test-PoolConfiguration.ps1
 test/Sync-PoolDashboardOnProxy.ps1|test/pool/Sync-PoolDashboardOnProxy.ps1
 test/Test-TesseractOcr.ps1|test/check/Test-TesseractOcr.ps1
 test/Test-WinRtOcr.ps1|test/check/Test-WinRtOcr.ps1
 test/Add-HostToPool.ps1|test/pool/Add-HostToPool.ps1
-test/Get-PoolIntent.ps1|test/pool/Get-PoolIntent.ps1
+test/Get-PoolIntent.ps1|test/pool/Get-PoolConfiguration.ps1
 test/Get-PoolStatus.ps1|test/pool/Get-PoolStatus.ps1
 test/New-Pool.ps1|test/pool/New-Pool.ps1
 test/Remove-Pool.ps1|test/pool/Remove-Pool.ps1

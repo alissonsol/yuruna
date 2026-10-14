@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b151d1-856e-48cb-8f07-88010f773bcb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -448,7 +448,7 @@ Describe 'the transcript pointer is decided, not discovered' {
         $source = [IO.File]::ReadAllText((Join-Path (Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'service') 'Start-McpServer.ps1'))
         Assert-Match 'YURUNA_TRANSCRIPT_PATH' $source 'the server has to name the file it will read'
         # Any comparison against a transcript-shaped literal, however it is
-        # spelled. Pinning one formatting of the statement that used to be here
+        # spelled. Pinning one formatting of the statement
         # would let the same mistake back in written any other way.
         Assert-False ($source -match "(?i)-(match|like|imatch|contains)\s+[`"'][^`"'`\n]*transcript") `
             'no control flow may recognize the transcript by a word in the output'

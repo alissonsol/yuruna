@@ -66,15 +66,17 @@ workload:
     phase: before-cpu-restart
     description: "Capture clocks and CPU accounting before the processor restart"
 
-  - action: sshExec
-    command: "sudo poweroff"
-    allowFailure: true
+  # Requested and observed through the host driver; see the console variant.
+  - action: stopVm
+    timeoutSeconds: 120
+    forceOnTimeout: true
+    frameIntervalSeconds: 30
     description: "Power off after provisioning"
 
   # ARM64 Hyper-V provisions with one vCPU to avoid the measured intercept
   # storm, then returns to kubeadm's two-CPU minimum before later workloads.
   # Other hosts retain their configured processor count; startVm just restarts
-  # the guest after the same clean shutdown.
+  # the guest after the same host-observed shutdown.
   - action: startVm
     arm64HyperVProcessorCount: 2
     timeoutSeconds: 180

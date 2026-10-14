@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42ada8e8-3ff4-49bc-88b3-4e1d20a217de
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -180,7 +180,8 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -For
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $hostPort = $_statusSeed.Port
 
-# --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
+# --- REGION: Fetch caching-proxy-service CA cert
+# Embedded in the seed as base64.
 # See https://yuruna.link/4220a755-0015
 # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 # Without the embedded CA, a guest using the SSL-bump proxy fails curl
@@ -259,7 +260,7 @@ if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg 
 & qemu-img create -f qcow2 $diskImg 64G | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_919e5b9a9a611298'); exit 1 }
 
-# --- REGION: Create and configure the libvirt domain (virt-install)
+# --- REGION: Create and configure the libvirt domain
 # See https://yuruna.link/42d69dfa-0008
 $osVariant = Resolve-KvmOsVariant -Candidates $(if ($Release -eq '26') { @('ubuntu26.04', 'ubuntu24.04', 'ubuntu22.04') } else { @('ubuntu24.04', 'ubuntu22.04') })
 
@@ -269,7 +270,7 @@ if ($hostCores -lt 4) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
-# --- REGION: https://yuruna.link/42fa6f45-0015
+# See https://yuruna.link/42fa6f45-0015
 # Reserve at least one host thread while applying the shared guest core policy.
 $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 # Cascaded variables.cores overrules the default; clamp to the host cores so an
@@ -311,12 +312,7 @@ $installArgs = @(
     '--cdrom',   $baseImageFile,
     '--disk',    "path=$seedImg,device=cdrom,readonly=on",
     '--network', "network=$networkName,model=virtio,mac=$YurunaGuestMac",
-    # Pinned rather than left to the default. virt-install adds this channel on
-    # its own for this argument shape today, so the line changes nothing now --
-    # but qemu-guest-agent in the seed is useless without it, and a future
-    # default change would remove the host's only on-demand way to ask this
-    # guest for its address, leaving discovery on a decaying ARP cache with no
-    # sign of what broke.
+    # See https://yuruna.link/42e220c4-0004
     '--channel', 'unix,target_type=virtio,name=org.qemu.guest_agent.0',
     '--graphics','vnc,listen=127.0.0.1',
     # --- REGION: https://yuruna.link/42e220c4-0004

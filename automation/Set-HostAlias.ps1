@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42de6dd0-d68a-40b1-a0d0-b2d21c4caf3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -257,7 +257,7 @@ process {
     # Genuine idempotency: if the result equals what is already on disk, make
     # no change (no rewrite, no mtime churn, no needless line-ending flips).
     if (($original -join "`n") -eq ($final -join "`n")) {
-        Write-Verbose "Set-HostAlias: '$name' already in the desired state; nothing to do."
+        Write-Verbose "Set-HostAlias: '$name' already in the configured state; nothing to do."
         return
     }
 

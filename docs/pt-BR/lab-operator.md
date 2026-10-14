@@ -136,7 +136,7 @@ comandos acima primeiro. Uma montagem que falha pergunta se deve parar
 ou recorrer a compartilhamentos locais; de forma não assistida,
 `storage.onFailure` decide (padrão `stop`). Um laboratório não pode
 recusar o armazenamento compartilhado: o serviço stash e o
-armazenamento de intenção do grupo precisam dele.
+armazenamento de configuração do grupo precisam dele.
 
 <a id="42383647-0005"></a>
 
@@ -198,7 +198,7 @@ pwsh test/lab/Set-LabToken.ps1 -LabToken <code>
 token rotativo do endpoint de métricas do agregador -- sem bloco para
 copiar -- e imprimindo um comando pronto para copiar e colar se não
 conseguir. Ele também garante a existência do grupo `default` e valida o
-armazenamento de intenção; [pool-admin.md](../pool-admin.md) cobre a
+armazenamento de configuração; [pool-admin.md](../pool-admin.md) cobre a
 administração manual. Ele não liga a inscrição automática
 ([B.5](#b5-iniciar-o-serviço-pool-control)).
 
@@ -233,7 +233,7 @@ inscreveu. Corrija todo FAIL do `Test-Config`; depure o
 informado) e `vmStart.cachingProxyIp` e executou esta etapa de
 validação do `Test-Config`; a inscrição de
 [A.5](#a5-iniciar-o-serviço-pool-control) também semeia `pool.enabled`
-e `pool.intentGitUrl`. `guestSequence` e `GH_TOKEN` nunca são tocados.
+e `pool.configurationGitUrl`. `guestSequence` e `GH_TOKEN` nunca são tocados.
 Ele não executa ciclos -- `Invoke-TestProject.ps1` e
 `Start-TestRunner.ps1` ficam com você.
 
@@ -325,7 +325,7 @@ Uma execução interativa grava as respostas que ela *resolveu* em
 `install/setup.answers.lab.yml`; devolva esse arquivo com `-AnswerFile`
 para montar o próximo beacon do mesmo jeito. A única chave de
 laboratório é `lab.name`, acima do conjunto autônomo. O grupo `default`
-não é uma escolha: toda execução o cria no armazenamento de intenção
+não é uma escolha: toda execução o cria no armazenamento de configuração
 quando não há nenhum, deixando um existente intacto.
 
 Uma execução não assistida com `storage.kind: local` também precisa de
@@ -334,7 +334,7 @@ Uma execução não assistida com `storage.kind: local` também precisa de
 então não há como perguntar. Uma execução interativa também não
 pergunta: ela adota a convenção da plataforma e registra isso no log da
 execução. Em um beacon, uma falha de armazenamento encerra a execução,
-porque o armazenamento de intenção do grupo e o serviço stash ficam
+porque o armazenamento de configuração do grupo e o serviço stash ficam
 nele.
 
 Parâmetros, semântica de reexecução e o que faz uma execução falhar são
@@ -390,7 +390,7 @@ As camadas de rede duráveis ([pool-storage.md](../pool-storage.md),
 compartilhamentos SMB3 -- `yuruna.pool` e `yuruna.stash` -- em um NAS
 se você tiver um, senão na máquina que hospeda os serviços
 compartilhados. O `test/lab/New-Lab.ps1` cria as pastas, o cofre do
-laboratório e o repositório semeado de intenção do grupo em uma única
+laboratório e o repositório semeado de configuração do grupo em uma única
 etapa idempotente, executada onde o armazenamento fica; comandos:
 [A.2](#a2-criar-o-armazenamento-do-laboratório).
 
@@ -510,7 +510,7 @@ pwsh test/service/Start-PoolControlServiceVM.ps1
 ```
 
 Sobe a VM `yuruna-pool-control-service` -- interface do operador + API
-para a intenção do grupo: criar grupos, adicionar hospedeiros, definir
+para a configuração do grupo: criar grupos, adicionar hospedeiros, definir
 os repositórios de cada grupo. Elevado no Windows, sem elevação no macOS. Em um
 hospedeiro macOS com Wi-Fi ela é compilada em UTM Shared NAT
 ([B.4](#b4-iniciar-o-serviço-stash)) e encaminhada -- os pares abrem
@@ -529,7 +529,7 @@ token"); o script busca a chave de autenticação interna compartilhada e
 a coloca no cofre do hospedeiro. O `install/setup.ps1` faz isso para o beacon
 -- mas **a inscrição automática continua desligada** até que um bloco
 `autoEnrollment` nomeie um grupo de destino no `pools.yml` do
-armazenamento de intenção *e* o daemon rode com `--auto-enroll`; até
+armazenamento de configuração *e* o daemon rode com `--auto-enroll`; até
 lá, um hospedeiro inscrito não entra em nenhum grupo por conta própria.
 Adicione `-HostSideProof` para rodá-lo diretamente neste hospedeiro
 (interface em `http://<host>:8090/`, precisa de `go` + `pwsh`).
@@ -742,8 +742,8 @@ Suponha quatro hospedeiros registrados e verdes de forma autônoma
 ([B.7](#b7-cada-máquina-adicional)), o NAS do grupo
 ([B.2](#b2-armazenamento-do-laboratório-compartilhamentos-pool-e-stash-idealmente-em-um-nas))
 e a VM do serviço pool-control
-([B.5](#b5-iniciar-o-serviço-pool-control)). `<intent-url>` é a URL git
-gravável da intenção do grupo; todo comando que altera a intenção a
+([B.5](#b5-iniciar-o-serviço-pool-control)). `<configuration-url>` é a URL git
+gravável da configuração do grupo; todo comando que altera a configuração a
 recebe.
 
 <a id="42383647-0015"></a>
@@ -755,7 +755,7 @@ projeto: um membro em grupo substitui as URLs de `repositories.*` pelo
 par do grupo durante o ciclo e executa o plano `test.runner.yml` desse
 projeto. Dois corpos de testes, portanto, significam dois
 repositórios de projeto -- ou dois branches ou forks de um só. O
-`GH_TOKEN` nunca é guardado na intenção do grupo; ele permanece local ao
+`GH_TOKEN` nunca é guardado na configuração do grupo; ele permanece local ao
 hospedeiro. Nada é registrado de antemão: o passo 4 define cada par
 diretamente no seu grupo.
 
@@ -766,8 +766,8 @@ diretamente no seu grupo.
 ### 2. Criar os dois grupos
 
 ```powershell
-pwsh test/pool/New-Pool.ps1 -PoolId poola -DisplayName 'Pool A' -IntentGitUrl <intent-url>
-pwsh test/pool/New-Pool.ps1 -PoolId poolb -DisplayName 'Pool B' -IntentGitUrl <intent-url>
+pwsh test/pool/New-Pool.ps1 -PoolId poola -DisplayName 'Pool A' -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/New-Pool.ps1 -PoolId poolb -DisplayName 'Pool B' -ConfigurationGitUrl <configuration-url>
 ```
 
 `-PoolId` é permanente -- o `New-Pool.ps1` cunha um `poolGuid` estável
@@ -782,10 +782,10 @@ Um hospedeiro pertence a **no máximo um grupo**, e é isso que torna a divisão
 significativa. Cada `-HostId` é o `runtime/host.uuid` daquele hospedeiro:
 
 ```powershell
-pwsh test/pool/Add-HostToPool.ps1 -PoolId poola -HostId <host-1-uuid> -IntentGitUrl <intent-url>
-pwsh test/pool/Add-HostToPool.ps1 -PoolId poola -HostId <host-2-uuid> -IntentGitUrl <intent-url>
-pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-3-uuid> -IntentGitUrl <intent-url>
-pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -IntentGitUrl <intent-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poola -HostId <host-1-uuid> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poola -HostId <host-2-uuid> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-3-uuid> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -ConfigurationGitUrl <configuration-url>
 ```
 
 <a id="42383647-0018"></a>
@@ -795,8 +795,8 @@ pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -IntentGit
 ### 4. Definir as URLs de framework e de projeto de cada grupo
 
 ```powershell
-pwsh test/pool/Set-PoolRepository.ps1 -PoolId poola -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
-pwsh test/pool/Set-PoolRepository.ps1 -PoolId poolb -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId poola -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Set-PoolRepository.ps1 -PoolId poolb -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -ConfigurationGitUrl <configuration-url>
 ```
 
 Na interface do pool-control, digite as mesmas duas URLs nas duas caixas
@@ -811,16 +811,16 @@ dele, reportando sob o grupo.
 ### 5. Verificar antes do próximo ciclo
 
 ```powershell
-pwsh test/pool/Test-PoolIntent.ps1 -IntentGitUrl <intent-url>          # schema-validates the intent files
-pwsh test/pool/Get-PoolStatus.ps1  -PoolId poola -IntentGitUrl <intent-url>
-pwsh test/pool/Get-PoolStatus.ps1  -PoolId poolb -IntentGitUrl <intent-url>
+pwsh test/pool/Test-PoolConfiguration.ps1 -ConfigurationGitUrl <configuration-url>          # schema-validates the configuration files
+pwsh test/pool/Get-PoolStatus.ps1  -PoolId poola -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Get-PoolStatus.ps1  -PoolId poolb -ConfigurationGitUrl <configuration-url>
 ```
 
-O `Test-PoolIntent.ps1` também impõe a regra de um grupo por hospedeiro; o
-`Get-PoolStatus.ps1` mostra os membros, o `desiredState` e as URLs de
+O `Test-PoolConfiguration.ps1` também impõe a regra de um grupo por hospedeiro; o
+`Get-PoolStatus.ps1` mostra os membros, o `configuredState` e as URLs de
 framework e de projeto do grupo. Nenhum dos dois sonda as URLs dos repositórios -- um
 erro de digitação só aparece quando o próximo ciclo de um membro clona.
-Cada executor puxa a intenção no início do ciclo, então uma mudança
+Cada executor puxa a configuração no início do ciclo, então uma mudança
 entra em vigor no ciclo seguinte, sem reiniciar nada.
 
 <a id="42383647-001a"></a>
@@ -829,22 +829,22 @@ entra em vigor no ciclo seguinte, sem reiniciar nada.
 
 ### 6. Operar os dois grupos de forma independente
 
-`desiredState` é por grupo, então um pode ficar pausado enquanto o outro
+`configuredState` é por grupo, então um pode ficar pausado enquanto o outro
 continua ciclando:
 
 ```powershell
-pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId poolb -State paused -IntentGitUrl <intent-url>
-pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId poolb -State run    -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolConfiguredState.ps1 -PoolId poolb -State paused -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Set-PoolConfiguredState.ps1 -PoolId poolb -State run    -ConfigurationGitUrl <configuration-url>
 ```
 
 Para mover um hospedeiro do Pool A para o Pool B, drene-o primeiro, deixe o
 ciclo atual terminar, depois remova e adicione de novo:
 
 ```powershell
-pwsh test/pool/Set-PoolDesiredState.ps1  -PoolId poola -State drain  -IntentGitUrl <intent-url>
-pwsh test/pool/Remove-HostFromPool.ps1   -PoolId poola -HostId <host-2-uuid> -IntentGitUrl <intent-url>
-pwsh test/pool/Add-HostToPool.ps1        -PoolId poolb -HostId <host-2-uuid> -IntentGitUrl <intent-url>
-pwsh test/pool/Set-PoolDesiredState.ps1  -PoolId poola -State run    -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolConfiguredState.ps1  -PoolId poola -State drain  -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Remove-HostFromPool.ps1   -PoolId poola -HostId <host-2-uuid> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Add-HostToPool.ps1        -PoolId poolb -HostId <host-2-uuid> -ConfigurationGitUrl <configuration-url>
+pwsh test/pool/Set-PoolConfiguredState.ps1  -PoolId poola -State run    -ConfigurationGitUrl <configuration-url>
 ```
 
 A drenagem interrompe o processo do executor em todos os membros do Pool A; então,
@@ -858,6 +858,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.11.1
+Última revisão: 2026.10.14
 
 Voltar para [Yuruna](../../README.md)

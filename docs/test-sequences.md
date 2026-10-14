@@ -610,6 +610,7 @@ Type, wait, press Enter.
 | `sensitive` | boolean | |
 | `charDelayMs` | number | Default `vmCommunication.charDelayMs` (`10` ms). |
 | `delaySeconds` | number | Default `2`. |
+| `acknowledgeWithinSeconds` | integer | Optional. After Enter, capture console frames until the screen differs from the frame taken before typing. The host reports keystrokes as delivered even when the guest has stopped servicing its keyboard; an unchanged console within this window fails the step as `input_lost` and records the guest as silent, instead of letting a later step fail under an unrelated label. `0` (default) skips the check. |
 
 <a id="428e4df6-0017"></a>
 
@@ -728,6 +729,18 @@ console flood, or a password-prompt failure. Keep credential-changing steps
 outside such a retry block so a partially completed password transaction is
 never replayed after a power cut.
 
+When the timed-out wait's OCR tail still shows the live installer's
+`subiquity/` event lines, the install never finished, and the restart puts the
+installer DVD back at the head of the firmware boot order before starting the
+guest. Curtin registers the target disk in the guest's UEFI boot entries ahead
+of the DVD when it installs the bootloader, so without that step a wedge
+between the bootloader and the late-commands would boot a target that lacks
+the changes its late-commands make: the first login would skip the forced password change
+and the sequence would fail later on a missing `Current password` prompt. With
+the DVD first, the guest reinstalls and `stepsAfterVmRestart` answers the
+installer confirmation again. The restart fails closed when the host cannot
+select exactly one installer DVD.
+
 `arm64HyperVInstallerBoot` permits at most two attempts of a single
 `waitForAndEnter` step answering `yes` to `Continue with autoinstall?`.
 That step also accepts visible `subiquity/Install/install/configure_apt` and
@@ -796,6 +809,37 @@ one vCPU for the serial installer/update path, two for kubeadm afterward.
 |---|---|---|
 | `timeoutSeconds` | integer | Time to wait for the VM to become stopped; default `120`. |
 | `arm64HyperVProcessorCount` | integer or string | Optional positive target; supports variable substitution. |
+| `frameIntervalSeconds` | integer | While waiting for the stopped state, capture a console frame with its OCR sidecar this often; default `30`, `0` disables. |
+
+When the VM never reports stopped, the step fails as `wait_timeout` rather than
+`provisioning_failure`: nothing was started. The record's `causeDetail` carries
+the state the host observed and the seconds waited (`vmState`,
+`vmStateWaitedSeconds`, `vmStateRequestedAtUtc`), the console frame and OCR
+text at that moment, and the host sampler's livelock verdict, and the guest is
+recorded as silent (`firstGuestSilenceUtc`). Precede it with `stopVm` so the
+shutdown itself is requested and observed through the host.
+
+<a id="428e4df6-003b"></a>
+
+### stopVm
+
+Request a guest shutdown through the host driver and wait for the VM to report
+stopped. This replaces typing a power-off command into the console: a guest
+that has stopped servicing its keyboard reports typed keys as delivered, and the
+failure would then surface one step later under a start label. The request is
+asynchronous on every provider; the step polls the host state and captures a
+console frame at each interval while it waits.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `timeoutSeconds` | integer | Time to wait for the stopped state after the request; default `120`. |
+| `forceOnTimeout` | boolean | When the guest ignores the request: record the console frame, OCR text, hypervisor counters, and a `degradation` event, then force the VM off and continue. Default `false`, which fails the step with the same evidence. |
+| `frameIntervalSeconds` | integer | Console frame cadence while waiting; default `30`, `0` disables. |
+
+A VM already stopped passes at once. A VM that is absent, or whose state the
+host cannot read, fails. The forced path clears the step's own failure signal
+so a later failure is not misattributed to this wait; the evidence and the
+`firstGuestSilenceUtc` marker remain.
 
 <a id="428e4df6-001d"></a>
 
@@ -1465,6 +1509,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

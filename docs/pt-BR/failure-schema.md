@@ -122,8 +122,9 @@ Eles aparecem em registros **tanto** de etapa quanto de falha do mecanismo (uma 
 | `cycleFolder` | Identidade estável do ciclo (apenas falhas de etapa) -- o mesmo valor registrado pelo fluxo NDJSON, para que este arquivo possa ser associado ao fluxo de eventos e resolvido para a pasta no disco. |
 | `failureScreenshotPath` / `failureOcrPath` | Nomes relativos ao diretório do ciclo das evidências de tela desta falha (apenas falhas de etapa). **Ausentes** a menos que o artefato exista e tenha sido gravado por último depois que a etapa que falhou começou: ambos são arquivos persistentes por VM que apenas os verbos de leitura de tela regravam, portanto uma falha em um verbo que não lê texto apontaria, de outra forma, para a tela de uma etapa anterior. Um leitor segue esses ponteiros; nada os audita, portanto um nome presente é uma afirmação que o registro precisa conseguir sustentar. |
 | `staleEvidence` | Cada artefato removido dos dois ponteiros acima, identificado com quantos segundos antes da etapa que falhou ele foi gravado por último; `[]` quando não houve nenhum. O arquivo continua na pasta do ciclo com esse nome, portanto evidências de uma etapa anterior continuam localizáveis enquanto os ponteiros permanecem confiáveis -- e um ponteiro ausente nunca é interpretado como "não existe nenhuma evidência de tela", que é um fato diferente com uma próxima ação diferente. |
-| `causeDetail` | Apenas registros de etapa: `{ ocrTail, patternsSought }` -- o texto OCR mais recente na tela (cauda limitada, <=1200 caracteres) e os padrões procurados pela espera no ponto de falha. Permite que um consumidor veja a causa em tempo de execução por trás de uma `failureClass` estática do verbo. Espelhado sem aninhamento no evento como `causeOcrTail` / `causePatternsSought`. `patternsSought` é registrado em toda espera que expira, inclusive quando o console nunca mostrou texto legível. Também contém `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds` e `pauseReleasedAtUtc` (abaixo). |
+| `causeDetail` | Apenas registros de etapa: `{ ocrTail, patternsSought }` -- o texto OCR mais recente na tela (cauda limitada, <=1200 caracteres) e os padrões procurados pela espera no ponto de falha. Permite que um consumidor veja a causa em tempo de execução por trás de uma `failureClass` estática do verbo. Espelhado sem aninhamento no evento como `causeOcrTail` / `causePatternsSought`. `patternsSought` é registrado em toda espera que expira, inclusive quando o console nunca mostrou texto legível. Também contém `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds`, `pauseReleasedAtUtc`, `vmState`, `vmStateWaitedSeconds`, `vmStateRequestedAtUtc`, `firstGuestSilenceUtc` e `firstGuestSilenceSource` (abaixo). |
 | `crash` | Apenas registros de falha do mecanismo: `{ error, origin, stack }`. |
+| `dependencyFailures` | Evidências opcionais de infraestrutura para serviços do laboratório indisponíveis. As entradas da barreira de saúde do laboratório incluem a área, os endereços tentados e os últimos endereços conhecidos, o último êxito, detalhes e o resultado da descoberta no grupo. As entradas da verificação prévia do stash incluem a área, o endereço, o endpoint, a origem, o resultado, detalhes e a tentativa de repetição. As respostas HTTP de descoberta são preservadas para diferenciar um registro ausente de um serviço inacessível. Espelhado no evento como `dependencyFailures`. |
 | `hostMemory` | Apenas registros de infraestrutura, e somente quando o driver do hospedeiro conseguiu medir a máquina: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A memória de inicialização de uma VM é cobrada do limite de confirmação do sistema -- memória física mais o tamanho atual do arquivo de paginação --, não da memória física livre; por isso, uma recusa de provisionamento é explicada pelos valores de confirmação enquanto a memória física livre pode estar em seu máximo nesse mesmo instante. **Ausente** quando nada foi medido, nunca preenchido com zeros: um bloco zerado indica uma máquina que foi medida e estava vazia, que é um fato diferente com uma próxima ação diferente. Espelhado sem aninhamento no evento como `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
 
 <a id="42820e91-0006"></a>
@@ -144,6 +145,8 @@ Eles aparecem em registros **tanto** de etapa quanto de falha do mecanismo (uma 
 | `progressAdvisory` | Observações independentes: `outputStaticSeconds`, `heartbeatAgeSeconds`, capacidade de resposta SSH e um veredito consultivo. Pelo menos dois sinais sustentados produzem `progress-suspect`; medições ausentes continuam como null/unavailable. A saída também é observada em esperas restritas à cauda, sem habilitar seus sinais de recuperação desativados. `automaticRecoveryAllowed` é sempre false. |
 | `pauseBeforeStepSeconds` | Segundos de uma suspensão solicitada pelo operador, quando uma delas foi liberada antes da etapa que falhou. A barreira de pausa suspende o executor, não o convidado, portanto um prompt que o convidado imprimiu uma vez durante a suspensão já saiu da tela que a etapa retomada precisa ler -- o que parece idêntico a um prompt que nunca foi impresso. `0` quando não houve suspensão. |
 | `pauseReleasedAtUtc` | Quando essa suspensão terminou, para que possa ser comparada ao início da própria etapa. `''` quando não houve suspensão. |
+| `vmState` / `vmStateWaitedSeconds` / `vmStateRequestedAtUtc` | Definidos por `stopVm` e `startVm` quando o convidado nunca chegou ao estado parado: o estado que o hospedeiro informou quando a espera desistiu, quanto tempo ela esperou e quando o desligamento foi solicitado. A classe passa a ser `wait_timeout`, e o evento carrega `causeVmState` e `causeVmStateWaitedSeconds`. `''` e `0` nos demais casos. |
+| `firstGuestSilenceUtc` / `firstGuestSilenceSource` | O primeiro momento na sequência atual em que o convidado parou de responder, e o mecanismo que percebeu isso: um transporte SSH interrompido no meio de um comando, uma entrada digitada que o console nunca reconheceu, um diagnóstico que nenhum degrau conseguiu alcançar ou uma solicitação de desligamento que o convidado ignorou. Definido uma vez por sequência pelo primeiro observador e nunca limpo por uma etapa posterior, para que o registro nomeie o primeiro sintoma e não a etapa que finalmente desistiu. `''` quando nada observou um silêncio. |
 
 A gravação é atômica (arquivo temporário + renomeação por `Write-YurunaStateFile`), para que um
 remediador ou o serviço de status nunca observe um registro truncado.
@@ -434,6 +437,15 @@ permanente: a barreira remove a suspensão e deixa a etapa executar para que fal
 causa. `/control/start-cycle` também a limpa. E, em `maxHoldAttempts` -- limitado
 a **999** compilado, cerca de dezesseis horas no limite do backoff --, a barreira registra
 `lab_dependency_down` e o ciclo termina como qualquer falha grave de infraestrutura.
+
+As sondagens de saúde concluídas e as consultas durante a pausa do operador
+atualizam `runner.stepHeartbeat`, permitindo que uma suspensão ativa ultrapasse
+o tempo limite normal de uma etapa. Uma sondagem bloqueada ou uma suspensão
+abandonada não atualiza esse arquivo e continua sujeita ao encerramento pelo
+watchdog. Ao esgotar as tentativas, a barreira preserva os endereços e os detalhes
+de descoberta do serviço indisponível em `context.dependencyFailures`; as falhas
+da verificação prévia do stash em processos filhos usam as mesmas evidências
+classificadas em vez de uma falha `unknown` sem explicação.
 
 Três eventos seguem pelo fluxo NDJSON: `lab_health_change` (com `fromVerdict` /
 `toVerdict` / `areas` / `armed`, e `attempts` + `heldSeconds` na recuperação),
@@ -921,7 +933,7 @@ como a execução termina.
 | `exitCode` | O código de saída com que o ponto de entrada (ou, para o executor, o ciclo) terminou. |
 | `failureClass` | Vazio, uma [classe de falha](#why-each-infra-failure-class-exists) da taxonomia compartilhada, ou uma classe de falha do executor (abaixo). |
 | `fingerprint` | `fp1-` mais 16 caracteres hexadecimais: o SHA-256 da classe de falha, etapa, nome de sequência e verbo da ação, cada um sem espaços nas extremidades e convertido para minúsculas. Contagens, carimbos de data/hora, nomes de VM e endereços nunca são entradas, portanto a mesma falha tem a mesma impressão digital no próximo ciclo e depois de uma reinicialização. Vazio em uma aprovação ou em uma falha sem classe. |
-| `stage` | A etapa de uma falha de infraestrutura (`ProjectClone`, `FrameworkPull`, `VmAdmission`, `CycleOutcome`, `CycleStart`, `CycleSpawn`, `PoolStorage`), ou vazia. |
+| `stage` | A etapa de uma falha de infraestrutura (`ConfigGate`, `ProjectClone`, `FrameworkPull`, `VmAdmission`, `CycleOutcome`, `CycleStart`, `CycleSpawn`, `PoolStorage`), ou vazia. |
 | `reason` | Texto curto, com informações sensíveis ocultadas (credenciais em URLs, pares no estilo `password=`, tokens opacos longos) e cortado em 300 caracteres. |
 | `evidence` | Ponteiros: `{ kind: file\|record\|event\|command, ref, note }`, por exemplo, o caminho de `last_failure.json` ou o registro de resultado rejeitado. |
 | `steps` | As etapas compartilhadas realizadas pela execução (`checkout`, `admission`, `replay`, `cycle`), cada uma `{ step, ok, failureClass, reason }`. |
@@ -943,13 +955,34 @@ pausa normal de falha, quando o operador intervém.
 
 ### Classes de falha do executor
 
-Seis classes descrevem o executor, em vez de uma etapa de sequência. Elas não estão na
-taxonomia compartilhada e não têm manipulador do despachante: `outcome_unrecorded` (um ciclo não deixou
-registro de resultado utilizável), `vm_admission_occupied` e `vm_admission_unknown` (a
-verificação de início do ciclo recusou), `preamble_stall` e `cycle_killed` (o watchdog
-encerrou o processo interno), e `cycle_spawn_failed` (o processo do ciclo não pôde ser
-iniciado). Elas aparecem em `lastFailure.failureClass` de `status.json` e em
-`failureClass` de um resultado.
+Oito entradas de `RunnerFaultClassEnum` descrevem o executor, em vez de uma
+etapa de sequência. Elas ficam fora da taxonomia compartilhada e não têm
+manipulador do despachante:
+
+| Classe | Significado |
+|---|---|
+| `config_gate_failed` | A validação da configuração recusou o início de um ciclo; uma validação que falhou é diferente de um validador bloqueado. |
+| `inner_exited` | O processo interno terminou inesperadamente, sem evidências correspondentes da barreira de configuração ou do watchdog. |
+| `outcome_unrecorded` | Um ciclo não deixou um registro de resultado utilizável. |
+| `vm_admission_occupied` | A verificação de admissão no início do ciclo encontrou um hospedeiro ocupado. |
+| `vm_admission_unknown` | A verificação de admissão no início do ciclo não conseguiu determinar se o hospedeiro estava disponível. |
+| `preamble_stall` | O watchdog encerrou o processo interno depois que seu heartbeat expirou durante uma fase identificada do preâmbulo. |
+| `cycle_killed` | A classificação legada para um ciclo interrompido abruptamente ou abortado, inclusive um processo de ciclo que terminou antes de informar um resultado. |
+| `cycle_spawn_failed` | O processo do ciclo não pôde ser iniciado. |
+
+Um encerramento pelo watchdog durante um ciclo ativo usa `wait_timeout` da
+taxonomia compartilhada. `cycle_killed` não comprova que o watchdog encerrou um
+processo; o watchdog registra sua própria decisão como `preamble_stall` ou
+`wait_timeout`.
+
+Para uma tentativa que ainda não concluiu um ciclo, a falha atual aparece em
+`runnerFault.failureClass` de `status.json`, junto com a identidade da tentativa,
+seus tempos, o commit do framework e os ponteiros de evidências. Uma falha de uma
+nova tentativa preserva o veredito, o `lastFailure` e o histórico do ciclo
+concluído anteriormente. Se a mesma tentativa iniciou um ciclo que ainda está
+em execução, o executor marca esse ciclo como falho e preenche um `lastFailure`
+e uma linha do histórico ausentes. As classes de falha do executor também podem
+aparecer em `failureClass` de um resultado tipado.
 
 <a id="42820e91-0022"></a>
 
@@ -1070,6 +1103,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Voltar para [Yuruna](../../README.md)

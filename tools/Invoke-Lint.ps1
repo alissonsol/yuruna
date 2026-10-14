@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42bd51d4-c3b9-4fa3-ae75-af2ab0905275
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,10 +42,13 @@
     can corrupt the analyzer's shared command metadata. Other findings stay
     intact, and an unsuccessful confirmation fails the scan.
 .PARAMETER Path
-    Optional literal repo-relative PowerShell file or directory to scan (e.g.
-    'test/modules/Test.Locale.psm1' or 'test/modules'). Leading './' and either
-    slash style are accepted. An explicit scope with no tracked/new,
-    non-ignored PowerShell source fails. Default: the whole repo.
+    Optional PowerShell file or directory to scan: repository-relative (e.g.
+    'test/modules/Test.Locale.psm1' or 'test/modules'), or an absolute path inside
+    or outside this repository. Leading './' and either slash style are accepted.
+    An absolute path outside the repository is listed with the same git selector
+    inside its own worktree, or every file below it when no worktree encloses it.
+    An explicit scope with no tracked/new, non-ignored PowerShell source fails.
+    Default: the whole repo.
 .PARAMETER Quiet
     Print only the summary line, not each finding.
 .EXAMPLE
@@ -72,6 +75,7 @@ Import-Module PSScriptAnalyzer
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Settings = Join-Path $RepoRoot 'PSScriptAnalyzerSettings.psd1'
+Import-Module (Join-Path $PSScriptRoot 'Gate.Scope.psm1') -Force -DisableNameChecking
 
 # PSScriptAnalyzer occasionally poisons its process-wide state and throws a
 # NullReferenceException for a file it analyzes cleanly in a fresh process.
@@ -171,7 +175,7 @@ function Confirm-LintCommandBindingFinding {
 if ($AnalyzerBatchFile) {
     $batch = @(Get-Content -LiteralPath $AnalyzerBatchFile | Where-Object { $_ })
     $payload = foreach ($relative in $batch) {
-        $absolute = Join-Path $RepoRoot $relative
+        $absolute = if ([IO.Path]::IsPathRooted($relative)) { $relative } else { Join-Path $RepoRoot $relative }
         # Invoke-ScriptAnalyzer intermittently throws a NullReferenceException on
         # a file it analyzes cleanly in isolation -- the fault depends on the
         # analyzer state left by files scanned earlier in the same session, so it
@@ -230,49 +234,6 @@ function Test-IsGeneratedCatalogBomConflict {
         $normalized -cmatch '^globalization/generated/powershell/[^/]+\.psd1$'
 }
 
-# --- REGION: ConvertTo-LintScope
-function ConvertTo-LintScope {
-    <#
-    .SYNOPSIS
-        Normalize a literal repository-relative file or directory scope.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$Value)
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        throw 'An explicit lint scope must name a repository-relative file or directory.'
-    }
-    $normalized = $Value -replace '\\', '/'
-    if ($normalized.StartsWith('/', [StringComparison]::Ordinal) -or
-        $normalized -match '^[A-Za-z]:') {
-        throw "Lint scope must be repository-relative: '$Value'."
-    }
-    $segments = @($normalized -split '/' | Where-Object { $_ -and $_ -cne '.' })
-    if ($segments -contains '..') {
-        throw "Lint scope cannot traverse parent directories: '$Value'."
-    }
-    return ($segments -join '/')
-}
-
-# --- REGION: Test-LintPathInScope
-function Test-LintPathInScope {
-    <#
-    .SYNOPSIS
-        Match one exact file or descendants of one directory, not sibling prefixes.
-    #>
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)][string]$RelativePath,
-        [Parameter(Mandatory)][AllowEmptyString()][string]$Scope
-    )
-
-    return -not $Scope -or
-        [string]::Equals($RelativePath, $Scope, [StringComparison]::OrdinalIgnoreCase) -or
-        $RelativePath.StartsWith($Scope + '/', [StringComparison]::OrdinalIgnoreCase)
-}
-
 Push-Location $RepoRoot
 try {
     # Tracked + untracked-but-not-ignored, restricted to PowerShell files. This
@@ -289,19 +250,28 @@ try {
     # Forward slashes: git output is '/'-separated on every platform, so do NOT
     # use Join-Path (it would emit a backslash on Windows that would not match).
     $explicitScope = $PSBoundParameters.ContainsKey('Path')
-    $scope = ''
+    $target = $null
     if ($explicitScope) {
-        try { $scope = ConvertTo-LintScope -Value $Path }
+        try { $target = Resolve-GateTarget -Value $Path -RepoRoot $RepoRoot }
         catch {
             Write-Error -Message $_.Exception.Message -ErrorAction Continue
             exit 2
         }
     }
-    $files = @(git ls-files --cached --others --exclude-standard |
-        Where-Object { $_ -and $_ -match '\.(ps1|psm1|psd1)$' } |
-        Where-Object { Test-LintPathInScope -RelativePath $_ -Scope $scope } |
-        Where-Object { Test-Path -LiteralPath $_ } |
-        Sort-Object -Unique)
+    if ($target -and $target.Kind -eq 'External') {
+        # An absolute path outside this repository is not in this repository's
+        # index, so its files come from its own worktree (or from a plain walk).
+        $files = @(Get-GateExternalFile -Path $target.Path |
+            Where-Object { $_ -match '\.(ps1|psm1|psd1)$' } |
+            Sort-Object -Unique)
+    } else {
+        $scope = if ($target) { $target.Scope } else { '' }
+        $files = @(git ls-files --cached --others --exclude-standard |
+            Where-Object { $_ -and $_ -match '\.(ps1|psm1|psd1)$' } |
+            Where-Object { Test-GateScopeMatch -RelativePath $_ -Scope $scope } |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            Sort-Object -Unique)
+    }
 
     if ($files.Count -eq 0) {
         if ($explicitScope) {

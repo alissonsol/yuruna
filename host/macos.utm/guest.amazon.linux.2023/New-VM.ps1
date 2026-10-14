@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,6 +70,8 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
@@ -79,9 +81,9 @@ if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
 # --- REGION: Create copies and files for VM
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
-# Copy qcow2 directly (QEMU backend reads qcow2 natively; no raw conversion
-# needed). The base qcow2 sparse-allocates and grows on demand, so a fresh
-# clone for each VM costs only a few hundred MB on disk.
+# --- REGION: Copy base image -> per-VM disk
+# See https://yuruna.link/42e220c4-0004
+# Copy qcow2 directly; its sparse allocation keeps the initial host footprint small.
 $DiskImage = "$DataDir/disk.qcow2"
 Write-Verbose "Copying base qcow2 disk image..."
 Copy-Item -Path $baseImageFile -Destination $DiskImage
@@ -99,7 +101,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: Generate cloud-init seed ISO
+# --- REGION: Stage the cloud-init seed directory
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -124,13 +126,15 @@ $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
     -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 
-# Test-harness SSH public key, used to drive the VM post-boot.
+# --- REGION: Yuruna harness SSH key
+# Use the shared key for post-boot harness access.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
-# --- REGION: https://yuruna.link/42e220c4-0004
+# --- REGION: Vault user password
+# See https://yuruna.link/42e220c4-0004
 # Read the persistent authentication vault; a new cycle must not reset credentials.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
@@ -140,10 +144,9 @@ if (-not $Password) { Write-Error (Format-YurunaOperatorMessage -Key 'host.opera
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
-# Yuruna host (status service) IP+port baked into the seed for the dev
-# iteration loop. Guest scripts read /etc/yuruna/host.env (written by
-# user-data runcmd) to resolve a local URL before falling back to
-# GitHub. See Test-YurunaHost.ps1 for the in-guest probe.
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
+# Bake the status-service address reachable through the selected guest network.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $YurunaHostIp = Get-GuestReachableHostIp
@@ -151,6 +154,7 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir)))
 $YurunaHostPort = $_statusSeed.Port
 
+# --- REGION: Render user-data / meta-data
 # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
 # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
 # write_files entries, then resolves the per-cycle placeholders below.
@@ -171,6 +175,7 @@ Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b
 # Amazon Linux preserves cloud-init fallback networking; pin DHCP identity in user-data.
 
+# --- REGION: Generate cloud-init seed ISO
 $SeedIso = "$DataDir/seed.iso"
 Write-Verbose "Generating seed.iso with cloud-init configuration..."
 & hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name cidata "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }

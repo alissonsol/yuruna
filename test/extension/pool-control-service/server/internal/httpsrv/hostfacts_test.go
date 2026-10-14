@@ -47,7 +47,7 @@ func hostFactsAggStub(t *testing.T) *httptest.Server {
 // it, and a silent machine disappearing from the table would read as healthy.
 func TestHostFactsRelayAnswersAndKeepSilentHosts(t *testing.T) {
 	agg := hostFactsAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/hosts/facts", nil)
 	rec := httptest.NewRecorder()
@@ -101,7 +101,7 @@ func TestHostFactsRelayAnswersAndKeepSilentHosts(t *testing.T) {
 // -- the address, which is the only identity such a row has to be matched by.
 func TestHostFactsCoversDiscoveredHosts(t *testing.T) {
 	agg := hostFactsAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL})
 
 	s.discovered.Add(discovery.Host{
 		Address: "192.168.7.9", BaseURL: agg.URL + "/scanned", HostID: "9999",

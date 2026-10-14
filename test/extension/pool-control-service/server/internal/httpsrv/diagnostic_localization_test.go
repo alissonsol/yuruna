@@ -9,14 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"pool-control-service/internal/intent"
+	"pool-control-service/internal/configuration"
 	"strings"
 	"testing"
 )
 
 func TestDiagnosticRequestLocalizesOwnedHintsAndPreservesRawProbe(t *testing.T) {
 	raw := "external command output: not catalog-owned"
-	s := New(&fakeIntent{stateRes: intent.Result{OK: false, Error: raw, Stdout: raw, Stderr: raw}}, Options{Version: "fixture", PwshPath: filepath.Join(t.TempDir(), "missing-pwsh"), AllowPseudoLocale: true})
+	s := New(&fakeConfiguration{stateRes: configuration.Result{OK: false, Error: raw, Stdout: raw, Stderr: raw}}, Options{Version: "fixture", PwshPath: filepath.Join(t.TempDir(), "missing-pwsh"), AllowPseudoLocale: true})
 	english := s.collectDiagnostics(context.Background())
 	req := httptest.NewRequest(http.MethodGet, "/api/diagnostics", nil)
 	req.Header.Set("Accept-Language", "qps-Ploc")
@@ -29,10 +29,10 @@ func TestDiagnosticRequestLocalizesOwnedHintsAndPreservesRawProbe(t *testing.T) 
 	if recorder.Header().Get("Content-Language") != "qps-Ploc" || localized.OK != english.OK {
 		t.Fatal("locale negotiation changed diagnostic outcome")
 	}
-	if localized.IntentProbe.Stdout != raw || localized.IntentProbe.Stderr != raw {
+	if localized.ConfigurationProbe.Stdout != raw || localized.ConfigurationProbe.Stderr != raw {
 		t.Fatal("raw probe streams were translated")
 	}
-	for _, name := range []string{"pwsh", "repo-dir", "state-dir", "intent-git-url", "intent-read"} {
+	for _, name := range []string{"pwsh", "repo-dir", "state-dir", "configuration-git-url", "configuration-read"} {
 		before, after := checkByName(t, english, name), checkByName(t, localized, name)
 		if before.OK != after.OK || before.Name != after.Name {
 			t.Fatalf("machine identity changed: %s", name)
@@ -41,7 +41,7 @@ func TestDiagnosticRequestLocalizesOwnedHintsAndPreservesRawProbe(t *testing.T) 
 			t.Fatalf("hint did not use compiled pseudo catalog: %s: %s", name, after.Hint)
 		}
 	}
-	if checkByName(t, localized, "intent-read").Detail != raw {
+	if checkByName(t, localized, "configuration-read").Detail != raw {
 		t.Fatal("external command detail was translated")
 	}
 }

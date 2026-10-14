@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,7 +138,7 @@ Describe 'Merge-ConfigSyncReferenceConfig' {
     }
     It 'blanks a populated reference localClonePath (host-specific absolute path)' {
         $ref = New-ReferenceDoc
-        $ref['pool']['localClonePath'] = 'C:\clones\pool-intent'
+        $ref['pool']['localClonePath'] = 'C:\clones\pool-configuration'
         $m = Merge-ConfigSyncReferenceConfig -Reference $ref -Local $null -HostType 'host.macos.utm'
         Assert-Equal -Expected '' -Actual $m.Config['pool']['localClonePath']
         Assert-True (@($m.Warnings) -match 'localClonePath') 'the non-portable clone path is warned about'
@@ -314,11 +314,11 @@ Describe 'Yuruna control tag (dashboard Control column)' {
     }
 }
 
-# --- REGION: internal-auth-key provisioning (Set-UserVaultKey + Set-InternalAuthKey)
+# --- REGION: internal-auth-key provisioning
 # The auth extension's vault + users.yml paths are redirected into a throwaway
 # temp dir so the tests never touch the real vault. The redirect brackets the
-# Its from BeforeAll/AfterAll rather than file scope -- a file-scope teardown
-# would fire during discovery and leave the Its writing fixtures into the
+# It blocks from BeforeAll/AfterAll rather than file scope -- a file-scope teardown
+# would fire during discovery, and the It blocks would then write fixtures into the
 # operator's live credential store. Why discovery runs it early:
 # https://yuruna.link/42d69dfa-0015
 Describe 'internal-auth-key provisioning' {
@@ -435,18 +435,7 @@ Describe 'internal-auth-key provisioning' {
 }
 
 # --- REGION: Status-service bounce
-# The status-service bounce must be bounded by the CHILD it starts, never by the
-# status service that child detaches.
-#
-# Start-StatusService.ps1 launches the server as a process that outlives it by
-# design. Windows turns handle inheritance ON for a child whenever a std stream
-# is redirected, so a bounce spawned that way (`& pwsh ... *> $null` redirects)
-# hands the detached server the write end of the caller's stdout pipe. The server
-# holds it for its whole lifetime, the caller's read never sees EOF, and the
-# bounce blocks on the SERVER instead of the child that exited seconds ago --
-# silently, because the same redirection swallowed every progress line. This
-# drives the real code path against a stand-in start script that detaches a
-# long-lived grandchild the same way the real one does.
+# See https://yuruna.link/42e220c4-0014
 Describe 'status-service bounce' {
     BeforeAll {
         $bnDir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-bounce-' + [guid]::NewGuid().ToString('N'))

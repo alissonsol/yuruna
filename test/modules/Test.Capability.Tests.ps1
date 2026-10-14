@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b063c4-f3bc-4a1f-885e-8a2c257e7130
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,7 +177,7 @@ Describe 'Write-HostRegistrationRecord' {
         try {
             # The runner derives these into pool.state.json; the registration writer forwards
             # them so the aggregator gets the gating policy without parsing pools.yml.
-            $state = [ordered]@{ poolId = 'lab'; desiredState = 'run'; intentOk = $true;
+            $state = [ordered]@{ poolId = 'lab'; configuredState = 'run'; configurationOk = $true;
                 gating = [ordered]@{ failuresBeforeAlert = 3; quorum = [ordered]@{ healthyThreshold = 0.5; degradedAfterSeconds = 1800 } } }
             [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'pool.state.json'), ($state | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false))
             [void](Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp)
@@ -191,7 +191,7 @@ Describe 'Write-HostRegistrationRecord' {
     It 'writes a null gating when pool.state.json has none' {
         $fx = New-RegFixture
         try {
-            $state = [ordered]@{ poolId = 'lab'; desiredState = 'run'; intentOk = $true }
+            $state = [ordered]@{ poolId = 'lab'; configuredState = 'run'; configurationOk = $true }
             [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'pool.state.json'), ($state | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false))
             [void](Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp)
             $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json

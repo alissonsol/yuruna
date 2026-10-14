@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42218fa5-018e-4ea0-a6fe-a80cc7202613
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,7 +103,7 @@ Describe 'Get-HostAddressChangeCount' {
 
     It 'reports zero for a host that has held one address since the beacon started' {
         # The other half of the -1 rule, and the half that was inverted: the
-        # record used to come into existence only once a host MOVED, so a host
+        # record would otherwise come into existence only once a host MOVED, so a host
         # that has never moved had no file and reported "cannot measure" --
         # meaning the most bounded hosts in the lab were indistinguishable from
         # the ones nothing was watching. The baseline row is what separates

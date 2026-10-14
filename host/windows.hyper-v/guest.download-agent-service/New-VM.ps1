@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4284f1a3-c3b1-43a6-8b63-36822be6e25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,8 +131,6 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'download-agent-service.meta-data') -Destination "$SeedDir/meta-data"
-# --- REGION: https://yuruna.link/4220a755-000b
-Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
 $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
@@ -171,6 +169,8 @@ Import-Module (Join-Path $_repoRoot 'test/modules/Test.Locale.psm1') -Global -Fo
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
@@ -217,6 +217,7 @@ if ($cacheProxyIp) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fdd52e517bbdfc60')
 }
 
+# --- REGION: Render user-data / meta-data
 # Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
 # download-agent-service.*). New-CloudInitUserData resolves placeholders with literal
 # .Replace(), so values carrying regex-special chars are safe.
@@ -245,6 +246,8 @@ $UserData = New-CloudInitUserData `
         YURUNA_CACHE_PROXY_IP_PLACEHOLDER        = $cacheProxyIp
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+# --- REGION: https://yuruna.link/4220a755-000b
+Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Generate cloud-init seed ISO
 $SeedIso = Join-Path $vmDir "seed.iso"

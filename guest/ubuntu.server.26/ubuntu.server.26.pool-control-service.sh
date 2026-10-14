@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # See https://yuruna.link/42e220c4-0005
@@ -35,7 +35,7 @@ if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
 fi
 
 # --- REGION: Service user
-# Prefer cloud-init's account; allow an explicit override or the current caller.
+# Prefer cloud-init's account; otherwise use an explicit override or the current caller.
 # The CIFS mount maps every file to this user's uid/gid.
 if id -u pool-control-service-admin >/dev/null 2>&1; then
   SERVICE_USER=pool-control-service-admin
@@ -55,16 +55,7 @@ done
 # shellcheck source=../../automation/yuruna-service-bringup.sh
 . "$SERVICE_LIB"
 
-# --- REGION: Service tunables
-# See https://yuruna.link/42fffc2c-000d
-HTTP_ADDR="${POOL_CONTROL_HTTP_ADDR:-0.0.0.0:80}"
-PRESENCE_INTERVAL="${POOL_CONTROL_PRESENCE_INTERVAL:-2m}"
-AUTH_TOKEN_FILE="${POOL_CONTROL_AUTH_TOKEN_FILE:-/etc/yuruna/internal-auth.key}"
-SCAN_CIDR="${POOL_CONTROL_SCAN_CIDR:-}"
-SCAN_PORT="${POOL_CONTROL_SCAN_PORT:-8080}"
-SCAN_INTERVAL="${POOL_CONTROL_SCAN_INTERVAL-15m}"
-[ -n "$SCAN_INTERVAL" ] || SCAN_INTERVAL=0
-
+# --- REGION: Service locale
 # See https://yuruna.link/42fffc2c-000d
 # Use the canonical seeded locale; pseudo locales require explicit opt-in.
 # See https://yuruna.link/42e220c4-000f
@@ -76,10 +67,25 @@ POOL_CONTROL_LANGUAGE="$(sed -n 's/^YURUNA_LANGUAGE=//p' "$GLOBALIZATION_ENV" 2>
 POOL_CONTROL_ALLOW_PSEUDO_LOCALE="$(sed -n 's/^YURUNA_ALLOW_PSEUDO_LOCALE=//p' "$GLOBALIZATION_ENV" 2>/dev/null | head -1 || true)"
 [ "$POOL_CONTROL_ALLOW_PSEUDO_LOCALE" = true ] || POOL_CONTROL_ALLOW_PSEUDO_LOCALE=false
 
+# --- REGION: Service tunables
+# See https://yuruna.link/42fffc2c-000d
+HTTP_ADDR="${POOL_CONTROL_HTTP_ADDR:-0.0.0.0:80}"
+PRESENCE_INTERVAL="${POOL_CONTROL_PRESENCE_INTERVAL:-2m}"
+AUTH_TOKEN_FILE="${POOL_CONTROL_AUTH_TOKEN_FILE:-/etc/yuruna/internal-auth.key}"
+SCAN_CIDR="${POOL_CONTROL_SCAN_CIDR:-}"
+SCAN_PORT="${POOL_CONTROL_SCAN_PORT:-8080}"
+SCAN_INTERVAL="${POOL_CONTROL_SCAN_INTERVAL-15m}"
+[ -n "$SCAN_INTERVAL" ] || SCAN_INTERVAL=0
+
 # Aggregator URL + host id + host ip from the shared env files (same as stash).
 AGGREGATOR_URL="$(sed -n 's/^YURUNA_AGGREGATOR_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 HOST_ID="$(sed -n 's/^YURUNA_HOST_ID=//p' /etc/yuruna/host.env 2>/dev/null | head -1 || true)"
-INTENT_GIT_URL="$(sed -n 's/^YURUNA_POOL_INTENT_GIT_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
+CONFIGURATION_GIT_URL="$(sed -n 's/^YURUNA_POOL_CONFIGURATION_GIT_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
+# Existing guest seeds can still carry the older key. An explicitly present
+# canonical key, including an empty value, always takes precedence.
+if ! grep -q '^YURUNA_POOL_CONFIGURATION_GIT_URL=' /etc/yuruna/pool.env 2>/dev/null; then
+  CONFIGURATION_GIT_URL="$(sed -n 's/^YURUNA_POOL_INTENT_GIT_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
+fi
 
 # --- REGION: Storage paths
 # Pool NAS mount (CIFS) -> state dir. NAS host/share/cred come from pool.env,
@@ -91,7 +97,10 @@ echo "Pool NAS user: ${POOL_NAS_USER:-(none configured)}"
 MOUNT=/mnt/yuruna-pool
 STATE_DIR="$MOUNT/pool-control-service"
 # --- REGION: https://yuruna.link/429f3d06-0040
-INTENT_STORE="$MOUNT/pool-intent.git"
+CONFIGURATION_STORE="$MOUNT/pool-configuration.git"
+if [[ "$CONFIGURATION_GIT_URL" == "$MOUNT/pool-intent.git" ]]; then
+  CONFIGURATION_GIT_URL="$CONFIGURATION_STORE"
+fi
 
 # Locate the checkout before using its current shared bootstrap helpers.
 locate_repo_dir() {
@@ -168,7 +177,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 PWSH_BIN="$(command -v pwsh)"
 pwsh --version
-# The daemon needs a working YAML parser before it can administer intent.
+# The daemon needs a working YAML parser before it can administer configuration.
 for attempt in 1 2 3; do
   if sudo pwsh -NoProfile -NonInteractive -Command "\$ErrorActionPreference = 'Stop'; if (-not (Get-Module -ListAvailable powershell-yaml)) { Install-Module powershell-yaml -Scope AllUsers -Force -AcceptLicense -ErrorAction Stop }; Import-Module powershell-yaml -ErrorAction Stop; if ((ConvertFrom-Yaml 'k: v').k -cne 'v') { throw 'powershell-yaml smoke check failed' }"; then
     break
@@ -227,61 +236,64 @@ else
   STATE_DIR=''
 fi
 
-# --- REGION: Intent store bootstrap
+# --- REGION: Configuration store bootstrap
 # See https://yuruna.link/42e220c4-000f
-if [[ -z "$INTENT_GIT_URL" ]] && mountpoint -q "$MOUNT" 2>/dev/null; then
-  INTENT_GIT_URL="$INTENT_STORE"
+if mountpoint -q "$MOUNT" 2>/dev/null && [[ ! -e "$CONFIGURATION_STORE" && -d "$MOUNT/pool-intent.git/refs" ]]; then
+  sudo -u "$SERVICE_USER" mv "$MOUNT/pool-intent.git" "$CONFIGURATION_STORE"
+fi
+if [[ -z "$CONFIGURATION_GIT_URL" ]] && mountpoint -q "$MOUNT" 2>/dev/null; then
+  CONFIGURATION_GIT_URL="$CONFIGURATION_STORE"
 fi
 
 # See https://yuruna.link/42e220c4-000f
-# Initialize every resolved local intent store with schema-valid empty pools on main.
-if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* ]] && ! sudo -u "$SERVICE_USER" git -C "$INTENT_GIT_URL" show-ref --verify --quiet refs/heads/main; then
+# Initialize every resolved local configuration store with schema-valid empty pools on main.
+if [[ -n "$CONFIGURATION_GIT_URL" && "$CONFIGURATION_GIT_URL" != *://* ]] && ! sudo -u "$SERVICE_USER" git -C "$CONFIGURATION_GIT_URL" show-ref --verify --quiet refs/heads/main; then
   # See https://yuruna.link/42e220c4-000f
-  # An unmounted NAS path must not hide locally written intent when it later mounts.
-  if [[ "$INTENT_GIT_URL" == "$MOUNT"/* ]] && ! mountpoint -q "$MOUNT" 2>/dev/null; then
-    echo "pool-control-service: $MOUNT is not mounted; refusing to create $INTENT_GIT_URL on local disk (a later mount would shadow it)." >&2
-    INTENT_GIT_URL=''
+  # An unmounted NAS path must not hide locally written configuration when it later mounts.
+  if [[ "$CONFIGURATION_GIT_URL" == "$MOUNT"/* ]] && ! mountpoint -q "$MOUNT" 2>/dev/null; then
+    echo "pool-control-service: $MOUNT is not mounted; refusing to create $CONFIGURATION_GIT_URL on local disk (a later mount would shadow it)." >&2
+    CONFIGURATION_GIT_URL=''
   else
-    echo -e "\e[1;36m==== Initializing pool intent store at $INTENT_GIT_URL ====\e[0m"
+    echo -e "\e[1;36m==== Initializing pool configuration store at $CONFIGURATION_GIT_URL ====\e[0m"
     # --- REGION: https://yuruna.link/42e220c4-0005
-    if sudo -u "$SERVICE_USER" git init --bare --initial-branch=main "$INTENT_GIT_URL" >/dev/null 2>&1 &&
-       sudo -u "$SERVICE_USER" git -C "$INTENT_GIT_URL" config core.fileMode false &&
+    if sudo -u "$SERVICE_USER" git init --bare --initial-branch=main "$CONFIGURATION_GIT_URL" >/dev/null 2>&1 &&
+       sudo -u "$SERVICE_USER" git -C "$CONFIGURATION_GIT_URL" config core.fileMode false &&
        # See https://yuruna.link/42e220c4-000f
        # Use receive.updateServerInfo; CIFS cannot preserve an executable post-update hook.
-       sudo -u "$SERVICE_USER" git -C "$INTENT_GIT_URL" config receive.updateServerInfo true; then
+       sudo -u "$SERVICE_USER" git -C "$CONFIGURATION_GIT_URL" config receive.updateServerInfo true; then
       SEED_TMP="$(sudo -u "$SERVICE_USER" mktemp -d)"
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" init -q --initial-branch=main
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" config core.fileMode false
       # See https://yuruna.link/42e220c4-000f
       # Match the current pools schema so the first write passes validation.
-      printf 'schemaVersion: 3\npools: []\n' | sudo -u "$SERVICE_USER" tee "$SEED_TMP/pools.yml" >/dev/null
+      printf 'schemaVersion: 4\npools: []\n' | sudo -u "$SERVICE_USER" tee "$SEED_TMP/pools.yml" >/dev/null
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" add -A
       sudo -u "$SERVICE_USER" git -C "$SEED_TMP" \
-        -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool intent'
-      if sudo -u "$SERVICE_USER" git -C "$SEED_TMP" push -q "$INTENT_GIT_URL" HEAD:main; then
+        -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool configuration'
+      if sudo -u "$SERVICE_USER" git -C "$SEED_TMP" push -q "$CONFIGURATION_GIT_URL" HEAD:main; then
         # Keep the dumb-HTTP indexes current so the proxy can serve this repo
         # read-only to runners without a smart-HTTP backend.
-        sudo -u "$SERVICE_USER" git -C "$INTENT_GIT_URL" update-server-info || true
-        echo "pool-control-service: intent store seeded at $INTENT_GIT_URL (empty, schema-valid)"
+        sudo -u "$SERVICE_USER" git -C "$CONFIGURATION_GIT_URL" update-server-info || true
+        echo "pool-control-service: configuration store seeded at $CONFIGURATION_GIT_URL (empty, schema-valid)"
       else
-        echo "pool-control-service: could not seed $INTENT_GIT_URL; the UI will report an unreadable store." >&2
+        echo "pool-control-service: could not seed $CONFIGURATION_GIT_URL; the UI will report an unreadable store." >&2
       fi
       sudo -u "$SERVICE_USER" rm -rf "$SEED_TMP"
     else
-      echo "pool-control-service: could not create $INTENT_GIT_URL; the UI will report an unreadable store." >&2
+      echo "pool-control-service: could not create $CONFIGURATION_GIT_URL; the UI will report an unreadable store." >&2
     fi
   fi
 fi
-if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* ]]; then
+if [[ -n "$CONFIGURATION_GIT_URL" && "$CONFIGURATION_GIT_URL" != *://* ]]; then
   # See https://yuruna.link/42e220c4-000f
   # Permit diagnostic Git reads despite CIFS mapping ownership to the service user.
-  sudo git config --system --add safe.directory "$INTENT_GIT_URL" 2>/dev/null || true
-  if [[ -d "$INTENT_GIT_URL/refs" ]]; then
-    echo "pool-control-service: intent store -> $INTENT_GIT_URL (writable)"
+  sudo git config --system --add safe.directory "$CONFIGURATION_GIT_URL" 2>/dev/null || true
+  if [[ -d "$CONFIGURATION_GIT_URL/refs" ]]; then
+    echo "pool-control-service: configuration store -> $CONFIGURATION_GIT_URL (writable)"
   fi
 fi
-if [[ -z "$INTENT_GIT_URL" ]]; then
-  echo "pool-control-service: no intent store resolved (pool NAS unmounted and no seeded URL); the UI will start read-only and report why on /diagnostics." >&2
+if [[ -z "$CONFIGURATION_GIT_URL" ]]; then
+  echo "pool-control-service: no configuration store resolved (pool NAS unmounted and no seeded URL); the UI will start read-only and report why on /diagnostics." >&2
 fi
 
 # --- REGION: Environment file
@@ -294,7 +306,7 @@ POOL_CONTROL_PWSH=$PWSH_BIN
 POOL_CONTROL_REPO_DIR=$REPO_DIR
 POOL_CONTROL_AGGREGATOR_URL=$AGGREGATOR_URL
 POOL_CONTROL_HOST_ID=$HOST_ID
-POOL_CONTROL_INTENT_GIT_URL=$INTENT_GIT_URL
+POOL_CONTROL_CONFIGURATION_GIT_URL=$CONFIGURATION_GIT_URL
 POOL_CONTROL_STATE_DIR=$STATE_DIR
 POOL_CONTROL_PRESENCE_INTERVAL=$PRESENCE_INTERVAL
 POOL_CONTROL_AUTH_TOKEN_FILE=$AUTH_TOKEN_FILE
@@ -322,7 +334,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/pool-control-service.env
-ExecStart=/usr/local/bin/pool-control-service --http-addr=\${POOL_CONTROL_HTTP_ADDR} --repo-dir=\${POOL_CONTROL_REPO_DIR} --pwsh=\${POOL_CONTROL_PWSH} --aggregator-url=\${POOL_CONTROL_AGGREGATOR_URL} --host-id=\${POOL_CONTROL_HOST_ID} --intent-git-url=\${POOL_CONTROL_INTENT_GIT_URL} --state-dir=\${POOL_CONTROL_STATE_DIR} --presence-interval=\${POOL_CONTROL_PRESENCE_INTERVAL} --auth-token-file=\${POOL_CONTROL_AUTH_TOKEN_FILE} --scan-cidr=\${POOL_CONTROL_SCAN_CIDR} --scan-port=\${POOL_CONTROL_SCAN_PORT} --scan-interval=\${POOL_CONTROL_SCAN_INTERVAL} --language=\${POOL_CONTROL_LANGUAGE} --allow-pseudo-locale=\${POOL_CONTROL_ALLOW_PSEUDO_LOCALE}
+ExecStart=/usr/local/bin/pool-control-service --http-addr=\${POOL_CONTROL_HTTP_ADDR} --repo-dir=\${POOL_CONTROL_REPO_DIR} --pwsh=\${POOL_CONTROL_PWSH} --aggregator-url=\${POOL_CONTROL_AGGREGATOR_URL} --host-id=\${POOL_CONTROL_HOST_ID} --configuration-git-url=\${POOL_CONTROL_CONFIGURATION_GIT_URL} --state-dir=\${POOL_CONTROL_STATE_DIR} --presence-interval=\${POOL_CONTROL_PRESENCE_INTERVAL} --auth-token-file=\${POOL_CONTROL_AUTH_TOKEN_FILE} --scan-cidr=\${POOL_CONTROL_SCAN_CIDR} --scan-port=\${POOL_CONTROL_SCAN_PORT} --scan-interval=\${POOL_CONTROL_SCAN_INTERVAL} --language=\${POOL_CONTROL_LANGUAGE} --allow-pseudo-locale=\${POOL_CONTROL_ALLOW_PSEUDO_LOCALE}
 Restart=on-failure
 RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE

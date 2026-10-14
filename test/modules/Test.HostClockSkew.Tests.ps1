@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42c5e353-0701-44d3-9ece-c8318df10ad6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,16 +71,7 @@ function Get-FunctionAst {
     return Get-YurunaTestFunctionAst -Path $Path -Name $Name
 }
 
-# One-shot NTP responder on loopback: answers a single request with a
-# transmit timestamp $OffsetSeconds BEHIND now, so a correct probe reports
-# the host as that many seconds ahead.
-#
-# The socket is bound by the CALLER and handed in already listening
-# (ThreadJob shares this process, so the live object crosses intact). A
-# responder that binds inside the job races the probe, and a datagram sent
-# to a not-yet-bound loopback port draws an ICMP port-unreachable that
-# fails the receive instantly -- which reads exactly like "no time server
-# answered" and turns this into a flaky test of the wrong thing.
+# See https://yuruna.link/42e220c4-0014
 function Get-FakeNtpResponderJob {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
         Justification = 'Both variables arrive through -ArgumentList into the job param() block; the analyzer does not follow that path.')]
@@ -396,16 +387,7 @@ Describe 'host-clock-skew repair where a console can answer' {
             Path = $case.Path; EnablePath = $case.EnablePath; SetFn = $case.SetFn; SyncFn = $case.SyncFn
         }) {
             param([string]$Path, [string]$EnablePath, [string]$SetFn, [string]$SyncFn)
-            # What has to hold is that running Enable-TestAutomation.ps1
-            # disciplines the clock. Two shapes do that: the host's
-            # Set-*HostConditionSet calls the sync and the script calls that
-            # function, or the script calls the sync itself. Requiring only the
-            # first shape let one host keep its clock fix inside a function no
-            # script ever called -- green, and protecting nothing.
-            #
-            # Bind to locals so the parameters are referenced in the body:
-            # the predicates below capture them, but PSReviewUnusedParameter
-            # cannot see a use that occurs only inside a FindAll scriptblock.
+            # See https://yuruna.link/42e220c4-0014
             $wantedSync = $SyncFn
             $wantedSet  = $SetFn
             $isCallTo = {

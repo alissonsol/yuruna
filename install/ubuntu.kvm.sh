@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -37,11 +37,9 @@ warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 
 # --- REGION: Deferred issues
-# Every non-fatal problem is recorded here as well as printed where it happens.
-# An installer prints hundreds of lines; a package that failed scrolls past long
-# before the operator reads the closing instructions, and the only thing that
-# survives to the end is a summary. Nothing here stops the run: a package-manager
-# hiccup mid-install should not end it, but it must not pass unmentioned either.
+# Every non-fatal problem is recorded here as well as printed where it happens:
+# hundreds of lines scroll past, and the closing summary is what survives.
+# Nothing here stops the run, but a problem must not pass unmentioned either.
 YURUNA_ISSUES=()
 note_issue() { YURUNA_ISSUES+=("$*"); warn "$*"; }
 
@@ -260,8 +258,6 @@ fi
 
 # --- REGION: https://yuruna.link/429fb30b-000a
 # Stop the runner/inner/status-service and WAIT before the checkout rename.
-# VMs (the yuruna-caching-proxy-service cache, a libvirt domain) are never touched
-# here: this installer issues no domain stop/destroy.
 stop_yuruna_processes() {
   local runtime_dir="${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}"
   local -a target_pids=()
@@ -378,6 +374,10 @@ stop_yuruna_processes() {
   warn "  some Yuruna service PIDs did not exit; re-run the installer if the repo update reports the checkout is busy."
 }
 
+# --- REGION: Preserve running service VMs
+# See https://yuruna.link/429fb30b-000c
+# VMs (the yuruna-caching-proxy-service cache, a libvirt domain) are never touched
+# here: this installer issues no domain stop/destroy.
 log "Stopping anything that would block a repo update (runner + status service; VMs preserved)"
 stop_yuruna_processes
 
@@ -444,15 +444,10 @@ log "Installing / upgrading required apt packages"
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${APT_PACKAGES[@]}"
 
 # --- REGION: virt-manager (operator's libvirt GUI)
-# Its own apt call WITH Recommends, unlike the set above: the widgets
-# virt-manager renders a domain's screen with live in GObject-introspection
-# typelibs it only Recommends, so under --no-install-recommends it installs,
-# lists every domain, and then cannot open any of them. Naming those typelibs
-# here instead would pin package names that move between releases.
-# Non-fatal: the harness drives guest consoles through virt-viewer, so a host
-# whose apt cannot supply virt-manager is still a working test host -- this is
-# the operator's window into a guest a headless step is stuck on, and
-# Enable-TestAutomation.ps1 reports it as an optional gap on the next run.
+# Its own apt call WITH Recommends: virt-manager's console widgets live in typelibs it
+# only Recommends, so without them it lists domains but cannot open any. Non-fatal: the
+# harness drives consoles through virt-viewer.
+# See https://yuruna.link/4213a0b3-01b6
 log "Installing virt-manager (with recommends, so its console works)"
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y virt-manager \
   || note_issue "Installing virt-manager failed; guest consoles remain available through virt-viewer."
@@ -674,15 +669,11 @@ install_pwsh_apt() {
 }
 
 install_pwsh_tarball() {
-  # aarch64 has no Microsoft apt package, and x86_64 lands here only when the
-  # apt path fails, so this is the fallback PowerShell source for all
-  # downstream Yuruna automation. Resolve the latest-stable tag by following
-  # the /releases/latest redirect (a HEAD-follow -- no rate-limited
-  # api.github.com call) so the tarball tracks the same current release the
-  # apt path would install instead of freezing on one line. PowerShell ships
-  # both a linux-x64 and a linux-arm64 tarball (plus hashes.sha256) for every
-  # GA release, so both arches resolve. PWSH_VERSION overrides the discovery
-  # for a pinned or air-gapped build.
+  # Fallback PowerShell source for all downstream automation (aarch64 has no Microsoft
+  # apt package; x86_64 lands here only when apt fails). The latest tag comes from the
+  # /releases/latest redirect, not the rate-limited API. PWSH_VERSION overrides the
+  # discovery.
+  # See https://yuruna.link/4213a0b3-01b7
   local ver="${PWSH_VERSION:-}"
   if [[ -z "$ver" ]]; then
     local tag
@@ -711,13 +702,9 @@ install_pwsh_tarball() {
   # (arm64/musl/.deb) that are not downloaded.
   curl -fsSL -o "$tmp/hashes.sha256" "https://github.com/PowerShell/PowerShell/releases/download/v${ver}/hashes.sha256" \
     || die "PowerShell $ver: could not fetch hashes.sha256 for verification"
-  # The release asset is UTF-16 LE (BOM + CRLF) -- it is generated on Windows.
-  # Read raw, awk's index() matches nothing (the NUL interleaved after every
-  # ASCII byte hides the filename) and awk warns "Invalid multibyte data", so
-  # the exactly-one-line check below fails on an otherwise valid hash file.
-  # Normalize to UTF-8/LF first, transcoding only when a UTF-16 BOM is present
-  # so a plain-UTF-8 asset keeps working. iconv ships in libc-bin, od/tr in
-  # coreutils -- all always installed.
+  # The release asset is UTF-16 LE with BOM and CRLF, generated on Windows. Read raw, awk
+  # matches no filename (NUL bytes interleave every ASCII byte), so normalize to UTF-8/LF
+  # first, transcoding only when a UTF-16 BOM is present.
   case "$(od -An -tx1 -N2 "$tmp/hashes.sha256" | tr -d ' \n')" in
     fffe|feff) iconv -f UTF-16 -t UTF-8 "$tmp/hashes.sha256" | tr -d '\r' > "$tmp/hashes.norm" ;;
     *)         tr -d '\r' < "$tmp/hashes.sha256" > "$tmp/hashes.norm" ;;
@@ -986,13 +973,10 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
   if [[ $skip_pull -eq 0 ]]; then
     use_dev_branch_if_needed "$remote_basename"
     YURUNA_BRANCH="$(resolve_yuruna_ref "$actual_remote" "$YURUNA_BRANCH")"
-    # --force so a remote-moved release tag overwrites the stale local one. A
-    # CalVer tag (YYYY.MM.DD) can point at different commits in the public vs
-    # development repo, so a plain `fetch --tags` hits "would clobber existing
-    # tag", which makes git exit non-zero -- and unguarded under `set -e` that
-    # aborts the whole installer before checkout/pull. The guard degrades any
-    # remaining fetch error to a warning so the pull --ff-only fallback below
-    # still gets to run.
+    # --force so a remote-moved release tag overwrites the stale local one: a plain
+    # `fetch --tags` exits non-zero when a CalVer tag points at a different commit in the
+    # public and development repos, and under `set -e` that aborts before checkout. Any
+    # remaining fetch error degrades to a warning so the pull --ff-only fallback still runs.
     if ! git -C "$YURUNA_DIR" fetch --tags --force origin; then
       warn "git fetch reported rejected/partial tag updates -- continuing; checkout/pull below will surface anything fatal."
     fi
@@ -1047,17 +1031,9 @@ restore_test_status
 
 # --- REGION: PowerShell floor repair
 # The interpreter every later step runs on, brought up to the floor in
-# automation/Yuruna.Requirement.yml. The install region above only fires when
-# `pwsh` is ABSENT, and presence is not the question a floor asks: a pwsh that
-# arrived from a source this installer does not manage -- the Canonical snap, a
-# hand-unpacked tarball, a package left by another tool -- otherwise answers the
-# name for the life of the machine at whatever version it was, while the closing
-# check reports a gap the run had every means to close. PowerShell is the one
-# floor-checked tool here whose sources lead the Ubuntu archive, so it is the one
-# the installer can actually raise.
-#
-# Placed after the checkout rather than beside the install: the floor lives in
-# the repo, which does not exist yet where pwsh is installed.
+# automation/Yuruna.Requirement.yml. Presence is not the question a floor asks, so this
+# runs after the checkout, where the floor lives, not beside the install.
+# See https://yuruna.link/4213a0b3-01b1
 requirement_floor() {
   # A `version:` string carries vendor decoration around the number
   # ("7.6.4 (Core)"); the first dotted-number run is the version. Two keys at a
@@ -1115,15 +1091,10 @@ bring_powershell_to_required_version() {
     have="$(pwsh_version || true)"
   fi
   if ! version_ge "$have" "$floor"; then
-    # Both managed sources land under /usr/local/bin (the tarball through the
-    # symlink beside it), which the stock PATH puts ahead of /snap/bin, so the
-    # newer copy wins the name without removing the one already there.
-    #
-    # Run in a subshell so a source that gives up -- an unreachable release
-    # feed, a checksum that does not match -- ends the upgrade attempt rather
-    # than the install. Unlike the first-install path, this host already has a
-    # working interpreter; the version check below says it is still old, and
-    # that belongs in the closing summary, not in an aborted run.
+    # Both managed sources land under /usr/local/bin, ahead of /snap/bin on the stock
+    # PATH, so the newer copy wins the name. Run in a subshell: a source that gives up
+    # must end the upgrade attempt, not the install.
+    # See https://yuruna.link/4213a0b3-01b8
     (
       case "$ARCH" in
         x86_64)  install_pwsh_apt || install_pwsh_tarball ;;
@@ -1245,13 +1216,9 @@ build_git_from_source() {
   # and the build unpacks those same verified bytes.
   gzip -dc "$tarball.gz" > "$tarball" || return 1
 
-  # FAIL CLOSED: an unverified tarball is never built. The key is fetched over
-  # plain HTTPS rather than `gpg --recv-keys`, whose dirmngr cannot reach a
-  # keyserver from some networks and containers. Where the key comes from does
-  # not matter: only a signature by the pinned primary key passes the check below.
-  # gpgv checks against that one keyring with no agent, trust database or home
-  # directory; full gpg exits non-zero on an import whenever gpg-agent, which it
-  # only recommends, is absent.
+  # FAIL CLOSED: an unverified tarball is never built. The key is fetched over plain HTTPS
+  # because `gpg --recv-keys` cannot reach a keyserver from some networks. Only a signature
+  # by the pinned primary key passes, and gpgv checks it without an agent or trust database.
   local key="$work/git-release-key" vstatus
   if ! { curl -fsSL --retry 3 -o "$key.asc" \
            "https://git.kernel.org/pub/scm/docs/kernel/pgpkeys.git/plain/keys/${GIT_RELEASE_KEY_FPR: -16}.asc" \
@@ -1293,13 +1260,10 @@ build_git_from_source() {
   fi
 }
 
-# Succeeds when the git that answers on PATH is the /usr/local build and lacks
-# what the Debian git it shadows provides: PCRE2 (`git grep -P`, --perl-regexp)
-# or git-subtree. It identifies the build by path only; the caller decides
-# whether the build is this region's to replace. The probe needs a Perl-only
-# construct and a real file: git compiles a plain pattern as a fixed string and
-# compiles nothing when there is no file. The argument is the build's path, so
-# tests can point it elsewhere.
+# Succeeds when the git on PATH is the /usr/local build and lacks what the Debian git it
+# shadows provides: PCRE2 (`git grep -P`) or git-subtree. The probe needs a Perl-only pattern
+# and a real file, because git compiles nothing for a missing file. The argument is the
+# build's path, so tests can point it elsewhere.
 local_git_incomplete() {
   local git_bin="${1:-/usr/local/bin/git}" probe rc=0
   [[ "$(command -v git || true)" == "$git_bin" ]] || return 1
@@ -1697,7 +1661,7 @@ if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn "========"
 fi
 
-# --- REGION: Install summary
+# --- REGION: Installation summary
 # The last thing printed. Everything above scrolls; this does not.
 if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
   warn ""

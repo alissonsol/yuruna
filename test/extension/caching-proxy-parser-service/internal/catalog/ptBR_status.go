@@ -324,6 +324,7 @@ const DataptBRstatus = `{
   "status.config_field_chardelayms": "CharDelayMs",
   "status.config_field_cleanupvmnameprefixes": "limpezaVmNamePrefixes",
   "status.config_field_configservice": "configService",
+  "status.config_field_configurationgiturl": "intençãoGitUrl",
   "status.config_field_cycledelayseconds": "cicloAtrasoSegundos",
   "status.config_field_discoveryintervalseconds": "descobertaIntervalSegundos",
   "status.config_field_downloadagentservice": "baixarAgentService",
@@ -335,7 +336,6 @@ const DataptBRstatus = `{
   "status.config_field_ghtoken": "ghToken",
   "status.config_field_guestquarantine": "convidadoQuarantina",
   "status.config_field_guestsequence": "convidadoSequência",
-  "status.config_field_intentgiturl": "intençãoGitUrl",
   "status.config_field_labhealth": "labHealth",
   "status.config_field_language": "idioma",
   "status.config_field_localclonepath": "localClonePath",
@@ -1398,6 +1398,32 @@ const DataptBRstatus = `{
     " para iniciar um ciclo de teste."
   ],
   "status.run_start_testrunner_ps1_to_start_a_test_cycle": "Executar Start-TestRunner.ps1 para iniciar um ciclo de teste.",
+  "status.runner_attempt_failed": [
+    "A tentativa do executor falhou: ",
+    {
+      "arg": "failureClass",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.runner_attempt_started": [
+    "Início da tentativa: ",
+    {
+      "arg": "startedAt",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.runner_failure_record": "Registro da falha",
+  "status.runner_failure_transcript": "Transcrição da verificação de configuração",
+  "status.runner_framework_commit": [
+    "Commit do framework: ",
+    {
+      "arg": "commit",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "status.save": "Gravar",
   "status.save_and_start_cycle": "Salvar e iniciar o ciclo",
   "status.save_and_start_cycle_failed_value1": [

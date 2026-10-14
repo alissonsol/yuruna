@@ -1423,11 +1423,11 @@ unattended-upgrades enable flags. Both timers (apt-daily.timer + apt-daily-upgra
 
 <a id="429f3d06-0040"></a>
 
-### Pool intent store over read-only HTTP
+### Pool configuration store over read-only HTTP
 
-Pool intent store: serve the bare git repo READ-ONLY over the LAN via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull http://<proxy>/pool-intent.git to learn pool membership, desiredState and each pool's repositories. The repo holds only NON-SECRET intent (pools.yml / guests.compatibility.yml); writes go through the admin CLI on the proxy (a local/file:// path), never this HTTP route. RFC1918 only, mirroring the cachemgr access policy.
+Pool configuration store: serve the bare git repo READ-ONLY over the LAN via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull http://<proxy>/pool-configuration.git to learn pool membership, configuredState and each pool's repositories. The repo holds only NON-SECRET configuration (pools.yml / guests.compatibility.yml); writes go through the admin CLI on the proxy (a local/file:// path), never this HTTP route. RFC1918 only, mirroring the cachemgr access policy.
 
-The `Alias` points at the pool NAS, not a proxy-local copy: the pool-control-service daemon runs on its own VM and can only PUSH to a location it mounts, and this share is the one both it and this proxy mount read-write. Pointing apache at the same bytes keeps one store, so an operator writing intent in the UI and a runner pulling it cannot diverge. The route 404s while the NAS is unmounted, which is the honest answer; a stale local copy would hide the outage from every runner.
+The `Alias` points at the pool NAS, not a proxy-local copy: the pool-control-service daemon runs on its own VM and can only PUSH to a location it mounts, and this share is the one both it and this proxy mount read-write. Pointing apache at the same bytes keeps one store, so an operator writing configuration in the UI and a runner pulling it cannot diverge. The route 404s while the NAS is unmounted, which is the honest answer; a stale local copy would hide the outage from every runner.
 
 <a id="429f3d06-0041"></a>
 
@@ -1695,6 +1695,10 @@ Two reasons NOT to fold this into squid-exporter:
 - squid-exporter taps squid's cachemgr counters; offline_mode is a config directive, not a counter, so surfacing it would need a fork.
 - When squid is DOWN, squid-exporter's metrics stop publishing and Grafana shows "No data" -- exactly when the operator needs to know whether offline_mode was supposed to be on. This exporter publishes independently of squid, so the signal survives a crashed squid.
 
+`squid-meta-exporter.timer` refreshes `/var/www/html/squid-meta`; Apache serves
+that file independently of Squid. Prometheus can therefore still scrape the
+listener and runtime-mode readings while Squid is unavailable.
+
 <a id="429f3d06-004b"></a>
 
 ### zot manifest canary exporter
@@ -1853,6 +1857,10 @@ The banner costs one line of height and no width at all. Grafana's time-range pi
 
 Idempotent by construction: a dashboard already carrying the banner has only its text refreshed, never its geometry, so the timer cannot push the board further down on each pass. Files are rewritten only when their content changes and always through a same-directory rename, so the dashboard provider never reads a partial file. [The panel autofit](#yuruna-hosts-dashboard-panel-autofit) rewrites the same file, and the two agree without coordinating: the autofit stacks from the bottom edge of whatever sits above the per-host panels, which is the banner plus the summary tiles when the banner is there and the tiles alone when it is not.
 
+The branding service reads its seeded environment and rewrites only the
+provisioned dashboard directory. That directory is its only writable path;
+`PrivateNetwork` isolates a task that requires no network communication.
+
 <a id="429f3d06-0059"></a>
 
 ### Squid dashboard inlined
@@ -1955,6 +1963,15 @@ leaf.
 
 the internal authentication key that gates remote control, the aggregator's POST /ingest push surface, and cross-host credential fetch. Baked into `/etc/yuruna/internal-auth.key` (the `INTERNAL_AUTH_KEY_PLACEHOLDER` substitution) by New-VM from the building host's vault -- logical user `internal-auth-key`, with the older `lab-auth-token` and the legacy `pool-auth-token` vault entries accepted as fallbacks so a host enrolled under either logical name keeps working; the daemons reading the file fall back to the older `/etc/yuruna/lab-auth.token` path when the new one is absent, so a VM still carrying the older path keeps working until it is rebuilt. When the vault holds none of the three, New-VM mints a random internal authentication key and stores it before baking, so a proxy is never built with an empty key; an empty-key proxy (mints no control proofs, /ingest answers 503, dashboard Lab token tile shows "off") is a diagnosable failure state, not a normal early one. The aggregator trims surrounding whitespace. Mode 0640 root:proxy: readable by the proxy-run aggregator, not world-readable.
 
+**`host/macos.utm/guest.caching-proxy-service/New-VM.ps1`, `host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1`, `host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1`.**
+
+No stored token -> mint one and store it NOW, so the proxy is never built
+with an empty token (which would mint no control proofs, keep /ingest 503,
+show no Lab token on the dashboard, and turn every joining host's remote
+control into a 403). The building host becomes the lab's first enrolled
+member; every other host receives the same value through the dashboard's
+Lab token (pwsh test/lab/Set-LabToken.ps1).
+
 <a id="429f3d06-0060"></a>
 
 ### runcmd errexit leaks across items
@@ -2011,6 +2028,12 @@ both steps idempotent so re-runs don't rotate the CA (rotating would orphan gues
 
 pool-aggregator-service TLS leaf: mint a server cert for the aggregator's :9400 surface (metrics + ingest), signed by the squid CA above (reused -- no new CA), so the LAN hop is encrypted + authenticated. Idempotent (no rotate). SAN carries the proxy's LAN IP (runners connect by IP) + 127.0.0.1 (loopback Prometheus). Key stays proxy:proxy 600 (the aggregator runs as proxy). Best-effort: a mint failure leaves no leaf and the aggregator falls back to plain HTTP.
 
+When a TLS leaf exists, the aggregator serves TLS and plain HTTP on the same
+`:9400` port so browser links remain usable. The loopback Prometheus scrape
+uses `insecure_skip_verify`: peer authentication adds no boundary on
+`127.0.0.1`, and the scrape works whether the leaf's SAN contains localhost
+or only IP addresses.
+
 <a id="429f3d06-0065"></a>
 
 ### Resolve pool dashboard aggregator URL
@@ -2046,6 +2069,11 @@ Publish the SAME CA under a pool-specific name so a runner can pin the pool-aggr
 security.ubuntu.com rate-limits linux-firmware (~330 MB) hard enough that every cold guest install 429s on it. Pre-fetching via the local proxy puts it in squid before any guest asks, so the first-ever install serves from cache. Pull the HWE meta too so kernel, modules-extra, headers, and microcode .debs land alongside.
 
 Wait up to 60s for squid's listener. apt's postinst usually has it up, but start can be slow on first boot.
+
+If the listener never appears, the seed copies Squid's journal into
+`cloud-init-output.log`. Error searches then expose causes such as
+`EADDRINUSE` from duplicate `http_port` declarations instead of only a
+failed TCP-connect report.
 
 <a id="429f3d06-006a"></a>
 
@@ -2159,12 +2187,12 @@ This 24h is neither the dashboard's default time range above nor the last-seen w
 
 <a id="429f3d06-0079"></a>
 
-### Pool intent store seeding
+### Pool configuration store seeding
 
-The Yuruna pool intent store is a bare Git repository that pooled hosts clone
-and pull read-only over HTTP through the `yuruna-pool-intent` Apache
-configuration. The admin CLI pushes pool membership and `desiredState` here.
-Seed `main` with an empty `pools.yml` using `schemaVersion: 3`: an older schema
+The Yuruna pool configuration store is a bare Git repository that pooled hosts clone
+and pull read-only over HTTP through the `yuruna-pool-configuration` Apache
+configuration. The admin CLI pushes pool membership and `configuredState` here.
+Seed `main` with an empty `pools.yml` using `schemaVersion: 4`: an older schema
 can be cloned successfully but fails validation on the first administrative
 write. Initialization skips an existing repository, and Git setup failures
 remain best-effort so other service provisioning can continue.
@@ -2176,7 +2204,7 @@ file modes from mount options. Those options also assign ownership; avoid
 `chown`, which can impose an owner-only ACL and lock out the pool-control VM
 that writes the same share.
 
-Create the repository only while the pool NAS is mounted. Initializing it under an unmounted mount point would put intent on the VM disk; a later mount would shadow that repository and strand updates made in between.
+Create the repository only while the pool NAS is mounted. Initializing it under an unmounted mount point would put configuration on the VM disk; a later mount would shadow that repository and strand updates made in between.
 
 <a id="429f3d06-007a"></a>
 
@@ -2230,7 +2258,7 @@ Confirm the timers that drive the 24-hour cadence are armed. If the apt package'
 
 ### zot install binary and activation
 
-zot install (binary fetch + systemd activation). ZOT_VERSION is pinned for reproducibility, and the downloaded binary is installed only when its SHA-256 matches `ZOT_SHA256_AMD64` or `ZOT_SHA256_ARM64`; a mismatch leaves no file behind. The hashes are pinned in the seed rather than fetched beside the binary, so a replaced release asset cannot vouch for itself. To bump: read https://github.com/project-zot/zot/releases, including its sync and compat changes, verify the asset names still match `zot-linux-{amd64,arm64}` (NOT `-minimal` -- the sync extension is required for on-demand pull-through caching), change ZOT_VERSION and copy both hashes from the release's `checksums.sha256.txt`, then run `ZOT_BINARY=<new zot-linux binary> python3 host/vmconfig/tests/test_collector_seed.py`: it checks the binary against its pin and syncs a Docker manifest list through the seed's routing table. The binary download goes DIRECT to GitHub (not through this VM's own squid -- chicken-and-egg) and is one-shot per VM build, so the ~220 MB transfer doesn't recur.
+zot install (binary fetch + systemd activation). ZOT_VERSION is pinned for reproducibility, and the downloaded binary is installed only when its SHA-256 matches `ZOT_SHA256_AMD64` or `ZOT_SHA256_ARM64`; a mismatch leaves no file behind. The hashes are pinned in the seed rather than fetched beside the binary, so a replaced release asset cannot vouch for itself. To bump: read https://github.com/project-zot/zot/releases, including its sync and compat changes, verify the asset names still match `zot-linux-{amd64,arm64}` (NOT `-minimal` -- the sync extension is required for on-demand pull-through caching), change ZOT_VERSION and copy both hashes from the release's `checksums.sha256.txt`, then commit: the pre-commit hook runs `python3 tools/Test-ZotRelease.py`, which downloads the pinned release once, syncs the probe images through the seed's routing table with the seed's own sync self-test, and records the pass the release gate requires (see [When a zot release cannot sync the lab's images](caching.md#when-a-zot-release-cannot-sync-the-labs-images)). A host can install another release instead, through `vmStart.cachingProxyZotVersion` and `vmStart.cachingProxyZotSha256`; the binary is then installed only when it matches that checksum. After zot starts, `zot-sync-selftest.py --heal` syncs the probe images through it and publishes the verdict on `/cache-health` and `/zot-meta`. The binary download goes DIRECT to GitHub (not through this VM's own squid -- chicken-and-egg) and is one-shot per VM build, so the ~220 MB transfer doesn't recur.
 
 With no Docker Hub account configured, remove `credentialsFile` from zot's JSON before deleting the credential file. An interrupted sequence then leaves an unused file rather than a configuration naming a missing file that prevents zot from starting. JSON rewriting must preserve `registries[]` order because that array is the upstream routing table. Arm prewarming after activation instead of waiting for the first cold set during cloud-init.
 
@@ -2328,6 +2356,15 @@ Like the PowerShell step this is best-effort, and the step's last line names the
 The destination must stay one of the paths the daemon searches when `--fido-script` is empty. Moving it elsewhere disables the family **silently**, since a missing Fido is a supported state rather than an error.
 
 ---
+
+**`host/macos.utm/guest.windows.11/Get-Image.ps1`, `host/windows.hyper-v/guest.windows.11/Get-Image.ps1`.**
+
+Fido settings (change these to download a different edition/language).
+Fido is pinned to a tagged release (not the moving `master` ref) and its
+script hash is verified before execution: Fido.ps1 runs with this script's
+privileges, so an unpinned moving ref is an unchecked remote-code hop.
+Refresh on a new Fido release: bump the tag in the URL and replace the hash
+with the new file's (Get-FileHash -Algorithm SHA256).Hash.
 
 <a id="429f3d06-008d"></a>
 
@@ -2581,6 +2618,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

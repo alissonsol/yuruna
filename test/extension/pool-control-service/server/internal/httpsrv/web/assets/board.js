@@ -132,7 +132,7 @@
       var b = $('stats-banner');
       if (d.statsError) {
         // Only the numbers come from the aggregator. The pools and what each
-        // one runs come from the intent store, so the cards still render and
+        // one runs come from the configuration store, so the cards still render and
         // the banner says which part is missing.
         b.textContent = window.YurunaI18n.t("pool.board_live_numbers_unavailable", {detail: (Y.bidiIsolate(d.statsError))});
         b.hidden = false;

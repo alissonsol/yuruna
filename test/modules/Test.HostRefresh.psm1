@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b6904c-f865-423b-822a-edb5cb5994fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -245,7 +245,7 @@ $script:HostRefreshControlName = @(
     'control.lab-hold-release', 'control.cycle-restart', 'break-active.json'
 )
 
-# --- REGION: Small private helpers
+# --- REGION: Private helpers
 function Get-HostRefreshCommand {
     <#
     .SYNOPSIS
@@ -2597,7 +2597,7 @@ function Invoke-HostRefreshServiceConvergence {
             try {
                 $intent = Get-YurunaServiceIntent -Key ([string]$row.Key)
                 $captured = if ($row.PSObject.Properties['IntentGeneration']) { [long]$row.IntentGeneration } else { [long]0 }
-                if ([string]$intent.DesiredState -eq 'stopped' -and [long]$intent.Generation -gt $captured) {
+                if ([string]$intent.RequestedState -eq 'stopped' -and [long]$intent.Generation -gt $captured) {
                     $ids = [string[]]@("service:$key", "endpoint:$key" | Where-Object { $State.Obligations[$_] -eq 'armed' })
                     $disposition = Set-HostRefreshObligationDisposition -ObligationId $ids -Actor 'superseded-by-operator-intent' -RequestId $State.RequestId -Confirm:$false
                     foreach ($id in @($disposition.Disposed)) { $State.Obligations[$id] = 'disposed' }

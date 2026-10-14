@@ -322,12 +322,30 @@ parse. The `Read-TestConfig` mtime check short-circuits the parse when
 the file is unchanged, but the function call + `Test-Path` + `Get-Item`
 still cost ~1-2 ms each, compounding across 8+ re-imports per step.
 
+<a id="4222e5f2-000c"></a>
+
+## Hyper-V click coordinates and DPI awareness
+
+Click-by-OCR feeds the captured image's pixel coordinates straight back as
+client coordinates: the capture is taken so that image `(x, y)` equals the
+vmconnect client `(x, y)`. `HyperVCapture` grabs that frame under
+Per-Monitor-V2 awareness, so the image is in the window's true physical pixels,
+and the click has to map those same physical client coordinates. That is why
+`ClientToScreen` and `SetCursorPos` run under a matching Per-Monitor-V2
+context. A system-DPI-aware mapping on a monitor scaled above 100% would land
+the click off target by the scale factor.
+
+The switch is thread-scoped and reversible. `Initialize-HyperVMouseType`
+defines it as `EnterPerMonitorV2` and `RestoreThreadDpiContext`; when the API
+is absent, `EnterPerMonitorV2` returns `IntPtr.Zero` and the process-wide
+awareness from `EnsureDpiAware` stays in force.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

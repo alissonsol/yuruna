@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42b84cc3-7873-4cc2-800e-3d90a4776081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,12 +40,7 @@ $spiceImageFile = Join-Path $downloadDir $spiceImageName
 # UTM Guest Tools ISO (includes SPICE + VirtIO drivers for ARM64 Windows)
 $spiceDownloadUrl = "https://getutm.app/downloads/utm-guest-tools-latest.iso"
 
-# Fido settings (change these to download a different edition/language).
-# Fido is pinned to a tagged release (not the moving `master` ref) and its
-# script hash is verified before execution: Fido.ps1 runs with this script's
-# privileges, so an unpinned moving ref is an unchecked remote-code hop.
-# Refresh on a new Fido release: bump the tag in the URL and replace the hash
-# with the new file's (Get-FileHash -Algorithm SHA256).Hash.
+# See https://yuruna.link/429f3d06-008c
 $fidoUrl = "https://raw.githubusercontent.com/pbatard/Fido/v1.71/Fido.ps1"
 $fidoSha256 = "6481e40d3cf100c79b281942d0d1c7f6d111397be296fec867a56cbe368ebdf9"
 $languageFilter = "English"
@@ -71,7 +66,7 @@ if (!(Test-Path -Path $downloadDir)) {
 $windowsOk = $false
 $spiceOk = $false
 
-# --- REGION: Windows 11 ARM64 ISO
+# --- REGION: Seek the base image
 Write-Output ""
 Write-Output "--- Windows 11 ARM64 ISO ---"
 
@@ -80,6 +75,7 @@ if (Test-Path -Path $baseImageFile) {
     Write-Output "  File: $baseImageFile"
     $windowsOk = $true
 } else {
+    # --- REGION: https://yuruna.link/42e220c4-0003
     # Check if a Windows 11 ARM64 ISO was placed in the download directory with any name
     $existingIso = Get-ChildItem -Path $downloadDir -Filter "*.iso" -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match 'Win11.*ARM|Windows.*11.*ARM|ARM.*Win.*11' } |
@@ -189,12 +185,7 @@ if (-not $windowsOk) {
         if ($fidoActual -ine $fidoSha256) {
             throw (Format-YurunaOperatorMessage -Key 'exceptions.host_dd6d74db4a58cc9d' -Arguments @{ fidoSha256 = "$fidoSha256"; fidoActual = "$fidoActual" })
         }
-        # Fido refuses to run anywhere but Windows: Get-Platform-Version answers
-        # 0.0 off Windows and the command-line path exits 403 ("This feature is
-        # not available on this platform.") before making any request. The
-        # -GetUrl flow behind that gate is platform-neutral, so neuter the gate
-        # -- AFTER the hash check, so only the verified pinned bytes are ever
-        # patched. Without this the automated path can never work on macOS.
+        # See https://yuruna.link/42e220c4-0003
         $fidoText = Get-Content -LiteralPath $fidoScript -Raw
         Set-Content -LiteralPath $fidoScript -NoNewline `
             -Value $fidoText.Replace('$winver = Get-Platform-Version', '$winver = 10.0')
@@ -278,6 +269,7 @@ if (-not $windowsOk) {
     }
 }
 
+# --- REGION: Fallback: manual download instructions
 if (-not $windowsOk) {
     Write-Output ""
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_89c416f7ffc8adfa')
@@ -294,7 +286,8 @@ if (-not $windowsOk) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5a63a9ecfe4b9fc7')
 }
 
-# --- REGION: UTM Guest Tools ISO (SPICE + VirtIO drivers, ARM64-compatible)
+# --- REGION: UTM Guest Tools ISO
+# SPICE and VirtIO drivers, ARM64-compatible.
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_53718658a3b1e181')
 

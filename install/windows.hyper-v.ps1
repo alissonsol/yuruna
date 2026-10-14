@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,14 +40,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# This installer drives native tools (winget, git, dism) that signal status via
-# their EXIT CODE, not exceptions, and several are EXPECTED to exit non-zero
-# (`git diff-index --quiet` on a dirty tree, `winget upgrade` on an already-
-# current package). Every call that matters checks $LASTEXITCODE explicitly.
-# On PowerShell 7.4+ $PSNativeCommandUseErrorActionPreference can be $true, which
-# turns ANY non-zero native exit into a terminating error under EAP=Stop and
-# would abort the install on those benign cases. Pin it off so behavior does
-# not depend on the host's PowerShell default. (Harmless no-op on PS 5.1.)
+# Native tools (winget, git, dism) signal status through their EXIT CODE, and several exit
+# non-zero on benign results. Calls that matter check $LASTEXITCODE. PowerShell 7.4+ can turn
+# any non-zero native exit into a terminating error, so the preference is pinned off (a no-op
+# on PS 5.1).
 $PSNativeCommandUseErrorActionPreference = $false
 
 $script:YurunaRepoPublic  = 'https://github.com/alissonsol/yuruna.git'
@@ -60,12 +56,9 @@ function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
 
 # --- REGION: Deferred issues
-# Every non-fatal problem is recorded here as well as printed where it happens.
-# An installer prints hundreds of lines; a package that failed to upgrade
-# scrolls past long before the operator reads the closing instructions, and the
-# only thing that survives to the end is a summary. Nothing here stops the run:
-# a package-manager hiccup mid-install should not end it, but it must not pass
-# unmentioned either.
+# Every non-fatal problem is recorded here as well as printed where it happens:
+# hundreds of lines scroll past, and the closing summary is what survives.
+# Nothing here stops the run, but a problem must not pass unmentioned either.
 $script:YurunaIssue = [System.Collections.Generic.List[string]]::new()
 function Add-InstallIssue {
     param([Parameter(Mandatory)][string]$Message)
@@ -146,14 +139,10 @@ if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
 }
 
 # --- REGION: Preflight: Hyper-V-capable Windows edition (HARD gate)
-# Distinct from the "tested baseline" warnings below: those (low RAM, fewer
-# cores, an untested-but-Hyper-V-capable Windows version) are soft and the
-# operator may continue past them. A Windows Home / S mode edition is not
-# negotiable -- it ships no Hyper-V platform at all, so nothing the elevated
-# stage can enable makes the harness's VMs possible. Catch it HERE, before the
-# UAC elevation and the winget installs, and abort naming the real cause rather
-# than running on to a misleading "INSTALL RESULT: SUCCESS" whose only hint is a
-# buried "feature not available on this SKU" warning emitted mid-run.
+# See https://yuruna.link/42ad660e-0014
+# Unlike the soft tested-baseline warnings below, this is not negotiable: Home and
+# S mode editions ship no Hyper-V platform, so nothing later in the run can make the
+# harness's VMs possible. Abort here, before UAC and the winget installs.
 function Assert-HyperVCapableEdition {
     $os = $null
     try {
@@ -532,13 +521,9 @@ Microsoft Store (or update Windows) and re-run this script.
             Write-Die "winget install Microsoft.PowerShell exited $LASTEXITCODE. Re-run after resolving the winget source error shown above (e.g. 'winget source reset --force' from an elevated prompt)."
         }
     } else {
-        # Safe to UPGRADE here: this stage runs under Windows PowerShell
-        # (powershell.exe), a different binary from the pwsh.exe being
-        # replaced, so the upgrade can't terminate the running process. (The
-        # main package loop below runs UNDER pwsh and must NOT upgrade it --
-        # see the Microsoft.PowerShell self-upgrade guard there.) Best-effort:
-        # winget upgrade exits non-zero when nothing is outdated, which is not
-        # a failure, so don't gate on $LASTEXITCODE.
+        # Safe to upgrade here: this stage runs under Windows PowerShell (powershell.exe), a
+        # different binary from the pwsh.exe being replaced. The main package loop runs under pwsh
+        # and must not upgrade it. Best-effort: winget exits non-zero when nothing is outdated.
         Write-Step '  PowerShell 7 already installed -- upgrading if outdated'
         winget upgrade --id 'Microsoft.PowerShell' --exact --silent --source winget `
             --accept-package-agreements --accept-source-agreements `
@@ -746,13 +731,10 @@ function Test-YurunaPathInside {
     return ($Path -eq $Root -or $Path.StartsWith($Root + '\', [System.StringComparison]::OrdinalIgnoreCase))
 }
 
-# Merge a probe directory back over the checkout. Reached when BOTH names exist,
-# which is the shape a copy-then-delete move leaves behind: part of the tree
-# under the probe name, the rest under the real one, and the repo unusable until
-# they are one directory again. The two sides are disjoint except for files
-# whose copy succeeded and whose delete did not, and those are byte-identical,
-# so overwriting is safe. The probe is removed only when every entry made
-# it back.
+# Merge a probe directory back over the checkout. Both names exist after a copy-then-delete
+# move, which leaves the repo unusable until they are one directory. The sides are disjoint
+# except for byte-identical files whose delete did not run, so overwriting is safe. Remove
+# the probe only when every entry came back.
 function Restore-YurunaCheckoutFromProbe {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -801,13 +783,9 @@ function Assert-YurunaCheckoutMovable {
     $full  = [System.IO.Path]::GetFullPath($Dir).TrimEnd('\')
     $probe = "$full.locktest"
 
-    # Drop a self-inflicted lock. A process holds an open handle on its own
-    # working directory, and that handle pins every parent of it against rename.
-    # Set-Location moves only the PowerShell location -- the OS-level working
-    # directory the process was launched with stays put -- so both have to be
-    # stepped out of the tree explicitly. Since the documented way to run this
-    # file is from inside the checkout (install\windows.hyper-v.ps1), skipping
-    # the second one makes the installer the process that blocks its own update.
+    # Drop a self-inflicted lock: a working directory inside the tree pins every parent against
+    # rename. Set-Location moves only the PowerShell location, so the OS-level directory has to
+    # move too. See https://yuruna.link/429fb30b-000e
     $parent = Split-Path -Parent $full
     $psCwd  = [System.IO.Path]::GetFullPath((Get-Location).ProviderPath).TrimEnd('\')
     $osCwd  = ''
@@ -830,13 +808,9 @@ function Assert-YurunaCheckoutMovable {
         Write-Warn "Stepped out of '$Dir' -- the installer was launched from inside the checkout, which would block updating it."
     }
 
-    # Recover from a probe an interrupted run left behind, in either shape it
-    # can take: the whole checkout sitting under the probe name (rename away
-    # succeeded, rename back never ran), or the tree split across both names.
-    # This runs BEFORE the nothing-to-move check below, because either shape can
-    # leave .git itself on the probe side -- and a checkout without .git reads
-    # as "never cloned", so the update path would try to clone into a directory
-    # that is not empty and fail there instead.
+    # Recover from a probe an interrupted run left behind: the whole checkout under the probe name,
+    # or the tree split across both names. This runs before the nothing-to-move check because .git
+    # can sit on the probe side, and a checkout without .git reads as "never cloned".
     if ((Test-Path -LiteralPath $probe) -and -not (Test-Path -LiteralPath $full)) {
         Write-Warn "Found the checkout under the probe name '$probe' -- renaming it back to '$Dir'."
         try {
@@ -967,13 +941,9 @@ function Install-WingetPackage {
 
 # --- REGION: Install platform packages
 Write-Step 'Installing / upgrading required packages via winget'
-# PowerShell 7 itself: do NOT `winget upgrade` the interpreter we are running
-# under. winget's MSI uses the Restart Manager to close every process holding
-# pwsh's files open -- including THIS one -- which terminates the installer
-# mid-step (the runspace dies with "The pipeline has been stopped"). PS7 is
-# installed-if-missing and upgraded-if-present in the bootstrap stage above,
-# which runs under Windows PowerShell and is therefore safe to replace pwsh
-# from. An in-place upgrade of the live pwsh has to come from another process.
+# Do not winget-upgrade the PowerShell 7 running this script: winget's MSI closes every process
+# holding pwsh's files, including this one, and the install dies mid-step. The bootstrap stage
+# above runs under Windows PowerShell and can replace pwsh safely. See https://yuruna.link/429fb30b-001b
 if ($PSVersionTable.PSEdition -eq 'Core') {
     # Not an error, but not nothing either: this run cannot raise the
     # interpreter it is executing in, so if that interpreter is below the floor
@@ -1683,16 +1653,11 @@ if (Test-Path -LiteralPath $requirementScript) {
     }
 }
 
-# --- REGION: Install summary
-# The last thing printed before the transcript closes. Everything above
-# scrolls; this does not -- including the outcome banner, which the floor check
-# and this block both print after.
-#
-# Every verdict here is gated on the run's outcome, not on the issue count
-# alone. A caught failure and a pending Hyper-V activation each reach this
-# point, and a summary that reads "the machine is usable" or "finished with no
-# issues" under either one contradicts the banner the operator just scrolled
-# past, with the contradiction in the position that survives.
+# --- REGION: Installation summary
+# The last thing printed before the transcript closes. Every verdict is gated on the
+# run's outcome, not on the issue count alone: a caught failure or a pending Hyper-V
+# activation must not read as "usable".
+# See https://yuruna.link/4213a0b3-01b9
 $installComplete = $script:InstallSucceeded -and -not $script:RestartNeeded
 if ($script:YurunaIssue.Count -gt 0) {
     Write-Output ''

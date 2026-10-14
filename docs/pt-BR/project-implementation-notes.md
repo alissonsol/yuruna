@@ -1275,18 +1275,18 @@ Veja feedback_bootstrap_installer_no_bom.md.
 
 <a id="42010605-0045"></a>
 
-<a id="section-9d-pool-intent-sync"></a>
+<a id="section-9d-pool-configuration-sync"></a>
 
-### Seção 9d: grupo (sincronização de intenção)
+### Seção 9d: grupo (sincronização de configuração)
 
 `yuruna/test/Test-Config.ps1`
 
-Valide a obtenção opcional de intenção do grupo quando configurada: enabled exige
-intentGitUrl não vazio, e o repositório de intenção na LAN responde a um git
+Valide a obtenção opcional de configuração do grupo quando configurada: enabled exige
+configurationGitUrl não vazio, e o repositório de configuração na LAN responde a um git
 ls-remote com limite. A acessibilidade é WARN (o executor passa a operar com um
 único hospedeiro quando o repositório está fora do ar), para que um proxy
 momentaneamente offline nunca bloqueie um ciclo saudável. O CONTEÚDO do
-repositório de intenção (estrutura de pools.yml) é validado por Test-PoolIntent.ps1;
+repositório de configuração (estrutura de pools.yml) é validado por Test-PoolConfiguration.ps1;
 esta verificação cobre apenas o bloco LOCAL da configuração e a acessibilidade.
 
 <a id="42010605-0046"></a>
@@ -1972,7 +1972,7 @@ desta máquina um SERVIDOR de armazenamento é removido; nada que ela armazenou 
 
 Essa separação é deliberada e constitui todo o projeto deste script. As pastas
 sob a raiz de armazenamento contêm arquivos compactados de ciclos concluídos,
-artefatos do stash, o vault do laboratório e o repositório de intenção do grupo —
+artefatos do stash, o vault do laboratório e o repositório de configuração do grupo —
 conteúdo cuja única cópia pode estar aqui e que nenhuma regra automatizada pode
 avaliar. Por isso, os bytes são relatados, nunca excluídos: tamanho por pasta,
 conteúdo de cada uma e comando exato para o operador executar depois de decidir.
@@ -2168,13 +2168,13 @@ a realizar.
 
 <a id="42010605-0072"></a>
 
-<a id="pool-intent-repository"></a>
+<a id="pool-configuration-repository"></a>
 
-### Repositório de intenção do grupo
+### Repositório de configuração do grupo
 
 `yuruna/test/lab/New-Lab.ps1`
 
-'pool-intent.git' é o nome já resolvido por todo consumidor e que ele não pode
+'pool-configuration.git' é o nome já resolvido por todo consumidor e que ele não pode
 descobrir: o Alias do apache publicado pelo proxy de cache, o caminho de montagem
 do convidado no qual pool-control service faz commits e o caminho gravável
 passado por setup.ps1 a New-Pool. Um nome derivado do nome do laboratório não
@@ -2184,9 +2184,9 @@ próprio -Root, portanto a pasta do grupo já tem escopo de laboratório.
 
 <a id="42010605-0073"></a>
 
-<a id="create-a-lab-its-storage-folders-its-credential-vault-and-its-pool-intent-repository"></a>
+<a id="create-a-lab-its-storage-folders-its-credential-vault-and-its-pool-configuration-repository"></a>
 
-### Crie um laboratório: suas pastas de armazenamento, seu vault de credenciais e seu repositório de intenção do grupo
+### Crie um laboratório: suas pastas de armazenamento, seu vault de credenciais e seu repositório de configuração do grupo
 
 `yuruna/test/lab/New-Lab.ps1`
 
@@ -2198,12 +2198,12 @@ nada para verificar o resultado. Este script cria os três itens de forma
 consistente e pode ser executado novamente com segurança.
 
 O que cria em -Root:
-  <Root>/yuruna.pool          replicação da saída de ciclos + repositório de intenção
+  <Root>/yuruna.pool          replicação da saída de ciclos + repositório de configuração
   <Root>/yuruna.stash         armazenamento durável do próprio stash service
-  <Root>/yuruna.pool/pool-intent.git
-                              repositório bare de intenção do grupo, inicialmente válido pelo esquema.
+  <Root>/yuruna.pool/pool-configuration.git
+                              repositório bare de configuração do grupo, inicialmente válido pelo esquema.
                               a VM caching-proxy-service o serve por HTTP; essa URL
-                              se torna intentGitUrl do laboratório.
+                              se torna configurationGitUrl do laboratório.
 
 O vault gravado é YAML simples protegido por permissões do sistema de arquivos.
 Isso é deliberado e é o motivo de existir este script em vez de reutilizar
@@ -2374,7 +2374,7 @@ plataforma oferecida como padrão: /srv/yuruna no Ubuntu, /Users/Shared/yuruna
 no macOS e <drive>\Shares\yuruna no Windows — a primeira unidade fixa que não
 seja a unidade do sistema). As oito etapas numeradas seguem esta ordem:
 
-  1. Pastas, vault do laboratório e repositório de intenção do grupo, por
+  1. Pastas, vault do laboratório e repositório de configuração do grupo, por
      New-Lab.ps1. As duas senhas dos compartilhamentos são as que ele gera;
      um laboratório existente mantém suas senhas, para que uma nova execução
      não troque as credenciais usadas por suas outras máquinas.
@@ -2479,14 +2479,14 @@ repositório), para que qualquer escolha real do operador continue tendo preced�
 
 <a id="42010605-007e"></a>
 
-<a id="seed-the-pool-intent-store-binding"></a>
+<a id="seed-the-pool-configuration-store-binding"></a>
 
-### Inicialize a vinculação ao repositório de intenção do grupo
+### Inicialize a vinculação ao repositório de configuração do grupo
 
 `yuruna/test/lab/Set-LabToken.ps1`
 
 Um hospedeiro que acabou de inscrever seu token do laboratório é um hospedeiro
-que o operador pretende gerenciar pelo laboratório. O repositório de intenção
+que o operador pretende gerenciar pelo laboratório. O repositório de configuração
 que deve consultar é servido pelo próprio proxy recém-informado; vincule-o agora:
 a inscrição é o único momento em que um operador está presente, autenticado e
 já forneceu o endereço.
@@ -2495,8 +2495,8 @@ Executa para TODO endereço resolvido, não apenas para um fornecido pelo operad
 — um hospedeiro cujo cachingProxyIp já esteja na configuração ainda precisa da
 vinculação ao grupo, o caso comum em uma nova inscrição.
 
-Um intentGitUrl existente e não vazio é mantido, a menos que corresponda ao
-formato http://<host>/pool-intent.git inicializado automaticamente e seja diferente
+Um configurationGitUrl existente e não vazio é mantido, a menos que corresponda ao
+formato http://<host>/pool-configuration.git inicializado automaticamente e seja diferente
 da URL do proxy resolvido. Esse formato é atualizado para o endereço atual do
 proxy; outras URLs selecionadas pelo operador permanecem inalteradas. Toda a ação é de melhor esforço
 — o token já está armazenado, e uma falha ao inicializar uma vinculação opcional
@@ -2668,6 +2668,13 @@ a fazer não grava nada.
 <a id="pool-transitions"></a>
 
 ## Transições de grupo
+
+O leitor compartilhado `ConvertTo-PoolConfigurationSchemaV4` normaliza as versões
+2 e 3 em memória. Move as declarações de repositórios da versão 2 para
+`repositories` e renomeia `desiredState` para `configuredState`, preservando o valor.
+Valores duplicados iguais são unificados apenas em documentos legados; valores
+conflitantes são recusados antes de qualquer alteração. A versão 4 rejeita o campo
+antigo. A leitura por si só nunca grava o documento armazenado.
 
 <a id="42010605-0087"></a>
 
@@ -2914,7 +2921,7 @@ DADOS nunca são excluídos. A etapa 5 retira definições de compartilhamentos 
 contas específicas — configuração que se torna incorreta quando este hospedeiro
 para de compartilhar — e preserva todo byte sob a raiz de armazenamento:
 arquivos compactados de ciclos, artefatos do stash, vault do laboratório e
-repositório de intenção do grupo ficam ali, e nenhuma regra automatizada pode
+repositório de configuração do grupo ficam ali, e nenhuma regra automatizada pode
 julgar qual é a única cópia. A saída final mostra o que permanece e o único
 comando que recupera o espaço. Passe -KeepLocalShares em uma máquina cujos
 compartilhamentos ainda são montados por outros hospedeiros.
@@ -2927,12 +2934,12 @@ todos os aliases já removidos e todas as credenciais já convergidas, e não al
 
 <a id="autoenrollment-is-projected-alongside-pools-because-this-cli-is-the-only-read-path-the-pool-control"></a>
 
-### autoEnrollment é exposto junto dos grupos porque esta CLI é o ÚNICO caminho de leitura de intenção para pool-control
+### autoEnrollment é exposto junto dos grupos porque esta CLI é o ÚNICO caminho de leitura de configuração para pool-control
 
-`yuruna/test/pool/Get-PoolIntent.ps1`
+`yuruna/test/pool/Get-PoolConfiguration.ps1`
 
 autoEnrollment é exposto junto dos grupos porque esta CLI é o ÚNICO caminho de
-leitura de intenção disponível a pool-control service. Sem isso, a varredura não
+leitura de configuração disponível a pool-control service. Sem isso, a varredura não
 vê `excluded[]` — a lista que impede reincluir um hospedeiro removido
 intencionalmente pelo operador —, e o operador e um timer de 60 segundos
 entrariam em conflito indefinidamente. Quando ausente, é emitido como objeto
@@ -3005,7 +3012,7 @@ possível em toda a camada de grupos.
 
 Vinculado a autoEnrollment.targetPoolId, não ao literal 'default', para que
 renomear o destino mantenha a proteção. Isso fica no código por ser uma
-restrição entre campos que JSON Schema não expressa; Test-PoolIntent.ps1 a
+restrição entre campos que JSON Schema não expressa; Test-PoolConfiguration.ps1 a
 verifica novamente como validador autoritativo. O ID comparado é o armazenado
 no grupo encontrado acima, não -PoolId como digitado: a busca ignora
 maiúsculas/minúsculas, portanto um ID com outra capitalização não pode escapar.
@@ -3024,13 +3031,13 @@ com -Clear, remove-os. Um executor associado a um grupo substitui seus próprios
 repositories.frameworkUrl / repositories.projectUrl pelo par do grupo durante
 o ciclo e executa o test.runner.yml desse projeto. Um grupo sem repositórios
 mantém cada hospedeiro em seus próprios repositórios configurados.
-GH_TOKEN nunca faz parte da intenção do grupo — permanece local ao hospedeiro.
+GH_TOKEN nunca faz parte da configuração do grupo — permanece local ao hospedeiro.
 
 As duas URLs têm espaços nas extremidades removidos, devem ser não vazias,
 livres de espaços em branco e caracteres de controle, e não podem começar com '-'.
 O grupo de destino da inscrição automática (autoEnrollment.targetPoolId) nunca
 pode definir repositórios, portanto defini-los nele é recusado; limpá-los nele
-é permitido, pois é assim que se repara um repositório de intenção que viole a regra.
+é permitido, pois é assim que se repara um repositório de configuração que viole a regra.
 
 <a id="42010605-0097"></a>
 
@@ -3088,76 +3095,82 @@ transferência truncada nunca substitui um painel funcional.
 
 ### O grupo de destino da inscrição automática NÃO deve definir repositórios. Esta é a verificação AUTORITATIVA: a CLI
 
-`yuruna/test/pool/Test-PoolIntent.ps1`
+`yuruna/test/pool/Test-PoolConfiguration.ps1`
 
 O grupo de destino da inscrição automática NÃO deve definir repositórios.
 Esta é a verificação AUTORITATIVA: a CLI recusa e a interface desabilita,
 mas só esta detecta um arquivo editado manualmente ou um repositório gravado
 por uma versão antiga. É uma restrição entre campos (um grupo identificado
 por OUTRO campo), que JSON Schema não expressa. É definida para a estrutura v3;
-portanto, executa apenas em um repositório com schemaVersion 3.
+portanto, executa apenas em um repositório com schemaVersion 4.
 
 Uma violação produz FAIL, em vez de ser removida silenciosamente:
 removê-la alteraria o que um laboratório executa sem decisão de ninguém.
 
 <a id="42010605-0099"></a>
 
-<a id="validate-every-file-in-the-pool-intent-store-against-its-schema"></a>
+<a id="validate-every-file-in-the-pool-configuration-store-against-its-schema"></a>
 
-### Valide cada arquivo do repositório de intenção do grupo pelo seu esquema
+### Valide cada arquivo do repositório de configuração do grupo pelo seu esquema
 
-`yuruna/test/pool/Test-PoolIntent.ps1`
+`yuruna/test/pool/Test-PoolConfiguration.ps1`
 
 CLI de administração de grupos / verificação de CI. Clona/atualiza o repositório
-de intenção e valida pools.yml (esquema v3) e guests.compatibility.yml
+de configuração e valida pools.yml (esquema v4) e guests.compatibility.yml
 (quando presente) contra test/schemas/*; impõe a regra entre grupos de que um
 hospedeiro pertence a no máximo um grupo e verifica que o destino da inscrição
 automática não define repositórios. pools.yml é avaliado como armazenado:
-um repositório abaixo de schemaVersion 3 recebe um diagnóstico de versão de
-esquema indicando test/pool/Update-PoolIntentSchema.ps1. Saída 0 se tudo for
+um repositório abaixo de schemaVersion 4 recebe um diagnóstico de versão de
+esquema indicando test/pool/Update-PoolConfigurationSchema.ps1. Saída 0 se tudo for
 válido, 1 em qualquer erro. Nunca grava. Execute antes de depender de intenção
 recém-criada (os executores obtêm o que está versionado, portanto um arquivo
 malformado configuraria incorretamente todo o grupo sem aviso).
 
 <a id="42010605-009a"></a>
 
-<a id="migrate-the-pool-intent-store-to-pools"></a>
+<a id="migrate-the-pool-configuration-store-to-pools"></a>
 
-### Migre o repositório de intenção do grupo para grupos
+### Migre o repositório de configuração do grupo para grupos
 
-`yuruna/test/pool/Update-PoolIntentSchema.ps1`
+`yuruna/test/pool/Update-PoolConfigurationSchema.ps1`
 
-CLI de administração de grupos. Clona/atualiza o repositório de intenção GRAVÁVEL
-e lê pools.yml como armazenado. Abaixo de schemaVersion 3, atualiza o documento
-com ConvertTo-PoolIntentSchemaV3: as URLs de framework e projeto de testSet de
+A migração preserva `run`, `paused` e `drain` ao renomear `desiredState` para
+`configuredState`. Valores duplicados conflitantes são recusados; a versão 4
+aceita apenas o novo campo. Atualize também todos os executores antes de
+migrar o repositório compartilhado.
+
+
+CLI de administração de grupos. Clona/atualiza o repositório de configuração GRAVÁVEL
+e lê pools.yml como armazenado. Abaixo de schemaVersion 4, atualiza o documento
+com ConvertTo-PoolConfigurationSchemaV4: as URLs de framework e projeto de testSet de
 cada grupo se tornam `repositories`, e o nome e as sequências de testSet são
 removidos. Também exclui um test-sets.yml remanescente, que nada lê.
 Depois valida pools.yml contra test/schemas/pools.schema.yml, faz commit e push.
-O título do commit identifica a alteração: "Migrate pool intent to schemaVersion 3"
+O título do commit identifica a alteração: "Migrate pool configuration to schemaVersion 4"
 quando a versão armazenada muda, ou "pool: remove test-sets.yml" quando ela
-já é schemaVersion 3 e apenas aquele arquivo remanescente é removido.
+já é schemaVersion 4 e apenas aquele arquivo remanescente é removido.
 
-Idempotente: um repositório já em schemaVersion 3 e sem test-sets.yml é informado
+Idempotente: um repositório já em schemaVersion 4 e sem test-sets.yml é informado
 como atual e permanece intocado. Uma versão MAIS NOVA é recusada — atualize
 primeiro este checkout. A migração mantém todo valor encontrado, inclusive
-repositórios no destino da inscrição automática; execute Test-PoolIntent.ps1
+repositórios no destino da inscrição automática; execute Test-PoolConfiguration.ps1
 depois, que informa isso como violação a limpar com Set-PoolRepository.ps1 -Clear.
 
 Toda outra CLI administrativa faz a mesma atualização em memória e a persiste
 na próxima gravação; este script torna a migração um commit próprio, explícito
 e revisável. Execute depois que todo checkout que grava o repositório
-(inclusive a VM pool-control-service) usar o código de schemaVersion 3:
-um checkout que ainda valida schemaVersion 2 se recusa a gravar um repositório v3.
+(inclusive a VM pool-control-service) usar o código de schemaVersion 4:
+um checkout que ainda valida schemaVersion 2 se recusa a gravar um repositório v4.
 
 <a id="42010605-009b"></a>
 
-<a id="example-pool-intent-schema-v3-validates-against-testschemaspoolsschemayml-this-is-the-file"></a>
+<a id="example-pool-configuration-schema-v3-validates-against-testschemaspoolsschemayml-this-is-the-file"></a>
 
-###  Exemplo de intenção de grupo (esquema v3). Valida contra test/schemas/pools.schema.yml. Este é o arquivo
+###  Exemplo de configuração de grupo (esquema v4). Valida contra test/schemas/pools.schema.yml. Este é o arquivo
 
 `yuruna/test/pool/examples/pools.yml`
 
-Exemplo de intenção de grupo (esquema v3). Valida contra test/schemas/pools.schema.yml.
+Exemplo de configuração de grupo (esquema v4). Valida contra test/schemas/pools.schema.yml.
 Este é o arquivo criado pela CLI de administração de grupos e obtido por cada
 executor do repositório git bare em caching-proxy-service. `members[]` é a fonte
 única de verdade da associação (um hospedeiro pertence a no máximo um grupo):
@@ -3166,7 +3179,7 @@ seus hospedeiros (com prefixo 42 e 32 caracteres hexadecimais).
 `poolGuid` é o GUID estável do grupo. `repositories` contém as URLs de
 repositórios de framework e projeto executados por cada hospedeiro do grupo;
 omita-o para que cada um use seus próprios repositórios configurados
-(GH_TOKEN fica local ao hospedeiro, nunca aqui). `desiredState` controla
+(GH_TOKEN fica local ao hospedeiro, nunca aqui). `configuredState` controla
 execução/pausa/drenagem; `config` substitui opções do ciclo, e `gating` define
 os limites consultivos dos alertas de grupo.
 

@@ -62,6 +62,7 @@
        warning accent: the host keeps running and passing on a fallback path,
        so this reports a topology, it does not report a failure. */
     .host-network-notice { border-inline-start-color: var(--warn-fg); }
+    .runner-failure { border-inline-start-color: var(--fail-fg); overflow-wrap: break-word; }
 
     .meta-grid {
       display: flex; flex-wrap: wrap;
@@ -259,6 +260,8 @@
        hidden. The host still runs and passes on its fallback path, so this is
        role="status", not an alert. -->
   <div id="host-network-notice" class="control-notice host-network-notice" role="status" hidden></div>
+
+  <div id="runner-failure" class="control-notice runner-failure" role="alert" hidden></div>
 
   <section id="sec-cycle" style="display:none" aria-labelledby="sec-cycle-title">
     <div class="section-title with-controls">

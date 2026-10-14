@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d9232d-ca85-4467-9819-14ed428ab4b9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Lab creation: the intent store's git settings, the lab vault's shape, and
+    Lab creation: the configuration store's git settings, the lab vault's shape, and
     Test.Lab.psm1 -- storage-root discovery and the machine-credential reuse
     that keeps a second lab from minting a conflicting password.
 .DESCRIPTION
@@ -88,22 +88,22 @@ function Write-TestLabVault {
 
 }
 
-Describe 'New-YurunaPoolIntentStore' {
+Describe 'New-YurunaPoolConfigurationStore' {
     BeforeAll {
     $script:work = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-lab-t-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
     $script:store = Join-Path $work 'x.intent.git'
-    $script:created = New-YurunaPoolIntentStore -Path $store -Confirm:$false
+    $script:created = New-YurunaPoolConfigurationStore -Path $store -Confirm:$false
     }
 
     It 'creates a bare repository on main' {
         $created.Created | Should -Be $true
         (& git -C $store symbolic-ref --short HEAD) | Should -Be 'main'
     }
-    It 'seeds pools.yml at schemaVersion 3' {
+    It 'seeds pools.yml at schemaVersion 4' {
         # A store seeded at an older version READS fine -- nothing validates on
         # read -- and then fails every write at schema validation, so the UI looks
         # healthy right up until the operator creates a pool.
-        ((& git -C $store show main:pools.yml) -join "`n") | Should -Match 'schemaVersion:\s*3'
+        ((& git -C $store show main:pools.yml) -join "`n") | Should -Match 'schemaVersion:\s*4'
     }
     It 'sets core.fileMode false so a NAS mount does not look like a permission change' {
         (& git -C $store config core.fileMode) | Should -Be 'false'
@@ -119,7 +119,7 @@ Describe 'New-YurunaPoolIntentStore' {
         (Test-Path (Join-Path $clone 'pools.yml')) | Should -Be $true
     }
     It 'is idempotent: a second call leaves the existing repository alone' {
-        $again = New-YurunaPoolIntentStore -Path $store -Confirm:$false
+        $again = New-YurunaPoolConfigurationStore -Path $store -Confirm:$false
         $again.Created | Should -Be $false
     }
 
@@ -155,7 +155,7 @@ Describe 'New-Lab writes a usable lab vault' {
     }
     It 'produces a parseable document carrying the lab identity' {
         $doc = Get-Content -Raw $vault | ConvertFrom-Yaml -Ordered
-        $doc.schemaVersion | Should -Be 1
+        $doc.schemaVersion | Should -Be 2
         $doc.lab.name      | Should -Be $labName
         $doc.users.Keys.Count | Should -BeGreaterThan 0
     }
@@ -181,6 +181,27 @@ Describe 'New-Lab writes a usable lab vault' {
         $doc = Get-Content -Raw $vault | ConvertFrom-Yaml -Ordered
         $pw = @($doc.users.Keys | ForEach-Object { $doc.users[$_].password })
         ($pw | Select-Object -Unique).Count | Should -Be $pw.Count
+    }
+
+    It 'adopts a legacy managed store and vault metadata without changing credentials or Git history' {
+        $doc = Get-Content -Raw $vault | ConvertFrom-Yaml -Ordered
+        $passwords = $doc.users | ConvertTo-Json -Depth 10 -Compress
+        $canonical = [string]$doc.lab.configurationGitPath
+        $legacy = Join-Path (Split-Path -Parent $canonical) 'pool-intent.git'
+        $head = & git -C $canonical rev-parse HEAD
+        Move-Item -LiteralPath $canonical -Destination $legacy
+        $doc.schemaVersion = 1
+        $doc.lab.intentGitPath = $legacy
+        $doc.lab.Remove('configurationGitPath')
+        $doc | ConvertTo-Yaml | Set-Content -LiteralPath $vault
+        & pwsh -NoProfile -File $labScript -Name $labName -Root $work -User $u1 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $updated = Get-Content -Raw $vault | ConvertFrom-Yaml -Ordered
+        $updated.schemaVersion | Should -Be 2
+        $updated.lab.configurationGitPath | Should -Be $canonical
+        $updated.lab.Contains('intentGitPath') | Should -BeFalse
+        ($updated.users | ConvertTo-Json -Depth 10 -Compress) | Should -Be $passwords
+        (& git -C $canonical rev-parse HEAD) | Should -Be $head
     }
 
     AfterAll {

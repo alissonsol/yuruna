@@ -240,8 +240,8 @@ bandwidth rather than the run.
 | Host | Method |
 |------|--------|
 | **Hyper-V** | `Get-VM yuruna-caching-proxy-service` -> IP via ARP on Default Switch (matched by MAC) or KVP, then TCP-probe `:3128`. |
-| **UTM** | `utmctl status yuruna-caching-proxy-service` -> if `started`, subnet-probe 192.168.64.2-30. Fallback subnet probe runs even without `utmctl`. |
-| **KVM/libvirt** | `virsh domifaddr --source agent\|lease\|arp` cascade (see `Get-VMIp` in `host/ubuntu.kvm/modules/Yuruna.Host.psm1`), filtering loopback and link-local. The cache VM's IP is then persisted under `test/status/runtime/yuruna-caching-proxy-service.yml` for fast-path lookup on subsequent calls. |
+| **UTM** | Honor an explicit `-CachingProxyServiceUrl` (empty disables the proxy); otherwise `Test-CachingProxyServiceAvailable` probes `$Env:YURUNA_CACHING_PROXY_SERVICE_IP` when set, otherwise the locally recorded cache IP, on `:3128` by default. No subnet scan. |
+| **KVM/libvirt** | Honor an explicit `-CachingProxyServiceUrl` (empty disables the proxy); otherwise `Test-CachingProxyServiceAvailable` probes `$Env:YURUNA_CACHING_PROXY_SERVICE_IP` when set, otherwise the locally recorded cache IP, on `:3128` by default, with up to three connect attempts. |
 
 <a id="42f6b05f-000f"></a>
 
@@ -724,7 +724,7 @@ Before starting Alloy, stop and disable any existing Promtail service. Copy
 imports those legacy offsets on first startup. Subsequent restarts use Alloy's
 own storage under `/var/lib/alloy`. Keep that storage to avoid replay. The source
 jobs remain `squid`, `squid_loopback`, and `zot`; timestamps come from the log,
-`/metrics` self-scrapes are dropped, and Zot background records are retained.
+`/metrics` self-scrapes are dropped, and zot background records are retained.
 The loopback diagnostics port remains 9080. Existing guests require applying this
 migration or rebuilding from the updated seed; changing the repository alone
 does not replace their running collector.
@@ -790,7 +790,9 @@ Guests reach `zot` at `http://<cache-vm>:5000` and configure
 time). Plain HTTP (no TLS) -- intra-LAN, same trust boundary as the
 SSL-bump CA the guests already trust. The `zot` binary is fetched
 from GitHub releases by `runcmd` and installed only when its SHA-256
-matches the value the seed pins beside `ZOT_VERSION`.
+matches the value the seed pins beside `ZOT_VERSION`, or the one a host names
+with `vmStart.cachingProxyZotVersion` and `vmStart.cachingProxyZotSha256`. See
+[When a zot release cannot sync the lab's images](#when-a-zot-release-cannot-sync-the-labs-images).
 
 <a id="42f6b05f-001f"></a>
 
@@ -827,7 +829,7 @@ Retry budgets differ by whether a client is blocked on the path:
 | `onDemand` | 1 / 2s | A caller is waiting. A slow retry against an unreachable upstream spends the caller's entire response-header budget and turns a slow pull into a failed one; failing fast returns the caller to a cache that is by then warming. |
 | scheduled (`pollInterval`) | 3 / 15s | Nobody is waiting on a poll. |
 
-`mirror.gcr.io` does not implement `/v2/_catalog`, which Zot must enumerate
+`mirror.gcr.io` does not implement `/v2/_catalog`, which zot must enumerate
 before every periodic sync even when `content` names one exact repository.
 The mirror therefore has an on-demand entry only. The explicit warm set asks
 for `mirror.gcr.io/library/registry:2`, the one Docker Hub image the workloads
@@ -843,6 +845,16 @@ mid-copy and a guest is minutes into waiting for it. The canary cannot show that
 state, by construction: any tag it can measure cheaply and repeatedly is one the
 cache already holds. The warm-set residency counts are the reading that shows
 it.
+
+**`host/vmconfig/caching-proxy-service.base.user-data`.**
+
+ORDER IS THE ROUTING TABLE: zot tries each entry whose content matches, in
+file order, until one syncs. A failed sync falls through to later matching
+entries and ends at the Docker Hub "**" catch-all.
+docker2s2: zot 2.1.22 and later keep a Docker manifest as served instead of
+converting it to OCI, and refuse to sync one without this compat mode.
+registry.k8s.io and mcr.microsoft.com serve Docker manifest lists, so
+without it every image from them answers HTTP 503 at once.
 
 <a id="42f6b05f-0055"></a>
 
@@ -887,7 +899,7 @@ sized for a warm cache -- and because containerd abandons a pull at its
 response-header deadline and retries, the result reads as a bare step timeout
 naming no image.
 
-During that first tag request Zot logs `skipping missing manifest blob in image
+During that first tag request zot logs `skipping missing manifest blob in image
 index, continuing sync with other manifests` for the children it intentionally
 did not copy. That warning describes the sparse on-demand index; it does not
 mean the stored index is corrupt. The following child requests populate the
@@ -999,6 +1011,84 @@ hold `linux/amd64` and `linux/arm64` and nothing else. The scheduled polls are
 the exception: a poll copies every platform in the index unless its entry lists
 `platforms`. Prewarming moves the copy off the path a guest is waiting on.
 
+<a id="42f6b05f-0056"></a>
+
+### When a zot release cannot sync the lab's images
+
+A zot release can accept the seed's configuration under `zot verify`, answer
+`GET /v2/`, and still refuse every image of a manifest format that
+configuration does not allow. zot 2.1.22 did exactly that: until `http.compat`
+listed `docker2s2`, every registry.k8s.io and mcr.microsoft.com image answered
+HTTP 503, and every Kubernetes guest stopped at its control-plane warm pass.
+Three checks catch that class of change, each as early as it can run.
+
+**The cache tests its own release.** `zot-sync-selftest.py` syncs one probe
+image per upstream the guests pull from, covering both manifest formats those
+registries publish (`/etc/zot/yuruna-sync-probes.list`), through the installed
+zot: the tag with `ns=`, its `linux/amd64` child by digest, then that child's
+config blob. It runs when zot is installed, after every warm run, and on demand.
+When zot refuses a probe, the self-test asks the upstream registry for the same
+manifest. Only a refusal of an image the upstream serves is a verdict against
+zot, so an upstream outage reads as no verdict rather than as an incompatible
+release. zot's own log line is quoted, including the `http.compat` mode it asks
+for.
+
+| Verdict | Meaning |
+|---|---|
+| `OK` | Every probe image synced. |
+| `OK AFTER REPAIR` | zot asked for an `http.compat` mode the shipped configuration lacks. The self-test added it to `/etc/zot/config.json` (the original stays as `config.json.before-selftest`), restarted zot, and every probe then synced. Every rebuild repeats the repair until a release ships the mode. |
+| `INCOMPATIBLE` | zot refused an image its upstream serves. Every guest pulling from that registry gets the same refusal; a re-run does not help. |
+| `PROBE IMAGE GONE` | The upstream no longer publishes a probe image. This says nothing about zot. |
+| `NO VERDICT` | zot, or an upstream, did not answer. |
+
+The verdict is the `zot sync self-test` line right under liveness on
+`/cache-health`, the `yuruna_zot_selftest_*` series in `/zot-meta`, and the
+last lines of the build's cloud-init readiness summary. From there it reaches:
+
+- **The build.** On Hyper-V and KVM, `New-VM.ps1` waits for the verdict after
+  squid answers and exits 1 for `INCOMPATIBLE`, printing the cache's fix
+  instructions. On UTM, and for a cache built earlier,
+  `test/Test-CachingProxyService.ps1` reports it.
+- **Cycle start.** The registry wait before a Kubernetes guest ends at once on
+  `INCOMPATIBLE` and names the release, the refused image and the mode, rather
+  than waiting out `vmStart.cachingProxyRegistryWaitSeconds`.
+- **The guest.** A guest whose control-plane images are refused prints the
+  cache's verdict, fixes included, under its own error.
+- **The diagnostic.** `Get-SystemDiagnostic.ps1` reports
+  `REGISTRY.zot-incompatible` or `REGISTRY.zot-compat-repaired`.
+
+**Fixing it without changing code** takes any one of:
+
+1. On the cache VM (`ssh caching-proxy-service-admin@<cache>`), run
+   `sudo /usr/local/bin/zot-sync-selftest.py --heal`. It adds the
+   `http.compat` mode zot's log asks for, restarts zot and records the new
+   verdict. By hand: add the mode to the `compat` list in the `http` block of
+   `/etc/zot/config.json`, run `sudo systemctl restart zot`, then
+   `sudo /usr/local/bin/zot-sync-selftest.py`.
+2. Install a release that works. In `test/test.config.yml` on the host that
+   builds the cache, set `vmStart.cachingProxyZotVersion` to its tag (for
+   example `v2.1.21`) and `vmStart.cachingProxyZotSha256` to the SHA-256 of
+   `zot-linux-amd64` (`zot-linux-arm64` on an ARM64 host) from that release's
+   `checksums.sha256.txt`, then rebuild the cache. The VM installs the binary
+   only when its checksum matches, and the self-test checks that release like
+   any other.
+3. Update Yuruna to a release that ships the fix, then rebuild the cache.
+
+**Before a release ships it.** A change to `ZOT_VERSION`, either
+`ZOT_SHA256_*` pin, `/etc/zot/config.json` or the probe list in the seed needs
+a passing live sync. `python3 tools/Test-ZotRelease.py` downloads the pinned
+release once into the user cache directory, starts it on the contributing
+machine with the seed's routing table, runs the seed's own self-test against
+it, and records the pass, with a fingerprint of those inputs, in
+`host/vmconfig/caching-proxy-service.zot-qualified.json`. The pre-commit hook
+runs it whenever the seed or that record is staged; an unchanged fingerprint is
+settled offline in well under a second. A release that does not qualify blocks
+the commit with zot's own words and what to change, and so does a
+qualification that cannot run. The release gate's `zot-qualification` row runs
+`test/modules/Test.ZotQualification.Tests.ps1`, which recomputes the
+fingerprint without network or Python, so a pin committed past the hook still
+cannot ship.
+
 <a id="42f6b05f-0021"></a>
 
 ### Keeping tag resolution off a metered upstream
@@ -1078,9 +1168,9 @@ claims the repository, and asks the next one only when that sync fails.
 Every `onDemand` entry but one is scoped to the
 namespaces that upstream really serves; `registry-1.docker.io` sits
 last among them with `prefix: **`, answering for anything nothing else
-claimed. (The two `pollInterval` entries follow it in the file, but
-they prewarm on a schedule and never serve the on-demand path, so they
-do not affect the ordering.) That ordering keeps a namespace-less pull
+claimed. (The `pollInterval` entry follows it in the file, but
+it prewarms on a schedule and never serves the on-demand path, so it
+does not affect the ordering.) That ordering keeps a namespace-less pull
 of a `dotnet/`, `flannel-io/`, `library/` or k8s image off Hub, whose
 anonymous budget is metered per **egress IP** and shared by every guest
 behind the cache.
@@ -1136,7 +1226,7 @@ carry different retry budgets and cannot be collapsed into one.
    rewritten.
 2. The separate `zot-prewarm` warm set requests `library/registry:2` directly.
    A second `registries[]` entry with `pollInterval` cannot do this job because
-   Zot starts a poll by listing `/v2/_catalog`, which this upstream answers
+   zot starts a poll by listing `/v2/_catalog`, which this upstream answers
    with HTTP 405.
 
 <a id="42f6b05f-0024"></a>
@@ -1901,7 +1991,7 @@ tail), `:9400` (pool aggregator) and `8022 -> 22` (SSH).
 **Windows Hyper-V** (elevated PowerShell):
 
 ```
-cd $HOME\git\yuruna\test
+cd $HOME\git\yuruna\test\service
 pwsh .\Start-CachingProxyServiceVM.ps1
 ```
 
@@ -1914,7 +2004,7 @@ on the Default Switch.
 **macOS UTM** -- run it **unelevated**:
 
 ```
-cd ~/git/yuruna/test
+cd ~/git/yuruna/test/service
 pwsh ./Start-CachingProxyServiceVM.ps1
 ```
 
@@ -1979,7 +2069,7 @@ differently if it starts answering something else:
 | `squid-meta`, `zot-meta` | Prometheus scrapes both by explicit `metrics_path` against `localhost:80` |
 | `cache-health` | the human-readable health page, and the diagnostic that lifts its shortfalls |
 | the `*-status` breadcrumbs | operator triage of what the seed reached |
-| `/pool-intent.git` | the read-only intent store guests and the pool-control service clone |
+| `/pool-configuration.git` | the read-only configuration store guests and the pool-control service clone |
 
 **The rule lives in `<Directory>`, not at server level.** mod_rewrite rules are
 NOT inherited into `<VirtualHost>` blocks, and Ubuntu serves `:80` from the
@@ -2145,8 +2235,8 @@ fails uplink validation is never handed out as an attachment
 so a newly built cache VM lands on the Default Switch and this
 discriminator reports where it landed.
 
-Whatever the discriminator consults, it must **fail open toward
-`$true`** -- anything not positively established as "not bridged" is
+On Windows, an unevaluable uplink verdict must **fail open toward
+`$true`** -- an External vSwitch whose uplink cannot be evaluated is
 treated as bridged. The asymmetry is not stylistic. A false `$false`
 sends a bridged, healthy cache down branch 3, and `Add-PortMap` on
 Windows is clear-all-first: it tears down every Yuruna netsh mapping,
@@ -2249,6 +2339,14 @@ never publishes the winner into `$Env:YURUNA_CACHING_PROXY_SERVICE_IP`
 (read-only probe). `-CacheIp` bypasses resolution to probe an
 arbitrary IP. Exit 1 on any required-port failure -- suitable for a
 `&&` chain.
+
+Before a cycle commits to the selected cache address, the orchestrator confirms
+that its listener remains available. A newly rebuilt cache can open its ports
+before the restart that applies SSL-bump configuration; a single successful
+probe in that gap would pin an address that disappears during provisioning.
+Kubernetes guests also require the registry readiness gate because a pinned
+registry has no upstream fallback. Registry-less labs do not pay that optional
+registry wait.
 
 <a id="42f6b05f-004a"></a>
 
@@ -2523,7 +2621,7 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)
 

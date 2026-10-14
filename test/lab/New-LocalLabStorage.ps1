@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 425548c6-683c-4519-9712-2f32b36e15e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,6 +83,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
+# --- REGION: Log level from environment
 # See https://yuruna.link/42010605-0003
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
@@ -340,11 +341,11 @@ foreach ($t in $tiers) {
 }
 Write-Information ""
 
-# --- REGION: Step 1 -- folders, lab vault, pool-intent repository
+# --- REGION: Step 1 -- folders, lab vault, pool-configuration repository
 # Delegated to New-Lab so the folder layout, the vault schema, and the seeded
-# intent repository have exactly one implementation. Its generated passwords
+# configuration repository have exactly one implementation. Its generated passwords
 # become the two share credentials below.
-Write-LabStorageStep -Number 1 -Title 'Lab storage folders, lab vault, and pool-intent repository'
+Write-LabStorageStep -Number 1 -Title 'Lab storage folders, lab vault, and pool-configuration repository'
 $newLab = Join-Path $PSScriptRoot 'New-Lab.ps1'
 if (-not (Test-Path -LiteralPath $newLab)) { throw "New-Lab.ps1 not found at $newLab." }
 if ($WhatIfPreference) {

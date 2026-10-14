@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 425d1ef1-c9ad-47cc-8b78-45a0c1156135
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -345,7 +345,7 @@ Describe 'Update-RunnerCrashGating' {
 }
 
 Describe 'Update-RunnerFaultStatus' {
-    It 'stops a faulted host reporting the last completed cycle as a pass' {
+    It 'reports a runner fault separately from the last completed cycle' {
         $dir = Initialize-TempRuntimeDir
         try {
             $statusFile = Join-Path $dir 'status.json'
@@ -363,12 +363,35 @@ Describe 'Update-RunnerFaultStatus' {
             $doc = Get-Content -Raw -LiteralPath $statusFile | ConvertFrom-Json
             $doc.runnerState        | Should -Be 'paused'
             $doc.runnerStalledPhase | Should -Be 'config-gate'
-            # 'fail' and not a new word: it is already in the value set every
-            # consumer switches on, so no reader has to learn a state to stop
-            # painting this host green.
-            $doc.overallStatus      | Should -Be 'fail'
-            # The cycle it describes is untouched -- the verdict changed, not the record.
+            $doc.overallStatus      | Should -Be 'pass'
+            $doc.runnerFault.failureClass | Should -Be 'preamble_stall'
+            # The completed cycle keeps its own verdict and provenance.
             $doc.cycle              | Should -Be 1886
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'publishes existing host identity when a fault precedes the first cycle' -TestCases @(
+        @{ BootstrapTemplate = $false }
+        @{ BootstrapTemplate = $true }
+    ) {
+        param($BootstrapTemplate)
+        $dir = Initialize-TempRuntimeDir
+        try {
+            $hostId = '42' + ('c' * 30)
+            Set-Content -LiteralPath (Join-Path $dir 'host.uuid') -Value $hostId
+            $statusPath = Join-Path $dir 'status.json'
+            if ($BootstrapTemplate) {
+                Copy-Item -LiteralPath (Join-Path $repoRoot 'test/status/status.json.template') -Destination $statusPath
+            }
+            $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' -FailureClass 'config_gate_failed' -Confirm:$false
+            $doc = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json -AsHashtable
+            $doc.hostId | Should -Be $hostId
+            $doc.runnerFault.failureClass | Should -Be 'config_gate_failed'
+            $doc['cycleStartUtc'] | Should -BeNullOrEmpty
+            $doc['startedAt'] | Should -BeNullOrEmpty
+            @($doc.gitCommits).Count | Should -Be 0
+            @($doc.history).Count | Should -Be 0
+            (Get-Content -Raw -LiteralPath (Join-Path $dir 'host.uuid')).Trim() | Should -Be $hostId
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
@@ -384,10 +407,16 @@ Describe 'Update-RunnerFaultStatus' {
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
-    It 'reports no write when there is no status document to amend' {
+    It 'publishes a fault even before the first cycle creates a status document' {
         $dir = Initialize-TempRuntimeDir
         try {
-            Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' -Confirm:$false | Should -Be $false
+            Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' -FailureClass 'config_gate_failed' -Confirm:$false | Should -Be $true
+            $doc = Get-Content -Raw -LiteralPath (Join-Path $dir 'status.json') | ConvertFrom-Json -AsHashtable
+            $doc.runnerFault.failureClass | Should -Be 'config_gate_failed'
+            $doc.overallStatus | Should -Be 'unknown'
+            $doc.Contains('cycle') | Should -BeFalse
+            $doc.Contains('hostId') | Should -BeFalse
+            @($doc.history).Count | Should -Be 0
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

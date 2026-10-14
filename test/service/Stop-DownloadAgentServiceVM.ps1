@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 429cbb3b-d9b5-4a3c-af14-67208c19e773
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,8 +35,7 @@
     The Go service posts an active:false beacon goodbye on SIGTERM/exit, so the
     aggregator's Extension-hosts row clears from both paths.
 .PARAMETER VMName
-    Name of the download-agent-service VM. Default:
-    yuruna-download-agent-service.
+    Name of the download-agent-service VM. Default: yuruna-download-agent-service.
 .EXAMPLE
     pwsh test/service/Stop-DownloadAgentServiceVM.ps1
     # Clears the marker, refreshes registration, then removes the VM.

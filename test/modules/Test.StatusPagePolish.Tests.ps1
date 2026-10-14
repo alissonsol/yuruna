@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42ada5a7-c360-4c5f-80be-7d4773345016
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,9 +100,9 @@ Describe 'status-page polish: WCAG contrast + REGION anchor integrity' {
     }
 
     It 'the mobile/dark-mode REGION pointer still names that heading' {
-        # The pointer used to carry the heading's own slug, so a rename or a
-        # '+' in the heading silently broke it and this test compared the two
-        # spellings. Pointers now carry an opaque id instead, which cannot
+        # A pointer that carries the heading's own slug breaks silently on a rename or
+        # a '+' in the heading, and this test would compare the two spellings. Pointers
+        # carry an opaque id instead, which cannot
         # drift with the wording -- so what has to be proved is that the id in
         # the stylesheet is the one sitting above that heading in
         # definition.md, and that the heading is still there to point at.

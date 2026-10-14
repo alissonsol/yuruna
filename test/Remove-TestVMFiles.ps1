@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f7b847-f2dc-43ee-b9f7-f70bdc728c72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,7 +101,8 @@ if ($Prefix.Count -eq 0) {
     exit 1
 }
 
-# --- REGION: Import Test.HostContract (needed for Get-HostType on every platform)
+# --- REGION: Import host modules
+# Test.HostContract is needed for Get-HostType on every platform.
 # -Global is load-bearing: when this script is invoked via the call operator
 # from inside a module (the cycle runner calls it for the VM sweep), a -Force
 # import without -Global pulls Test.HostContract (and its host-contract exports)

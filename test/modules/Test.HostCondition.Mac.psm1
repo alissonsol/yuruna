@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1350,7 +1350,7 @@ function Set-MacHostConditionSet {
     # say why they are advisory.
     $unmet = [System.Collections.Generic.List[string]]::new()
 
-    # --- REGION: Pre-flight: elevation
+    # --- REGION: Elevation check
     # See https://yuruna.link/4213a0b3-006a
     if (-not $NoGuiDisruption) {
         [void](Initialize-SudoCache -Reasons @(
@@ -2695,7 +2695,8 @@ function Assert-MacHostConditionSet {
     if (-not (Assert-ScreenLock       -HostType $HostType)) { return $false }
     if (-not (Assert-MacUtmAppData    -HostType $HostType)) { return $false }
     if (-not (Assert-MacUtmLifetime   -HostType $HostType)) { return $false }
-    # --- REGION: https://yuruna.link/42d38664-001a
+    # --- REGION: Host clock drift warning
+    # See https://yuruna.link/42d38664-001a
     # Warn-only and once per cycle: the repair needs a privilege this process
     # cannot ask for, so a drifted host runs and says so rather than refusing
     # every cycle until an operator notices.

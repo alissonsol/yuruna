@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,17 +270,7 @@ Describe 'guest-hostname -- ${hostname} resolves in every sequence, pinned or no
 
 Describe 'agetty nudge ordering -- the redraw precedes the wait it unblocks' {
 
-    # agetty prints "login:" once and never reprints it. Console writes that
-    # land afterwards (cloud-init's closing banner, subiquity's tail) scroll the
-    # prompt away, and the screen then stops changing -- so an OCR wait for
-    # "login:" can only spend its entire budget against a frozen frame. The
-    # recovery is a keypress, and it only works if it happens BEFORE the wait.
-    #
-    # Placed after the wait it is unreachable, because a retry block restarts at
-    # its first step: every attempt re-enters the wait that cannot pass and no
-    # attempt ever reaches the nudge. That shape cost three full waits per guest
-    # on several hosts before it was found, and it is invisible in a passing run
-    # because the ordering only matters once the prompt has been overwritten.
+    # See https://yuruna.link/42e220c4-0014
     It 'puts the redraw keypress before the login wait in <name>' -TestCases $seqCase {
         param($name, $path)
         $src = Get-Content -Raw -LiteralPath $path

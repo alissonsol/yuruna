@@ -286,6 +286,7 @@ const DatazhCNstatus = `{
   "status.config_field_chardelayms": "字符延迟毫秒数（charDelayMs）",
   "status.config_field_cleanupvmnameprefixes": "清理虚拟机名称前缀（cleanupVmNamePrefixes）",
   "status.config_field_configservice": "配置服务（configService）",
+  "status.config_field_configurationgiturl": "配置项configurationGitUrl",
   "status.config_field_cycledelayseconds": "周期延迟秒数（cycleDelaySeconds）",
   "status.config_field_discoveryintervalseconds": "发现间隔秒数（discoveryIntervalSeconds）",
   "status.config_field_downloadagentservice": "下载代理服务（downloadAgentService）",
@@ -297,7 +298,6 @@ const DatazhCNstatus = `{
   "status.config_field_ghtoken": "GitHub令牌（ghToken）",
   "status.config_field_guestquarantine": "客户机隔离（guestQuarantine）",
   "status.config_field_guestsequence": "客户机序列（guestSequence）",
-  "status.config_field_intentgiturl": "配置项intentGitUrl",
   "status.config_field_labhealth": "实验室健康状况（labHealth）",
   "status.config_field_language": "语言（language）",
   "status.config_field_localclonepath": "本地克隆路径（localClonePath）",
@@ -1238,6 +1238,32 @@ const DatazhCNstatus = `{
     "以启动测试周期。"
   ],
   "status.run_start_testrunner_ps1_to_start_a_test_cycle": "运行Start-TestRunner.ps1以启动测试周期。",
+  "status.runner_attempt_failed": [
+    "运行器尝试失败：",
+    {
+      "arg": "failureClass",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.runner_attempt_started": [
+    "尝试开始时间：",
+    {
+      "arg": "startedAt",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.runner_failure_record": "失败记录",
+  "status.runner_failure_transcript": "配置检查记录",
+  "status.runner_framework_commit": [
+    "框架提交：",
+    {
+      "arg": "commit",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "status.save": "保存",
   "status.save_and_start_cycle": "保存并启动周期",
   "status.save_and_start_cycle_failed_value1": [

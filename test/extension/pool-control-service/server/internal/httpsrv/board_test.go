@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"pool-control-service/internal/intent"
+	"pool-control-service/internal/configuration"
 	"yuruna.com/test/extension/extension-sdk/labgate"
 )
 
@@ -28,57 +28,57 @@ import (
 // a card names only repositories its members actually run, and a dead
 // aggregator does not hide the cards.
 
-// boardIntent serves a canned Get-PoolIntent document and records EVERY write.
-// Distinct from handlers_test.go's fakeIntent, which keeps only the last call --
+// boardConfiguration serves a canned Get-PoolConfiguration document and records EVERY write.
+// Distinct from handlers_test.go's fakeConfiguration, which keeps only the last call --
 // the sweep tests need the full sequence to prove what was and was not written.
-type boardIntent struct {
+type boardConfiguration struct {
 	doc    string
 	calls  []string
 	failOn string
 }
 
-func (f *boardIntent) res(ok bool, name string) intent.Result {
+func (f *boardConfiguration) res(ok bool, name string) configuration.Result {
 	f.calls = append(f.calls, name)
 	if f.failOn == name {
-		return intent.Result{OK: false, Error: "boom"}
+		return configuration.Result{OK: false, Error: "boom"}
 	}
-	return intent.Result{OK: ok}
+	return configuration.Result{OK: ok}
 }
-func (f *boardIntent) State(context.Context) intent.Result {
-	return intent.Result{OK: true, Stdout: f.doc}
+func (f *boardConfiguration) State(context.Context) configuration.Result {
+	return configuration.Result{OK: true, Stdout: f.doc}
 }
-func (f *boardIntent) NewPool(_ context.Context, id, _, _ string) intent.Result {
+func (f *boardConfiguration) NewPool(_ context.Context, id, _, _ string) configuration.Result {
 	return f.res(true, "NewPool:"+id)
 }
-func (f *boardIntent) RemovePool(context.Context, string, bool) intent.Result {
+func (f *boardConfiguration) RemovePool(context.Context, string, bool) configuration.Result {
 	return f.res(true, "RemovePool")
 }
-func (f *boardIntent) SetDesiredState(context.Context, string, string) intent.Result {
-	return f.res(true, "SetDesiredState")
+func (f *boardConfiguration) SetConfiguredState(context.Context, string, string) configuration.Result {
+	return f.res(true, "SetConfiguredState")
 }
-func (f *boardIntent) AddHost(_ context.Context, pool, host string, moveExisting ...bool) intent.Result {
+func (f *boardConfiguration) AddHost(_ context.Context, pool, host string, moveExisting ...bool) configuration.Result {
 	if len(moveExisting) > 0 && moveExisting[0] {
 		return f.res(true, "MoveHost:"+pool+":"+host)
 	}
 	return f.res(true, "AddHost:"+pool+":"+host)
 }
-func (f *boardIntent) RemoveHost(_ context.Context, pool, host string, exclude ...bool) intent.Result {
+func (f *boardConfiguration) RemoveHost(_ context.Context, pool, host string, exclude ...bool) configuration.Result {
 	if len(exclude) > 0 && exclude[0] {
 		return f.res(true, "ExcludeHost:"+host)
 	}
 	return f.res(true, "RemoveHost:"+pool+":"+host)
 }
-func (f *boardIntent) MoveHostIdentity(_ context.Context, oldID, newID string) intent.Result {
+func (f *boardConfiguration) MoveHostIdentity(_ context.Context, oldID, newID string) configuration.Result {
 	return f.res(true, "MoveHostIdentity:"+oldID+":"+newID)
 }
-func (f *boardIntent) SetPoolRepositories(_ context.Context, pool, _, _ string) intent.Result {
+func (f *boardConfiguration) SetPoolRepositories(_ context.Context, pool, _, _ string) configuration.Result {
 	return f.res(true, "SetPoolRepositories:"+pool)
 }
-func (f *boardIntent) ClearPoolRepositories(_ context.Context, pool string) intent.Result {
+func (f *boardConfiguration) ClearPoolRepositories(_ context.Context, pool string) configuration.Result {
 	return f.res(true, "ClearPoolRepositories:"+pool)
 }
 
-const intentTwoPools = `{"ok":true,
+const configurationTwoPools = `{"ok":true,
  "autoEnrollment":{"enabled":true,"targetPoolId":"default","excluded":["42ex"]},
  "pools":[
   {"poolId":"default","poolGuid":"42d","members":["42aa","42bb"]},
@@ -139,7 +139,7 @@ func TestBoardJoinsStatsOntoMembers(t *testing.T) {
             {"hostId":"42cc","passed":99,"failed":1},
             {"hostId":"42no","passed":1000,"failed":1000}]}`)
 	defer agg.Close()
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL})
 
 	cards := cardsByID(t, boardPayload(t, s, "?range=24h"))
 
@@ -167,7 +167,7 @@ func TestBoardSilentPoolStillRenders(t *testing.T) {
 	// rows. It must still render -- that is the pool most worth looking at.
 	agg := aggStub(t, `{"hosts":[]}`, `{"range":"24h","hosts":[]}`)
 	defer agg.Close()
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL})
 
 	cards := cardsByID(t, boardPayload(t, s, ""))
 	sil, ok := cards["silent"]
@@ -227,7 +227,7 @@ func TestBoardCardCarriesThePoolRepositories(t *testing.T) {
   {"poolId":"plain","poolGuid":"42p","members":["42ee"]}
  ]}`
 	agg := accessAggStub(t)
-	s := New(&boardIntent{doc: doc}, Options{AggregatorURL: agg.URL})
+	s := New(&boardConfiguration{doc: doc}, Options{AggregatorURL: agg.URL})
 	payload := boardPayload(t, s, "")
 
 	if got, want := sortedKeys(payload), []string{"cards", "computedAt", "ok", "range", "statsError"}; !reflect.DeepEqual(got, want) {
@@ -273,8 +273,8 @@ func sortedKeys(m map[string]any) []string {
 
 func TestBoardSurvivesDeadAggregator(t *testing.T) {
 	// Numbers gray out; the cards keep rendering, because which pools exist and
-	// what they run come from the intent store, not the aggregator.
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: "http://127.0.0.1:1"})
+	// what they run come from the configuration store, not the aggregator.
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: "http://127.0.0.1:1"})
 	p := boardPayload(t, s, "")
 	if p["statsError"].(string) == "" {
 		t.Error("a dead aggregator should be reported in statsError")
@@ -285,7 +285,7 @@ func TestBoardSurvivesDeadAggregator(t *testing.T) {
 }
 
 func TestBoardRejectsUnknownRange(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{})
 	rec := httptest.NewRecorder()
 	s.handleBoard(rec, httptest.NewRequest(http.MethodGet, "/api/board?range=99d", nil))
 	if rec.Code != http.StatusBadRequest {
@@ -356,7 +356,7 @@ func hostsPayload(t *testing.T, s *Server, bearer string) (map[string]any, map[s
 func TestHostsCarryTheHostnameOnlyToAnUnlockedRead(t *testing.T) {
 	const internalAuthKey = "shared-internal-auth-key"
 	agg := hostsAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: internalAuthKey})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: internalAuthKey})
 
 	openRead, openRows := hostsPayload(t, s, "")
 	if openRead["hostnamesVisible"] != false {
@@ -384,7 +384,7 @@ func TestHostsCarryTheHostnameOnlyToAnUnlockedRead(t *testing.T) {
 // answer for that host.
 func TestHostsTypeDropsThePrefixAndFallsBackToTheHostsOwnRecord(t *testing.T) {
 	agg := hostsAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: agg.URL})
 
 	_, rows := hostsPayload(t, s, "")
 	if got := rows["42aa"]["type"]; got != "ubuntu.kvm" {
@@ -410,7 +410,7 @@ func TestHostsTypeDropsThePrefixAndFallsBackToTheHostsOwnRecord(t *testing.T) {
 // configuration, and nothing else.
 
 func TestReadsAreOpenAndPoolConfigWritesAreNot(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: "shared-internal-auth-key"})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AuthToken: "shared-internal-auth-key"})
 
 	// Reads render on a wall display with no credential, matching the
 	// aggregator's own pool-status posture.
@@ -426,7 +426,7 @@ func TestReadsAreOpenAndPoolConfigWritesAreNot(t *testing.T) {
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodPost, "/api/pool"},
 		{http.MethodDelete, "/api/pool"},
-		{http.MethodPost, "/api/pool/desired-state"},
+		{http.MethodPost, "/api/pool/configured-state"},
 		{http.MethodPost, "/api/pool/host"},
 		{http.MethodDelete, "/api/pool/host"},
 		{http.MethodPost, "/api/pool/move-host"},
@@ -442,7 +442,7 @@ func TestReadsAreOpenAndPoolConfigWritesAreNot(t *testing.T) {
 }
 
 func TestTheBearerOpensThePoolConfigWrites(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: "shared-internal-auth-key"})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AuthToken: "shared-internal-auth-key"})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/pool/move-host", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer wrong")
@@ -468,7 +468,7 @@ func TestTheBearerOpensThePoolConfigWrites(t *testing.T) {
 // proof's own rules (window, ceiling, forgery, who verifies it) live in the SDK.
 func TestAControlProofFromTheDashboardOpensThePoolConfigWrites(t *testing.T) {
 	const internalAuthKey = "shared-internal-auth-key"
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: internalAuthKey})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AuthToken: internalAuthKey})
 
 	expiry := strconv.FormatInt(time.Now().Add(15*time.Minute).Unix(), 10)
 	mac := hmac.New(sha256.New, []byte(internalAuthKey))
@@ -497,7 +497,7 @@ func TestAControlProofFromTheDashboardOpensThePoolConfigWrites(t *testing.T) {
 // is refused with a machine-readable reason. It is never allowed through because
 // there is no gate to fail: this service rewrites the whole lab's pool configuration.
 func TestAnUnconfiguredGateRefusesPoolConfigWrites(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{})
 	rec := httptest.NewRecorder()
 	s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/pool/move-host", strings.NewReader("{}")))
 	if rec.Code != http.StatusServiceUnavailable {
@@ -515,7 +515,7 @@ func TestAnUnconfiguredGateRefusesPoolConfigWrites(t *testing.T) {
 // The session route tells the UI which prompt to render; it must answer without
 // a credential, or the prompt could never appear.
 func TestSessionReportsTheWaysIn(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: "http://aggregator.invalid", AuthToken: "t"})
+	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AggregatorURL: "http://aggregator.invalid", AuthToken: "t"})
 	rec := httptest.NewRecorder()
 	s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/session", nil))
 	if rec.Code != http.StatusOK {
@@ -546,7 +546,7 @@ func TestSweepOnlyEnrollsReadyUnpooledHosts(t *testing.T) {
         {"hostId":"42none","control":"none"},
         {"hostId":"42blank"}]}`, `{}`)
 	defer agg.Close()
-	f := &boardIntent{doc: intentTwoPools}
+	f := &boardConfiguration{doc: configurationTwoPools}
 	s := New(f, Options{AggregatorURL: agg.URL})
 
 	s.sweepOnce(context.Background())
@@ -567,22 +567,22 @@ func TestSweepOnlyEnrollsReadyUnpooledHosts(t *testing.T) {
 func TestSweepDoesNothingWhenNoCandidates(t *testing.T) {
 	agg := aggStub(t, `{"hosts":[{"hostId":"42aa","control":"ready"}]}`, `{}`)
 	defer agg.Close()
-	f := &boardIntent{doc: intentTwoPools}
+	f := &boardConfiguration{doc: configurationTwoPools}
 	s := New(f, Options{AggregatorURL: agg.URL})
 	s.sweepOnce(context.Background())
 	for _, c := range f.calls {
 		if strings.HasPrefix(c, "AddHost") || strings.HasPrefix(c, "NewPool") {
-			t.Errorf("sweep wrote intent with nothing to do: %v", f.calls)
+			t.Errorf("sweep wrote configuration with nothing to do: %v", f.calls)
 		}
 	}
 }
 
 func TestSweepInertWhenNotOptedIn(t *testing.T) {
 	// enabled:false must make the sweep a complete no-op even with candidates.
-	doc := strings.Replace(intentTwoPools, `"enabled":true`, `"enabled":false`, 1)
+	doc := strings.Replace(configurationTwoPools, `"enabled":true`, `"enabled":false`, 1)
 	agg := aggStub(t, `{"hosts":[{"hostId":"42new","control":"ready"}]}`, `{}`)
 	defer agg.Close()
-	f := &boardIntent{doc: doc}
+	f := &boardConfiguration{doc: doc}
 	s := New(f, Options{AggregatorURL: agg.URL})
 	s.sweepOnce(context.Background())
 	if len(f.calls) != 0 {
@@ -591,18 +591,18 @@ func TestSweepInertWhenNotOptedIn(t *testing.T) {
 }
 
 func TestSweepSkipsTickWhenAggregatorDown(t *testing.T) {
-	f := &boardIntent{doc: intentTwoPools}
+	f := &boardConfiguration{doc: configurationTwoPools}
 	s := New(f, Options{AggregatorURL: "http://127.0.0.1:1"})
 	s.sweepOnce(context.Background())
 	if len(f.calls) != 0 {
-		t.Errorf("sweep wrote intent despite an unreachable aggregator: %v", f.calls)
+		t.Errorf("sweep wrote configuration despite an unreachable aggregator: %v", f.calls)
 	}
 }
 
 func TestMoveToNonePersistsExclusionEvenWhenAlreadyUnpooled(t *testing.T) {
 	for _, host := range []string{"42cc", "42aa", "42unpooled"} {
 		for _, fail := range []bool{false, true} {
-			f := &boardIntent{doc: intentTwoPools}
+			f := &boardConfiguration{doc: configurationTwoPools}
 			if fail {
 				f.failOn = "ExcludeHost:" + host
 			}
@@ -625,7 +625,7 @@ func TestMoveToNonePersistsExclusionEvenWhenAlreadyUnpooled(t *testing.T) {
 
 func TestMoveHostUsesOnePublicationEvenWhenAddFails(t *testing.T) {
 	for _, fail := range []bool{false, true} {
-		f := &boardIntent{doc: intentTwoPools}
+		f := &boardConfiguration{doc: configurationTwoPools}
 		if fail {
 			f.failOn = "MoveHost:target:42aa"
 		}

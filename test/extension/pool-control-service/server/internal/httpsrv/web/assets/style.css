@@ -237,7 +237,8 @@ footer.app a { color: var(--chrome-muted); }
   text-decoration: underline; cursor: pointer;
 }
 #footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
-/* --------------------------------------------------------------------------
+/* REGION: Right-to-left mirror */
+/*
    The right-to-left mirror for the chrome above.
 
    The safe-area insets are physical, so the chrome states each side for the

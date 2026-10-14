@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42eaea7b-b54f-495c-bbdc-838c8758fced
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,13 +83,9 @@ function Publish-ComponentList {
 
     $componentsPath = Join-Path -Path $project_root -ChildPath "components/"
 
-    # Per-environment docker stderr/stdout log + final-rc sidecar. Mirrors
-    # Set-Resource's tofu.stderr.log pattern so Get-SystemDiagnostic.ps1's
-    # *.stderr.log glob picks it up on failure. All components in this run
-    # append to the same log (preProcessor/build/postProcessor/tag/login/push
-    # per component); docker.rc is rewritten after each docker call so the
-    # LAST exit code is what the diagnostic reports. Truncated at the start
-    # of the run so a re-run doesn't inherit stale text.
+    # Per-environment docker log and final-rc sidecar, truncated at the start of the run
+    # so a re-run does not inherit stale output. docker.rc holds the LAST observed exit code.
+    # See https://yuruna.link/42e568c8-000a
     $dockerLogFile = Join-Path -Path $workFolder -ChildPath "docker.stderr.log"
     $dockerRcFile  = Join-Path -Path $workFolder -ChildPath "docker.rc"
     Remove-Item -LiteralPath $dockerLogFile -Force -ErrorAction SilentlyContinue

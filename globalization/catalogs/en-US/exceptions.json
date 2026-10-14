@@ -3,6 +3,88 @@
   "domain": "exceptions",
   "locale": "en-US",
   "messages": {
+    "exceptions.config_naming_blocked_path": {
+      "message": "Cannot migrate '{old}' to '{replacement}': a scalar blocks the replacement path. The file was not changed.",
+      "description": "Runner-attempt diagnostics and configuration migration. Preserve machine identifiers and untrusted detail placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "old": {
+          "type": "detail",
+          "trust": "external",
+          "example": "testCycle.autoRemediationEnabled"
+        },
+        "replacement": {
+          "type": "detail",
+          "trust": "external",
+          "example": "testCycle.autoRemediation.enabled"
+        }
+      }
+    },
+    "exceptions.config_naming_conflict": {
+      "message": "Configuration naming conflict: '{old}' and '{replacement}' contain different populated values. Keep one value before retrying. The file was not changed.",
+      "description": "Runner-attempt diagnostics and configuration migration. Preserve machine identifiers and untrusted detail placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "old": {
+          "type": "detail",
+          "trust": "external",
+          "example": "pool.configGitUrl"
+        },
+        "replacement": {
+          "type": "detail",
+          "trust": "external",
+          "example": "pool.configurationGitUrl"
+        }
+      }
+    },
+    "exceptions.config_naming_duplicate_parked": {
+      "message": "Conflicting obsolete configuration entries for '{path}'. Keep one value before retrying. The file was not changed.",
+      "description": "Configuration migration persistence and backup diagnostics. Preserve paths and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "pool.configGitUrl"
+        }
+      }
+    },
+    "exceptions.config_naming_invalid_duration": {
+      "message": "Cannot migrate configuration key '{old}': expected a numeric duration. The file was not changed.",
+      "description": "Runner-attempt diagnostics and configuration migration. Preserve machine identifiers and untrusted detail placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "old": {
+          "type": "detail",
+          "trust": "external",
+          "example": "testCycle.stepTimeoutMinutes"
+        }
+      }
+    },
+    "exceptions.config_naming_invalid_parked_scalar": {
+      "message": "Cannot migrate obsolete configuration key '{old}': expected a valid YAML scalar. The file was not changed.",
+      "description": "Runner-attempt diagnostics and configuration migration. Preserve machine identifiers and untrusted detail placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "old": {
+          "type": "detail",
+          "trust": "external",
+          "example": "pool.configGitUrl"
+        }
+      }
+    },
+    "exceptions.config_naming_save_failed": {
+      "message": "Could not save configuration naming migration to '{configPath}'; the original file and backup remain available.",
+      "description": "Configuration migration persistence and backup diagnostics. Preserve paths and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "configPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "test/test.config.yml"
+        }
+      }
+    },
     "exceptions.host_1568d9e12a12e190": {
       "message": "This is the Ubuntu KVM variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead.",
       "description": "Whole operator-visible throw failure in host/ubuntu.kvm/Sync-HostConfiguration.ps1; preserve command names, error identity, paths, and external details.",
@@ -360,6 +442,11 @@
     "exceptions.host_8c0479442a041d98": {
       "message": "Disable-TestAutomation.ps1 (host/windows.hyper-v) only runs on Windows.",
       "description": "Whole operator-visible Write-Error failure in host/windows.hyper-v/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_ffd2efb19a40de43": {
+      "message": "Enable-TestAutomation.ps1 (host/windows.hyper-v) only runs on Windows.",
+      "description": "Whole operator-visible Write-Error failure in host/windows.hyper-v/Enable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
       "lifecycle": "active"
     },
     "exceptions.host_8d770e16b147abe9": {
@@ -2191,6 +2278,30 @@
           "type": "detail",
           "trust": "internal",
           "example": "another start or stop of this service is still running"
+        }
+      }
+    },
+    "exceptions.pool_configuration_state_conflict": {
+      "message": "Pool '{poolId}' declares conflicting desiredState and configuredState values; remove the obsolete field after choosing the intended configuredState.",
+      "description": "Pool configuration schema transition diagnostic. The obsolete desiredState field and current configuredState field are literal serialized names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "poolId": {
+          "type": "detail",
+          "trust": "external",
+          "example": "default"
+        }
+      }
+    },
+    "exceptions.pool_configuration_legacy_state": {
+      "message": "Pool '{poolId}' uses desiredState in schemaVersion 4; use configuredState.",
+      "description": "Pool configuration schema transition diagnostic. The obsolete desiredState field and current configuredState field are literal serialized names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "poolId": {
+          "type": "detail",
+          "trust": "external",
+          "example": "default"
         }
       }
     }

@@ -185,6 +185,177 @@
         "targetTerm": "מפתח אימות פנימי",
         "origin": "machine"
       }
+    },
+    {
+      "sourceTerm": "Baseline",
+      "meaning": "Ideal requirements: permitted outcomes and required outcomes, stated independently of explicit settings and observations.",
+      "sourceHeadings": [
+        "Defining Baseline, Configuration, Implementation, and Telemetry"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "קו בסיס",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Configuration",
+      "meaning": "Explicit settings recorded in code, files, and tools; distinct from ideal requirements and actual running behavior.",
+      "sourceHeadings": [
+        "Defining Baseline, Configuration, Implementation, and Telemetry"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "תצורה",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Implementation",
+      "meaning": "The running system and its effective behavior; source code or an SBOM alone does not establish this view.",
+      "sourceHeadings": [
+        "Defining Baseline, Configuration, Implementation, and Telemetry"
+      ],
+      "decision": {
+        "status": "explained",
+        "targetTerm": "מצב בפועל",
+        "rationale": "Use a phrase meaning actual state to distinguish this view from source-code implementation.",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Telemetry",
+      "meaning": "Observations and evidence collected from the system, which may cover only part of the Implementation.",
+      "sourceHeadings": [
+        "Defining Baseline, Configuration, Implementation, and Telemetry"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "טלמטריה",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "configured state",
+      "meaning": "A saved pool configuration setting: run, paused, or drain. It is separate from member-reported status and immediate pause/resume controls.",
+      "sourceHeadings": [
+        "Defining Baseline, Configuration, Implementation, and Telemetry"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "מצב מוגדר",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Authorized",
+      "meaning": "Access permitted by the Baseline; distinct from a tool authorization decision and not an incident classification.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "גישה מורשית",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Shortfall",
+      "meaning": "Configured outcomes outside the Baseline: C minus B, compared using the same scope, outcome representation, and observation period.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "explained",
+        "targetTerm": "חסר בתצורה",
+        "rationale": "Use a configuration-specific phrase for configured outcomes beyond the Baseline, rather than a generic shortage.",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Patch",
+      "meaning": "A configured Shortfall absent from the Implementation: (C minus B) minus I. It may be beneficial but still needs reconciliation with Configuration.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "explained",
+        "targetTerm": "תיקון ישיר",
+        "rationale": "This assessment term denotes a directly corrected configured Shortfall, not every software package update.",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Drift",
+      "meaning": "Implementation outside Configuration together with Patch: (I minus C) union Patch. It includes beneficial differences and is not automatically an incident.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "סטייה",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Finding",
+      "meaning": "Observed outcomes outside Configuration: T minus C. A missing declared namespace does not establish this condition.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "ממצא",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Unmonitored",
+      "meaning": "Implemented outcomes not represented in Telemetry: I minus T. Missing observations alone do not establish which outcomes are implemented.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "לא מנוטר",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Nonconformity",
+      "meaning": "Observed outcomes outside the Baseline: T minus B. This assessment condition does not by itself classify an operational incident.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "אי־התאמה",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Exposure",
+      "meaning": "Implemented outcomes outside the Baseline: I minus B. This assessment condition does not by itself classify an operational incident.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "חשיפה",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Unavailability",
+      "meaning": "Required outcomes absent from the Implementation: N minus I, where N is the Baseline required outcomes. This is more specific than a generic outage.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "אי־זמינות",
+        "origin": "machine"
+      }
     }
   ],
   "retiredNameRulings": [

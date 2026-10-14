@@ -19,7 +19,7 @@ const testHostID = "42512149deadbeef"
 // possibly empty in a sandboxed CI with no non-loopback interface -- the contract
 // is the shape, not a specific address).
 func TestHostInfo(t *testing.T) {
-	srv := httptest.NewServer(New(&fakeIntent{}, Options{Version: "test", HostID: testHostID}).Handler())
+	srv := httptest.NewServer(New(&fakeConfiguration{}, Options{Version: "test", HostID: testHostID}).Handler())
 	defer srv.Close()
 
 	resp, m := do(t, "GET", srv.URL+"/api/hostinfo", "")
@@ -58,7 +58,7 @@ func TestHostInfo(t *testing.T) {
 // trust the proxy CA, would raise a certificate interstitial in front of every
 // host link. The aggregator answers both protocols on the same port.
 func TestHostInfoHandsTheBrowserAPlainHTTPAggregatorBase(t *testing.T) {
-	srv := httptest.NewServer(New(&fakeIntent{}, Options{
+	srv := httptest.NewServer(New(&fakeConfiguration{}, Options{
 		Version: "test", HostID: testHostID,
 		AggregatorURL: "https://10.0.0.2:9400",
 	}).Handler())
@@ -108,7 +108,7 @@ func TestGoBaseURL(t *testing.T) {
 // embedded in another module and reaches the browser only if this service hands
 // it over.
 func TestEveryPageServesChrome(t *testing.T) {
-	s := New(&fakeIntent{}, Options{Version: "test"})
+	s := New(&fakeConfiguration{}, Options{Version: "test"})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 

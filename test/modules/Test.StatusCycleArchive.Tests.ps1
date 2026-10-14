@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4225e4e5-9e96-476f-b10c-41d45c8308df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -376,17 +376,7 @@ Describe 'the share page and the host agree on one grammar' {
     }
 
     It 'shows the attach step as an instruction rather than fine print' {
-        # On the download path the message is incomplete until the operator
-        # attaches the file themselves, so the sentence that says so has to
-        # carry weight on the page.
-        #
-        # What is pinned is the instruction inside an emphasis element, not the
-        # sentence that carries it. Copy on this page gets reworded, and a test
-        # that fails on a synonym teaches its reader to edit the expectation
-        # rather than look at the page -- which costs the assertion the only
-        # thing it was for. The tempered dot keeps the match inside ONE <strong>,
-        # so emphasis somewhere else on the page plus the words somewhere else
-        # again cannot satisfy it between them.
+        # See https://yuruna.link/42e220c4-0014
         Assert-True ($script:SharePage -match '(?s)<strong\b[^>]*>(?:(?!</?strong>).)*attach\s+the\s+downloaded\s+file(?:(?!</?strong>).)*</strong>') `
             'the attach instruction is no longer emphasized on the share page'
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42a8e238-9fc4-4ca2-bdd0-9b55ac2ff25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -235,6 +235,7 @@ function Get-ScannableSourcePath {
     }
     $paths = [Collections.Generic.List[string]]::new()
     foreach ($relative in $candidates) {
+        if (-not [IO.File]::Exists((Join-Path $Root $relative))) { continue }
         # Shell is in scope because guest provisioning is written in it, and a
         # boundary is a boundary whichever language emits it: the retry wrapper
         # writes the record a diagnostic reads, and a scan that stopped at the

@@ -136,86 +136,141 @@ func TestPollOnceSlowLokiLeavesPoolReadableAndSnapshotsTransitions(t *testing.T)
 }
 
 func TestPollRunnerFaultPreservesCompletedCycle(t *testing.T) {
-	for _, prior := range []string{"", "pass"} {
-		t.Run("prior="+prior, func(t *testing.T) {
-			const hid = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-			const start = "2026-10-01T12:00:00Z"
-			s := newPoolState("default", 8080)
-			s.hosts[hid] = &hostView{HostId: hid, CurrentIP: "192.0.2.10"}
-			if prior != "" {
-				s.seen[hid+"|"+start] = prior
-				s.counted[hid+"|"+start] = true
-				s.pass[hid] = 1
-			}
-			var cycleLines []map[string]string
-			runnerState := "paused"
-			client := &http.Client{Transport: pollLokiTransport(func(r *http.Request) (*http.Response, error) {
-				code, body := http.StatusOK, "{}"
-				if r.Method == http.MethodPost {
-					var payload struct {
-						Streams []struct {
-							Stream map[string]string `json:"stream"`
-							Values [][2]string       `json:"values"`
-						} `json:"streams"`
-					}
-					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-						t.Fatal(err)
-					}
-					for _, stream := range payload.Streams {
-						if stream.Stream["src"] != "cycle" {
-							continue
+	for _, separateFault := range []bool{false, true} {
+		for _, prior := range []string{"", "pass"} {
+			t.Run(fmt.Sprintf("separate=%v/prior=%s", separateFault, prior), func(t *testing.T) {
+				const hid = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				const start = "2026-10-01T12:00:00Z"
+				s := newPoolState("default", 8080)
+				s.hosts[hid] = &hostView{HostId: hid, CurrentIP: "192.0.2.10"}
+				if prior != "" {
+					s.seen[hid+"|"+start] = prior
+					s.counted[hid+"|"+start] = true
+					s.pass[hid] = 1
+				}
+				var cycleLines []map[string]string
+				runnerState := "paused"
+				client := &http.Client{Transport: pollLokiTransport(func(r *http.Request) (*http.Response, error) {
+					code, body := http.StatusOK, "{}"
+					if r.Method == http.MethodPost {
+						var payload struct {
+							Streams []struct {
+								Stream map[string]string `json:"stream"`
+								Values [][2]string       `json:"values"`
+							} `json:"streams"`
 						}
-						for _, value := range stream.Values {
-							var line map[string]string
-							if err := json.Unmarshal([]byte(value[1]), &line); err != nil {
-								t.Fatal(err)
+						if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+							t.Fatal(err)
+						}
+						for _, stream := range payload.Streams {
+							if stream.Stream["src"] != "cycle" {
+								continue
 							}
-							cycleLines = append(cycleLines, line)
+							for _, value := range stream.Values {
+								var line map[string]string
+								if err := json.Unmarshal([]byte(value[1]), &line); err != nil {
+									t.Fatal(err)
+								}
+								cycleLines = append(cycleLines, line)
+							}
+						}
+						code = http.StatusNoContent
+					} else {
+						switch r.URL.Path {
+						case "/runtime/status.json":
+							body = fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":%q,"overallStatus":"fail","runnerState":%q,"lastFailure":{"failureClass":"preamble_stall"},"history":[{"cycleStartUtc":%q,"overallStatus":"pass","finishedAt":"2026-10-01T12:30:00Z","hostname":"private-host","lastFailure":null}]}`, hid, start, runnerState, start)
+							if separateFault {
+								body = fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":%q,"overallStatus":"pass","finishedAt":"2026-10-01T12:30:00Z","runnerState":%q,"runnerFault":{"failureClass":"config_gate_failed","severity":"fatal","errorMessage":"private-host","transcriptPath":"private-host"}}`, hid, start, runnerState)
+							}
+						case "/runtime/host.registration.json":
+							body = `{"poolId":"test-pool"}`
+						default:
+							code = http.StatusNotFound
 						}
 					}
-					code = http.StatusNoContent
-				} else {
-					switch r.URL.Path {
-					case "/runtime/status.json":
-						body = fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":%q,"overallStatus":"fail","runnerState":%q,"lastFailure":{"failureClass":"preamble_stall"},"history":[{"cycleStartUtc":%q,"overallStatus":"pass","finishedAt":"2026-10-01T12:30:00Z","hostname":"private-host","lastFailure":null}]}`, hid, start, runnerState, start)
-					case "/runtime/host.registration.json":
-						body = `{"poolId":"test-pool"}`
-					default:
-						code = http.StatusNotFound
+					return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+				})}
+				for i := 0; i < 2; i++ {
+					s.pollOnce(client, filepath.Join(t.TempDir(), "absent.log"), "http://loki.invalid/push", time.Now().UTC())
+					runnerState = "cycle-start"
+				}
+				if s.pass[hid] != 1 || s.fail[hid] != 0 || len(s.failWindow[hid]) != 0 {
+					t.Fatalf("runner fault counted as cycle failure: pass=%v fail=%v window=%v", s.pass, s.fail, s.failWindow)
+				}
+				wantLines := 1
+				if prior != "" {
+					wantLines = 0
+				}
+				if len(cycleLines) != wantLines {
+					t.Fatalf("transitions=%v, want %d", cycleLines, wantLines)
+				}
+				for _, line := range cycleLines {
+					if line["overallStatus"] != "pass" || line["failureClass"] != "" || line["finishedAt"] != "2026-10-01T12:30:00Z" {
+						t.Fatalf("incorrect cycle: %v", line)
 					}
 				}
-				return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
-			})}
-			for i := 0; i < 2; i++ {
-				s.pollOnce(client, filepath.Join(t.TempDir(), "absent.log"), "http://loki.invalid/push", time.Now().UTC())
-				runnerState = "cycle-start"
+				if s.hosts[hid].statusLabel() != "fail" {
+					t.Fatal("runner fault must remain visible in live health")
+				}
+				encoded, err := json.Marshal(s.hosts[hid].Status)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(string(encoded), "private-host") {
+					t.Fatal("history leaked host details")
+				}
+			})
+		}
+	}
+}
+
+func TestPollFirstAttemptFaultWithoutCycle(t *testing.T) {
+	const hid = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	s := newPoolState("default", 8080)
+	s.hosts[hid] = &hostView{HostId: hid, CurrentIP: "192.0.2.10"}
+	pushes := 0
+	client := &http.Client{Transport: pollLokiTransport(func(r *http.Request) (*http.Response, error) {
+		code, body := http.StatusNotFound, "{}"
+		if r.Method == http.MethodPost {
+			var payload struct {
+				Streams []struct {
+					Stream map[string]string `json:"stream"`
+				} `json:"streams"`
 			}
-			if s.pass[hid] != 1 || s.fail[hid] != 0 || len(s.failWindow[hid]) != 0 {
-				t.Fatalf("runner fault counted as cycle failure: pass=%v fail=%v window=%v", s.pass, s.fail, s.failWindow)
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				return nil, err
 			}
-			wantLines := 1
-			if prior != "" {
-				wantLines = 0
-			}
-			if len(cycleLines) != wantLines {
-				t.Fatalf("transitions=%v, want %d", cycleLines, wantLines)
-			}
-			for _, line := range cycleLines {
-				if line["overallStatus"] != "pass" || line["failureClass"] != "" || line["finishedAt"] != "2026-10-01T12:30:00Z" {
-					t.Fatalf("incorrect cycle: %v", line)
+			for _, stream := range payload.Streams {
+				if stream.Stream["src"] == "cycle" {
+					pushes++
 				}
 			}
-			if s.hosts[hid].statusLabel() != "fail" {
-				t.Fatal("runner fault must remain visible in live health")
+			code = http.StatusNoContent
+		} else {
+			switch r.URL.Path {
+			case "/runtime/status.json":
+				code = http.StatusOK
+				body = fmt.Sprintf(`{"hostId":%q,"overallStatus":"unknown","guests":[],"history":[],"runnerFault":{"failureClass":"config_gate_failed","severity":"hard","errorMessage":"private-host"}}`, hid)
+			case "/control/runner-status":
+				code, body = http.StatusOK, `{"running":true}`
 			}
-			encoded, err := json.Marshal(s.hosts[hid].Status)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(string(encoded), "private-host") {
-				t.Fatal("history leaked host details")
-			}
-		})
+		}
+		return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	s.pollOnce(client, filepath.Join(t.TempDir(), "absent.log"), "http://loki.invalid/push", time.Now().UTC())
+	hv := s.hosts[hid]
+	if !hv.Reachable || hv.statusLabel() != "fail" {
+		t.Fatalf("first attempt must be a reachable failing host: %+v", hv)
+	}
+	if s.pass[hid] != 0 || s.fail[hid] != 0 || len(s.seen) != 0 || pushes != 0 {
+		t.Fatalf("attempt invented cycle accounting: pass=%v fail=%v seen=%v pushes=%d", s.pass, s.fail, s.seen, pushes)
+	}
+	encoded, err := json.Marshal(hv.Status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "private-host") {
+		t.Fatal("public snapshot leaked diagnostic text")
 	}
 }
 

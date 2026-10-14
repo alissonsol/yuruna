@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42cb87f4-7e53-4a64-bea3-4c874894dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
 
 .DESCRIPTION
     Builds a libvirt VM that boots the Ubuntu 26.04 LTS cloud image
-    for the pool-control-service daemon (operator UI + API for the pool intent).
+    for the pool-control-service daemon (operator UI + API for the pool configuration).
     Cloud-init fetches the framework and runs the bring-up script which
     builds the daemon, installs pwsh + the pool-admin CLIs, CIFS-mounts the
     pool NAS for its state dir, and launches it under systemd.
@@ -90,6 +90,8 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 $virshUri = 'qemu:///system'
 Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
@@ -117,6 +119,13 @@ if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 256GB -Format 'qcow2'
     exit 1
 }
 
+# --- REGION: Stage the cloud-init seed directory
+# Staged beside the disk, not under a temp root: the per-VM directory is
+# private to this build and the plaintext source is removed once seed.iso exists.
+$seedDir = Join-Path $vmDir 'seed.src'
+if (Test-Path -LiteralPath $seedDir) { Remove-Item -LiteralPath $seedDir -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
+
 # --- REGION: Yuruna harness SSH key
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
@@ -130,7 +139,7 @@ if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
-# --- REGION: Render user-data / meta-data
+# Check the shared seed templates before the guest network is resolved.
 $baseUserData     = Join-Path $repoRoot 'host/vmconfig/pool-control-service.base.user-data'
 $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/pool-control-service.kvm.overlay.yml'
 $metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/pool-control-service.meta-data'
@@ -140,12 +149,14 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
         exit 1
     }
 }
+
 # --- REGION: Select the guest network
-# The baked NAS + source coordinates depend on whether this is NAT
-# 'default' (host = libvirt gateway) or bridged 'yuruna-external' (host =
-# LAN IP), so resolve the network first.
+# See https://yuruna.link/42e220c4-0004
+# Resolve the network and reachable host address together before rendering the seed.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
-$networkName = Get-ExternalNetwork
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+$guestBinding = Resolve-GuestHostBinding
+$networkName  = $guestBinding.NetworkName
 if (-not $networkName) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a32e7c960a5619ec')
     exit 1
@@ -181,15 +192,9 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')    -Globa
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1')       -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
-Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
-    $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
-} elseif ($networkName -eq 'default') {
-    $YurunaHostIp = Get-GuestReachableHostIp   # NAT 'default': libvirt gateway
-} else {
-    $YurunaHostIp = Get-BestHostIp             # bridged 'yuruna-external': host LAN IP
-}
-if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostIp = $guestBinding.HostIp
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
@@ -200,12 +205,13 @@ $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHos
 # Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
 $null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
-# Writable pool-intent git url the daemon commits to; empty degrades the daemon
-# (read-only). An explicit test.config.yml pool.intentGitUrl wins; otherwise this
+# Writable pool-configuration git url the daemon commits to; empty degrades the daemon
+# (read-only). An explicit test.config.yml pool.configurationGitUrl wins; otherwise this
 # resolves the bare repo on the pool NAS, which the guest creates and seeds on
 # first bring-up so a fresh VM reaches a working UI with nothing pre-staged.
-$intentGitUrl = Get-PoolIntentSeedUrl -Config $tc
+$configurationGitUrl = Get-PoolConfigurationSeedUrl -Config $tc
 
+# --- REGION: Render user-data / meta-data
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
 # pool-control-service.*). New-CloudInitUserData resolves placeholders with literal
 # .Replace(), so values carrying regex-special chars are safe.
@@ -221,7 +227,7 @@ $userData = New-CloudInitUserData `
         YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
         YURUNA_HOST_ID_PLACEHOLDER     = $poolNas.HostId
         YURUNA_AGGREGATOR_URL_PLACEHOLDER      = $aggregatorSeedUrl
-        YURUNA_POOL_INTENT_GIT_URL_PLACEHOLDER = $intentGitUrl
+        YURUNA_POOL_CONFIGURATION_GIT_URL_PLACEHOLDER = $configurationGitUrl
         YURUNA_LANGUAGE_PLACEHOLDER       = $poolControlLanguage
         YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
         POOL_NAS_NETWORK_PATH_PLACEHOLDER  = $poolNas.NetworkPath
@@ -232,8 +238,6 @@ $userData = New-CloudInitUserData `
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 
-$seedDir = Join-Path $vmDir 'seed.src'
-New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b

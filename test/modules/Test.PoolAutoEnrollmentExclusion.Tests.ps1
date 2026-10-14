@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42ea8af8-5cff-4141-a7b1-74224e2ce4d0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,13 +29,13 @@ Import-Module powershell-yaml
 $ExitOk = 0
 $ExitFailure = 1
 function Format-YurunaHostId { param($HostId) return $HostId }
-function Open-YurunaPoolAdminStore { param($IntentGitUrl, $IntentDir, $Confirm) return @{ Ok = $true; Target = @{ IntentGitUrl = 'fixture'; IntentDir = $IntentDir }; Error = '' } }
+function Open-YurunaPoolAdminStore { param($ConfigurationGitUrl, $ConfigurationDir, $Confirm) return @{ Ok = $true; Target = @{ ConfigurationGitUrl = 'fixture'; ConfigurationDir = $ConfigurationDir }; Error = '' } }
 function Publish-YurunaPoolDocChange {
-    param($IntentDir, $RelPath, $Doc, $SchemaName, $Message, $Confirm)
-    if (Test-Path (Join-Path $IntentDir 'publish.fail')) { return @{ Ok = $false; Pushed = $false; Error = 'fixture publication refused' } }
-    $saved = Save-YurunaPoolDoc -IntentDir $IntentDir -RelPath $RelPath -Doc $Doc -SchemaName $SchemaName -Confirm:$false
+    param($ConfigurationDir, $RelPath, $Doc, $SchemaName, $Message, $Confirm)
+    if (Test-Path (Join-Path $ConfigurationDir 'publish.fail')) { return @{ Ok = $false; Pushed = $false; Error = 'fixture publication refused' } }
+    $saved = Save-YurunaPoolDoc -ConfigurationDir $ConfigurationDir -RelPath $RelPath -Doc $Doc -SchemaName $SchemaName -Confirm:$false
     if (-not $saved.Ok) { return @{ Ok = $false; Pushed = $false; Error = $saved.Error } }
-    Add-Content -LiteralPath (Join-Path $IntentDir 'published') -Value $Message
+    Add-Content -LiteralPath (Join-Path $ConfigurationDir 'published') -Value $Message
     return @{ Ok = $true; Pushed = $true; Error = '' }
 }
 '@
@@ -64,28 +64,28 @@ Describe 'durable auto-enrollment exclusions' {
         @{ Member = $false; Policy = $false }
     ) {
         $dir = New-ExclusionFixture -Member $Member -Policy $Policy
-        $output = & pwsh -NoProfile -NonInteractive -File $script:child -HostId $script:hostId -Exclude -IntentDir $dir 2>&1
+        $output = & pwsh -NoProfile -NonInteractive -File $script:child -HostId $script:hostId -Exclude -ConfigurationDir $dir 2>&1
         Assert-Equal 0 $LASTEXITCODE ($output -join "`n")
         $saved = Get-Content -Raw (Join-Path $dir 'pools.yml') | ConvertFrom-Yaml
         Assert-False ($saved.pools[0].members -contains $script:hostId)
         Assert-True ($saved.pools[0].members -contains $script:peerId)
         Assert-True ($saved.autoEnrollment.excluded -contains $script:hostId)
-        # The v2 fixture is written back at schemaVersion 3: every admin write
+        # The v2 fixture is written back at schemaVersion 4: every admin write
         # persists the upgrade Read-YurunaPoolsDoc applies.
-        Assert-Equal 3 $saved.schemaVersion
+        Assert-Equal 4 $saved.schemaVersion
         Assert-Equal "pool: exclude $($script:hostId) from auto-enrollment" (Get-Content -Raw (Join-Path $dir 'published')).Trim()
         if ($Policy) {
             Assert-True ($saved.autoEnrollment.excluded -contains $script:peerId)
             Assert-True $saved.autoEnrollment.enabled
         }
         Assert-Equal 1 @(Get-Content (Join-Path $dir 'published')).Count
-        $output = & pwsh -NoProfile -NonInteractive -File $script:child -HostId $script:hostId -Exclude -IntentDir $dir 2>&1
+        $output = & pwsh -NoProfile -NonInteractive -File $script:child -HostId $script:hostId -Exclude -ConfigurationDir $dir 2>&1
         Assert-Equal 0 $LASTEXITCODE ($output -join "`n")
         Assert-Equal 1 @(Get-Content (Join-Path $dir 'published')).Count 'repeated exclusion must not publish again'
     }
     It 'retains ordinary pool-only removal semantics without the switch' {
         $dir = New-ExclusionFixture -Policy $false
-        $output = & pwsh -NoProfile -NonInteractive -File $script:child -PoolId lab -HostId $script:hostId -IntentDir $dir 2>&1
+        $output = & pwsh -NoProfile -NonInteractive -File $script:child -PoolId lab -HostId $script:hostId -ConfigurationDir $dir 2>&1
         Assert-Equal 0 $LASTEXITCODE ($output -join "`n")
         $saved = Get-Content -Raw (Join-Path $dir 'pools.yml') | ConvertFrom-Yaml
         Assert-False ($saved.pools[0].members -contains $script:hostId)
@@ -95,7 +95,7 @@ Describe 'durable auto-enrollment exclusions' {
     It 'reports a publication refusal instead of promising a durable exclusion' {
         $dir = New-ExclusionFixture
         Set-Content -LiteralPath (Join-Path $dir 'publish.fail') -Value 'refuse'
-        $null = & pwsh -NoProfile -NonInteractive -File $script:child -HostId $script:hostId -Exclude -IntentDir $dir 2>&1
+        $null = & pwsh -NoProfile -NonInteractive -File $script:child -HostId $script:hostId -Exclude -ConfigurationDir $dir 2>&1
         Assert-NotEqual 0 $LASTEXITCODE
         Assert-False (Test-Path (Join-Path $dir 'published'))
     }

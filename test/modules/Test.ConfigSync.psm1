@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,7 @@
 # Test-Config.ps1 -- not only callers that happen to load the full runner module set.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.ConfigNaming.psm1') -DisableNameChecking
 
 <#
 .SYNOPSIS
@@ -265,7 +266,10 @@ function Update-TestConfigFromTemplate {
     }
 
     $template = Get-Content -Raw $TemplatePath | ConvertFrom-Yaml -Ordered
-    $current  = Get-Content -Raw $ConfigPath   | ConvertFrom-Yaml -Ordered
+    $existingText = [string](Get-Content -Raw -LiteralPath $ConfigPath)
+    $current = ConvertFrom-Yaml -Yaml $existingText -Ordered
+    $migration = ConvertTo-ConfigNamingMigration -Config $current -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $existingText)
+    $current = $migration.Config
 
     # Silently drop deprecated top-level keys before the shape check below.
     # Without this, removing a key from the template would make the
@@ -330,8 +334,7 @@ function Update-TestConfigFromTemplate {
     # in (and a file that only differs by ordering converges to canonical on the
     # next run instead of churning forever).
     $merged = ConvertTo-SortedConfig $merged
-    $existingText = [string](Get-Content -Raw -LiteralPath $ConfigPath)
-    $obsolete = Get-ObsoleteConfigEntry -Text $existingText
+    $obsolete = $migration.Obsolete
     $curLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $current)
     foreach ($path in @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)) {
         $obsolete[$path] = Format-YamlScalarValue $curLeaves[$path]
@@ -343,12 +346,14 @@ function Update-TestConfigFromTemplate {
     # See https://yuruna.link/4213a0b3-0045
     if (-not $shapeMatchesTemplate) {
         $backupPath = "$ConfigPath.backup"
-        Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
         $dropped = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)
         if ($PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_3139f133d03a7df6'))) {
+            if ($migration.Changes.Count -gt 0) { [void](New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false) }
+            Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
             # Atomic temp+rename: the status service serves this working tree, so a
             # non-atomic write would let a concurrent reader catch a torn file.
             if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $rendered -Confirm:$false)) {
+                if ($migration.Changes.Count -gt 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath }) }
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
             }
         }
@@ -366,9 +371,11 @@ function Update-TestConfigFromTemplate {
     if ((Test-ConfigDiffersOutsideSecretNode -A $merged -B $current) -or $rendered -cne $existingText) {
         if ($PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_785dae69f36c4993'))) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_58f8689005f6559c') -InformationAction Continue
+            if ($migration.Changes.Count -gt 0) { [void](New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false) }
             # Atomic temp+rename: the status service serves this working tree, so a
             # non-atomic write would let a concurrent reader catch a torn file.
             if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $rendered -Confirm:$false)) {
+                if ($migration.Changes.Count -gt 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath }) }
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
             }
         }
@@ -452,12 +459,35 @@ function Get-ObsoleteConfigEntry {
 
     $entries = [ordered]@{}
     if ([string]::IsNullOrEmpty($Text)) { return $entries }
+    $inObsoleteBlock = $false
     foreach ($line in ($Text -split "`r?`n")) {
-        if ($line -match '^#\s{3}(?<path>[A-Za-z_][A-Za-z0-9_.-]*(?:\.[A-Za-z0-9_.-]+)*):\s(?<val>.*)$') {
-            if (-not $entries.Contains($Matches['path'])) { $entries[$Matches['path']] = $Matches['val'] }
+        if ($line -match '^# --- (?:REGION: )?Obsolete keys(?:\s|$)') { $inObsoleteBlock = $true; continue }
+        if ($line -match '^\s*[^#\s]') { $inObsoleteBlock = $false }
+        if ($inObsoleteBlock -and $line -match '^#\s{3}(?<path>[A-Za-z_][A-Za-z0-9_.-]*(?:\.[A-Za-z0-9_.-]+)*):\s(?<val>.*)$') {
+            $path = $Matches['path']; $value = $Matches['val']
+            if ($entries.Contains($path) -and $entries[$path] -cne $value) {
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_duplicate_parked' -Arguments @{ path = $path })
+            }
+            $entries[$path] = $value
         }
     }
     return $entries
+}
+
+function Format-ObsoleteConfigEntry {
+    <# .SYNOPSIS
+        Format parked values identically for documented and plain YAML writers. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()]$ObsoleteEntry)
+    if (-not $ObsoleteEntry -or $ObsoleteEntry.Count -eq 0) { return '' }
+    $lines = [System.Collections.Generic.List[string]]::new()
+    [void]$lines.Add('# --- REGION: Obsolete keys')
+    [void]$lines.Add('# Not defined by test.config.yml.template, so the runner ignores them. Kept')
+    [void]$lines.Add('# here (commented) so no value is lost: move anything still needed into the')
+    [void]$lines.Add('# keys above, then delete these lines.')
+    foreach ($path in $ObsoleteEntry.Keys) { [void]$lines.Add("#   ${path}: $($ObsoleteEntry[$path])") }
+    return ($lines -join "`n")
 }
 
 <#
@@ -561,13 +591,10 @@ function ConvertTo-DocumentedConfigYaml {
         }
     }
 
-    if ($ObsoleteEntry -and $ObsoleteEntry.Count -gt 0) {
+    $obsoleteText = Format-ObsoleteConfigEntry -ObsoleteEntry $ObsoleteEntry
+    if ($obsoleteText) {
         [void]$out.Add('')
-        [void]$out.Add('# --- Obsolete keys -------------------------------------------------------')
-        [void]$out.Add('# Not defined by test.config.yml.template, so the runner ignores them. Kept')
-        [void]$out.Add('# here (commented) so no value is lost: move anything still needed into the')
-        [void]$out.Add('# keys above, then delete these lines.')
-        foreach ($p in $ObsoleteEntry.Keys) { [void]$out.Add("#   ${p}: $($ObsoleteEntry[$p])") }
+        foreach ($line in ($obsoleteText -split "`n")) { [void]$out.Add($line) }
     }
 
     return (($out -join "`n") + "`n")
@@ -628,7 +655,9 @@ function Write-DocumentedTestConfig {
       Removed    -- populated dotted leaf paths dropped because they are NOT part of
                     the current schema (recoverable from BackupPath)
       Wrote      -- $true when the file was rewritten
-      BackupPath -- <config>.backup when a populated key was dropped, else $null
+      Migrated   -- registered key translations applied before the template merge
+      BackupPath -- original input backup when a registered key was migrated or
+                    a populated key was dropped, else $null
 #>
 function Sync-TestConfigToTemplate {
     [CmdletBinding(SupportsShouldProcess)]
@@ -643,6 +672,11 @@ function Sync-TestConfigToTemplate {
         # form, which carries no comments.
         [Parameter()] [string]$TemplatePath
     )
+
+    $existingText = if (Test-Path -LiteralPath $ConfigPath) { [string](Get-Content -Raw -LiteralPath $ConfigPath) } else { '' }
+    $originalCurrent = $Current
+    $migration = ConvertTo-ConfigNamingMigration -Config $Current -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $existingText)
+    $Current = $migration.Config
 
     # Strict merge: template shape wins (orphan keys dropped, missing fields filled,
     # operator values kept), then re-attach the out-of-band 'secrets' node so the
@@ -666,9 +700,7 @@ function Sync-TestConfigToTemplate {
     # the .backup: entries an earlier run parked are carried forward (they are
     # comments, so the YAML parse above cannot see them), then this run's newly
     # dropped leaves are added with their values.
-    $existingText = if (Test-Path -LiteralPath $ConfigPath) { [string](Get-Content -Raw -LiteralPath $ConfigPath) } else { '' }
-    $obsolete = [ordered]@{}
-    foreach ($kv in (Get-ObsoleteConfigEntry -Text $existingText).GetEnumerator()) { $obsolete[$kv.Key] = $kv.Value }
+    $obsolete = $migration.Obsolete
     foreach ($p in ($removed | Sort-Object)) { $obsolete[$p] = Format-YamlScalarValue $curLeaves[$p] }
 
     # Render the documented form when a template path was supplied. Comparing the
@@ -685,12 +717,14 @@ function Sync-TestConfigToTemplate {
 
     # Rewrite when the canonical form differs from disk outside 'secrets', or when
     # the documented rendering differs from what is on disk.
-    $changed = Test-ConfigDiffersOutsideSecretNode -A $canonical -B $Current
+    $changed = (Test-ConfigDiffersOutsideSecretNode -A $canonical -B $originalCurrent) -or $migration.Changes.Count -gt 0
     if ($null -ne $rendered) { $changed = $rendered -cne $existingText }
     $wrote      = $false
     $backupPath = $null
     if ($changed -and $PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_1f50cc08b8dd3984'))) {
-        if ($removed.Count -gt 0) {
+        if ($migration.Changes.Count -gt 0) {
+            $backupPath = New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false
+        } elseif ($removed.Count -gt 0) {
             $backupPath = "$ConfigPath.backup"
             Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
         }
@@ -698,15 +732,21 @@ function Sync-TestConfigToTemplate {
         # non-atomic write would let a concurrent reader catch a torn file. Report Wrote
         # from the actual result so the operator summary never claims a reconcile that
         # did not land.
-        $content = if ($null -ne $rendered) { $rendered } else { $canonical | ConvertTo-Yaml }
+        $content = if ($null -ne $rendered) { $rendered } else {
+            $plainYaml = $canonical | ConvertTo-Yaml
+            $obsoleteText = Format-ObsoleteConfigEntry -ObsoleteEntry $obsolete
+            if ($obsoleteText) { $plainYaml.TrimEnd() + "`n`n" + $obsoleteText + "`n" } else { $plainYaml }
+        }
         $wrote = [bool](Write-YurunaStateFile -Path $ConfigPath -Content $content -Confirm:$false)
         if (-not $wrote) {
+            if ($migration.Changes.Count -gt 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath }) }
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
         }
     }
 
     return [pscustomobject]@{
         Config     = $canonical
+        Migrated   = $migration.Changes
         Added      = [string[]]@($added   | Sort-Object)
         Removed    = [string[]]@($removed | Sort-Object)
         Obsolete   = [string[]]@($obsolete.Keys | Sort-Object)
@@ -746,6 +786,6 @@ Export-ModuleMember -Function `
     ConvertTo-MergedHashtable, ConvertTo-SortedConfig, `
     Copy-HashtableWithoutSecretNode, `
     Test-ConfigMatchesTemplateShape, Get-ConfigLeafValue, Get-DroppedConfigField, `
-    Format-YamlScalarValue, Get-ConfigValueAtPath, Get-ObsoleteConfigEntry, Write-DocumentedTestConfig, `
+    Format-YamlScalarValue, Get-ConfigValueAtPath, Get-ObsoleteConfigEntry, Format-ObsoleteConfigEntry, Write-DocumentedTestConfig, `
     ConvertTo-DocumentedConfigYaml, `
     Update-TestConfigFromTemplate, Sync-TestConfigToTemplate, Hide-SecretsInConfig

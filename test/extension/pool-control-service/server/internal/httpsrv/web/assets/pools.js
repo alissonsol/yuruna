@@ -5,11 +5,11 @@
 // an empty pool.
 (function () {
   // Header version + host id and the footer bar; its countdown re-reads pool
-  // intent rather than reloading, so a half-typed new-pool id is not wiped.
+  // configuration rather than reloading, so a half-typed new-pool id is not wiped.
   var chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
 
   // Built once, not per read: the sort an operator chose is theirs until they
-  // change it, and re-reading pool intent every minute must not put the table
+  // change it, and re-reading pool configuration every minute must not put the table
   // back in the server's order under them.
   var sorter = Y.sortTable(document.getElementById('pool-rows'), { key: 'pool' });
 
@@ -34,7 +34,7 @@
   }
 
   // Member states arrive from a separate endpoint because they come from the
-  // hosts, not from the intent store: a pool renders (and stays editable) while
+  // hosts, not from the configuration store: a pool renders (and stays editable) while
   // its members are being read, and an unreachable host grays one cell rather
   // than emptying the page.
   var control = {};
@@ -120,7 +120,7 @@
     return current === 'unknown' ? '' : (LABEL[current] || current);
   }
 
-  // The pool's framework and project URLs as the intent store holds them, ''
+  // The pool's framework and project URLs as the configuration store holds them, ''
   // for a pool that carries none, so every comparison below is string to
   // string.
   function savedRepositories(p) {
@@ -155,7 +155,7 @@
 
   // quiet marks the countdown's read, which keeps the table it is refreshing on
   // screen. Every other read replaces it and says so: this page waits on a CLI
-  // for pool intent and then on every member for its state.
+  // for pool configuration and then on every member for its state.
   function load(opts) {
     var finish = Y.beginPageLoad(chrome, { quiet: !!(opts && opts.quiet), target: document.getElementById('pool-rows'), label: window.YurunaI18n.t("pool.loading_pools") });
     return renderPools().then(finish, finish);
@@ -308,7 +308,7 @@
       cell.appendChild(Y.el('div', { class: 'muted', text: window.YurunaI18n.t("pool.diagnostic_auto_enrollment_assignment") }));
       if (!saved.framework && !saved.project) { return { cell: cell, action: null }; }
       // A pair on this pool is one the runner already ignores and
-      // Test-PoolIntent reports, so the only change offered is taking it off.
+      // Test-PoolConfiguration reports, so the only change offered is taking it off.
       // Its members run their own projects either way, so nothing changes for
       // them and there is nothing to confirm.
       var clearBtn = Y.el('button', {

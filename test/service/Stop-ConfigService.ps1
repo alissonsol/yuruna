@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4224a01c-42f9-40b1-9d8a-f42012e52f84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,8 +18,7 @@
 
 <#
 .SYNOPSIS
-    Stops the config service started by Start-ConfigService.ps1.
-
+    Stop the config service started by Start-ConfigService.ps1.
 .DESCRIPTION
     Reads the PID from $env:YURUNA_RUNTIME_DIR/config-server.pid and terminates
     the detached serve process.

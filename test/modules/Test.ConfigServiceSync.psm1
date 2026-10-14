@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -244,7 +244,7 @@ function Merge-ConfigSyncReferenceConfig {
         }
     }
 
-    # pool.localClonePath: empty means "<runtime>/pool-intent" (portable);
+    # pool.localClonePath: empty means "<runtime>/pool-configuration" (portable);
     # a populated value is an OS-native absolute path from the reference host.
     $refPool = if ($merged.Contains('pool')) { $merged['pool'] } else { $null }
     if ($refPool -is [System.Collections.IDictionary] -and $refPool.Contains('localClonePath')) {

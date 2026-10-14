@@ -159,6 +159,8 @@ const DataptBRpool = `{
     },
     "."
   ],
+  "pool.configuration_git_url": "URL git da configuração",
+  "pool.configuration_read_raw_invocation": "Leitura da configuração — invocação original",
   "pool.continue": "Continuar",
   "pool.control": "Controlo",
   "pool.cores": "Cores",
@@ -259,6 +261,57 @@ const DataptBRpool = `{
   ],
   "pool.detail": "Detalhe",
   "pool.diagnostic_auto_enrollment_assignment": "Os hospedeiros chegam aqui automaticamente e continuam a executar o seu próprio projecto.",
+  "pool.diagnostic_configuration_absent": "nenhuma URL de configuração para verificar",
+  "pool.diagnostic_configuration_configure": "A preparação do convidado cria um repositório gravável no NAS do grupo quando ele não existe; um valor vazio aqui significa que o NAS não estava montado durante a preparação. Defina POOL_CONTROL_CONFIGURATION_GIT_URL em /etc/yuruna/pool-control-service.env (relido a cada solicitação, sem reiniciar) ou pool.configurationGitUrl em test/test.config.yml antes de reconstruir.",
+  "pool.diagnostic_configuration_empty": "vazio: nenhum repositório de configuração foi determinado pela opção de inicialização ou pelo arquivo de configuração",
+  "pool.diagnostic_configuration_initialize": "O repositório no NAS do grupo é criado durante a preparação do convidado; se o NAS foi montado depois, execute novamente o script de preparação ou use git init --bare para criá-lo.",
+  "pool.diagnostic_configuration_not_bare": [
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": não é um repositório git bare (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")"
+  ],
+  "pool.diagnostic_configuration_not_writable": [
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": repositório bare presente, mas NÃO gravável: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "pool.diagnostic_configuration_override": [
+    "  (o arquivo de configuração prevalece sobre a opção de inicialização ",
+    {
+      "arg": "flag",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")"
+  ],
+  "pool.diagnostic_configuration_permission": "As gravações falharão no push. Compare uid/gid da montagem do NAS do grupo com o usuário do serviço.",
+  "pool.diagnostic_configuration_pull_only": "Um repositório de configuração http(s) permite apenas leitura, a menos que o servidor execute git-http-backend: as leituras funcionarão, e todas as gravações falharão no push. O repositório gravável é o repositório bare no NAS do grupo.",
+  "pool.diagnostic_configuration_remote": "URL remota; a acessibilidade é verificada por configuration-read",
+  "pool.diagnostic_configuration_writable": [
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": repositório bare, gravável"
+  ],
   "pool.diagnostic_configure_repo": "Passe --repo-dir apontando para a verificação do framework yuruna.",
   "pool.diagnostic_git_not_found": [
     "não encontrado no PATH: ",
@@ -268,59 +321,8 @@ const DataptBRpool = `{
       "trust": "external"
     }
   ],
-  "pool.diagnostic_install_git": "O CLIs pool-admin clonar e empurrar intenção pool; instalar git no convidado.",
+  "pool.diagnostic_install_git": "As CLIs de administração do grupo clonam e enviam a configuração do grupo; instale git no convidado.",
   "pool.diagnostic_install_pwsh": "Instale PowerShell no guest. packages.microsoft.com não tem pacote powershell para esta versão do Ubuntu; use o tarball GitHub-release, em seguida, reinicie pool-control-service.service.",
-  "pool.diagnostic_intent_absent": "sem URL de intenção a verificar",
-  "pool.diagnostic_intent_configure": "A inicialização do convidado cria um repositório gravável no NAS do grupo quando ele está ausente. Um valor vazio aqui indica que o NAS não estava montado na inicialização. Defina POOL_CONTROL_INTENT_GIT_URL em /etc/yuruna/pool-control-service.env (lido novamente a cada solicitação, sem precisar reiniciar) ou pool.intentGitUrl em test/test.config.yml antes de reconstruir.",
-  "pool.diagnostic_intent_empty": "vazio: nenhum armazenamento de intenção resolvido a partir da bandeira de lançamento ou do arquivo de configuração",
-  "pool.diagnostic_intent_initialize": "O repositório de intenções no NAS do grupo é criado na inicialização do convidado. Se o NAS foi montado depois, execute novamente o script de inicialização ou inicialize o repositório com git init --bare.",
-  "pool.diagnostic_intent_not_bare": [
-    {
-      "arg": "path",
-      "type": "detail",
-      "trust": "external"
-    },
-    ": não é um repo git (",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    },
-    ")"
-  ],
-  "pool.diagnostic_intent_not_writable": [
-    {
-      "arg": "path",
-      "type": "detail",
-      "trust": "external"
-    },
-    ": recurso nu presente, mas NÃO escrito: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "pool.diagnostic_intent_override": [
-    "(o arquivo de configuração substitui a bandeira de lançamento ",
-    {
-      "arg": "flag",
-      "type": "detail",
-      "trust": "external"
-    },
-    ")"
-  ],
-  "pool.diagnostic_intent_permission": "As gravações falharão no push. Verifique o UID/gid da montagem do NAS do grupo contra o usuário do serviço.",
-  "pool.diagnostic_intent_pull_only": "Uma loja de intenção http(s) é somente para puxar, a menos que o servidor execute git-http-backend: as leituras funcionarão e cada gravação falhará no push. A loja gravável é o repositório nu no NAS do grupo.",
-  "pool.diagnostic_intent_remote": "URL remoto; acessibilidade é coberta por leitura intencional",
-  "pool.diagnostic_intent_writable": [
-    {
-      "arg": "path",
-      "type": "detail",
-      "trust": "external"
-    },
-    ": repo nu, gravável"
-  ],
   "pool.diagnostic_no_output": "sem saída",
   "pool.diagnostic_not_configured": "não configurado",
   "pool.diagnostic_persistence_configure": "Passe Options.StateDir ao lado de Options.Store para que esta verificação possa sondar o caminho real.",
@@ -965,8 +967,6 @@ const DataptBRpool = `{
     }
   },
   "pool.hosts_yuruna_pool_control": "Hospedeiras — Controle de Grupos Yuruna",
-  "pool.intent_git_url": "URL do git de intenção",
-  "pool.intent_read_raw_invocation": "Leitura da intenção — invocação em bruto",
   "pool.ips": "IPs:",
   "pool.it_will_also_be_excluded_from_auto_enrollment_so_the_sweep_will_n": "\n\nEle também será excluído do auto-inscrição, então a varredura não irá adicioná-lo de volta.",
   "pool.lab_token": "Token do laboratório",
@@ -1142,6 +1142,7 @@ const DataptBRpool = `{
   "pool.pools": "Grupos",
   "pool.pools_yuruna_pool_control": "Pools — Controle de grupos Yuruna",
   "pool.process": "Processo",
+  "pool.process_environment": "Ambiente do processo",
   "pool.progress": "Progresso",
   "pool.project": "Projeto",
   "pool.project_url": "URL do projeto",
@@ -1281,7 +1282,6 @@ const DataptBRpool = `{
   "pool.row_number": "Número da linha",
   "pool.running": "Em execução:",
   "pool.running_checks": "A verificar...",
-  "pool.runtime_environment": "Ambiente de execução",
   "pool.save_failed_value1": [
     "Falha ao salvar: ",
     {

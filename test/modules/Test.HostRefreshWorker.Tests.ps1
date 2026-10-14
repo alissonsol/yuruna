@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42be3895-85a7-48d1-b55d-aeffcd674ec0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -291,7 +291,7 @@ function global:Get-YurunaRefreshGateState { param([string]$RuntimeDir, [string]
         }
         Mock -ModuleName Test.HostRefresh Get-YurunaServiceIntent {
             $intent = $script:Scenario.Intent[$Key]
-            if ($intent) { $intent } else { [pscustomobject]@{ DesiredState = 'running'; Generation = 1 } }
+            if ($intent) { $intent } else { [pscustomobject]@{ RequestedState = 'running'; Generation = 1 } }
         }
         Mock -ModuleName Test.HostRefresh Enter-YurunaServiceOperationLockSet { $script:Log.Add('service-locks'); [pscustomobject]@{ Held = $script:Scenario.ServiceLocksHeld; Keys = [string[]]$Key; Token = 'k' } }
         Mock -ModuleName Test.HostRefresh Exit-YurunaServiceOperationLockSet { $script:Log.Add('service-unlock') }
@@ -734,7 +734,7 @@ Describe 'the macOS restart rung through the declaration seam' {
         $timeout = @{ State = 'Unresponsive'; Reason = 'timeout'; Corroborated = $true }
         New-TestScenario -HostType host.macos.utm -Probe @($timeout, $timeout, @{ State = 'Responsive'; Reason = 'responsive' }) -Outer Missing -CleanExit $true `
             -Service @((New-TestServiceRow -Key stash -VMName yuruna-stash), (New-TestServiceRow -Key caching-proxy -VMName yuruna-caching-proxy))
-        $script:Scenario.Intent['stash'] = [pscustomobject]@{ DesiredState = 'stopped'; Generation = 7 }
+        $script:Scenario.Intent['stash'] = [pscustomobject]@{ RequestedState = 'stopped'; Generation = 7 }
         $result = Invoke-TestWorker -Context (New-TestContext -HostType host.macos.utm)
         Assert-Equal 'disposed' (@($result.obligations | Where-Object { $_.id -eq 'service:stash' })[0].status)
         Assert-Equal 'yuruna-caching-proxy' ($script:Captured.ResumeNames -join ',')
@@ -745,7 +745,7 @@ Describe 'the macOS restart rung through the declaration seam' {
         $timeout = @{ State = 'Unresponsive'; Reason = 'timeout'; Corroborated = $true }
         New-TestScenario -HostType host.macos.utm -Probe @($timeout, $timeout, @{ State = 'Responsive'; Reason = 'responsive' }) -Outer Missing -CleanExit $false `
             -Service @(New-TestServiceRow -Key stash -VMName yuruna-stash)
-        $script:Scenario.Intent['stash'] = [pscustomobject]@{ DesiredState = 'stopped'; Generation = 7 }
+        $script:Scenario.Intent['stash'] = [pscustomobject]@{ RequestedState = 'stopped'; Generation = 7 }
         $result = Invoke-TestWorker -Context (New-TestContext -HostType host.macos.utm)
         Assert-Equal 'disposed' (@($result.obligations | Where-Object { $_.id -eq 'service:stash' })[0].status)
         Assert-True ($script:Log.Contains('resume-runner')) 'the runner obligation still arms after the disposition'

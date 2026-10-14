@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4271255a-d0dd-4c45-8932-15f35ae51cf4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -151,7 +151,7 @@ Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1'
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# --- REGION: Validate
+# --- REGION: Validate the arguments
 if ($AccountName -notmatch '^[A-Za-z_][A-Za-z0-9._-]*$') {
     throw "AccountName '$AccountName' is invalid. Must start with a letter or underscore and contain only ASCII letters, digits, '.', '_', or '-'."
 }

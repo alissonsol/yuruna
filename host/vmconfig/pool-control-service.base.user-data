@@ -8,6 +8,7 @@
 # --- REGION: hostname
 hostname: yuruna-pool-control-service
 # --- REGION: users
+# See https://yuruna.link/429f3d06-0034
 users:
   - name: pool-control-service-admin
     gecos: pool-control service user
@@ -34,12 +35,13 @@ packages:
   # cifs-utils: the bring-up script's pool-NAS SMB3 mount (that script installs golang-go + pwsh itself).
   - cifs-utils
   # Network tools support console and SSH diagnostics.
+  # --- REGION: https://yuruna.link/429f3d06-003a
   - net-tools
   - iputils-ping
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 # --- REGION: write_files
 write_files:
-  # See https://yuruna.link/4220a755-004c
+  # --- REGION: https://yuruna.link/4220a755-004c
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
     owner: root:root
@@ -55,7 +57,7 @@ write_files:
     owner: root:root
     content: |
       YURUNA_AGGREGATOR_URL=YURUNA_AGGREGATOR_URL_PLACEHOLDER
-      YURUNA_POOL_INTENT_GIT_URL=YURUNA_POOL_INTENT_GIT_URL_PLACEHOLDER
+      YURUNA_POOL_CONFIGURATION_GIT_URL=YURUNA_POOL_CONFIGURATION_GIT_URL_PLACEHOLDER
       YURUNA_POOL_NETWORK_PATH=POOL_NAS_NETWORK_PATH_PLACEHOLDER
       YURUNA_POOL_NETWORK_IP=POOL_NAS_NETWORK_IP_PLACEHOLDER
       YURUNA_POOL_NETWORK_USER=POOL_NAS_NETWORK_USER_PLACEHOLDER
@@ -67,7 +69,7 @@ write_files:
     content: |
       username=POOL_NAS_NETWORK_USER_PLACEHOLDER
       password=POOL_NAS_PASSWORD_PLACEHOLDER
-  # See https://yuruna.link/42fffc2c-000d
+  # --- REGION: https://yuruna.link/42fffc2c-000d
   - path: /etc/yuruna/globalization.env
     owner: root:root
     permissions: '0644'
@@ -75,7 +77,7 @@ write_files:
       YURUNA_LANGUAGE=YURUNA_LANGUAGE_PLACEHOLDER
       YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER
 
-  # See https://yuruna.link/429f3d06-0029
+  # --- REGION: https://yuruna.link/429f3d06-0029
   # Empty IP/PORT falls back to the public github mirror for the framework fetch.
   - path: /etc/yuruna/host.env
     permissions: '0644'
@@ -93,7 +95,7 @@ write_files:
       Pool-control service VM. /etc/yuruna/globalization.env + pool.env + host.env +
       pool-nas.cifs.cred are written by New-VM.ps1 into the seed. The bring-up script
       reads them.
-  # See https://yuruna.link/429f3d06-002a
+  # --- REGION: https://yuruna.link/429f3d06-002a
   # This VM is provisioned once and runs for weeks, so it accumulates host
   # renumbers a per-cycle test guest never sees.
   - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
@@ -140,6 +142,7 @@ runcmd:
   # sshd is already up by the time write_files lands, so the drop-in above needs
   # a reload to take effect on this boot rather than only on the next one.
   - systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  # --- REGION: https://yuruna.link/429f3d06-002a
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
   # See https://yuruna.link/42fffc2c-0013
   # --- REGION: Fetch the framework

@@ -1118,15 +1118,15 @@ on the guest. See feedback_bootstrap_installer_no_bom.md.
 
 <a id="42010605-0045"></a>
 
-### Section 9d: Pool (intent sync)
+### Section 9d: Pool (configuration sync)
 
 `yuruna/test/Test-Config.ps1`
 
-Validate the optional pool-intent PULL when configured: enabled implies a
-non-empty intentGitUrl, and the LAN intent store answers a bounded git
+Validate the optional pool-configuration PULL when configured: enabled implies a
+non-empty configurationGitUrl, and the LAN configuration store answers a bounded git
 ls-remote. Reachability is a WARN (the runner degrades to single-host when the
 store is down), so a momentarily-offline proxy never blocks a healthy cycle.
-The intent-store CONTENT (pools.yml shape) is validated by Test-PoolIntent.ps1;
+The configuration-store CONTENT (pools.yml shape) is validated by Test-PoolConfiguration.ps1;
 this gate only checks the LOCAL config block + reachability.
 
 <a id="42010605-0046"></a>
@@ -1735,7 +1735,7 @@ this machine a storage SERVER comes down; nothing that it stored does.
 
 That split is deliberate and is the whole design of this script. The folders
 under the storage root hold finished cycle archives, stash artifacts, the lab
-vault, and the pool-intent repository -- content whose only copy may be here,
+vault, and the pool-configuration repository -- content whose only copy may be here,
 and which no automated rule can judge. So the bytes are reported, never
 deleted: sizes per folder, what each one holds, and the exact command for
 the operator to run once they have decided. Everything else -- the share
@@ -1919,11 +1919,11 @@ to perform.
 
 <a id="42010605-0072"></a>
 
-### Pool-intent repository
+### Pool-configuration repository
 
 `yuruna/test/lab/New-Lab.ps1`
 
-'pool-intent.git' is the name every consumer already resolves to and cannot
+'pool-configuration.git' is the name every consumer already resolves to and cannot
 discover: the apache Alias the caching proxy publishes, the guest mount path
 the pool-control service commits to, and the writable path setup.ps1 hands
 New-Pool. A lab-name-derived name would be reachable by none of them, so the
@@ -1933,7 +1933,7 @@ already lab-scoped.
 
 <a id="42010605-0073"></a>
 
-### Create a lab: its storage folders, its credential vault, and its pool-intent repository
+### Create a lab: its storage folders, its credential vault, and its pool-configuration repository
 
 `yuruna/test/lab/New-Lab.ps1`
 
@@ -1944,12 +1944,12 @@ passwords in a vault -- leaves nothing to check the result. This creates all
 three consistently and is safe to re-run.
 
 What it creates under -Root:
-  <Root>/yuruna.pool          cycle-output replication + the intent repository
+  <Root>/yuruna.pool          cycle-output replication + the configuration repository
   <Root>/yuruna.stash         the stash service's own durable store
-  <Root>/yuruna.pool/pool-intent.git
-                              bare pool-intent repository, seeded schema-valid.
+  <Root>/yuruna.pool/pool-configuration.git
+                              bare pool-configuration repository, seeded schema-valid.
                               caching-proxy-service VM serves this over HTTP and that URL
-                              becomes the lab's intentGitUrl.
+                              becomes the lab's configurationGitUrl.
 
 The vault it writes is plain YAML protected by filesystem permissions. That is
 deliberate and is the reason this script exists rather than reusing
@@ -2103,7 +2103,7 @@ offered as the default: /srv/yuruna on Ubuntu, /Users/Shared/yuruna on macOS,
 <drive>\Shares\yuruna on Windows -- the first fixed drive that is not the
 system drive). The eight numbered steps then run in this order:
 
-  1. Folders, lab vault, and pool-intent repository, by calling New-Lab.ps1.
+  1. Folders, lab vault, and pool-configuration repository, by calling New-Lab.ps1.
      The two share passwords are the ones it generates; a lab that already
      exists keeps the passwords it has, so a re-run does not rotate the
      credentials the lab's other machines are using.
@@ -2204,12 +2204,12 @@ anything the operator actually chose still wins.
 
 <a id="42010605-007e"></a>
 
-### Seed the pool intent store binding
+### Seed the pool configuration store binding
 
 `yuruna/test/lab/Set-LabToken.ps1`
 
 A host that has just enrolled its lab token is a host the operator intends to
-manage from the lab. The intent store it should pull from is served by the very
+manage from the lab. The configuration store it should pull from is served by the very
 proxy they just named, so bind it now: enrollment is the one moment an operator
 is present, authenticated, and has already supplied the address.
 
@@ -2217,8 +2217,8 @@ Runs for EVERY resolved address, not only an operator-supplied one -- a host
 whose cachingProxyIp was already in config still needs the pool binding, and
 that is the common case on a re-enrollment.
 
-An existing non-empty intentGitUrl is retained unless it matches the auto-seeded
-http://<host>/pool-intent.git shape and differs from the resolved proxy URL. That
+An existing non-empty configurationGitUrl is retained unless it matches the auto-seeded
+http://<host>/pool-configuration.git shape and differs from the resolved proxy URL. That
 shape is refreshed to the current proxy address; other operator-selected URLs
 remain unchanged. Best-effort throughout -- the token is already stored, and
 failing to seed an optional binding must not fail the enrollment.
@@ -2319,7 +2319,7 @@ per-host script's own preferences, not its -Verbose-gated output.
 
 <a id="42010605-0083"></a>
 
-### Elevation gate
+### Elevation check
 
 `yuruna/test/lab/Sync-HostConfiguration.ps1`
 
@@ -2371,6 +2371,13 @@ nothing.
 <a id="42010605-0004"></a>
 
 ## Pool transitions
+
+The shared `ConvertTo-PoolConfigurationSchemaV4` reader normalizes schema versions
+2 and 3 in memory. It moves version 2 repository declarations into `repositories`
+and renames `desiredState` to `configuredState` without changing its value.
+Matching duplicate state values collapse only in legacy documents; conflicting
+values are rejected before mutation. Version 4 rejects the retired field.
+Reading alone never writes the stored document.
 
 <a id="42010605-0087"></a>
 
@@ -2587,7 +2594,7 @@ alias, the share path, the account and the mount point are all correct.
 DATA is never deleted. Step 5 withdraws the share definitions and the
 accounts scoped to them -- machine configuration that is wrong the moment
 this host stops serving -- and leaves every byte under the storage root
-alone: cycle archives, stash artifacts, the lab vault and the pool-intent
+alone: cycle archives, stash artifacts, the lab vault and the pool-configuration
 repository all live there, and no automated rule can judge which of them is
 the only copy. The closing output prints what remains and the one command
 that reclaims it. Pass -KeepLocalShares on a machine other hosts still mount
@@ -2602,10 +2609,10 @@ changes nothing.
 
 ### autoEnrollment is projected alongside pools because this CLI is the ONLY read path the pool-control
 
-`yuruna/test/pool/Get-PoolIntent.ps1`
+`yuruna/test/pool/Get-PoolConfiguration.ps1`
 
 autoEnrollment is projected alongside pools because this CLI is
-the ONLY read path the pool-control service has into intent. Without it
+the ONLY read path the pool-control service has into configuration. Without it
 the sweep cannot see `excluded[]` -- the list that stops it re-adding a
 host an operator deliberately removed -- and the operator and a 60-second
 timer would fight forever. Emitted as an empty object when absent so a
@@ -2641,7 +2648,7 @@ footprint so it stops showing up in the "Yuruna hosts" / Extension-hosts set:
        * <poolStorageLocalPath>/hosts/<hostId>/          -- the host's current
          cycle archives, plus the legacy <poolStorageLocalPath>/<hostId>/
          root when present (reclaims NAS disk).
-  2. MEMBERSHIP. Strips the hostId from EVERY pool's members[] in the intent
+  2. MEMBERSHIP. Strips the hostId from EVERY pool's members[] in the configuration
      store (pools.yml), then commits + pushes.
 
 Ephemeral hosts (a disposable nested-host cycle, a reimaged box) mint a fresh
@@ -2666,7 +2673,7 @@ next cycle -- the single largest blast radius in the whole pool layer.
 Bound to autoEnrollment.targetPoolId rather than the literal 'default', so
 renaming the target carries the protection with it. This lives in code
 because it is a cross-field constraint that JSON Schema cannot express;
-Test-PoolIntent.ps1 re-checks it as the authoritative validator. The id
+Test-PoolConfiguration.ps1 re-checks it as the authoritative validator. The id
 compared is the one stored on the pool found above, not -PoolId as typed:
 the lookup ignores case, so a differently cased id must not slip past.
 
@@ -2681,14 +2688,14 @@ Pool admin CLI. With -FrameworkUrl and -ProjectUrl it sets the pool's
 removes them. A pooled runner overrides its own repositories.frameworkUrl /
 repositories.projectUrl with the pool's pair for the cycle and runs that
 project's own test.runner.yml. A pool without repositories leaves each host
-on its own configured repositories. GH_TOKEN is never part of pool intent --
+on its own configured repositories. GH_TOKEN is never part of pool configuration --
 it stays host-local.
 
 Both URLs are trimmed and must be non-empty, free of whitespace and control
 characters, and must not start with '-'. The auto-enrollment target pool
 (autoEnrollment.targetPoolId) can never carry repositories, so setting them
 there is refused; clearing them there is allowed, because that is how an
-intent store that breaks the rule gets repaired.
+configuration store that breaks the rule gets repaired.
 
 <a id="42010605-0097"></a>
 
@@ -2741,70 +2748,76 @@ replaces a working dashboard.
 
 ### The auto-enrollment target pool must carry NO repositories. This is the AUTHORITATIVE check: the CLI
 
-`yuruna/test/pool/Test-PoolIntent.ps1`
+`yuruna/test/pool/Test-PoolConfiguration.ps1`
 
 The auto-enrollment target pool must carry NO repositories. This is
 the AUTHORITATIVE check: the CLI refuses and the UI disables, but only
 this one catches a hand-edited file or a store written by an older
 release. It is a cross-field constraint (a pool named by ANOTHER
 field), which JSON Schema cannot express. It is defined against the
-v3 shape, so it runs only on a store at schemaVersion 3.
+v4 shape, so it runs only on a store at schemaVersion 4.
 
 A violation FAILS rather than being silently stripped: stripping it
 would change what a lab is running without anyone deciding to.
 
 <a id="42010605-0099"></a>
 
-### Validate every file in the pool intent store against its schema
+### Validate every file in the pool configuration store against its schema
 
-`yuruna/test/pool/Test-PoolIntent.ps1`
+`yuruna/test/pool/Test-PoolConfiguration.ps1`
 
-Pool admin CLI / CI gate. Clones/pulls the intent store and validates
-pools.yml (schema v3) and guests.compatibility.yml (when present) against
+Pool admin CLI / CI gate. Clones/pulls the configuration store and validates
+pools.yml (schema v4) and guests.compatibility.yml (when present) against
 test/schemas/*, enforces the cross-pool invariant that a host belongs to at
 most one pool, and checks that the auto-enrollment target pool carries no
-repositories. pools.yml is judged as stored: a store below schemaVersion 3
-gets one schema-version finding that names test/pool/Update-PoolIntentSchema.ps1.
+repositories. pools.yml is judged as stored: a store below schemaVersion 4
+gets one schema-version finding that names test/pool/Update-PoolConfigurationSchema.ps1.
 Exit 0 when all valid, 1 on any error. Never writes. Run before relying on
-freshly-authored intent (the runners pull whatever is committed, so a
+freshly authored configuration (the runners pull whatever is committed, so a
 malformed file would silently misconfigure the whole pool).
 
 <a id="42010605-009a"></a>
 
-### Migrate the pool intent store to pools
+### Migrate the pool configuration store to pools
 
-`yuruna/test/pool/Update-PoolIntentSchema.ps1`
+`yuruna/test/pool/Update-PoolConfigurationSchema.ps1`
 
-Pool admin CLI. Clones/pulls the WRITABLE intent repo and reads pools.yml as
-stored. Below schemaVersion 3 it upgrades the document with
-ConvertTo-PoolIntentSchemaV3: each pool's testSet framework and project URLs
+Migration preserves `run`, `paused`, and `drain` while renaming `desiredState`
+to `configuredState`. Conflicting duplicate values are rejected; version 4
+accepts only the new field. Upgrade every runner as well as every writer before
+migrating the shared store.
+
+
+Pool admin CLI. Clones/pulls the WRITABLE configuration repository and reads pools.yml as
+stored. Below schemaVersion 4 it upgrades the document with
+ConvertTo-PoolConfigurationSchemaV4: each pool's testSet framework and project URLs
 become its `repositories`, and the testSet name and sequences are dropped. It
 also deletes a leftover test-sets.yml, which nothing reads. It then validates
 pools.yml against test/schemas/pools.schema.yml, commits and pushes. The
-commit subject names what changed: "Migrate pool intent to schemaVersion 3"
+commit subject names what changed: "Migrate pool configuration to schemaVersion 4"
 when the stored version moves, or "pool: remove test-sets.yml" when the store
-is already at schemaVersion 3 and only that leftover file goes.
+is already at schemaVersion 4 and only that leftover file goes.
 
-Idempotent: a store already at schemaVersion 3 with no test-sets.yml is
+Idempotent: a store already at schemaVersion 4 with no test-sets.yml is
 reported as already current and left untouched. A store at a NEWER version
 is refused -- update this checkout first. The migration keeps every value
 it finds, including repositories on the auto-enrollment target pool; run
-Test-PoolIntent.ps1 afterwards, which reports that as a violation to clear
+Test-PoolConfiguration.ps1 afterwards, which reports that as a violation to clear
 with Set-PoolRepository.ps1 -Clear.
 
 Every other admin CLI performs the same upgrade in memory and persists it on
 its next write; this script makes the migration an explicit, reviewable
 commit of its own. Run it after every checkout that writes the store (the
-pool-control-service VM included) runs the schemaVersion 3 code: a checkout
-that still validates against schemaVersion 2 refuses to write a v3 store.
+pool-control-service VM included) runs the schemaVersion 4 code: a checkout
+that still validates against schemaVersion 2 refuses to write a v4 store.
 
 <a id="42010605-009b"></a>
 
-###  Example pool intent (schema v3). Validates against test/schemas/pools.schema.yml. This is the file
+###  Example pool configuration (schema v4). Validates against test/schemas/pools.schema.yml. This is the file
 
 `yuruna/test/pool/examples/pools.yml`
 
-Example pool intent (schema v3). Validates against test/schemas/pools.schema.yml.
+Example pool configuration (schema v4). Validates against test/schemas/pools.schema.yml.
 This is the file the pool admin CLI authors and each runner pulls from the
 bare git repo on the caching-proxy-service. `members[]` is the single source of truth
 for membership (a host belongs to at most one pool): replace the example
@@ -2812,7 +2825,7 @@ hostIds with your hosts' real runtime/host.uuid values (42-prefixed 32-hex).
 `poolGuid` is the stable pool GUID. `repositories` holds the
 framework and project repository URLs every pooled host runs; omit it and each
 host runs its own configured repositories (GH_TOKEN stays host-local, never
-here). `desiredState` controls run/pause/drain; `config` overrides cycle knobs
+here). `configuredState` controls run/pause/drain; `config` overrides cycle knobs
 and `gating` sets the advisory pool-alert thresholds.
 
 <a id="42010605-0005"></a>

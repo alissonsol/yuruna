@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
+	"pool-control-service/internal/configuration"
 	"pool-control-service/internal/discovery"
 	"pool-control-service/internal/hostctl"
-	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
 	"yuruna.com/test/extension/extension-sdk/hostrefresh"
 	"yuruna.com/test/extension/extension-sdk/pool"
@@ -145,7 +145,7 @@ func rfServer(t *testing.T, target *rfTarget, o rfOpts) (*Server, *httptest.Serv
 		hosts = map[string]string{}
 	}
 	agg := rfAggregator(t, hosts, o.refresh)
-	s := New(ctlIntent(rfHost), Options{AggregatorURL: agg.URL, AuthToken: testBearer, Store: o.store,
+	s := New(ctlConfiguration(rfHost), Options{AggregatorURL: agg.URL, AuthToken: testBearer, Store: o.store,
 		RefreshAuthority: o.authority, RefreshCredential: o.credential, RefreshAuthorityFile: "/etc/yuruna/host-refresh/authority.key"})
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
@@ -358,7 +358,7 @@ func TestRefreshNeedsAnAdvertisedCapability(t *testing.T) {
 		}
 	}
 	// An aggregator that cannot be read refuses the same way.
-	dead := New(ctlIntent(rfHost), Options{AggregatorURL: "http://127.0.0.1:1", AuthToken: testBearer,
+	dead := New(ctlConfiguration(rfHost), Options{AggregatorURL: "http://127.0.0.1:1", AuthToken: testBearer,
 		RefreshAuthority: rfAuthority, RefreshCredential: rfCredential})
 	srv := httptest.NewServer(dead.Handler())
 	defer srv.Close()
@@ -518,7 +518,7 @@ func TestPoolWideControlStillRefusesRefreshWhenConfigured(t *testing.T) {
 	target := newRFTarget(t)
 	h := newCtlHost(t, "")
 	agg := rfAggregator(t, map[string]string{rfHost: h.srv.URL}, rfUsable)
-	s := New(ctlIntent(rfHost), Options{AggregatorURL: agg.URL, AuthToken: testBearer, RefreshAuthority: rfAuthority, RefreshCredential: rfCredential})
+	s := New(ctlConfiguration(rfHost), Options{AggregatorURL: agg.URL, AuthToken: testBearer, RefreshAuthority: rfAuthority, RefreshCredential: rfCredential})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	resp, m, _ := rfPost(t, srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"refresh"}`, bothCredentials())
@@ -624,7 +624,7 @@ func TestReadRoutesCarryRefreshButNoSecret(t *testing.T) {
 	target := newRFTarget(t)
 	s, srv := rfServer(t, target, configured(rfUsable))
 	s.discovered.Add(discovery.Host{Address: "192.0.2.77", BaseURL: "http://192.0.2.77:8080", HostID: "42dddddddddddddddddddddddddddddd"}, time.Now())
-	s.intent = &fakeIntent{stateRes: intent.Result{OK: true, Stdout: `{"ok":true,"pools":[{"poolId":"lab","members":["` + rfHost + `","42eeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]}]}`}}
+	s.configuration = &fakeConfiguration{stateRes: configuration.Result{OK: true, Stdout: `{"ok":true,"pools":[{"poolId":"lab","members":["` + rfHost + `","42eeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]}]}`}}
 	resp, err := http.Get(srv.URL + "/api/hosts")
 	if err != nil {
 		t.Fatal(err)
@@ -733,7 +733,7 @@ func TestRefreshFailureDetailIsABoundedToken(t *testing.T) {
 	// which need the key this case withholds.
 	target := newRFTarget(t)
 	agg := rfAggregator(t, map[string]string{rfHost: target.srv.URL}, rfUsable)
-	s := New(ctlIntent(rfHost), Options{AggregatorURL: agg.URL, AuthTokenFile: "/etc/yuruna/token-file-marker",
+	s := New(ctlConfiguration(rfHost), Options{AggregatorURL: agg.URL, AuthTokenFile: "/etc/yuruna/token-file-marker",
 		RefreshAuthority: rfAuthority, RefreshCredential: rfCredential})
 	rec := httptest.NewRecorder()
 	s.handleHostRefresh(rec, httptest.NewRequest(http.MethodPost, "/api/host/refresh", strings.NewReader(rfBody(""))))
@@ -791,7 +791,7 @@ func TestRefreshFailureTokens(t *testing.T) {
 
 	// Without the internal key and without an aggregator to ask, the error
 	// keeps its operator text for the pool-wide route and names its token.
-	s := New(ctlIntent(rfHost), Options{AuthTokenFile: "/etc/yuruna/token-file-marker"})
+	s := New(ctlConfiguration(rfHost), Options{AuthTokenFile: "/etc/yuruna/token-file-marker"})
 	_, err = s.controlProof(context.Background(), []string{rfHost}, map[string]string{})
 	if err == nil || !strings.Contains(err.Error(), "token-file-marker") {
 		t.Fatalf("controlProof error text: %v", err)

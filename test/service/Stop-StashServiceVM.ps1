@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4234ee0c-21ea-43ed-ad32-56a9835e71aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,10 +18,14 @@
 
 <#
 .SYNOPSIS
-    Stops the Yuruna stash service VM and removes every file it owns --
-    the registry/domain entry, the copied disk image, the cloud-init
-    seed, and (UTM) the .utm bundle -- so the next Start-StashServiceVM
-    builds from a clean slate with no leftover VM files.
+    Stop the Stash service and clear its marker.
+.DESCRIPTION
+    Symmetric with Start-StashServiceVM. Removes runtime/stash-service.json (so
+    Test.Capability drops the stash-service area) and refreshes the registration
+    record so the host clears from the dashboard's Extension hosts table. Then
+    tears down the stash-service VM and every file it owns -- the registry/domain
+    entry, the copied disk image, the cloud-init seed, and (UTM) the .utm bundle
+    -- so the next Start rebuilds from a clean slate with no leftover VM files.
 
     The durable stash data is untouched: received files, the per-artifact
     sidecar records, and the persisted SSH host key live on the NAS stash
@@ -33,15 +37,17 @@
     but deleting the disk then discards anything still buffered locally --
     the same caveat as any reimage. Committed (on-share) artifacts and their
     sidecars are durable. See https://yuruna.link/42f5e921.
-
 .PARAMETER VMName
     Name of the stash-service VM. Default: yuruna-stash-service.
+.EXAMPLE
+    pwsh test/service/Stop-StashServiceVM.ps1
+    # Clears the marker, refreshes registration, then removes the VM.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = "yuruna-stash-service"
+    [string]$VMName = 'yuruna-stash-service'
 )
 
 if (-not $PSCmdlet.ShouldProcess($VMName, 'Stop and remove the service VM and withdraw its advertisement')) { return }

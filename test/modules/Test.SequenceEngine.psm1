@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,7 @@
 #requires -version 7
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.RunnerHeartbeat.psm1') -DisableNameChecking
 $InformationPreference = 'Continue'
 $ProgressPreference = 'Continue'
 
@@ -2404,6 +2405,7 @@ function Invoke-Sequence {
             $pauseAttempt = 1
             while (Test-Path $stepPauseFlagFile) {
                 Start-Sleep -Milliseconds (Get-PollDelay -Attempt $pauseAttempt)
+                Write-RunnerStepHeartbeat -RuntimeDir $runtimeDir
                 $pauseAttempt++
             }
             $heldSeconds = [int]([DateTime]::UtcNow - $heldFromUtc).TotalSeconds
@@ -2509,7 +2511,7 @@ function Invoke-Sequence {
             foreach ($cause in @('WaitForTextMatchedFailurePattern', 'WaitForTextOcrTail',
                 'WaitForTextClosestOnScreen', 'WaitForTextConsoleFlood', 'StepGuestAddressUnresolved',
                 'StepGuestTransportLost', 'StepGuestRunLost', 'StepGuestPayloadUnavailable', 'StepInputLost',
-                'WaitForTextGuestLivelock', 'WaitForTextOutputStaticSeconds', 'StepProgressAdvisory')) {
+                'StepVmNotStopped', 'WaitForTextGuestLivelock', 'WaitForTextOutputStaticSeconds', 'StepProgressAdvisory')) {
                 $script:Fail[$cause] = $null
             }
             $script:Fail.WaitForTextPatternsSought = [string[]]@()
@@ -2536,12 +2538,7 @@ function Invoke-Sequence {
             $actionArguments = @{ index = $stepNum; total = $stepTotal; action = [string]$step.action; description = $desc }
             & $writeCurrentAction (Format-YurunaOperatorMessage -Key 'runner.sequence_step' -Arguments $actionArguments) 'sequence_step_active' $desc $actionArguments
             # See https://yuruna.link/4213a0b3-0140
-            try {
-                $stepHbFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
-                [System.IO.File]::WriteAllText($stepHbFile, [DateTime]::UtcNow.ToString('o'))
-            } catch {
-                Write-Verbose "runner.stepHeartbeat refresh failed: $($_.Exception.Message)"
-            }
+            Write-RunnerStepHeartbeat -RuntimeDir $runtimeDir
 
             # `retry` is dispatched through the registry like every other
             # verb; its Handler lives in Test.SequenceHandler.psm1 next
@@ -2805,6 +2802,10 @@ function Invoke-Sequence {
     # failure on step 1 surfaces as "no step succeeded" rather than
     # carrying a leftover value from a prior sequence's run.
     $script:Fail.LastSucceededStepNumber       = 0
+    # The first-silence marker spans the whole sequence: it is the earliest
+    # symptom, so a step must not clear it, and the next sequence starts clean.
+    $script:Fail.FirstGuestSilenceUtc          = $null
+    $script:Fail.FirstGuestSilenceSource       = $null
     # Cause slots reset per sequence so a prior sequence's OCR tail / sought
     # patterns can't leak into a non-wait step's failure record that fails before
     # any wait runs (the wait functions also reset them at entry).
@@ -2937,7 +2938,7 @@ function Invoke-Sequence {
 # --- REGION: Sequence action metadata registrations
 # See https://yuruna.link/4213a0b3-014d
 
-Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
+Export-ModuleMember -Function Invoke-Sequence, Get-GuestLivelockVerdict, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Save-EngineOcrSidecar, Save-OcrSidecar, Write-ProgressTick, `
     Select-SequenceStepWindow, Get-ScreenHistorySize, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
     Get-ConsoleFloodVerdict, Invoke-GuestSequenceList, Get-ConsoleTextSignature, `

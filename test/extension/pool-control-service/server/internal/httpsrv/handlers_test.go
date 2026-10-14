@@ -14,51 +14,51 @@ import (
 	"testing"
 	"time"
 
-	"pool-control-service/internal/intent"
+	"pool-control-service/internal/configuration"
 	"pool-control-service/internal/state"
 )
 
-// fakeIntent records the last call and returns a canned Result.
-type fakeIntent struct {
-	stateRes intent.Result
-	ret      intent.Result
+// fakeConfiguration records the last call and returns a canned Result.
+type fakeConfiguration struct {
+	stateRes configuration.Result
+	ret      configuration.Result
 	lastCall string
 	lastArgs []string
 }
 
-func (f *fakeIntent) State(ctx context.Context) intent.Result {
+func (f *fakeConfiguration) State(ctx context.Context) configuration.Result {
 	f.lastCall = "State"
 	return f.stateRes
 }
-func (f *fakeIntent) NewPool(ctx context.Context, a, b, c string) intent.Result {
+func (f *fakeConfiguration) NewPool(ctx context.Context, a, b, c string) configuration.Result {
 	f.lastCall, f.lastArgs = "NewPool", []string{a, b, c}
 	return f.ret
 }
-func (f *fakeIntent) RemovePool(ctx context.Context, a string, force bool) intent.Result {
+func (f *fakeConfiguration) RemovePool(ctx context.Context, a string, force bool) configuration.Result {
 	f.lastCall, f.lastArgs = "RemovePool", []string{a}
 	return f.ret
 }
-func (f *fakeIntent) SetDesiredState(ctx context.Context, a, b string) intent.Result {
-	f.lastCall, f.lastArgs = "SetDesiredState", []string{a, b}
+func (f *fakeConfiguration) SetConfiguredState(ctx context.Context, a, b string) configuration.Result {
+	f.lastCall, f.lastArgs = "SetConfiguredState", []string{a, b}
 	return f.ret
 }
-func (f *fakeIntent) AddHost(ctx context.Context, a, b string, moveExisting ...bool) intent.Result {
+func (f *fakeConfiguration) AddHost(ctx context.Context, a, b string, moveExisting ...bool) configuration.Result {
 	f.lastCall, f.lastArgs = "AddHost", []string{a, b}
 	return f.ret
 }
-func (f *fakeIntent) RemoveHost(ctx context.Context, a, b string, exclude ...bool) intent.Result {
+func (f *fakeConfiguration) RemoveHost(ctx context.Context, a, b string, exclude ...bool) configuration.Result {
 	f.lastCall, f.lastArgs = "RemoveHost", []string{a, b}
 	return f.ret
 }
-func (f *fakeIntent) MoveHostIdentity(ctx context.Context, a, b string) intent.Result {
+func (f *fakeConfiguration) MoveHostIdentity(ctx context.Context, a, b string) configuration.Result {
 	f.lastCall, f.lastArgs = "MoveHostIdentity", []string{a, b}
 	return f.ret
 }
-func (f *fakeIntent) SetPoolRepositories(ctx context.Context, a, b, c string) intent.Result {
+func (f *fakeConfiguration) SetPoolRepositories(ctx context.Context, a, b, c string) configuration.Result {
 	f.lastCall, f.lastArgs = "SetPoolRepositories", []string{a, b, c}
 	return f.ret
 }
-func (f *fakeIntent) ClearPoolRepositories(ctx context.Context, a string) intent.Result {
+func (f *fakeConfiguration) ClearPoolRepositories(ctx context.Context, a string) configuration.Result {
 	f.lastCall, f.lastArgs = "ClearPoolRepositories", []string{a}
 	return f.ret
 }
@@ -69,7 +69,7 @@ func (f *fakeIntent) ClearPoolRepositories(ctx context.Context, a string) intent
 // its own coverage in board_test.go and in the SDK.
 const testBearer = "test-internal-auth-key"
 
-func newTestServer(f *fakeIntent) *httptest.Server {
+func newTestServer(f *fakeConfiguration) *httptest.Server {
 	return httptest.NewServer(New(f, Options{Version: "test", AuthToken: testBearer}).Handler())
 }
 
@@ -93,7 +93,7 @@ func do(t *testing.T, method, url, body string) (*http.Response, map[string]any)
 }
 
 func TestStateRelaysCLIJson(t *testing.T) {
-	f := &fakeIntent{stateRes: intent.Result{OK: true, Stdout: `{"ok":true,"pools":[{"poolId":"lab"}],"autoEnrollment":{"enabled":false,"targetPoolId":"","excluded":[]}}`}}
+	f := &fakeConfiguration{stateRes: configuration.Result{OK: true, Stdout: `{"ok":true,"pools":[{"poolId":"lab"}],"autoEnrollment":{"enabled":false,"targetPoolId":"","excluded":[]}}`}}
 	srv := newTestServer(f)
 	defer srv.Close()
 	resp, m := do(t, "GET", srv.URL+"/api/state", "")
@@ -107,10 +107,10 @@ func TestStateRelaysCLIJson(t *testing.T) {
 }
 
 func TestNewPoolSuccessAndArgs(t *testing.T) {
-	f := &fakeIntent{ret: intent.Result{OK: true, Stdout: "Pool 'lab' created."}}
+	f := &fakeConfiguration{ret: configuration.Result{OK: true, Stdout: "Pool 'lab' created."}}
 	srv := newTestServer(f)
 	defer srv.Close()
-	resp, m := do(t, "POST", srv.URL+"/api/pool", `{"poolId":"lab","displayName":"Lab","desiredState":"run"}`)
+	resp, m := do(t, "POST", srv.URL+"/api/pool", `{"poolId":"lab","displayName":"Lab","configuredState":"run"}`)
 	if resp.StatusCode != 200 || m["ok"] != true {
 		t.Fatalf("new pool: got %d %v", resp.StatusCode, m)
 	}
@@ -120,7 +120,7 @@ func TestNewPoolSuccessAndArgs(t *testing.T) {
 }
 
 func TestNewPoolValidation(t *testing.T) {
-	f := &fakeIntent{}
+	f := &fakeConfiguration{}
 	srv := newTestServer(f)
 	defer srv.Close()
 	resp, m := do(t, "POST", srv.URL+"/api/pool", `{}`)
@@ -132,11 +132,29 @@ func TestNewPoolValidation(t *testing.T) {
 	}
 }
 
+func TestConfiguredStateForwardsAndAudits(t *testing.T) {
+	f := &fakeConfiguration{ret: configuration.Result{OK: true}}
+	store := state.New(filepath.Join(t.TempDir(), "pc"), time.Now())
+	srv := httptest.NewServer(New(f, Options{Store: store, AuthToken: testBearer}).Handler())
+	defer srv.Close()
+
+	resp, m := do(t, "POST", srv.URL+"/api/pool/configured-state", `{"poolId":"lab","configuredState":"drain"}`)
+	if resp.StatusCode != http.StatusOK || m["ok"] != true {
+		t.Fatalf("configured state: got %d %v", resp.StatusCode, m)
+	}
+	if f.lastCall != "SetConfiguredState" || strings.Join(f.lastArgs, " ") != "lab drain" {
+		t.Fatalf("configured state forwarded wrong args: %s %v", f.lastCall, f.lastArgs)
+	}
+	if _, health := do(t, "GET", srv.URL+"/healthz", ""); health["lastAction"] != "configured-state" {
+		t.Fatalf("configured state audit: %v", health)
+	}
+}
+
 // A CLI failure (e.g. a failed push) must surface to the client as a 500 with
 // the error text, never a silent success: the next run's reset --hard would
-// destroy intent that was committed locally but never pushed.
+// destroy configuration that was committed locally but never pushed.
 func TestFailedPushSurfaces(t *testing.T) {
-	f := &fakeIntent{ret: intent.Result{OK: false, Exit: 1, Error: "Committed locally but NOT pushed to the remote", Stderr: "git push failed"}}
+	f := &fakeConfiguration{ret: configuration.Result{OK: false, Exit: 1, Error: "Committed locally but NOT pushed to the remote", Stderr: "git push failed"}}
 	srv := newTestServer(f)
 	defer srv.Close()
 	resp, m := do(t, "POST", srv.URL+"/api/pool", `{"poolId":"lab"}`)
@@ -151,7 +169,7 @@ func TestFailedPushSurfaces(t *testing.T) {
 // The Pools page sends what an operator typed, so surrounding whitespace is
 // trimmed before the pair reaches the CLI.
 func TestSetPoolRepositoriesForwardsTrimmedPair(t *testing.T) {
-	f := &fakeIntent{ret: intent.Result{OK: true}}
+	f := &fakeConfiguration{ret: configuration.Result{OK: true}}
 	srv := newTestServer(f)
 	defer srv.Close()
 	resp, m := do(t, "POST", srv.URL+"/api/pool/repositories", `{"poolId":" lab ","frameworkUrl":" https://x/f ","projectUrl":"https://x/p\t"}`)
@@ -171,7 +189,7 @@ func TestSetPoolRepositoriesBothEmptyClears(t *testing.T) {
 		`{"poolId":"lab","frameworkUrl":"","projectUrl":"  "}`,
 		`{"poolId":"lab"}`,
 	} {
-		f := &fakeIntent{ret: intent.Result{OK: true}}
+		f := &fakeConfiguration{ret: configuration.Result{OK: true}}
 		srv := newTestServer(f)
 		resp, m := do(t, "POST", srv.URL+"/api/pool/repositories", body)
 		srv.Close()
@@ -191,7 +209,7 @@ func TestSetPoolRepositoriesRefusesOneURL(t *testing.T) {
 		`{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":""}`,
 		`{"poolId":"lab","projectUrl":"https://x/p"}`,
 	} {
-		f := &fakeIntent{ret: intent.Result{OK: true}}
+		f := &fakeConfiguration{ret: configuration.Result{OK: true}}
 		srv := newTestServer(f)
 		resp, m := do(t, "POST", srv.URL+"/api/pool/repositories", body)
 		srv.Close()
@@ -212,10 +230,10 @@ func TestSetPoolRepositoriesRefusesUnsafeURL(t *testing.T) {
 		`{"poolId":"lab","frameworkUrl":"https://x/f g","projectUrl":"https://x/p"}`,
 		`{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":"https://x/\bp"}`,
 		`{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":"https://x/p\nmore"}`,
-		`{"poolId":"lab","frameworkUrl":"-IntentGitUrl","projectUrl":"https://x/p"}`,
+		`{"poolId":"lab","frameworkUrl":"-ConfigurationGitUrl","projectUrl":"https://x/p"}`,
 		`{"poolId":"lab","frameworkUrl":"https://x/f","projectUrl":" -x"}`,
 	} {
-		f := &fakeIntent{ret: intent.Result{OK: true}}
+		f := &fakeConfiguration{ret: configuration.Result{OK: true}}
 		srv := newTestServer(f)
 		resp, m := do(t, "POST", srv.URL+"/api/pool/repositories", body)
 		srv.Close()
@@ -232,7 +250,7 @@ func TestSetPoolRepositoriesRefusesUnsafeURL(t *testing.T) {
 }
 
 func TestSetPoolRepositoriesRequiresPoolID(t *testing.T) {
-	f := &fakeIntent{ret: intent.Result{OK: true}}
+	f := &fakeConfiguration{ret: configuration.Result{OK: true}}
 	srv := newTestServer(f)
 	defer srv.Close()
 	resp, m := do(t, "POST", srv.URL+"/api/pool/repositories", `{"poolId":"  ","frameworkUrl":"https://x/f","projectUrl":"https://x/p"}`)
@@ -247,7 +265,7 @@ func TestSetPoolRepositoriesRequiresPoolID(t *testing.T) {
 // Every repository write is audited under its own action name, so the audit
 // log tells a set from a clear without reading the CLI output.
 func TestSetPoolRepositoriesAuditsSetAndClear(t *testing.T) {
-	f := &fakeIntent{ret: intent.Result{OK: true, Stdout: "ok"}}
+	f := &fakeConfiguration{ret: configuration.Result{OK: true, Stdout: "ok"}}
 	store := state.New(filepath.Join(t.TempDir(), "pc"), time.Now())
 	srv := httptest.NewServer(New(f, Options{Store: store, AuthToken: testBearer}).Handler())
 	defer srv.Close()
@@ -265,7 +283,7 @@ func TestSetPoolRepositoriesAuditsSetAndClear(t *testing.T) {
 }
 
 func TestMutationAuditsAndHealthz(t *testing.T) {
-	f := &fakeIntent{ret: intent.Result{OK: true, Stdout: "ok"}}
+	f := &fakeConfiguration{ret: configuration.Result{OK: true, Stdout: "ok"}}
 	store := state.New(filepath.Join(t.TempDir(), "pc"), time.Now())
 	srv := httptest.NewServer(New(f, Options{Store: store, AuthToken: testBearer}).Handler())
 	defer srv.Close()
@@ -287,7 +305,7 @@ func TestMutationAuditsAndHealthz(t *testing.T) {
 }
 
 func TestPagesServeAndCSP(t *testing.T) {
-	srv := newTestServer(&fakeIntent{})
+	srv := newTestServer(&fakeConfiguration{})
 	defer srv.Close()
 	for _, p := range []string{"/", "/pools", "/hosts"} {
 		resp, err := http.Get(srv.URL + p)

@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 42946cbc-c2ec-48e4-a4ba-8e25a71c1286
-sequenceRevision: 9
+sequenceRevision: 10
 
 description: "Ubuntu Server 24.04: first login, change password, run update script, reboot."
 keystrokeMechanism: gui
@@ -103,6 +103,11 @@ component:
   - action: passwdPrompt
     pattern: ["Current password", "urrent password:"]
     sinceStepStart: true
+    # A login that skips the forced change means the install never ran its
+    # late-commands: they expire the password and silence this motd banner.
+    failurePatterns:
+      - "Welcome to Ubuntu"
+      - "${username}@${hostLabel}:"
     text: "${currentPassword}"
     description: "OCR: Current password"
 

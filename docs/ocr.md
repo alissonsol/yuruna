@@ -112,11 +112,27 @@ worker.
 Two non-obvious transforms protect every macOS UTM screenshot before
 `VNRecognizeTextRequest` sees it:
 
-1. **Densest-text-row crop.** UTM/screencapture writes 2898x1698 PNGs
+1. **Densest-text-cluster crop.** UTM/screencapture writes 2898x1698 PNGs
    where the login text fills only the top ~150 rows. Vision's
    detector returns 0 observations on images where content fills <10%
    of the vertical extent. The script counts lit pixels per row, skips
    an all-white toolbar bar, and crops to the densest cluster.
+
+   The crop trims both axes to the cluster's text bounding box. A Linux
+   console captured over VNC at 1920 pixels wide keeps the whole prompt
+   in the leftmost ~700 pixels, so a rows-only crop still leaves a
+   1920 x ~80 strip that is mostly black on its right two thirds.
+   Vision's text detector silently returns 0 observations once the
+   text-to-image-area ratio falls below a threshold near the 1200-wide
+   mark (probed on macOS 26 / Vision 4.x with VNC captures of
+   `<host> login:` on a 1920 x 1080 framebuffer). A rows-only crop is
+   enough for the AVF and screencapture images, which fill the full
+   width with UI chrome; QEMU over VNC needs both axes trimmed.
+
+   `CGImage.cropping` takes the image-data origin (top-left), not the
+   bottom-left origin of the `CGContext` used elsewhere in CoreGraphics.
+   Mixing the two crops the bottom of the image where the top was meant,
+   and Vision then sees a black tile and returns 0 observations.
 
 2. **PNG round-trip to strip DisplayP3 + 144 DPI.** Vision's text
    detector silently returns 0 observations on wide-gamut, 144 DPI
@@ -249,6 +265,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

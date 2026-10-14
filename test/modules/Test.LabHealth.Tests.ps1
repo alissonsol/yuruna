@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 420cd1af-0555-401a-9098-1c8630bba45a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,16 +49,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.LabHealth.psm1') -Force -DisableNameChecking
 
-# The module reaches Send-CycleEventSafely and Write-CycleInfraFailure through
-# Get-Command, and a module's command lookup falls back to the GLOBAL session
-# state -- not to this file's script scope -- so the stubs have to be global
-# functions to be found at all. That is the same resolution path a real cycle
-# uses.
-#
-# What they collect is appended to files in the per-test runtime dir rather than
-# to a global variable: the collection then has the same lifetime as the
-# directory an It block already creates and deletes, so no state survives a test
-# to color the next one.
+# See https://yuruna.link/42e220c4-0014
 function global:Send-CycleEventSafely {
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -74,11 +65,12 @@ function global:Write-CycleInfraFailure {
         Justification = 'Test stub standing in for the failure-record writer; appends to a throwaway file.')]
     param(
         [string]$Stage, [string]$FailureClass, [string]$Severity,
-        [string]$GuestKey, [string]$VMName, [string]$ErrorMessage, [string]$HostType
+        [string]$GuestKey, [string]$VMName, [string]$ErrorMessage, [string]$HostType, [hashtable[]]$DependencyFailures
     )
     Add-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'lh-failures.ndjson') -Value (@{
         Stage = $Stage; FailureClass = $FailureClass; Severity = $Severity
         GuestKey = $GuestKey; VMName = $VMName; ErrorMessage = $ErrorMessage; HostType = $HostType
+        DependencyFailures = @($DependencyFailures)
     } | ConvertTo-Json -Depth 6 -Compress)
 }
 
@@ -282,6 +274,45 @@ Describe 'Lab-health gate' {
         }
     }
 
+    Context 'Watchdog progress during holds' {
+        It 'refreshes progress after each completed health evaluation across a long hold' {
+            Set-LhRecord -RuntimeDir $script:dir -AgeHours 1 -Confirm:$false
+            $script:hb = Join-Path $script:dir 'runner.stepHeartbeat'
+            Set-Content -LiteralPath $script:hb -Value 'seed'
+            [IO.File]::SetLastWriteTimeUtc($script:hb, [datetime]::UtcNow.AddSeconds(-2701))
+            Mock -ModuleName Test.LabHealth Resolve-LabHealthAddress { @('10.0.0.9') }
+            Mock -ModuleName Test.LabHealth Invoke-LabHealthProbe { $false }
+            $script:checks = 0
+            $inspect = {
+                $script:checks++
+                # Each previous evaluation completed, even though the service
+                # stayed away. Aging the next interval exercises many bounds
+                # without waiting forty-five minutes in a unit test.
+                ([datetime]::UtcNow - (Get-Item $script:hb).LastWriteTimeUtc).TotalSeconds |
+                    Should -BeLessThan 5
+                [IO.File]::SetLastWriteTimeUtc($script:hb, [datetime]::UtcNow.AddSeconds(-2701))
+            }
+            $r = Wait-LabHealthy -Label '[1/1]' -Config (New-LhConfig -MaxHold 4) -CheckAbort $inspect -NoSleep
+            $r.Outcome | Should -Be 'exhausted'
+            $script:checks | Should -Be 4
+            ([datetime]::UtcNow - (Get-Item $script:hb).LastWriteTimeUtc).TotalSeconds | Should -BeLessThan 5
+        }
+
+        It 'does not manufacture progress for a probe that never completes' {
+            Set-LhRecord -RuntimeDir $script:dir -AgeHours 1 -Confirm:$false
+            $hb = Join-Path $script:dir 'runner.stepHeartbeat'
+            Set-Content -LiteralPath $hb -Value 'seed'
+            $old = [datetime]::UtcNow.AddSeconds(-2701)
+            [IO.File]::SetLastWriteTimeUtc($hb, $old)
+            Set-Content -LiteralPath (Get-LabHoldPath).Flag -Value 'abandoned hold'
+            Mock -ModuleName Test.LabHealth Invoke-LabHealthProbe { throw 'probe did not complete' }
+            { Wait-LabHealthy -Label '[1/1]' -Config (New-LhConfig) -NoSleep } |
+                Should -Throw -ExpectedMessage '*probe did not complete*'
+            (Get-Item $hb).LastWriteTimeUtc | Should -Be $old
+            ([datetime]::UtcNow - (Get-Item $hb).LastWriteTimeUtc).TotalSeconds | Should -BeGreaterThan 2700
+        }
+    }
+
     Context 'Ending a hold' {
 
         It 'gives up at the configured ceiling and records lab_dependency_down' {
@@ -309,6 +340,8 @@ Describe 'Lab-health gate' {
             $failures[0].Stage        | Should -Be 'initialize-lab'
             $failures[0].HostType     | Should -Be 'host.macos.utm'
             $failures[0].ErrorMessage | Should -Match 'Stash service'
+            $failures[0].DependencyFailures[0].area | Should -Be 'stash-service'
+            $failures[0].DependencyFailures[0].triedAddresses | Should -Contain '10.0.0.9'
 
             @(Get-LhCollected -Kind events | Where-Object { $_.event -eq 'lab_health_exhausted' }).Count | Should -Be 1
             # The hold must not outlive the cycle that raised it.

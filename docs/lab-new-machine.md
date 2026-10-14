@@ -203,7 +203,7 @@ Read a fresh `<code>` off the dashboard tile -- the one used in step 5 is
 long expired. Running this *after* the sync is deliberate: with
 `test/test.config.yml` now in place, enrollment also binds this machine
 to the lab's proxy (`vmStart.cachingProxyIp`) and seeds `pool.enabled`
-and `pool.intentGitUrl`, none of which it can persist on a machine that
+and `pool.configurationGitUrl`, none of which it can persist on a machine that
 has no config file yet. `-BounceStatusService` restarts the status
 service so the change is live now rather than at the next cycle. Safe to
 re-run at any time -- a rotated token, a rebuilt proxy, or a doubtful
@@ -257,7 +257,7 @@ and reports to the lab dashboards, but takes no assignment. Add it to a
 pool from the pool-control service UI at
 `http://<pool-control-service-vm-ip>/` (its Hosts page) and set that
 pool's Framework URL and Project URL on its Pools page
-([pool-admin.md](pool-admin.md)). Each runner pulls intent at the start
+([pool-admin.md](pool-admin.md)). Each runner pulls configuration at the start
 of a cycle, so the change takes effect on the next one with no restart.
 
 ---
@@ -266,6 +266,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

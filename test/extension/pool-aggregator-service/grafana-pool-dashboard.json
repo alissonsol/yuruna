@@ -273,7 +273,7 @@
           {
             "matcher": { "id": "byName", "options": "Control" },
             "properties": [
-              { "id": "custom.width", "value": 190 },
+              { "id": "custom.width", "value": 100 },
               { "id": "custom.cellOptions", "value": { "type": "color-text" } },
               { "id": "mappings", "value": [ { "type": "value", "options": {
                 "ready": { "text": "remote", "color": "#16a34a", "index": 0 },

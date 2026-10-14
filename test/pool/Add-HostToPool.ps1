@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42236cc8-c3f9-4b02-a1e7-01d2a329be23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Add a host (by stable hostId) to a pool's members[] in the intent store.
+    Add a host (by stable hostId) to a pool's members[] in the configuration store.
 .DESCRIPTION
     Pool admin CLI. members[] is the single source of truth for membership: a
     runner finds its own pool by locating its hostId here, and the aggregator
@@ -43,8 +43,8 @@
 param(
     [Parameter(Mandatory)][string]$PoolId,
     [Parameter(Mandatory)][string]$HostId,
-    [string]$IntentGitUrl,
-    [string]$IntentDir,
+    [string]$ConfigurationGitUrl,
+    [string]$ConfigurationDir,
     [switch]$MoveExisting
 )
 
@@ -74,13 +74,13 @@ $HostId = $canonicalHostId
 # the canonical key the store is read and written with.
 $shownHostId = Format-YurunaHostId -HostId $HostId
 
-# --- REGION: Open the intent store
-$open = Open-YurunaPoolAdminStore -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir -Confirm:$false
+# --- REGION: Open the configuration store
+$open = Open-YurunaPoolAdminStore -ConfigurationGitUrl $ConfigurationGitUrl -ConfigurationDir $ConfigurationDir -Confirm:$false
 $t = $open.Target
 if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
-$doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
+$doc  = Read-YurunaPoolsDoc -ConfigurationDir $t.ConfigurationDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if (-not $pool) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_945821c2fef42ae6' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue; exit $ExitFailure }
 
@@ -105,7 +105,7 @@ if ($members -contains $HostId) {
 $pool['members'] = @($members + $HostId)
 
 # --- REGION: Save, commit and push
-$pub = Publish-YurunaPoolDocChange -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: add $HostId to $PoolId" -Confirm:$false
+$pub = Publish-YurunaPoolDocChange -ConfigurationDir $t.ConfigurationDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Message "pool: add $HostId to $PoolId" -Confirm:$false
 if (-not $pub.Ok) { Write-Error $pub.Error -ErrorAction Continue; exit $ExitFailure }
 
 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bba4a8e964d8063d' -Arguments @{ shownHostId = "$shownHostId"; poolId = "$PoolId" }) -InformationAction Continue

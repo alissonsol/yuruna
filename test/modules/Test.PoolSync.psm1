@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4238dc49-0c94-4ba6-a7be-b24343a6ca42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna pool intent sync git desired-state
+.TAGS yuruna pool configuration sync git configured-state
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -16,12 +16,12 @@
 
 #requires -version 7
 
-# yuruna pool intent sync (the PULL spine for the multi-host pool harness).
+# yuruna pool configuration sync (the PULL spine for the multi-host pool harness).
 # See ../../docs/pool-admin.md#what-a-pool-is for the reconciliation model
 # and why every git call is bounded and credential-prompt-proof. -- Test.PoolSync.psm1
 
 # Wall-clock backstops (seconds) for the git operations. A healthy LAN clone/fetch
-# of a tiny intent repo finishes well under a second; these only cap a wedged or
+# of a tiny configuration repo finishes well under a second; these only cap a wedged or
 # unreachable remote. The clone (first run) gets the larger cap.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
@@ -65,13 +65,13 @@ function Invoke-PoolSyncGit {
     return (Invoke-PoolSyncGitCapture -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds).ExitCode
 }
 
-function Test-PoolIntentCloneOrigin {
+function Test-PoolConfigurationCloneOrigin {
     <#
     .SYNOPSIS
         Returns $false only when the clone at -Path provably has an `origin` that differs
         from -Url. An unreadable origin (not a repository, git unrunnable, timeout) returns
         $true: the caller's own git step then reports the real failure. Without this check a
-        clone left over from an earlier intentGitUrl keeps being fetched and pushed while
+        clone left over from an earlier configurationGitUrl keeps being fetched and pushed while
         the operator's current URL is silently ignored.
     #>
     [CmdletBinding()]
@@ -95,7 +95,7 @@ function Get-YurunaPoolConfig {
     <#
     .SYNOPSIS
         Returns a normalized pool config object, or $null when the feature is off (no pool
-        block, enabled:false unless -IgnoreEnabled, or an empty intentGitUrl).
+        block, enabled:false unless -IgnoreEnabled, or an empty configurationGitUrl).
     .DESCRIPTION
         Accepts an already-parsed config; otherwise reads test.config.yml via
         the resolved YURUNA_CONFIG_PATH.
@@ -108,7 +108,7 @@ function Get-YurunaPoolConfig {
     param(
         [Parameter()][AllowNull()]$Config,
         # Return the normalized object even when enabled is false, as long as
-        # intentGitUrl is set -- for pre-flight validation (Test-Config) of the
+        # configurationGitUrl is set -- for pre-flight validation (Test-Config) of the
         # connection before an operator flips enabled to true. The returned
         # object's Enabled field still reflects the real flag. The runner never
         # passes this, so a false enabled stays a no-op there.
@@ -128,50 +128,112 @@ function Get-YurunaPoolConfig {
     $p = $Config['pool']
     if (-not ($p -is [System.Collections.IDictionary])) { return $null }
     $enabled      = ([string]$p['enabled']).Trim() -in @('true', 'yes', 'on', '1')
-    $intentGitUrl = [string]$p['intentGitUrl']
+    $configurationGitUrl = [string]$p['configurationGitUrl']
     $localClone   = [string]$p['localClonePath']
     $pullTimeout  = if ($p['pullTimeoutSeconds']) { [int]$p['pullTimeoutSeconds'] } else { $script:PoolSyncFetchTimeoutSeconds }
     if (-not $enabled -and -not $IgnoreEnabled) { return $null }
-    if ([string]::IsNullOrWhiteSpace($intentGitUrl)) {
+    if ([string]::IsNullOrWhiteSpace($configurationGitUrl)) {
         if ($enabled) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3ee74fe8c9b60225') }
         return $null
     }
     if ([string]::IsNullOrWhiteSpace($localClone)) {
         $runtimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-runtime' }
-        $localClone = Join-Path $runtimeDir 'pool-intent'
+        $localClone = Join-Path $runtimeDir 'pool-configuration'
     }
     return [pscustomobject]@{
         Enabled        = $enabled
-        IntentGitUrl   = $intentGitUrl.Trim()
+        ConfigurationGitUrl   = $configurationGitUrl.Trim()
         LocalClonePath = $localClone
         PullTimeoutSeconds = $pullTimeout
     }
 }
 
-# Resolve-YurunaPoolForHost is the PURE core: given parsed pool intent and this
+# --- REGION: ConvertTo-PoolConfigurationSchemaV4
+function ConvertTo-PoolConfigurationSchemaV4 {
+    <#
+    .SYNOPSIS
+        Upgrade a pools document to schemaVersion 4 in place.
+    .DESCRIPTION
+        Converts v2 testSet pairs to repositories and v2/v3 desiredState to
+        configuredState. Conflicting state fields fail before any mutation.
+        Newer or non-integer versions remain unchanged for schema validation.
+    .OUTPUTS
+        System.Collections.IDictionary -- the same document instance.
+    .LINK
+        https://yuruna.link/42010605-0004
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.IDictionary])]
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Doc)
+    $version = if ($Doc.Contains('schemaVersion')) { $Doc['schemaVersion'] } else { 2 }
+    if (-not (($version -is [int]) -or ($version -is [long])) -or $version -gt 4) { return $Doc }
+    foreach ($pool in @($Doc['pools'])) {
+        if ($pool -isnot [System.Collections.IDictionary] -or -not $pool.Contains('desiredState')) { continue }
+        if ($pool.Contains('configuredState') -and [string]$pool['desiredState'] -cne [string]$pool['configuredState']) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.pool_configuration_state_conflict' -Arguments @{ poolId = [string]$pool['poolId'] })
+        }
+        if ($version -eq 4) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.pool_configuration_legacy_state' -Arguments @{ poolId = [string]$pool['poolId'] })
+        }
+    }
+    if ($version -eq 4) { return $Doc }
+    foreach ($pool in @($Doc['pools'])) {
+        if ($pool -isnot [System.Collections.IDictionary]) { continue }
+        if ($version -lt 3) {
+            $legacy = $pool['testSet']
+            if (($legacy -is [System.Collections.IDictionary]) -and -not $pool.Contains('repositories')) {
+                $frameworkUrl = ([string]$legacy['frameworkUrl']).Trim()
+                $projectUrl = ([string]$legacy['projectUrl']).Trim()
+                if ($frameworkUrl -and $projectUrl) {
+                    $pair = [ordered]@{ frameworkUrl = $frameworkUrl; projectUrl = $projectUrl }
+                    if ($pool -is [System.Collections.Specialized.OrderedDictionary]) {
+                        $pool.Insert(@($pool.Keys).IndexOf('testSet'), 'repositories', $pair)
+                    } else { $pool['repositories'] = $pair }
+                }
+            }
+            if ($pool.Contains('testSet')) { $pool.Remove('testSet') }
+            if ($pool.Contains('testSets')) { $pool.Remove('testSets') }
+        }
+        if ($pool.Contains('desiredState')) {
+            if (-not $pool.Contains('configuredState')) {
+                $configured = $pool['desiredState']
+                if ($pool -is [System.Collections.Specialized.OrderedDictionary]) {
+                    $pool.Insert(@($pool.Keys).IndexOf('desiredState'), 'configuredState', $configured)
+                } else { $pool['configuredState'] = $configured }
+            }
+            $pool.Remove('desiredState')
+        }
+    }
+    if (($Doc -is [System.Collections.Specialized.OrderedDictionary]) -and -not $Doc.Contains('schemaVersion')) {
+        $Doc.Insert(0, 'schemaVersion', 4)
+    } else { $Doc['schemaVersion'] = 4 }
+    return $Doc
+}
+
+# Resolve-YurunaPoolForHost is the PURE core: given parsed pool configuration and this
 # host's stable hostId, return the pool object whose members[] contains the hostId
 # (the single-source-of-truth lookup), or $null. No I/O; unit-testable.
 function Resolve-YurunaPoolForHost {
     <#
     .SYNOPSIS
-        The pure core lookup: given parsed pool intent and this host's stable hostId,
+        The pure core lookup: given parsed pool configuration and this host's stable hostId,
         returns the pool object whose members[] contains the hostId (the single source of
         truth), or $null. No I/O; unit-testable.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
     param(
-        [Parameter()][AllowNull()]$Intent,
+        [Parameter()][AllowNull()]$Configuration,
         [Parameter(Mandatory)][AllowEmptyString()][string]$HostId
     )
     if ([string]::IsNullOrWhiteSpace($HostId)) { return $null }
-    if (-not ($Intent -is [System.Collections.IDictionary]) -or -not $Intent.Contains('pools')) { return $null }
+    if (-not ($Configuration -is [System.Collections.IDictionary]) -or -not $Configuration.Contains('pools')) { return $null }
     # A host belongs to AT MOST one pool (enforced by Add-HostToPool /
-    # Test-PoolIntent). Collect every pool that lists this hostId so a multi-pool
+    # Test-PoolConfiguration). Collect every pool that lists this hostId so a multi-pool
     # authoring slip is surfaced loudly instead of silently first-match-wins.
     # $poolMatches (NOT $matches -- that shadows PowerShell's automatic regex var).
     $poolMatches = New-Object System.Collections.Generic.List[object]
-    foreach ($pool in @($Intent['pools'])) {
+    foreach ($pool in @($Configuration['pools'])) {
         if (-not ($pool -is [System.Collections.IDictionary])) { continue }
         foreach ($member in @($pool['members'])) {
             # A member entry is either a bare hostId string or a mapping carrying a
@@ -198,40 +260,40 @@ function Resolve-YurunaPoolForHost {
     return $winner
 }
 
-function Test-PoolIntentHasMember {
+function Test-PoolConfigurationHasMember {
     <#
     .SYNOPSIS
-        Pure: $true when the parsed pool intent lists at least one member in any pool.
+        Pure: $true when the parsed pool configuration lists at least one member in any pool.
     .DESCRIPTION
         Lets the caller tell "this host is genuinely absent from a populated members[]"
-        (a probable hostId authoring typo, worth a warning) apart from "the intent lists
+        (a probable hostId authoring typo, worth a warning) apart from "the configuration lists
         no members at all". No I/O; unit-testable.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param([Parameter()][AllowNull()]$Intent)
-    if (-not ($Intent -is [System.Collections.IDictionary]) -or -not $Intent.Contains('pools')) { return $false }
-    foreach ($pool in @($Intent['pools'])) {
+    param([Parameter()][AllowNull()]$Configuration)
+    if (-not ($Configuration -is [System.Collections.IDictionary]) -or -not $Configuration.Contains('pools')) { return $false }
+    foreach ($pool in @($Configuration['pools'])) {
         if (($pool -is [System.Collections.IDictionary]) -and @($pool['members']).Count -gt 0) { return $true }
     }
     return $false
 }
 
-# Resolve-YurunaPoolDesiredState is PURE: returns run|paused|drain for a pool
+# Resolve-YurunaPoolConfiguredState is PURE: returns run|paused|drain for a pool
 # object, defaulting to 'run' when the pool is $null, the field is absent, or the
-# value is unrecognized (fail-safe: an unknown intent never silently pauses a host).
-function Resolve-YurunaPoolDesiredState {
+# value is unrecognized (fail-safe: an unknown configuration never silently pauses a host).
+function Resolve-YurunaPoolConfiguredState {
     <#
     .SYNOPSIS
         Returns run|paused|drain for a pool object, defaulting to 'run' when the pool is
         $null, the field is absent, or the value is unrecognized (fail-safe: an unknown
-        intent never silently pauses a host). Pure; no I/O.
+        configuration never silently pauses a host). Pure; no I/O.
     #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter()][AllowNull()]$Pool)
     if (-not ($Pool -is [System.Collections.IDictionary])) { return 'run' }
-    $s = ([string]$Pool['desiredState']).Trim().ToLowerInvariant()
+    $s = ([string]$Pool['configuredState']).Trim().ToLowerInvariant()
     if ($s -in @('run', 'paused', 'drain')) { return $s }
     return 'run'
 }
@@ -288,8 +350,8 @@ function Write-YurunaPoolState {
     [OutputType([bool])]
     param(
         [Parameter()][AllowNull()][string]$PoolId,
-        [Parameter(Mandatory)][string]$DesiredState,
-        [Parameter(Mandatory)][bool]$IntentOk,
+        [Parameter(Mandatory)][string]$ConfiguredState,
+        [Parameter(Mandatory)][bool]$ConfigurationOk,
         [Parameter()][AllowNull()]$Gating,
         [Parameter()][AllowNull()][string]$PoolGuid
     )
@@ -300,8 +362,8 @@ function Write-YurunaPoolState {
     $state = [ordered]@{
         poolId       = $PoolId
         poolGuid     = $PoolGuid
-        desiredState = $DesiredState
-        intentOk     = $IntentOk
+        configuredState = $ConfiguredState
+        configurationOk     = $ConfigurationOk
         gating       = $Gating
         lastSyncUtc  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
@@ -333,7 +395,7 @@ function Write-YurunaPoolManifest {
     [OutputType([bool])]
     param(
         [Parameter()][AllowNull()]$Pool,
-        # autoEnrollment.targetPoolId from the intent doc, when the store
+        # autoEnrollment.targetPoolId from the configuration doc, when the store
         # declares one. Supplied by the caller because only it has read the
         # document; empty on every store that has not opted into auto-enrollment,
         # which makes the guard below inert.
@@ -343,7 +405,7 @@ function Write-YurunaPoolManifest {
     if ([string]::IsNullOrWhiteSpace($runtimeDir)) { return $false }
     $path = Join-Path $runtimeDir 'pool.manifest.json'
     $repositories = if ($Pool -is [System.Collections.IDictionary]) { $Pool['repositories'] } else { $null }
-    # Defense in depth for the target-pool rule. Test-PoolIntent and
+    # Defense in depth for the target-pool rule. Test-PoolConfiguration and
     # Set-PoolRepository.ps1 both refuse repositories on the auto-enrollment
     # target pool, but neither runs on this host: a hand-edited store would
     # otherwise reach here and repoint the host. Ignore them loudly rather than
@@ -371,7 +433,7 @@ function Write-YurunaPoolManifest {
     }
     if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_6fc9e3d7a9f00bc4'))) { return $false }
     # The fresh inner-runner process reads this object and nothing else from
-    # the intent, so these key names are a contract with the "Pooled repos
+    # the configuration, so these key names are a contract with the "Pooled repos
     # override" region of Test.RunnerInnerLoop.psm1.
     $manifest = [ordered]@{
         poolId       = [string]$Pool['poolId']
@@ -392,19 +454,19 @@ function Write-YurunaPoolManifest {
     } catch { Write-Verbose "Write-YurunaPoolManifest failed: $($_.Exception.Message)"; return $false }
 }
 
-# Sync-YurunaPoolIntent is the per-cycle PULL, called IN-PROCESS at the outer
-# loop's cycle start. Clone-or-fetch the bare intent repo (bounded), parse
+# Sync-YurunaPoolConfiguration is the per-cycle PULL, called IN-PROCESS at the outer
+# loop's cycle start. Clone-or-fetch the bare configuration repo (bounded), parse
 # pools.yml, find this host's pool by hostId, persist the derived poolId +
-# desiredState to runtime/pool.state.json, and RETURN the pool object (or $null).
+# configuredState to runtime/pool.state.json, and RETURN the pool object (or $null).
 # Graceful degradation: a remote that is down/unreachable falls back to the
 # last-good cloned pools.yml if present (stale-but-safe), else returns $null so the
 # host cycles as a single host. Never throws.
-function Sync-YurunaPoolIntent {
+function Sync-YurunaPoolConfiguration {
     <#
     .SYNOPSIS
         The per-cycle pull, called in-process at the outer loop's cycle start: clone-or-
-        fetch the bare intent repo (bounded), parse pools.yml, find this host's pool by
-        hostId, persist the derived poolId + desiredState to runtime/pool.state.json, and
+        fetch the bare configuration repo (bounded), parse pools.yml, find this host's pool by
+        hostId, persist the derived poolId + configuredState to runtime/pool.state.json, and
         return the pool object (or $null). Falls back to the last-good cached pools.yml
         when the remote is unreachable, else cycles as a single host. Never throws.
     #>
@@ -422,7 +484,7 @@ function Sync-YurunaPoolIntent {
         return $null   # default-off short-circuit
     }
     if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
-        Write-Verbose 'Sync-YurunaPoolIntent: powershell-yaml not available; skipping.'
+        Write-Verbose 'Sync-YurunaPoolConfiguration: powershell-yaml not available; skipping.'
         $null = Write-YurunaPoolManifest -Pool $null -Confirm:$false   # clear stale manifest -> inner runs single-host
         return $null
     }
@@ -435,9 +497,9 @@ function Sync-YurunaPoolIntent {
     try {
         if (Test-Path -LiteralPath $gitDir) {
             # The clone is a disposable read-only cache: follow the configured URL when an
-            # earlier intentGitUrl left a different origin behind.
-            if (-not (Test-PoolIntentCloneOrigin -Path $clone -Url $pcfg.IntentGitUrl)) {
-                $null = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'remote', 'set-url', 'origin', $pcfg.IntentGitUrl) -TimeoutSeconds 15
+            # earlier configurationGitUrl left a different origin behind.
+            if (-not (Test-PoolConfigurationCloneOrigin -Path $clone -Url $pcfg.ConfigurationGitUrl)) {
+                $null = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'remote', 'set-url', 'origin', $pcfg.ConfigurationGitUrl) -TimeoutSeconds 15
             }
             # One wall-clock budget for the whole fetch+reset pull: derive each call's
             # timeout from a single deadline so a slow fetch cannot hand the reset a fresh
@@ -453,19 +515,19 @@ function Sync-YurunaPoolIntent {
         } else {
             $parent = Split-Path -Parent $clone
             if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-            $rc = Invoke-PoolSyncGit -ArgumentList @('clone', '--depth', '1', '--quiet', $pcfg.IntentGitUrl, $clone) -TimeoutSeconds $script:PoolSyncCloneTimeoutSeconds
+            $rc = Invoke-PoolSyncGit -ArgumentList @('clone', '--depth', '1', '--quiet', $pcfg.ConfigurationGitUrl, $clone) -TimeoutSeconds $script:PoolSyncCloneTimeoutSeconds
             $pullOk = ($rc -eq 0)
         }
-    } catch { $rc = -1; Write-Verbose "Sync-YurunaPoolIntent: git step threw: $($_.Exception.Message)" }
+    } catch { $rc = -1; Write-Verbose "Sync-YurunaPoolConfiguration: git step threw: $($_.Exception.Message)" }
 
     $poolsPath = Join-Path $clone 'pools.yml'
     if (-not (Test-Path -LiteralPath $poolsPath)) {
-        # No intent available (first pull failed, nothing cached): behave single-host.
-        $null = Write-YurunaPoolState -PoolId $null -DesiredState 'run' -IntentOk:$pullOk -Confirm:$false
+        # No configuration available (first pull failed, nothing cached): behave single-host.
+        $null = Write-YurunaPoolState -PoolId $null -ConfiguredState 'run' -ConfigurationOk:$pullOk -Confirm:$false
         $null = Write-YurunaPoolManifest -Pool $null -Confirm:$false   # clear stale manifest -> single-host
         if (-not $pullOk) {
             $why = if ($rc -eq 124) { 'timed out' } elseif ($rc -eq -1) { 'git not runnable' } else { "git rc=$rc" }
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6a59b18694397dbf' -Arguments @{ intentGitUrl = "$($pcfg.IntentGitUrl)"; why = "$why" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6a59b18694397dbf' -Arguments @{ configurationGitUrl = "$($pcfg.ConfigurationGitUrl)"; why = "$why" })
         }
         return $null
     }
@@ -476,18 +538,32 @@ function Sync-YurunaPoolIntent {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2d47f583d26c79d3' -Arguments @{ why = "$why"; poolsPath = "$poolsPath" })
     }
 
-    $intent = $null
-    try { $intent = Get-Content -Raw -LiteralPath $poolsPath | ConvertFrom-Yaml -Ordered } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_075bc59a36ee3ca1' -Arguments @{ message = "$($_.Exception.Message)" }) }
-    $pool = Resolve-YurunaPoolForHost -Intent $intent -HostId $HostId
-    if (-not $pool -and (Test-PoolIntentHasMember -Intent $intent)) {
+    $configuration = $null
+    try {
+        $configuration = Get-Content -Raw -LiteralPath $poolsPath | ConvertFrom-Yaml -Ordered
+        if ($configuration -is [System.Collections.IDictionary]) {
+            $configuration = ConvertTo-PoolConfigurationSchemaV4 -Doc $configuration
+            $version = $configuration['schemaVersion']
+            if (-not (($version -is [int]) -or ($version -is [long])) -or $version -ne 4) {
+                throw (Format-YurunaOperatorMessage -Key 'runner.pool_configuration_schema_unsupported' -Arguments @{ version = $configuration['schemaVersion']; expected = 4 })
+            }
+        }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_075bc59a36ee3ca1' -Arguments @{ message = "$($_.Exception.Message)" })
+        $null = Write-YurunaPoolState -PoolId $null -ConfiguredState 'run' -ConfigurationOk:$false -Confirm:$false
+        $null = Write-YurunaPoolManifest -Pool $null -Confirm:$false
+        return $null
+    }
+    $pool = Resolve-YurunaPoolForHost -Configuration $configuration -HostId $HostId
+    if (-not $pool -and (Test-PoolConfigurationHasMember -Configuration $configuration)) {
         # pools.yml parsed and lists members, but none is this host: almost always a
-        # hostId spelling/case typo in the intent repo rather than a deliberate exclusion.
+        # hostId spelling/case typo in the configuration repo rather than a deliberate exclusion.
         # Surface it so the authoring error is observable instead of silently single-host.
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_47955cec68775797' -Arguments @{ hostId = "$HostId" })
     }
     $poolId   = if ($pool) { [string]$pool['poolId'] } else { $null }
     $poolGuid = if ($pool) { [string]$pool['poolGuid'] } else { $null }
-    $state  = Resolve-YurunaPoolDesiredState -Pool $pool
+    $state  = Resolve-YurunaPoolConfiguredState -Pool $pool
     # Carry the authored gating policy (the advisory alert thresholds) to the
     # aggregator via pool.state.json -> host.registration.json. $null when the pool
     # authored no gating KEY (the aggregator then never pages it); an empty block is a
@@ -495,20 +571,20 @@ function Sync-YurunaPoolIntent {
     $gating = if (($pool -is [System.Collections.IDictionary]) -and $pool.Contains('gating')) {
         ConvertTo-PoolGatingRecord -Gating $pool['gating']
     } else { $null }
-    $null = Write-YurunaPoolState -PoolId $poolId -PoolGuid $poolGuid -DesiredState $state -IntentOk:$pullOk -Gating $gating -Confirm:$false
+    $null = Write-YurunaPoolState -PoolId $poolId -PoolGuid $poolGuid -ConfiguredState $state -ConfigurationOk:$pullOk -Gating $gating -Confirm:$false
     # Publish (or clear, when this host is unpooled or its pool carries no
     # repositories) the pool's framework and project repositories for the
     # inner runner. The target-pool id is read from the same parsed document so
     # the manifest writer can refuse repositories on it (defense in depth --
-    # neither the admin CLI nor Test-PoolIntent runs on this host).
-    $autoTarget = if (($intent -is [System.Collections.IDictionary]) -and $intent['autoEnrollment']) { [string]$intent['autoEnrollment']['targetPoolId'] } else { '' }
+    # neither the admin CLI nor Test-PoolConfiguration runs on this host).
+    $autoTarget = if (($configuration -is [System.Collections.IDictionary]) -and $configuration['autoEnrollment']) { [string]$configuration['autoEnrollment']['targetPoolId'] } else { '' }
     $null = Write-YurunaPoolManifest -Pool $pool -AutoEnrollTargetPoolId $autoTarget -Confirm:$false
     return $pool
 }
 
 Export-ModuleMember -Function `
-    Get-YurunaPoolConfig, Sync-YurunaPoolIntent, Test-PoolIntentCloneOrigin, `
-    Resolve-YurunaPoolForHost, Resolve-YurunaPoolDesiredState, `
-    Test-PoolIntentHasMember, `
+    Get-YurunaPoolConfig, Sync-YurunaPoolConfiguration, Test-PoolConfigurationCloneOrigin, `
+    Resolve-YurunaPoolForHost, Resolve-YurunaPoolConfiguredState, `
+    Test-PoolConfigurationHasMember, `
     Write-YurunaPoolState, Write-YurunaPoolManifest, Invoke-PoolSyncGit, Invoke-PoolSyncGitCapture, `
-    ConvertTo-PoolGatingRecord
+    ConvertTo-PoolGatingRecord, ConvertTo-PoolConfigurationSchemaV4

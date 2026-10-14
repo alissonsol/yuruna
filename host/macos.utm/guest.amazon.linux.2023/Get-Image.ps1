@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f8008d-9acf-4ba5-8a9f-c29d843ce6a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,6 +65,10 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 # See https://yuruna.link/42e220c4-0003
 # Import cache/agent discovery and the shared image sentinel helpers.
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
+# Yuruna.Image.psm1 second, so its module scope never shadows the driver's
+# cache-injecting Save-CachedHttpUri. Invoke-DownloadAgentFirst lives in it,
+# so the import cannot sit inside the origin-only branch.
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 
 # --- REGION: https://yuruna.link/42ec97cd-0004
 $agentServed = $false
@@ -121,7 +125,6 @@ if (-not $agentServed) {
     # --- REGION: Retrieve and process the files
     Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
     # Reject checksum mismatches; a publisher that omits a checksum remains a soft pass.
-    Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
     $checksumLink = ($html.Links | Where-Object { $_.href -match '\.qcow2\.sha256$' } | Select-Object -First 1)
     $checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink.href } else { $null }
     $downloaded = Save-ImageWithChecksum `

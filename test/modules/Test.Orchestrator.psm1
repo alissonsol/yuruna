@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,7 @@
 # See https://yuruna.link/4213a0b3-00b5
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.RunnerHeartbeat.psm1') -DisableNameChecking
 function Test-IsOrchestrationSequence {
     <#
     .SYNOPSIS
@@ -214,7 +215,7 @@ function Invoke-OrchestratorGuestRun {
         $osKeys = @($Sequence.baseline.Keys)
     }
     if ($osKeys.Count -eq 0) {
-        return & $fail (Format-YurunaOperatorMessage -Key 'runner.inner_sequence_baseline_missing' -Arguments @{ name = $Name })
+        return & $fail (Format-YurunaOperatorMessage -Key 'runner.inner_sequence_resource_missing' -Arguments @{ name = $Name })
     }
     $osKey    = [string]$osKeys[0]
     $guestKey = "guest.$osKey"
@@ -396,14 +397,7 @@ function Invoke-OrchestrationSequence {
         $endpoint = Resolve-CachingProxyServiceEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
         $cacheEndpoint = $endpoint
         foreach ($line in $endpoint.Lines) { Write-OrchestratorLine $line }
-        # The probe above proves the port answered ONCE; this is the moment the
-        # cycle commits to that address for every guest it is about to build, so
-        # confirm it stays up first. A cache VM rebuilt shortly before the run is
-        # still provisioning, and the restart that applies its ssl-bump config
-        # lands after the ports have already opened -- a cycle that probed in the
-        # gap pins the address, then reports the cache lost for the next several
-        # steps. Kubernetes guests pinned to its registry cannot use upstreams
-        # as a fallback, so their registry gate below is mandatory.
+        # See https://yuruna.link/42f6b05f-0049
         if ($endpoint.EffectiveIp -and (Get-Command Wait-CachingProxyServiceSettled -ErrorAction SilentlyContinue)) {
             # See https://yuruna.link/4213a0b3-00b8
             $settle = Wait-CachingProxyServiceSettled -CacheIp $endpoint.EffectiveIp -Port $endpoint.HttpPort
@@ -522,6 +516,7 @@ function Invoke-OrchestrationSequence {
         while (Test-Path -LiteralPath $orchStepPauseFlag) {
             $delay = if (Get-Command Get-PollDelay -ErrorAction SilentlyContinue) { Get-PollDelay -Attempt $attempt } else { 2000 }
             Start-Sleep -Milliseconds $delay
+            Write-RunnerStepHeartbeat -RuntimeDir $orchRuntimeDir
             $attempt++
         }
         Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_837ab3f8df47479e' -Arguments @{ label = "$Label" })
@@ -563,6 +558,7 @@ function Invoke-OrchestrationSequence {
             # cycle is present, and re-probing a lab nobody is watching achieves
             # nothing. The lab gate is Get-Command-guarded so an entry point
             # whose module set omits Test.LabHealth runs exactly as before.
+            $entryStartUtc = [datetime]::UtcNow
             $entryLabel = "[$($e.index)/$($entries.Count)] $($e.name)"
             $labHoldReason = ''
             & $orchWaitWhilePaused $entryLabel
@@ -601,7 +597,6 @@ function Invoke-OrchestrationSequence {
             Publish-CycleContext -CycleStartUtc $cycleStartUtc -StatusPath $statusFile `
                 -RootCycleFolder $rootCycleFolder -CycleNumber $rootCycleNumber -ParentId $stepParentId
 
-            $entryStartUtc = [datetime]::UtcNow
             $reason = ''
             $entryVmName = ''
             try {
@@ -656,6 +651,31 @@ function Invoke-OrchestrationSequence {
                 Clear-CycleContext
             }
 
+            $inheritedClass = 'unknown'
+            $inheritedDependencies = @()
+            if (-not $ok -and $env:YURUNA_LOG_DIR) {
+                $innerFailure = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+                try {
+                    if ((Test-Path -LiteralPath $innerFailure -PathType Leaf) -and
+                        (Get-Item -LiteralPath $innerFailure -ErrorAction Stop).LastWriteTimeUtc -ge $entryStartUtc) {
+                        $innerRec = Get-Content -Raw -LiteralPath $innerFailure -ErrorAction Stop |
+                            ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                        if ($innerRec.Contains('failureClass') -and $innerRec['failureClass']) {
+                            $inheritedClass = [string]$innerRec['failureClass']
+                        }
+                        if ($innerRec['description']) { $reason = [string]$innerRec['description'] }
+                        if ($innerRec['context'] -is [System.Collections.IDictionary] -and $innerRec['context']['dependencyFailures']) {
+                            $inheritedDependencies = @($innerRec['context']['dependencyFailures'])
+                        }
+                        if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
+                            $null = Copy-CycleFailureRecord -LogDir $env:YURUNA_LOG_DIR
+                        }
+                    }
+                } catch {
+                    Write-Verbose "Invoke-OrchestrationSequence: inner failure class unreadable -- $($_.Exception.Message)"
+                }
+            }
+
             $outcome = if ($ok) { 'PASS' } else { 'FAIL' }
             if (-not $orchNested) {
                 Set-StepStatus -GuestKey $e.name -StepName 'Run' -Status $(if ($ok) { 'pass' } else { 'fail' }) -ErrorMessage $reason -Confirm:$false
@@ -672,24 +692,9 @@ function Invoke-OrchestrationSequence {
                         Import-Module (Join-Path $PSScriptRoot 'Test.RunnerInnerLoop.psm1') -Force -Global -ErrorAction Stop
                     }
                     # See https://yuruna.link/4213a0b3-00ba
-                    $inheritedClass = 'unknown'
-                    if ($env:YURUNA_LOG_DIR) {
-                        $innerFailure = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
-                        if ((Test-Path -LiteralPath $innerFailure -PathType Leaf) -and
-                            (Get-Item -LiteralPath $innerFailure -ErrorAction Stop).LastWriteTimeUtc -ge $entryStartUtc) {
-                            try {
-                                $innerRec = Get-Content -Raw -LiteralPath $innerFailure -ErrorAction Stop |
-                                    ConvertFrom-Json -AsHashtable -ErrorAction Stop
-                                if ($innerRec.Contains('failureClass') -and $innerRec['failureClass']) {
-                                    $inheritedClass = [string]$innerRec['failureClass']
-                                }
-                            } catch {
-                                Write-Verbose "Invoke-OrchestrationSequence: inner failure class unreadable -- $($_.Exception.Message)"
-                            }
-                        }
-                    }
                     Write-CycleInfraFailure -Stage $e.name -FailureClass $inheritedClass -Severity 'hard' `
-                        -GuestKey '(orchestration)' -VMName $entryVmName -ErrorMessage $reason -HostType $HostType
+                        -GuestKey '(orchestration)' -VMName $entryVmName -ErrorMessage $reason -HostType $HostType `
+                        -DependencyFailures $inheritedDependencies
                 } catch {
                     Write-Verbose "Invoke-OrchestrationSequence: no failure record written for '$($e.name)' -- $($_.Exception.Message)"
                 }

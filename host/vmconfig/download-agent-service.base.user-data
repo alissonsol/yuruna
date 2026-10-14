@@ -8,6 +8,7 @@
 # --- REGION: hostname
 hostname: yuruna-download-agent-service
 # --- REGION: users
+# See https://yuruna.link/429f3d06-0034
 users:
   - name: download-agent-service-admin
     gecos: download-agent service user
@@ -34,12 +35,13 @@ packages:
   # cifs-utils: the bring-up script's pool-NAS SMB3 mount (that script installs golang-go itself).
   - cifs-utils
   # Network tools support console and SSH diagnostics.
+  # --- REGION: https://yuruna.link/429f3d06-003a
   - net-tools
   - iputils-ping
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 # --- REGION: write_files
 write_files:
-  # See https://yuruna.link/4220a755-004c
+  # --- REGION: https://yuruna.link/4220a755-004c
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
     owner: root:root
@@ -66,7 +68,7 @@ write_files:
     content: |
       username=POOL_NAS_NETWORK_USER_PLACEHOLDER
       password=POOL_NAS_PASSWORD_PLACEHOLDER
-  # See https://yuruna.link/42fffc2c-000d
+  # --- REGION: https://yuruna.link/42fffc2c-000d
   - path: /etc/yuruna/globalization.env
     owner: root:root
     permissions: '0644'
@@ -74,7 +76,7 @@ write_files:
       YURUNA_LANGUAGE=YURUNA_LANGUAGE_PLACEHOLDER
       YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER
 
-  # See https://yuruna.link/429f3d06-0029
+  # --- REGION: https://yuruna.link/429f3d06-0029
   # Empty IP/PORT falls back to the public github mirror for the framework fetch.
   - path: /etc/yuruna/host.env
     permissions: '0644'
@@ -104,7 +106,7 @@ write_files:
       reads them. The board's "Unlock actions" prompt takes the 6-character Lab
       token shown on the Yuruna hosts dashboard; the daemon validates it against
       the pool aggregator, so nothing about it is stored on this VM.
-  # See https://yuruna.link/429f3d06-002a
+  # --- REGION: https://yuruna.link/429f3d06-002a
   # This VM is provisioned once and runs for weeks, so it accumulates host
   # renumbers a per-cycle test guest never sees.
   - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
@@ -151,6 +153,7 @@ runcmd:
   # sshd is already up by the time write_files lands, so the drop-in above needs
   # a reload to take effect on this boot rather than only on the next one.
   - systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  # --- REGION: https://yuruna.link/429f3d06-002a
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
   # --- REGION: Install the proxy CA
   # See https://yuruna.link/4268e4cb
@@ -240,7 +243,7 @@ runcmd:
     if [ -n "$FETCH_DIR" ] && [ ! -e "$FETCH_DIR/previous" ]; then rm -rf "$FETCH_DIR"; fi
     chown -R download-agent-service-admin:download-agent-service-admin "$DEST" 2>/dev/null || true
     [ "$OK" -eq 1 ] || echo "yuruna download-agent-service: could not obtain the framework source; run the bring-up manually." >&2
-  # 3) PowerShell, for the Windows 11 family only -- best effort, never fails the build.
+  # PowerShell, for the Windows 11 family only -- best effort, never fails the build.
   # --- REGION: https://yuruna.link/429f3d06-008a
   - |
     set +e
@@ -330,8 +333,8 @@ runcmd:
       fi
       [ "$PS_OK" -eq 1 ] || echo "yuruna download-agent-service: no PowerShell could be installed; the Windows 11 family stays unavailable." >&2
     fi
-  # 4) Fido, pinned + hash-verified. FIDO_PS1 must stay a path the daemon searches
-  #    when --fido-script is empty, or the family goes silently unavailable.
+  # Fido, pinned + hash-verified. FIDO_PS1 must stay a path the daemon searches
+  # when --fido-script is empty, or the family goes silently unavailable.
   # --- REGION: https://yuruna.link/429f3d06-008c
   - |
     set +e

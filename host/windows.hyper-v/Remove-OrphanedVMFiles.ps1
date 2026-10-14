@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 420effcb-c2e1-4c95-b3b0-ddb550aecce4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ param(
     [switch]$Quiet
 )
 
-# --- REGION: Elevation gate
+# --- REGION: Elevation check
 # See https://yuruna.link/42e5cdfd-002f
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
@@ -350,12 +350,7 @@ foreach ($filePath in $orphanedFiles) {
     }
 }
 
-# Remove empty subfolders, deepest first so parents empty as children go.
-# Hyper-V's system subdirs under VirtualMachinePath (Planned Virtual Machines,
-# Snapshots Cache, Resource Types, ...) are normally empty on a no-VMs
-# host but are part of vmms's expected layout -- without a guard the
-# empty-folder sweep removes 15+ vmms system dirs on every run, only for
-# vmms to recreate them. Skip anything Test-IsHyperVSystemPath flags.
+# See https://yuruna.link/42e220c4-0004
 foreach ($scanPath in $scanPaths) {
     $dirs = Get-ChildItem -LiteralPath $scanPath -Recurse -Directory -ErrorAction SilentlyContinue |
         Sort-Object { $_.FullName.Length } -Descending

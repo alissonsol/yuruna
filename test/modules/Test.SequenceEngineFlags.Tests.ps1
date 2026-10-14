@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 422650f8-dbc0-42cf-8dcf-e365f9c7de11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -172,18 +172,7 @@ Describe 'waitForTextWithNudge declares its additional host capability' {
 
 Describe 'Registered failure class matches what the verb actually failed as' {
     It "registers fetchAndExecute as a timeout, not a script-reported failure" {
-        # A verb's registered class is its DEFAULT -- what it failed as when no
-        # failPattern matched. For fetchAndExecute that is the completion marker
-        # never arriving (a wait_timeout), most often because the fetched script
-        # is blocked on a stalled package mirror. Registering
-        # pattern_matched_failure here asserted the opposite -- that the wrapper
-        # printed its failure tag -- and nothing downstream re-checks it, so a
-        # plain timeout was reported as a script error, routed to
-        # pause_and_inspect ("auto-retry would just re-trigger it") and excluded
-        # from the warm-resume allow-list. That turned a transient upstream
-        # stall into a dead cycle needing an operator.
-        # Build-SequenceFailureRecord still reclassifies to
-        # pattern_matched_failure when a pattern really matched.
+        # See https://yuruna.link/42e220c4-0014
         $e = Get-SequenceAction -Name 'fetchAndExecute'
         Assert-True ($null -ne $e) 'fetchAndExecute must be registered'
         Assert-Equal -Expected 'wait_timeout' -Actual ([string]$e.FailureClass)

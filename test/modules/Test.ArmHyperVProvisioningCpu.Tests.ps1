@@ -48,7 +48,8 @@ Describe 'Ubuntu 26 ARM64 Hyper-V processor phases' {
     It 'powers off cleanly and restores two processors on both console and SSH paths' {
         foreach ($sequencePath in $script:sequencePaths) {
             $src = Get-Content -Raw -LiteralPath $sequencePath
-            Assert-True ($src -match 'sudo poweroff') "$sequencePath must reach a clean poweroff"
+            Assert-True ($src -match '(?m)^\s+- action:\s+stopVm') "$sequencePath must request the shutdown through the host driver"
+            Assert-True ($src -notmatch 'sudo poweroff') "$sequencePath must not type a power-off the guest can silently drop"
             Assert-True ($src -match '(?s)action:\s+startVm.*arm64HyperVProcessorCount:\s+2') `
                 "$sequencePath must restore the two-vCPU Kubernetes minimum"
             Assert-True ($src -notmatch 'sudo reboot now') `

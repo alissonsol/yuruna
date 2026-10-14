@@ -28,26 +28,36 @@ flowchart LR
 
 Sources: the [Windows](../../install/windows.hyper-v.ps1),
 [Ubuntu](../../install/ubuntu.kvm.sh), and [macOS](../../install/macos.utm.sh)
-bootstrappers install prerequisites and clone the repository. The operator runs
-setup.ps1 separately: there is no bootstrap-to-setup invocation. Windows and
-Ubuntu print an Enable-TestAutomation command; macOS applies its host settings
-with -SkipPoolStorage and reports any remaining operator action.
-[setup.ps1](../../install/setup.ps1) orchestrates
+bootstrappers install prerequisites, clone the repository, and end with a
+[Test-Requirement](../../automation/Test-Requirement.ps1) version-floor check.
+The operator runs setup.ps1 separately: there is no bootstrap-to-setup
+invocation. Windows and Ubuntu print an Enable-TestAutomation command; macOS
+applies its host settings with -SkipPoolStorage and reports any remaining
+operator action. [setup.ps1](../../install/setup.ps1) creates or refreshes
+`test.config.yml` from its template, then orchestrates
 [Enable-TestAutomation](../../test/lab/Enable-TestAutomation.ps1), storage
-preparation, and [service launchers](../../test/service/).
-The host dispatcher uses [Yuruna.HostRedirect](../../automation/Yuruna.HostRedirect.psm1)
-to select the platform script; those scripts import
+preparation, [service VM launchers](../../test/service/), and the Test-Config
+gate. `-AnswerFile` runs it unattended;
+[setup.answers.standalone.yml](../../install/setup.answers.standalone.yml) is
+the checked-in example, and `setup.runTests: false` skips host settings for a
+services-only machine. The host dispatcher uses
+[Yuruna.HostRedirect](../../automation/Yuruna.HostRedirect.psm1) to select the
+platform script; those scripts import
 [Yuruna.HostSetup](../../automation/Yuruna.HostSetup.psm1).
 
 Storage preparation groups
 [New-LocalLabStorage](../../test/lab/New-LocalLabStorage.ps1) with setup's configured
 NAS path. Storage is prepared before the service guests. Lab administration
-groups [test/lab/](../../test/lab/) and [test/pool/](../../test/pool/), including
-token initialization, pool creation, enrollment, storage administration, and
-[Invoke-HostRefresh](../../test/lab/Invoke-HostRefresh.ps1).
-Setup brings up cache and stash for standalone mode. Download-agent is optional
-there; lab mode enables it and adds pool-control and a default pool. A healthy
-service VM can be adopted; rebuilding applies changed provisioning settings.
+groups [test/lab/](../../test/lab/) and the [test/pool/](../../test/pool/)
+administration scripts, including token initialization, pool creation,
+enrollment, storage administration, and
+[Invoke-HostRefresh](../../test/lab/Invoke-HostRefresh.ps1). The pool-control
+service invokes the same pool scripts.
+Setup always brings up the cache, and the stash when storage is configured. The
+download agent defaults off in standalone mode and on in lab mode unless
+`downloadAgentService.enabled` says otherwise; lab mode also enrolls the lab
+token and adds a default pool and pool-control. A healthy service VM can be
+adopted; rebuilding applies changed provisioning settings.
 
 ## Deploy engine
 
@@ -95,6 +105,9 @@ The workload module and validator share
 [Yuruna.DeploymentKind](../../automation/Yuruna.DeploymentKind.psm1), whose current
 built-ins are chart, kubectl, helm, and shell. Registry publication uses
 [Yuruna.Component.Registry](../../automation/Yuruna.Component.Registry.psm1).
+[yuruna.ps1](../../automation/yuruna.ps1) dispatches the same modules as one CLI,
+and [Start-McpServer.ps1](../../test/service/Start-McpServer.ps1) exposes the entry
+points as stdio MCP tools; neither adds a phase.
 
 ## Test harness
 
@@ -112,37 +125,45 @@ flowchart LR
     start-test-runner-ps1 -->|host status| start-status-service-ps1
     start-test-runner-ps1 --> test-pool
     start-test-runner-ps1 --> test-notify-psm1
+    test-sequence-runner-psm1 -->|extension calls, probes| test-extension
 ```
 
 Sources and aggregate membership:
 
 | Box | Sources |
 | --- | --- |
-| Runner supervision | [Start-TestRunner](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), and runner identity/recovery modules in [test/modules/](../../test/modules/). |
-| Sequence execution | [Test.SequenceRunner](../../test/modules/Test.SequenceRunner.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), and [sequences/](../../test/sequences/). |
-| OCR and diagnostics | [Test.OcrEngine](../../test/modules/Test.OcrEngine.psm1), [Test.OcrMatch](../../test/modules/Test.OcrMatch.psm1), [Test.Diagnostic](../../test/modules/Test.Diagnostic.psm1), and [Get-SystemDiagnostic](../../automation/Get-SystemDiagnostic.ps1). |
-| Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), and [status/](../../test/status/). |
-| Pool coordination | [pool/](../../test/pool/), [Test.PoolWorker](../../test/modules/Test.PoolWorker.psm1), [Test.PoolSync](../../test/modules/Test.PoolSync.psm1), [Test.PoolPush](../../test/modules/Test.PoolPush.psm1), and [Test.PoolStorage](../../test/modules/Test.PoolStorage.psm1). |
+| Runner supervision | [Start-TestRunner](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.ConfigPreflight](../../test/modules/Test.ConfigPreflight.psm1), [Test.PrivateStateRepair](../../test/modules/Test.PrivateStateRepair.psm1), the one-shot [Invoke-TestProject](../../test/Invoke-TestProject.ps1) and [Debug-TestSequence](../../test/Debug-TestSequence.ps1) entry points, and runner identity/recovery modules in [test/modules/](../../test/modules/). |
+| Sequence execution | [Test.SequenceRunner](../../test/modules/Test.SequenceRunner.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), [Test.SequencePlanner](../../test/modules/Test.SequencePlanner.psm1), [Test.Orchestrator](../../test/modules/Test.Orchestrator.psm1), [Test.Start-GuestOS](../../test/modules/Test.Start-GuestOS.psm1), [Test.Start-GuestWorkload](../../test/modules/Test.Start-GuestWorkload.psm1), [sequences/](../../test/sequences/), and [schemas/](../../test/schemas/). |
+| OCR and diagnostics | [Test.OcrEngine](../../test/modules/Test.OcrEngine.psm1), [Test.OcrMatch](../../test/modules/Test.OcrMatch.psm1), [Test.Tesseract](../../test/modules/Test.Tesseract.psm1), [Test.Diagnostic](../../test/modules/Test.Diagnostic.psm1), the [guest](../../test/Invoke-GuestDiagnosticWorker.ps1) and [host](../../test/modules/Invoke-HostDiagnosticWorker.ps1) diagnostic workers, and [Get-SystemDiagnostic](../../automation/Get-SystemDiagnostic.ps1). |
+| Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), [Repair-PrivateState.py](../../test/service/Repair-PrivateState.py), and [status/](../../test/status/). |
+| Pool coordination | [Test.PoolWorker](../../test/modules/Test.PoolWorker.psm1), [Test.PoolSync](../../test/modules/Test.PoolSync.psm1), [Test.PoolPush](../../test/modules/Test.PoolPush.psm1), [Test.PoolStorage](../../test/modules/Test.PoolStorage.psm1), [Test.PoolPlanner](../../test/modules/Test.PoolPlanner.psm1), and [Test.PoolAdmin](../../test/modules/Test.PoolAdmin.psm1). |
 | Extension services | [extension/](../../test/extension/) holds authentication, digest, cache management/parser, download-agent, pool aggregator/control, stash, notification, and the shared SDK. |
 | Notifications | [Test.Notify](../../test/modules/Test.Notify.psm1), [Test.PoolNotifier](../../test/modules/Test.PoolNotifier.psm1), and configured providers in [notification/](../../test/extension/notification/). |
 
 The outer runner supervises a fresh cycle process, which launches an inner
-sequence process. These are processes on the host, rather than additional
-network services. The watchdog follows the cycle heartbeat; OCR and guest
-diagnostics supply sequence evidence. The host status listener also runs when
-testing is idle. The caching-proxy launcher starts the host status and
-configuration services through
+sequence process. Each cycle starts with the Test-Config gate; its verdict and
+transcript are kept per attempt, so the outer runner separates gate refusals
+from watchdog kills and unexpected exits. The runner and status service repair
+private startup state before they start. These are processes on the host, rather
+than additional network services. The watchdog follows the cycle heartbeat; OCR
+and guest diagnostics supply sequence evidence. `startVm` and `stopVm` observe
+VM state through the host driver and save console evidence when a guest stops
+answering. The host status listener also runs when testing is idle. The
+caching-proxy launcher starts the host status and configuration services through
 [Test.Prelude](../../test/modules/Test.Prelude.psm1).
 
 The extension family contains more than seven implementations and remains one
-aggregate here. Its daemons have separate launch paths rather than a shared
-runner-to-extension call. Their runtime placement and exchanges are expanded in
-[Deployment](06-deployment.md) and [Data flows](03-data-flows.md).
-Host refresh groups
+aggregate here. Sequence steps call PowerShell extension methods through
+[Test.Extension](../../test/modules/Test.Extension.psm1), and the
+[lab-health gate](../../test/modules/Test.LabHealth.psm1) probes each area at
+step boundaries; the Go daemons keep separate launch paths. Their runtime
+placement and exchanges are expanded in [Deployment](06-deployment.md) and
+[Data flows](03-data-flows.md). Host refresh groups
 [Test.HostRefresh](../../test/modules/Test.HostRefresh.psm1),
-[Test.HostRefreshIntent](../../test/modules/Test.HostRefreshIntent.psm1), and
-[Test.HostRefreshTrigger](../../test/modules/Test.HostRefreshTrigger.psm1)
-with runner supervision.
+[Test.HostRefreshIntent](../../test/modules/Test.HostRefreshIntent.psm1),
+[Test.HostRefreshTrigger](../../test/modules/Test.HostRefreshTrigger.psm1), and
+[Test.HostRefreshAuth](../../test/modules/Test.HostRefreshAuth.psm1) with runner
+supervision.
 
 ## Providers
 
@@ -155,9 +176,9 @@ flowchart LR
     host-modules["host/modules"]
     host-vmconfig["VM configuration"]
     guest["Guest families"]
-    yuruna-host-contract-psm1 --> windows-hyper-v
-    yuruna-host-contract-psm1 --> ubuntu-kvm
-    yuruna-host-contract-psm1 --> macos-utm
+    windows-hyper-v -->|asserts coverage| yuruna-host-contract-psm1
+    ubuntu-kvm -->|asserts coverage| yuruna-host-contract-psm1
+    macos-utm -->|asserts coverage| yuruna-host-contract-psm1
     windows-hyper-v --> host-modules
     ubuntu-kvm --> host-modules
     macos-utm --> host-modules
@@ -175,11 +196,27 @@ Sources: [host contract](../../host/Yuruna.Host.Contract.psm1),
 [UTM driver](../../host/macos.utm/modules/Yuruna.Host.psm1),
 [host/modules/](../../host/modules/), [host/vmconfig/](../../host/vmconfig/), and
 [guest/](../../guest/).
-Each driver dispatches per-guest image and VM builders and implements lifecycle,
-console input, screenshots, discovery, networking, and the host contract checks.
-VM configuration groups shared cloud-init service seeds, per-OS unattended
-installation files, and UTM bundle templates. Guest edges identify the scripts
-selected for the guest, not a requirement that every driver execute every script.
+Each driver imports the contract and asserts at load time that it exports every
+contract verb. It dispatches per-guest image and VM builders and implements
+lifecycle, console input, screenshots, discovery, and networking. `Stop-VM` takes
+`-ShutdownTimeoutSeconds` and `-NoForce` on all three drivers, so a sequence can
+request a graceful shutdown and observe it through the host; Hyper-V also captures
+the COM1 serial console during a cycle. Each provider folder also holds the
+Enable/Disable-TestAutomation, Sync-HostConfiguration, and
+Remove-OrphanedVMFiles scripts that the [test/lab/](../../test/lab/) dispatchers
+select through [Yuruna.HostRedirect](../../automation/Yuruna.HostRedirect.psm1).
+
+VM configuration groups the [host/vmconfig/](../../host/vmconfig/) cloud-init
+seeds for guests and services (base user-data plus per-hypervisor overlays), the
+Windows 11 `autounattend.xml` in each provider's builder, the UTM
+`config.plist.template` files, and the seed renderers
+[Yuruna.CloudInitTemplate](../../automation/Yuruna.CloudInitTemplate.psm1) and
+[Yuruna.GuestSeed](../../automation/Yuruna.GuestSeed.psm1). The caching-proxy seed
+carries a Zot sync self-test, and
+[caching-proxy-service.zot-qualified.json](../../host/vmconfig/caching-proxy-service.zot-qualified.json)
+records the release [Test-ZotRelease.py](../../tools/Test-ZotRelease.py) qualified.
+Guest edges identify the scripts selected for the guest, not a requirement that
+every driver execute every script.
 
 The guest family groups amazon.linux.2023, ubuntu.server.24, ubuntu.server.26,
 windows.11, macos.26, and [guest/shared](../../guest/shared/) helpers. Platform
@@ -187,7 +224,9 @@ support comes from the corresponding builder folders; the diagram does not imply
 every provider supports every guest. macos.26 has a UTM builder only; Hyper-V,
 libvirt, and UTM retain their own native console and networking implementations.
 Caching-proxy, stash, download-agent, and pool-control builders live under each
-provider and reuse the shared seeds and Ubuntu guest scripts. The network
+provider and reuse the shared seeds; the stash, download-agent, and pool-control
+seeds run their ubuntu.server.26 service scripts, while the caching-proxy seed is
+self-contained. The network
 differences are expanded in [Deployment](06-deployment.md).
 
 ## Project data
@@ -226,6 +265,9 @@ GCP configuration is present. Examples contain projects below their name;
 template itself contains
 config, resources, components, and workloads without another project-name folder.
 Some examples, including nested.host, supply tests without deployment directories.
+The companion [tools/](https://github.com/alissonsol/yuruna-project/tree/main/tools)
+folder holds the shared example workload helper and build module used by example
+guest and component scripts.
 The authentication vault belongs to the harness, as detailed in
 [Data model](05-data-model.md).
 
@@ -234,7 +276,7 @@ The authentication vault belongs to the harness, as detailed in
 ```mermaid
 flowchart LR
     yuruna-common-psm1["Common and variables"]
-    yuruna-validation-psm1["Validation and requirements"]
+    fetch-and-execute-sh["Guest shell helpers"]
     yuruna-result-psm1["Results and logging"]
     yuruna-retry-psm1["Retry and credentials"]
     global["global templates"]
@@ -246,9 +288,10 @@ Sources:
 [Yuruna.Common](../../automation/Yuruna.Common.psm1),
 [Yuruna.VariableExpansion](../../automation/Yuruna.VariableExpansion.psm1),
 [Import.Yaml](../../automation/Import.Yaml.psm1),
-[Yuruna.Validation](../../automation/Yuruna.Validation.psm1),
-[Yuruna.Requirement](../../automation/Yuruna.Requirement.psm1),
-[Yuruna.DeploymentKind](../../automation/Yuruna.DeploymentKind.psm1),
+[fetch-and-execute.sh](../../automation/fetch-and-execute.sh),
+[yuruna-retry.sh](../../automation/yuruna-retry.sh),
+[yuruna-service-bringup.sh](../../automation/yuruna-service-bringup.sh),
+[yuruna-host-locate.sh](../../automation/yuruna-host-locate.sh),
 [Yuruna.Result](../../automation/Yuruna.Result.psm1),
 [Yuruna.Log](../../automation/Yuruna.Log.psm1),
 [Yuruna.LogLevel](../../automation/Yuruna.LogLevel.psm1),
@@ -258,17 +301,27 @@ Sources:
 [tools/](../../tools/).
 
 Seven boxes group related libraries and assets. Common and variables include
-root/path resolution, YAML loading, and variable expansion. Validation and
-requirements include the shared deployment-kind catalog; results and logging
-include completion manifests and log levels. Retry and credentials group the
+host, network, bounded-process, and canonical-path helpers, YAML loading, and
+variable expansion. Guest shell helpers group the scripts that guest seeds and
+guest scripts install or source: fetch-and-execute.sh, yuruna-fetch-context.sh,
+yuruna-retry.sh, yuruna-run.sh, yuruna-network.sh, yuruna-versions.sh,
+yuruna-service-bringup.sh, the yuruna-host-locate pair, Test-YurunaHost.ps1, and
+windows-guest-bootstrap.ps1. Results and logging include completion manifests,
+log levels, and entry-point root and transcript resolution in Yuruna.LogLevel.
+Validation, requirement, and deployment-kind modules are imported only by
+deploy-engine code and appear in its checks family. Retry and credentials group the
 transient-operation helper and registry authentication provider catalog.
-Global contains config, resource, component, and workload roots. The
-globalization aggregate includes
-[Yuruna.Globalization](../../automation/Yuruna.Globalization.psm1) and catalogs;
+Global contains config, component, and workload roots; global/resources appears
+under External services. The globalization aggregate includes
+[Yuruna.Globalization](../../automation/Yuruna.Globalization.psm1), the
+[Test.Catalog](../../test/modules/Test.Catalog.psm1) and
+[Test.Locale](../../test/modules/Test.Locale.psm1) runtime it loads, and catalogs;
 [Globalization](07-globalization.md) expands its language contract.
 Tools include [Invoke-TestSuite](../../tools/Invoke-TestSuite.ps1) and its
 [worker](../../tools/_InvokeOneSuite.ps1), which run isolated Pester suites and
-retain validation evidence independently of the continuous VM runner.
+retain validation evidence independently of the continuous VM runner, and
+[Gate.Scope](../../tools/Gate.Scope.psm1), the scope resolver shared by the lint
+and shellcheck gates.
 
 ## External services
 
@@ -301,7 +354,12 @@ checked-in resource-group, Linux VM, PostgreSQL, and storage-share templates.
 Registry providers implement ACR, ECR, Google Artifact Registry, Docker Hub, and
 generic Docker authentication. GAR support does not supply GCP provisioning.
 The localhost registry template checks a registry already started by the caller,
-and context-copy selects an existing local Kubernetes context.
+and context-copy copies an existing local Kubernetes context under the configured
+destination name. Image and package upstreams include the container registries
+the cache's Zot mirror syncs from, which the Zot sync self-test probes. The
+registry providers authenticate the component phase's push; cluster pull access
+comes from project workload configuration, such as the Azure website's
+`docker-registry` secret.
 The AWS template exposes the Kubernetes control-plane API separately from
 application ingress, as shown in [Deployment](06-deployment.md#aws-application-ingress).
 

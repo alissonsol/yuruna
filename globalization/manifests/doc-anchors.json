@@ -550,6 +550,11 @@
           "slug": "warm-sets-and-the-cold-sync-reading"
         },
         {
+          "id": "42f6b05f-0056",
+          "heading": "When a zot release cannot sync the lab's images",
+          "slug": "when-a-zot-release-cannot-sync-the-labs-images"
+        },
+        {
           "id": "42f6b05f-0021",
           "heading": "Keeping tag resolution off a metered upstream",
           "slug": "keeping-tag-resolution-off-a-metered-upstream"
@@ -1239,6 +1244,16 @@
           "id": "42fa6f45-0040",
           "heading": "Defining the remediation dispatcher contract",
           "slug": "defining-the-remediation-dispatcher-contract"
+        },
+        {
+          "id": "42fa6f45-0041",
+          "heading": "Defining Baseline, Configuration, Implementation, and Telemetry",
+          "slug": "defining-baseline-configuration-implementation-and-telemetry"
+        },
+        {
+          "id": "42fa6f45-0042",
+          "heading": "Defining access conditions and differences",
+          "slug": "defining-access-conditions-and-differences"
         }
       ]
     },
@@ -2678,8 +2693,8 @@
         },
         {
           "id": "4213a0b3-00bd",
-          "heading": "test/modules/Test.PoolAdmin.psm1: Open-YurunaPoolIntent",
-          "slug": "testmodulestestpooladminpsm1-open-yurunapoolintent"
+          "heading": "test/modules/Test.PoolAdmin.psm1: Open-YurunaPoolConfiguration",
+          "slug": "testmodulestestpooladminpsm1-open-yurunapoolconfiguration"
         },
         {
           "id": "4213a0b3-00be",
@@ -3750,6 +3765,196 @@
           "id": "4213a0b3-0193",
           "heading": "test/modules/Test.YurunaDir.psm1: Get-YurunaHostId",
           "slug": "testmodulestestyurunadirpsm1-get-yurunahostid"
+        },
+        {
+          "id": "4213a0b3-0194",
+          "heading": "guest/amazon.linux.2023: n8n and OpenClaw need no command-exposure step",
+          "slug": "guestamazonlinux2023-n8n-and-openclaw-need-no-command-exposure-step"
+        },
+        {
+          "id": "4213a0b3-0195",
+          "heading": "automation/Get-SystemDiagnostic.ps1: Project-tree walks behind a deadline",
+          "slug": "automationget-systemdiagnosticps1-project-tree-walks-behind-a-deadline"
+        },
+        {
+          "id": "4213a0b3-0196",
+          "heading": "automation/Get-SystemDiagnostic.ps1: Matching a Hyper-V management vNIC by MAC",
+          "slug": "automationget-systemdiagnosticps1-matching-a-hyper-v-management-vnic-by-mac"
+        },
+        {
+          "id": "4213a0b3-0197",
+          "heading": "automation/Get-SystemDiagnostic.ps1: PATH alone under-reports tesseract and qemu-img",
+          "slug": "automationget-systemdiagnosticps1-path-alone-under-reports-tesseract-and-qemu-img"
+        },
+        {
+          "id": "4213a0b3-0198",
+          "heading": "automation/Get-SystemDiagnostic.ps1: A blocked package manager is found by its file descriptor",
+          "slug": "automationget-systemdiagnosticps1-a-blocked-package-manager-is-found-by-its-file-descriptor"
+        },
+        {
+          "id": "4213a0b3-0199",
+          "heading": "automation/Get-SystemDiagnostic.ps1: Neighbor state and forwarding database beside the lease table",
+          "slug": "automationget-systemdiagnosticps1-neighbor-state-and-forwarding-database-beside-the-lease-table"
+        },
+        {
+          "id": "4213a0b3-019a",
+          "heading": "automation/Get-SystemDiagnostic.ps1: Listing pod images through kubectl jsonpath",
+          "slug": "automationget-systemdiagnosticps1-listing-pod-images-through-kubectl-jsonpath"
+        },
+        {
+          "id": "4213a0b3-019b",
+          "heading": "install/macos.utm.sh: Refresh dispatch",
+          "slug": "installmacosutmsh-refresh-dispatch"
+        },
+        {
+          "id": "4213a0b3-019c",
+          "heading": "install/macos.utm.sh: Where a PowerShell interpreter can already live",
+          "slug": "installmacosutmsh-where-a-powershell-interpreter-can-already-live"
+        },
+        {
+          "id": "4213a0b3-019d",
+          "heading": "install/setup.ps1: Resolving the log level before anything is written",
+          "slug": "installsetupps1-resolving-the-log-level-before-anything-is-written"
+        },
+        {
+          "id": "4213a0b3-019e",
+          "heading": "install/setup.ps1: The run log and the child transcripts",
+          "slug": "installsetupps1-the-run-log-and-the-child-transcripts"
+        },
+        {
+          "id": "4213a0b3-019f",
+          "heading": "install/setup.ps1: Stripping terminal control sequences from child output",
+          "slug": "installsetupps1-stripping-terminal-control-sequences-from-child-output"
+        },
+        {
+          "id": "4213a0b3-01a0",
+          "heading": "install/setup.ps1: Filing the information stream of an in-process step",
+          "slug": "installsetupps1-filing-the-information-stream-of-an-in-process-step"
+        },
+        {
+          "id": "4213a0b3-01a1",
+          "heading": "install/setup.ps1: Naming the sudo prompt before it appears",
+          "slug": "installsetupps1-naming-the-sudo-prompt-before-it-appears"
+        },
+        {
+          "id": "4213a0b3-01a2",
+          "heading": "install/setup.ps1: Filtering null elements out of a child argument list",
+          "slug": "installsetupps1-filtering-null-elements-out-of-a-child-argument-list"
+        },
+        {
+          "id": "4213a0b3-01a3",
+          "heading": "install/setup.ps1: Draining child output through event subscriptions",
+          "slug": "installsetupps1-draining-child-output-through-event-subscriptions"
+        },
+        {
+          "id": "4213a0b3-01a4",
+          "heading": "install/setup.ps1: Adopting a service VM that is already running",
+          "slug": "installsetupps1-adopting-a-service-vm-that-is-already-running"
+        },
+        {
+          "id": "4213a0b3-01a5",
+          "heading": "install/setup.ps1: A running service VM that is silent or unnameable is rebuilt",
+          "slug": "installsetupps1-a-running-service-vm-that-is-silent-or-unnameable-is-rebuilt"
+        },
+        {
+          "id": "4213a0b3-01a6",
+          "heading": "install/setup.ps1: The default pool is derived, not asked",
+          "slug": "installsetupps1-the-default-pool-is-derived-not-asked"
+        },
+        {
+          "id": "4213a0b3-01a7",
+          "heading": "install/setup.ps1: Asking about state a previous sudo run left behind",
+          "slug": "installsetupps1-asking-about-state-a-previous-sudo-run-left-behind"
+        },
+        {
+          "id": "4213a0b3-01a8",
+          "heading": "install/setup.ps1: Clearing state a previous sudo run left behind",
+          "slug": "installsetupps1-clearing-state-a-previous-sudo-run-left-behind"
+        },
+        {
+          "id": "4213a0b3-01a9",
+          "heading": "install/setup.ps1: Enable-TestAutomation outcomes during setup",
+          "slug": "installsetupps1-enable-testautomation-outcomes-during-setup"
+        },
+        {
+          "id": "4213a0b3-01aa",
+          "heading": "install/setup.ps1: Storage is critical, and later steps read its recorded fact",
+          "slug": "installsetupps1-storage-is-critical-and-later-steps-read-its-recorded-fact"
+        },
+        {
+          "id": "4213a0b3-01ab",
+          "heading": "install/setup.ps1: What proves this machine already serves its own shares",
+          "slug": "installsetupps1-what-proves-this-machine-already-serves-its-own-shares"
+        },
+        {
+          "id": "4213a0b3-01ac",
+          "heading": "install/setup.ps1: Standalone hosts own the pool and stash aliases",
+          "slug": "installsetupps1-standalone-hosts-own-the-pool-and-stash-aliases"
+        },
+        {
+          "id": "4213a0b3-01ad",
+          "heading": "install/setup.ps1: Tearing the caching proxy down only when it is not worth keeping",
+          "slug": "installsetupps1-tearing-the-caching-proxy-down-only-when-it-is-not-worth-keeping"
+        },
+        {
+          "id": "4213a0b3-01ae",
+          "heading": "install/setup.ps1: The dashboard alias",
+          "slug": "installsetupps1-the-dashboard-alias"
+        },
+        {
+          "id": "4213a0b3-01af",
+          "heading": "install/setup.ps1: Folding the configuration gate's transcript into the log",
+          "slug": "installsetupps1-folding-the-configuration-gates-transcript-into-the-log"
+        },
+        {
+          "id": "4213a0b3-01b0",
+          "heading": "install/setup.ps1: Naming the switches to drop on a re-run",
+          "slug": "installsetupps1-naming-the-switches-to-drop-on-a-re-run"
+        },
+        {
+          "id": "4213a0b3-01b1",
+          "heading": "install/ubuntu.kvm.sh: PowerShell floor repair",
+          "slug": "installubuntukvmsh-powershell-floor-repair"
+        },
+        {
+          "id": "4213a0b3-01b2",
+          "heading": "automation/Get-SystemDiagnostic.ps1: One df snapshot, and the one-element array that must stay an array",
+          "slug": "automationget-systemdiagnosticps1-one-df-snapshot-and-the-one-element-array-that-must-stay-an-array"
+        },
+        {
+          "id": "4213a0b3-01b3",
+          "heading": "automation/Get-SystemDiagnostic.ps1: DHCP wire capture readiness",
+          "slug": "automationget-systemdiagnosticps1-dhcp-wire-capture-readiness"
+        },
+        {
+          "id": "4213a0b3-01b4",
+          "heading": "install/macos.utm.sh: Bounding one utmctl status call",
+          "slug": "installmacosutmsh-bounding-one-utmctl-status-call"
+        },
+        {
+          "id": "4213a0b3-01b5",
+          "heading": "install/setup.ps1: Refusing to run as root",
+          "slug": "installsetupps1-refusing-to-run-as-root"
+        },
+        {
+          "id": "4213a0b3-01b6",
+          "heading": "install/ubuntu.kvm.sh: virt-manager is installed with its recommended packages",
+          "slug": "installubuntukvmsh-virt-manager-is-installed-with-its-recommended-packages"
+        },
+        {
+          "id": "4213a0b3-01b7",
+          "heading": "install/ubuntu.kvm.sh: The PowerShell tarball is the fallback source",
+          "slug": "installubuntukvmsh-the-powershell-tarball-is-the-fallback-source"
+        },
+        {
+          "id": "4213a0b3-01b8",
+          "heading": "install/ubuntu.kvm.sh: A failed PowerShell upgrade ends the attempt, not the install",
+          "slug": "installubuntukvmsh-a-failed-powershell-upgrade-ends-the-attempt-not-the-install"
+        },
+        {
+          "id": "4213a0b3-01b9",
+          "heading": "install/windows.hyper-v.ps1: The installation summary is gated on the run outcome",
+          "slug": "installwindowshyper-vps1-the-installation-summary-is-gated-on-the-run-outcome"
         }
       ]
     },
@@ -4272,8 +4477,8 @@
         },
         {
           "id": "42e5cdfd-002f",
-          "heading": "host/windows.hyper-v/Remove-OrphanedVMFiles.ps1: Elevation gate",
-          "slug": "hostwindowshyper-vremove-orphanedvmfilesps1-elevation-gate"
+          "heading": "host/windows.hyper-v/Remove-OrphanedVMFiles.ps1: Elevation check",
+          "slug": "hostwindowshyper-vremove-orphanedvmfilesps1-elevation-check"
         },
         {
           "id": "42e5cdfd-0030",
@@ -4477,6 +4682,11 @@
           "id": "4222e5f2-000b",
           "heading": "Transport config reload at module load",
           "slug": "transport-config-reload-at-module-load"
+        },
+        {
+          "id": "4222e5f2-000c",
+          "heading": "Hyper-V click coordinates and DPI awareness",
+          "slug": "hyper-v-click-coordinates-and-dpi-awareness"
         }
       ]
     },
@@ -4575,6 +4785,164 @@
           "id": "42885ada-0011",
           "heading": "Why the UTM dialog watchdog is narrowly scoped",
           "slug": "why-the-utm-dialog-watchdog-is-narrowly-scoped"
+        }
+      ]
+    },
+    {
+      "id": "42f52e37",
+      "repo": "yuruna",
+      "source": "docs/host-source-rationale.md",
+      "translations": {},
+      "anchors": [
+        {
+          "id": "42f52e37-0001",
+          "heading": "Host source rationale",
+          "slug": "host-source-rationale"
+        },
+        {
+          "id": "42f52e37-0002",
+          "heading": "host/macos.utm/modules/Yuruna.Host.psm1: Resume-YurunaServiceVM",
+          "slug": "hostmacosutmmodulesyurunahostpsm1-resume-yurunaservicevm"
+        },
+        {
+          "id": "42f52e37-0003",
+          "heading": "host/macos.utm/modules/Yuruna.Host.psm1: Rename-VM",
+          "slug": "hostmacosutmmodulesyurunahostpsm1-rename-vm"
+        },
+        {
+          "id": "42f52e37-001d",
+          "heading": "host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1: Validate the resolved libvirt network",
+          "slug": "hostubuntukvmguestcaching-proxy-servicenew-vmps1-validate-the-resolved-libvirt-network"
+        },
+        {
+          "id": "42f52e37-0004",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Remove-VM",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-remove-vm"
+        },
+        {
+          "id": "42f52e37-0005",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Get-VMIp",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-get-vmip"
+        },
+        {
+          "id": "42f52e37-0006",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: Clear-YurunaExternalBridgeResidue",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-clear-yurunaexternalbridgeresidue"
+        },
+        {
+          "id": "42f52e37-0007",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaExternalNetwork",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-new-yurunaexternalnetwork"
+        },
+        {
+          "id": "42f52e37-0008",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaExternalNetwork",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-new-yurunaexternalnetwork"
+        },
+        {
+          "id": "42f52e37-0009",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaBridgeViaNmcli",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-new-yurunabridgevianmcli"
+        },
+        {
+          "id": "42f52e37-000a",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaBridgeViaNetplan",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-new-yurunabridgevianetplan"
+        },
+        {
+          "id": "42f52e37-000b",
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: DHCP evidence capture",
+          "slug": "hostubuntukvmmodulesyurunahostpsm1-dhcp-evidence-capture"
+        },
+        {
+          "id": "42f52e37-001a",
+          "heading": "host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1: Scan for VM artifacts",
+          "slug": "hostubuntukvmremove-orphanedvmfilesps1-scan-for-vm-artifacts"
+        },
+        {
+          "id": "42f52e37-000c",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-CacheVmCandidateIp",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-get-cachevmcandidateip"
+        },
+        {
+          "id": "42f52e37-000d",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-HyperVScreenshot",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-get-hypervscreenshot"
+        },
+        {
+          "id": "42f52e37-000e",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-BestHostIp",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-get-besthostip"
+        },
+        {
+          "id": "42f52e37-001b",
+          "heading": "host/windows.hyper-v/Sync-HostConfiguration.ps1: Initialize host setup",
+          "slug": "hostwindowshyper-vsync-hostconfigurationps1-initialize-host-setup"
+        },
+        {
+          "id": "42f52e37-001c",
+          "heading": "test/lab/Remove-OrphanedVMFiles.ps1: Shared bootstrap",
+          "slug": "testlabremove-orphanedvmfilesps1-shared-bootstrap"
+        },
+        {
+          "id": "42f52e37-000f",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Remove existing VM",
+          "slug": "testservicestart-cachingproxyservicevmps1-remove-existing-vm"
+        },
+        {
+          "id": "42f52e37-0010",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Start the host config service",
+          "slug": "testservicestart-cachingproxyservicevmps1-start-the-host-config-service"
+        },
+        {
+          "id": "42f52e37-0011",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Register and start the UTM VM",
+          "slug": "testservicestart-cachingproxyservicevmps1-register-and-start-the-utm-vm"
+        },
+        {
+          "id": "42f52e37-0012",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Step 6: macOS bridged -- tear down legacy host-side forwarders",
+          "slug": "testservicestart-cachingproxyservicevmps1-step-6-macos-bridged----tear-down-legacy-host-side-forwarders"
+        },
+        {
+          "id": "42f52e37-0013",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Windows -- discover the cache VM and expose its ports to the LAN",
+          "slug": "testservicestart-cachingproxyservicevmps1-windows----discover-the-cache-vm-and-expose-its-ports-to-the-lan"
+        },
+        {
+          "id": "42f52e37-0014",
+          "heading": "test/service/Start-CachingProxyServiceVM.ps1: Report the service state",
+          "slug": "testservicestart-cachingproxyservicevmps1-report-the-service-state"
+        },
+        {
+          "id": "42f52e37-0015",
+          "heading": "test/service/Start-StatusService.ps1: Module setup",
+          "slug": "testservicestart-statusserviceps1-module-setup"
+        },
+        {
+          "id": "42f52e37-0016",
+          "heading": "test/service/Start-StatusService.ps1: Check for an existing server",
+          "slug": "testservicestart-statusserviceps1-check-for-an-existing-server"
+        },
+        {
+          "id": "42f52e37-0017",
+          "heading": "test/service/Start-StatusService.ps1: Ensure repoUrl is set in status.json",
+          "slug": "testservicestart-statusserviceps1-ensure-repourl-is-set-in-statusjson"
+        },
+        {
+          "id": "42f52e37-0018",
+          "heading": "test/service/Start-StatusService.ps1: Probe proxy cache -> $env:YURUNA_RUNTIME_DIR/caching-proxy-service.txt",
+          "slug": "testservicestart-statusserviceps1-probe-proxy-cache---envyuruna_runtime_dircaching-proxy-servicetxt"
+        },
+        {
+          "id": "42f52e37-0019",
+          "heading": "test/service/Start-StatusService.ps1: Detached server launch",
+          "slug": "testservicestart-statusserviceps1-detached-server-launch"
+        },
+        {
+          "id": "42f52e37-0020",
+          "heading": "test/service/Start-StashServiceVM.ps1: Phase order across the service VM family",
+          "slug": "testservicestart-stashservicevmps1-phase-order-across-the-service-vm-family"
         }
       ]
     },
@@ -6074,6 +6442,47 @@
       ]
     },
     {
+      "id": "4268f34b",
+      "repo": "yuruna",
+      "source": "docs/ontology/2026/10/README.md",
+      "translations": {},
+      "anchors": [
+        {
+          "id": "4268f34b-0001",
+          "heading": "Yuruna ontology",
+          "slug": "yuruna-ontology"
+        },
+        {
+          "id": "4268f34b-0002",
+          "heading": "Open and explore it",
+          "slug": "open-and-explore-it"
+        },
+        {
+          "id": "4268f34b-0003",
+          "heading": "Reading a concept",
+          "slug": "reading-a-concept"
+        }
+      ]
+    },
+    {
+      "id": "425aed30",
+      "repo": "yuruna",
+      "source": "docs/ontology/README.md",
+      "translations": {},
+      "anchors": [
+        {
+          "id": "425aed30-0004",
+          "heading": "Yuruna ontology",
+          "slug": "yuruna-ontology"
+        }
+      ],
+      "retiredAnchorIds": [
+        "425aed30-0001",
+        "425aed30-0002",
+        "425aed30-0003"
+      ]
+    },
+    {
       "id": "42ad660e",
       "repo": "yuruna",
       "source": "docs/operator.md",
@@ -6672,8 +7081,8 @@
         },
         {
           "id": "428405a0-0014",
-          "heading": "Pool harness -- membership, intent, and assigned-project execution",
-          "slug": "pool-harness----membership-intent-and-assigned-project-execution"
+          "heading": "Pool harness -- membership, configuration, and assigned-project execution",
+          "slug": "pool-harness----membership-configuration-and-assigned-project-execution"
         }
       ]
     },
@@ -7027,8 +7436,8 @@
         },
         {
           "id": "42010605-0045",
-          "heading": "Section 9d: Pool (intent sync)",
-          "slug": "section-9d-pool-intent-sync"
+          "heading": "Section 9d: Pool (configuration sync)",
+          "slug": "section-9d-pool-configuration-sync"
         },
         {
           "id": "42010605-0046",
@@ -7252,13 +7661,13 @@
         },
         {
           "id": "42010605-0072",
-          "heading": "Pool-intent repository",
-          "slug": "pool-intent-repository"
+          "heading": "Pool-configuration repository",
+          "slug": "pool-configuration-repository"
         },
         {
           "id": "42010605-0073",
-          "heading": "Create a lab: its storage folders, its credential vault, and its pool-intent repository",
-          "slug": "create-a-lab-its-storage-folders-its-credential-vault-and-its-pool-intent-repository"
+          "heading": "Create a lab: its storage folders, its credential vault, and its pool-configuration repository",
+          "slug": "create-a-lab-its-storage-folders-its-credential-vault-and-its-pool-configuration-repository"
         },
         {
           "id": "42010605-0074",
@@ -7312,8 +7721,8 @@
         },
         {
           "id": "42010605-007e",
-          "heading": "Seed the pool intent store binding",
-          "slug": "seed-the-pool-intent-store-binding"
+          "heading": "Seed the pool configuration store binding",
+          "slug": "seed-the-pool-configuration-store-binding"
         },
         {
           "id": "42010605-007f",
@@ -7337,8 +7746,8 @@
         },
         {
           "id": "42010605-0083",
-          "heading": "Elevation gate",
-          "slug": "elevation-gate"
+          "heading": "Elevation check",
+          "slug": "elevation-check"
         },
         {
           "id": "42010605-0084",
@@ -7447,18 +7856,18 @@
         },
         {
           "id": "42010605-0099",
-          "heading": "Validate every file in the pool intent store against its schema",
-          "slug": "validate-every-file-in-the-pool-intent-store-against-its-schema"
+          "heading": "Validate every file in the pool configuration store against its schema",
+          "slug": "validate-every-file-in-the-pool-configuration-store-against-its-schema"
         },
         {
           "id": "42010605-009a",
-          "heading": "Migrate the pool intent store to pools",
-          "slug": "migrate-the-pool-intent-store-to-pools"
+          "heading": "Migrate the pool configuration store to pools",
+          "slug": "migrate-the-pool-configuration-store-to-pools"
         },
         {
           "id": "42010605-009b",
-          "heading": "Example pool intent (schema v3). Validates against test/schemas/pools.schema.yml. This is the file",
-          "slug": "example-pool-intent-schema-v3-validates-against-testschemaspoolsschemayml-this-is-the-file"
+          "heading": "Example pool configuration (schema v4). Validates against test/schemas/pools.schema.yml. This is the file",
+          "slug": "example-pool-configuration-schema-v4-validates-against-testschemaspoolsschemayml-this-is-the-file"
         },
         {
           "id": "42010605-0005",
@@ -8429,8 +8838,8 @@
         },
         {
           "id": "42b11c32-000c",
-          "heading": "pool -- optional multi-host pool intent (default-off)",
-          "slug": "pool----optional-multi-host-pool-intent-default-off"
+          "heading": "pool -- optional multi-host pool configuration (default-off)",
+          "slug": "pool----optional-multi-host-pool-configuration-default-off"
         },
         {
           "id": "42b11c32-000d",
@@ -8882,6 +9291,11 @@
           "id": "428e4df6-0039",
           "heading": "startVm",
           "slug": "startvm"
+        },
+        {
+          "id": "428e4df6-003b",
+          "heading": "stopVm",
+          "slug": "stopvm"
         },
         {
           "id": "428e4df6-001d",
@@ -9360,8 +9774,8 @@
         },
         {
           "id": "429f3d06-0040",
-          "heading": "Pool intent store over read-only HTTP",
-          "slug": "pool-intent-store-over-read-only-http"
+          "heading": "Pool configuration store over read-only HTTP",
+          "slug": "pool-configuration-store-over-read-only-http"
         },
         {
           "id": "429f3d06-0041",
@@ -9645,8 +10059,8 @@
         },
         {
           "id": "429f3d06-0079",
-          "heading": "Pool intent store seeding",
-          "slug": "pool-intent-store-seeding"
+          "heading": "Pool configuration store seeding",
+          "slug": "pool-configuration-store-seeding"
         },
         {
           "id": "429f3d06-007a",

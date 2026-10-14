@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4298cc86-a88d-484a-9f42-179d9e217fbf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,8 @@ Import-Module (Join-Path $_repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
@@ -126,8 +128,6 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destination "$SeedDir/meta-data"
-# --- REGION: https://yuruna.link/4220a755-000b
-Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
@@ -159,6 +159,8 @@ if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
     $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
 }
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
@@ -170,6 +172,7 @@ $ystashNas = Get-YurunaStashSeedValue -Config $tc -GuestReachableAddress $Yuruna
 $null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 
+# --- REGION: Render user-data / meta-data
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
 # stash-service.*). New-CloudInitUserData resolves placeholders with literal
 # .Replace(), so values carrying regex-special chars are safe.
@@ -194,6 +197,8 @@ $UserData = New-CloudInitUserData `
         YURUNA_AGGREGATOR_URL_PLACEHOLDER    = $aggregatorSeedUrl
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+# --- REGION: https://yuruna.link/4220a755-000b
+Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Generate cloud-init seed ISO
 $SeedIso = "$DataDir/seed.iso"
@@ -214,6 +219,8 @@ $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance
+# UTM bundles are registered and started by the operator, so this phase prints
+# the next steps instead of waiting for an IP.
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0693526b7c911445')
 Write-Output "  Path:      $UtmDir"

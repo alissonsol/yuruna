@@ -239,7 +239,7 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 
 | Módulo | Finalidade |
 |--------|---------|
-| `Test.PoolSync`        | Obtém a intenção do grupo (associação + desiredState) e a reconcilia no laço externo |
+| `Test.PoolSync`        | Obtém a configuração do grupo (associação + configuredState) e a reconcilia no laço externo |
 | `Test.PoolPlanner`     | Lê o manifesto do grupo -- os repositórios de framework e projeto do grupo -- para o executor |
 | `Test.PoolAdmin`       | Auxiliares por trás da CLI pool-admin; cada alteração é validada por esquema antes de ser confirmada |
 | `Test.PoolStorage`     | Compartilhamento SMB3 opcional como camada durável para a saída dos ciclos, além da drenagem que confirma e recupera espaço |
@@ -758,7 +758,7 @@ Atualmente (consulte as chamadas a `Register-SequenceAction` em
 | `fetchAndExecute`        | `Send-Text`, `Send-Key`   | sim          |
 | `networkRelease`         | `Send-Text`, `Send-Key`   | não          |
 | `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(nenhum)_ | não |
-| `startVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(nenhum)_ | não |
+| `startVm` / `stopVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(nenhum)_ | não |
 
 Adicionar um novo verbo exige uma chamada a `Register-SequenceAction` que
 declare suas capacidades -- a barreira o reconhece no próximo ciclo.
@@ -1336,6 +1336,40 @@ de espera progressiva após pausa por falha ficam em
 [Watchdog](../runner-outer-loop.md#watchdog-and-heartbeat-protocol). A visibilidade
 do fluxo de logs por etapa é controlada por [Níveis de log](../loglevels.md).
 
+**`test/test.config.yml.template`.**
+
+Atualização automática do hospedeiro: 0, o padrão, mantém o recurso desativado;
+a ativação recomendada usa 2, e 1 é tratado como 2 porque um único tempo limite
+não comprova o problema. Contam apenas ciclos concluídos cuja varredura de
+restauração das VMs de serviço encontrou o canal de controle do hipervisor sem
+resposta e nenhum serviço respondendo. Recusa de acesso, utmctl ausente, falta
+de sessão gráfica, saída desconhecida, outras fases (git, rede, cofre ou
+pacotes) e ciclos abortados, pausados ou em drenagem nunca contam. Uma resposta
+do hipervisor zera a contagem. Há no máximo uma tentativa automática por dia
+UTC; ela nunca ocorre com o pool pausado ou em drenagem e nunca força a parada
+do UTM ou de seus auxiliares. A ação só é executada em plataformas que passaram
+pela qualificação nativa. Nas demais, o executor registra a evidência e o motivo
+para não agir, e Test-Config emite um aviso. A configuração testCycle do pool
+prevalece, inclusive quando define 0.
+
+O watchdog externo não é um segundo orçamento de etapa: runner.stepHeartbeat é
+atualizado no início de cada etapa, e o executor externo encerra todo o processo
+interno quando uma etapa permanece sem atualização por mais que esse limite.
+Por isso, ele precisa exceder o maior orçamento de etapa pedido por qualquer
+sequência. Um limite menor encerraria uma etapa apenas lenta como se o executor
+estivesse travado, substituindo uma falha que identifica a etapa por outra que
+não identifica nada.
+
+O valor é 3600 porque a etapa mais lenta fornecida, a carga de trabalho do
+Visual Studio Code, pede 3000 e foi medida em 2828 segundos em um hospedeiro
+Hyper-V ARM64, no qual o convidado Linux executa esse trabalho a cerca de um
+terço da velocidade observada em outros ambientes (docs/host-hyperv.md).
+Essa execução foi concluída com sucesso; um watchdog de 2700 segundos a teria
+encerrado cerca de cem segundos antes do fim. Hospedeiros que concluem a etapa
+em minutos não pagam pelo tempo adicional. O custo de um limite generoso é o
+tempo para detectar uma etapa realmente travada, e preambleTimeoutSeconds
+continua limitando a fase em que uma parada nunca é legítima.
+
 <a id="42d38664-0024"></a>
 
 <a id="exit-codes"></a>
@@ -1354,6 +1388,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Voltar para [Yuruna](../../README.md)

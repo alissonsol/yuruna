@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42507b72-36d6-40f8-9a02-4a16e5a058b9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,8 +46,8 @@
       paused      -> idle, cycle-start
 
     The cycle-start<->paused pair is the healthy pool-hold loop: a
-    started cycle is gated to paused by a pulled desiredState=paused,
-    and each ~30s intent re-poll re-enters cycle-start.
+    started cycle is gated to paused by a pulled configuredState=paused,
+    and each ~30s configuration re-poll re-enters cycle-start.
 
     Each transition writes runner.state.json atomically (via the
     state-file helper) and emits a `runner_state_transition` NDJSON

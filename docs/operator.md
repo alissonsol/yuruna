@@ -619,7 +619,7 @@ sets up the whole tier in one idempotent, `-WhatIf`-able command**;
 commands: [A.5](#a5-create-pool-and-stash-storage). It suggests a
 storage root of `/srv/yuruna` (Ubuntu), `/Users/Shared/yuruna`
 (macOS), or `<drive>\Shares\yuruna` (Windows, first non-system drive).
-It calls `New-Lab` for the folders, the lab vault, and the intent
+It calls `New-Lab` for the folders, the lab vault, and the configuration
 repository, then does what `New-Lab` deliberately leaves alone:
 
 - **One local account per tier** -- `yuruna-pool` and `yuruna-stash`,
@@ -667,7 +667,7 @@ present rather than minting a second set:
 
 The storage folders keep the operator as owner; the share account is
 added alongside (inherited ACE on Windows/macOS, group + setgid on
-Linux). That lets `New-Lab` create the next lab's intent repository in
+Linux). That lets `New-Lab` create the next lab's configuration repository in
 the pool folder, and avoids git's "dubious ownership" refusal that
 chowning to the share account would trigger.
 
@@ -887,6 +887,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

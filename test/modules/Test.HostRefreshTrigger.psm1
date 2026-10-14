@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 424f9ac4-a8c5-484f-9b6f-760e69d94781
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1454,11 +1454,11 @@ function Get-HostRefreshAutoThreshold {
 function Get-HostRefreshAutoPoolContext {
     <#
     .SYNOPSIS
-        The pool's desired state and testCycle override, pulled fresh.
+        The pool's configured state and testCycle override, pulled fresh.
     .DESCRIPTION
         The resident outer holds no pool state of its own -- the per-cycle
         process pulls it and exits -- so a decision about an unattended
-        repair pulls it again (bounded; Sync-YurunaPoolIntent never throws).
+        repair pulls it again (bounded; Sync-YurunaPoolConfiguration never throws).
         No pool sync loaded, or pool sync turned off in the configuration, is
         a single host: run.
 
@@ -1470,19 +1470,19 @@ function Get-HostRefreshAutoPoolContext {
         unknown, which refuses an automatic attempt. A reader that throws is
         unknown too.
     .OUTPUTS
-        [pscustomobject] @{ DesiredState run|paused|drain|unknown;
+        [pscustomobject] @{ ConfiguredState run|paused|drain|unknown;
         TestCycleOverride [hashtable]; Source pull|no-pool-sync|
         no-pool-record|error }.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param()
-    if (-not (Get-Command -Name Sync-YurunaPoolIntent -ErrorAction SilentlyContinue) -or
-        -not (Get-Command -Name Resolve-YurunaPoolDesiredState -ErrorAction SilentlyContinue)) {
-        return [pscustomobject]@{ DesiredState = 'run'; TestCycleOverride = @{}; Source = 'no-pool-sync' }
+    if (-not (Get-Command -Name Sync-YurunaPoolConfiguration -ErrorAction SilentlyContinue) -or
+        -not (Get-Command -Name Resolve-YurunaPoolConfiguredState -ErrorAction SilentlyContinue)) {
+        return [pscustomobject]@{ ConfiguredState = 'run'; TestCycleOverride = @{}; Source = 'no-pool-sync' }
     }
     try {
-        $pool = Sync-YurunaPoolIntent
+        $pool = Sync-YurunaPoolConfiguration
         if ($null -eq $pool) {
             $enabled = $false
             if (Get-Command -Name Get-YurunaPoolConfig -ErrorAction SilentlyContinue) {
@@ -1491,15 +1491,15 @@ function Get-HostRefreshAutoPoolContext {
                 $poolConfig = Get-YurunaPoolConfig -WarningAction SilentlyContinue
                 $enabled = [bool]($poolConfig -and $poolConfig.Enabled)
             }
-            if ($enabled) { return [pscustomobject]@{ DesiredState = 'unknown'; TestCycleOverride = @{}; Source = 'no-pool-record' } }
-            return [pscustomobject]@{ DesiredState = 'run'; TestCycleOverride = @{}; Source = 'no-pool-sync' }
+            if ($enabled) { return [pscustomobject]@{ ConfiguredState = 'unknown'; TestCycleOverride = @{}; Source = 'no-pool-record' } }
+            return [pscustomobject]@{ ConfiguredState = 'run'; TestCycleOverride = @{}; Source = 'no-pool-sync' }
         }
-        $desired = [string](Resolve-YurunaPoolDesiredState -Pool $pool)
+        $desired = [string](Resolve-YurunaPoolConfiguredState -Pool $pool)
         if ($desired -notin @('run', 'paused', 'drain')) { $desired = 'unknown' }
-        return [pscustomobject]@{ DesiredState = $desired; TestCycleOverride = (Get-HostRefreshAutoPoolOverride -Pool $pool); Source = 'pull' }
+        return [pscustomobject]@{ ConfiguredState = $desired; TestCycleOverride = (Get-HostRefreshAutoPoolOverride -Pool $pool); Source = 'pull' }
     } catch {
         Write-Verbose "Get-HostRefreshAutoPoolContext: $($_.Exception.Message)"
-        return [pscustomobject]@{ DesiredState = 'unknown'; TestCycleOverride = @{}; Source = 'error' }
+        return [pscustomobject]@{ ConfiguredState = 'unknown'; TestCycleOverride = @{}; Source = 'error' }
     }
 }
 
@@ -1881,7 +1881,7 @@ function Invoke-HostRefreshAutoDecision {
         $resume = Get-HostRefreshAutoResumeCandidate -NowUtc $now
         if ($resume.Eligible) {
             $pool = Get-HostRefreshAutoPoolContext
-            if ($pool.DesiredState -eq 'run' -and -not $shutdown) {
+            if ($pool.ConfiguredState -eq 'run' -and -not $shutdown) {
                 # Turning the knob off stops every automatic repair that has
                 # not disrupted anything yet; a request with an armed
                 # obligation still resumes, because that run only restores
@@ -1896,7 +1896,7 @@ function Invoke-HostRefreshAutoDecision {
                 Write-HostRefreshAutoLogOnce -Identity "resume-disabled:$($resume.RequestId)" -Key 'runner.host_refresh_auto_resume_disabled' -Level Warning -Arguments @{
                     cycle = "$Cycle"; requestId = [string]$resume.RequestId }
             } else {
-                Write-Verbose "Invoke-HostRefreshAutoDecision: resume of $($resume.RequestId) held (pool $($pool.DesiredState), shutdown $shutdown)."
+                Write-Verbose "Invoke-HostRefreshAutoDecision: resume of $($resume.RequestId) held (pool $($pool.ConfiguredState), shutdown $shutdown)."
             }
         } elseif ($resume.Reason -ceq 'caller-changed') {
             Write-HostRefreshAutoLogOnce -Identity "caller-changed:$($resume.RequestId)" -Key 'runner.host_refresh_auto_resume_caller_changed' -Level Warning -Arguments @{
@@ -1944,7 +1944,7 @@ function Invoke-HostRefreshAutoDecision {
         }
         $protocol = Get-HostRefreshAutoProtocolFileVersion -RepoRoot ([string]$State['RepoRoot'])
         if (-not $protocol.Valid -or $protocol.Version -ne $script:HostRefreshAutoProtocolVersion) { return (& $refuse 'unavailable' 'protocol-mismatch') }
-        $desired = if ($pool) { [string]$pool.DesiredState } else { 'unknown' }
+        $desired = if ($pool) { [string]$pool.ConfiguredState } else { 'unknown' }
         if ($desired -ne 'run') { return (& $refuse 'refused' "pool-$desired") }
         if ($shutdown) { return (& $refuse 'refused' 'shutdown-requested') }
         $generation = [string]$State['CycleGeneration']

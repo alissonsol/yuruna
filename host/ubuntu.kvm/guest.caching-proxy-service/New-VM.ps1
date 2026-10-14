@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,6 +131,8 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 $virshUri = 'qemu:///system'
 Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
@@ -163,6 +165,13 @@ if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 512GB -Format 'qcow2'
     exit 1
 }
 
+# --- REGION: Stage the cloud-init seed directory
+# Staged beside the disk, not under a temp root: the per-VM directory is
+# private to this build and the plaintext source is removed once seed.iso exists.
+$seedDir = Join-Path $vmDir 'seed.src'
+if (Test-Path -LiteralPath $seedDir) { Remove-Item -LiteralPath $seedDir -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
+
 # --- REGION: Yuruna harness SSH key
 # See https://yuruna.link/42e220c4-0004
 # Seed the shared harness key so guest provisioning and failure diagnostics agree.
@@ -187,7 +196,7 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42'
 [void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
 $PasswordFile = Get-CachingProxyServiceStatePath
 
-# --- REGION: Render user-data / meta-data
+# Check the shared seed templates before the guest network is resolved.
 $baseUserData     = Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.base.user-data'
 $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.kvm.overlay.yml'
 $metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.meta-data'
@@ -197,6 +206,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
         exit 1
     }
 }
+
 # --- REGION: Select the guest network
 # See https://yuruna.link/4220a755-001b
 # KVM: Resolve-GuestHostBinding pairs the libvirt network + host IP (NAT 'default' -> 192.168.122.1); the resolved $networkName is reused below for virt-install.
@@ -206,10 +216,16 @@ $networkName  = $guestBinding.NetworkName
 $YurunaHostIp = $guestBinding.HostIp
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
+# A zot release this host's test.config.yml names in place of the seed's pin,
+# for when the pinned release cannot sync the lab's images.
+try { $zotOverride = Resolve-CachingProxyZotOverride -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 
 # --- REGION: Pool storage replication
@@ -270,12 +286,7 @@ if ($internalAuthKey -match '[\s''"]') {
     $internalAuthKey = ''
     $keyReadFailed = $true
 }
-# No stored token -> mint one and store it NOW, so the proxy is never built
-# with an empty token (which would mint no control proofs, keep /ingest 503,
-# show no Lab token on the dashboard, and turn every joining host's remote
-# control into a 403). The building host becomes the lab's first enrolled
-# member; every other host receives the same value through the dashboard's
-# Lab token (pwsh test/lab/Set-LabToken.ps1).
+# See https://yuruna.link/429f3d06-005f
 if ([string]::IsNullOrEmpty($internalAuthKey) -and -not $keyReadFailed) {
     $internalAuthKey = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant()
     Import-Module (Join-Path $repoRoot 'test/modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
@@ -366,6 +377,7 @@ try {
 Import-Module (Join-Path $repoRoot 'test/modules/Test.FrameworkSource.psm1') -Force
 $brand = Get-YurunaBrandIdentity -RepoRoot $repoRoot -Config $tc
 
+# --- REGION: Render user-data / meta-data
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
 # caching-proxy-service.*). New-CloudInitUserData resolves the SSH-key and
 # password placeholders with literal .Replace(), so regex-special chars
@@ -396,13 +408,13 @@ $userData = New-CloudInitUserData `
         YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configCaCertB64
         YURUNA_BRAND_NAME_PLACEHOLDER    = $brand.Name
         YURUNA_BRAND_VERSION_PLACEHOLDER = $brand.Version
+        YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER = $zotOverride.Version
+        YURUNA_ZOT_OVERRIDE_SHA256_PLACEHOLDER  = $zotOverride.Sha256
     } `
     -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
     -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 
-$seedDir = Join-Path $vmDir 'seed.src'
-New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 
@@ -434,6 +446,7 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_095582e0ec3b9dc8'
 Write-Output ""
 
 # --- REGION: Validate the resolved libvirt network
+# See https://yuruna.link/42f52e37-001d
 # $networkName was resolved above via Resolve-GuestHostBinding; see the
 # .DESCRIPTION network-choice notes for what each mode costs.
 if (-not $networkName) {
@@ -503,12 +516,7 @@ $cacheIp = $null
 $maxIterations = 240  # 240 * 5s = 20 minutes
 $startTime = Get-Date
 $baselineSizeMB = [math]::Round((Get-Item $diskImg).Length / 1MB, 0)
-# Print one status line per ~30 s rather than Write-Progress. PowerShell-
-# on-Linux's progress renderer trips an internal SetCursorPosition with
-# nonsensical column values ("Parameter 'left'. Actual value was
-# 51515410") on certain ANSI-styled terminals (tmux, vscode integrated,
-# some sshd PTYs). Falling back to plain stdout lines makes the wait
-# loop terminal-agnostic and keeps the operator informed.
+# See https://yuruna.link/42e220c4-0004
 
 for ($i = 0; $i -lt $maxIterations; $i++) {
     # --- REGION: https://yuruna.link/42e220c4-0004
@@ -607,7 +615,13 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
             Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a3e88d164570394c')
             Write-Output ""
             Write-Output ((Format-YurunaOperatorMessage -Key 'host.operator_ac9a237901fc8f7d').Replace("`n", [Environment]::NewLine))
-            exit 0
+            # squid answers long before zot is installed, and a zot release that cannot
+            # sync the lab's images would otherwise surface only in the first Kubernetes
+            # guest. The cache tests its own release; this waits for that verdict.
+            Write-Output ''
+            $zotCheck = Wait-CachingProxyZotSelfTest -CacheIp $cacheIp -InformationAction Continue
+            foreach ($line in $zotCheck.Lines) { Write-Output $line }
+            exit $zotCheck.ExitCode
         }
     } catch {
         Write-Verbose "squid :3128 probe failed (will retry): $($_.Exception.Message)"

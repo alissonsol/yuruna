@@ -530,7 +530,7 @@ function Confirm-MigrationParentRelay {
     }
 }
 
-# --- REGION: Parameter validation
+# --- REGION: Validate the arguments
 # All usage problems are collected and reported together, before ANY
 # interactive prompt.
 $usageErrors = @()

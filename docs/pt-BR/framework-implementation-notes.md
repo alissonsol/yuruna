@@ -5,8 +5,8 @@
 # Notas de implementação do framework
 
 Estas notas preservam a justificativa vinculada a partir das fontes de automação
-compartilhada e do executor de testes. Siga o contrato de consistência com o código-fonte
-ao alterar os blocos correspondentes.
+compartilhada, de instalador, de convidado e do executor de testes. Siga o contrato de
+consistência com o código-fonte ao alterar os blocos correspondentes.
 
 <a id="4213a0b3-0002"></a>
 
@@ -828,7 +828,7 @@ poolId: o grupo deste hospedeiro, DERIVADO pela sincronização de grupos do
 laço externo a partir de members[] de pools.yml (a única fonte de verdade) e
 persistido em runtime/pool.state.json -- o canal entre processos, porque este
 gravador executa no processo interno NOVO, que não herda $global do externo.
-null quando não pertence a grupo ou a intenção ainda não foi obtida (o
+null quando não pertence a grupo ou a configuração ainda não foi obtida (o
 agregador então recorre ao próprio rótulo de grupo). Leia inline para que
 Test.Capability não mantenha dependência de Test.PoolSync.
 gating: a política consultiva de alertas do grupo, levada junto com poolId em
@@ -2753,7 +2753,7 @@ deste módulo forme uma única região que o operador possa ler do início ao fi
 
 Os DADOS nunca são alterados por nada nesta região. As pastas sob a
 raiz de armazenamento contêm arquivos de ciclos concluídos, artefatos de stash, o cofre do laboratório e
-o repositório de intenções do grupo -- conteúdo cuja única cópia pode estar ali. O que é
+o repositório de configuração do grupo -- conteúdo cuja única cópia pode estar ali. O que é
 desativado é a configuração de SERVIÇO: as definições de compartilhamento, as contas restritas
 a eles, as exceções de loopback e os aliases. Essa divisão torna
 seguro executar a desmontagem antes de o operador decidir qualquer coisa sobre os bytes.
@@ -3368,18 +3368,18 @@ feedback_module_force_import_evicts_global.md.
 ## test/modules/Test.PoolAdmin.psm1: Um comando administrativo por vez pode trabalhar em um determinado clone administrativo
 
 Um comando administrativo por vez pode trabalhar em um determinado clone administrativo. Cada CLI administrativa é seu próprio processo,
-e todas compartilham <runtime>/pool-intent-admin; sem isso, o clone é aberto por vários
+e todas compartilham <runtime>/pool-configuration-admin; sem isso, o clone é aberto por vários
 processos ao mesmo tempo: dois primeiros usos não encontram .git e clonam no mesmo diretório (um
 vence, os demais falham), e o reset --hard de uma leitura pode ocorrer entre a edição e o
 commit de um gravador, fazendo-o não encontrar nada para preparar e relatar sucesso para uma mudança que nunca
 ocorreu. O bloqueio, portanto, cobre todo o comando: é adquirido quando o clone é aberto e
 mantido até o processo sair (o sistema operacional o libera mesmo após uma falha abrupta) ou
-Unlock-YurunaPoolIntentClone executar. Administradores em outros hospedeiros trabalham em seus próprios clones e ainda se encontram
-no remoto, onde Publish-YurunaPoolIntent faz rebase após perder uma corrida de push.
+Unlock-YurunaPoolConfigurationClone executar. Administradores em outros hospedeiros trabalham em seus próprios clones e ainda se encontram
+no remoto, onde Publish-YurunaPoolConfiguration faz rebase após perder uma corrida de push.
 
 <a id="4213a0b3-00bd"></a>
 
-## test/modules/Test.PoolAdmin.psm1: Open-YurunaPoolIntent
+## test/modules/Test.PoolAdmin.psm1: Open-YurunaPoolConfiguration
 
 Recuse reset --hard a menos que o remoto comprovadamente contenha nosso HEAD: um
 commit local ausente no remoto é uma intenção de grupo com commit, mas sem push (um
@@ -3420,7 +3420,7 @@ repositórios da infraestrutura e do projeto do grupo) para o executor interno. 
 auxiliares de guests.compatibility.yml abaixo avaliam as regras de hipervisor
 por convidado de um projeto. O executor não os chama, porque cada membro do grupo
 executa todo o plano de seu projeto; Test.PoolPlanner.Tests.ps1 é seu único
-chamador, e Test-PoolIntent.ps1 valida a cópia desse arquivo no armazenamento
+chamador, e Test-PoolConfiguration.ps1 valida a cópia desse arquivo no armazenamento
 por Test.PoolAdmin. Veja ../../docs/pool-admin.md#what-a-pool-is
 para o modelo descentralizado que faz o possível. -- Test.PoolPlanner.psm1
 
@@ -3450,7 +3450,7 @@ compartilhamento discordarem sobre o quanto "full" significa cheio.
 
 Reserva: o que AINDA deve estar livre depois que uma cópia chegar. O compartilhamento não pertence somente a esta
 funcionalidade -- o grupo de downloads de imagens de convidados, o arquivo de observabilidade
-do proxy e pool-intent.git ficam nele -- portanto o arquivamento não pode
+do proxy e pool-configuration.git ficam nele -- portanto o arquivamento não pode
 levar o espaço livre a zero e quebrá-los.
 Folga: margem além do tamanho medido da pasta para o custo adicional da própria cópia.
 Projeção: a verificação anterior à criação do processo precisa estimar o custo do PRÓXIMO ciclo.
@@ -4238,7 +4238,7 @@ antes da notificação para que seu EventData obtenha a classe real.
 
 Quando este hospedeiro está em um grupo que contém repositórios
 (runtime/pool.manifest.json, gravado por
-Sync-YurunaPoolIntent do laço externo), o PAR de repositórios de infraestrutura/projeto do grupo substitui
+Sync-YurunaPoolConfiguration do laço externo), o PAR de repositórios de infraestrutura/projeto do grupo substitui
 repositories.frameworkUrl / repositories.projectUrl deste hospedeiro para ESTE ciclo, portanto
 a atualização do projeto + a clonagem da infraestrutura abaixo usam os repositórios do grupo. GH_TOKEN
 deliberadamente NÃO é substituído -- permanece local ao hospedeiro (nunca passa pela intenção
@@ -4607,12 +4607,12 @@ essa dependência de EOF.
 
 ## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
 
-1b. Sincronização de intenção do grupo (faz o possível, NO MESMO PROCESSO, DESLIGADA POR PADRÃO). Obtenha a
-    intenção do grupo pela LAN e reconcilie desiredState ANTES de criar
+1b. Sincronização de configuração do grupo (faz o possível, NO MESMO PROCESSO, DESLIGADA POR PADRÃO). Obtenha a
+    configuração do grupo pela LAN e reconcilie configuredState ANTES de criar
     o interno, para que um paused/drain obtido restrinja ESTE ciclo. Não faz nada (uma
     única chamada envolvida em try que retorna imediatamente) quando a sincronização do grupo não está configurada
     -- um hospedeiro fora de grupo não é afetado. A obtenção é limitada por prazo de relógio e
-    protegida contra solicitações de credenciais em Sync-YurunaPoolIntent, portanto não pode
+    protegida contra solicitações de credenciais em Sync-YurunaPoolConfiguration, portanto não pode
     travar o laço externo (pwsh simples INTERATIVO); qualquer erro não é fatal.
 Substituição de config.testCycle por grupo (desligada por padrão, vazia para um hospedeiro fora de grupo),
 capturada na fronteira do ciclo para que o watchdog (tempo limite de etapa) abaixo possa permitir
@@ -4891,7 +4891,7 @@ transição permanece; um caminho alternativo de falha a partir de qualquer esta
 transições sintéticas de recuperação na inicialização abaixo.
 
 O laço saudável de espera do grupo entra em cada iteração em 'cycle-start'
-(definido antes da coleta da intenção) e, ao obter desiredState=paused,
+(definido antes da coleta da configuração) e, ao obter configuredState=paused,
 passa a 'paused', depois volta a 'cycle-start' na próxima consulta de 30s.
 Ambas as arestas são legítimas e, por isso, constam do mapa -- caso contrário, cada
 iteração de espera registrava dois avisos "not in the canonical adjacency map",
@@ -5755,6 +5755,19 @@ comando que já se sabe que falha. Deixar a sugestão de nova tentativa do regis
 no lugar aqui recomendaria repetir justamente a falha que não pode
 se beneficiar disso.
 
+**`test/modules/Test.SequenceFailureState.psm1`.**
+
+Uma espera que terminou com o console sobrescrevendo a si mesmo não falhou
+da maneira descrita por ocr_timeout. As recuperações de ocr_timeout pressupõem
+que o padrão nunca apareceu; por isso reiniciam o convidado e tentam novamente,
+repetindo a inundação do console. O responsável é o que está preenchendo o
+console, e a resposta é ler seu conteúdo; mudam tanto a classificação quanto
+a recuperação. Um padrão de falha reconhecido tem prioridade, pois o convidado
+anuncia sua própria falha em palavras, evidência mais forte que uma inferência
+pela aparência da tela. A entrada preparada que ficou congelada tem prioridade
+sobre a interpretação de inundação: ela identifica a causa específica que a
+inundação ocultaria.
+
 <a id="4213a0b3-0151"></a>
 
 ## test/modules/Test.SequenceFailureState.psm1: New-SequenceFailureRecord
@@ -6091,6 +6104,17 @@ opcional, específica da plataforma e limitada a uma espera de login ou a um
 travamento confirmado separadamente antes da confirmação do instalador.
 Em particular, nunca reiniciar por um failurePattern do instalador,
 uma inundação do console ou uma falha na solicitação de senha.
+
+**`test/modules/Test.SequenceHandler.psm1`.**
+
+O resultado do hipervisor substitui as duas evidências de tela seguintes.
+A inicialização pode travar antes de imprimir qualquer coisa: um framebuffer
+vazio não tem uma linha casper para ler nem texto que possa permanecer igual.
+Ainda assim, todos os processadores repetindo a mesma interceptação indicam um
+travamento que nenhuma espera resolve. Antes da confirmação, nada é gravado no
+disco de destino, portanto o reinício custa apenas tempo. O prompt de login de
+um sistema instalado é a tela que comprova que a fase de inicialização já
+terminou; a espera de login posterior é responsável por esse convidado.
 
 <a id="4213a0b3-0164"></a>
 
@@ -6939,6 +6963,686 @@ em disco, e todos os anteriores saem com um identificador que nunca foi persisti
 Uma falha real de persistência é fatal para o chamador (retornar $null, conforme o contrato
 OUTPUTS), em vez de fornecer um identificador não persistido que a próxima chamada
 silenciosamente geraria novamente como um identificador diferente.
+
+<a id="4213a0b3-0194"></a>
+
+## guest/amazon.linux.2023: n8n e OpenClaw não precisam de etapa de exposição de comandos
+
+Os corpos de n8n e OpenClaw do Ubuntu terminam com uma etapa `Expose installed commands`.
+O Ubuntu instala o Node.js por meio do nvm, que mantém cada versão no diretório
+pessoal do usuário que faz a instalação e coloca uma delas no PATH apenas para os
+shells que carregam o nvm. Um serviço, um comando `sudo` ou outra conta não
+encontraria node, npm nem o executável da carga de trabalho; por isso, o corpo
+resolve explicitamente a versão principal do Node indicada no manifesto e cria links
+para os três executáveis em `/usr/local/bin`.
+
+O Amazon Linux 2023, em vez disso, instala o Node.js a partir do RPM da NodeSource. O
+pacote coloca node e npm em `/usr`; portanto, o prefixo global do npm é `/usr`
+e `npm install -g` executado por meio de `sudo` cria o link do executável da carga de
+trabalho em `/usr/bin`, que está no PATH padrão de toda conta, inclusive no PATH do
+`sudo`. Nenhum gerenciador de versões por usuário pode selecionar outro Node;
+portanto, não há nada a resolver nem links a criar, e o resumo da instalação chama
+node, npm e a carga de trabalho pelo nome. Os dois fluxos mantêm formatos diferentes
+de propósito: a região está ausente dos corpos Amazon, e o comentário na posição em
+que ela ficaria aponta para cá.
+
+<a id="4213a0b3-0195"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Varreduras da árvore do projeto sob um prazo
+
+Varreduras recursivas da árvore do projeto podem travar por minutos em um checkout
+enorme ou montado em rede. Execute cada uma sob Invoke-WithDeadline para que uma
+varredura lenta degrade para um resultado parcial/vazio mais uma linha de marcador,
+em vez de paralisar todo o diagnóstico. São varreduras em PowerShell puro
+(Get-ChildItem), portanto executam com -InProcess (Start-ThreadJob) para evitar
+a criação de um processo pwsh completo a cada chamada. Os dois tipos de job
+retornam objetos que expõem as propriedades de FileInfo lidas pelos chamadores
+(FullName, Length, Extension, Name, LastWriteTime) -- Start-Job por meio de
+propriedades de nota serializadas, Start-ThreadJob por meio dos objetos ativos --,
+de modo que o caminho de sucesso vê o mesmo formato nos dois casos.
+
+A função tem um contrato de coleta singular; portanto, o marcador de tempo limite é
+emitido pelo chamador (no nível da instrução) e não por ela: um Write-Output do
+marcador seria capturado no array @(...) do chamador em vez de chegar a
+stdout/transcrição.
+
+<a id="4213a0b3-0196"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Correspondência de uma vNIC de gerenciamento do Hyper-V pelo MAC
+
+O endereço é resolvido pelo MAC porque o alias da vNIC não é uma chave
+confiável. A busca por alias permanece como alternativa para o caso em que
+nenhum MAC corresponde.
+
+Uma vNIC de gerenciamento CLONA o MAC da NIC com a qual seu switch faz bridge;
+portanto, esse MAC nunca é exclusivo dela. São duas consequências, e as duas
+restrições que o código aplica existem uma por consequência:
+  * a própria NIC em bridge responde à correspondência de MAC. Contar o
+    endereço que está diretamente na NIC como o da vNIC é exatamente a
+    leitura que faz uma bridge que PERDEU seu lado do hospedeiro parecer
+    saudável -- por isso apenas adaptadores vEthernet do Hyper-V são considerados.
+  * toda vEthernet remanescente de um switch que já fez bridge com a mesma
+    NIC também responde, e uma remanescente parada em APIPA faz uma bridge que
+    FUNCIONA parecer sem endereço -- por isso várias correspondências são
+    restringidas por alias, e um conjunto que o alias não consegue distinguir
+    resolve para nenhum adaptador, que a escada de status lê como 'unknown'.
+
+<a id="4213a0b3-0197"></a>
+
+## automation/Get-SystemDiagnostic.ps1: O PATH sozinho subnotifica tesseract e qemu-img
+
+O PATH sozinho subnotifica o tesseract. O mecanismo de OCR resolve o tesseract
+recorrendo aos diretórios de instalação padrão da plataforma quando ele não está
+no PATH; portanto, uma sondagem somente de PATH imprime "(not installed)" para um
+hospedeiro cujo OCR funciona bem -- e este relatório é lido durante a triagem de
+falhas de OCR, exatamente onde essa divergência envia o leitor atrás de um binário
+ausente que não está ausente. Os diretórios que a sondagem verifica espelham
+`Find-Tesseract` em `test/modules/Test.Tesseract.psm1` literal por literal; eles
+precisam continuar sendo o mesmo conjunto, ou o relatório volta a divergir do
+resolvedor que descreve.
+
+O PATH sozinho subnotifica o qemu-img no Windows, da mesma forma que faz com o
+tesseract: o instalador do QEMU não se registra no PATH; portanto, um hospedeiro cuja
+conversão de qcow2 para VHDX funciona bem imprime "(not installed)" -- e este relatório
+é lido durante a triagem da preparação de imagens, exatamente onde essa divergência
+envia o leitor atrás de um binário que não está ausente. Os diretórios que a sondagem
+verifica espelham `Resolve-QemuImgCommand` em `host/modules/Yuruna.Image.psm1` literal
+por literal; eles precisam continuar sendo o mesmo conjunto, ou o relatório volta a
+divergir do resolvedor que descreve. Não há candidatos fora do Windows, porque o
+resolvedor também não tem nenhum.
+
+<a id="4213a0b3-0198"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Um gerenciador de pacotes bloqueado é encontrado pelo seu descritor de arquivo
+
+Um gerenciador de pacotes bloqueado no fim da transação parece saudável em
+todas as visões agregadas do relatório (o top-N o mostra ocioso, o ss não mostra
+sockets). A evidência que o distingue é QUAL fd ele está bloqueado
+lendo -- um fd de pipe/socketpair aponta para um filho de hook, um fd ptmx
+para a drenagem de EOF do dpkg-pty, um fd de tty para um script de configuração que
+espera uma resposta -- além do canal de espera do kernel e de quaisquer
+filhos sobreviventes (a classe de armadilha de travamento na desmontagem do apt
+com wrapper).
+
+A subárvore inteira, não apenas os filhos diretos, e os fds de todos os
+processos nela: o processo bloqueado costuma ser um neto daquele
+cujo nome correspondeu (apt-get -> sh -c -> a ferramenta que detém a
+leitura); assim, o estado e os fds capturados apenas para o pid correspondente
+descrevem um processo que apenas espera por aquele que importa. O pgrep -x
+também não pode ser ampliado para cobrir essas folhas -- ele corresponde a nomes
+inteiros, de modo que um padrão `dpkg` nunca vê `dpkg-preconfigure` -- e é por isso
+que elas são alcançadas por descida e não por nome.
+
+<a id="4213a0b3-0199"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Estado de vizinhos e banco de dados de encaminhamento ao lado da tabela de concessões
+
+Um endereço ao qual um chamador se conectou pode ser um que o convidado já deixou:
+o kernel mantém a entrada antiga sob o mesmo MAC até ela expirar, de modo que uma
+busca indexada por MAC tem duas respostas e uma tabela de concessões não consegue
+separá-las. O estado NUD é o que consegue -- REACHABLE foi confirmado há poucos
+segundos, STALE diz apenas que foi verdade em algum momento do passado. O
+banco de dados de encaminhamento responde à outra metade: se esse MAC ainda é
+visto em alguma porta da bridge, o que separa um convidado que ficou quieto
+de um que nunca chegou à bridge. As duas tabelas são locais do hospedeiro e
+ambas desaparecem minutos depois que a definição do domínio é removida; por isso
+são capturadas ao lado da tabela de concessões com a qual o leitor as correlaciona.
+
+<a id="4213a0b3-019a"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Listagem das imagens dos pods por meio do jsonpath do kubectl
+
+A invocação e a transformação são instruções separadas de propósito. Escritas como
+um único pipeline continuado com acento grave, o parser ainda está no modo de
+argumento de comando na linha de continuação; portanto, `-split` e seu operando são
+entregues ao kubectl como dois argumentos a mais em vez de dividir alguma coisa: o
+kubectl rejeita a flag desconhecida, o redirecionamento engole o erro, e a lista de
+imagens volta vazia. Todo repositório no registro passa então a parecer não
+referenciado, que é a única resposta que esta heurística nunca deve inventar.
+
+O separador é o próprio escape `\n` do jsonpath. O acento grave é o caractere de
+escape do PowerShell e não significa nada para o kubectl; dentro de uma string entre
+aspas simples, nem isso ele é -- ele chega ao template como dois caracteres literais
+e nenhuma quebra de linha é emitida.
+
+<a id="4213a0b3-019b"></a>
+
+## install/macos.utm.sh: Despacho do refresh
+
+`--refresh` repassa a execução ao script de entrada de refresh do hospedeiro do
+próprio checkout já instalado, em vez de executar o instalador. O despacho fica
+antes de toda barreira e mutação que vem a seguir (Homebrew, a reescrita do
+checkout, a limpeza de VMs); assim, um sinal de refresh malformado ou parcial
+termina na hora, em vez de cair em uma execução de instalação comum sob uma
+intenção mal interpretada.
+
+O token `--refresh` e `YURUNA_REFRESH=1` são exigidos juntos. Qualquer um sozinho é
+recusado: uma variável de ambiente residual não deve transformar
+silenciosamente uma instalação comum em refresh, e um token sem a variável de
+ambiente também não deve. O token também é verificado em `$0`: um comando de uma
+linha copiado e colado que omite o espaço reservado `_` (o slot de `$0` que
+`bash -c` dá ao texto do seu script) coloca `--refresh` ali, em vez de em `"$@"`.
+
+A forma de conveniência e a forma de download verificado estão documentadas em
+[Refresh de um hospedeiro macOS instalado](https://yuruna.link/420f54a5-0008).
+
+<a id="4213a0b3-019c"></a>
+
+## install/macos.utm.sh: Onde um interpretador PowerShell já pode estar
+
+`yuruna_pwsh_candidates` lista, em ordem de resolução e sem presumir que um shell de
+login executou `brew shellenv`: o PATH, o prefixo do Homebrew em arm64 (este instalador
+exige Apple Silicon), o local fixo do Homebrew da era Intel que alguns documentos e
+scripts ainda presumem, `PATH_LINK_DIR`, que é onde a promoção até a versão mínima
+do próprio instalador (`bring_tools_to_required_versions`) cria o link para o pwsh
+mais recente que encontra, para que uma cópia obsoleta que vem antes no PATH deixe de
+vencer pelo nome, e o local em que o pacote PowerShell da Microsoft se instala, que
+essa mesma etapa de promoção nomeia explicitamente porque nenhum gerenciador de
+pacotes o informa. Um hospedeiro cujo único pwsh é esse pacote, acessado por
+`ssh host command` antes de qualquer link ter sido criado, ainda resolve um.
+
+<a id="4213a0b3-019d"></a>
+
+## install/setup.ps1: Resolução do nível de log antes de gravar qualquer coisa
+
+A cascata que todo ponto de entrada do yuruna compartilha -- a linha de comando
+prevalece sobre test.config.yml, que prevalece sobre 'Information'. Consulte
+docs/loglevels.md.
+
+Resolvido aqui, antes de qualquer gravação, por dois motivos. O cabeçalho do log da
+execução registra o nível, de modo que uma transcrição sem o que alguém esperava diz
+o motivo. E Resolve-LogLevel publica $env:YURUNA_LOG_LEVEL, o ÚNICO canal que chega
+aos scripts filhos: eles executam em seu próprio pwsh (consulte Invoke-RepoScript) e
+variáveis de preferência não sobrevivem a uma fronteira de processo. Cada um deles
+chama Use-LogLevelFromEnv; portanto, -logLevel Debug aqui é -logLevel Debug no script
+de armazenamento, nas inicializações das VMs de serviço e nos construtores por
+convidado que estas, por sua vez, iniciam.
+
+<a id="4213a0b3-019e"></a>
+
+## install/setup.ps1: O log da execução e as transcrições dos filhos
+
+Toda pergunta feita, toda resposta recebida e toda mensagem impressa também vão parar
+em `test/status/log/setup.<yyyy.MM.dd.HH.mm>.log`. Uma execução de setup é longa, em
+grande parte sem supervisão no meio, e a parte interessante geralmente já saiu do
+histórico de rolagem quando alguém olha -- então o registro sobrevive ao console.
+
+Os scripts do repositório que este inicia gravam em seus próprios logs, não neste
+terminal (consulte Invoke-RepoScript); assim, o console não exibe nada da saída de um
+filho. Cada um grava uma transcrição de seus próprios fluxos em $Script:ChildLogRoot,
+e as últimas linhas de um filho que sai com código diferente de zero são incorporadas a
+este log. Sem isso, uma etapa malsucedida seria um código de saída e nada mais, com o
+motivo deixado em um histórico de rolagem que já desapareceu quando alguém pergunta.
+
+<a id="4213a0b3-019f"></a>
+
+## install/setup.ps1: Remoção de sequências de controle de terminal da saída dos filhos
+
+Sequências de controle de terminal que um filho pode emitir mesmo quando ninguém está
+olhando. São três classes, e as três são necessárias: OSC cobre os hiperlinks em que o
+PowerShell 7.2+ pode envolver um caminho, CSI cobre cor (`ESC[33;1m`), ocultação do
+cursor (`ESC[?25l`) e todo o restante parametrizado, e a forma de dois caracteres
+cobre seleções de conjunto de caracteres como `ESC(B`. Um padrão restrito a SGR deixa
+o resto no log como uma sopa ilegível.
+
+A ORDEM IMPORTA e não é óbvia: a classe de introdutores do CSI `@-_` também contém
+']'; assim, uma passada de CSI executada primeiro consome o início de uma string OSC
+e deixa a carga útil dela para trás como texto.
+
+<a id="4213a0b3-01a0"></a>
+
+## install/setup.ps1: Arquivamento do fluxo de informação de uma etapa no mesmo processo
+
+`6>&1` desvia o fluxo de INFORMAÇÃO da ação para o log em vez da tela. Etapas
+executadas no mesmo processo não têm processo filho a capturar; assim, sem isso, o
+Write-Information -InformationAction Continue de um módulo ("applying template
+overlay" e similares) cai no meio da lista de resultados. O texto não se perde, é
+arquivado; o resultado da própria etapa continua sendo a única coisa que o console
+mostra.
+
+Avisos e erros deliberadamente NÃO são desviados: esses são os dois fluxos que um
+operador precisa ver no instante em que acontecem, seja o que for que o restante da
+tela esteja fazendo.
+
+<a id="4213a0b3-01a1"></a>
+
+## install/setup.ps1: Nomeação do prompt do sudo antes de ele aparecer
+
+Nomeado antes de aparecer. O sudo grava "Password:" direto em /dev/tty e não ecoa
+nada enquanto se digita; assim, um operador que não sabe que o prompt vem aí lê uma
+linha em branco e sem resposta como uma execução travada -- e espera, que é a única
+coisa que de fato a faz travar.
+
+Deliberadamente SEM nomear o terminal em que ele aparece. O sudo lê de /dev/tty
+enquanto esta linha vai para stdout, e um operador só pode estar lendo-a porque os
+dois são o mesmo dispositivo -- então nomear o tty descreve a janela para a qual ele
+já está olhando, e qualquer formulação que aponte para ele ("aquele terminal") soa
+como "outra janela" e o faz procurar por uma que não existe. Os dois só divergem sob
+um redirecionamento que ninguém faz, em que esta linha nem está na tela para ajudar.
+
+<a id="4213a0b3-01a2"></a>
+
+## install/setup.ps1: Filtragem de elementos nulos da lista de argumentos de um filho
+
+Um elemento `$null` nunca deve chegar a `ArgumentList`: ele é adicionado como uma
+entrada de argv VAZIA, que o filho vincula ao seu primeiro parâmetro POSICIONAL --
+um script cujo padrão para esse parâmetro é um valor real recebe '' silenciosamente
+no lugar dele. $Arguments é ele próprio $null sempre que um chamador passa uma
+instrução cujo ramo não produziu saída (a vinculação de [string[]] transforma isso em
+um $null real, descartando o padrão `@()`), e `@(...) + $null` acrescenta o null em vez
+de não fazer nada. Filtrado, não apenas contado: um argumento de string vazia
+intencional continua sendo repassado. Feito antes da linha EXEC para que o log mostre
+o argv que o filho de fato recebe -- uma entrada vazia final não aparece como nada
+ali, o que torna essa classe de falha invisível em um log que parece correto.
+
+<a id="4213a0b3-01a3"></a>
+
+## install/setup.ps1: Drenagem da saída dos filhos por meio de assinaturas de eventos
+
+Drenada linha a linha pela fila de eventos do mecanismo e iniciada ANTES da espera:
+um filho que enche o buffer do pipe enquanto ninguém lê bloqueia na própria gravação,
+o que causaria um impasse em uma etapa muito verbosa.
+
+Assinaturas de eventos em vez de Task.Run: um scriptblock entregue a uma thread do
+pool de threads não tem Runspace e lança uma exceção na primeira instrução. Uma linha
+por vez em vez de ReadToEndAsync, pelo mesmo motivo de a espera que vem a seguir ter
+tempo limite -- um fluxo que nunca chega ao EOF ainda entrega cada linha que produziu,
+em vez de um resultado tudo ou nada inutilizável.
+
+SEM -Action, e esse é justamente o ponto. O PowerShell executa cada -Action como seu
+próprio pipeline em uma thread do pool de threads; assim, várias estão em andamento ao
+mesmo tempo e a fila registra a ordem de CONCLUSÃO: medido aqui, 2804 de 3000 linhas
+de um único Write-Output chegaram fora de ordem, e foi assim que um diagnóstico de falha
+acabou renderizado com as metades invertidas. Sem uma ação, o callback do .NET apenas
+registra o evento, e seu EventIdentifier é atribuído na thread do leitor em ordem de
+chegada -- de modo que ordenar por ele depois restaura a ordem em que o filho de fato
+escreveu.
+
+<a id="4213a0b3-01a4"></a>
+
+## install/setup.ps1: Adoção de uma VM de serviço que já está em execução
+
+Restore-YurunaServiceVM é a autocorreção existente: informa o estado, inicia uma VM
+registrada, mas parada, e sonda a porta de saúde. Reutilizá-la mantém uma única
+definição de "este serviço é utilizável", em vez de uma segunda, sutilmente diferente,
+aqui.
+
+`-ProbeRunning` é o que torna isso verdadeiro para uma VM que JÁ estava ligada. Estar
+ligada não é evidência de um serviço: uma inicialização que falha deixa seu convidado
+em execução de propósito, porque o convidado é a evidência e o operador é instruído a
+pará-lo à mão -- então 'running' é justamente o estado em que se encontra um serviço
+que nunca subiu. Adotar apenas pelo estado pegaria uma falha que foi informada
+corretamente uma vez e a informaria como normal em toda execução posterior, sem que o
+script de início que falhou fosse invocado novamente.
+
+<a id="4213a0b3-01a5"></a>
+
+## install/setup.ps1: Uma VM de serviço em execução que está silenciosa ou não identificável é reconstruída
+
+Em execução e silenciosa, OU em execução e não identificável -- ambas são
+reconstruídas.
+
+A porta recusar conexões é o caso simples: há algo comprovadamente errado com o que
+está ali. Não ter endereço algum é o caso incômodo, e ele é deliberadamente tratado do
+mesmo modo. Um hospedeiro que não consegue identificar uma VM que ele próprio executa
+também não consegue entregar o endereço dessa VM aos convidados e pares que o
+consomem; portanto, não há o que adotar, e esse é exatamente o estado que uma
+inicialização malsucedida deixa para trás em um convidado cuja rede nunca subiu.
+Adotar nesse caso levaria a falha adiante justamente na única condição em que nada
+pode contradizê-la.
+
+O que isso custa: em um hospedeiro onde a descoberta de endereço é simplesmente cega
+(um convidado UTM em bridge, sem serviços de integração, não publica nem uma
+concessão nem um agente), uma nova execução de reparo reconstrói serviços que estavam
+bem. Apenas tempo -- o estado do serviço fica no compartilhamento do grupo -- e o
+motivo informado nomeia a metade ausente para que não pareça arbitrário.
+
+<a id="4213a0b3-01a6"></a>
+
+## install/setup.ps1: O grupo default é derivado, não perguntado
+
+O grupo 'default' NÃO é perguntado e não tem chave no arquivo de respostas. Um
+laboratório sem grupo é um laboratório no qual nenhum hospedeiro pode ser inscrito;
+assim, "não" só produzia um beacon que parecia concluído e não inscrevia ninguém. O
+grupo é DERIVADO no fim da execução a partir do armazenamento que esta execução
+configurou: a pasta de grupo que acabou em test.config.yml é inspecionada, e um grupo
+'default' é criado ali quando o repositório de intenções não contém nenhum. Um grupo
+existente com esse nome é deixado exatamente como está (New-Pool -IfMissing), de modo
+que um operador que pausou ou renomeou o seu o mantém em toda nova execução.
+
+Um arquivo de respostas mais antigo ainda pode trazer lab.createDefaultPool. Ele
+deliberadamente não é lido: honrar 'false' produziria esse mesmo laboratório
+configurado pela metade, e ignorar silenciosamente uma chave que o operador escreveu é
+pior do que dizê-lo.
+
+A etapa que garante a existência do grupo 'default' do laboratório sempre é executada e
+é derivada em vez de perguntada: o repositório de intenções fica em qualquer
+armazenamento de grupo com que esta execução realmente tenha terminado; portanto, ele
+é relido de test.config.yml em vez de ser previsto a partir do questionário. Uma
+execução que recorreu a compartilhamentos locais por causa de um NAS inalcançável cai
+no caminho local pelo mesmo motivo. A etapa declara `-Requires 'storage'` porque o
+repositório de intenções fica NESSE armazenamento; sem isso, a etapa lança 'pool
+storage has no localPath' e a execução informa uma SEGUNDA falha para uma única coisa
+quebrada -- e a segunda nomeia o grupo, que não é o que está errado.
+
+<a id="4213a0b3-01a7"></a>
+
+## install/setup.ps1: Perguntas sobre o estado que uma execução anterior com sudo deixou para trás
+
+Somente leitura aqui; o chown / umount / kill que age sobre essas respostas fica uma
+etapa mais abaixo, onde a execução detém a credencial de que precisa.
+
+A pergunta precisa acontecer AQUI, acima da frase que promete que nada mais vai
+perguntar. Dentro de uma etapa ela não pode ser respondida de forma alguma: a ação de
+uma etapa executa sob um redirecionamento 6>&1 que arquiva Write-Information no log;
+assim, a pergunta, suas opções e o relatório que descreve o que seria limpo vão todos
+para um arquivo, deixando o operador diante de um prompt vazio, sem pergunta alguma
+acima dele.
+
+Protegido por -WhatIf porque esta região -- ao contrário de uma etapa -- realmente
+executa em uma prévia, e uma prévia não deve começar a perguntar sobre o conteúdo da
+máquina.
+
+<a id="4213a0b3-01a8"></a>
+
+## install/setup.ps1: Limpeza do estado que uma execução anterior com sudo deixou para trás
+
+ANTES de qualquer gravação, porque duas das coisas que isto encontra são o que faz a
+gravação falhar. Recusar a execução como root (no início da execução) impede a próxima
+execução como root; isso não faz nada pela máquina que uma execução anterior já
+alterou, e esse estado não se anuncia -- ele aparece como um erro de permissão em um
+arquivo de runtime ou como uma porta que não pode ser associada, sem nenhum detentor
+visível, e nenhum dos dois nomeia o sudo como causa.
+
+Aqui fica apenas a metade que age. A varredura e a pergunta por achado foram
+executadas antes, enquanto o operador ainda era dono do terminal; esta parte precisa
+da credencial obtida desde então, e é por isso que as duas metades ficam separadas.
+
+<a id="4213a0b3-01a9"></a>
+
+## install/setup.ps1: Resultados de Enable-TestAutomation durante o setup
+
+-SkipPoolStorage: o setup.ps1 é dono do armazenamento, na sua própria ordem, na etapa 5.
+Sem o switch, o Enable termina em um questionário interativo sobre o NAS, que
+duplicaria a etapa 5 e travaria uma execução sem supervisão.
+
+-TolerateFailure mais um mapa de códigos explícito, porque este filho informa TRÊS
+resultados e a leitura padrão de um código de saída só tem espaço para dois. 2 significa
+"aplicado, e algo ainda não foi atendido" -- uma concessão TCC que o operador precisa
+dar e, depois, encerrar o terminal para que ela tenha efeito, ou uma proteção pmset que
+o macOS não expõe em hardware sem tampa. Nenhum dos dois é reparado ao executar isto novamente;
+portanto, ambos pertencem à lista Warned; uma falha grave aqui deixaria a execução sem
+caminho até o verde em um hospedeiro perfeitamente utilizável. Qualquer outro valor
+diferente de zero é uma falha real e continua lançando uma exceção.
+
+<a id="4213a0b3-01aa"></a>
+
+## install/setup.ps1: O armazenamento é crítico, e as etapas posteriores leem o fato registrado por ele
+
+CRÍTICO sempre que o armazenamento foi solicitado. Tudo o que vem depois ou precisa dos
+compartilhamentos (os serviços stash e download-agent, o grupo de um laboratório) ou
+grava estado do hospedeiro que os pressupõe (a etapa de alias); assim, uma execução que
+continua depois de uma etapa de armazenamento malsucedida gasta quinze minutos
+construindo serviços em torno de um armazenamento que não existe e depois informa a
+maioria deles como sucessos. storage.kind 'none' é o único caso em que nada é crítico,
+porque nada foi solicitado.
+
+O que as etapas posteriores leem é o FATO que esta região registra, não um booleano
+local. Uma dependência derivada de novo, à mão, em cada consumidor é tão confiável
+quanto a memória do autor, e um consumidor que esquece uma reescreve o arquivo hosts para
+apontar para um armazenamento que nunca foi criado.
+
+<a id="4213a0b3-01ab"></a>
+
+## install/setup.ps1: O que comprova que esta máquina já serve seus próprios compartilhamentos
+
+Um compartilhamento montado NÃO basta para dar isto por concluído, e o alias do
+hospedeiro também não. A configuração que uma máquina carrega para um NAS é idêntica,
+em cada chave, à configuração para compartilhamentos nesta máquina; assim, uma máquina
+ainda apontada para um NAS seria lida, de outro modo, como "já é local" e manteria o
+armazenamento, os aliases e as credenciais que o operador acabou de pedir para
+substituir. O que distingue os dois casos é o que ESTA máquina publica: a tabela de
+compartilhamentos do SO é o que o servidor SMB de fato servirá, e nenhuma edição do
+arquivo hosts consegue pôr uma entrada nela. O alias e a montagem ativa continuam
+sendo exigidos -- eles decidem para onde a montagem vai e se ela funciona --, mas
+nenhum dos dois é evidência de que esta máquina é a que responde.
+
+<a id="4213a0b3-01ac"></a>
+
+## install/setup.ps1: Hospedeiros standalone são donos dos aliases do grupo e do stash
+
+Standalone é o modo em que nada mais é dono dessas linhas. Um laboratório sempre
+levanta o armazenamento, e o script de armazenamento local grava os aliases como parte
+disso; um hospedeiro standalone pode recusar o armazenamento por completo
+(storage.kind = none é exclusivo de standalone) ou apontar para um NAS, e então
+nenhuma etapa da execução olha para o arquivo hosts.
+
+O que isso custa: 'ypool-nas' é um NOME, e o mesmo nome significa o NAS em uma máquina
+que costumava ter um e significa esta máquina em uma máquina que agora serve seus
+próprios compartilhamentos. Todos os outros valores são idênticos entre esses dois
+mundos -- caminho do compartilhamento, conta, ponto de montagem --; assim, uma linha
+obsoleta não falha: ela é BEM-SUCEDIDA contra o servidor errado. O alias é a única
+coisa que decide qual dos dois, e é aqui que ele é feito concordar com o armazenamento
+que o operador acabou de escolher.
+
+`-Requires 'storage'`, sobre o RESULTADO e não sobre a resposta. Condicionada à
+resposta, esta etapa publica os dois nomes de servidor em loopback em uma máquina onde
+os compartilhamentos, as contas e o servidor SMB nunca foram criados -- estado do
+hospedeiro afirmando uma coisa que não existe, informado em Done.
+
+<a id="4213a0b3-01ad"></a>
+
+## install/setup.ps1: Desmontagem do proxy de cache somente quando não vale a pena mantê-lo
+
+A própria inicialização do proxy adota uma VM saudável e aceita -ForceRebuild. Pará-lo
+antes anula isso -- a sondagem de adoção não encontra nada, de modo que a nova execução
+paga a reconstrução completa de ~15 minutos e descarta um cache squid aquecido. Por
+isso a desmontagem acontece somente quando a verificação de reaproveitamento (ou
+-Rebuild) diz que a VM não vale a pena ser mantida, e -ForceRebuild é repassado para
+que o script Start não volte a adotar o que o setup acabou de decidir substituir.
+
+Os argumentos de início usam `@(if ...)` em vez de `$(if ... else { @() })`: um ramo
+que emite um array vazio NÃO emite saída, e a subexpressão colapsa para `$null` no
+caminho até um parâmetro `[string[]]` -- o que então acrescenta uma entrada de argv
+vazia que o filho vincula ao seu primeiro parâmetro posicional. A forma de
+subexpressão de array produz um array vazio de verdade; assim, o caso sem reconstrução
+não passa argumento algum.
+
+<a id="4213a0b3-01ae"></a>
+
+## install/setup.ps1: O alias do painel
+
+O painel é a única URL que um operador digita à mão e à qual volta, e ela é
+endereçada por uma concessão DHCP: um favorito salvo hoje fica errado depois que a VM
+de cache é reconstruída, e o endereço não está em nenhum lugar onde um operador
+pensaria em procurá-lo. O alias faz do nome a parte durável, o mesmo truque que os
+nomes dos servidores de armazenamento já usam -- e ele é gravado a partir de $proxyIp
+ao lado da chave de configuração, a partir desse único estado do proxy lido há pouco,
+de modo que a entrada hosts e vmStart.cachingProxyIp não possam passar a divergir.
+
+Somente standalone. O proxy do beacon de um laboratório é compartilhado, e todas as
+outras máquinas o alcançam por vmStart.cachingProxyIp, e não por um nome que teria de
+ser publicado em cada uma delas separadamente.
+
+A porta permanece na URL. A :80 na VM do proxy é o Apache, que serve os certificados de
+CA que o instalador de um convidado obtém; assim, um nome sozinho não consegue tirar o
+Grafana da :3000 -- só um redirecionamento ou um proxy na VM conseguiria, e nenhum dos
+dois vale uma reconstrução por quatro caracteres.
+
+<a id="4213a0b3-01af"></a>
+
+## install/setup.ps1: Incorporação da transcrição da barreira de configuração ao log
+
+A barreira é a única etapa cuja função inteira é descrever esta máquina; assim, uma
+barreira que não diz nada quando concorda deixa tudo o que observou -- os avisos de
+armazenamento acima de tudo -- registrado em lugar nenhum. Incorporada
+incondicionalmente, e ANTES do throw para que uma barreira que falha mantenha suas
+palavras também; no nível do FILHO e não por Write-SetupDetail, que espelha na tela em
+Verbose e colocaria oitenta linhas no meio da lista de resultados.
+
+As sequências de controle também saem aqui: este filho é iniciado pelo módulo da
+barreira, não por Invoke-RepoScript; assim, o NO_COLOR que este script define em seus
+próprios filhos nunca o alcança, e sua saída chega colorida.
+
+Tolera uma barreira que não retorna transcrição alguma. Observe que @($null) é um
+array de UM null, não um array vazio; assim, o teste de vazio precisa ser feito no
+elemento -- que é também o que descarta as linhas em branco com que termina um fluxo
+capturado.
+
+<a id="4213a0b3-01b0"></a>
+
+## install/setup.ps1: Nomeação dos switches a descartar em uma nova execução
+
+Nomeados, não genéricos. Seguir literalmente "Execute este script novamente" com a
+mesma linha de comando repete todo switch que tornou esta execução cara; assim, o
+conselho precisa dizer quais descartar -- e -Rebuild é o que faz pagar uma segunda
+vez por uma desmontagem e reconstrução completas do proxy.
+
+Restrito de propósito: descartar -Rebuild só é um bom conselho quando nada do que o
+proxy INCORPORA mudou desde que ele foi construído. Uma execução cujo armazenamento
+falhou é justamente o caso em que a próxima execução altera o armazenamento, e uma VM
+adotada mantém o seed com que foi construída -- então só vale a pena descartar o
+switch quando o proxy subiu e o armazenamento contra o qual ele foi construído
+continua válido.
+
+<a id="4213a0b3-01b1"></a>
+
+## install/ubuntu.kvm.sh: Reparo da versão mínima do PowerShell
+
+O interpretador em que toda etapa posterior executa, elevado até a versão mínima
+definida em automation/Yuruna.Requirement.yml. A região de instalação só dispara quando
+`pwsh` está AUSENTE, e presença não é a pergunta que uma versão mínima faz: um pwsh que
+chegou de uma fonte que este instalador não gerencia -- o snap da Canonical, um
+tarball desempacotado à mão, um pacote deixado por outra ferramenta -- de outro modo
+responde pelo nome durante toda a vida da máquina na versão que for, enquanto a
+verificação final informa uma lacuna que a execução tinha todos os meios de fechar. O
+PowerShell é a única ferramenta verificada por versão mínima aqui cujas fontes estão
+à frente do archive do Ubuntu, de modo que é a única que o instalador pode de fato
+elevar.
+
+Colocado depois do checkout e não ao lado da instalação: a versão mínima fica no
+repositório, que ainda não existe onde o pwsh é instalado.
+
+<a id="4213a0b3-01b2"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Um único snapshot do df, e o array de um elemento que precisa continuar sendo um array
+
+Um único snapshot do df serve tanto à tabela renderizada quanto à análise de
+ocupação >=90%: invocar o df duas vezes compararia um número que o leitor nunca vê
+com uma tabela de um snapshot diferente e não atômico.
+
+Um array de um único elemento sai de uma expressão if como uma String simples, e
+fazer splatting de uma String enumera seus caracteres: o ramo do macOS invocaria
+`df - P l` e coletaria três linhas "No such file or directory" em vez de uma tabela,
+levando junto, em silêncio, a análise de ocupação >=90% que vem em seguida. A
+conversão mantém o ramo de um elemento como array para que os dois ramos façam
+splatting como argumentos.
+
+<a id="4213a0b3-01b3"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Prontidão da captura DHCP na rede
+
+O tcpdump só abre uma bridge enquanto detém CAP_NET_RAW, e essa permissão é uma
+propriedade do binário e não da conta: uma atualização de pacote que substitui o
+arquivo a retira silenciosamente. A captura que precisa dela é armada em toda
+inicialização de VM e lida apenas quando um convidado não obteve uma concessão; assim,
+um hospedeiro que perdeu a permissão só descobre isso dentro do único post-mortem
+cuja evidência ela deveria fornecer -- quando o convidado já desapareceu e o que
+passou pela rede não pode ser relido. Verificar aqui custa um processo e transforma
+uma lacuna silenciosa em uma correção que o operador pode fazer antes que seja
+necessária.
+
+A captura em si é descrita em
+[Leitura do servidor DHCP que um hospedeiro libvirt executa](https://yuruna.link/4220a755-000e).
+
+<a id="4213a0b3-01b4"></a>
+
+## install/macos.utm.sh: Limitação de uma chamada utmctl status
+
+Uma chamada `utmctl status` que não pode sobreviver a UTMCTL_STATUS_TIMEOUT_SECONDS.
+O utmctl consulta o UTM por Apple Events, e na primeira vez que um terminal faz isso
+o macOS exibe uma caixa de diálogo de consentimento de Automation. Até alguém
+respondê-la, a chamada nem falha nem retorna: ela espera o tempo limite de Apple Events
+(-1712, cerca de dois minutos) esgotar antes que volte qualquer coisa que o chamador
+possa classificar.
+
+Imprime o que a chamada imprimiu e retorna 0 quando terminou; retorna 124 quando foi
+interrompida no limite e 125 quando não pôde ser iniciada, sem imprimir nada em
+nenhum dos dois casos. A resposta passa por um arquivo privado e não por um pipe,
+para que uma chamada interrompida não deixe um leitor esperando por ela.
+
+<a id="4213a0b3-01b5"></a>
+
+## install/setup.ps1: Recusa de execução como root
+
+macOS / Linux: recusar a execução como root, ANTES de qualquer gravação. Estes scripts
+elevam cada operação individual que precisa disso (networksetup, o servidor SMB,
+/etc/hosts); assim, um `sudo` na execução inteira não traz benefício algum e
+prejudica o resultado: todo artefato vai parar no diretório pessoal de root (/var/root
+no macOS) em vez do diretório do operador, onde o hipervisor -- executando como o
+operador -- não consegue alcançá-lo. Os construtores por VM detectam isso e devolvem a
+propriedade, mas apenas DEPOIS que a imagem, o bundle e as montagens já foram para o
+lugar errado. Isso também coloca os pontos de montagem SMB sob /var, que o macOS
+informa de volta pelo seu symlink /private e deixa de corresponder ao que foi pedido.
+
+<a id="4213a0b3-01b6"></a>
+
+## install/ubuntu.kvm.sh: O virt-manager é instalado com seus pacotes recomendados
+
+Sua própria chamada ao apt COM Recommends, ao contrário do conjunto principal de
+pacotes: os widgets com que o virt-manager renderiza a tela de um domínio ficam em
+typelibs de introspecção do GObject que ele só recomenda; assim, com
+--no-install-recommends ele instala, lista todos os domínios e depois não consegue
+abrir nenhum. Nomear esses typelibs aqui, em vez disso, fixaria nomes de pacotes que
+mudam de uma versão para outra.
+
+Não fatal: o ambiente de testes controla os consoles dos convidados pelo virt-viewer;
+assim, um hospedeiro cujo apt não consegue fornecer o virt-manager continua sendo um
+hospedeiro de teste funcional -- essa é a janela do operador para um convidado em que
+uma etapa headless está presa, e Enable-TestAutomation.ps1 o informa como uma lacuna
+opcional na próxima execução.
+
+<a id="4213a0b3-01b7"></a>
+
+## install/ubuntu.kvm.sh: O tarball do PowerShell é a fonte alternativa
+
+`install_pwsh_tarball` é a fonte alternativa do PowerShell para toda a automação
+Yuruna posterior: o aarch64 não tem pacote apt da Microsoft, e o x86_64 só cai aqui
+quando o caminho do apt falha. Ele resolve a tag estável mais recente seguindo o
+redirecionamento /releases/latest (um HEAD-follow -- sem chamada limitada por taxa a
+api.github.com) para que o tarball acompanhe a mesma versão atual que o caminho do apt
+instalaria, em vez de congelar em uma única linha. O PowerShell distribui um tarball
+linux-x64 e um linux-arm64 (mais hashes.sha256) para cada release GA; assim, as duas
+arquiteturas resolvem. PWSH_VERSION substitui a descoberta em uma construção fixada ou
+air-gapped.
+
+<a id="4213a0b3-01b8"></a>
+
+## install/ubuntu.kvm.sh: Uma atualização do PowerShell malsucedida encerra a tentativa, não a instalação
+
+As duas fontes gerenciadas ficam em /usr/local/bin (o tarball por meio do symlink ao
+lado dele), que o PATH padrão coloca à frente de /snap/bin; assim, a cópia mais nova
+vence pelo nome sem remover a que já estava ali.
+
+Executado em um subshell para que uma fonte que desiste -- um feed de releases
+inacessível, um checksum que não confere -- encerre a tentativa de atualização e não
+a instalação. Ao contrário do caminho de primeira instalação, este hospedeiro já tem
+um interpretador funcional; a verificação de versão que vem a seguir diz que ele
+continua antigo, e isso pertence ao resumo final, não a uma execução abortada.
+
+<a id="4213a0b3-01b9"></a>
+
+## install/windows.hyper-v.ps1: O resumo da instalação é condicionado ao resultado da execução
+
+A última coisa impressa antes de a transcrição fechar. Tudo o que está acima rola; isto
+não -- inclusive o banner de resultado, que a verificação da versão mínima e este bloco
+imprimem depois.
+
+Todo veredicto aqui é condicionado ao resultado da execução, e não apenas à contagem
+de problemas. Uma falha capturada e uma ativação pendente do Hyper-V chegam cada uma a
+este ponto, e um resumo que diz "the machine is usable" ou "finished with no issues"
+sob qualquer uma delas contradiz o banner que o operador acabou de passar rolando, com
+a contradição na posição que sobrevive.
 
 ---
 

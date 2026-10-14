@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42782448-e44d-4353-957b-a836ffda43e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,8 +41,7 @@
 BeforeAll {
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 $script:k8sPaths = @(
-    (Join-Path $repoRoot 'guest/ubuntu.server.24/ubuntu.server.24.k8s.sh')
-    (Join-Path $repoRoot 'guest/ubuntu.server.26/ubuntu.server.26.k8s.sh')
+    (Join-Path $repoRoot 'guest/shared/ubuntu.k8s.sh')
 )
 $script:al2023Update = Join-Path $repoRoot 'guest/amazon.linux.2023/amazon.linux.2023.update.sh'
 $script:retryLib     = Join-Path $repoRoot 'automation/yuruna-retry.sh'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -497,6 +497,20 @@ Describe 'New-InfraFailureRecord (infra-stage failures)' {
         Assert-Equal -Expected 0 -Actual $r.File.stepNumber -Because 'no step for an infra stage'
         Assert-True (@($r.File.suggestedRecoveries) -is [array]) 'suggestedRecoveries is an array'
     }
+    It 'preserves missing-service discovery evidence in the record and event' {
+        $failures = @(@{ area = 'stash-service'; address = ''; endpoint = 'http://pool/extension-hosts?area=stash-service'
+            outcome = 'no-host'; detail = '404 -- no live host'; attempt = 4 })
+        $r = New-InfraFailureRecord -Stage 'Resolve-StashService' -FailureClass 'lab_dependency_down' `
+            -ErrorMessage 'Stash service is unavailable' -DependencyFailures $failures
+        $disk = $r.File | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable
+        $disk.context.dependencyFailures.Count | Should -Be 1
+        $disk.context.dependencyFailures[0].area | Should -Be 'stash-service'
+        $disk.context.dependencyFailures[0].endpoint | Should -Be $failures[0].endpoint
+        $disk.context.dependencyFailures[0].detail | Should -Be '404 -- no live host'
+        $r.Event.dependencyFailures[0].outcome | Should -Be 'no-host'
+        @(Test-CycleEventSchema -Record $r.Event).Count | Should -Be 0
+    }
+
     It 'emits an event that passes the cycle event schema validator (in-enum class)' {
         foreach ($cls in 'provisioning_failure','bootstrap_sync','plan_invalid','network_timeout') {
             $r = New-InfraFailureRecord -Stage 'GitPull' -FailureClass $cls -GuestKey '(bootstrap)' -ErrorMessage 'x'
@@ -562,6 +576,141 @@ Describe 'New-InfraFailureRecord (infra-stage failures)' {
             -ErrorMessage 'refused' -HostMemory $reading
         $v = @(Test-CycleEventSchema -Record $r.Event)
         Assert-Equal -Expected 0 -Actual $v.Count -Because "a measured reading must not make the event invalid; got: $($v -join '; ')"
+    }
+}
+
+Describe 'Orchestration preserves child dependency failures' {
+    BeforeAll {
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Test.Orchestrator.psm1'), [ref]$null, [ref]$null)
+        $policy = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.IfStatementAst] -and
+                $node.Clauses[0].Item1.Extent.Text -eq '-not $ok -and $env:YURUNA_LOG_DIR'
+        }, $true)
+        $script:InheritChildFailure = [scriptblock]::Create($policy.Extent.Text)
+        function Copy-CycleFailureRecord { param([string]$LogDir) $null = $LogDir; $script:MirroredFailures++ }
+    }
+    It 'uses the child evidence only for a <Case> failure record' -TestCases @(
+        @{ Case = 'fresh'; AgeSeconds = 1; ExpectedClass = 'lab_dependency_down'; ExpectedMessage = 'stash-service: 404 -- no live host'; ExpectedCopies = 1 }
+        @{ Case = 'stale'; AgeSeconds = 30; ExpectedClass = 'unknown'; ExpectedMessage = 'Host action exited 1'; ExpectedCopies = 0 }
+    ) {
+        param($Case, $AgeSeconds, $ExpectedClass, $ExpectedMessage, $ExpectedCopies)
+        $savedLogDir = $env:YURUNA_LOG_DIR
+        try {
+            $env:YURUNA_LOG_DIR = Join-Path $TestDrive $Case
+            New-Item -ItemType Directory -Path $env:YURUNA_LOG_DIR -Force | Out-Null
+            $path = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+            @{ failureClass = 'lab_dependency_down'; description = 'stash-service: 404 -- no live host'
+                context = @{ dependencyFailures = @(@{ area = 'stash-service'; outcome = 'no-host'; detail = '404 -- no live host' }) } } |
+                ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path
+            [IO.File]::SetLastWriteTimeUtc($path, [datetime]::UtcNow.AddSeconds(-$AgeSeconds))
+            $entryStartUtc = [datetime]::UtcNow.AddSeconds(-5)
+            $ok = $false
+            $reason = 'Host action exited 1'
+            $inheritedClass = 'unknown'
+            $inheritedDependencies = @()
+            $null = @($entryStartUtc, $ok) # Read by the production policy scriptblock.
+            $script:MirroredFailures = 0
+            . $script:InheritChildFailure
+            $inheritedClass | Should -Be $ExpectedClass
+            $reason | Should -Be $ExpectedMessage
+            $script:MirroredFailures | Should -Be $ExpectedCopies
+            $inheritedDependencies.Count | Should -Be $ExpectedCopies
+        } finally { $env:YURUNA_LOG_DIR = $savedLogDir }
+    }
+}
+
+Describe 'Orchestration dependency record integration' {
+    BeforeAll {
+        foreach ($module in 'Test.SequenceFailureState.psm1', 'Test.StateFile.psm1', 'Test.Log.psm1', 'Test.RunnerInnerLoop.psm1') {
+            Import-Module (Join-Path $PSScriptRoot $module) -Global -DisableNameChecking
+        }
+        . (Get-Module Test.RunnerInnerLoop) {
+            function Send-CycleEventSafely {
+                param([hashtable]$EventRecord)
+                $EventRecord | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $env:YURUNA_LOG_DIR 'parent-event.json')
+            }
+        }
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Test.Orchestrator.psm1'), [ref]$null, [ref]$null)
+        $policy = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.IfStatementAst] -and
+                $node.Clauses[0].Item1.Extent.Text -eq '-not $ok -and $env:YURUNA_LOG_DIR'
+        }, $true)
+        $publish = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.CommandAst] -and
+                $node.GetCommandName() -eq 'Write-CycleInfraFailure' -and $node.Extent.Text.Contains('$inheritedClass')
+        }, $true)
+        $script:InheritDependency = [scriptblock]::Create($policy.Extent.Text)
+        $script:PublishDependency = [scriptblock]::Create($publish.Extent.Text)
+    }
+    AfterAll { Remove-Module Test.RunnerInnerLoop -Force -ErrorAction SilentlyContinue }
+    It 'preserves the child record, its cycle mirror, and the parent event evidence' {
+        $savedLog = $env:YURUNA_LOG_DIR
+        $savedRuntime = $env:YURUNA_RUNTIME_DIR
+        $savedFolder = Get-Variable -Name __YurunaCycleFolder -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+        try {
+            $env:YURUNA_LOG_DIR = Join-Path $TestDrive 'dependency-integration'
+            $env:YURUNA_RUNTIME_DIR = $env:YURUNA_LOG_DIR
+            $folder = Join-Path $env:YURUNA_LOG_DIR 'cycle'
+            New-Item -ItemType Directory -Path $folder -Force | Out-Null
+            Set-Variable -Name __YurunaCycleFolder -Scope Global -Value $folder
+            $dependency = @{ area = 'stash-service'; endpoint = 'http://pool/extension-hosts?area=stash-service'
+                outcome = 'no-host'; detail = '404 -- no live host'; attempt = 4 }
+            $child = New-InfraFailureRecord -Stage 'Resolve-StashService' -FailureClass 'lab_dependency_down' `
+                -ErrorMessage 'stash-service: 404 -- no live host' -DependencyFailures @($dependency)
+            $path = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+            $child.File | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $path
+            $entryStartUtc = [datetime]::UtcNow.AddSeconds(-5)
+            $ok = $false; $reason = 'Host action exited 1'; $inheritedClass = 'unknown'; $inheritedDependencies = @()
+            $entryVmName = ''; $HostType = 'host.windows.hyper-v'; $e = @{ name = 'initialize-lab' }
+            $null = @($entryStartUtc, $ok, $reason, $inheritedClass, $inheritedDependencies, $entryVmName, $HostType, $e)
+            . $script:InheritDependency
+            . $script:PublishDependency
+            $disk = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json -AsHashtable
+            $mirror = Get-Content -Raw -LiteralPath (Join-Path $folder 'last_failure.json') | ConvertFrom-Json -AsHashtable
+            $parentEvent = Get-Content -Raw -LiteralPath (Join-Path $env:YURUNA_LOG_DIR 'parent-event.json') | ConvertFrom-Json -AsHashtable
+            $disk.action | Should -Be 'Resolve-StashService'
+            $disk.context.dependencyFailures[0].detail | Should -Be '404 -- no live host'
+            $mirror.context.dependencyFailures[0].endpoint | Should -Be $dependency.endpoint
+            $parentEvent.failureClass | Should -Be 'lab_dependency_down'
+            $parentEvent.dependencyFailures[0].detail | Should -Be '404 -- no live host'
+        } finally {
+            $env:YURUNA_LOG_DIR = $savedLog
+            $env:YURUNA_RUNTIME_DIR = $savedRuntime
+            Set-Variable -Name __YurunaCycleFolder -Scope Global -Value $savedFolder
+        }
+    }
+}
+
+Describe 'A guest that never reached the stopped state' {
+    It 'is a wait that timed out, carrying the observed state and the first silence' {
+        [void](Reset-FailState)
+        $f = Get-SequenceFailureState
+        $f.StepVmNotStopped = @{ observedState = 'running'; waitedSeconds = 180; requestedAtUtc = '2026-10-12T21:54:57Z'; action = 'startVm' }
+        $f.FirstGuestSilenceUtc = '2026-10-12T21:53:53Z'
+        $f.FirstGuestSilenceSource = 'sshExec: transport dropped mid-command'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.26' -HostType 'host.windows.hyper-v' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 19
+        Assert-Equal -Expected 'wait_timeout' -Actual $r.File.failureClass -Because 'nothing was started, so the registry class for the verb does not describe the fault'
+        Assert-True ($r.File.suggestedRecoveries -notcontains 'retry_immediately') 'waiting again for an ignored shutdown is not a recovery'
+        Assert-Equal -Expected 'running' -Actual $r.File.context.causeDetail.vmState -Because 'the host state at the deadline'
+        Assert-Equal -Expected 180 -Actual $r.File.context.causeDetail.vmStateWaitedSeconds -Because 'how long the step waited'
+        Assert-Equal -Expected '2026-10-12T21:53:53Z' -Actual $r.File.context.causeDetail.firstGuestSilenceUtc -Because 'the earliest symptom, not the step that gave up'
+        Assert-Equal -Expected 'running' -Actual $r.Event.causeVmState -Because 'the event mirrors the state'
+        Assert-Equal -Expected 180 -Actual $r.Event.causeVmStateWaitedSeconds -Because 'the event mirrors the wait'
+        Assert-Equal -Expected 'sshExec: transport dropped mid-command' -Actual $r.Event.firstGuestSilenceSource -Because 'the event names the observer'
+        $f.StepVmNotStopped = $null; $f.FirstGuestSilenceUtc = $null; $f.FirstGuestSilenceSource = $null
+    }
+    It 'leaves the state fields empty for a failure that waited on nothing' {
+        [void](Reset-FailState)
+        $f = Get-SequenceFailureState
+        $f.StepVmNotStopped = $null; $f.FirstGuestSilenceUtc = $null; $f.FirstGuestSilenceSource = $null
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.26' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 11
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass -Because 'the registry class stands when no stopped-wait failed'
+        Assert-Equal -Expected '' -Actual $r.File.context.causeDetail.vmState -Because 'always present, empty when unobserved'
+        Assert-Equal -Expected 0 -Actual $r.File.context.causeDetail.vmStateWaitedSeconds
+        Assert-Equal -Expected '' -Actual $r.File.context.causeDetail.firstGuestSilenceUtc
     }
 }
 

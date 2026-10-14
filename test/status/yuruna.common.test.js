@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.10.11.1
+  Version: 2026.10.14
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -80,6 +80,42 @@ assert.ok(Y, 'window.Yuruna should be mounted after load');
 assert.doesNotThrow(function () {
   Y.applyBanner({ overallStatus: 'pass', guests: [{}] }, null, null);
 }, 'applyBanner must not throw when #banner is absent');
+
+var bannerEl = makeEl();
+var getElementById = documentShim.getElementById;
+documentShim.getElementById = function (id) { return id === 'banner' ? bannerEl : null; };
+var faultData = {
+  overallStatus: 'pass', cycleStartUtc: '2026-10-12T12:44:04Z',
+  runnerFault: {
+    failureClass: 'config_gate_failed', errorMessage: '<script>bad()</script>',
+    attemptStartedAtUtc: '2026-10-12T13:37:27Z', frameworkCommitSha: 'abc123',
+    recordPath: 'runner-attempts/abc123/config-gate.json',
+    transcriptPath: 'runner-attempts/abc123/config-gate.log'
+  }
+};
+Y.applyBanner(faultData, null, { running: true });
+assert.strictEqual(bannerEl.className, 'fail', 'a failed attempt must be visible above the prior passing cycle');
+assert.strictEqual(faultData.overallStatus, 'pass', 'displaying an attempt failure must preserve the completed cycle verdict');
+Y.applyBanner({ runnerFault: faultData.runnerFault }, null, { running: true });
+assert.strictEqual(bannerEl.className, 'fail', 'a first-attempt failure needs no completed cycle to be visible');
+Y.applyBanner(faultData, null, { running: false });
+assert.strictEqual(bannerEl.className, 'stopped', 'verified stopped runner keeps precedence');
+documentShim.getElementById = getElementById;
+var faultEl = makeEl();
+Y.renderRunnerFault(faultEl, faultData);
+assert.strictEqual(faultEl.hidden, false);
+assert.match(faultEl.innerHTML, /&lt;script&gt;bad\(\)&lt;\/script&gt;/, 'diagnostic text is escaped');
+assert.match(faultEl.innerHTML, /href="runtime\/runner-attempts\/abc123\/config-gate\.log"/);
+faultData.runnerFault.transcriptPath = '../secrets.txt';
+faultData.runnerFault.recordPath = 'javascript:alert(1)';
+Y.renderRunnerFault(faultEl, faultData);
+assert.doesNotMatch(faultEl.innerHTML, /href=/, 'evidence links cannot leave the attempt directory');
+faultData.runnerFault.recordPath = 'runner.watchdog-kill.json';
+Y.renderRunnerFault(faultEl, faultData);
+assert.match(faultEl.innerHTML, /href="runtime\/runner\.watchdog-kill\.json"/, 'the exact watchdog evidence filename is safe to link');
+Y.renderRunnerFault(faultEl, { overallStatus: 'pass' });
+assert.strictEqual(faultEl.hidden, true, 'a successful new attempt clears the notice');
+assert.strictEqual(faultEl.innerHTML, '');
 
 // (2) The shared BANNER_TEXT is exported with the five expected keys.
 assert.deepStrictEqual(

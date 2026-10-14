@@ -1,14 +1,14 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
 set -euo pipefail
 
 # --- REGION: Detect architecture
-# See https://yuruna.link/42e220c4-0005
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
+# See https://yuruna.link/42e220c4-0005
 case "$ARCH" in
   arm64)
     echo "Environment: arm64 (Apple Silicon)"
@@ -19,6 +19,25 @@ case "$ARCH" in
     exit 1
     ;;
 esac
+
+# --- REGION: Re-read host coordinates per use
+# See https://yuruna.link/4220a755-004d
+# Match the retry library's four spaced host probes; LAN requests bypass proxies.
+yuruna_host_livecheck() {
+    local livecheck_url="http://${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}/livecheck"
+    local rounds=4 gap=3 round=1
+    while [ "$round" -le "$rounds" ]; do
+        if curl -fsS --noproxy '*' --max-time 2 -o /dev/null "$livecheck_url" 2>/dev/null; then
+            if [ "$round" -gt 1 ]; then
+                echo "yuruna: host status service answered on probe ${round}/${rounds} at ${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}"
+            fi
+            return 0
+        fi
+        if [ "$round" -lt "$rounds" ]; then sleep "$gap"; fi
+        round=$((round + 1))
+    done
+    return 1
+}
 
 # --- REGION: Ensure PowerShell is installed
 # See https://yuruna.link/42d69dfa-0036
@@ -74,24 +93,6 @@ for attempt in 1 2 3; do
   [ $attempt -lt 3 ] && sleep 60
 done
 sudo pwsh -NoProfile -Command "\$ErrorActionPreference = 'Stop'; Import-Module powershell-yaml -ErrorAction Stop; if ((ConvertFrom-Yaml 'k: v').k -cne 'v') { throw 'powershell-yaml smoke check failed' }"
-
-# See https://yuruna.link/4220a755-004d
-# Match the retry library's four spaced host probes; LAN requests bypass proxies.
-yuruna_host_livecheck() {
-    local livecheck_url="http://${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}/livecheck"
-    local rounds=4 gap=3 round=1
-    while [ "$round" -le "$rounds" ]; do
-        if curl -fsS --noproxy '*' --max-time 2 -o /dev/null "$livecheck_url" 2>/dev/null; then
-            if [ "$round" -gt 1 ]; then
-                echo "yuruna: host status service answered on probe ${round}/${rounds} at ${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}"
-            fi
-            return 0
-        fi
-        if [ "$round" -lt "$rounds" ]; then sleep "$gap"; fi
-        round=$((round + 1))
-    done
-    return 1
-}
 
 # --- REGION: Early yuruna framework extraction
 # See https://yuruna.link/42d69dfa-0037

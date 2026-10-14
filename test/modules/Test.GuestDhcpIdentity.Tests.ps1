@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4223adbe-1c67-4f91-9007-d00e25adf8ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,16 +65,7 @@ BeforeAll {
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     $script:SharedConfig = Join-Path $script:RepoRoot 'host/vmconfig/guest-dhcp.network-config'
 
-    # The guests that receive the shared seed network-config. Scoped by RENDERER,
-    # not by "does it run cloud-init": the file identifies interfaces by name
-    # glob, and only netplan resolves a glob against real devices.
-    #
-    # That scope is a safety boundary rather than an optimization. Handing
-    # cloud-init a network-config REPLACES the fallback it would otherwise
-    # generate, so seeding this file to a guest whose renderer cannot resolve the
-    # glob does not leave it "unpinned" -- it leaves it with no network
-    # configuration at all, nothing claiming the NIC, and no route in but the
-    # console it can no longer use to say so.
+    # See https://yuruna.link/42e220c4-0014
     $script:NetplanGuests = @(
         'guest.ubuntu.server.24', 'guest.ubuntu.server.26',
         'guest.caching-proxy-service', 'guest.download-agent-service',
@@ -224,18 +215,7 @@ Describe 'the guests that are handed a DHCP identity' {
             -Because 'a glob-matched network-config on a NetworkManager guest leaves it with no configuration at all, not a weaker one'
     }
 
-    # The test above names ONE file, and that is the hole a regression walked
-    # through: seeding a DIFFERENT network-config -- matched by MAC rather than
-    # by glob -- passed it while leaving every Amazon guest on every hypervisor
-    # with its NIC unclaimed and IFF_UP clear.
-    #
-    # The invariant is not "do not ship that file". It is "ship this guest NO
-    # network-config by any name". Supplying one replaces cloud-init's fallback,
-    # so any config its renderer fails to resolve to a real device is strictly
-    # worse than none, and whether a given match form resolves under
-    # NetworkManager is not decidable by reading the parser -- only a lab cycle
-    # settles it. So the seed stays empty and the destination filename is what
-    # gets asserted, not the source.
+    # See https://yuruna.link/42e220c4-0014
     It 'writes no network-config of any name into a NetworkManager guest seed' {
         $offenders = @()
         foreach ($guest in $script:NonNetplanGuests) {
@@ -394,17 +374,7 @@ Describe 'the installer-driven guests' {
         $userData | Should -Match "grep -q 'dhcp-identifier'" -Because 'the patch must stay idempotent across re-runs'
     }
 
-    # The late-command above patches /target, which does not exist while the
-    # installer is running its own DHCP client. So the pin has to be in the
-    # autoinstall `network:` key as well, or the INSTALL draws a lease under a
-    # machine-id DUID and the installed system draws a second one under the MAC:
-    # two addresses out of a shared pool for one guest, every build, with the
-    # installer's copy belonging to no guest that still exists.
-    #
-    # The key is per-hypervisor because the interface name is: enp0s1 on UTM,
-    # enp1s0 on KVM, eth0 on Hyper-V. Asserted for every overlay rather than
-    # for one, because a pin present on the host someone tested and absent on
-    # its siblings is the shape this whole suite exists to catch.
+    # See https://yuruna.link/42e220c4-0014
     It 'pins the installer''s own DHCP identity in every hypervisor overlay' {
         $overlays = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'host/vmconfig') `
                                     -Filter 'ubuntu.server.*.overlay.yml' -File)

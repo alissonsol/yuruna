@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42acc4f5-2748-4b33-95f6-25b431645860
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -191,6 +191,18 @@ Describe 'Update-TestConfigNaming.ps1 (converts, then no-ops)' {
 }
 
 Describe 'Update-TestConfigNaming.ps1 (refuses to guess)' {
+    It 'renames the pool URL key without rewriting an operator supplied URL' {
+        $cfg = New-TempConfig "pool:`n  intentGitUrl: https://example.invalid/custom/pool-intent.git`n"
+        try {
+            (Invoke-MigrateTool -ConfigPath $cfg).ExitCode | Should -Be 0
+            $doc = Get-Content -Raw -LiteralPath $cfg | ConvertFrom-Yaml
+            $doc.pool.configurationGitUrl | Should -Be 'https://example.invalid/custom/pool-intent.git'
+            $doc.pool.ContainsKey('intentGitUrl') | Should -BeFalse
+        } finally {
+            Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming" -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'stops when a key is present in BOTH the retired and the current form' {
         $both = "statusService:`n  isEnabled: true`n  enabled: false`n"
         $cfg  = New-TempConfig $both
@@ -205,5 +217,217 @@ Describe 'Update-TestConfigNaming.ps1 (refuses to guess)' {
         } finally {
             Remove-Item -LiteralPath $cfg -Force -ErrorAction SilentlyContinue
         }
+    }
+}
+
+Describe 'strict local key migration preparation' {
+    BeforeAll { Import-Module powershell-yaml -ErrorAction Stop }
+
+    It 'restores a blank canonical value and leaves the original config untouched' {
+        $inputConfig = [ordered]@{ pool = [ordered]@{ intentGitUrl = 'https://example.invalid/Original.git'; configurationGitUrl = ' ' } }
+        $result = ConvertTo-ConfigNamingMigration -Config $inputConfig
+        $result.Config.pool.configurationGitUrl | Should -BeExactly 'https://example.invalid/Original.git'
+        $result.Config.pool.Contains('intentGitUrl') | Should -BeFalse
+        $inputConfig.pool.configurationGitUrl | Should -BeExactly ' '
+        $inputConfig.pool.intentGitUrl | Should -BeExactly 'https://example.invalid/Original.git'
+    }
+
+    It 'accepts duplicate values after unit conversion and converts a parked duration once' {
+        $config = [ordered]@{ testCycle = [ordered]@{ stepTimeoutMinutes = 45; stepTimeoutSeconds = 2700 } }
+        $first = ConvertTo-ConfigNamingMigration -Config $config -ObsoleteEntry ([ordered]@{ 'vmImage.refreshHours' = '1.5' })
+        $first.Config.testCycle.stepTimeoutSeconds | Should -Be 2700
+        $first.Config.vmImage.refreshSeconds | Should -Be 5400
+        $first.Config.testCycle.Contains('stepTimeoutMinutes') | Should -BeFalse
+        $first.Obsolete.Count | Should -Be 0
+        (ConvertTo-ConfigNamingMigration -Config $first.Config -ObsoleteEntry $first.Obsolete).Changes.Count | Should -Be 0
+    }
+
+    It 'preserves false and zero as meaningful canonical values rather than empty defaults' {
+        $boolean = [ordered]@{ statusService = [ordered]@{ isEnabled = $true; enabled = $false } }
+        { ConvertTo-ConfigNamingMigration -Config $boolean } | Should -Throw '*conflict*'
+        $duration = [ordered]@{ testCycle = [ordered]@{ stepTimeoutMinutes = 45; stepTimeoutSeconds = 0 } }
+        { ConvertTo-ConfigNamingMigration -Config $duration } | Should -Throw '*conflict*'
+        $boolean.statusService.enabled | Should -BeFalse
+        $duration.testCycle.stepTimeoutSeconds | Should -Be 0
+    }
+
+    It 'preserves a meaningful canonical value when the retired copy is empty' {
+        $config = [ordered]@{ pool = [ordered]@{ intentGitUrl = ''; configurationGitUrl = 'https://example.invalid/current.git' } }
+        (ConvertTo-ConfigNamingMigration -Config $config).Config.pool.configurationGitUrl | Should -Be 'https://example.invalid/current.git'
+    }
+
+    It 'migrates exact acronym casing without disturbing a current key on a repeated pass' {
+        $config = [ordered]@{ vmStart = [ordered]@{ cachingProxyIP = '192.0.2.42' } }
+        $first = ConvertTo-ConfigNamingMigration -Config $config
+        @($first.Config.vmStart.Keys)[0] | Should -BeExactly 'cachingProxyIp'
+        $first.Config.vmStart.cachingProxyIp | Should -Be '192.0.2.42'
+        (ConvertTo-ConfigNamingMigration -Config $first.Config).Changes.Count | Should -Be 0
+    }
+
+    It 'rejects a blocked destination without partially migrating the caller config' {
+        $config = [ordered]@{
+            pool = [ordered]@{ intentGitUrl = 'https://example.invalid/keep.git' }
+            testCycle = [ordered]@{ autoRemediationEnabled = $true; autoRemediation = 'invalid scalar' }
+        }
+        { ConvertTo-ConfigNamingMigration -Config $config } | Should -Throw '*scalar blocks*'
+        $config.pool.intentGitUrl | Should -Be 'https://example.invalid/keep.git'
+        $config.pool.Contains('configurationGitUrl') | Should -BeFalse
+        $config.testCycle.autoRemediationEnabled | Should -BeTrue
+    }
+
+    It 'rejects an invalid duration without silently moving it into seconds' {
+        $config = [ordered]@{ testCycle = [ordered]@{ stepTimeoutMinutes = 'not a number' } }
+        { ConvertTo-ConfigNamingMigration -Config $config } | Should -Throw '*numeric duration*'
+        $config.testCycle.stepTimeoutMinutes | Should -Be 'not a number'
+    }
+
+    It 'rejects a parked YAML collection rather than treating it as a scalar URL' {
+        $parked = [ordered]@{ 'pool.intentGitUrl' = '[one, two]' }
+        { ConvertTo-ConfigNamingMigration -Config ([ordered]@{}) -ObsoleteEntry $parked } | Should -Throw '*valid YAML scalar*'
+        $parked.Contains('pool.intentGitUrl') | Should -BeTrue
+    }
+}
+
+Describe 'naming tool recovery of an already reconciled configuration' {
+    It 'recovers parked registered values, preserves unrelated evidence, and then no-ops' {
+        $cfg = New-TempConfig "pool:`n  enabled: true`n  configurationGitUrl: ''`n# --- Obsolete keys ---`n#   pool.intentGitUrl: https://Example.invalid/Custom/pool-intent.git`n#   unregistered.savedPath: /mnt/keep-me`n"
+        try {
+            $inputText = [IO.File]::ReadAllText($cfg)
+            (Invoke-MigrateTool -ConfigPath $cfg).ExitCode | Should -Be 0
+            $firstText = [IO.File]::ReadAllText($cfg)
+            $doc = ConvertFrom-Yaml -Yaml $firstText -Ordered
+            $doc.pool.enabled | Should -BeTrue
+            $doc.pool.configurationGitUrl | Should -BeExactly 'https://Example.invalid/Custom/pool-intent.git'
+            $firstText | Should -Match '#   unregistered.savedPath: /mnt/keep-me'
+            $firstText | Should -Not -Match '#   pool.intentGitUrl:'
+            [IO.File]::ReadAllText("$cfg.pre-renaming") | Should -BeExactly $inputText
+            (Invoke-MigrateTool -ConfigPath $cfg).ExitCode | Should -Be 0
+            [IO.File]::ReadAllText($cfg) | Should -BeExactly $firstText
+        } finally { Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming" -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'leaves conflicting parked values untouched with no migration backup' {
+        $cfg = New-TempConfig "pool:`n  configurationGitUrl: https://example.invalid/current.git`n# --- Obsolete keys ---`n#   pool.intentGitUrl: https://example.invalid/other.git`n"
+        try {
+            $inputText = [IO.File]::ReadAllText($cfg)
+            (Invoke-MigrateTool -ConfigPath $cfg).ExitCode | Should -Be 1
+            [IO.File]::ReadAllText($cfg) | Should -BeExactly $inputText
+            Test-Path "$cfg.pre-renaming" | Should -BeFalse
+        } finally { Remove-Item -LiteralPath $cfg -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'naming tool preservation of YAML scalar content' {
+    It 'preserves multiline credentials while renaming and retaining parked evidence' {
+        $cfg = New-TempConfig "repositories:`n  GH_TOKEN: |`n    line-one`n    line-two`n# --- Obsolete keys ---`n#   unregistered.keep: evidence`n"
+        try {
+            $before = Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered
+            (Invoke-MigrateTool -ConfigPath $cfg).ExitCode | Should -Be 0
+            $after = Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered
+            $after.repositories.ghToken | Should -BeExactly $before.repositories.GH_TOKEN
+            [IO.File]::ReadAllText($cfg) | Should -Match '#   unregistered.keep: evidence'
+        } finally { Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming" -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'validator reconciliation before retired-key validation' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.ConfigSync.psm1') -DisableNameChecking
+        $script:ValidatorNamingRoot = New-YurunaTestTempDir -Prefix 'yrn-validator-naming'
+        $script:ValidatorNamingHarness = Join-Path $script:ValidatorNamingRoot 'gate-sections.ps1'
+        $script:ValidatorNamingModules = $here
+        $script:ValidatorNamingTemplate = Join-Path $repoRoot 'test/test.config.yml.template'
+        $production = [IO.File]::ReadAllText((Join-Path $repoRoot 'test/Test-Config.ps1'))
+        $start = $production.IndexOf('# --- REGION: Section 2a:')
+        $end = $production.IndexOf('# --- REGION: Section 3:')
+        if ($start -lt 0 -or $end -le $start) { throw 'Validator configuration section boundaries are missing.' }
+        $header = @'
+param([string]$ConfigPath, [string]$TemplatePath, [string]$ReportPath, [string]$ModulesDir)
+$ErrorActionPreference = 'Stop'
+$script:ModulesDir = $ModulesDir
+Import-Module powershell-yaml -DisableNameChecking
+Import-Module (Join-Path $ModulesDir '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.Output.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -DisableNameChecking
+Initialize-OutputState
+$Config = Read-TestConfig -Path $ConfigPath -ThrowOnError
+$ApplyConfigMigration = $false
+$OnConfigSchemaDrift = 'Fail'
+'@
+        $footer = @'
+$state = Get-OutputState
+$report = @{ failCount = $state.FailCount; failures = $state.Failures; configuredUrl = $Config.pool.configurationGitUrl }
+[IO.File]::WriteAllText($ReportPath, ($report | ConvertTo-Json -Depth 10))
+if ($state.FailCount -gt 0) { exit 1 }
+exit 0
+'@
+        # Exercise the production blocks in their actual order in a fresh child;
+        # host provisioning and network validation are outside these boundaries.
+        [IO.File]::WriteAllText($script:ValidatorNamingHarness, $header + "`n" + $production.Substring($start, $end - $start) + "`n" + $footer)
+        function Invoke-ValidatorNamingGate {
+            param([string]$ConfigPath)
+            $reportPath = "$ConfigPath.gate-report.json"
+            $output = & ([Environment]::ProcessPath) -NoProfile -File $script:ValidatorNamingHarness `
+                -ConfigPath $ConfigPath -TemplatePath $script:ValidatorNamingTemplate `
+                -ReportPath $reportPath -ModulesDir $script:ValidatorNamingModules 2>&1
+            $exitCode = $LASTEXITCODE
+            $report = if (Test-Path -LiteralPath $reportPath) { Get-Content -Raw $reportPath | ConvertFrom-Json -AsHashtable } else { $null }
+            return @{ ExitCode = $exitCode; Output = ($output -join "`n"); Report = $report }
+        }
+    }
+    AfterAll { Remove-Item -LiteralPath $script:ValidatorNamingRoot -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'accepts an active retired pool URL on the first gate after successful migration' {
+        $cfg = Join-Path $script:ValidatorNamingRoot 'active-old.yml'
+        $templateText = [IO.File]::ReadAllText($script:ValidatorNamingTemplate)
+        $oldText = $templateText -creplace 'configurationGitUrl:', 'intentGitUrl:'
+        $previous = ConvertFrom-Yaml -Yaml $oldText -Ordered
+        $previous.pool.enabled = $true
+        $previous.pool.intentGitUrl = 'https://Example.invalid/Operator/pool-intent.git'
+        $inputText = ConvertTo-DocumentedConfigYaml -TemplateText $oldText -Config $previous
+        [IO.File]::WriteAllText($cfg, $inputText)
+
+        $first = Invoke-ValidatorNamingGate -ConfigPath $cfg
+        $first.ExitCode | Should -Be 0 -Because $first.Output
+        $first.Report.failCount | Should -Be 0
+        $first.Report.configuredUrl | Should -BeExactly 'https://Example.invalid/Operator/pool-intent.git'
+        [IO.File]::ReadAllText("$cfg.pre-renaming") | Should -BeExactly $inputText
+        $landed = [IO.File]::ReadAllText($cfg)
+        (Invoke-ValidatorNamingGate -ConfigPath $cfg).ExitCode | Should -Be 0
+        [IO.File]::ReadAllText($cfg) | Should -BeExactly $landed
+    }
+
+    It 'accepts a repaired parked pool URL on the first gate' {
+        $cfg = Join-Path $script:ValidatorNamingRoot 'parked-old.yml'
+        $templateText = [IO.File]::ReadAllText($script:ValidatorNamingTemplate)
+        $current = ConvertFrom-Yaml -Yaml $templateText -Ordered
+        $current.pool.enabled = $true
+        $current.pool.configurationGitUrl = ''
+        $inputText = ConvertTo-DocumentedConfigYaml -TemplateText $templateText -Config $current `
+            -ObsoleteEntry ([ordered]@{ 'pool.intentGitUrl' = 'https://Example.invalid/Original/pool-intent.git' })
+        [IO.File]::WriteAllText($cfg, $inputText)
+        $first = Invoke-ValidatorNamingGate -ConfigPath $cfg
+        $first.ExitCode | Should -Be 0 -Because $first.Output
+        $first.Report.failCount | Should -Be 0
+        $first.Report.configuredUrl | Should -BeExactly 'https://Example.invalid/Original/pool-intent.git'
+        [IO.File]::ReadAllText("$cfg.pre-renaming") | Should -BeExactly $inputText
+    }
+
+    It 'fails conflicting active values without changing the file or creating a backup' {
+        $cfg = Join-Path $script:ValidatorNamingRoot 'conflicting.yml'
+        $templateText = [IO.File]::ReadAllText($script:ValidatorNamingTemplate)
+        $current = ConvertFrom-Yaml -Yaml $templateText -Ordered
+        $current.pool.enabled = $true
+        $current.pool.configurationGitUrl = 'https://example.invalid/current.git'
+        $inputText = ConvertTo-DocumentedConfigYaml -TemplateText $templateText -Config $current
+        $inputText = $inputText -creplace '(?m)^(  configurationGitUrl:.*)$', "`$1`n  intentGitUrl: https://example.invalid/conflicting.git"
+        [IO.File]::WriteAllText($cfg, $inputText)
+        $result = Invoke-ValidatorNamingGate -ConfigPath $cfg
+        $result.ExitCode | Should -Be 1 -Because $result.Output
+        $result.Report.failCount | Should -BeGreaterThan 0
+        ($result.Report.failures.Message -join ' ') | Should -Match 'conflict'
+        [IO.File]::ReadAllText($cfg) | Should -BeExactly $inputText
+        Test-Path "$cfg.pre-renaming" | Should -BeFalse
+        Test-Path "$cfg.backup" | Should -BeFalse
     }
 }

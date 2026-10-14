@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 429be071-3a67-44e5-91dc-fd9c3fe536b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -283,12 +283,7 @@ function Invoke-ResolveVmIp {
         [hashtable]$State = @{},
         [string]$Context = ''
     )
-    # A common -Verbose sets $VerbosePreference only in the scope of the cmdlet
-    # that received it, and this function lives in a different module from its
-    # callers -- so without this, every narration line below is silently dropped
-    # for a caller who asked for it. The narration is the entire reason this
-    # function exists: a discovery chain that declines without saying why leaves
-    # the caller unable to tell "no address yet" from "no such guest".
+    # See https://yuruna.link/42e220c4-0004
     if (-not $PSBoundParameters.ContainsKey('Verbose')) {
         $inherited = $PSCmdlet.GetVariableValue('VerbosePreference')
         if ($null -ne $inherited) { $VerbosePreference = $inherited }
@@ -465,12 +460,7 @@ function Invoke-CachingProxyServiceAvailableProbe {
             & $reportNoCache "YURUNA_CACHING_PROXY_SERVICE_IP='$externIp' is not a valid IPv4 or IPv6 address -- ignoring."
             return $null
         }
-        # 3s/attempt cap, not 1s: on the EXTERNAL/remote proxy path a cross-host
-        # cache (a UTM/macOS squid over bridged networking, or a kvm cache behind
-        # the host's systemd socket-proxy forwarder into libvirt NAT) routinely
-        # takes 600ms-1s+ to ACCEPT, so a 1s cap makes the runner report a healthy
-        # remote cache as "did not answer." The cap is free for a fast cache
-        # (connect returns on accept); it only delays a genuinely-down verdict.
+        # See https://yuruna.link/42e220c4-0004
         $lastOutcome = $null
         for ($attempt = 1; $attempt -le $ConnectAttempts; $attempt++) {
             if ($attempt -gt 1) { Start-Sleep -Milliseconds $ConnectBackoffMs }

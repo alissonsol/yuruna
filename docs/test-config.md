@@ -27,10 +27,11 @@ set the last cycle actually ran beside the field.
 
 ## Key names
 
-Only the current key names are accepted: `Test-Config.ps1` fails a config
-carrying a retired one and names its replacement, and the pre-cycle gate runs
-the same check, so a stale file stops the cycle at startup instead of being
-half-honored. To convert a whole file in one step -- key renames, the
+Template reconciliation migrates registered retired key names before merging
+the current schema. It preserves operator values, converts duration units, and
+recovers registered keys parked in the generated obsolete-key block when the
+replacement is blank. Validation still rejects retired keys that remain active.
+To convert a whole file explicitly -- key renames, the
 minutes/hours-to-seconds value conversions, and the `autoRemediation` nesting
 move -- run:
 
@@ -40,8 +41,10 @@ pwsh tools/Update-TestConfigNaming.ps1
 
 It keeps the previous file alongside as `test.config.yml.pre-renaming` (which
 holds the same secrets the live file does, and is gitignored for that reason),
-is a no-op on an already-converted file, and refuses to guess when a key is
-present in both forms. The retired-key table it reads is
+is a no-op on an already-converted file, and stops without changing the file
+when populated old and new values disagree. Equal values are consolidated;
+blank replacements can be filled from the old value. A subsequent migration
+uses a unique backup suffix instead of replacing the first backup. The retired-key table it reads is
 `test/modules/Test.ConfigNaming.psm1`; the rules behind the names are in
 [naming conventions](design/naming.md).
 
@@ -51,7 +54,9 @@ present in both forms. The retired-key table it reads is
 
 `test.config.yml.template` is the schema source of truth. `Test-Config`
 fully reconciles the live `test.config.yml` to it
-(`Sync-TestConfigToTemplate` in `Test.ConfigSync.psm1`): missing template
+(`Sync-TestConfigToTemplate` in `Test.ConfigSync.psm1`): registered naming
+migrations run first and preserve the original file in a `.pre-renaming` backup;
+missing template
 fields are added with empty/default values; keys the template no longer
 defines are removed (a populated removed key first backs the previous file
 up to `test.config.yml.backup`); and the file is rewritten with all map
@@ -80,21 +85,21 @@ blank lines and key order come through verbatim, with the operator's value
 substituted wherever the file has one.
 
 Keys the template no longer defines are written back as commented-out
-entries under an `# --- Obsolete keys` block instead of only living in the
+entries under a `# --- REGION: Obsolete keys` block instead of only living in the
 `.backup`:
 
 ```yaml
-# --- Obsolete keys -------------------------------------------------------
+# --- REGION: Obsolete keys
 # Not defined by test.config.yml.template, so the runner ignores them. Kept
 # here (commented) so no value is lost: move anything still needed into the
 # keys above, then delete these lines.
 #   configService.isEnabled: true
 ```
 
-A parked key is inert (the runner parses YAML, and these are comments) and
-the retired-key check skips comment lines, so it stops failing validation
-while its value stays in view for hand-migration. Entries parked by an
-earlier run are carried forward, and rendering is deterministic -- a second
+A parked key is inert YAML. Registered retired names in this generated block
+are recovered into their current paths before reconciliation; conflicting
+populated values stop the migration without a write. Unregistered entries
+remain parked for operator review. Rendering is deterministic -- a second
 run reproduces the file byte for byte and writes nothing.
 
 Two consequences: the operator-managed `secrets` node is emitted as real YAML
@@ -395,10 +400,10 @@ ask; the section says so and skips.
 
 <a id="42b11c32-000c"></a>
 
-## pool -- optional multi-host pool intent (default-off)
+## pool -- optional multi-host pool configuration (default-off)
 
-Joins this host to a **pool**: it PULLs the slow-changing pool intent (membership
-+ `desiredState`) from a LAN git repo on the caching-proxy-service each cycle, and the
+Joins this host to a **pool**: it PULLs the slow-changing pool configuration (membership
++ `configuredState`) from a LAN git repo on the caching-proxy-service each cycle, and the
 pool-aggregator service labels its telemetry by the pool it belongs to. **Default-off** --
 with `enabled: false` (or no `pool` block) the host behaves exactly as a single
 host. Creating pools + assigning test sequences (the operator guide): [pool-admin.md](pool-admin.md).
@@ -406,15 +411,15 @@ host. Creating pools + assigning test sequences (the operator guide): [pool-admi
 | Key | Type | Meaning |
 |---|---|---|
 | `enabled` | bool | Master switch. **Default `false`.** `false` => no pull, no behavior change. |
-| `intentGitUrl` | string | Read-only URL of the bare intent repo on the proxy, e.g. `http://caching-proxy-service.local/pool-intent.git`. Empty => off. |
-| `localClonePath` | string | Where to keep the pulled clone. Empty => `<runtime>/pool-intent` (default). |
+| `configurationGitUrl` | string | Read-only URL of the bare configuration repository on the proxy, e.g. `http://caching-proxy-service.local/pool-configuration.git`. Empty => off. |
+| `localClonePath` | string | Where to keep the pulled clone. Empty => `<runtime>/pool-configuration` (default). |
 | `pullTimeoutSeconds` | int | Wall-clock cap on each bounded git fetch. Default `30`. |
 
 There is **no `poolId` here** -- the single source of truth for membership is the
-intent store's `pools.yml` `members[]` (the operator assigns this host's stable
+configuration store's `pools.yml` `members[]` (the operator assigns this host's stable
 `hostId` via `Add-HostToPool.ps1`); the runner finds its own pool by locating its
-`hostId` there. An unreachable intent store degrades gracefully: the host keeps
-cycling as a single host (it never blocks on the pull). `desiredState`
+`hostId` there. An unreachable configuration store degrades gracefully: the host keeps
+cycling as a single host (it never blocks on the pull). `configuredState`
 (`run`/`paused`/`drain`) gates the cycle -- `paused` holds after the in-flight
 cycle, `drain` stops after the current one -- and the pool's **repositories**,
 when it carries them, decide which framework and project this host runs for
@@ -497,16 +502,16 @@ zero. The count survives a runner restart; it lives in
 Counting has two side effects on every host, even with the value at `0` and on a
 platform that cannot act: the first counted timeout creates
 `$HOME/.yuruna/host-refresh/` (owner-only) for the count file, and each cycle that
-counts one reads the pool intent again -- with pool sync on, the same bounded
+counts one reads the pool configuration again -- with pool sync on, the same bounded
 fetch the cycle start does, rewriting `runtime/pool.state.json` -- so a pool
 override can take effect without waiting for the next cycle.
 
 **What happens at the threshold.** After the cycle that reached it, the resident
-runner re-reads the pool intent, reserves the day's attempt, and runs
+runner re-reads the pool configuration, reserves the day's attempt, and runs
 `test/lab/Invoke-HostRefresh.ps1` itself, synchronously, at the `restart` tier
 with the highest restart-tier rung this host has qualified as the ceiling. A
 paused, draining or unreadable pool means no attempt, and so does pool sync that
-is on but yields no pool record for this host (no intent pulled or cached, or the
+is on but yields no pool record for this host (no configuration pulled or cached, or the
 host is not a member): the runner then cycles as a single host, but an unattended
 restart cannot tell a fleet that wants the host paused from one it cannot read.
 The repair re-probes first and changes nothing if the hypervisor answers by then.
@@ -653,6 +658,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

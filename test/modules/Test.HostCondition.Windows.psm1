@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1308,7 +1308,7 @@ function Set-WindowsHostConditionSet {
         return 0
     }
 
-    # --- REGION: Pre-flight: elevation
+    # --- REGION: Elevation check
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]"Administrator")
     if (-not $isAdmin) {
@@ -1688,7 +1688,7 @@ function Assert-WindowsHostConditionSet {
     param([string]$HostType)
     if ($HostType -ne "host.windows.hyper-v") { return $true }
 
-    # --- REGION: Pre-flight: elevation
+    # --- REGION: Elevation check
     if (-not (Assert-Elevation -HostType $HostType)) { return $false }
 
     # --- REGION: Hyper-V management service must be running
@@ -1754,7 +1754,8 @@ function Assert-WindowsHostConditionSet {
         Write-Debug "Lock screen timeout check failed: $_"
     }
 
-    # --- REGION: https://yuruna.link/42d38664-001a
+    # --- REGION: Host clock drift warning
+    # See https://yuruna.link/42d38664-001a
     # Warn-only and once per cycle: the repair needs a privilege this process
     # cannot ask for, so a drifted host runs and says so rather than refusing
     # every cycle until an operator notices.

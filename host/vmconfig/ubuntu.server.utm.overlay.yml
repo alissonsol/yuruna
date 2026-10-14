@@ -3,13 +3,13 @@
 # macOS/UTM (QEMU) overlay for ubuntu.server.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
-  # See https://yuruna.link/42e220c4-0006
-  # Empty: UTM supplies its own address channel and fallback discovery paths.
+    # See https://yuruna.link/42e220c4-0006
+    # Empty: UTM supplies its own address channel and fallback discovery paths.
 # === YURUNA_OVERLAY_NETWORK ===
-  # See https://yuruna.link/429f3d06-0015
-  # See https://yuruna.link/4220a755-000b
-  # Pin the installer's lease as well as the installed system's lease.
   # --- REGION: network
+  # See https://yuruna.link/4220a755-000b
+  # See https://yuruna.link/429f3d06-0015
+  # Pin the installer lease before /target exists, and refuse IPv6 router advertisements.
   network:
     version: 2
     ethernets:

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4285f6b7-ed85-acb7-05f2-67970932d046
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,72 @@
 # locale: he-IL  domain: exceptions
 
 @{
+    'exceptions.config_naming_blocked_path' = @(
+        'לא ניתן להעביר את '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' אל '''
+        @{
+            'arg' = 'replacement'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': ערך סקלרי חוסם את נתיב ההחלפה. הקובץ לא שונה.'
+    )
+    'exceptions.config_naming_conflict' = @(
+        'התנגשות בשמות התצורה: '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ו־'''
+        @{
+            'arg' = 'replacement'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' מכילים ערכים שונים שאינם ריקים. יש להשאיר ערך אחד לפני ניסיון נוסף. הקובץ לא שונה.'
+    )
+    'exceptions.config_naming_duplicate_parked' = @(
+        'רשומות תצורה מיושנות סותרות עבור '''
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. יש להשאיר ערך אחד לפני ניסיון נוסף. הקובץ לא שונה.'
+    )
+    'exceptions.config_naming_invalid_duration' = @(
+        'לא ניתן להעביר את מפתח התצורה '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': נדרש משך זמן מספרי. הקובץ לא שונה.'
+    )
+    'exceptions.config_naming_invalid_parked_scalar' = @(
+        'לא ניתן להעביר את מפתח התצורה המיושן '''
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': נדרש ערך סקלרי תקין של YAML. הקובץ לא שונה.'
+    )
+    'exceptions.config_naming_save_failed' = @(
+        'לא ניתן לשמור את העברת שמות התצורה אל '''
+        @{
+            'arg' = 'configPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''; הקובץ המקורי והגיבוי עדיין זמינים.'
+    )
     'exceptions.host_1568d9e12a12e190' = 'זו גרסת Ubuntu KVM; הפעילו במקום זאת את host/⁦<type>⁩⁦/Sync-HostConfiguration.ps1⁩ עבור פלטפורמה זו.'
     'exceptions.host_1c714189825ec0e2' = @(
         'Hyper-V\⁦Remove-VM⁩ נכשל עבור '''
@@ -601,6 +667,7 @@
             'trust' = 'external'
         }
     )
+    'exceptions.host_ffd2efb19a40de43' = '⁦Enable-TestAutomation.ps1⁩ (host⁦/windows.hyper-v⁩) פועל רק במערכת Windows.'
     'exceptions.host_refresh_auth_authority_incomplete' = @(
         'הקובץ '
         @{
@@ -759,6 +826,24 @@
             'trust' = 'internal'
         }
         '''.'
+    )
+    'exceptions.pool_configuration_legacy_state' = @(
+        'המאגר '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' משתמש ב־⁦desiredState⁩ ב־⁦schemaVersion 4⁩; השתמשו ב־⁦configuredState⁩.'
+    )
+    'exceptions.pool_configuration_state_conflict' = @(
+        'המאגר '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' מצהיר על ערכים סותרים עבור ⁦desiredState⁩ ו־⁦configuredState⁩; לאחר בחירת ערך ⁦configuredState⁩ הרצוי, הסירו את השדה המיושן.'
     )
     'exceptions.runner_037f5a478339db90' = @(
         'בתצורת המריץ אין רשומות ''sequences'': '

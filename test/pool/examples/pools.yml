@@ -1,7 +1,7 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # See https://yuruna.link/42010605-0004
-schemaVersion: 3
+schemaVersion: 4
 pools:
   - poolId: lab
     poolGuid: 42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071
@@ -21,4 +21,4 @@ pools:
       quorum:
         healthyThreshold: 0.5
         degradedAfterSeconds: 1800
-    desiredState: run
+    configuredState: run

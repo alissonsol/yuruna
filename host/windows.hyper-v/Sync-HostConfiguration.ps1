@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42670b9e-4ecd-4c4f-b0e0-628a4e11334c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,6 +89,7 @@ if (-not $IsWindows) {
 }
 
 # --- REGION: Initialize host setup
+# See https://yuruna.link/42f52e37-001b
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
 # Only the ShouldProcess switches may reach the bootstrap: its

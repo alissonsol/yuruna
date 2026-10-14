@@ -19,12 +19,18 @@ Use short labels such as `Install log`, `Configuration`, `Remove existing VM`,
 `Fetch the framework`, and `Build and start the service`. Explain an ordering
 exception at the affected block, with a link to its durable rationale.
 
+Other comment syntaxes keep the same label in their native form: `<!-- REGION: <label> -->`
+in XML, HTML and plist templates, `/* REGION: <label> */` in CSS, and `-- --- REGION: <label>`
+in SQL. A rationale link in a file header is an ordinary `See https://yuruna.link/...` line,
+because no block follows it.
+
 Treat region labels as shared vocabulary, not prose to paraphrase. Recurring
 host phases use `Log level from environment`, `Import host modules`, `Seek the
-base image`, `Remove existing VM`, `Create copies and files for VM`, `Clean up
-temporary files`, `Installation summary`, and `Completion`. Service guests keep
+base image`, `Remove existing VM`, `Create copies and files for VM`, `Stage the
+cloud-init seed directory`, `Clean up temporary files`, `Installation summary`,
+and `Completion`. Service guests keep
 `Initialize environment`, `Detect architecture`, `Load retry helpers`, `Service
-user`, `Load service helpers`, `Service tunables`, `Storage paths`, `Package
+user`, `Load service helpers`, `Service locale`, `Service tunables`, `Storage paths`, `Package
 dependencies`, `Locate the daemon source`, `Build`, `Install the binary`, `Storage directories`,
 `Environment file`, `systemd unit`, and `Start the service and wait for
 readiness` in that order; service-specific regions may sit between those shared
@@ -169,6 +175,56 @@ path. Windows media may require manual downloading. Hyper-V's Windows downloader
 needs elevation for its host probe, BITS, and ProgramData; without elevation it
 prints the same manual-download instructions used by the test runner.
 
+**`host/macos.utm/guest.windows.11/Get-Image.ps1`.**
+
+Fido refuses to run anywhere but Windows: Get-Platform-Version answers
+0.0 off Windows and the command-line path exits 403 ("This feature is
+not available on this platform.") before making any request. The
+-GetUrl flow behind that gate is platform-neutral, so neuter the gate
+-- AFTER the hash check, so only the verified pinned bytes are ever
+patched. Without this the automated path can never work on macOS.
+
+**`host/modules/Yuruna.HostDownload.psm1`.**
+
+A platform that imports this module only for the sentinel/skip helpers has
+no driver wrapper to bind Resolve-CacheHostIp, so the closure arrives $null:
+no discovery means no cache to route through, so download direct. The
+closure stays optional on purpose -- the image helpers feature-detect this
+command by name and call it with just -Uri/-OutFile, and a mandatory
+parameter would stall that call on an interactive prompt.
+
+**`host/modules/Yuruna.UbuntuImage.psm1`.**
+
+Ask the download agent before the origin is touched at all: when it
+confirms the local copy IS the current artifact there is nothing to
+resolve, HEAD-probe or transfer. Both the client module and a healthy
+agent are feature-detected, so a lab with no agent -- or one whose agent
+is down, has no pool, or errors mid-request -- falls through to the
+resolve / same-source guard / download pipeline below.
+
+Hard-fail on a genuine checksum MISMATCH (corruption or tamper,
+never benign) and on a SHA256SUMS fetch still failing after the
+bounded retry budget -- unverifiable bytes must not be promoted.
+Only a definitively MISSING upstream checksum (HTTP 403/404/410 or
+no line for this ISO) is a soft pass, and that returns $true from
+Test-UbuntuServerImageChecksum and never reaches here.
+
+Write the sentinel in the SAME format the skip-guard above reads back: the
+4-line shape (filename + URL + size + Last-Modified) via Write-ImageSentinel
+when the host driver ships Test-DownloadAlreadyCurrent, else the bundled
+3-line shape that Test-UbuntuServerImageAlreadyCurrent reads. An asymmetric
+writer/reader pair never matches, so the skip-guard would re-download every
+run.
+
+**`host/ubuntu.kvm/guest.windows.11/Get-Image.ps1`.**
+
+The KVM host driver brings the skip-if-same-source guard + sentinel writer
+(Test-DownloadAlreadyCurrent / Write-ImageSentinel, the shared 4-line filename +
+URL + size + Last-Modified format) AND the cache-aware Save-CachedHttpUri
+wrapper used for the virtio-win download below. (The Windows ISO is a manual
+download -- Microsoft serves it only via short-lived signed URLs -- so it
+cannot route through the cache.)
+
 <a id="42e220c4-0004"></a>
 
 ## Host provisioning
@@ -190,6 +246,14 @@ UTM discovery consumes normalized states: a verified endpoint remains usable
 when state discovery fails; only recognized stopped or absent state permits
 implicit direct fetching. Running-but-unreachable or unknown state requires
 repair or an explicit URL override.
+
+Amazon builders keep SSH-key acquisition, the vault user password, host
+coordinates, user-data rendering, and seed-ISO generation in the same relative
+order. Cloud-init expires the initial password for the console sequence's
+Current/New/Retype rotation. Hyper-V and UTM copy their private disk before
+rendering; KVM delays replacing its qcow2 overlay until seed generation succeeds.
+Every KVM Linux builder resolves its network and reachable host address once,
+as a pair, before rendering. Its explicit address override remains authoritative.
 
 Amazon Linux 2023 boots a prebuilt cloud image. Its builders do not seed a dnf
 proxy address: the address could go stale before the guest can verify it, which
@@ -418,11 +482,422 @@ Printed shell examples belong in a literal PowerShell here-string, with named
 placeholders replaced afterward. An expandable string would evaluate `$()`;
 backslashes do not escape that PowerShell interpolation.
 
+**`host/macos.utm/Disable-TestAutomation.ps1`.**
+
+`defaults` takes the host selector BEFORE the verb. Emitted verb-first it
+binds '-currentHost' as the domain and rejects the rest, so the three
+ByHost knobs would be neither written nor deleted and "Disable puts the
+Mac back" would not be true for them. Get-MacDefaultsCommandArgument
+re-emits the selector where it belongs, from the same knob table the
+capture and the apply paths use.
+
+A captured value has to be spoken back in the vocabulary of the type it
+is written as. `defaults read` renders a boolean as 1 / 0, and
+`defaults write -bool` accepts only true / false / yes / no -- a digit
+exits 255 with the usage text, so without this translation every
+boolean knob reports a failed restore and stays exactly as the
+automation left it.
+
+**`host/macos.utm/Remove-OrphanedVMFiles.ps1`.**
+
+utmctl is an Apple Events client with no timeout of its own: a UTM that
+stopped answering holds every call indefinitely, and this sweep runs
+unattended at cycle start. Every call is therefore bounded -- through the
+macOS driver's wrappers when the driver is loaded, through the shared
+bounded runner otherwise -- and a call that did not finish proves nothing:
+a bundle whose registration could not be read is kept, never deleted.
+
+Verify no longer registered before removing files. Prefer the UUID
+(unambiguous); otherwise re-query by NAME, because a name-based
+`utmctl delete` can silently fail -- and without a probe a UUID-less
+bundle would be removed while its VM is still registered in UTM,
+deleting the on-disk state of a live registration. A probe that did
+not finish counts as still registered for the same reason.
+
+**`host/macos.utm/Remove-StaleDhcpLease.ps1`.**
+
+Candidates first, reachability second, both here rather than handing the
+probe to Select-StaleDhcpLeaseBlock: its -InUseVerdict runs the scriptblock
+across a module boundary, and a veto that silently misfires there would
+either delete a live guest's lease or quietly protect every block. Splitting
+the two keeps the probe running in the scope it was written for, and lets the
+skipped addresses be reported instead of just vanishing from the list.
+
+**`host/macos.utm/modules/Yuruna.Host.psm1`.**
+
+The GUI-session probe and the in-bundle utmctl path come from the macOS
+host-condition module. -Global without -Force: a copy the host-condition
+facade already loaded is reused as is, rather than re-run and reset under
+its other callers every time this driver is re-imported. A long-lived
+process can hold a copy loaded before those two entry points existed; that
+copy is replaced (still -Global, so every caller sees the same one) rather
+than left to fail the driver's first call into it.
+
+The one wording table for utmctl's Apple Event failures. utmctl exits 0 on
+most of them and prints the OSStatus text instead, so the text is the only
+evidence, and the ORDER is the classification: a denial (-1743) or timeout
+(-1712) message also carries the generic OSStatus phrasing, so the specific
+rows must be tried before the catch-all. Every wording the repository has
+seen (driver and installer gate) belongs here, each pinned by a fixture.
+
+Ports below 1024 need root on macOS. Spawn via `sudo -E pwsh` when not
+already root; the caller pre-caches credentials via `sudo -v` so the
+detached subprocess can bind the port without an interactive tty prompt.
+sudo exec's pwsh (no fork), so the pidfile PID matches the sudo PID.
+An unreadable uid is treated as non-root: the sudo -n spawn below then
+fails fast when root is not reachable, instead of binding as nobody.
+
+Leaving the bundle on disk is the point. UTM deletes a VM by moving
+its bundle to the trash, so removing the files under a registration
+that survived strands the name in UTM with nothing left to delete --
+and a stranded name is worse than a stranded bundle, because it still
+answers `utmctl status` and so reads as a reusable VM to the sequence
+engine, which then starts a VM that has no disk.
+
+Polled even when the verb reported an error: a start that printed an
+Apple Event timeout can still have been carried out, and the state is
+what settles it.
+The guard reads the shared deadline, not the settle window: the
+window only paces polling, and a window of exactly one second is
+already under a second by the time it is measured, which would
+refuse every short settle regardless of the time actually left.
+
+Gate on a positive stopped reading FIRST: if UTM runs QEMU without
+an enforced write lock, the qemu-img probe below would pass while
+the process is still alive, so the lock check alone is not
+sufficient. Status can flip to 'stopped' a beat before QEMUHelper
+releases the file handle -- qemu-img info WITHOUT -U fails while
+the lock is held, so a clean exit on every disk is the all-clear.
+
+Emits the names one by one: zero elements for an empty set, N for N.
+Callers MUST normalize with `@(Get-RunningVmName)` to get a proper
+array regardless of count. Do NOT use `return ,@($arr)` here: the
+comma wrapper inverts for empty arrays (caller's @() then receives
+a 1-element array whose single element is the empty array itself,
+surfacing as a phantom "running VM" with empty name).
+
+Every remaining process's identity is read once, before the first
+signal: a helper's baseline read after UTM's own TERM/KILL waits
+would be seconds younger than the census that listed it. The census
+is only a candidate list, so each baseline must already be this
+user's UTM or helper executable; each signal then revalidates
+against the baseline taken here.
+
+networksetup -listallhardwareports prints stanzas of the form:
+  Hardware Port: Wi-Fi
+  Device: en0
+  Ethernet Address: ...
+Collect the Device of every Wi-Fi port, then test the default-route
+interface for membership.
+
+**`host/modules/Yuruna.HostProvision.psm1`.**
+
+A common -Verbose sets $VerbosePreference only in the scope of the cmdlet
+that received it, and this function lives in a different module from its
+callers -- so without this, every narration line below is silently dropped
+for a caller who asked for it. The narration is the entire reason this
+function exists: a discovery chain that declines without saying why leaves
+the caller unable to tell "no address yet" from "no such guest".
+
+3s/attempt cap, not 1s: on the EXTERNAL/remote proxy path a cross-host
+cache (a UTM/macOS squid over bridged networking, or a kvm cache behind
+the host's systemd socket-proxy forwarder into libvirt NAT) routinely
+takes 600ms-1s+ to ACCEPT, so a 1s cap makes the runner report a healthy
+remote cache as "did not answer." The cap is free for a fast cache
+(connect returns on accept); it only delays a genuinely-down verdict.
+
+**`host/ubuntu.kvm/Enable-TestAutomation.ps1`.**
+
+SupportsShouldProcess on the script-level param() does NOT propagate to
+nested functions -- $PSCmdlet inside this function refers to the
+function's own context, so the attribute must be repeated here for
+ShouldProcess to be wired up and for PSScriptAnalyzer's PSShouldProcess
+rule to be satisfied. -WhatIf flows through automatically because
+$WhatIfPreference inherits from the calling scope.
+
+Reported for every caller. install/ubuntu.kvm.sh says the same thing
+once more in its own closing summary, and that duplication is the
+cheaper mistake: suppressing the reminder for callers that publish a
+particular environment variable suppresses it for every caller that
+publishes it, including the ones that print no such reminder of their
+own -- and virsh then fails for a reason nothing on screen explains.
+
+**`host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1`.**
+
+Capture instead of streaming: Yuruna.Host\New-VM re-emits every child
+stdout/stderr line via Write-Information, so virt-install's
+"Starting install... / Creating domain... / Domain creation completed."
+would clutter the cycle log at Info level. The verbose stream is not
+captured by the parent's `2>&1`, so Write-Verbose hides these unless
+the operator re-runs the script directly with -Verbose.
+
+**`host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1`.**
+
+Print one status line per ~30 s rather than Write-Progress. PowerShell-
+on-Linux's progress renderer trips an internal SetCursorPosition with
+nonsensical column values ("Parameter 'left'. Actual value was
+51515410") on certain ANSI-styled terminals (tmux, vscode integrated,
+some sshd PTYs). Falling back to plain stdout lines makes the wait
+loop terminal-agnostic and keeps the operator informed.
+
+**`host/ubuntu.kvm/modules/New-UbuntuServerVM.ps1`.**
+
+Pinned rather than left to the default. virt-install adds this channel on
+its own for this argument shape today, so the line changes nothing now --
+but qemu-guest-agent in the seed is useless without it, and a future
+default change would remove the host's only on-demand way to ask this
+guest for its address, leaving discovery on a decaying ARP cache with no
+sign of what broke.
+
+**`host/ubuntu.kvm/modules/Yuruna.Host.psm1`.**
+
+Read once and require a domain that is positively powered off: an
+'unknown' from a denied or timed-out read must refuse here rather than
+pass on to domrename. Get-VMState folds paused, in shutdown, pmsuspended
+and crashed into 'stopped', but each of those can still have a live QEMU
+process (crashed does under on_crash=preserve), which libvirt counts as
+an active domain and will not rename. Only the raw 'shut off' qualifies.
+
+A NIC still holding the address the OLD name derives is holding that
+NAME's address rather than the guest's, and the name is being vacated
+-- so the address has to move with it, or the next domain built under
+it is refused for a duplicate. Any other address was pinned at build
+time to the identity this guest keeps for life: re-deriving it here
+would re-DHCP a guest whose own state records the address it has.
+
+Thin wrapper over the shared runner. The host subdir and the image-path
+table (Get-ImagePath, injected as a CommandInfo resolved in THIS driver's
+scope) are the platform variables. Unlike win/mac, this driver logs via
+the bare Information stream rather than Write-GetImageLine, so the writer
+is injected too -- `& (Get-Command Write-Information) $line` binds $line to
+-MessageData positionally, identical to an inline `Write-Information $line`.
+
+Import only when the dispatcher isn't already resolvable, so the
+steady-state path (module already loaded by the outer loop) is a
+no-op. -Global on the cold path: a bare -Force import evicts the
+global Invoke-Sequence (and its nested modules) the outer loop
+still calls (feedback_module_force_import_evicts_global); refresh
+it in place instead.
+
+Defer to Invoke-Sequence's host-aware dispatcher rather than mapping key
+names here. A local map holds only single keycodes, so a modifier chord
+(which `virsh send-key` expresses as several positional keycodes pressed
+together) degrades silently to one keypress -- Ctrl-U arriving as a bare
+'u' typed into the guest. The dispatcher's Send-KeyKvm backend owns both
+the chord table and the splat.
+
+Rows look like:
+  vnet0      52:54:00:1a:b2:c3    ipv4         192.168.122.42/24
+  vnet0      52:54:00:1a:b2:c3    ipv6         2001:db8::1234/64
+The MAC column repeats only on the first row of a multi-address
+interface; a continuation row carries '-' there and inherits the MAC
+above it, so the last seen MAC is carried forward.
+
+MAC affinity is a REQUIREMENT here, not the preference it is when
+reading domifaddr. That view is already scoped to one domain, so every
+row belongs to the guest being asked about and falling back to any row
+is harmless. This view is scoped to the NETWORK: every other guest's
+lease is in it, and the same fallback would hand back a peer's address
+-- reachable, wrong, and indistinguishable from success.
+
+Internal. The name of the NM connection currently ACTIVE on $Nic, or
+$Nic itself when none is found (best-effort fallback so operator
+recipes always show something actionable). Stock profiles are rarely
+named after the device ("Wired connection 1", "netplan-eno1"), and a
+recipe pointing at a nonexistent profile fails at the exact moment
+the operator is disconnected.
+
+A MAC pin in the yaml only applies when the device is
+CREATED ([NetDev] MACAddress is not retro-fitted), so a
+bridge that already exists with a generated MAC would keep
+it after a re-apply and the host would renumber. Rebuild
+instead: the sweep deletes the device and the fresh build
+pins the NIC's MAC at creation.
+
+The failed re-apply just put the NIC under the stale
+definition (dhcp off, bridge member) without delivering
+the uplink -- undo it BEFORE handing back 'rebuild', or
+the host sits addressless and the caller's rebuild path
+cannot even resolve the default-route NIC. Moving the
+yaml aside + re-applying restores whatever the surviving
+netplan files declare for the NIC.
+
+Probe the backing bridge so the plan is truthful about whether
+the run will flap host networking (heal/rebuild) or not. Only
+<forward mode='bridge'/> networks are host-bridge-backed --
+NAT/routed networks own their virbrN bridge (no physical
+uplink by design; dnsmasq serves DHCP on it) and are reused
+as-is.
+
+The bridge would have to be built -- this is the only branch that
+perturbs host networking. The rollback recipe names the NIC's REAL
+active profile ("Wired connection 1", "netplan-eno1", ...): stock
+profiles are rarely named after the device, and a recipe pointing
+at a nonexistent profile fails at the exact moment the operator is
+disconnected.
+
+Build the hostPort -> vmPort mapping list. Straight ports map 1:1;
+a PortRemap entry (e.g. 8022 -> 22) overrides that hostPort. This
+is a plain array of objects ON PURPOSE -- NOT [ordered]@{}: an
+OrderedDictionary keyed by integers indexes POSITIONALLY when the
+index is an [int], so `$map[3128]` is an out-of-range positional
+lookup ("argument out of range, Parameter 'index'"), not the key
+lookup it looks like. An object array sidesteps that trap.
+
+Current mechanism: systemd socket-proxy units. Disable+stop the
+.socket (drops it from sockets.target and closes the listener),
+stop the .service, delete the unit files, reload systemd.
+Invoke-YurunaSudo, not a bare `& sudo`: on the runner's unattended path it
+adds -n so a cold timestamp fails immediately instead of parking the whole
+host on a password prompt read from /dev/tty that nobody will answer, and
+it throws with the exact sudoers rule to install when that happens.
+
+**`host/windows.hyper-v/Enable-TestAutomation.ps1`.**
+
+The virtual display is opt-in (see header) and deliberately NOT set here: it
+changes the host's monitor topology / scaling, so it stays an explicit
+operator choice. Test-YurunaVirtualDisplayEnabled resolves the live process
+variable first, then the persisted User/Machine scope, so this reflects what
+the runner will actually do rather than this shell's (possibly stale)
+process block. See docs/host-hyperv.md.
+
+**`host/windows.hyper-v/Remove-OrphanedVMFiles.ps1`.**
+
+Remove empty subfolders, deepest first so parents empty as children go.
+Hyper-V's system subdirs under VirtualMachinePath (Planned Virtual Machines,
+Snapshots Cache, Resource Types, ...) are normally empty on a no-VMs
+host but are part of vmms's expected layout -- without a guard the
+empty-folder sweep removes 15+ vmms system dirs on every run, only for
+vmms to recreate them. Skip anything Test-IsHyperVSystemPath flags.
+
+**`host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1`.**
+
+The ARP sweep only makes sense on a bridged (External) switch, where the
+host is not the DHCP server and never observes the guest's lease. The
+External vSwitch name is operator-configurable (Get-OrCreateYurunaExternalSwitch
+honors a pre-created switch under any name), so key off the switch this
+script resolved rather than a literal name -- a literal silently skips the
+sweep on a host that named its bridge anything else.
+
+A Hyper-V vSwitch object outlives its uplink binding across a host reboot,
+so the switch still existing is not evidence that its bridge forwards. When
+the bridge is dead the VM's DHCP request never reaches the LAN and no amount
+of waiting produces an address, so bound the discovery budget instead of
+spending the full 20 minutes re-proving it. The classifier is driver-private
+and may be absent, in which case the uplink is treated as usable.
+
+**`host/windows.hyper-v/guest.windows.11/New-VM.ps1`, `host/windows.hyper-v/modules/New-UbuntuServerVM.ps1`.**
+
+Nested virtualization is opt-in and AMD64-only: ARM64 Hyper-V rejects a VM
+with virtualization extensions exposed at start time ("this platform does
+not support nested virtualization"), so an impossible ask fails here,
+before any VM state is created. OSArchitecture rather than
+$env:PROCESSOR_ARCHITECTURE, which reports AMD64 for an x64 pwsh under
+emulation on an ARM64 host.
+
+**`host/windows.hyper-v/modules/Yuruna.Host.psm1`.**
+
+Hyper-V's own answer, asked two ways so a single property name is
+never what decides an unhealthy verdict: a vNIC record flagged
+IsManagementOs, or any vSwitch-side record naming this switch (live
+mode only queries those for the switch's management OS, and a
+host-side Get-NetAdapter record always carries an
+InterfaceDescription instead).
+
+Falling through to the Default-Switch address keeps a stale or
+mistyped switch name from stranding a guest with no host address
+at all, but the answer is only correct if the guest really does
+attach to the Default Switch. Say so, because the alternative is
+a 172.x address baked into a bridged guest's seed with nothing
+in the log to explain where it came from.
+
+-Name is a wildcard parameter. A name holding a wildcard or escape
+character cannot be looked up as itself: unescaped it matches other VMs
+and never itself alone, and whether the provider honors an escaped
+pattern cannot be relied on. Such a name is matched exactly against the
+full inventory instead, which answers presence as reliably as it answers
+absence.
+
+Close the VM's vmconnect viewer before unregistering. vmconnect has
+no setting to suppress the modal "The virtual machine ... has been
+deleted" dialog it raises when its VM disappears, and that dialog
+blocks until a human clicks Exit. Must happen pre-delete: once the
+dialog is up the window title no longer carries the VM name, so the
+title match below would miss it.
+
+Wall-clock deadline rather than an iter counter: memory file
+feedback_iter_counter_wallclock_trap.md flags `$elapsed += $Poll`
+as silently expanding the budget by 3-6x when each iteration does
+real work (Get-VM is CIM-backed and can hang briefly under VMMS
+contention). [DateTime]::UtcNow is monotonic-enough for a 120s
+budget and tracks actual wall time regardless of poll cost.
+
+A modal "Another user is connected" dialog disables its own owner window,
+so a vmconnect main window that is visible, enabled and steadily titled
+for the VM is direct evidence no dialog is coming -- the wait below exits
+on that instead of only on a dialog or the timeout. Sized from a measured
+worst-case dialog-appearance delay D (D = 1.5 s: no Hyper-V host was
+available to provoke the dialog and time it, so this is the plan's own
+documented fallback, not a measurement) as max(1.0, 2 * D), rounded up to
+the poll's own 0.25 s grid.
+
+Two capture paths:
+  1. Msvm_VirtualSystemManagementService.GetVirtualSystemThumbnailImage --
+     no window required, configured resolution with smaller boot-mode
+     fallbacks. Used by OCR.
+  2. PrintWindow against the vmconnect window -- used by click-by-OCR
+     because clicks need the same coord space as the captured pixels,
+     and the WMI thumbnail does NOT match vmconnect's client area.
+
+GUI: defer to Invoke-Sequence's host-aware dispatcher (same pattern
+as KVM and macOS). Send-TextHyperV is a private helper inside that
+module; calling it directly from here fails under module scoping
+because Yuruna.Host's body cannot see another module's private
+functions even when both are loaded -Global. Going through the
+exported Test.SequenceEngine\Send-Text avoids the visibility trap.
+
+Prefer IPv4 (downstream Add-PortMap uses netsh portproxy v4tov4),
+but fall back to a routable IPv6 if no v4 is available so v6-only
+guests don't return $null. Loopback/link-local excluded.
+v4-before-v6 and the loopback/link-local rejection are the shared
+selector's job, so KVP, the neighbor stage below, and the other two
+drivers cannot drift apart on what counts as a usable address.
+
+Child scripts run by the bounded probe and the rung-2 helpers in a fresh
+`pwsh -NoLogo -NoProfile -NonInteractive -Command`. Each prints only
+`yuruna-probe <key>=<token>` lines through [Console]::Out, which flushes per
+line, so what the child saw survives a kill at the cap; tokens are enum names
+and never localized. Single quotes only, so the text crosses the process
+command line without any quoting to undo.
+
+**`test/modules/Test.HostSampling.psm1`.**
+
+The per-cause rates after the scheduling counters split Total
+Intercepts/sec by source, so a virtual processor trapping millions of
+times a second names what it is trapping on: a timer or interrupt-
+controller register loop, an interrupt storm, hypercalls, device
+memory, or (ARM64) a secure-monitor call. SysReg and SMC are the
+ARM64 traps, MSR/IO the x64 ones; capability resolution drops
+whichever this host does not publish. This list is deliberately not
+exhaustive -- Hyper-V Hypervisor Virtual Processor carries dozens of
+narrower sub-counters -- so the livelock verdict also reports what
+these named causes leave unaccounted for, rather than reading a gap
+in this list as zero cause.
+
 <a id="42e220c4-0005"></a>
 
 ## Guest installers
 
-Ubuntu 24 and 26 carry the same update, Code, Kubernetes, n8n, OpenClaw, and PostgreSQL installer logic. A release name is not a reason to omit retry behavior, installed-tool checks, or diagnostics. Common phases use the same region names and order. Amazon Linux retains dnf/RPM paths, Amazon Corretto, NodeSource RPM installation, and PostgreSQL 17; Ubuntu uses apt, nvm, and PostgreSQL 18. PostgreSQL is stopped after Ubuntu's package installation because its post-install script starts a cluster, and before Amazon's installation because its RPM leaves initialization to the caller. Windows uses elevation and Windows package tools. The macOS update workload runs after Setup Assistant; the IPSW restore already supplies its initial operating system.
+Ubuntu 24 and 26 carry the same update, Code, Kubernetes, n8n, OpenClaw, and PostgreSQL installer logic. A release name is not a reason to omit retry behavior, installed-tool checks, or diagnostics. Common phases use the same region names and order. Amazon Linux retains dnf/RPM paths, Amazon Corretto, NodeSource RPM installation, and PostgreSQL 17; Ubuntu uses apt, nvm, and PostgreSQL 18. Ubuntu's package installation already creates and starts a cluster, so its `Ensure PostgreSQL cluster` region keeps an existing 18/main cluster and creates one only when it is missing. Amazon's RPM leaves initialization to the caller. Its `Ensure PostgreSQL cluster` region initializes only absent or empty data, preserves an existing PostgreSQL 17 cluster, and refuses a nonempty partial cluster or an incompatible `PG_VERSION`. Retries never delete an existing data directory. Windows uses elevation and Windows package tools. The macOS update workload runs after Setup Assistant; the IPSW restore already supplies its initial operating system.
+
+Ubuntu release entrypoints for `update`, `code`, `k8s`, `n8n`, `openclaw`, and
+`postgresql` all delegate to `guest/shared/ubuntu.<workload>.sh`. Edit that shared
+body and run `python3 tools/Sync-GuestWorkflows.py`; the generator refreshes both
+release wrappers and their SHA-256 pins. A local checkout verifies the body
+before execution; a downloaded entrypoint supplies the same digest to the
+installed fetcher. Pre-commit and release checks cover all twelve wrappers.
+Behavior fixtures read the shared implementation, while wrapper fixtures verify
+argument forwarding, failure propagation, downloaded execution, and stale pins.
 
 Architecture detection reports the guest's CPU architecture independently of
 its hypervisor. An x64 guest does not identify its host provider. JDK and .NET
@@ -556,14 +1031,20 @@ prevent the daemon from starting.
 | Guest | Dependencies and storage |
 | --- | --- |
 | Stash | Go daemon on SSH 22 with optional HTTP 80. Cloud-init mounts the stash share; an unconfigured guest can use a local folder that does not survive reimaging. |
-| Pool-control | Go daemon plus PowerShell and `powershell-yaml` for pool-admin commands. Its repository path and intent store must be usable; audit and status files live under the pool share's service directory. |
+| Pool-control | Go daemon plus PowerShell and `powershell-yaml` for pool-admin commands. Its repository path and configuration store must be usable; audit and status files live under the pool share's service directory. |
 | Download agent | Go daemon with optional PowerShell/Fido support for Windows image discovery. Missing support marks that image family unavailable so hosts can fetch it themselves. The pool share holds both images and service state. |
 
-Pool-control resolves an explicitly seeded intent-store location before the pool NAS default and initializes the resolved directory when it is not yet a Git repository. Testing only whether the seed was empty would skip initialization of a newly seeded NAS path. Git initialization runs as the service user, matching CIFS ownership; `core.fileMode=false` avoids changes caused solely by mount-provided modes.
+Pool-control resolves an explicitly seeded configuration-store location before the pool NAS default and initializes the resolved directory when it is not yet a Git repository. Testing only whether the seed was empty would skip initialization of a newly seeded NAS path. Git initialization runs as the service user, matching CIFS ownership; `core.fileMode=false` avoids changes caused solely by mount-provided modes.
 
 Stash permits `STASH_HTTP_ADDR=''` to disable HTTP, so its shell expansion uses `${name-default}` rather than substituting the default for an explicitly empty value. Its aggregator URL prefers an operator override over `/etc/yuruna/pool.env`. Presence beacons use the owning host's identity and must recur faster than the aggregator's extension-health grace so a changed address is announced promptly.
 
 The stash build stages `extension-sdk` beside `server`, preserving the Go module's `replace ... => ../extension-sdk` relationship. A workspace file outside the staged build does not satisfy that dependency. The systemd unit grants access to local state and share paths; its optional share path has a `-` prefix so an absent NAS mount does not fail namespace setup in local-storage mode. See [stash](https://yuruna.link/42f5e921), [pool-control](https://yuruna.link/4207d71a-000c), and [download agent](https://yuruna.link/4268e4cb).
+
+Service guest installers resolve their account and load shared helpers before
+`Service locale`, then `Service tunables`. The seeded cloud-init account takes
+precedence; an explicit override or the current caller is used only if that
+account is absent. Locale initialization precedes other tunables on all three
+service guests while pool-control retains its compatible legacy seed fallback.
 
 <a id="42e220c4-0006"></a>
 
@@ -787,8 +1268,10 @@ Stash, pool-control and download-agent starts follow these common phases:
 validate the VM name and Windows elevation, initialize host access, check
 storage, resolve the VM builder, start the host status service, verify the
 framework source, build the VM, register/start UTM if applicable, confirm
-the VM is running, configure NAT forwarding, probe readiness, publish the
-readiness result, and report the deployed source or collect diagnostics.
+the VM is running, configure NAT forwarding, probe readiness, recover the
+address if the probe failed, evaluate the final readiness result, publish it,
+and collect failure diagnostics or report the deployed source. The preliminary
+verdict only gates recovery; the final verdict always reads the resulting endpoint.
 The caching proxy additionally owns host proxy settings, CA/config-service
 setup, bridge preparation and multiple port mappings; its healthy-VM
 adoption and lifecycle lock remain specific to those responsibilities.
@@ -850,7 +1333,7 @@ configured enablement and port, reuse a healthy instance, capture the
 expected framework snapshot before building, and verify the running
 daemon's source afterward. An explicitly allowed mirror source supports
 off-LAN deployment. Pool-control verifies that source before repointing
-the caching proxy's read-only intent alias; that alias sync runs on the
+the caching proxy's read-only configuration alias; that alias sync runs on the
 host, which holds the private SSH key, rather than baking that key into
 a web-facing guest. Alias synchronization is best-effort.
 
@@ -926,6 +1409,136 @@ The final state must be `absent`. Downloaded image generations and pool
 state live on pool storage; committed stash artifacts and host keys live
 on the stash share. A locally buffered upload that still has not flushed
 can be lost when the disposable VM disk is removed.
+
+**`test/service/Repair-CachingProxyServiceForwarder.ps1`.**
+
+The cache lives directly on the LAN now. Any pwsh forwarder.<port>.pid
+subprocess left behind from the legacy shared-NAT layout is noise --
+it binds 0.0.0.0:<port> on this Mac, tunnels to a stale 192.168.64.X
+IP that may have been reassigned, and blocks anything else (this very
+script's verification probes; a remote host that points
+YURUNA_CACHING_PROXY_SERVICE_IP back at the Mac instead of the cache) from
+reusing those ports. No-op on a fresh install.
+
+**`test/service/Start-CachingProxyServiceVM.ps1`.**
+
+Size the cache for a shared lab beacon, whose cache answers every machine
+in the pool. Without it the VM is built for a host that runs the cache
+beside the stash, the download agent and its own test guests, where every
+gigabyte here is one those guests cannot have -- the ordinary case, and
+the safer one to default to. The RAM and squid's cache_mem are resolved
+together and passed together -- swap is masked in the guest, so moving one
+without the other is an unrecoverable OOM rather than a slowdown.
+
+Windows has no mid-run elevation: querying Hyper-V (Get-VMHost), creating
+and removing the cache VM, and setting the host proxy + netsh portproxy
+all need an elevated session. Check NOW and stop with a clear reason. A
+non-elevated run otherwise hits a non-terminating Get-VMHost permission
+error, leaves the VHD path $null, and cascades through null-path failures
+before the real cause (need-admin) finally surfaces from Get-Image.ps1.
+
+Capture the cleared values to a sidecar BEFORE removing them, so
+a downstream operator (or an automated re-invocation after a Ctrl+C
+mid-bring-up) can restore the proxy state without re-typing it from
+memory. The sidecar lives next to runner.pid so it's wiped by
+Remove-TestVMFiles along with the rest of per-host state. Best-effort:
+write failures are logged Verbose and the cleanup continues.
+
+Surface the sudo requirement up front, unconditionally. The Step 0 sudo
+priming only prints its reason box when it actually prompts -- a warm
+sudo timestamp, or YURUNA_SUDO_PRIMED=1 from an install wrapper, skips
+that box, and the long Step 5 discovery wait can expire the timestamp so
+a later call prompts bare. This notice guarantees the operator always
+sees WHY their password may be requested. (Windows handled above.)
+
+The cache VM boots the base image every extension service on this host
+shares; resolve it from the same helper Get-Image.ps1 and New-VM.ps1 use so
+the artifact check below can never test a path they don't write. On Hyper-V
+the resolver reads (Get-VMHost).VirtualHardDiskPath, which loads the Hyper-V
+module on first use -- the underlying New-VM.ps1 has the same dependency, so
+surfacing that failure here keeps the error close to the user.
+
+Single cross-cycle persistence file (yuruna password + cache VM IP)
+under the framework's runtime directory. One framework-managed path
+avoids the per-platform sidecar drift class where each host's
+VHD/raw image directory carried its own caching-proxy-service-password.txt
+and cache-ip.txt out of sync. Get-CachingProxyServiceStatePath comes from
+Test.CachingProxyService, loaded by the CachingProxyService kind at file top.
+
+The start is on record, and this service's operation lock held, before the
+bring-up lock and before anything is torn down or built: a Stop issued
+meanwhile waits for the lock instead of removing a half-built cache, and the
+reboot sweep and a host refresh see the request. The operation lock comes
+first, the same order Stop-CachingProxyServiceVM.ps1 takes them in, so the two
+scripts can never each hold the lock the other waits for. A request that
+cannot be recorded changes nothing.
+
+Step 0's plan already determined a LAN-routable bridge is
+impossible right now (no default route, Wi-Fi NIC, or -- most
+importantly -- NetworkManager has crashed recently and re-trying
+the nmcli build would just crash it again + raise another apport
+dialog). Honor that plan: skip the attempt entirely rather than
+re-running New-YurunaExternalNetwork only for its internal guard
+to bail. The full reason was printed in Step 0.
+
+By-name (hashtable) splatting is REQUIRED here. Array splatting binds
+every element POSITIONALLY -- a literal '-MacAddress' string element is
+never re-parsed as a parameter name, so the child rejects it with "A
+positional parameter cannot be found" and never runs at all. The key is
+added conditionally so the bare call keeps each platform New-VM.ps1's
+random-MAC default.
+
+**`test/service/Start-ConfigService.ps1`.**
+
+Resolve the JSON payload for a NAS name, or $null when not configured. Reads
+test.config.yml + the vault FRESH each call so a rotated password / changed
+share is picked up live. Never mints a junk password: when the networkUser has
+no real vault entry (empty vaultKey AND no stored secret) it returns $null so
+the caller answers 503 rather than baking an auto-generated credential the NAS
+would reject.
+
+The child echoes its PID via `echo $!`. Verify that value parsed to an
+integer AND the process is still alive right after launch: a serve process
+that dies immediately (module-import error, port already bound) never opens
+$Port, so without this check we would record a PID file pointing at a dead
+process and then burn the full readiness timeout on a port that will never
+accept. If it is already gone, surface the captured startup log now.
+
+**`test/service/Start-DownloadAgentServiceVM.ps1`, `test/service/Start-PoolControlServiceVM.ps1`, `test/service/Start-StashServiceVM.ps1`.**
+
+The start is on record, and this service's operation lock held, before
+anything is built: a Stop issued meanwhile waits for the lock instead of
+tearing down a half-built guest, and the reboot sweep and a host refresh see
+the request. Taken after the group relaunch, because a lock taken in the
+parent would block the relaunched child. A request that cannot be recorded
+changes nothing.
+
+**`test/service/Start-PoolControlServiceVM.ps1`.**
+
+No trailing slash, which is not cosmetic: the service's own announce derives
+its address from the connection it arrives on and so never carries one. The
+aggregator keys a candidate on the exact target string, so the two spellings
+of one address register as two candidates for the same host and area, and the
+loser is reported as a supersededTarget. Probing already tolerates either
+form, which is why nothing failed and the difference showed up only as a
+duplicate. The sibling services advertise the bare form as well.
+
+**`test/service/Stop-CachingProxyServiceVM.ps1`.**
+
+The stop is on record, and this service's operation lock held, before the
+first change (the bring-up lock clear below): the reboot sweep and a host
+refresh then honor the request, and a concurrent Start cannot rebuild the
+cache mid-teardown. Taken before the sudo priming so a busy service refuses
+before anything is asked of the operator. A request that cannot be recorded
+changes nothing.
+
+Tear down any leftover host-side forwarders from the retired
+shared-NAT path (forwarder.<port>.pid pwsh subprocesses under
+$HOME/yuruna/image/caching-proxy-service). With the cache VM bridged
+directly to the host's LAN NIC there is no host:port forwarder
+layer in the data path -- but an upgrade from the previous shape
+can leave one running, and on macOS killing the root-owned :80
+forwarder requires sudo. No-op on a fresh install.
 
 <a id="42e220c4-0009"></a>
 
@@ -1045,6 +1658,16 @@ while a fallback is still available; an unusable path selects a temporary file.
 Printed transcript instructions remain operator text and are not a wire format
 for callers to parse.
 
+**`test/service/Start-McpServer.ps1`.**
+
+Most of these scripts have no [CmdletBinding()], and a script without it
+absorbs an unknown -Name into $args and runs anyway. So an argument the
+target does not declare is not refused by PowerShell -- it is silently
+dropped, and the run proceeds against defaults while the caller believes
+its input was honored. Refusing here is the only place that reads as a
+failure. The check is over the declared parameter names, not over any
+message, so it holds on a host in any language.
+
 <a id="42e220c4-000a"></a>
 
 ## Automated checks
@@ -1058,8 +1681,9 @@ following blank line, structural links remain
 ordinary comments, test sequences use only their three canonical regions,
 YAML, XML/plist, HTML, and systemd/INI regions match the key, element, or
 bracketed section they introduce,
-decorative headers do not return, and PowerShell help stays inside a function
-when a region precedes it. The suite also compares Ubuntu release sequences and
+decorative headers do not return, SQL `--` and CSS `/* */` dividers are held to the
+same rule, native SQL and CSS REGION markers have no following blank line, and
+PowerShell help stays inside a function when a region precedes it. The suite also compares Ubuntu release sequences and
 the common service-lifecycle preamble. Sequence fixtures prove that missing,
 misnamed, nested, and action-level regions fail the guard, while ordinary
 documentation comments and CRLF remain valid. Structural marker fixtures also
@@ -1070,7 +1694,7 @@ and link-validation inventories prefer the direct sibling and use the nested
 layout when it is absent. Explicit roots retain Git ignore and path filtering;
 adding a default root explicitly does not scan it twice.
 The inventory includes CommonJS/ES modules, PowerShell data files, Dockerfiles,
-Git hooks and attributes, Terraform, and TOML alongside the host/guest scripts.
+Git hooks and attributes, SQL, Terraform, and TOML alongside the host/guest scripts.
 Git-tracked hidden files must be read explicitly; filesystem visibility does
 not exempt them. Runtime, build, vendor, and dependency directories remain
 excluded even when a file there has a supported source extension.
@@ -1154,6 +1778,15 @@ templates:
 - macOS guests use Apple Virtualization and an IPSW restore. `MacPlatform`
   requires PascalCase `AuxiliaryStoragePath`, `HardwareModel`, and
   `MachineIdentifier` keys; lowercase variants fail configuration decoding.
+
+**`host/macos.utm/guest.macos.26/New-VM.ps1`.**
+
+VZMacOSInstaller only reaches the system installation service when the
+helper binary carries the com.apple.security.virtualization entitlement;
+Invoke-EntitledSwift compiles + self-signs it before running. The helper
+prints "Restore progress: N%" to stderr every few percent; -LineHandler
+routes those into a PowerShell progress bar live, and the merged output
+is still returned so we can recover the final MAC_PLATFORM tuple.
 
 <a id="42e220c4-000c"></a>
 
@@ -1256,6 +1889,74 @@ cycle warm-up and publish the result. This stops an unreachable stash before
 long provisioning stages. Later `Resolve-Host` calls recheck the published
 address because a cycle can outlast its guest's address, and republish a
 working fallback when necessary. See the [stash guide](https://yuruna.link/42f5e921).
+
+**`test/extension/authentication/default.psm1`.**
+
+Leading-character alphabet: alphanumerics ONLY (no symbols). A symbol in the
+first position -- notably a YAML indicator (! @ # % & *) -- makes the YAML
+serializer single-quote the whole scalar when the vault is written. The
+cloud-init seed then substitutes it UNQUOTED into `password: <value>` via
+literal .Replace (New-CloudInitUserData), where a leading indicator is an
+invalid scalar: it silently mangles the guest's chpasswd (login impossible)
+and can abort the cloud-config stage, so the VM never finishes cloud-init and
+never gets an IP. Interior symbols are safe -- the password has no spaces, so
+no `: ` / ` #` sequence forms and nothing needs quoting -- and the quoting
+characters (' ") are already absent from $script:Alphabet.
+
+**`test/extension/authentication/users.yml.template`.**
+
+Yuruna authentication: logical-username -> corporate-identity mapping.
+
+With all corporate.* / vaultKey / localOsPasswordRef fields empty
+(the default), each logical user is its own local OS account with a
+vault-auto-generated password.
+
+To integrate with a corporate directory (AD / Entra / SSSD-against-
+LDAP / ...):
+  1. Populate `corporate.domain` + `corporate.sam` (or `corporate.upn`)
+     so sequence-login steps render the right identity via the
+     ${loginUser} substitution.
+  2. Set `vaultKey` to the vault.yml entry holding the corporate
+     password (e.g. "corp.alisson.sol") and pre-populate that entry
+     manually. Test-Config.ps1 blocks the cycle if it is missing --
+     the vault never auto-generates for a populated vaultKey.
+  3. Leave `localOsPasswordRef` empty unless the local OS account on
+     the test VM should share its password with the corporate
+     identity. The default is decoupled: the local account receives
+     a fresh auto-gen secret that nobody needs to know.
+
+Add an entry here whenever a sequence introduces a new logical
+username. With `strict: true` (recommended), Test-Config.ps1 fails
+the cycle on the first undeclared name -- intentional, so the
+production AD path stays exercised on every dev cycle.
+
+Internal authentication key. NOT a login user: this entry holds the shared secret
+that gates the pool-aggregator-service's POST /ingest write route and keys the
+control proofs for the status-service /control/* routes. Leave vaultKey EMPTY
+(default) to keep the host un-enrolled -- push stays disabled and control stays
+loopback-only. To populate it, run `pwsh test/lab/Set-LabToken.ps1 -LabToken <code>`
+with the code from the dashboard's "Lab token" tile; that sets vaultKey and
+stores the token in one step. Building the caching-proxy service mints one
+automatically when none exists. The vault never auto-generates for a populated
+vaultKey, so the token stays lab-owned; every pool host and the proxy must hold
+the SAME value. Hosts holding a legacy 'lab-auth-token' or 'pool-auth-token' entry
+keep working: every reader falls back to those when this one is empty.
+
+Adapt this mapping when a `workload.*.yml` declares
+`variables.username: webuser`:
+
+```yaml
+webuser:
+  localOsUser: webuser
+  corporate:
+    domain: "CORP"
+    sam:    "alisson.sol"
+    # upn:  "alisson.sol@corp.example.com"      # alternative form
+  vaultKey:           "corp.alisson.sol"
+  localOsPasswordRef: ""                         # decoupled: local
+                                                 # OS account gets
+                                                 # auto-gen secret
+```
 
 <a id="42e220c4-0018"></a>
 
@@ -1422,6 +2123,378 @@ sent. Portable fixtures shadow `Invoke-CimMethod` inside the module's session
 state, exercising the same failure branch where Windows CIM is unavailable.
 Remove that shadow after every case so later tests keep their own command view.
 
+**`test/modules/Test.Catalog.Tests.ps1`.**
+
+Importing the renderer has to be additive: it may ADD its own
+commands, never REMOVE the commands of the locale module it loads for
+the plural rule and the separators. A nested -Force import that is
+not -Global breaks precisely that half -- it re-homes the locale
+module into the renderer's private scope, so the renderer's own
+functions go on working while the importer silently loses
+Get-LocaleManifest and New-LocaleContext. Both imports return
+normally and write to no stream, so only a resolution probe sees it.
+
+A fresh child runspace, not this one. The loss needs the locale
+module loaded BEFORE the renderer -- the order a long-lived consumer
+imports in, and the reverse of the order this suite's BeforeAll
+leaves behind. Probing in place would assert against an order that
+cannot produce the failure.
+
+**`test/modules/Test.ConfigServiceSync.Tests.ps1`.**
+
+The status-service bounce must be bounded by the CHILD it starts, never by the
+status service that child detaches.
+
+Start-StatusService.ps1 launches the server as a process that outlives it by
+design. Windows turns handle inheritance ON for a child whenever a std stream
+is redirected, so a bounce spawned that way (`& pwsh ... *> $null` redirects)
+hands the detached server the write end of the caller's stdout pipe. The server
+holds it for its whole lifetime, the caller's read never sees EOF, and the
+bounce blocks on the SERVER instead of the child that exited seconds ago --
+silently, because the same redirection swallowed every progress line. This
+drives the real code path against a stand-in start script that detaches a
+long-lived grandchild the same way the real one does.
+
+**`test/modules/Test.DiagnosticEchoVerify.Tests.ps1`.**
+
+Test-OCRMatch is the module's other text predicate and is NOT
+usable here: it answers "is this prompt on screen", splitting its
+pattern on whitespace and punctuation and requiring only that each
+fragment appear somewhere in the text. On a screen that still shows
+the command plus a wall of garbage, every fragment is present.
+
+The check below is the structural version of that argument, stated
+without depending on Test-OCRMatch's internals: the corrupt sample
+CONTAINS the healthy one verbatim, so any predicate satisfied by
+"the expected content is present" passes it. Only a predicate that
+also weighs what is present in EXCESS can tell them apart.
+
+**`test/modules/Test.DownloadAgentService.Tests.ps1`.**
+
+Order matters, and getting it wrong aborts the whole process rather than
+failing a test. The responder runs on a thread job; an exception that
+escapes there is unhandled by definition, and .NET tears the process down
+(SIGABRT, no Pester result file). Disposing the listener underneath a live
+responder is exactly such an escape -- ObjectDisposedException from inside
+GetContext or the write path.
+
+So: Stop() first, which unblocks the pending GetContext and lets the loop
+break on its own; WAIT for the thread to actually exit; only then dispose.
+Under parallel suite execution the thread is descheduled long enough for
+the old Stop-Close-Remove order to lose this race about one run in three.
+
+**`test/modules/Test.ExternalToolOutput.Tests.ps1`.**
+
+"NT VIRTUAL MACHINE" is a display name and Windows localizes it, so a
+lookup by name throws on a host installed in another language. The
+caller then cannot prove which access entries are stale and skips the
+cleanup -- safe, and silent, which is why it went unnoticed: the
+cleanup simply stopped happening, one warning at a time.
+
+The SID is computable instead: S-1-5-83-1 followed by the machine
+GUID's sixteen bytes read as four little-endian unsigned 32-bit
+values. Pure arithmetic, so it is checkable on any platform even
+though the code around it is Windows-only.
+
+**`test/modules/Test.FetchExecuteFastFail.Tests.ps1`.**
+
+A healthy step several seconds in, doing the loudest thing a step does: a
+container build restoring web assets. Nothing here is a shell refusal, and
+the shell that would have issued one accepted its command line long ago.
+
+This screen is kept verbatim because it, and not merely a screen of its
+size, satisfies "No such file or directory" through the matcher's unbounded
+strategy -- the one asking only whether each word of the pattern turns up
+SOMEWHERE. Normalization folds each word to a short token, and the tokens
+are then supplied by text that has nothing to do with any of the words:
+'No' by a run of hex inside a sha256 digest, 'such' by a line OCR garbled
+beyond reading, 'file' by "profile", 'or' by "WORKDIR", and only
+'directory' by an actual directory. Thin out any of those five and the
+coincidence stops reproducing, which is the point -- it never needed a
+screen that said anything like the pattern.
+
+Reproduced ASCII-only, garbled line included: that line is what a real
+frame's noise looks like, and it is load-bearing here.
+
+**`test/modules/Test.GlobalizationGates.Tests.ps1`.**
+
+Two triggers, because one is not enough. A custom property is the
+obvious one, but a producer that styles only with literal colors
+has none -- and the floor rules this registry feeds are about flex
+gap, grid, logical properties and safe-area units, none of which
+need a custom property either. Selecting on var(--) alone is how a
+whole shipped page stayed outside every floor gate: it is a page
+that carries a stylesheet, not a page that carries a token.
+Both tags, anywhere in the file. A producer that assembles its
+document in pieces writes the open and the close from separate
+statements, so they are not adjacent in the source and the body
+between them is code rather than CSS -- matching an opening tag
+followed by a declaration would miss exactly that shape. A bare
+mention (a comment saying a page carries no inline style, a CSP
+note naming the tag) has the open and no close, so requiring both
+separates a producer from a sentence about one.
+
+These artifacts are written by a generator that copies shipped text
+verbatim, so a sentence naming the private repository arrives in one
+of them without anybody typing it there. Unlike a document or an
+installer it cannot earn a reviewed exception either: the publisher's
+allowlist names source paths that point at the private source on
+purpose, and a generated file is never one of them. The result is a
+published artifact sending a reader to a repository they cannot clone,
+reported against the generated file at release time rather than
+against the source line that has to change. Failing here names that
+line instead. The repair is to interpolate the name at the call site
+rather than write it into the sentence.
+
+PSUseBOMForUnicodeEncodedFile wants a byte-order mark on the mirrored
+pseudo catalog, which carries non-ASCII text. This project will not
+write one: a BOM is invisible in every editor, rides into hashes, and
+breaks byte-for-byte consumers -- and the drift check for these very
+files compares their bytes. The renderer that reads them requires
+PowerShell 7, which decodes UTF-8 without a mark correctly, so the
+condition the rule protects against does not arise here.
+
+The exception is bounded rather than waved through: any OTHER analyzer
+finding in generated output is a real defect in the emitter, and this
+is what would notice one.
+
+**`test/modules/Test.GuestDhcpIdentity.Tests.ps1`.**
+
+The guests that receive the shared seed network-config. Scoped by RENDERER,
+not by "does it run cloud-init": the file identifies interfaces by name
+glob, and only netplan resolves a glob against real devices.
+
+That scope is a safety boundary rather than an optimization. Handing
+cloud-init a network-config REPLACES the fallback it would otherwise
+generate, so seeding this file to a guest whose renderer cannot resolve the
+glob does not leave it "unpinned" -- it leaves it with no network
+configuration at all, nothing claiming the NIC, and no route in but the
+console it can no longer use to say so.
+
+The test above names ONE file, and that is the hole a regression walked
+through: seeding a DIFFERENT network-config -- matched by MAC rather than
+by glob -- passed it while leaving every Amazon guest on every hypervisor
+with its NIC unclaimed and IFF_UP clear.
+
+The invariant is not "do not ship that file". It is "ship this guest NO
+network-config by any name". Supplying one replaces cloud-init's fallback,
+so any config its renderer fails to resolve to a real device is strictly
+worse than none, and whether a given match form resolves under
+NetworkManager is not decidable by reading the parser -- only a lab cycle
+settles it. So the seed stays empty and the destination filename is what
+gets asserted, not the source.
+
+The late-command above patches /target, which does not exist while the
+installer is running its own DHCP client. So the pin has to be in the
+autoinstall `network:` key as well, or the INSTALL draws a lease under a
+machine-id DUID and the installed system draws a second one under the MAC:
+two addresses out of a shared pool for one guest, every build, with the
+installer's copy belonging to no guest that still exists.
+
+The key is per-hypervisor because the interface name is: enp0s1 on UTM,
+enp1s0 on KVM, eth0 on Hyper-V. Asserted for every overlay rather than
+for one, because a pin present on the host someone tested and absent on
+its siblings is the shape this whole suite exists to catch.
+
+**`test/modules/Test.GuestHostname.Tests.ps1`.**
+
+agetty prints "login:" once and never reprints it. Console writes that
+land afterwards (cloud-init's closing banner, subiquity's tail) scroll the
+prompt away, and the screen then stops changing -- so an OCR wait for
+"login:" can only spend its entire budget against a frozen frame. The
+recovery is a keypress, and it only works if it happens BEFORE the wait.
+
+Placed after the wait it is unreachable, because a retry block restarts at
+its first step: every attempt re-enters the wait that cannot pass and no
+attempt ever reaches the nudge. That shape cost three full waits per guest
+on several hosts before it was found, and it is invisible in a passing run
+because the ordering only matters once the prompt has been overwritten.
+
+**`test/modules/Test.HostClockSkew.Tests.ps1`.**
+
+One-shot NTP responder on loopback: answers a single request with a
+transmit timestamp $OffsetSeconds BEHIND now, so a correct probe reports
+the host as that many seconds ahead.
+
+The socket is bound by the CALLER and handed in already listening
+(ThreadJob shares this process, so the live object crosses intact). A
+responder that binds inside the job races the probe, and a datagram sent
+to a not-yet-bound loopback port draws an ICMP port-unreachable that
+fails the receive instantly -- which reads exactly like "no time server
+answered" and turns this into a flaky test of the wrong thing.
+
+What has to hold is that running Enable-TestAutomation.ps1
+disciplines the clock. Two shapes do that: the host's
+Set-*HostConditionSet calls the sync and the script calls that
+function, or the script calls the sync itself. Requiring only the
+first shape let one host keep its clock fix inside a function no
+script ever called -- green, and protecting nothing.
+
+Bind to locals so the parameters are referenced in the body:
+the predicates below capture them, but PSReviewUnusedParameter
+cannot see a use that occurs only inside a FindAll scriptblock.
+
+**`test/modules/Test.HyperVHostSeedIp.Tests.ps1`.**
+
+The seed carries an address the guest can correct later; Get-BestHostIp is
+the other half of that -- what this host publishes about ITSELF, to the pool
+directory the guest corrects against. A wrong answer here is worse than a
+stale seed: it does not merely age, it never changes, so a host that is
+renumbering constantly looks perfectly still and no guest is ever told.
+
+Behavioral rather than AST, because what has to hold is the choice the
+function makes among adapters, and no call shape expresses that. The function
+body is lifted out of the module and run against a recorded inventory, so
+these cases need neither a live hypervisor nor a Windows host.
+
+**`test/modules/Test.KvmGuestAddressDiscovery.Tests.ps1`.**
+
+WHY THIS BLOCK IS HERE. Get-GuestAddress answers with the VM name when no
+probe found an address. Four consumers test for that; Invoke-GuestSsh was
+the one that did not, so every transient discovery miss became a hard step
+failure reported as a guest script error. The invariant is asserted by name
+in Test.GuestAddressChurn.Tests.ps1, but only for a consumer that already
+got it right -- these cases cover the one that did not.
+
+ssh really runs. Both targets below fail in single-digit milliseconds (an
+unresolvable name, and a loopback that refuses the harness key), so the
+cases stay fast without mocking System.Diagnostics.Process.
+
+**`test/modules/Test.LabHealth.Tests.ps1`.**
+
+The module reaches Send-CycleEventSafely and Write-CycleInfraFailure through
+Get-Command, and a module's command lookup falls back to the GLOBAL session
+state -- not to this file's script scope -- so the stubs have to be global
+functions to be found at all. That is the same resolution path a real cycle
+uses.
+
+What they collect is appended to files in the per-test runtime dir rather than
+to a global variable: the collection then has the same lifetime as the
+directory an It block already creates and deletes, so no state survives a test
+to color the next one.
+
+**`test/modules/Test.MacScreenLockPassword.Tests.ps1`.**
+
+The regression is easy to reintroduce, because the unpiped form is
+shorter and appears to work -- the password is accepted, it is merely
+also displayed.
+
+Invocations, read from the AST -- not matching lines. Comment-based
+help quotes the wrong form on purpose, and the copy-paste one-liner is
+a string literal, so a line scan reports both and the guard gets
+muted. A CommandAst is a thing that actually runs.
+
+The test for "piped" is structural: the invocation must not be the
+first element of its pipeline. Something ahead of it in the pipeline
+IS its stdin, which is the whole difference between a password that is
+fed in and one that a person types at an unmasked prompt.
+
+**`test/modules/Test.SequenceEngineFlags.Tests.ps1`.**
+
+A verb's registered class is its DEFAULT -- what it failed as when no
+failPattern matched. For fetchAndExecute that is the completion marker
+never arriving (a wait_timeout), most often because the fetched script
+is blocked on a stalled package mirror. Registering
+pattern_matched_failure here asserted the opposite -- that the wrapper
+printed its failure tag -- and nothing downstream re-checks it, so a
+plain timeout was reported as a script error, routed to
+pause_and_inspect ("auto-retry would just re-trigger it") and excluded
+from the warm-resume allow-list. That turned a transient upstream
+stall into a dead cycle needing an operator.
+Build-SequenceFailureRecord still reclassifies to
+pattern_matched_failure when a pattern really matched.
+
+**`test/modules/Test.StashAddressResolution.Tests.ps1`.**
+
+Substitute the discovery the marker refresh consumes. $IpAnswer supplies
+Get-VMIp's replies in order (the last repeats, so a case can model "stale,
+stale, then the real one"); $Healthy is the set of addresses that answer
+/healthz. State lives in the global scope because the substitutes are called
+from inside a module, which has a session state of its own.
+
+The substitutes are declared HERE, from a helper each case calls, rather than
+at file scope: Pester scans the file to collect its blocks and runs those
+blocks afterwards, and a function declared during the scan is not present by
+the time the cases execute -- Get-VMIp comes back "not recognized" and the
+refresh resolves nothing, which reads exactly like the bug under test.
+
+**`test/modules/Test.StatusCycleArchive.Tests.ps1`.**
+
+On the download path the message is incomplete until the operator
+attaches the file themselves, so the sentence that says so has to
+carry weight on the page.
+
+What is pinned is the instruction inside an emphasis element, not the
+sentence that carries it. Copy on this page gets reworded, and a test
+that fails on a synonym teaches its reader to edit the expectation
+rather than look at the page -- which costs the assertion the only
+thing it was for. The tempered dot keeps the match inside ONE <strong>,
+so emphasis somewhere else on the page plus the words somewhere else
+again cannot satisfy it between them.
+
+**`test/modules/Test.StatusServiceLocale.Tests.ps1`.**
+
+The commands a fresh server runspace has to end up holding, derived from the
+server rather than listed here. A hand-written list goes stale the first time
+a route starts calling something new, and a stale guard is worse than none
+because it still reports green.
+
+Two rules select them. Whatever the server calls out of a module it imports
+-ErrorAction Stop is mandatory by the server's own declaration. And whatever
+the locale resolver calls is mandatory however its module was imported: that
+function runs on every localized route, and it reads the language lock inside
+a try/catch that swallows the loss, so a missing config command degrades the
+page silently rather than failing loudly.
+
+**`test/modules/Test.SudoDiscipline.Tests.ps1`.**
+
+A refusal has to be told apart from an ordinary command failure on TEXT:
+sudo exits 1 for "I will not run this unprompted" and the commands it
+runs exit 1 for their own reasons. That text is implementation-specific.
+The C sudo says "a password is required" / "no tty present"; sudo-rs --
+the default sudo on Ubuntu from 25.10 on -- says "interactive
+authentication is required".
+
+A matcher that knows only one of them does not fail loudly on a host
+running the other. It quietly reclassifies every refusal as a command
+result, and the caller then reports its fallback cause -- a stale NAS
+password, an absent directory -- for as long as that host lives. So the
+two spellings have to travel together, in whatever expression tests for
+one of them.
+
+The phrases are held in variables so this scan does not flag its own
+source: the literals below never share a line with a match operator.
+
+**`test/modules/Test.UtmGhostRegistration.Tests.ps1`.**
+
+The fake reproduces the behaviors of the real tool that the code
+under test exists for: `status` is the only trustworthy answer to "is
+this name registered", and `delete` exits 0 whether or not it deleted
+anything, printing the OSStatus -2700 notice when the bundle it wants
+to trash is not there. YRN_FAKE_DELETE_FAILS makes every delete fail,
+standing in for a bundle UTM cannot move (open file handles, a
+permissions fault). YRN_FAKE_STATUS_MODE turns `status` into a denial
+at exit 0 (deny0), an OSStatus failure at exit 1 (oserr) or a call
+that never returns (hang); YRN_FAKE_DENY_AFTER_DELETE makes every
+status after the first delete a denial. Every call is logged. The
+fake refuses to run at all without its directories, so no removal it
+performs can reach outside them.
+
+**`test/modules/Test.WarmResume.Tests.ps1`.**
+
+ip_not_discovered belongs here for the same reason as the rest: a step
+that never resolved an address never reached the guest, so nothing it
+might have done is in doubt and replaying it is as sound as replaying a
+timeout. The count is asserted alongside the members so that widening
+this list stays a deliberate act -- a class added without a reason to
+trust a replay is how warm resume starts re-running work that changed
+something.
+payload_unavailable earns its place on the same ground: the guest ran
+the fetch wrapper and no source served the script, so the step did
+nothing and there is nothing a replay could do twice. Its usual cause
+-- a host that renumbered while the guest still held the old address --
+is normally gone by the next attempt.
+
 <a id="42e220c4-0015"></a>
 
 ## Installer preflight
@@ -1456,6 +2529,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

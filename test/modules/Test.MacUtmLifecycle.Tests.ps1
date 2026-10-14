@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 421bcd14-05b3-497a-86ea-db4eb3a90148
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -747,6 +747,24 @@ Describe 'Deadline-bound start, resume and power-off (host.macos.utm)' {
         $sw = [Diagnostics.Stopwatch]::StartNew()
         Assert-False (Confirm-UtmVMStarted -VMName 'svc' -TimeoutSeconds 60 -Deadline (New-YurunaDeadline -TotalMilliseconds 1000) -WarningAction SilentlyContinue)
         Assert-True ($sw.Elapsed.TotalSeconds -lt 3) 'the deadline wins'
+    }
+
+    It 'Stop-VM requests guest shutdown without using UTM default force-stop' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'svc' -Status 'started'
+        Assert-True (Stop-VM -VMName 'svc' -ShutdownTimeoutSeconds 1 -NoForce -Confirm:$false)
+        Assert-Equal 1 (Get-Call 'utmctl' | Where-Object { $_ -eq 'utmctl stop svc --request' }).Count
+        Assert-Equal 0 (Get-Call 'utmctl' | Where-Object { $_ -eq 'utmctl stop svc' -or $_ -like '*--kill*' }).Count
+    }
+
+    It 'Stop-VM leaves an ignored guest shutdown running without force escalation' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'svc' -Status 'started'
+        Set-State 'stop.mode' 'ignore'
+        Assert-False (Stop-VM -VMName 'svc' -ShutdownTimeoutSeconds 1 -NoForce -Confirm:$false)
+        Assert-StringEqual 'running' (Get-VMState -VMName 'svc')
+        Assert-Equal 1 (Get-Call 'utmctl' | Where-Object { $_ -eq 'utmctl stop svc --request' }).Count
+        Assert-Equal 0 (Get-Call 'utmctl' | Where-Object { $_ -eq 'utmctl stop svc' -or $_ -like '*--kill*' }).Count
     }
 
     It 'Stop-VMForce is bounded by -StopTimeoutSeconds and trusts only a clean answer' {

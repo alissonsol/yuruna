@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 428d9261-f6c4-49d0-94e9-7a19661cc048
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,7 +137,7 @@ function Assert-UbuntuWorkflowPin {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Version)
 
-    foreach ($name in 'update', 'code', 'n8n', 'openclaw', 'postgresql') {
+    foreach ($name in 'update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql') {
         $shared = Join-Path $Root "guest/shared/ubuntu.$name.sh"
         if (-not (Test-Path -LiteralPath $shared -PathType Leaf)) { throw "Missing shared Ubuntu workflow: $shared" }
         $sharedBanner = [regex]::Match([IO.File]::ReadAllText($shared), '(?m)^# Version: ([^\r\n]+)\r?$')

@@ -2,8 +2,9 @@
 
 # Framework implementation notes
 
-These notes retain the rationale linked from shared automation and test-runner
-sources. Follow the source-consistency contract when changing corresponding blocks.
+These notes retain the rationale linked from shared automation, installer, guest,
+and test-runner sources. Follow the source-consistency contract when changing
+corresponding blocks.
 
 <a id="4213a0b3-0002"></a>
 
@@ -143,7 +144,7 @@ before this indirection existed.
 What this operator can actually change, taken from the plan itself. A lever
 that does not apply to the run in front of them costs the whole sentence its
 credibility: a lab may not set storage.kind = none -- the stash and the
-intent store both need the shares -- so a lab is never offered it.
+configuration store both need the shares -- so a lab is never offered it.
 
 Read off EVERY planned row, not only the sized ones: a service whose builder
 could not be read is still a service this run starts, and still a service the
@@ -729,7 +730,7 @@ poolId: this host's pool, DERIVED by the outer loop's pool-sync from
 pools.yml members[] (the single source of truth) and persisted to
 runtime/pool.state.json -- the cross-process channel, since this writer
 runs in the FRESH inner process that does not inherit the outer's
-$global. null when unpooled or intent not yet pulled (the aggregator then
+$global. null when unpooled or configuration not yet pulled (the aggregator then
 falls back to its own pool label). Read inline so Test.Capability keeps no
 dependency on Test.PoolSync.
 gating: the pool's advisory alert policy, carried alongside poolId in
@@ -2532,7 +2533,7 @@ this module is one region an operator can read end to end before running it.
 
 The DATA is never touched by anything in this region. The folders under the
 storage root hold finished cycle archives, stash artifacts, the lab vault, and
-the pool-intent repository -- content whose only copy may be there. What comes
+the pool-configuration repository -- content whose only copy may be there. What comes
 down is the SERVING configuration: the share definitions, the accounts scoped
 to them, the loopback exemptions, and the aliases. That split is what makes the
 teardown safe to run before the operator has decided anything about the bytes.
@@ -3120,21 +3121,21 @@ feedback_module_force_import_evicts_global.md.
 ## test/modules/Test.PoolAdmin.psm1: One admin command at a time may work in a given admin clone
 
 One admin command at a time may work in a given admin clone. Every admin CLI is its own process
-and they all share <runtime>/pool-intent-admin, so without this the clone is opened by several
+and they all share <runtime>/pool-configuration-admin, so without this the clone is opened by several
 processes at once: two first uses both find no .git and clone into the same directory (one
 wins, the rest fail), and a read's reset --hard can land between a writer's edit and its
 commit, so the writer finds nothing to stage and reports success for a change that never
 happened. The lock therefore covers the whole command: it is taken when the clone is opened and
 kept until the process exits (the operating system frees it even after a crash) or
-Unlock-YurunaPoolIntentClone runs. Admins on other hosts work in their own clones and still meet
-at the remote, where Publish-YurunaPoolIntent rebases a lost push race.
+Unlock-YurunaPoolConfigurationClone runs. Admins on other hosts work in their own clones and still meet
+at the remote, where Publish-YurunaPoolConfiguration rebases a lost push race.
 
 <a id="4213a0b3-00bd"></a>
 
-## test/modules/Test.PoolAdmin.psm1: Open-YurunaPoolIntent
+## test/modules/Test.PoolAdmin.psm1: Open-YurunaPoolConfiguration
 
 Refuse to reset --hard unless the remote provably contains our HEAD: a
-local commit the remote lacks is committed-but-unpushed pool intent (a
+local commit the remote lacks is committed-but-unpushed pool configuration (a
 prior Publish reached the commit but not the push), and a silent reset
 would erase it with no trace. merge-base --is-ancestor: rc==0 means HEAD
 IS contained in FETCH_HEAD (a safe fast-forward -- reset only adds
@@ -3170,7 +3171,7 @@ pool's framework and project repositories) for the inner runner. The
 guests.compatibility.yml helpers below evaluate a project's per-guest
 hypervisor rules. The runner does not call them, because every pool member
 runs its project's whole plan; Test.PoolPlanner.Tests.ps1 is their only
-caller, and Test-PoolIntent.ps1 validates the store's copy of that file
+caller, and Test-PoolConfiguration.ps1 validates the store's copy of that file
 through Test.PoolAdmin instead. See ../../docs/pool-admin.md#what-a-pool-is
 for the decentralized, best-effort model. -- Test.PoolPlanner.psm1
 
@@ -3198,7 +3199,7 @@ share disagreeing about how full "full" is.
 
 Reserve: what must STILL be free after a copy lands. The share is not this
 feature's alone -- the guest-image download pool, the proxy's observability
-archive and pool-intent.git all live on it -- so archiving is not allowed to
+archive and pool-configuration.git all live on it -- so archiving is not allowed to
 take the share to zero and break them.
 Headroom: slack over the measured folder size, for the copy's own overhead.
 Projection: the pre-spawn check has to guess what the NEXT cycle will cost.
@@ -3957,11 +3958,11 @@ before the notification so its EventData picks up the real class.
 
 When this host is in a pool that carries repositories
 (runtime/pool.manifest.json, written by the outer loop's
-Sync-YurunaPoolIntent), the pool's framework/project repo PAIR overrides this
+Sync-YurunaPoolConfiguration), the pool's framework/project repo PAIR overrides this
 host's repositories.frameworkUrl / repositories.projectUrl for THIS cycle, so
 the project refresh + framework clone below use the pool's repos. GH_TOKEN is
 deliberately NOT overridden -- it stays host-local (never travels in pool
-intent). Unpooled hosts (no manifest / no repositories) are untouched.
+configuration). Unpooled hosts (no manifest / no repositories) are untouched.
 Cleared every cycle: a stale value would make an unpooled cycle probe (and
 possibly fail on) an assignment that no longer applies.
 
@@ -4323,12 +4324,12 @@ wait avoids that EOF dependency.
 
 ## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
 
-1b. Pool intent sync (best-effort, IN-PROCESS, DEFAULT-OFF). Pull the
-    pool intent over the LAN and reconcile desiredState BEFORE spawning
+1b. Pool configuration sync (best-effort, IN-PROCESS, DEFAULT-OFF). Pull the
+    pool configuration over the LAN and reconcile configuredState BEFORE spawning
     the inner, so a pulled paused/drain gates THIS cycle. A no-op (single
     try-wrapped call that short-circuits) when pool sync is unconfigured
     -- a no-pool host is unaffected. The pull is wall-clock-bounded +
-    credential-prompt-proof inside Sync-YurunaPoolIntent, so this can't
+    credential-prompt-proof inside Sync-YurunaPoolConfiguration, so this can't
     hang the (bare-pwsh-INTERACTIVE) outer loop; any error is non-fatal.
 Per-pool config.testCycle override (default-off, empty for a no-pool host),
 captured at the cycle boundary so the watchdog (step-timeout) below can let
@@ -4605,7 +4606,7 @@ transition stays; a fault-from-anywhere fallback comes from the
 boot-recovery synthetic transitions below.
 
 The healthy pool-hold loop enters each iteration at 'cycle-start'
-(set before the intent pull) and, on a pulled desiredState=paused,
+(set before the configuration pull) and, on a pulled configuredState=paused,
 moves to 'paused', then re-enters 'cycle-start' on the next 30s poll.
 Both edges are legitimate, so they are in the map -- otherwise every
 hold iteration logged two "not in the canonical adjacency map"
@@ -5455,6 +5456,19 @@ command already known to fail. Leaving the registry's retry hint in
 place here would advertise a retry for exactly the failure that cannot
 benefit from one.
 
+**`test/modules/Test.SequenceFailureState.psm1`.**
+
+A wait that ended with the console overwriting itself did not fail the
+way ocr_timeout describes. ocr_timeout's recoveries assume the pattern
+never printed -- so they restart the guest and try again, which reruns
+the flood. The owner here is whatever is filling the console, and the
+answer is to read it, so the class and the recovery both change. Ranked
+below a matched failure pattern: that is the guest announcing its own
+failure in words, which outranks an inference drawn from screen shape.
+Ranked below a matched failure pattern, which means the guest ran and
+announced its own failure. Ranked above the console-flood reading: the
+frozen staged input is the specific cause that flood would otherwise hide.
+
 <a id="4213a0b3-0151"></a>
 
 ## test/modules/Test.SequenceFailureState.psm1: New-SequenceFailureRecord
@@ -5772,6 +5786,19 @@ opt-in, platform-specific, and limited to a login wait or a
 separately confirmed stall before installer confirmation.
 In particular, never restart on an installer failurePattern,
 a console flood, or a password-prompt failure.
+
+**`test/modules/Test.SequenceHandler.psm1`.**
+
+The hypervisor's verdict stands in for both screen
+proofs below. A boot can wedge before the console
+prints anything -- a blank framebuffer has no casper
+line to read and no text to call unchanged -- yet
+every processor trapping in place is a stall no
+wait outlasts. Before the confirmation nothing is
+written to the target disk, so the restart costs
+only time. An installed system's login prompt is the
+one screen that says the boot phase is long past;
+the later login wait owns that guest.
 
 <a id="4213a0b3-0164"></a>
 
@@ -6590,6 +6617,679 @@ on disk, and every earlier one walks away with an id that was never persisted.
 A genuine persist failure is fatal to the caller (return $null, per the OUTPUTS
 contract) rather than an unpersisted id the next call would silently
 re-generate as a different one.
+
+<a id="4213a0b3-0194"></a>
+
+## guest/amazon.linux.2023: n8n and OpenClaw need no command-exposure step
+
+The Ubuntu n8n and OpenClaw bodies end with an `Expose installed commands`
+step. Ubuntu installs Node.js through nvm, which keeps every version under
+the installing user's home directory and puts one on PATH only for shells
+that load nvm. A service, a `sudo` command or another account would not find
+node, npm or the workload executable, so the body resolves the manifest's
+Node major explicitly and links the three executables into `/usr/local/bin`.
+
+Amazon Linux 2023 installs Node.js from the NodeSource RPM instead. The
+package places node and npm under `/usr`, so npm's global prefix is `/usr`
+and `npm install -g` run through `sudo` links the workload executable into
+`/usr/bin`, which is on every account's default PATH, `sudo`'s included. No
+per-user version manager can select a different Node, so there is nothing to
+resolve and nothing to link, and the installation summary calls node, npm and
+the workload by name. The two flows keep different shapes on purpose: the
+region is absent from the Amazon bodies, and the comment at the position where
+it would sit points here.
+
+<a id="4213a0b3-0195"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Project-tree walks behind a deadline
+
+Recursive project-tree walks can wedge for minutes on a huge or network-mounted
+checkout. Run each behind Invoke-WithDeadline so a slow walk degrades to a
+partial/empty result plus a marker line instead of stalling the whole diagnostic.
+These are pure-PowerShell (Get-ChildItem) walks, so they run -InProcess
+(Start-ThreadJob) to avoid a full pwsh process spawn per call. Both job kinds
+return objects exposing the FileInfo properties the callers read (FullName,
+Length, Extension, Name, LastWriteTime) -- Start-Job via serialized note
+properties, Start-ThreadJob via the live objects -- so the success path sees the
+same shape either way.
+
+The function has a singular collection contract, so the timeout marker is emitted
+by the caller (statement level) rather than from here: a Write-Output of the
+marker would be captured into the caller's @(...) array instead of reaching
+stdout/transcript.
+
+<a id="4213a0b3-0196"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Matching a Hyper-V management vNIC by MAC
+
+The address is resolved by MAC because the vNIC's alias is not a
+reliable key. The alias lookup stays as a fallback for the case where
+no MAC matches at all.
+
+A management vNIC CLONES the MAC of the NIC its switch bridges, so
+that one MAC is never unique to it. Two consequences, and the two
+narrowings the code applies exist one per consequence:
+  * the bridged NIC itself answers the MAC match. Counting the
+    address sitting on the bare NIC as the vNIC's is exactly the
+    reading that makes a bridge which has LOST its host leg look
+    healthy -- so only Hyper-V vEthernet adapters are considered.
+  * every leftover vEthernet from a switch that once bridged the same
+    NIC answers too, and a leftover parked at APIPA makes a WORKING
+    bridge look unaddressed -- so several matches are narrowed by
+    alias, and a set that alias cannot single out resolves to no
+    adapter, which the status ladder reads as 'unknown'.
+
+<a id="4213a0b3-0197"></a>
+
+## automation/Get-SystemDiagnostic.ps1: PATH alone under-reports tesseract and qemu-img
+
+PATH alone under-reports tesseract. The OCR engine resolves tesseract by
+falling back to the platform's standard install directories when it is
+missing from PATH, so a PATH-only probe prints "(not installed)" for a
+host whose OCR is running fine -- and this report is read while triaging
+OCR failures, exactly where that disagreement sends the reader after a
+missing binary that is not missing. The directories the probe checks mirror
+`Find-Tesseract` in `test/modules/Test.Tesseract.psm1` literal for literal;
+they have to stay the same set, or the report resumes disagreeing with
+the resolver it is describing.
+
+PATH alone under-reports qemu-img on Windows, the same way it does for
+tesseract: the QEMU installer does not register itself on PATH, so a host
+whose qcow2-to-VHDX conversion runs fine prints "(not installed)" -- and
+this report is read while triaging image preparation, exactly where that
+disagreement sends the reader after a binary that is not missing. The
+directories the probe checks mirror `Resolve-QemuImgCommand` in
+`host/modules/Yuruna.Image.psm1` literal for literal; they have to stay the
+same set, or the report resumes disagreeing with the resolver it is
+describing. There are no non-Windows candidates, because the resolver has
+none either.
+
+<a id="4213a0b3-0198"></a>
+
+## automation/Get-SystemDiagnostic.ps1: A blocked package manager is found by its file descriptor
+
+A package manager blocked at end-of-transaction looks healthy in
+every aggregate view in the report (top-N shows it idle, ss shows no
+sockets). The discriminating evidence is WHICH fd it is blocked
+reading -- a pipe/socketpair fd points at a hook child, a ptmx fd
+at the dpkg-pty EOF drain, a tty fd at a config script waiting on
+an answer -- plus the kernel wait channel and any surviving
+children (the wrapped-apt teardown-hang trap class).
+
+The whole subtree, not just direct children, and fds for every
+process in it: the blocked process is usually a grandchild of the
+one whose name matched (apt-get -> sh -c -> the tool that owns the
+read), so state and fds captured only for the matched pid describe
+a process that is merely waiting on the one that matters. pgrep -x
+cannot be widened to cover those leaves either -- it matches whole
+names, so a `dpkg` pattern never sees `dpkg-preconfigure` -- which
+is why they are reached by descent rather than by name.
+
+<a id="4213a0b3-0199"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Neighbor state and forwarding database beside the lease table
+
+An address a caller dialed can be one the guest has already left: the
+kernel keeps the old entry under the same MAC until it ages out, so a
+MAC-keyed lookup has two answers and a lease table cannot separate
+them. The NUD state is what does -- REACHABLE was confirmed within
+seconds, STALE only says it was true at some past point. The
+forwarding database answers the other half: whether that MAC is still
+seen on a bridge port at all, which separates a guest that went quiet
+from one that never reached the bridge. Both tables are host-local and
+both are gone minutes after the domain is undefined, so they are captured
+beside the lease table a reader correlates them against.
+
+<a id="4213a0b3-019a"></a>
+
+## automation/Get-SystemDiagnostic.ps1: Listing pod images through kubectl jsonpath
+
+The invocation and the transformation are separate statements
+on purpose. Written as one backtick-continued pipeline, the
+parser is still in command-argument mode on the continuation
+line, so `-split` and its operand are handed to kubectl as two
+more arguments instead of splitting anything: kubectl rejects
+the unknown flag, the redirect swallows the complaint, and the
+image list comes back empty. Every repo in the registry then
+looks unreferenced, which is the one answer this heuristic
+must never invent.
+
+The separator is jsonpath's own `\n` escape. A backtick is
+PowerShell's escape character and means nothing to kubectl,
+and inside a single-quoted string it is not even that -- it
+reaches the template as two literal characters and no line
+break is ever emitted.
+
+<a id="4213a0b3-019b"></a>
+
+## install/macos.utm.sh: Refresh dispatch
+
+`--refresh` hands off to the already-installed checkout's own host-refresh
+entry script instead of running the installer. The dispatch sits ahead of
+every gate and mutation that follows (Homebrew, the checkout rewrite, VM
+cleanup), so a malformed or partial refresh signal terminates on the spot
+rather than falling through into an ordinary install run under a misread
+intent.
+
+Both the `--refresh` token and `YURUNA_REFRESH=1` are required together.
+Either alone refuses: a stray leftover environment variable must not
+silently switch an ordinary install into refresh, and a token with no
+environment variable must not either. The token is checked in `$0` too: a
+copy-pasted one-liner that drops the `_` placeholder (the `$0` slot `bash -c`
+gives its script text) puts `--refresh` there instead of in `"$@"`.
+
+The convenience form and the verified-download form are documented under
+[Refresh an installed macOS host](https://yuruna.link/420f54a5-0008).
+
+<a id="4213a0b3-019c"></a>
+
+## install/macos.utm.sh: Where a PowerShell interpreter can already live
+
+`yuruna_pwsh_candidates` lists, in resolution order and without assuming a
+login shell ran `brew shellenv`: PATH, the arm64 Homebrew prefix (this
+installer requires Apple Silicon), the fixed Intel-era Homebrew location
+some docs and scripts still assume, `PATH_LINK_DIR`, which is where this
+installer's own version-floor promotion (`bring_tools_to_required_versions`)
+links the newest pwsh it finds so a stale copy earlier on PATH stops winning
+by name, and the location Microsoft's PowerShell package installs to, which
+that same promotion step names explicitly because no package manager reports
+it. A host whose only pwsh is that package, reached over `ssh host command`
+before any link was made, still resolves one.
+
+<a id="4213a0b3-019d"></a>
+
+## install/setup.ps1: Resolving the log level before anything is written
+
+The cascade every yuruna entry point shares -- command line beats
+test.config.yml beats 'Information'. See docs/loglevels.md.
+
+Resolved here, before anything is written, for two reasons. The run log's
+header records the level, so a transcript missing what someone expected says
+why. And Resolve-LogLevel publishes $env:YURUNA_LOG_LEVEL, the ONLY channel
+that reaches the child scripts: they run in their own pwsh (see
+Invoke-RepoScript) and preference variables do not survive a process boundary.
+Every one of them calls Use-LogLevelFromEnv, so -logLevel Debug here is
+-logLevel Debug in the storage script, the service-VM starts and the per-guest
+builders those start in turn.
+
+<a id="4213a0b3-019e"></a>
+
+## install/setup.ps1: The run log and the child transcripts
+
+Every question asked, every answer taken and every message printed also lands
+in `test/status/log/setup.<yyyy.MM.dd.HH.mm>.log`. A setup run is long, mostly
+unattended in the middle, and the interesting part is usually gone from the
+scrollback by the time anyone looks -- so the record outlives the console.
+
+The repo scripts this one starts write to their own logs, not to this terminal
+(see Invoke-RepoScript), so the console carries none of a child's output. Each
+writes a transcript of its own streams under $Script:ChildLogRoot, and a child
+that exits non-zero has its tail folded into this log. Without that, a failed
+step would be an exit code and nothing else, its reason left in a scrollback
+that is gone by the time anyone asks.
+
+<a id="4213a0b3-019f"></a>
+
+## install/setup.ps1: Stripping terminal control sequences from child output
+
+Terminal control sequences a child can emit even when nothing is watching.
+Three classes, and all three are needed: OSC covers the hyperlinks PowerShell
+7.2+ can wrap a path in, CSI covers color (`ESC[33;1m`), cursor hiding
+(`ESC[?25l`) and everything else parameterized, and the two-character form covers
+charset selects like `ESC(B`. A pattern narrowed to SGR leaves the rest in the
+log as unreadable soup.
+
+ORDER MATTERS and is not obvious: CSI's introducer class `@-_` also contains ']',
+so a CSI pass run first eats the head of an OSC string and leaves its payload
+behind as text.
+
+<a id="4213a0b3-01a0"></a>
+
+## install/setup.ps1: Filing the information stream of an in-process step
+
+`6>&1` diverts the action's INFORMATION stream into the log instead of the
+screen. Steps that run in-process have no child process to capture, so
+without this a module's Write-Information -InformationAction Continue
+("applying template overlay" and friends) lands in the middle of the
+outcome list. The text is not lost, it is filed; the step's own result
+stays the only thing the console shows.
+
+Warnings and errors are deliberately NOT diverted: those are the two
+streams an operator must see the moment they happen, whatever else the
+display is doing.
+
+<a id="4213a0b3-01a1"></a>
+
+## install/setup.ps1: Naming the sudo prompt before it appears
+
+Named before it appears. sudo writes "Password:" straight to /dev/tty and
+echoes nothing as it is typed, so an operator who does not know the prompt
+is coming reads a blank, unresponsive line as a hung run -- and waits, which
+is the one thing that makes it actually hang.
+
+Deliberately WITHOUT naming the terminal it lands on. sudo reads from
+/dev/tty while this line goes to stdout, and an operator can only be
+reading it because those are the same device -- so naming the tty describes
+the window they are already looking at, and any phrasing that points at it
+("that terminal") reads as "some other window" and sends them looking for
+one that does not exist. The two diverge only under a redirection nobody
+performs, where this line is not on screen to help anyway.
+
+<a id="4213a0b3-01a2"></a>
+
+## install/setup.ps1: Filtering null elements out of a child argument list
+
+A `$null` element must never reach `ArgumentList`: it is added as an
+EMPTY argv entry, which the child binds to its first POSITIONAL parameter
+-- a script defaulting that parameter to a real value silently receives ''
+instead. $Arguments is itself $null whenever a caller passes a statement
+whose branch produced no output ([string[]] binding turns that into a real
+$null, discarding the `@()` default), and `@(...) + $null` appends the
+null rather than being a no-op. Filtered, not merely counted: an
+intentional empty-string argument is still passed through. Done before the
+EXEC line so the log shows the argv the child actually receives -- a
+trailing empty entry renders as nothing there, which is what makes this
+class of fault invisible in a log that looks correct.
+
+<a id="4213a0b3-01a3"></a>
+
+## install/setup.ps1: Draining child output through event subscriptions
+
+Drained line-by-line through the engine's event queue, and started
+BEFORE the wait: a child that fills the pipe buffer while nobody reads
+blocks on its own write, which would deadlock a chatty step.
+
+Event subscriptions rather than Task.Run: a scriptblock handed to a
+thread-pool thread has no Runspace and throws on its first statement.
+Line-at-a-time rather than ReadToEndAsync for the same reason the wait
+that follows is timed -- a stream that never reaches EOF still yields every
+line it produced, instead of an unusable all-or-nothing result.
+
+NO -Action, and that is the whole point. PowerShell runs each -Action as
+its own pipeline on a thread-pool thread, so several are in flight at
+once and the queue records COMPLETION order: measured here, 2804 of 3000
+lines from a single Write-Output arrived out of position, which is how a
+failure diagnostic came to be rendered with its halves inverted. Without
+an action the .NET callback only files the event, and its
+EventIdentifier is assigned on the reader thread in arrival order -- so
+sorting on it afterwards restores the order the child actually wrote.
+
+<a id="4213a0b3-01a4"></a>
+
+## install/setup.ps1: Adopting a service VM that is already running
+
+Restore-YurunaServiceVM is the existing self-heal: it reports state, starts
+a registered-but-stopped VM, and probes the health port. Reusing it keeps
+one definition of "is this service usable" instead of a second, subtly
+different one here.
+
+`-ProbeRunning` is what makes that true of a VM that was ALREADY up. Powered
+on is not evidence of a service: a bring-up that fails leaves its guest
+running on purpose, because the guest is the evidence and the operator is
+told to stop it by hand -- so 'running' is precisely the state a service
+that never came up is found in. Adopting on the state alone would take a
+failure that was correctly reported once and report it as fine on every
+later run, without the start script that failed ever being invoked again.
+
+<a id="4213a0b3-01a5"></a>
+
+## install/setup.ps1: A running service VM that is silent or unnameable is rebuilt
+
+Running and silent, OR running and unnameable -- both rebuild.
+
+The port being refused is straightforward: something is demonstrably
+wrong with what is there. No address at all is the awkward one, and
+it is deliberately treated the same. A host that cannot name a VM it
+is running cannot hand that VM's address to the guests and peers
+that consume it either, so there is nothing to adopt; and it is
+exactly the state a failed bring-up leaves behind on a guest whose
+networking never came up. Adopting there would carry the failure
+forward under the one condition where nothing can contradict it.
+
+What it costs: on a host where address discovery is simply blind
+(a bridged UTM guest with no integration services publishes neither
+a lease nor an agent), a repair re-run rebuilds services that were
+fine. Time only -- service state lives on the pool share -- and the
+reason it reports names the missing half so it does not read as
+arbitrary.
+
+<a id="4213a0b3-01a6"></a>
+
+## install/setup.ps1: The default pool is derived, not asked
+
+The 'default' pool is NOT asked about and has no answer-file key. A lab with no
+pool is a lab no host can be enrolled into, so "no" only ever produced a beacon
+that looked finished and enrolled nobody. The pool is DERIVED at the end of the
+run from the storage this run configured: whatever pool folder ended up in
+test.config.yml is inspected, and a 'default' pool is created there when the
+configuration store carries none. An existing pool of that name is left exactly as it
+is (New-Pool -IfMissing), so an operator who paused or renamed theirs keeps it
+across every re-run.
+
+An older answer file may still carry lab.createDefaultPool. It is deliberately
+not read: honoring 'false' would produce that same half-set-up lab, and
+silently ignoring a key the operator wrote is worse than saying so.
+
+The step that ensures the lab's 'default' pool exists is always run, and
+derived rather than asked: the configuration store lives on whatever pool storage
+this run actually ended up with, so it is read back out of test.config.yml
+instead of being predicted from the questionnaire. A run that fell back from
+an unreachable NAS to local shares lands on the local path for the same
+reason. The step declares `-Requires 'storage'` because the configuration store
+lives ON that storage; without it the step throws 'pool storage has no
+localPath' and the run reports a SECOND failure for one broken thing -- and
+the second one names the pool, which is not what is wrong.
+
+<a id="4213a0b3-01a7"></a>
+
+## install/setup.ps1: Asking about state a previous sudo run left behind
+
+Read-only here; the chown / umount / kill that acts on these answers is a step
+further down, where the run holds the credential it needs.
+
+The asking has to happen HERE, above the sentence that promises nothing else
+will ask. Inside a step it cannot be answered at all: a step's action runs
+under a 6>&1 redirect that files Write-Information into the log, so the
+question, its options and the report describing what would be cleared all go to
+a file, leaving the operator facing a bare prompt with no question above it.
+
+Guarded on -WhatIf because this region -- unlike a step -- really does run in a
+preview, and a preview must not start asking about the machine's contents.
+
+<a id="4213a0b3-01a8"></a>
+
+## install/setup.ps1: Clearing state a previous sudo run left behind
+
+BEFORE anything is written, because two of the things this finds are what makes
+the writing fail. Refusing to run as root (earlier in the run) stops the next root run; it
+does nothing about the machine an earlier one already changed, and that state
+does not announce itself -- it surfaces as a permission error on a runtime file
+or as a port that is unbindable with no visible holder, neither of which names
+sudo as the cause.
+
+Only the acting half is here. The scan and the per-finding question ran earlier,
+while the operator still owned the terminal; this needs the credential taken
+since, which is why the two halves are apart.
+
+<a id="4213a0b3-01a9"></a>
+
+## install/setup.ps1: Enable-TestAutomation outcomes during setup
+
+-SkipPoolStorage: setup.ps1 owns storage, in its own order, at step 5.
+Without the switch Enable ends in an interactive NAS questionnaire,
+which would both duplicate step 5 and stall an unattended run.
+
+-TolerateFailure plus an explicit code map, because this child reports
+THREE outcomes and the default reading of an exit code only has room for
+two. 2 means "applied, and something is still unmet" -- a TCC grant the
+operator has to give and then quit the terminal for, or a pmset guard
+macOS does not surface on hardware without a lid. Neither is repaired by
+running this again, so both belong in the warned bucket; a hard failure
+here would leave the run with no path to green on a perfectly usable
+host. Every other non-zero is a real failure and still throws.
+
+<a id="4213a0b3-01aa"></a>
+
+## install/setup.ps1: Storage is critical, and later steps read its recorded fact
+
+CRITICAL whenever storage was asked for. Everything after it either needs the
+shares (the stash and download-agent services, a lab's pool) or writes host
+state that presumes them (the alias step), so a run that continues past a
+failed storage step spends fifteen minutes building services around storage
+that does not exist and then reports most of them as successes. storage.kind
+'none' is the one case where nothing is critical, because nothing was asked for.
+
+What later steps read is the FACT this region records, not a local boolean. A
+dependency re-derived by hand at each consumer is only as reliable as the
+author's memory, and a consumer that misses one rewrites the hosts file to
+point at storage that was never created.
+
+<a id="4213a0b3-01ab"></a>
+
+## install/setup.ps1: What proves this machine already serves its own shares
+
+A mounted share is NOT enough to call this done, and neither is the host
+alias. The config a machine carries for a NAS is identical in every key
+to the config for shares on this machine, so a machine still pointed at
+a NAS would otherwise read as "already local" and keep the storage, the
+aliases and the credentials the operator just asked to replace. What
+tells the two apart is what THIS machine publishes: the OS share table
+is what the SMB server will actually serve, and no hosts-file edit can
+put an entry in it. The alias and the live mount are still required --
+they decide where the mount goes and whether it works -- but neither is
+evidence that this machine is the one answering.
+
+<a id="4213a0b3-01ac"></a>
+
+## install/setup.ps1: Standalone hosts own the pool and stash aliases
+
+Standalone is the mode where nothing else owns these lines. A lab always stands
+up storage, and the local-storage script writes the aliases as part of it; a
+standalone host may decline storage entirely (storage.kind = none is
+standalone-only) or point at a NAS, and then no step in the run ever looks at
+the hosts file.
+
+What that costs: 'ypool-nas' is a NAME, and the same name means the NAS on a
+machine that used to have one and this machine on a machine that now serves its
+own shares. Every other value is identical between those two worlds -- share
+path, account, mount point -- so a stale line does not fail, it SUCCEEDS against
+the wrong server. The alias is the only thing that decides which, and this is
+where it is made to agree with the storage the operator just chose.
+
+`-Requires 'storage'`, on the RESULT and not on the answer. Keyed on the answer,
+this step publishes both server names at loopback on a machine where the shares,
+the accounts and the SMB server were never created -- host state asserting a
+thing that does not exist, reported under Done.
+
+<a id="4213a0b3-01ad"></a>
+
+## install/setup.ps1: Tearing the caching proxy down only when it is not worth keeping
+
+The proxy's own bring-up adopts a healthy VM and takes -ForceRebuild. Stopping
+it first defeats that -- the adopt probe finds nothing left, so the re-run pays
+the full ~15-minute rebuild and discards a warm squid cache. So the teardown
+happens only when the reuse check (or -Rebuild) says the VM is not worth
+keeping, and -ForceRebuild is forwarded so the Start script does not re-adopt
+what setup just decided to replace.
+
+The start arguments use `@(if ...)` rather than `$(if ... else { @() })`: a
+branch that emits an empty array emits NO output, and the subexpression
+collapses to `$null` on the way into a `[string[]]` parameter -- which then
+appends an empty argv entry the child binds to its first positional
+parameter. The array-subexpression form yields a real empty array, so the
+not-rebuilding case passes no argument.
+
+<a id="4213a0b3-01ae"></a>
+
+## install/setup.ps1: The dashboard alias
+
+The dashboard is the one URL an operator types by hand and returns to, and it
+is addressed by a DHCP lease: a bookmark saved today is wrong after the cache
+VM is rebuilt, and the address is nowhere an operator would think to look it up
+from. The alias makes the name the durable part, the same trick the storage
+server names already play -- and it is written from $proxyIp beside the config
+key, from that one freshly-read proxy state, so the hosts entry and
+vmStart.cachingProxyIp cannot come to disagree.
+
+Standalone only. A lab beacon's proxy is shared, and every other machine
+reaches it through vmStart.cachingProxyIp rather than through a name that would
+have to be published on each of them separately.
+
+The port stays in the URL. :80 on the proxy VM is Apache, serving the CA certs
+a guest installer fetches, so a name alone cannot move Grafana off :3000 --
+only a redirect or a proxy on the VM could, and neither is worth a rebuild for
+four characters.
+
+<a id="4213a0b3-01af"></a>
+
+## install/setup.ps1: Folding the configuration gate's transcript into the log
+
+The gate is the one step whose entire job is to describe this machine, so a
+gate that says nothing when it agrees leaves everything it observed -- the
+storage warnings above all -- recorded nowhere at all. Folded
+unconditionally, and BEFORE the throw so a failing gate keeps its words
+too; at CHILD level rather than through Write-SetupDetail, which mirrors to
+the screen at Verbose and would put eighty lines in the middle of the
+outcome list.
+
+Control sequences come off here too: this child is started by the gate
+module, not by Invoke-RepoScript, so the NO_COLOR this script sets on its own
+children never reaches it and its output arrives colored.
+
+Tolerant of a gate that returns no transcript at all. Note @($null) is an
+array of ONE null, not an empty one, so the emptiness test has to be on the
+element -- which is also what drops the blank lines a captured stream ends
+with.
+
+<a id="4213a0b3-01b0"></a>
+
+## install/setup.ps1: Naming the switches to drop on a re-run
+
+Named, not generic. "Re-run this script" followed verbatim with the same
+command line repeats every switch that made this run expensive, so the
+advice has to say which ones to drop -- and -Rebuild is the one that pays
+for a full proxy teardown and rebuild a second time.
+
+Narrow on purpose: dropping -Rebuild is only safe advice when nothing that
+the proxy BAKES IN has changed since it was built. A run whose storage
+failed is exactly the case where the next run changes storage, and an
+adopted VM keeps the seed it was built with -- so the switch is only worth
+dropping when the proxy came up and the storage it was built against stands.
+
+<a id="4213a0b3-01b1"></a>
+
+## install/ubuntu.kvm.sh: PowerShell floor repair
+
+The interpreter every later step runs on, brought up to the floor in
+automation/Yuruna.Requirement.yml. The install region only fires when
+`pwsh` is ABSENT, and presence is not the question a floor asks: a pwsh that
+arrived from a source this installer does not manage -- the Canonical snap, a
+hand-unpacked tarball, a package left by another tool -- otherwise answers the
+name for the life of the machine at whatever version it was, while the closing
+check reports a gap the run had every means to close. PowerShell is the one
+floor-checked tool here whose sources lead the Ubuntu archive, so it is the one
+the installer can actually raise.
+
+Placed after the checkout rather than beside the install: the floor lives in
+the repo, which does not exist yet where pwsh is installed.
+
+<a id="4213a0b3-01b2"></a>
+
+## automation/Get-SystemDiagnostic.ps1: One df snapshot, and the one-element array that must stay an array
+
+One df snapshot serves both the rendered table and the >=90%-full
+parse: invoking df twice would compare a figure the reader never sees
+against a table from a different, non-atomic snapshot.
+
+A single-element array falls out of an if-expression as a bare
+String, and splatting a String enumerates its characters: the macOS
+branch would invoke `df - P l` and collect three "No such file or
+directory" lines instead of a table, taking the >=90%-full parse
+that follows down with it silently. The cast holds the one-element branch
+to an array so both branches splat as arguments.
+
+<a id="4213a0b3-01b3"></a>
+
+## automation/Get-SystemDiagnostic.ps1: DHCP wire capture readiness
+
+tcpdump opens a bridge only while it holds CAP_NET_RAW, and that grant is
+a property of the binary rather than of the account: a package upgrade
+that replaces the file silently takes it away. The capture that needs it
+is armed on every VM start and read only when a guest failed to get a
+lease, so a host that lost the grant learns about it inside the one
+post-mortem whose evidence it was supposed to supply -- by which point
+the guest is gone and the wire cannot be re-read. Checking here costs one
+process and turns a silent gap into a fix the operator can make before it
+is needed.
+
+The capture itself is described under
+[Reading the DHCP server a libvirt host runs](https://yuruna.link/4220a755-000e).
+
+<a id="4213a0b3-01b4"></a>
+
+## install/macos.utm.sh: Bounding one utmctl status call
+
+One `utmctl status` call that cannot outlive UTMCTL_STATUS_TIMEOUT_SECONDS.
+utmctl asks UTM over Apple Events, and the first time a terminal does that
+macOS raises an Automation consent dialog. Until someone answers it the call
+neither fails nor returns: it waits out the Apple Events timeout (-1712,
+about two minutes) before anything the caller could classify comes back.
+
+Prints what the call printed and returns 0 when it finished; returns 124 when
+it was stopped at the cap and 125 when it could not be started, printing
+nothing in either case. The answer goes through a private file rather than a
+pipe so a stopped call cannot leave a reader waiting on it.
+
+<a id="4213a0b3-01b5"></a>
+
+## install/setup.ps1: Refusing to run as root
+
+macOS / Linux: refuse to run as root, BEFORE anything is written. These
+scripts elevate the individual operations that need it (networksetup, the
+SMB server, /etc/hosts), so a whole-run `sudo` buys nothing and breaks the
+result: every artifact lands under root's home (/var/root on macOS) instead
+of the operator's, where the hypervisor -- running as the operator -- cannot
+reach it. The per-VM builders detect this and hand ownership back, but only
+AFTER the image, the bundle and the mounts have gone to the wrong place. It
+also puts the SMB mount points under /var, which macOS reports back through
+its /private symlink and no longer matches what was asked for.
+
+<a id="4213a0b3-01b6"></a>
+
+## install/ubuntu.kvm.sh: virt-manager is installed with its recommended packages
+
+Its own apt call WITH Recommends, unlike the main package set: the widgets
+virt-manager renders a domain's screen with live in GObject-introspection
+typelibs it only Recommends, so under --no-install-recommends it installs,
+lists every domain, and then cannot open any of them. Naming those typelibs
+here instead would pin package names that move between releases.
+
+Non-fatal: the harness drives guest consoles through virt-viewer, so a host
+whose apt cannot supply virt-manager is still a working test host -- this is
+the operator's window into a guest a headless step is stuck on, and
+Enable-TestAutomation.ps1 reports it as an optional gap on the next run.
+
+<a id="4213a0b3-01b7"></a>
+
+## install/ubuntu.kvm.sh: The PowerShell tarball is the fallback source
+
+`install_pwsh_tarball` is the fallback PowerShell source for all downstream
+Yuruna automation: aarch64 has no Microsoft apt package, and x86_64 lands
+there only when the apt path fails. It resolves the latest-stable tag by
+following the /releases/latest redirect (a HEAD-follow -- no rate-limited
+api.github.com call) so the tarball tracks the same current release the apt
+path would install instead of freezing on one line. PowerShell ships both a
+linux-x64 and a linux-arm64 tarball (plus hashes.sha256) for every GA
+release, so both arches resolve. PWSH_VERSION overrides the discovery for a
+pinned or air-gapped build.
+
+<a id="4213a0b3-01b8"></a>
+
+## install/ubuntu.kvm.sh: A failed PowerShell upgrade ends the attempt, not the install
+
+Both managed sources land under /usr/local/bin (the tarball through the
+symlink beside it), which the stock PATH puts ahead of /snap/bin, so the
+newer copy wins the name without removing the one already there.
+
+Run in a subshell so a source that gives up -- an unreachable release
+feed, a checksum that does not match -- ends the upgrade attempt rather
+than the install. Unlike the first-install path, this host already has a
+working interpreter; the version check that follows says it is still old, and
+that belongs in the closing summary, not in an aborted run.
+
+<a id="4213a0b3-01b9"></a>
+
+## install/windows.hyper-v.ps1: The installation summary is gated on the run outcome
+
+The last thing printed before the transcript closes. Everything above
+scrolls; this does not -- including the outcome banner, which the floor check
+and this block both print after.
+
+Every verdict here is gated on the run's outcome, not on the issue count
+alone. A caught failure and a pending Hyper-V activation each reach this
+point, and a summary that reads "the machine is usable" or "finished with no
+issues" under either one contradicts the banner the operator just scrolled
+past, with the contradiction in the position that survives.
 
 ---
 

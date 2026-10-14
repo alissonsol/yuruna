@@ -154,6 +154,8 @@ review; English remains the source of truth.
   **[framework-implementation-notes.md](framework-implementation-notes.md)**, and
   **[project-implementation-notes.md](project-implementation-notes.md)** -- detailed
   rationale linked from host, runner, and example source files.
+- **[host-source-rationale.md](host-source-rationale.md)** -- supplemental host rationale
+  for the `host/` scripts, read after the host implementation notes.
 
 <a id="42d43217-0007"></a>
 
@@ -181,7 +183,7 @@ review; English remains the source of truth.
   hosts into a pool and set the framework and project repositories it runs,
   from the Pools page or the admin commands, and
   the [Pool-control service](pool-admin.md#pool-control-service) -- the operator
-  UI and API that drives the pool-intent git store, which runners only ever
+  UI and API that drives the pool-configuration git store, which runners only ever
   pull read-only.
 - **[pool-dashboard.md](pool-dashboard.md)** -- the Yuruna hosts Grafana dashboard,
   panel by panel: what each tile and table means, how the Host ID menus and `/go/`
@@ -215,6 +217,10 @@ review; English remains the source of truth.
   "`<name>` service", durations carry `Seconds`/`Ms`, booleans are bare
   adjectives, acronyms are words in camelCase -- plus the foreign contracts
   (Kubernetes, .NET, squid) that are deliberately exempt.
+- **[ontology/README.md](ontology/README.md)** -- the Yuruna ontology, one
+  OWL file per version (2026/10 is current): the English terminology and
+  diagnostic vocabulary, including the assessment views and conditions defined
+  in [definition.md](definition.md), and the tools that open and query it.
 
 <a id="42d43217-000a"></a>
 
@@ -299,6 +305,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,6 +121,7 @@ function Reset-StatusDocumentForCycleStart {
     } else { '' }
     $script:Doc  = [ordered]@{
         schemaVersion  = 1
+        cycleGeneration = [string]$env:YURUNA_CYCLE_GENERATION
         host           = $hostType
         hostname       = $hostnameValue
         hostId         = $hostIdValue
@@ -297,6 +298,7 @@ function Initialize-StatusDocument {
     } else { '' }
     $script:Doc = [ordered]@{
         schemaVersion  = 1
+        cycleGeneration = [string]$env:YURUNA_CYCLE_GENERATION
         host           = $HostType
         hostname       = $Hostname
         hostId         = $hostIdValue

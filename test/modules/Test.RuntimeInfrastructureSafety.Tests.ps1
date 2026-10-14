@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42756b16-4f56-4574-9bb7-56d74bcfe44f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,12 +18,12 @@ BeforeAll {
 Describe 'pool runtime safety' {
     It 'does not activate a quoted false pool setting' {
         foreach ($value in @($false, 'false', 'no', 'off', '0', '')) {
-            $config = @{ pool = @{ enabled = $value; intentGitUrl = 'https://example.invalid/pool.git'; localClonePath = "$TestDrive/pool" } }
+            $config = @{ pool = @{ enabled = $value; configurationGitUrl = 'https://example.invalid/pool.git'; localClonePath = "$TestDrive/pool" } }
             Get-YurunaPoolConfig -Config $config | Should -BeNullOrEmpty
             (Get-YurunaPoolConfig -Config $config -IgnoreEnabled).Enabled | Should -BeFalse
         }
         foreach ($value in @($true, 'true', 'yes', 'on', '1')) {
-            (Get-YurunaPoolConfig -Config @{ pool = @{ enabled = $value; intentGitUrl = 'https://example.invalid/pool.git'; localClonePath = "$TestDrive/pool" } }).Enabled | Should -BeTrue
+            (Get-YurunaPoolConfig -Config @{ pool = @{ enabled = $value; configurationGitUrl = 'https://example.invalid/pool.git'; localClonePath = "$TestDrive/pool" } }).Enabled | Should -BeTrue
         }
     }
 

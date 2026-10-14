@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -32,6 +32,7 @@ esac
 # See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # --- REGION: https://yuruna.link/4220a755-0005
+# Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
 # --- REGION: Bound package index fetches
@@ -99,6 +100,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
     # --- REGION: yuruna_install_pwsh_tarball
     # See https://yuruna.link/42d69dfa-0036
     # Preserve the checksum gate when the baked retry library lacks this helper.
+    # The label, name and body match the function in automation/yuruna-retry.sh.
     yuruna_install_pwsh_tarball() (
         local arch="$1" ps_arch tag version package url want got
         case "$arch" in x86_64) ps_arch=x64;; aarch64) ps_arch=arm64;; *) return 1;; esac
@@ -432,6 +434,7 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
   fi
 fi
 
+# --- REGION: Restore operator file ownership
 # Tarball extraction and any sudo'd cleanup may have left root-owned files.
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 

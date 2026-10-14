@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42e6d9c8-1705-43a2-89f3-6013cc25bb54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,11 +82,11 @@ Describe 'real sequence execution preserves source positions and current-step ca
     It 'clears transport and OCR causes inherited from a previous sequence' {
         $state = Get-SequenceFailureState
         foreach ($name in @('StepGuestAddressUnresolved','StepGuestTransportLost','StepGuestRunLost','StepGuestPayloadUnavailable',
-                'WaitForTextMatchedFailurePattern','WaitForTextClosestOnScreen','WaitForTextConsoleFlood')) { $state[$name] = 'stale' }
+                'StepVmNotStopped','WaitForTextMatchedFailurePattern','WaitForTextClosestOnScreen','WaitForTextConsoleFlood')) { $state[$name] = 'stale' }
         $script:FixtureSequence = @{steps=@(@{action='safetyFixture';fail=$true})}
         Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
         foreach ($name in @('StepGuestAddressUnresolved','StepGuestTransportLost','StepGuestRunLost','StepGuestPayloadUnavailable',
-                'WaitForTextMatchedFailurePattern','WaitForTextClosestOnScreen','WaitForTextConsoleFlood')) { $state[$name] | Should -BeNullOrEmpty }
+                'StepVmNotStopped','WaitForTextMatchedFailurePattern','WaitForTextClosestOnScreen','WaitForTextConsoleFlood')) { $state[$name] | Should -BeNullOrEmpty }
     }
     It 'preserves capture failures and independent progress observations in step events' {
         Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }

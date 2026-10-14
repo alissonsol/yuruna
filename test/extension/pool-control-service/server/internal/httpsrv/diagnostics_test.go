@@ -17,7 +17,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"pool-control-service/internal/intent"
+	"pool-control-service/internal/configuration"
 )
 
 func checkByName(t *testing.T, d Diagnostics, name string) Check {
@@ -34,7 +34,7 @@ func checkByName(t *testing.T, d Diagnostics, name string) Check {
 // A missing interpreter is the exact outage this page exists to explain, so the
 // report has to render it as a failing check rather than failing to render.
 func TestDiagnosticsReportsMissingPwsh(t *testing.T) {
-	f := &fakeIntent{stateRes: intent.Result{OK: false, Error: "fork/exec: no such file or directory"}}
+	f := &fakeConfiguration{stateRes: configuration.Result{OK: false, Error: "fork/exec: no such file or directory"}}
 	s := New(f, Options{Version: "test", PwshPath: filepath.Join(t.TempDir(), "definitely-absent-pwsh")})
 
 	d := s.collectDiagnostics(context.Background())
@@ -47,15 +47,15 @@ func TestDiagnosticsReportsMissingPwsh(t *testing.T) {
 		t.Error("failing pwsh check carries no remediation hint")
 	}
 	// The end-to-end probe must still run and surface the CLI's own error.
-	if c := checkByName(t, d, "intent-read"); c.OK {
-		t.Error("intent-read passed while the interpreter is missing")
+	if c := checkByName(t, d, "configuration-read"); c.OK {
+		t.Error("configuration-read passed while the interpreter is missing")
 	}
 }
 
 // The endpoint answers 200 even when checks fail: the report IS the payload,
 // and a non-200 would leave the page unable to render during an outage.
 func TestDiagnosticsEndpointServes200WhenFailing(t *testing.T) {
-	f := &fakeIntent{stateRes: intent.Result{OK: false, Error: "boom"}}
+	f := &fakeConfiguration{stateRes: configuration.Result{OK: false, Error: "boom"}}
 	srv := httptest.NewServer(New(f, Options{
 		Version:  "test",
 		PwshPath: filepath.Join(t.TempDir(), "absent"),
@@ -72,8 +72,14 @@ func TestDiagnosticsEndpointServes200WhenFailing(t *testing.T) {
 	if _, ok := body["checks"]; !ok {
 		t.Error("payload carries no checks array")
 	}
-	if _, ok := body["environment"]; !ok {
+	environment, ok := body["environment"].(map[string]any)
+	if !ok {
 		t.Error("payload carries no environment block")
+	} else if _, ok := environment["configurationGitUrl"]; !ok {
+		t.Error("environment carries no configurationGitUrl")
+	}
+	if _, ok := body["configurationProbe"].(map[string]any); !ok {
+		t.Error("payload carries no configurationProbe block")
 	}
 }
 
@@ -86,7 +92,7 @@ func TestDiagnosticsRepoDirDetectsMissingCLIs(t *testing.T) {
 	}
 	// Only one of the CLIs present -- the rest must be reported missing.
 	writeCLI(t, dir, poolAdminCLIs[0])
-	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+	s := New(&fakeConfiguration{}, Options{Version: "test", RepoDir: dir})
 
 	c := checkByName(t, s.collectDiagnostics(context.Background()), "repo-dir")
 	if c.OK {
@@ -116,21 +122,21 @@ func TestDiagnosticsRepoDirPassesWhenComplete(t *testing.T) {
 	for _, cli := range poolAdminCLIs {
 		writeCLI(t, dir, cli)
 	}
-	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+	s := New(&fakeConfiguration{}, Options{Version: "test", RepoDir: dir})
 
 	if c := checkByName(t, s.collectDiagnostics(context.Background()), "repo-dir"); !c.OK {
 		t.Errorf("repo-dir failed with a complete checkout: %+v", c)
 	}
 }
 
-// runnerScripts returns every .ps1 path the intent Runner names in its code.
-// intent.go is parsed rather than grepped so a script named only in a comment
+// runnerScripts returns every .ps1 path the configuration Runner names in its code.
+// configuration.go is parsed rather than grepped so a script named only in a comment
 // does not count as one the daemon runs.
 func runnerScripts(t *testing.T) map[string]bool {
 	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join("..", "intent", "intent.go"), nil, 0)
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join("..", "configuration", "configuration.go"), nil, 0)
 	if err != nil {
-		t.Fatalf("parse intent.go: %v", err)
+		t.Fatalf("parse configuration.go: %v", err)
 	}
 	scripts := map[string]bool{}
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -146,14 +152,14 @@ func runnerScripts(t *testing.T) map[string]bool {
 	return scripts
 }
 
-// The repo-dir check stats poolAdminCLIs, while intent.Runner is what actually
+// The repo-dir check stats poolAdminCLIs, while configuration.Runner is what actually
 // shells out, and the two lists live in different packages. A script the
 // Runner calls but the list omits fails only when an operator triggers it; a
 // listed script nothing calls makes a correct checkout report as partial.
 func TestPoolAdminCLIsMatchTheRunner(t *testing.T) {
 	called := runnerScripts(t)
 	if len(called) == 0 {
-		t.Fatal("no .ps1 literal found in intent.go; this parse does not match the code it guards")
+		t.Fatal("no .ps1 literal found in configuration.go; this parse does not match the code it guards")
 	}
 	listed := map[string]bool{}
 	for _, cli := range poolAdminCLIs {
@@ -171,11 +177,11 @@ func TestPoolAdminCLIsMatchTheRunner(t *testing.T) {
 
 // Every listed CLI has to exist in the framework checkout this package sits
 // in, or the live repo-dir check reports a correct deployment as partial.
-// Skipped, like the flag cross-check in the intent package, when the package
+// Skipped, like the flag cross-check in the configuration package, when the package
 // is built away from its checkout.
 func TestPoolAdminCLIsExistInTheCheckout(t *testing.T) {
 	testDir := filepath.Join("..", "..", "..", "..", "..")
-	if _, err := os.Stat(filepath.Join(testDir, "pool", "Get-PoolIntent.ps1")); err != nil {
+	if _, err := os.Stat(filepath.Join(testDir, "pool", "Get-PoolConfiguration.ps1")); err != nil {
 		t.Skipf("pool-admin CLIs not present next to this package: %v", err)
 	}
 	for _, cli := range poolAdminCLIs {
@@ -185,79 +191,79 @@ func TestPoolAdminCLIsExistInTheCheckout(t *testing.T) {
 	}
 }
 
-// An empty --intent-git-url fails every read and write identically, so it gets
+// An empty --configuration-git-url fails every read and write identically, so it gets
 // named as its own check rather than left to be inferred from CLI error text.
-func TestDiagnosticsFlagsEmptyIntentGitURL(t *testing.T) {
-	s := New(&fakeIntent{}, Options{Version: "test"})
+func TestDiagnosticsFlagsEmptyConfigurationGitURL(t *testing.T) {
+	s := New(&fakeConfiguration{}, Options{Version: "test"})
 
-	c := checkByName(t, s.collectDiagnostics(context.Background()), "intent-git-url")
+	c := checkByName(t, s.collectDiagnostics(context.Background()), "configuration-git-url")
 	if c.OK {
-		t.Fatal("intent-git-url passed while empty")
+		t.Fatal("configuration-git-url passed while empty")
 	}
-	if !strings.Contains(c.Hint, "pool.intentGitUrl") {
+	if !strings.Contains(c.Hint, "pool.configurationGitUrl") {
 		t.Errorf("hint does not name the config key to set: %q", c.Hint)
 	}
 }
 
-// A credential embedded in the intent URL must not be published by a page that
+// A credential embedded in the configuration URL must not be published by a page that
 // has no authentication of its own.
-func TestDiagnosticsRedactsIntentURLCredentials(t *testing.T) {
-	s := New(&fakeIntent{}, Options{
-		Version:      "test",
-		IntentGitURL: "https://alice:ghp_supersecrettoken@github.com/org/pool-intent.git",
+func TestDiagnosticsRedactsConfigurationURLCredentials(t *testing.T) {
+	s := New(&fakeConfiguration{}, Options{
+		Version:             "test",
+		ConfigurationGitURL: "https://alice:ghp_supersecrettoken@github.com/org/pool-configuration.git",
 	})
 	d := s.collectDiagnostics(context.Background())
 
-	if strings.Contains(d.Environment.IntentGitURL, "ghp_supersecrettoken") {
-		t.Errorf("token leaked into the report: %q", d.Environment.IntentGitURL)
+	if strings.Contains(d.Environment.ConfigurationGitURL, "ghp_supersecrettoken") {
+		t.Errorf("token leaked into the report: %q", d.Environment.ConfigurationGitURL)
 	}
-	if !strings.Contains(d.Environment.IntentGitURL, "github.com/org/pool-intent.git") {
-		t.Errorf("redaction destroyed the useful part: %q", d.Environment.IntentGitURL)
+	if !strings.Contains(d.Environment.ConfigurationGitURL, "github.com/org/pool-configuration.git") {
+		t.Errorf("redaction destroyed the useful part: %q", d.Environment.ConfigurationGitURL)
 	}
-	if c := checkByName(t, d, "intent-git-url"); strings.Contains(c.Detail, "ghp_supersecrettoken") {
+	if c := checkByName(t, d, "configuration-git-url"); strings.Contains(c.Detail, "ghp_supersecrettoken") {
 		t.Errorf("token leaked into the check detail: %q", c.Detail)
 	}
 }
 
 // A local path is not a URL and must survive redaction untouched.
-func TestDiagnosticsLeavesLocalIntentPathIntact(t *testing.T) {
-	const p = "/var/lib/yuruna/pool-intent.git"
-	s := New(&fakeIntent{}, Options{Version: "test", IntentGitURL: p})
+func TestDiagnosticsLeavesLocalConfigurationPathIntact(t *testing.T) {
+	const p = "/var/lib/yuruna/pool-configuration.git"
+	s := New(&fakeConfiguration{}, Options{Version: "test", ConfigurationGitURL: p})
 
-	if got := s.collectDiagnostics(context.Background()).Environment.IntentGitURL; got != p {
-		t.Errorf("intentGitUrl = %q, want %q", got, p)
+	if got := s.collectDiagnostics(context.Background()).Environment.ConfigurationGitURL; got != p {
+		t.Errorf("configurationGitUrl = %q, want %q", got, p)
 	}
 }
 
 // The raw probe is the page's reason to exist: argv and both streams verbatim,
 // so a failure is debuggable rather than merely reported.
-func TestDiagnosticsCarriesRawIntentProbe(t *testing.T) {
-	f := &fakeIntent{stateRes: intent.Result{
+func TestDiagnosticsCarriesRawConfigurationProbe(t *testing.T) {
+	f := &fakeConfiguration{stateRes: configuration.Result{
 		OK:       false,
 		Exit:     1,
-		Stdout:   `{"ok":false,"error":"No intent store URL."}`,
-		Argv:     []string{"/usr/bin/pwsh", "-NoProfile", "-File", "/repo/test/pool/Get-PoolIntent.ps1"},
+		Stdout:   `{"ok":false,"error":"No configuration store URL."}`,
+		Argv:     []string{"/usr/bin/pwsh", "-NoProfile", "-File", "/repo/test/pool/Get-PoolConfiguration.ps1"},
 		Duration: "1.2s",
 	}}
 	d := New(f, Options{Version: "test"}).collectDiagnostics(context.Background())
 
-	if d.IntentProbe.ExitCode != 1 {
-		t.Errorf("exit code = %d, want 1", d.IntentProbe.ExitCode)
+	if d.ConfigurationProbe.ExitCode != 1 {
+		t.Errorf("exit code = %d, want 1", d.ConfigurationProbe.ExitCode)
 	}
-	if !strings.Contains(d.IntentProbe.Stdout, "No intent store URL.") {
-		t.Errorf("probe dropped the CLI's stdout: %q", d.IntentProbe.Stdout)
+	if !strings.Contains(d.ConfigurationProbe.Stdout, "No configuration store URL.") {
+		t.Errorf("probe dropped the CLI's stdout: %q", d.ConfigurationProbe.Stdout)
 	}
-	if len(d.IntentProbe.Argv) == 0 {
+	if len(d.ConfigurationProbe.Argv) == 0 {
 		t.Error("probe carries no argv")
 	}
-	if d.IntentProbe.Duration != "1.2s" {
-		t.Errorf("duration = %q, want 1.2s", d.IntentProbe.Duration)
+	if d.ConfigurationProbe.Duration != "1.2s" {
+		t.Errorf("duration = %q, want 1.2s", d.ConfigurationProbe.Duration)
 	}
 }
 
 // Runtime facts establish whether a fix was deployed at all.
 func TestDiagnosticsReportsRuntimeFacts(t *testing.T) {
-	d := New(&fakeIntent{}, Options{Version: "test", Addr: "0.0.0.0:80"}).
+	d := New(&fakeConfiguration{}, Options{Version: "test", Addr: "0.0.0.0:80"}).
 		collectDiagnostics(context.Background())
 
 	if d.Runtime.PID == 0 {
@@ -273,18 +279,18 @@ func TestDiagnosticsReportsRuntimeFacts(t *testing.T) {
 
 // The pool NAS store is a local bare repo, so it can be validated directly --
 // catching an unwritable store before the first mutation rather than after.
-func TestCheckIntentStoreLocalBareRepo(t *testing.T) {
+func TestCheckConfigurationStoreLocalBareRepo(t *testing.T) {
 	dir := t.TempDir()
-	store := filepath.Join(dir, "pool-intent.git")
+	store := filepath.Join(dir, "pool-configuration.git")
 	if err := os.MkdirAll(filepath.Join(store, "refs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if c := checkIntentStore(store); !c.OK {
+	if c := checkConfigurationStore(store); !c.OK {
 		t.Errorf("a writable bare repo failed the check: %+v", c)
 	}
 
 	missing := filepath.Join(dir, "absent.git")
-	if c := checkIntentStore(missing); c.OK {
+	if c := checkConfigurationStore(missing); c.OK {
 		t.Errorf("a nonexistent store passed the check: %+v", c)
 	}
 }
@@ -292,8 +298,8 @@ func TestCheckIntentStoreLocalBareRepo(t *testing.T) {
 // An http(s) store is pull-only through the proxy's plain apache Alias, so the
 // check has to say so -- reads succeeding is exactly what hides this until the
 // first write.
-func TestCheckIntentStoreWarnsOnPullOnlyHTTP(t *testing.T) {
-	c := checkIntentStore("http://192.0.2.10/pool-intent.git")
+func TestCheckConfigurationStoreWarnsOnPullOnlyHTTP(t *testing.T) {
+	c := checkConfigurationStore("http://192.0.2.10/pool-configuration.git")
 	if !c.OK {
 		t.Errorf("a remote URL should not fail locally: %+v", c)
 	}
@@ -304,33 +310,33 @@ func TestCheckIntentStoreWarnsOnPullOnlyHTTP(t *testing.T) {
 
 // The report must show what the NEXT call will use, not what startup was told,
 // because the runner re-resolves per invocation.
-func TestDiagnosticsReportsLiveIntentURL(t *testing.T) {
-	f := &fakeIntentWithURL{fakeIntent: fakeIntent{}, url: "/mnt/yuruna-pool/pool-intent.git"}
-	d := New(f, Options{Version: "test", IntentGitURL: "/stale/from/launch.git"}).
+func TestDiagnosticsReportsLiveConfigurationURL(t *testing.T) {
+	f := &fakeConfigurationWithURL{fakeConfiguration: fakeConfiguration{}, url: "/mnt/yuruna-pool/pool-configuration.git"}
+	d := New(f, Options{Version: "test", ConfigurationGitURL: "/stale/from/launch.git"}).
 		collectDiagnostics(context.Background())
 
-	if d.Environment.IntentGitURL != "/mnt/yuruna-pool/pool-intent.git" {
-		t.Errorf("intentGitUrl = %q, want the live resolved value", d.Environment.IntentGitURL)
+	if d.Environment.ConfigurationGitURL != "/mnt/yuruna-pool/pool-configuration.git" {
+		t.Errorf("configurationGitUrl = %q, want the live resolved value", d.Environment.ConfigurationGitURL)
 	}
-	c := checkByName(t, d, "intent-git-url")
+	c := checkByName(t, d, "configuration-git-url")
 	if !strings.Contains(c.Detail, "overrides the launch flag") {
 		t.Errorf("detail does not flag the override: %q", c.Detail)
 	}
 }
 
-// fakeIntentWithURL adds the optional IntentURL reporter that intent.Runner
+// fakeConfigurationWithURL adds the optional ConfigurationURL reporter that configuration.Runner
 // satisfies in production.
-type fakeIntentWithURL struct {
-	fakeIntent
+type fakeConfigurationWithURL struct {
+	fakeConfiguration
 	url string
 }
 
-func (f *fakeIntentWithURL) IntentURL() string { return f.url }
+func (f *fakeConfigurationWithURL) ConfigurationURL() string { return f.url }
 
 // With no state dir the daemon is deliberately non-persistent, so the check
 // reports OK-with-reason instead of dragging the whole report to failed.
 func TestDiagnosticsStateDirDisabledIsNotAFailure(t *testing.T) {
-	s := New(&fakeIntent{}, Options{Version: "test"})
+	s := New(&fakeConfiguration{}, Options{Version: "test"})
 
 	c := checkByName(t, s.collectDiagnostics(context.Background()), "state-dir")
 	if !c.OK {
@@ -378,7 +384,7 @@ func writeRevisionSidecar(t *testing.T, dir, value string) {
 func TestFrameworkRevisionFromGitCheckout(t *testing.T) {
 	dir := t.TempDir()
 	want := initGitRepo(t, dir)
-	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+	s := New(&fakeConfiguration{}, Options{Version: "test", RepoDir: dir})
 
 	d := s.collectDiagnostics(context.Background())
 	if c := checkByName(t, d, "framework-revision"); !c.OK {
@@ -396,7 +402,7 @@ func TestFrameworkRevisionFallsBackToSidecarWithoutGit(t *testing.T) {
 	dir := t.TempDir()
 	want := "0123456789abcdef0123456789abcdef01234567"
 	writeRevisionSidecar(t, dir, want+"\n")
-	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+	s := New(&fakeConfiguration{}, Options{Version: "test", RepoDir: dir})
 
 	d := s.collectDiagnostics(context.Background())
 	c := checkByName(t, d, "framework-revision")
@@ -417,7 +423,7 @@ func TestFrameworkRevisionRejectsMalformedSidecar(t *testing.T) {
 	for _, bad := range []string{"", "not-a-revision", "0123456", "0123456789ABCDEF0123456789abcdef0123456789"} {
 		dir := t.TempDir()
 		writeRevisionSidecar(t, dir, bad)
-		s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+		s := New(&fakeConfiguration{}, Options{Version: "test", RepoDir: dir})
 
 		d := s.collectDiagnostics(context.Background())
 		c := checkByName(t, d, "framework-revision")
@@ -441,7 +447,7 @@ func TestFrameworkRevisionRejectsConflictingSidecar(t *testing.T) {
 	dir := t.TempDir()
 	head := initGitRepo(t, dir)
 	writeRevisionSidecar(t, dir, "fedcba9876543210fedcba9876543210fedcba98\n")
-	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+	s := New(&fakeConfiguration{}, Options{Version: "test", RepoDir: dir})
 
 	d := s.collectDiagnostics(context.Background())
 	c := checkByName(t, d, "framework-revision")
@@ -462,7 +468,7 @@ func TestFrameworkRevisionAcceptsAgreeingSidecar(t *testing.T) {
 	dir := t.TempDir()
 	head := initGitRepo(t, dir)
 	writeRevisionSidecar(t, dir, strings.ToUpper(head)+"\n")
-	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+	s := New(&fakeConfiguration{}, Options{Version: "test", RepoDir: dir})
 
 	d := s.collectDiagnostics(context.Background())
 	if c := checkByName(t, d, "framework-revision"); !c.OK {
@@ -478,7 +484,7 @@ func TestFrameworkRevisionAcceptsAgreeingSidecar(t *testing.T) {
 // otherwise have to interpret.
 func TestFrameworkRevisionFailsWithNoSource(t *testing.T) {
 	dir := t.TempDir()
-	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+	s := New(&fakeConfiguration{}, Options{Version: "test", RepoDir: dir})
 
 	d := s.collectDiagnostics(context.Background())
 	c := checkByName(t, d, "framework-revision")
@@ -509,7 +515,7 @@ func TestFrameworkRevisionIgnoresAnEnclosingRepository(t *testing.T) {
 	}
 	want := "0123456789abcdef0123456789abcdef01234567"
 	writeRevisionSidecar(t, inner, want+"\n")
-	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: inner})
+	s := New(&fakeConfiguration{}, Options{Version: "test", RepoDir: inner})
 
 	d := s.collectDiagnostics(context.Background())
 	c := checkByName(t, d, "framework-revision")

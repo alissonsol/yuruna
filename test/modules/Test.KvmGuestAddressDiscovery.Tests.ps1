@@ -327,16 +327,7 @@ Describe 'The contract this chain owes its callers' {
 }
 
 Describe 'Invoke-GuestSsh honors the unresolved-address sentinel' {
-    # WHY THIS BLOCK IS HERE. Get-GuestAddress answers with the VM name when no
-    # probe found an address. Four consumers test for that; Invoke-GuestSsh was
-    # the one that did not, so every transient discovery miss became a hard step
-    # failure reported as a guest script error. The invariant is asserted by name
-    # in Test.GuestAddressChurn.Tests.ps1, but only for a consumer that already
-    # got it right -- these cases cover the one that did not.
-    #
-    # ssh really runs. Both targets below fail in single-digit milliseconds (an
-    # unresolvable name, and a loopback that refuses the harness key), so the
-    # cases stay fast without mocking System.Diagnostics.Process.
+    # See https://yuruna.link/42e220c4-0014
 
     BeforeAll {
         Import-Module (Join-Path -Path $PSScriptRoot -ChildPath 'Test.Ssh.psm1') -Force -DisableNameChecking -Global

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.11.1
+# Version: 2026.10.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # See https://yuruna.link/42e220c4-0005
@@ -35,7 +35,7 @@ if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
 fi
 
 # --- REGION: Service user
-# Prefer cloud-init's account; allow an explicit override or the current caller.
+# Prefer cloud-init's account; otherwise use an explicit override or the current caller.
 # The CIFS mount maps every file to this user's uid/gid.
 if id -u download-agent-service-admin >/dev/null 2>&1; then
   SERVICE_USER=download-agent-service-admin
@@ -55,12 +55,14 @@ done
 # shellcheck source=../../automation/yuruna-service-bringup.sh
 . "$SERVICE_LIB"
 
-# --- REGION: Service tunables
+# --- REGION: Service locale
 # See https://yuruna.link/42fffc2c-000d
 SERVICE_LANGUAGE="$(sed -n 's/^YURUNA_LANGUAGE=//p' /etc/yuruna/globalization.env 2>/dev/null | head -1 || true)"
 [ -n "$SERVICE_LANGUAGE" ] || SERVICE_LANGUAGE=auto
 SERVICE_ALLOW_PSEUDO_LOCALE="$(sed -n 's/^YURUNA_ALLOW_PSEUDO_LOCALE=//p' /etc/yuruna/globalization.env 2>/dev/null | head -1 || true)"
 [ "$SERVICE_ALLOW_PSEUDO_LOCALE" = true ] || SERVICE_ALLOW_PSEUDO_LOCALE=false
+
+# --- REGION: Service tunables
 HTTP_ADDR="${DOWNLOAD_AGENT_HTTP_ADDR:-0.0.0.0:80}"
 PRESENCE_INTERVAL="${DOWNLOAD_AGENT_PRESENCE_INTERVAL:-2m}"
 AUTH_TOKEN_FILE="${DOWNLOAD_AGENT_AUTH_TOKEN_FILE:-/etc/yuruna/internal-auth.key}"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4256c18e-dd7e-400d-aa57-445e74e55994
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,6 +52,13 @@ $ErrorActionPreference = "Stop"
 # display-timeout decisions print nothing and the operator cannot tell what
 # changed.
 $InformationPreference = 'Continue'
+
+# --- REGION: Platform guard
+if (-not $IsWindows) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_ffd2efb19a40de43')
+    exit 1
+}
+
 # --- REGION: Initialize host setup
 # See https://yuruna.link/42e5cdfd-000b
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -89,12 +96,7 @@ if ($SkipPoolStorage) {
     Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
 }
 
-# The virtual display is opt-in (see header) and deliberately NOT set here: it
-# changes the host's monitor topology / scaling, so it stays an explicit
-# operator choice. Test-YurunaVirtualDisplayEnabled resolves the live process
-# variable first, then the persisted User/Machine scope, so this reflects what
-# the runner will actually do rather than this shell's (possibly stale)
-# process block. See docs/host-hyperv.md.
+# See https://yuruna.link/42e220c4-0004
 if (Test-YurunaVirtualDisplayEnabled) {
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_05f01e441da81178')
 } else {

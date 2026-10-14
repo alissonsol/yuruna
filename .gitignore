@@ -365,6 +365,7 @@ test/test.config.yml.backup
 # Migration backup: Update-TestConfigNaming.ps1 copies the live config here
 # before rewriting it, so it holds the same real credentials the live file does.
 test/test.config.yml.pre-renaming
+test/test.config.yml.pre-renaming.*
 
 # What THIS operator answered setup.ps1, rewritten at the same path on every
 # guided run. It describes one machine -- its project path, its NAS host name

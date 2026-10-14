@@ -428,7 +428,7 @@
     {
       "wireCode": "host_refresh.idle",
       "path": "test/service/Start-StatusService.ps1",
-      "matchCount": 3,
+      "matchCount": 1,
       "reason": "Runner liveness classification in the generated listener script; not the host-refresh state."
     },
     {
@@ -889,9 +889,15 @@
     },
     {
       "wireCode": "host_refresh.running",
+      "path": "test/modules/Test.RunnerOuterLoop.psm1",
+      "matchCount": 1,
+      "reason": "Runner overall status used to identify an incomplete cycle belonging to the current attempt; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
       "path": "test/modules/Test.SequenceHandler.psm1",
-      "matchCount": 2,
-      "reason": "Virtual machine state before and after an ARM64 Hyper-V cold power cycle; not a host-refresh request state."
+      "matchCount": 3,
+      "reason": "Virtual machine state before and after an ARM64 Hyper-V cold power cycle, and the state stopVm checks before requesting a shutdown; not a host-refresh request state."
     },
     {
       "wireCode": "host_refresh.running",
@@ -1329,7 +1335,7 @@
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.HostRefreshTrigger.psm1",
       "matchCount": 9,
-      "reason": "Process liveness, pool desired-state and token fallbacks; not the host-refresh state."
+      "reason": "Process liveness, pool configured-state and token fallbacks; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -1394,8 +1400,8 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "matchCount": 6,
-      "reason": "Spawn-gate state, barrier request-id fallbacks and the unrecorded-outcome diagnostic; not the host-refresh state."
+      "matchCount": 7,
+      "reason": "Runner overall status before a cycle starts, spawn-gate state, barrier request-id fallbacks and the unrecorded-outcome diagnostic; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -1418,8 +1424,8 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.SequenceHandler.psm1",
-      "matchCount": 5,
-      "reason": "Sequence check status, diagnostic outcome and failure-class fallbacks; not a host-refresh value."
+      "matchCount": 9,
+      "reason": "Sequence check status, diagnostic outcome and failure-class fallbacks, plus the Get-VMState fallbacks in the stopVm and startVm stopped-waits; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.unknown",

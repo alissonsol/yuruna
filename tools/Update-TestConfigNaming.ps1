@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f97555-078b-4a8e-8eef-1fac4bd333c4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,9 +33,10 @@
 
     Re-running is safe: a config that carries no retired key is reported as
     already converted and left untouched (nothing is written, no backup is
-    taken). A config that carries BOTH forms of a key -- an interrupted or
-    hand-edited migration -- stops with the conflicting pairs listed, because
-    only the operator knows which value is the live one.
+    taken). Registered obsolete comments can restore a replacement whose value
+    is blank. Duplicate forms with matching values are reconciled; conflicting
+    populated values stop before any file changes. Existing migration backups
+    are preserved with an additional unique backup for each changed input.
 .PARAMETER ConfigPath
     test.config.yml to convert. Default: test/test.config.yml next to this repo.
 .PARAMETER WhatIf
@@ -75,88 +76,34 @@ if (-not (Get-Module -ListAvailable powershell-yaml)) {
 Import-Module powershell-yaml -DisableNameChecking
 
 $rawText = Get-Content -Raw -LiteralPath $ConfigPath
-$retired = @(Get-RetiredConfigKeyPresent -Text $rawText)
-
-if ($retired.Count -eq 0) {
+$config = ConvertFrom-Yaml -Yaml $rawText -Ordered
+$migration = ConvertTo-ConfigNamingMigration -Config $config -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $rawText)
+if ($migration.Changes.Count -eq 0) {
     Write-Information "$ConfigPath already uses the current key names -- nothing to convert." -InformationAction Continue
     exit 0
 }
-
-# A key present in BOTH forms cannot be resolved here: renaming the old one over
-# the new one would silently discard whichever value the operator meant to keep.
-$conflicts = @($retired | Where-Object { Test-RetiredConfigKeyLine -Text $rawText -DottedPath $_.New })
-if ($conflicts.Count -gt 0) {
-    foreach ($c in $conflicts) {
-        Write-Warning "Both '$($c.Old)' and '$($c.New)' are present -- keep one and delete the other."
-    }
-    Write-Error "Conversion stopped: $($conflicts.Count) key(s) present in both the retired and the current form."
-    exit 1
-}
-
-function Get-ConfigNode {
-    <#
-    .SYNOPSIS
-        The dictionary holding $DottedPath's leaf, or $null when a parent level
-        is missing. -Create builds missing parents as ordered dictionaries.
-    #>
-    param(
-        [Parameter(Mandatory)]$Config,
-        [Parameter(Mandatory)][string]$DottedPath,
-        [switch]$Create
-    )
-    $parts = $DottedPath.Split('.')
-    $node  = $Config
-    for ($i = 0; $i -lt $parts.Count - 1; $i++) {
-        $seg = $parts[$i]
-        if (-not ($node -is [System.Collections.IDictionary])) { return $null }
-        if (-not $node.Contains($seg)) {
-            if (-not $Create) { return $null }
-            $node[$seg] = [ordered]@{}
-        } elseif (-not ($node[$seg] -is [System.Collections.IDictionary])) {
-            if (-not $Create) { return $null }
-            $node[$seg] = [ordered]@{}
-        }
-        $node = $node[$seg]
-    }
-    if (-not ($node -is [System.Collections.IDictionary])) { return $null }
-    return $node
-}
-
-$config = ConvertFrom-Yaml -Yaml $rawText -Ordered
-
-$changes = [System.Collections.Generic.List[string]]::new()
-foreach ($r in $retired) {
-    $oldLeaf   = $r.Old.Split('.')[-1]
-    $newLeaf   = $r.New.Split('.')[-1]
-    $oldParent = Get-ConfigNode -Config $config -DottedPath $r.Old
-    if ($null -eq $oldParent -or -not $oldParent.Contains($oldLeaf)) { continue }
-
-    $value = $oldParent[$oldLeaf]
-    if ($r.Factor -ne 1 -and $null -ne $value) {
-        # A duration whose unit changed. Ints stay ints -- a float here would
-        # serialize as "2700.0" and read back as a different YAML type.
-        $value = [int]([double]$value * $r.Factor)
-    }
-    $oldParent.Remove($oldLeaf)
-    $newParent = Get-ConfigNode -Config $config -DottedPath $r.New -Create
-    $newParent[$newLeaf] = $value
-    $suffix = if ($r.Factor -ne 1) { " (value x $($r.Factor) -> $value)" } else { "" }
-    [void]$changes.Add("  $($r.Old) -> $($r.New)$suffix")
-}
+$changes = @($migration.Changes | ForEach-Object {
+    $suffix = if ($_.Factor -ne 1) { " (value x $($_.Factor))" } else { '' }
+    "  $($_.Old) -> $($_.New)$suffix"
+})
 
 Write-Information "Converting $ConfigPath ($($changes.Count) key(s)):" -InformationAction Continue
 foreach ($c in $changes) { Write-Information $c -InformationAction Continue }
 
-$sorted   = ConvertTo-SortedConfig $config
-$newYaml  = $sorted | ConvertTo-Yaml
-$backup   = "$ConfigPath.pre-renaming"
+$sorted = ConvertTo-SortedConfig $migration.Config
+$newYaml = $sorted | ConvertTo-Yaml
+$obsoleteText = Format-ObsoleteConfigEntry -ObsoleteEntry $migration.Obsolete
+if ($obsoleteText) { $newYaml = $newYaml.TrimEnd() + "`n`n" + $obsoleteText + "`n" }
 
-if (-not $PSCmdlet.ShouldProcess($ConfigPath, "Rewrite with current key names (backup -> $backup)")) {
+if (-not $PSCmdlet.ShouldProcess($ConfigPath, "Rewrite with current key names and preserve a migration backup")) {
     Write-Information "-WhatIf: nothing written." -InformationAction Continue
     exit 0
 }
 
-Copy-Item -LiteralPath $ConfigPath -Destination $backup -Force
-Set-Content -LiteralPath $ConfigPath -Value $newYaml -NoNewline -Encoding utf8
+$backup = New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false
+if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $newYaml -Confirm:$false)) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath })
+    exit 1
+}
 Write-Information "Wrote $ConfigPath (previous file kept as $backup)." -InformationAction Continue
 exit 0

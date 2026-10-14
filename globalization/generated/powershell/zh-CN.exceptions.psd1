@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42876abe-db94-7e68-a8e3-79694be0d37c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,72 @@
 # locale: zh-CN  domain: exceptions
 
 @{
+    'exceptions.config_naming_blocked_path' = @(
+        "无法将`“"
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”迁移到`“"
+        @{
+            'arg' = 'replacement'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”：标量阻挡了目标路径。文件未更改。"
+    )
+    'exceptions.config_naming_conflict' = @(
+        "配置命名冲突：`“"
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”和`“"
+        @{
+            'arg' = 'replacement'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”包含不同的非空值。请保留一个值后重试。文件未更改。"
+    )
+    'exceptions.config_naming_duplicate_parked' = @(
+        "`“"
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”存在冲突的已弃用配置条目。请保留一个值后重试。文件未更改。"
+    )
+    'exceptions.config_naming_invalid_duration' = @(
+        "无法迁移配置键`“"
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”：需要数值时长。文件未更改。"
+    )
+    'exceptions.config_naming_invalid_parked_scalar' = @(
+        "无法迁移已弃用的配置键`“"
+        @{
+            'arg' = 'old'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”：需要有效的 YAML 标量。文件未更改。"
+    )
+    'exceptions.config_naming_save_failed' = @(
+        "无法将配置命名迁移保存到`“"
+        @{
+            'arg' = 'configPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”；原始文件和备份仍然可用。"
+    )
     'exceptions.host_1568d9e12a12e190' = '这是Ubuntu KVM变体；请改为运行适用于此平台的host/<type>/Sync-HostConfiguration.ps1。'
     'exceptions.host_1c714189825ec0e2' = @(
         "对`“"
@@ -599,6 +665,7 @@
             'trust' = 'external'
         }
     )
+    'exceptions.host_ffd2efb19a40de43' = 'Enable-TestAutomation.ps1（host/windows.hyper-v）只能在Windows上运行。'
     'exceptions.host_refresh_auth_authority_incomplete' = @(
         '已写入'
         @{
@@ -757,6 +824,24 @@
             'trust' = 'internal'
         }
         "`”。"
+    )
+    'exceptions.pool_configuration_legacy_state' = @(
+        '池 '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' 在 schemaVersion 4 中使用 desiredState；请使用 configuredState。'
+    )
+    'exceptions.pool_configuration_state_conflict' = @(
+        '池 '''
+        @{
+            'arg' = 'poolId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' 声明了相互冲突的 desiredState 和 configuredState 值；选择所需的 configuredState 后，请删除过时的字段。'
     )
     'exceptions.runner_037f5a478339db90' = @(
         '运行器配置中没有''sequences''条目：'

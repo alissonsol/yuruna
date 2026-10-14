@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42008bcd-66da-4584-84a4-c4454a7f8958
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,12 +68,7 @@ Initialize-YurunaEntryPointModuleSet -For CachingProxyService -ModulesDir $Modul
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # --- REGION: Record the stop intent
-# The stop is on record, and this service's operation lock held, before the
-# first change (the bring-up lock clear below): the reboot sweep and a host
-# refresh then honor the request, and a concurrent Start cannot rebuild the
-# cache mid-teardown. Taken before the sudo priming so a busy service refuses
-# before anything is asked of the operator. A request that cannot be recorded
-# changes nothing.
+# See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
 Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
 $serviceOp = Enter-YurunaServiceOperation -Key 'caching-proxy' -VMName $VMName -Operation Stop -Script 'Stop-CachingProxyServiceVM.ps1' -Confirm:$false
@@ -150,13 +145,7 @@ if ($IsMacOS) {
     Write-Output ""
     Write-Output "== Stop + delete '$VMName' (macOS/UTM) =="
 
-    # Tear down any leftover host-side forwarders from the retired
-    # shared-NAT path (forwarder.<port>.pid pwsh subprocesses under
-    # $HOME/yuruna/image/caching-proxy-service). With the cache VM bridged
-    # directly to the host's LAN NIC there is no host:port forwarder
-    # layer in the data path -- but an upgrade from the previous shape
-    # can leave one running, and on macOS killing the root-owned :80
-    # forwarder requires sudo. No-op on a fresh install.
+    # See https://yuruna.link/42e220c4-0008
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
     $stateDir = Join-Path $HOME "yuruna/image/caching-proxy-service"
@@ -290,7 +279,7 @@ if ($IsMacOS) {
     exit 1
 }
 
-# --- REGION: Report the service state
+# --- REGION: Verify the final VM state
 # Confirmed only by a final reading of absent: a removal that left the VM
 # registered is a failed stop, and the stop request still stands. Every branch
 # above loaded the host contract, so Get-VMState is in scope here.

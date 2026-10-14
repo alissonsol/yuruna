@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -201,34 +201,7 @@ try {
     Exit-WithSummary 1
 }
 
-# --- REGION: Section 2a: Retired key names
-# Only the current key names are accepted. A retired key that merely warned
-# would keep working by accident on the host that still carries it while the
-# code reads the new name and silently falls back to a default -- the config
-# would look honored and be ignored. Each failure line names the replacement,
-# and the whole file converts in one command.
-
-Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_72e8483f6f8d909a')
-
-$configNamingMod = Join-Path $script:ModulesDir 'Test.ConfigNaming.psm1'
-if (-not (Test-Path $configNamingMod)) {
-    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_45634295eef1edce' -Arguments @{ configNamingMod = "${configNamingMod}" })
-} else {
-    Import-Module $configNamingMod -Global -Force
-    $rawConfigText = Get-Content -Raw -LiteralPath $ConfigPath -ErrorAction SilentlyContinue
-    $retired = @(Get-RetiredConfigKeyPresent -Text ([string]$rawConfigText))
-    if ($retired.Count -eq 0) {
-        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_bada71e7f386bac2')
-    } else {
-        foreach ($r in $retired) {
-            $unit = if ($r.Factor -ne 1) { " (value converts: old x $($r.Factor))" } else { "" }
-            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_5701bff77c2c62cc' -Arguments @{ old = "$($r.Old)"; new = "$($r.New)"; unit = "$unit" }) -FullPath $ConfigPath
-        }
-        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_5366e41cd6eece52')
-    }
-}
-
-# --- REGION: Section 2b: Config schema vs template
+# --- REGION: Section 2a: Config schema vs template
 # The template is the schema source of truth: Sync-TestConfigToTemplate fully
 # reconciles the live test.config.yml to it (add missing fields, remove
 # dropped keys with a .backup, rewrite alphabetically); at cycle start the
@@ -298,6 +271,31 @@ if (-not (Test-Path $TemplatePath)) {
         }
     } catch {
         Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_588f793a5bce2c4e' -Arguments @{ message = "$($_.Exception.Message)" }) -FullPath $ConfigPath
+    }
+}
+
+# --- REGION: Section 2b: Retired key names
+# Check the reconciled file so a successful registered migration is accepted
+# immediately. Remaining retired keys are failures: consumers read only their
+# replacements, so accepting an unmigrated key would silently use a default.
+
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_72e8483f6f8d909a')
+
+$configNamingMod = Join-Path $script:ModulesDir 'Test.ConfigNaming.psm1'
+if (-not (Test-Path $configNamingMod)) {
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_45634295eef1edce' -Arguments @{ configNamingMod = "${configNamingMod}" })
+} else {
+    Import-Module $configNamingMod -Global -Force
+    $rawConfigText = Get-Content -Raw -LiteralPath $ConfigPath -ErrorAction SilentlyContinue
+    $retired = @(Get-RetiredConfigKeyPresent -Text ([string]$rawConfigText))
+    if ($retired.Count -eq 0) {
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_bada71e7f386bac2')
+    } else {
+        foreach ($r in $retired) {
+            $unit = if ($r.Factor -ne 1) { " (value converts: old x $($r.Factor))" } else { "" }
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_5701bff77c2c62cc' -Arguments @{ old = "$($r.Old)"; new = "$($r.New)"; unit = "$unit" }) -FullPath $ConfigPath
+        }
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_5366e41cd6eece52')
     }
 }
 
@@ -1790,7 +1788,7 @@ if (-not (Test-Path $poolSyncMod)) {
         Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_11155c290bdca317')
     } else {
         $plEnabled = ConvertTo-YurunaBool $plRaw['enabled']
-        $plUrl     = [string]$plRaw['intentGitUrl']
+        $plUrl     = [string]$plRaw['configurationGitUrl']
         if ([string]::IsNullOrWhiteSpace($plUrl)) {
             if ($plEnabled) { Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_af0aca34836ac8bb') -FullPath $ConfigPath }
             else            { Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_93ef9f12e66f06e9') }

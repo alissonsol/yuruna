@@ -321,6 +321,17 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   and stages their runtime SHA-256 pins. It refuses unstaged edits to those
   inputs or entrypoints and a partial commit that needs regeneration. Python 3
   is required for this pass, including on hosts without PowerShell.
+  When the caching-proxy seed or its zot qualification record is staged, the
+  hook checks that the pinned zot release, its configuration and the probe
+  list still match the last live sync on record. Most seed edits settle that
+  offline in well under a second. A change to any of the three runs
+  `tools/Test-ZotRelease.py`, which downloads the pinned release once, syncs
+  real images through it with the seed's configuration, and stages
+  `host/vmconfig/caching-proxy-service.zot-qualified.json` when they sync. A
+  release that does not qualify blocks the commit with zot's own error and
+  what to change, and so does a qualification that cannot run (no internet, or
+  no Python 3.8). See
+  [When a zot release cannot sync the lab's images](docs/caching.md#when-a-zot-release-cannot-sync-the-labs-images).
   When a commit stages catalog sources, the kernel, the locale manifest,
   either generator, or a generated catalog/runtime file, it also runs
   `tools/Invoke-CatalogCompile.ps1 -Update` and
@@ -438,6 +449,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](README.md)

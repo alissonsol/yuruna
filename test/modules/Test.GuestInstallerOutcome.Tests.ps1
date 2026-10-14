@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 427c26ad-413b-4523-82d5-2c48297ba74d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -605,5 +605,121 @@ Describe 'macOS guest Git preparation proves selected noninteractive tools' -Ski
         $result.Calls | Should -Match 'git-version'
         $result.Calls | Should -Not -Match 'softwareupdate'
         $result.Process.StdOut | Should -Not -Match 'would-resolve-repositories'
+    }
+}
+
+Describe 'Amazon Linux PostgreSQL preserves cluster state on retries' -Skip:(-not $script:CanRunBash) {
+    BeforeAll {
+        # --- REGION: Invoke-PostgresClusterFixture
+        function Invoke-PostgresClusterFixture {
+            <# Runs the shipped RPM and cluster phases against private data with service commands stubbed. #>
+            param([string]$Mode)
+            $fixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $data = Join-Path $fixture 'data'
+            $null = New-Item -ItemType Directory -Path $fixture
+            if ($Mode -ne 'absent') { $null = New-Item -ItemType Directory -Path $data }
+            switch ($Mode) {
+                'initialized' {
+                    Set-Content -LiteralPath (Join-Path $data 'PG_VERSION') -Value '17'
+                    Set-Content -LiteralPath (Join-Path $data 'keep') -Value 'existing database'
+                }
+                'wrong-major' { Set-Content -LiteralPath (Join-Path $data 'PG_VERSION') -Value '16' }
+                'partial' { Set-Content -LiteralPath (Join-Path $data 'keep') -Value 'partial database' }
+                'linked-partial' {
+                    Remove-Item -LiteralPath $data
+                    $linkedData = Join-Path $fixture 'linked-data'
+                    $null = New-Item -ItemType Directory -Path $linkedData
+                    Set-Content -LiteralPath (Join-Path $linkedData 'keep') -Value 'partial database'
+                    $null = New-Item -ItemType SymbolicLink -Path $data -Target $linkedData
+                }
+                'empty-version' { [IO.File]::WriteAllText((Join-Path $data 'PG_VERSION'), '') }
+                'directory-version' { $null = New-Item -ItemType Directory -Path (Join-Path $data 'PG_VERSION') }
+                'read-failure' { Set-Content -LiteralPath (Join-Path $data 'PG_VERSION') -Value '17' }
+            }
+            $source = Get-Content (Join-Path $script:RepoRoot 'guest/amazon.linux.2023/amazon.linux.2023.postgresql.sh') -Raw
+            $start = $source.IndexOf('# --- REGION: Install PostgreSQL')
+            $end = $source.IndexOf('# --- REGION: Installation summary', $start)
+            if ($start -lt 0 -or $end -lt 0) { throw 'PostgreSQL installation phases were not found' }
+            $source = $source.Substring($start, $end - $start).Replace('/var/lib/pgsql/data', '"$YURUNA_POSTGRES_DATA"')
+            $prefix = @'
+set -euo pipefail
+: > "$YURUNA_POSTGRES_CALLS"
+dnf_retry() {
+    printf 'packages\n' >> "$YURUNA_POSTGRES_CALLS"
+    [ "$YURUNA_POSTGRES_MODE" != package-failure ]
+}
+sudo() {
+    case "$1" in
+        test) command "$@" ;;
+        cat)
+            [ "$YURUNA_POSTGRES_MODE" != read-failure ] || return 42
+            command "$@"
+            ;;
+        find)
+            [ "$YURUNA_POSTGRES_MODE" != find-failure ] || return 41
+            command "$@"
+            ;;
+        /usr/bin/postgresql-setup)
+            [ "$#" = 2 ] && [ "$2" = --initdb ] || return 90
+            printf 'initialize\n' >> "$YURUNA_POSTGRES_CALLS"
+            [ "$YURUNA_POSTGRES_MODE" != init-failure ] || return 37
+            mkdir -p "$YURUNA_POSTGRES_DATA"
+            printf '17\n' > "$YURUNA_POSTGRES_DATA/PG_VERSION"
+            ;;
+        systemctl) printf '%s\n' "$*" >> "$YURUNA_POSTGRES_CALLS" ;;
+        *) printf 'Unexpected sudo command: %s\n' "$*" >&2; return 91 ;;
+    esac
+}
+'@
+            $entry = Join-Path $fixture 'fixture.sh'
+            $calls = Join-Path $fixture 'calls.txt'
+            Set-Content -LiteralPath $entry -Value ($prefix + "`n" + $source + "`necho would-report-summary") -Encoding utf8NoBOM
+            $process = Invoke-BoundedNativeCommand -FilePath (Get-Command bash).Source -ArgumentList @($entry) -TimeoutSeconds 10 `
+                -Environment @{ YURUNA_POSTGRES_MODE=$Mode; YURUNA_POSTGRES_DATA=$data; YURUNA_POSTGRES_CALLS=$calls }
+            [pscustomobject]@{ Process=$process; Calls=@(Get-Content -LiteralPath $calls); Data=$data }
+        }
+    }
+
+    It 'starts the existing major or initializes a fresh cluster for <Mode>' -ForEach @(
+        @{ Mode='absent'; Initializes=1 }, @{ Mode='empty'; Initializes=1 }, @{ Mode='initialized'; Initializes=0 }
+    ) {
+        $result = Invoke-PostgresClusterFixture -Mode $Mode
+        $result.Process.ExitCode | Should -Be 0 -Because $result.Process.StdErr
+        @($result.Calls | Where-Object { $_ -eq 'initialize' }).Count | Should -Be $Initializes
+        ($result.Calls | Select-Object -Last 2) -join '|' | Should -BeExactly 'systemctl enable postgresql|systemctl start postgresql'
+        $result.Calls | Should -Not -Contain 'systemctl stop postgresql'
+        Get-Content -LiteralPath (Join-Path $result.Data 'PG_VERSION') | Should -BeExactly '17'
+        if ($Mode -eq 'initialized') {
+            Get-Content -LiteralPath (Join-Path $result.Data 'keep') | Should -BeExactly 'existing database'
+        }
+        $result.Process.StdOut | Should -Match 'would-report-summary'
+    }
+
+    It 'refuses to initialize or start a cluster with <Mode>' -ForEach @(
+        @{ Mode='wrong-major' }, @{ Mode='partial' }, @{ Mode='linked-partial' }, @{ Mode='empty-version' }, @{ Mode='directory-version' },
+        @{ Mode='package-failure' }, @{ Mode='read-failure' }, @{ Mode='find-failure' }
+    ) {
+        $result = Invoke-PostgresClusterFixture -Mode $Mode
+        $result.Process.ExitCode | Should -Not -Be 0
+        $result.Calls | Should -Not -Contain 'initialize'
+        @($result.Calls | Where-Object { $_ -like 'systemctl *' }) | Should -BeNullOrEmpty
+        $result.Process.StdOut | Should -Not -Match 'would-report-summary'
+        if ($Mode -eq 'wrong-major') {
+            Get-Content -LiteralPath (Join-Path $result.Data 'PG_VERSION') | Should -BeExactly '16'
+            $result.Process.StdErr | Should -Match 'Migrate it explicitly'
+        }
+        if ($Mode -in @('partial', 'linked-partial')) {
+            Get-Content -LiteralPath (Join-Path $result.Data 'keep') | Should -BeExactly 'partial database'
+            $result.Process.StdErr | Should -Match 'refusing to initialize'
+        }
+    }
+
+    It 'does not enable or start PostgreSQL after initialization fails' {
+        $result = Invoke-PostgresClusterFixture -Mode init-failure
+        $result.Process.ExitCode | Should -Be 37
+        $result.Calls | Should -Contain 'initialize'
+        @($result.Calls | Where-Object { $_ -like 'systemctl *' }) | Should -BeNullOrEmpty
+        $result.Process.StdOut | Should -Not -Match 'would-report-summary'
+        Test-Path -LiteralPath (Join-Path $result.Data 'PG_VERSION') | Should -BeFalse
     }
 }

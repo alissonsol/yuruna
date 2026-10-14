@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4270c5ae-4f32-42b7-a8e4-08bd28d7d218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -479,7 +479,7 @@ Describe 'Switch repair budgets survive JSON DateTime conversion and operator cu
 Describe 'Windows ISO adoption follows the configured VHD root' {
     It 'copies an existing default ISO to the configured root before success' {
         $source = Get-Content (Join-Path $script:RepoRoot 'host/windows.hyper-v/guest.windows.11/Get-Image.ps1') -Raw
-        $start = $source.IndexOf('# --- REGION: Short-circuit #2:')
+        $start = $source.IndexOf('# --- REGION: Seek the base image')
         $end = $source.IndexOf('# --- REGION:', $start + 15)
         $body = $source.Substring($start, $end - $start)
         $defaultDownloadDir = Join-Path $TestDrive 'default'
@@ -543,7 +543,7 @@ Describe 'KVM capture subprocess teardown' -Skip:(-not $IsLinux) {
         [IO.File]::SetUnixFileMode($fakeCapture, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
         $source = Get-Content (Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Raw
         $start = $source.IndexOf('$script:YurunaDhcpCapture = $null')
-        $end = $source.IndexOf('# What last happened', $start)
+        $end = $source.IndexOf('$script:YurunaDhcpTrail', $start)
         $moduleBody = $source.Substring($start, $end - $start)
         foreach ($name in 'Start-VMDhcpCapture', 'Stop-VMDhcpCapture') {
             $moduleBody += "`n" + (Get-SourceFunction 'host/ubuntu.kvm/modules/Yuruna.Host.psm1' $name)
@@ -588,5 +588,60 @@ function Write-YurunaDhcpGap { param($Reason) throw $Reason }
                 Stop-Process -Id $capturePid -Force -ErrorAction SilentlyContinue
             }
         }
+    }
+}
+
+# --- REGION: Download agent provenance preserves local fingerprints
+Describe 'Download agent provenance preserves local fingerprints' {
+    It 'keeps <Artifact> current without an origin URL on <Platform>' -ForEach @(
+        @{ Platform = 'macos.utm'; Artifact = 'al2023-test.arm64.qcow2'; MissingSource = '' },
+        @{ Platform = 'ubuntu.kvm'; Artifact = 'al2023-test.x86_64.qcow2'; MissingSource = ' ' },
+        @{ Platform = 'windows.hyper-v'; Artifact = 'al2023-test.hyperv.zip'; MissingSource = $null }
+    ) {
+        . ([scriptblock]::Create((Get-SourceFunction 'host/modules/Yuruna.Image.psm1' 'Invoke-DownloadAgentFirst')))
+        . ([scriptblock]::Create((Get-SourceFunction 'host/modules/Yuruna.HostDownload.psm1' 'Write-ImageSentinel')))
+        function Resolve-DownloadAgentEndpoint { return 'http://192.0.2.10:8090/' }
+        function Invoke-WebRequest { throw 'Agent metadata must not trigger an origin probe.' }
+        function Request-DownloadAgentImage {
+            param($BaseUrl, $HostType, $ImageKey, $Arch, $Variant, $StagingPath, $DeadlineSeconds,
+                $ExpectedFilenamePattern, $LocalFilename, $LocalByteCount)
+            if ($LocalFilename) {
+                $LocalFilename | Should -BeExactly $Artifact
+                $LocalByteCount | Should -Be 4
+                return @{ outcome = 'skipped' }
+            }
+            [IO.File]::WriteAllBytes($StagingPath, [byte[]]@(1, 2, 3, 4))
+            return @{ outcome = 'downloaded'; filename = $Artifact; sourceUrl = $MissingSource; lastModified = '' }
+        }
+        $baseImage = Join-Path $TestDrive "$Platform.base-image"
+        $originFile = Join-Path $TestDrive "$Platform.origin.txt"
+        $request = @{
+            HostType = $Platform; ImageKey = 'guest.amazon.linux.2023'; Arch = 'arm64'
+            StagingPath = (Join-Path $TestDrive "$Platform.download"); BaseImageFile = $baseImage; OriginFile = $originFile
+        }
+        $first = Invoke-DownloadAgentFirst @request
+        $first.Result.outcome | Should -BeExactly 'downloaded'
+        $first.Result.sourceUrl | Should -BeExactly "agent:http://192.0.2.10:8090/$Artifact"
+        Move-Item -LiteralPath $request.StagingPath -Destination $baseImage
+        Write-ImageSentinel -SourceUrl $first.Result.sourceUrl -OriginFile $originFile -SizeBytes 4 `
+            -LastModified $first.Result.lastModified -Confirm:$false
+        $lines = @(Get-Content -LiteralPath $originFile)
+        $lines[0] | Should -BeExactly $Artifact
+        $lines[2] | Should -BeExactly '4'
+        (Invoke-DownloadAgentFirst @request).Result.outcome | Should -BeExactly 'skipped'
+    }
+
+    It 'preserves the supplied origin URL and Last-Modified metadata' {
+        . ([scriptblock]::Create((Get-SourceFunction 'host/modules/Yuruna.Image.psm1' 'Invoke-DownloadAgentFirst')))
+        function Resolve-DownloadAgentEndpoint { return 'http://192.0.2.10:8090' }
+        function Request-DownloadAgentImage {
+            return @{ outcome = 'downloaded'; filename = 'al2023-test.qcow2';
+                sourceUrl = 'https://cdn.example.invalid/al2023-test.qcow2'; lastModified = 'Fri, 09 Oct 2026 12:00:00 GMT' }
+        }
+        $result = Invoke-DownloadAgentFirst -HostType 'ubuntu.kvm' -ImageKey 'guest.amazon.linux.2023' -Arch 'amd64' `
+            -StagingPath (Join-Path $TestDrive 'origin.download') `
+            -BaseImageFile (Join-Path $TestDrive 'origin.base-image') -OriginFile (Join-Path $TestDrive 'origin.origin.txt')
+        $result.Result.sourceUrl | Should -BeExactly 'https://cdn.example.invalid/al2023-test.qcow2'
+        $result.Result.lastModified | Should -BeExactly 'Fri, 09 Oct 2026 12:00:00 GMT'
     }
 }

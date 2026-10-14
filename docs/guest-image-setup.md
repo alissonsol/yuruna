@@ -575,6 +575,23 @@ The driver's thin `Save-CachedHttpUri` wrapper passes
 `{ Resolve-CacheHostIp }` so the closure resolves the driver's own
 discovery while executing inside the shared module.
 
+Each resolver tries the explicit `YURUNA_CACHING_PROXY_SERVICE_IP` override
+first and accepts an address only when Squid's HTTP port (`:3128`) answers.
+An unreachable explicit override returns no cache instead of selecting a local
+one. A stale address or stopped cache therefore permits a direct download.
+
+UTM next tries the address recorded by `Start-CachingProxyServiceVM.ps1` in
+`<track>/yuruna-caching-proxy-service.yml`. A directly reachable guest exposes
+`:80` for the CA and `:3129` for SSL bump as well as `:3128`. Its final fallback
+is the host's `127.0.0.1:3128` forwarder, which carries HTTP only. Separate
+`:3129` probes prevent HTTPS downloads from using that incomplete path.
+
+KVM next uses the recorded cache address or live libvirt `domifaddr` discovery.
+Its NAT or bridged guest address is directly reachable; no loopback forwarder
+is needed. Hyper-V probes candidate addresses of the running cache VM. Both
+return the address itself so the same caller can reach the CA and SSL-bump
+ports as well as HTTP.
+
 <a id="42ec97cd-0019"></a>
 
 ### Ubuntu ISO downloads: `Yuruna.UbuntuImage.psm1`
@@ -610,6 +627,13 @@ that does not import this module never consults an agent and every
 module deliberately exports only its own uniquely-named functions and
 imports nothing globally itself, so it cannot displace the driver's
 cache-injecting `Save-CachedHttpUri` wrapper.
+
+The shared `Invoke-DownloadAgentFirst` helper keeps all hosts' provenance
+handling aligned. When a downloaded artifact has no origin `sourceUrl`, it
+records `agent:<endpoint>/<escaped artifact filename>` in the local image
+sentinel. The filename and byte count remain available for the next request's
+same-artifact check; this fallback records the agent source without an origin
+HEAD request. Supplied origin URLs are preserved.
 
 <a id="42ec97cd-001b"></a>
 
@@ -647,6 +671,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

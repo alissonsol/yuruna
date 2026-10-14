@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,7 @@
 
     There is no lab.createDefaultPool key. A lab beacon always ends with a
     'default' pool: the run inspects the pool storage it just configured and
-    creates the pool in that intent store when it carries none, leaving an
+    creates the pool in that configuration store when it carries none, leaving an
     existing pool of that name untouched. A lab without a pool is a lab nothing
     can enroll into, so declining it only ever produced a beacon that looked
     finished. The key is warned about and ignored if an older answer file
@@ -227,18 +227,12 @@ function Import-SetupModule {
     }
 }
 
-# --- REGION: Log level
-# The cascade every yuruna entry point shares -- command line beats
-# test.config.yml beats 'Information'. See docs/loglevels.md.
-#
-# Resolved here, before anything is written, for two reasons. The run log's
-# header records the level, so a transcript missing what someone expected says
-# why. And Resolve-LogLevel publishes $env:YURUNA_LOG_LEVEL, the ONLY channel
-# that reaches the child scripts: they run in their own pwsh (see
-# Invoke-RepoScript) and preference variables do not survive a process boundary.
-# Every one of them calls Use-LogLevelFromEnv, so -logLevel Debug here is
-# -logLevel Debug in the storage script, the service-VM starts and the per-guest
-# builders those start in turn.
+# --- REGION: Log level from environment
+# The cascade every yuruna entry point shares -- command line beats test.config.yml
+# beats 'Information'. See https://yuruna.link/42162449-0001. Resolved before anything is written:
+# Resolve-LogLevel publishes $env:YURUNA_LOG_LEVEL, the ONLY channel that reaches the
+# children.
+# See https://yuruna.link/4213a0b3-019d
 Import-SetupModule (Join-Path $TestRoot 'modules/Test.LogLevel.psm1')
 # test.config.yml read line-wise rather than through Test.Config: this runs
 # before the preflight that proves powershell-yaml is installed, and on a fresh
@@ -261,17 +255,10 @@ $EffectiveLogLevel = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $logLevel -Con
 $InformationPreference = $global:InformationPreference
 
 # --- REGION: Run log
-# Every question asked, every answer taken and every message printed also lands
-# in test/status/log/setup.<yyyy.MM.dd.HH.mm>.log. A setup run is long, mostly
-# unattended in the middle, and the interesting part is usually gone from the
-# scrollback by the time anyone looks -- so the record outlives the console.
-#
-# The repo scripts this one starts write to their own logs, not to this terminal
-# (see Invoke-RepoScript), so the console carries none of a child's output. Each
-# writes a transcript of its own streams under $Script:ChildLogRoot, and a child
-# that exits non-zero has its tail folded into this log. Without that, a failed
-# step would be an exit code and nothing else, its reason left in a scrollback
-# that is gone by the time anyone asks.
+# Every question, answer and message also lands in the setup run log under
+# test/status/log, and a failing child's transcript tail is folded in: the record has to
+# outlive the scrollback.
+# See https://yuruna.link/4213a0b3-019e
 $Script:LogFile     = ''
 $Script:ChildLogRoot = ''
 $Script:ChildLogSeq  = 0
@@ -478,16 +465,10 @@ function Get-ChildTranscriptDirectory {
     }
 }
 
-# Terminal control sequences a child can emit even when nothing is watching.
-# Three classes, and all three are needed: OSC covers the hyperlinks PowerShell
-# 7.2+ can wrap a path in, CSI covers color (ESC[33;1m), cursor hiding
-# (ESC[?25l) and everything else parameterized, and the two-character form covers
-# charset selects like ESC(B. A pattern narrowed to SGR leaves the rest in the
-# log as unreadable soup.
-#
-# ORDER MATTERS and is not obvious: CSI's introducer class @-_ also contains ']',
-# so a CSI pass run first eats the head of an OSC string and leaves its payload
-# behind as text.
+# Terminal control sequences a child can emit even when nothing is watching: OSC, CSI
+# and the two-character form. ORDER MATTERS: CSI's introducer class also contains ']',
+# so a CSI pass run first eats the head of an OSC string.
+# See https://yuruna.link/4213a0b3-019f
 $Script:AnsiPattern = @(
     "`e\][^`a`e]*(`a|`e\\)"
     "`e[@-_][0-?]*[ -/]*[@-~]"
@@ -774,13 +755,9 @@ function Write-StepOutcome {
         if ($flat.Length -gt 140) { $flat = $flat.Substring(0, 137) + '...' }
         $suffix = " -- $flat"
     }
-    # Elapsed only where it is worth knowing: a step that took under five seconds
-    # is noise, and the VM builds are what an operator is actually waiting on.
-    #
-    # .Minutes and [Math]::Floor, never [int] on a Total: [int] on a double ROUNDS,
-    # so a 1m58s step renders as "2m58s" -- a minute long in the wrong direction,
-    # with a seconds field that still says 58. The whole-minutes part has to be the
-    # truncated one for the pair to describe the same duration.
+    # Elapsed is shown only where it is worth knowing: a step under five seconds is noise, and
+    # the VM builds are what an operator waits on. Use .Minutes and [Math]::Floor, never [int]
+    # on a Total: [int] rounds, so a 1m58s step would render as "2m58s".
     if ($Elapsed.TotalSeconds -ge 5) {
         $suffix += ' ({0})' -f $(if ($Elapsed.TotalMinutes -ge 1) { '{0}m{1:00}s' -f [int][Math]::Floor($Elapsed.TotalMinutes), $Elapsed.Seconds } else { '{0}s' -f [int][Math]::Floor($Elapsed.TotalSeconds) })
     }
@@ -898,16 +875,10 @@ function Invoke-SetupStep {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $Script:StepUnmet.Clear()
     try {
-        # 6>&1 diverts the action's INFORMATION stream into the log instead of the
-        # screen. Steps that run in-process have no child process to capture, so
-        # without this a module's Write-Information -InformationAction Continue
-        # ("applying template overlay" and friends) lands in the middle of the
-        # outcome list. The text is not lost, it is filed; the step's own result
-        # stays the only thing the console shows.
-        #
-        # Warnings and errors are deliberately NOT diverted: those are the two
-        # streams an operator must see the moment they happen, whatever else the
-        # display is doing.
+        # 6>&1 files the action's INFORMATION stream into the log instead of the screen,
+        # so a module's Write-Information cannot land inside the outcome list. Warnings
+        # and errors are deliberately NOT diverted.
+        # See https://yuruna.link/4213a0b3-01a0
         & $Action 6>&1 | ForEach-Object {
             if ($_ -is [System.Management.Automation.InformationRecord]) {
                 Write-SetupLogLine -Level 'INFO' -Message "  $($_.MessageData)"
@@ -1168,27 +1139,15 @@ function Initialize-SetupElevation {
     # itself may still say something, and a promise nothing enforces is the one
     # an operator stops believing.
     Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_6300fb1f8affd460')
-    # Named before it appears. sudo writes "Password:" straight to /dev/tty and
-    # echoes nothing as it is typed, so an operator who does not know the prompt
-    # is coming reads a blank, unresponsive line as a hung run -- and waits, which
-    # is the one thing that makes it actually hang.
-    #
-    # Deliberately WITHOUT naming the terminal it lands on. sudo reads from
-    # /dev/tty while this line goes to stdout, and an operator can only be
-    # reading it because those are the same device -- so naming the tty describes
-    # the window they are already looking at, and any phrasing that points at it
-    # ("that terminal") reads as "some other window" and sends them looking for
-    # one that does not exist. The two diverge only under a redirection nobody
-    # performs, where this line is not on screen to help anyway.
+    # Named before it appears: sudo echoes nothing while the password is typed, so an
+    # operator who does not know the prompt is coming reads it as a hung run. The line
+    # deliberately does not name the terminal it lands on.
+    # See https://yuruna.link/4213a0b3-01a1
     Write-SetupMessage ''
     Write-SetupMessage 'sudo will ask for your password on the next line. Typing is not echoed.'
-    # Called directly, and it must stay that way. sudo reads the password from
-    # /dev/tty, and a child started through Start-Process inherits the terminal
-    # for WRITING only -- it prints "Password:" and then its read of /dev/tty
-    # fails immediately, so the prompt appears and no keystroke can ever answer
-    # it. Only a direct invocation keeps the terminal readable, which is why
-    # this one call holds the console every later step gives up, and why the
-    # wait here cannot be bounded or narrated from the outside.
+    # Called directly, and it must stay that way: sudo reads the password from /dev/tty, and a child
+    # started through Start-Process inherits a terminal it can write to but not read, so the prompt
+    # can never be answered. This call therefore holds the console and cannot be bounded.
     & sudo -v
     if ($LASTEXITCODE -ne 0) {
         # Covers a wrong password, a canceled prompt, and an account without
@@ -1364,17 +1323,10 @@ function Invoke-RepoScript {
         [switch]$TolerateFailure
     )
     if (-not (Test-Path -LiteralPath $Path)) { throw "script not found: $Path" }
-    # A $null element must never reach ArgumentList below: it is added as an
-    # EMPTY argv entry, which the child binds to its first POSITIONAL parameter
-    # -- a script defaulting that parameter to a real value silently receives ''
-    # instead. $Arguments is itself $null whenever a caller passes a statement
-    # whose branch produced no output ([string[]] binding turns that into a real
-    # $null, discarding the @() default above), and `@(...) + $null` appends the
-    # null rather than being a no-op. Filtered, not merely counted: an
-    # intentional empty-string argument is still passed through. Done before the
-    # EXEC line so the log shows the argv the child actually receives -- a
-    # trailing empty entry renders as nothing there, which is what makes this
-    # class of fault invisible in a log that looks correct.
+    # A $null element must never reach ArgumentList below: it becomes an EMPTY argv
+    # entry that binds to the child's first positional parameter. Filter it out, but
+    # keep an intentional empty-string argument.
+    # See https://yuruna.link/4213a0b3-01a2
     $childArguments = @($Arguments | Where-Object { $null -ne $_ })
     $leaf = [IO.Path]::GetFileName($Path)
     Write-SetupLogLine -Level 'EXEC' -Message "$Path $($childArguments -join ' ')"
@@ -1399,12 +1351,8 @@ function Invoke-RepoScript {
     if ($transcriptDir) { $startInfo.Environment['YURUNA_CHILD_TRANSCRIPT_DIR'] = $transcriptDir }
     $startInfo.Environment['YURUNA_NONINTERACTIVE'] = '1'
     if ($Script:ElevationOk) { $startInfo.Environment['YURUNA_SUDO_PRIMED'] = '1' }
-    # The child's stdout is a pipe into a file, and PowerShell on Unix emits VT
-    # color unless it is given a DISABLING signal -- so without this the run log
-    # fills with escape sequences wrapped around exactly the error text somebody
-    # is trying to read. NO_COLOR and not TERM=dumb: TERM is inherited by ssh
-    # (including `ssh -t`, which carries it into the guest), by curses tools and
-    # by Write-Progress, for which this repo already carries a documented trap
+    # The child's stdout is a pipe into a file, and PowerShell on Unix emits VT color unless told not
+    # to. Use NO_COLOR rather than TERM=dumb: TERM is inherited by ssh, curses tools and Write-Progress
     # (feedback_pwsh_linux_write_progress_setcursor).
     $startInfo.Environment['NO_COLOR'] = '1'
     # -NonInteractive on the child pwsh itself, so an engine-level prompt (a
@@ -1429,36 +1377,18 @@ function Invoke-RepoScript {
     try {
         $process = [System.Diagnostics.Process]::Start($startInfo)
         try { $process.StandardInput.Close() } catch { Write-SetupVerbose "close child stdin: $($_.Exception.Message)" }
-        # Drained line-by-line through the engine's event queue, and started
-        # BEFORE the wait: a child that fills the pipe buffer while nobody reads
-        # blocks on its own write, which would deadlock a chatty step.
-        #
-        # Event subscriptions rather than Task.Run: a scriptblock handed to a
-        # thread-pool thread has no Runspace and throws on its first statement.
-        # Line-at-a-time rather than ReadToEndAsync for the same reason the wait
-        # below is timed -- a stream that never reaches EOF still yields every
-        # line it produced, instead of an unusable all-or-nothing result.
-        #
-        # NO -Action, and that is the whole point. PowerShell runs each -Action as
-        # its own pipeline on a thread-pool thread, so several are in flight at
-        # once and the queue records COMPLETION order: measured here, 2804 of 3000
-        # lines from a single Write-Output arrived out of position, which is how a
-        # failure diagnostic came to be rendered with its halves inverted. Without
-        # an action the .NET callback only files the event, and its
-        # EventIdentifier is assigned on the reader thread in arrival order -- so
-        # sorting on it below restores the order the child actually wrote.
+        # Drained line by line through the engine's event queue, and started BEFORE the
+        # wait so a chatty child cannot block on a full pipe. NO -Action: actions run on
+        # thread-pool threads and record completion order, which inverts a failure
+        # diagnostic's halves.
+        # See https://yuruna.link/4213a0b3-01a3
         Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -SourceIdentifier $sourceOut
         Register-ObjectEvent -InputObject $process -EventName ErrorDataReceived  -SourceIdentifier $sourceErr
         $process.BeginOutputReadLine()
         $process.BeginErrorReadLine()
-        # WaitForExit(ms), NEVER the parameterless overload. Only the no-arg form
-        # ALSO waits for stream EOF, and EOF never arrives while a detached
-        # server the child spawned still holds the inherited pipe -- which the
-        # service bring-ups do, because they start the status service. Measured
-        # across the eight combinations of (grandchild spawn) x (sync/async read)
-        # x (wait overload): that single combination blocks for the GRANDCHILD's
-        # lifetime, every other for the child's.
-        # See feedback_windows-detached-grandchild-pins-pipe.
+        # WaitForExit(ms), never the parameterless overload: a detached server the child started holds the
+        # inherited pipe open, so the no-argument form waits for that grandchild's lifetime.
+        # See https://yuruna.link/42aaf735-0005
         [void]$process.WaitForExit(86400000)
         $code = $process.ExitCode
         $captured = Read-ChildStreamEvent -SourceIdentifier $sources
@@ -1466,13 +1396,8 @@ function Invoke-RepoScript {
             [System.IO.File]::WriteAllLines($childLog, $captured, [System.Text.UTF8Encoding]::new($false))
         }
     } finally {
-        # In the finally, and by identifier, because both halves of the cleanup
-        # are load-bearing and neither has an object to hang off. A subscription
-        # left registered goes on filing records against a disposed process for
-        # the rest of the session -- a detached server the child started still
-        # holds the inherited pipe, so those records keep arriving -- and records
-        # already filed stay in a queue that is per-session, which every later
-        # child's drain then has to walk. A run starts a dozen children.
+        # Removed in the finally, by identifier: a subscription left registered keeps filing records
+        # against a disposed process for the rest of the session, and a run starts a dozen children.
         foreach ($source in $sources) { Unregister-Event -SourceIdentifier $source -ErrorAction SilentlyContinue }
         foreach ($stray in @(Get-Event -ErrorAction SilentlyContinue | Where-Object { $sources -contains $_.SourceIdentifier })) {
             Remove-Event -EventIdentifier $stray.EventIdentifier -ErrorAction SilentlyContinue
@@ -1584,18 +1509,10 @@ function Test-ServiceVMAdoptable {
         # would skip a rebuild the machine may need. Fall back to rebuilding.
         return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = "could not load the host contract to check ($($_.Exception.Message))"; ProbeReason = '' }
     }
-    # Restore-YurunaServiceVM is the existing self-heal: it reports state, starts
-    # a registered-but-stopped VM, and probes the health port. Reusing it keeps
-    # one definition of "is this service usable" instead of a second, subtly
-    # different one here.
-    #
-    # -ProbeRunning is what makes that true of a VM that was ALREADY up. Powered
-    # on is not evidence of a service: a bring-up that fails leaves its guest
-    # running on purpose, because the guest is the evidence and the operator is
-    # told to stop it by hand -- so 'running' is precisely the state a service
-    # that never came up is found in. Adopting on the state alone would take a
-    # failure that was correctly reported once and report it as fine on every
-    # later run, without the start script that failed ever being invoked again.
+    # Restore-YurunaServiceVM is the one definition of "is this service usable". Its
+    # -ProbeRunning is what extends that to a VM already up: powered on is not evidence
+    # of a service, because a failed bring-up leaves its guest running on purpose.
+    # See https://yuruna.link/4213a0b3-01a4
     $r = @(Restore-YurunaServiceVM -Key @($RosterKey) -ProbeRunning -Confirm:$false) | Select-Object -First 1
     if (-not $r) { return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = 'the service roster returned nothing'; ProbeReason = '' } }
     Write-SetupDetail "$RosterKey adopt check: state=$($r.StateBefore) outcome=$($r.Outcome) healthy=$($r.Healthy) -- $($r.Message)"
@@ -1603,23 +1520,10 @@ function Test-ServiceVMAdoptable {
     switch ($r.Outcome) {
         'running'  {
             if ($r.Healthy) { return [pscustomobject]@{ Adopt = $true; Preserve = $false; Reason = 'already running and answering its service port'; ProbeReason = $probeReason } }
-            # Running and silent, OR running and unnameable -- both rebuild.
-            #
-            # The port being refused is straightforward: something is demonstrably
-            # wrong with what is there. No address at all is the awkward one, and
-            # it is deliberately treated the same. A host that cannot name a VM it
-            # is running cannot hand that VM's address to the guests and peers
-            # that consume it either, so there is nothing to adopt; and it is
-            # exactly the state a failed bring-up leaves behind on a guest whose
-            # networking never came up. Adopting there would carry the failure
-            # forward under the one condition where nothing can contradict it.
-            #
-            # What it costs: on a host where address discovery is simply blind
-            # (a bridged UTM guest with no integration services publishes neither
-            # a lease nor an agent), a repair re-run rebuilds services that were
-            # fine. Time only -- service state lives on the pool share -- and the
-            # reason below names the missing half so it does not read as
-            # arbitrary.
+            # Running and silent, OR running and unnameable -- both rebuild: a host that
+            # cannot name a VM it is running cannot hand that VM's address to the guests
+            # that consume it.
+            # See https://yuruna.link/4213a0b3-01a5
             return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = $r.Message; ProbeReason = $probeReason }
         }
         'started'  {
@@ -1887,13 +1791,9 @@ function Resolve-LocalStorageRoot {
     try {
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.LocalLabStorage.psm1')
         $platform  = Get-LocalLabStoragePlatform
-        # A machine that already serves its own pool share was built from a root
-        # somebody chose, and rebuilding it somewhere else would strand the data
-        # at the old path while the config points at the new one. The root is not
-        # recorded, but the share table still knows where the shared directory
-        # is, and the root is its parent -- so the existing choice is recovered
-        # rather than overridden. Silent when there is no such share, which is
-        # every machine setting up for the first time.
+        # A machine that already serves a pool share keeps the root it was built from, since moving it
+        # would strand the data at the old path. The share table records the directory, and its parent
+        # is the root. Silent when there is no such share.
         $configured = Get-ConfiguredPoolNetworkPath
         if ($configured) {
             $adopted = [string](Get-LocalLabStorageRootFromShare -NetworkPath $configured -Platform $platform)
@@ -2036,7 +1936,7 @@ function Test-SetupAnswerSet {
         $problems.Add("storage.kind must be 'local', 'nas' or 'none' (got '$StorageKind').")
     }
     if ($isLabSet -and $StorageKind -eq 'none') {
-        $problems.Add("storage.kind 'none' is not valid for a lab: the stash service and the pool intent store both need shared storage.")
+        $problems.Add("storage.kind 'none' is not valid for a lab: the stash service and the pool configuration store both need shared storage.")
     }
     if ($OnFailure -notin @('stop', 'local')) {
         $problems.Add("storage.onFailure must be 'stop' or 'local' (got '$OnFailure').")
@@ -2405,15 +2305,10 @@ Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_2fbfb
 Write-SetupMessage "Repo: $RepoRoot"
 if ($Script:LogFile) { Write-SetupMessage "Log:  $Script:LogFile" }
 
-# macOS / Linux: refuse to run as root, BEFORE anything is written. These
-# scripts elevate the individual operations that need it (networksetup, the
-# SMB server, /etc/hosts), so a whole-run `sudo` buys nothing and breaks the
-# result: every artifact lands under root's home (/var/root on macOS) instead
-# of the operator's, where the hypervisor -- running as the operator -- cannot
-# reach it. The per-VM builders detect this and hand ownership back, but only
-# AFTER the image, the bundle and the mounts have gone to the wrong place. It
-# also puts the SMB mount points under /var, which macOS reports back through
-# its /private symlink and no longer matches what was asked for.
+# macOS / Linux: refuse to run as root, BEFORE anything is written. A whole-run sudo
+# breaks the result: every artifact lands under root's home, where the hypervisor,
+# running as the operator, cannot reach it.
+# See https://yuruna.link/4213a0b3-01b5
 if (-not $IsWindows) {
     $uid = $null
     try { $uid = (& id -u 2>$null) } catch { Write-SetupVerbose "id -u probe: $($_.Exception.Message)" }
@@ -2444,13 +2339,9 @@ if ($IsWindows) {
             $relaunchArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
             if ($Script:Rebuild) { $relaunchArgs += '-Rebuild' }
             if ($AnswerFile) { $relaunchArgs += @('-AnswerFile', (Resolve-Path -LiteralPath $AnswerFile).Path) }
-            # The elevated run continues THIS log rather than opening one of its
-            # own. Everything worth reading happens after the elevation, so two
-            # files would mean a near-empty one under the time the operator
-            # remembers starting and the real record under a name they do not.
-            # Handed down as an argument, not an environment variable: the
-            # RunAs process is created by the AppInfo service, and the parent's
-            # environment does not reliably survive that.
+            # The elevated run continues this log rather than opening its own, so the record stays under the
+            # name the operator started with. The path is passed as an argument: the RunAs process is created
+            # by the AppInfo service, which does not reliably carry the parent's environment.
             if ($Script:LogFile) { $relaunchArgs += @('-LogPath', $Script:LogFile) }
             # The level travels as an argument for the same reason the log path
             # does: RunAs builds the process through the AppInfo service, so the
@@ -2577,7 +2468,7 @@ if (-not $storageKind) {
         @{ Label = 'An existing NAS share'; Value = 'nas' }
     )
     # 'none' is standalone-only: a lab without shared storage is not a lab -- the
-    # stash service and the pool intent store both live on it.
+    # stash service and the pool configuration store both live on it.
     if (-not $isLab) { $storageOptions += @{ Label = 'None -- skip shared storage and the stash service'; Value = 'none' } }
     $storageKind = Read-Choice -Question 'Where should pool and stash storage live?' `
         -Default $(if ($isLab) { 'nas' } else { 'local' }) -Option $storageOptions
@@ -2622,18 +2513,10 @@ if ($isLab) {
     $labNameSource = Get-DecisionSource -FromAnswerFile ([bool]$labName)
     if (-not $labName) { $labName = Read-Text -Question 'Lab beacon name' -Default ([Environment]::MachineName.ToLowerInvariant()) }
 }
-# The 'default' pool is NOT asked about and has no answer-file key. A lab with no
-# pool is a lab no host can be enrolled into, so "no" only ever produced a beacon
-# that looked finished and enrolled nobody. The pool is DERIVED at the end of the
-# run from the storage this run configured: whatever pool folder ended up in
-# test.config.yml is inspected, and a 'default' pool is created there when the
-# intent store carries none. An existing pool of that name is left exactly as it
-# is (New-Pool -IfMissing), so an operator who paused or renamed theirs keeps it
-# across every re-run.
-#
-# An older answer file may still carry lab.createDefaultPool. It is deliberately
-# not read: honoring 'false' would produce that same half-set-up lab, and
-# silently ignoring a key the operator wrote is worse than saying so.
+# The 'default' pool is NOT asked about and has no answer-file key: a lab with no pool
+# is one no host can be enrolled into, so it is derived at the end of the run from the
+# storage this run configured. The obsolete lab.createDefaultPool key is ignored.
+# See https://yuruna.link/4213a0b3-01a6
 if ($isLab -and $null -ne (Get-Answer 'lab.createDefaultPool')) {
     Write-SetupWarning ("lab.createDefaultPool in the answer file is obsolete and was ignored: the 'default' pool is now " +
                         'always ensured from the configured pool storage. Remove the key to silence this.')
@@ -2697,17 +2580,10 @@ if ($storageKind -eq 'local') {
 }
 
 # --- REGION: What a previous `sudo` run left behind -- the SCAN and the asking
-# Read-only here; the chown / umount / kill that acts on these answers is a step
-# further down, where the run holds the credential it needs.
-#
-# The asking has to happen HERE, above the sentence that promises nothing else
-# will ask. Inside a step it cannot be answered at all: a step's action runs
-# under a 6>&1 redirect that files Write-Information into the log, so the
-# question, its options and the report describing what would be cleared all go to
-# a file, leaving the operator facing a bare prompt with no question above it.
-#
-# Guarded on -WhatIf because this region -- unlike a step -- really does run in a
-# preview, and a preview must not start asking about the machine's contents.
+# Read-only here; the chown / umount / kill that acts on these answers is a step further
+# down. The asking has to happen HERE, above the sentence that promises nothing else
+# will ask: inside a step the question would go to the log, leaving a bare prompt.
+# See https://yuruna.link/4213a0b3-01a7
 $Script:RootArtifactPorts = @(8080, 8443)
 $Script:RootArtifactFound = @()
 $Script:RootArtifactClear = @()
@@ -2838,16 +2714,9 @@ if (-not $WhatIfPreference) {
 })
 
 # --- REGION: 1b. What a previous `sudo` run left behind -- the CLEARING
-# BEFORE anything is written, because two of the things this finds are what makes
-# the writing fail. Refusing to run as root (above) stops the next root run; it
-# does nothing about the machine an earlier one already changed, and that state
-# does not announce itself -- it surfaces as a permission error on a runtime file
-# or as a port that is unbindable with no visible holder, neither of which names
-# sudo as the cause.
-#
-# Only the acting half is here. The scan and the per-finding question ran above,
-# while the operator still owned the terminal; this needs the credential taken
-# since, which is why the two halves are apart.
+# BEFORE anything is written: two of the things this finds are what make the writing
+# fail. Only the acting half is here; the scan and the questions ran above.
+# See https://yuruna.link/4213a0b3-01a8
 if (-not $IsWindows) {
     [void](Invoke-SetupStep -Name 'Check for state left behind by a previous sudo run' -Critical -Action {
         if ($Script:RootArtifactFound.Count -eq 0) {
@@ -2958,17 +2827,10 @@ if (-not $IsWindows) {
 if ($runTests) {
     [void](Invoke-SetupStep -Name 'Configure host settings (Enable-TestAutomation -SkipPoolStorage)' -Action {
         # -SkipPoolStorage: setup.ps1 owns storage, in its own order, at step 5.
-        # Without the switch Enable ends in an interactive NAS questionnaire,
-        # which would both duplicate step 5 and stall an unattended run.
-        #
-        # -TolerateFailure plus an explicit code map, because this child reports
-        # THREE outcomes and the default reading of an exit code only has room for
-        # two. 2 means "applied, and something is still unmet" -- a TCC grant the
-        # operator has to give and then quit the terminal for, or a pmset guard
-        # macOS does not surface on hardware without a lid. Neither is repaired by
-        # running this again, so both belong in the warned bucket; a hard failure
-        # here would leave the run with no path to green on a perfectly usable
-        # host. Every other non-zero is a real failure and still throws.
+        # -TolerateFailure plus an explicit code map: exit 2 means "applied, and
+        # something is still unmet", which running it again cannot repair, so it is
+        # warned, not failed.
+        # See https://yuruna.link/4213a0b3-01a9
         $code = Invoke-RepoScript -Path (Join-Path $TestRoot 'lab/Enable-TestAutomation.ps1') `
             -Arguments @('-SkipPoolStorage') -TolerateFailure
         if ($code -eq 2) {
@@ -2982,17 +2844,10 @@ if ($runTests) {
 }
 
 # --- REGION: 5. Storage
-# CRITICAL whenever storage was asked for. Everything after it either needs the
-# shares (the stash and download-agent services, a lab's pool) or writes host
-# state that presumes them (the alias step), so a run that continues past a
-# failed storage step spends fifteen minutes building services around storage
-# that does not exist and then reports most of them as successes. storage.kind
-# 'none' is the one case where nothing is critical, because nothing was asked for.
-#
-# What later steps read is the FACT this region records, not a local boolean. A
-# dependency re-derived by hand at each consumer is only as reliable as the
-# author's memory, and a consumer that misses one rewrites the hosts file to
-# point at storage that was never created.
+# CRITICAL whenever storage was asked for: everything after it needs the shares or
+# writes state that presumes them. Later steps read the FACT this region records, not a
+# local boolean.
+# See https://yuruna.link/4213a0b3-01aa
 if ($storageKind -eq 'none') {
     # An explicit fact, not an absent one: the steps that need storage report
     # "not requested" and are filed as skips, rather than reading as a cascade
@@ -3084,16 +2939,10 @@ if ($storageKind -eq 'none') {
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
         $cfg = Read-TestConfig -Path $ConfigPath
         $platform = Get-LocalLabStoragePlatform
-        # A mounted share is NOT enough to call this done, and neither is the host
-        # alias. The config a machine carries for a NAS is identical in every key
-        # to the config for shares on this machine, so a machine still pointed at
-        # a NAS would otherwise read as "already local" and keep the storage, the
-        # aliases and the credentials the operator just asked to replace. What
-        # tells the two apart is what THIS machine publishes: the OS share table
-        # is what the SMB server will actually serve, and no hosts-file edit can
-        # put an entry in it. The alias and the live mount are still required --
-        # they decide where the mount goes and whether it works -- but neither is
-        # evidence that this machine is the one answering.
+        # A mounted share and the host alias are NOT enough to call this done: what
+        # tells a NAS config from local shares is what THIS machine publishes in its OS
+        # share table.
+        # See https://yuruna.link/4213a0b3-01ab
         $tiers = @(
             (Get-YurunaPoolStorageConfig  -Config $cfg -WarningAction SilentlyContinue),
             (Get-YurunaStashStorageConfig -Config $cfg -WarningAction SilentlyContinue)
@@ -3181,23 +3030,10 @@ if ($storageKind -eq 'none') {
 }
 
 # --- REGION: 5b. Hosts aliases -- standalone
-# Standalone is the mode where nothing else owns these lines. A lab always stands
-# up storage, and the local-storage script writes the aliases as part of it; a
-# standalone host may decline storage entirely (storage.kind = none is
-# standalone-only) or point at a NAS, and then no step in the run ever looks at
-# the hosts file.
-#
-# What that costs: 'ypool-nas' is a NAME, and the same name means the NAS on a
-# machine that used to have one and this machine on a machine that now serves its
-# own shares. Every other value is identical between those two worlds -- share
-# path, account, mount point -- so a stale line does not fail, it SUCCEEDS against
-# the wrong server. The alias is the only thing that decides which, and this is
-# where it is made to agree with the storage the operator just chose.
-#
-# -Requires 'storage', on the RESULT and not on the answer. Keyed on the answer,
-# this step publishes both server names at loopback on a machine where the shares,
-# the accounts and the SMB server were never created -- host state asserting a
-# thing that does not exist, reported under Done.
+# Standalone is the mode where nothing else owns these lines, and a stale alias SUCCEEDS
+# against the wrong server. -Requires 'storage' is keyed on the RESULT, not on the
+# answer.
+# See https://yuruna.link/4213a0b3-01ac
 if (-not $isLab -and $storageKind -eq 'local') {
     [void](Invoke-SetupStep -Name 'Point the pool and stash aliases at this machine (hosts file)' -Requires 'storage' -AlreadyDone {
         $tiers = @(Get-StorageAliasTier)
@@ -3237,17 +3073,11 @@ if (-not $isLab -and $storageKind -eq 'local') {
 
 # --- REGION: 6. Caching proxy
 $proxyIp = ''
-# The proxy's own bring-up adopts a healthy VM and takes -ForceRebuild. Stopping
-# it first defeats that -- the adopt probe finds nothing left, so the re-run pays
-# the full ~15-minute rebuild and discards a warm squid cache. So the teardown
-# happens only when the reuse check (or -Rebuild) says the VM is not worth
-# keeping, and -ForceRebuild is forwarded so the Start script does not re-adopt
-# what setup just decided to replace.
-# @(if ...) rather than $(if ... else { @() }): a branch that emits an empty
-# array emits NO output, and the subexpression collapses to $null on the way
-# into a [string[]] parameter -- which then appends an empty argv entry the
-# child binds to its first positional parameter. The array-subexpression form
-# yields a real empty array, so the not-rebuilding case passes no argument.
+# The proxy's bring-up adopts a healthy VM, so stopping it first would force a full
+# rebuild and discard the warm cache: tear down only when the reuse check (or -Rebuild)
+# says so. @(if ...) rather than $(if ... else { @() }): an empty branch collapses to
+# $null and appends an empty argv entry.
+# See https://yuruna.link/4213a0b3-01ad
 Invoke-ServiceVMEnsure -Service 'caching-proxy service' -RosterKey 'caching-proxy' -Critical `
     -StopScript 'Stop-CachingProxyServiceVM.ps1' -StartScript 'Start-CachingProxyServiceVM.ps1' `
     -StartArguments @(
@@ -3269,14 +3099,9 @@ if (-not $WhatIfPreference) {
 }
 
 # --- REGION: 6b. Aggregator readiness
-# The gate that closes the "services never register" bug: the aggregator URL is
-# baked into each dependent guest's seed ONCE, and an empty value there is never
-# re-resolved for the life of that VM.
-#
-# The aggregator runs INSIDE the proxy guest, so waiting fifteen minutes for it
-# when the proxy is not there is fifteen minutes spent proving something already
-# known. (The proxy step is critical, so this is a guard rather than a path the
-# run normally takes.)
+# The aggregator URL is baked into each dependent guest's seed once, and an empty value is never
+# re-resolved for the life of that VM. The aggregator runs inside the proxy guest, so waiting for
+# it without the proxy only delays a known failure. This guard is not a path the run normally takes.
 [void](Invoke-SetupStep -Name 'Wait for the pool-aggregator service to answer (up to 15 min)' -Critical -Requires 'caching-proxy' -Action {
     $ready = if ($proxyIp) { Wait-YurunaAggregatorReady -ProxyAddress $proxyIp } else { Wait-YurunaAggregatorReady }
     if (-not $ready) {
@@ -3314,22 +3139,10 @@ Invoke-ServiceVMEnsure -Service 'stash service' -RosterKey 'stash' -Requires 'st
 })
 
 # --- REGION: 8b. Dashboard alias -- standalone
-# The dashboard is the one URL an operator types by hand and returns to, and it
-# is addressed by a DHCP lease: a bookmark saved today is wrong after the cache
-# VM is rebuilt, and the address is nowhere an operator would think to look it up
-# from. The alias makes the name the durable part, the same trick the storage
-# server names already play -- and it is written from $proxyIp beside the config
-# key above, from that one freshly-read proxy state, so the hosts entry and
-# vmStart.cachingProxyIp cannot come to disagree.
-#
-# Standalone only. A lab beacon's proxy is shared, and every other machine
-# reaches it through vmStart.cachingProxyIp rather than through a name that would
-# have to be published on each of them separately.
-#
-# The port stays in the URL. :80 on the proxy VM is Apache, serving the CA certs
-# a guest installer fetches, so a name alone cannot move Grafana off :3000 --
-# only a redirect or a proxy on the VM could, and neither is worth a rebuild for
-# four characters.
+# The dashboard is the one URL an operator types by hand, and it is addressed by a DHCP
+# lease: the alias makes the name the durable part. Standalone only; the port stays in
+# the URL.
+# See https://yuruna.link/4213a0b3-01ae
 if (-not $isLab) {
     [void](Invoke-SetupStep -Name "Point the $Script:DashboardAliasName alias at the caching proxy (hosts file)" -AlreadyDone {
         Test-DashboardAlias -Name $Script:DashboardAliasName -ProxyIp $proxyIp
@@ -3352,34 +3165,16 @@ if (-not $isLab) {
     # run this is. 'none' is the one answer where there is no storage to record.
     $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -CallerName 'setup.ps1' `
         -ExpectStorageConfigured:($storageKind -ne 'none')
-    # The gate is the one step whose entire job is to describe this machine, so a
-    # gate that says nothing when it agrees leaves everything it observed -- the
-    # storage warnings above all -- recorded nowhere at all. Folded
-    # unconditionally, and BEFORE the throw so a failing gate keeps its words
-    # too; at CHILD level rather than through Write-SetupDetail, which mirrors to
-    # the screen at Verbose and would put eighty lines in the middle of the
-    # outcome list.
-    #
-    # Control sequences come off here too: this child is started by the gate
-    # module, not by Invoke-RepoScript, so the NO_COLOR this script sets on its own
-    # children never reaches it and its output arrives colored.
-    #
-    # Tolerant of a gate that returns no transcript at all. Note @($null) is an
-    # array of ONE null, not an empty one, so the emptiness test has to be on the
-    # element -- which is also what drops the blank lines a captured stream ends
-    # with.
+    # The gate's whole job is to describe this machine, so fold its transcript into the
+    # log unconditionally and BEFORE the throw, at CHILD level. Control sequences come
+    # off here too.
+    # See https://yuruna.link/4213a0b3-01af
     foreach ($gateLine in @($gate.lines)) {
         $plain = ConvertTo-PlainLogText -Text "$gateLine"
         if ($plain.Trim()) { Write-SetupLogLine -Level 'CHILD' -Message "  $plain" }
     }
-    # The gate writes its FAILURES excerpt to the console itself -- on the
-    # INFORMATION stream, which is exactly the stream Invoke-SetupStep redirects
-    # into this log so that a module's narration cannot land in the middle of the
-    # outcome list. The banner around it survives (warnings are never diverted)
-    # and the reason under it does not, which leaves the operator a heading
-    # pointing at nothing. Re-emitted here as warnings so the reason travels with
-    # it, and only on the failing path, where the lines earn their place on
-    # screen.
+    # Re-emitted as warnings: Invoke-SetupStep diverts the information stream into the run log, so the
+    # reason would never reach the console below the banner. Warnings are not diverted.
     if (-not $gate.passed) {
         foreach ($failLine in @($gate.failureLines)) {
             $plainFail = ConvertTo-PlainLogText -Text "$failLine"
@@ -3393,14 +3188,10 @@ if (-not $isLab) {
 })
 
 # --- REGION: 9b. Download-agent service
-# A lab runs it by default -- its whole point is sharing images across the
-# pool's hosts. A standalone host does not: every gigabyte a service VM holds
-# is one the test guests on the same machine cannot have, and with no agent
-# every Get-Image falls back to fetching from the origin (through the cache),
-# which is exactly the behavior without it. An explicit
-# downloadAgentService.enabled in the config overrides the mode default either
-# way, and the VM can always be started by hand
-# (test/service/Start-DownloadAgentServiceVM.ps1). Non-critical on purpose.
+# Non-critical by design. A lab shares images across its hosts, so the service VM runs by default
+# there; a standalone host gains nothing from it. An explicit downloadAgentService.enabled overrides
+# the mode default either way, and the VM can always be started by hand
+# (test/service/Start-DownloadAgentServiceVM.ps1).
 $downloadAgentEnabled = $isLab
 $downloadAgentStated  = $null
 if (-not $WhatIfPreference) { $downloadAgentStated = Get-DownloadAgentServiceEnabledValue -Path $ConfigPath }
@@ -3420,7 +3211,7 @@ if (-not $downloadAgentEnabled) {
 }
 
 # --- REGION: 10-13. Lab only
-$intentGitUrl = ''
+$configurationGitUrl = ''
 if ($isLab) {
     [void](Invoke-SetupStep -Name 'Enroll this machine into its own lab (Set-LabToken)' -Action {
         if (-not $proxyIp) { throw 'no caching-proxy address is known, so there is nothing to enroll against' }
@@ -3444,46 +3235,37 @@ if ($isLab) {
             -Arguments @($code, '-CachingProxyService', $proxyIp, '-BounceStatusService', '-NonInteractive'))
     })
 
-    # Always, and derived rather than asked: the intent store lives on whatever
-    # pool storage this run actually ended up with, so it is read back out of
-    # test.config.yml here instead of being predicted from the questionnaire. A
-    # run that fell back from an unreachable NAS to local shares lands on the
-    # local path for the same reason.
-    # -Requires 'storage', because the intent store lives ON that storage. Without
-    # it this step throws 'pool storage has no localPath' and the run reports a
-    # SECOND failure for one broken thing -- and the second one names the pool,
-    # which is not what is wrong.
+    # Always, and derived rather than asked: the configuration store lives on whatever pool
+    # storage this run ended up with. -Requires 'storage' because it lives ON that
+    # storage; without it the run reports a SECOND failure for one broken thing.
+    # See https://yuruna.link/4213a0b3-01a6
     [void](Invoke-SetupStep -Name "Ensure the lab's 'default' pool exists" -Requires 'storage' -Action {
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1')
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
         $cfg  = Read-TestConfig -Path $ConfigPath -NoCache
         $pool = Get-YurunaPoolStorageConfig -Config $cfg -WarningAction SilentlyContinue
-        if (-not $pool -or -not $pool.LocalPath) { throw 'pool storage has no localPath, so the intent store has nowhere to live' }
+        if (-not $pool -or -not $pool.LocalPath) { throw 'pool storage has no localPath, so the configuration store has nowhere to live' }
         # The WRITABLE local path through the mount. The http:// URL apache
         # serves is read-only by design and push-fails; without an explicit
-        # writable URL New-Pool exits "No intent store URL".
-        $script:intentGitUrl = Join-Path $pool.LocalPath 'pool-intent.git'
+        # writable URL New-Pool exits "No configuration store URL".
+        $script:configurationGitUrl = Join-Path $pool.LocalPath 'pool-configuration.git'
         # -IfMissing: this step runs on every re-run, and a plain upsert would
         # reset a pool the operator had set to 'paused' or 'drain' back to 'run'
         # each time. New-Pool seeds the bare store itself when the pool folder
         # carries none yet, so a NAS tier that never ran New-Lab works here too.
         [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'pool/New-Pool.ps1') `
-            -Arguments @('-PoolId', 'default', '-IfMissing', '-IntentGitUrl', $script:intentGitUrl))
+            -Arguments @('-PoolId', 'default', '-IfMissing', '-ConfigurationGitUrl', $script:configurationGitUrl))
     })
 
-    [void](Invoke-SetupStep -Name 'Validate the pool intent store' -Requires 'storage' -Action {
-        if (-not $intentGitUrl) { throw 'no intent store URL was resolved' }
-        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'pool/Test-PoolIntent.ps1') -Arguments @('-IntentGitUrl', $intentGitUrl))
+    [void](Invoke-SetupStep -Name 'Validate the pool configuration store' -Requires 'storage' -Action {
+        if (-not $configurationGitUrl) { throw 'no configuration store URL was resolved' }
+        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'pool/Test-PoolConfiguration.ps1') -Arguments @('-ConfigurationGitUrl', $configurationGitUrl))
     })
 
-    # LAST of the lab steps, and after the intent store exists. The pool-control
-    # daemon serves that store and points the caching proxy's read-only
-    # /pool-intent.git route at it as it comes up, so a bring-up ordered ahead of
-    # New-Pool builds a UI against a store that is not there yet and publishes an
-    # alias to nothing. It is also the longest step by far -- the daemon is
-    # compiled inside the guest -- so putting the quick, always-needed enrollment
-    # and pool steps ahead of it means a run that dies here still leaves a lab
-    # that is joinable and has its pool.
+    # Runs last among the lab steps, after the configuration store exists: the pool-control daemon
+    # serves that store and points the caching proxy's read-only /pool-configuration.git route at it
+    # as it comes up, so an earlier bring-up publishes an alias to nothing. It also compiles inside the
+    # guest and is the longest step, so the quick enrollment and pool steps run first.
     Invoke-ServiceVMEnsure -Service 'pool-control service' -RosterKey 'pool-control' `
         -StopScript 'Stop-PoolControlServiceVM.ps1' -StartScript 'Start-PoolControlServiceVM.ps1'
 }
@@ -3554,16 +3336,10 @@ Write-SetupMessage ''
 if ($hadFailures) {
     Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_2cc4e66e0035e6a7' -Arguments @{ count = "$($Script:Failed.Count)" })
     Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_4212a91ebd33d406')
-    # Named, not generic. "Re-run this script" followed verbatim with the same
-    # command line repeats every switch that made this run expensive, so the
-    # advice has to say which ones to drop -- and -Rebuild is the one that pays
-    # for a full proxy teardown and rebuild a second time.
-    #
-    # Narrow on purpose: dropping -Rebuild is only safe advice when nothing that
-    # the proxy BAKES IN has changed since it was built. A run whose storage
-    # failed is exactly the case where the next run changes storage, and an
-    # adopted VM keeps the seed it was built with -- so the switch is only worth
-    # dropping when the proxy came up and the storage it was built against stands.
+    # Named, not generic: a verbatim re-run repeats every switch that made this run
+    # expensive, and -Rebuild is only safe to drop when the proxy came up and the
+    # storage it was built against stands.
+    # See https://yuruna.link/4213a0b3-01b0
     if ($Script:Rebuild -and $Script:Done -contains 'Start the caching-proxy service VM' -and
         [string]$Script:Facts['storage'] -eq 'ok') {
         Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_0b8563c838574b32')

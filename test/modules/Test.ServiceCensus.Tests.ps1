@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42875271-1829-42b3-b731-1d7a16616cfd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -254,6 +254,22 @@ AfterAll {
 Describe 'the census store' {
     BeforeEach { $script:Env = New-CensusRoot }
 
+    It 'preserves a legacy stop request while writing only canonical state fields' {
+        $payload = @{ schemaVersion = 1; intentCounter = 1; services = @{
+            stash = @{ intent = @{ generation = 1; operation = 'stop'; result = 'confirmed'; desiredState = 'stopped'; baselineDesiredState = 'running' } }
+        } }
+        $null = Write-YurunaCriticalRecord -Path $script:Env.Record -Kind 'service-census' -Payload $payload -ExpectedGeneration 0 -Confirm:$false
+        $intent = Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot
+        $intent.RequestedState | Should -Be 'stopped'
+        $null = Update-YurunaServiceCensusObservation -StateRoot $script:Env.StateRoot -Observation @([pscustomobject]@{ Key = 'stash'; VMName = 'yuruna-stash-service'; ProbeOutcome = 'timeout' }) -Confirm:$false
+        $stored = (Read-YurunaCriticalRecord -Path $script:Env.Record -Kind 'service-census').Payload
+        $stored.schemaVersion | Should -Be 2
+        $stored.services.stash.intent.requestedState | Should -Be 'stopped'
+        $stored.services.stash.intent.previousRequestedState | Should -Be 'running'
+        $stored.services.stash.intent.Contains('desiredState') | Should -BeFalse
+        $stored.services.stash.intent.Contains('baselineDesiredState') | Should -BeFalse
+    }
+
     It 'reads an absent census as valid and empty, creating nothing' {
         $before = Get-RootListing -Path $script:Env.StateRoot
         $c = Read-YurunaServiceCensus -StateRoot $script:Env.StateRoot
@@ -319,7 +335,7 @@ Describe 'the census store' {
     }
 
     It 'refuses a census written by a newer schema' {
-        $payload = @{ schemaVersion = 2; intentCounter = 0; services = @{} }
+        $payload = @{ schemaVersion = 3; intentCounter = 0; services = @{} }
         $w = Write-YurunaCriticalRecord -Path $script:Env.Record -Kind 'service-census' -Payload $payload -ExpectedGeneration 0 -Confirm:$false
         $w.Committed | Should -BeTrue
         $c = Read-YurunaServiceCensus -StateRoot $script:Env.StateRoot
@@ -343,7 +359,7 @@ Describe 'the census store' {
         $svc.lastProbeUnixMs | Should -Be $observed -Because 'authoritative instants are numbers; nothing drifts with the host time zone'
     }
 
-    It 'expires evidence after the lifetime without touching the desired state' {
+    It 'expires evidence after the lifetime without touching the requested state' {
         $t0 = [long]1790000000000
         $op = Enter-YurunaServiceOperation -Key 'stash' -VMName 'yuruna-stash-service' -Operation Start -StateRoot $script:Env.StateRoot -Confirm:$false
         $null = Exit-YurunaServiceOperation -Context $op -Result confirmed -Confirm:$false
@@ -355,7 +371,7 @@ Describe 'the census store' {
         $fresh.evidenceAgeSeconds | Should -Be 60
         $stale = (Read-YurunaServiceCensus -StateRoot $script:Env.StateRoot -NowUnixMs ($t0 + 86401000)).Services['stash']
         $stale.evidenceFresh | Should -BeFalse -Because 'expired evidence is unknown'
-        $stale.desiredState | Should -Be 'running' -Because 'desired state never expires with health evidence'
+        $stale.requestedState | Should -Be 'running' -Because 'requested state never expires with health evidence'
         $behind = (Read-YurunaServiceCensus -StateRoot $script:Env.StateRoot -NowUnixMs ($t0 - 5000)).Services['stash']
         $behind.evidenceAgeSeconds | Should -Be 0 -Because 'a clock behind the evidence counts as age zero'
         (Read-YurunaServiceCensus -StateRoot $script:Env.StateRoot -NowUnixMs ($t0 + 7200000) -EvidenceLifetimeSeconds 3600).Services['stash'].evidenceFresh | Should -BeFalse
@@ -402,12 +418,12 @@ Describe 'the census store' {
 Describe 'start and stop intents' {
     BeforeEach { $script:Env = New-CensusRoot }
 
-    It 'records a stop as pending, then confirmed, with desired state stopped' {
+    It 'records a stop as pending, then confirmed, with requested state stopped' {
         $op = Enter-YurunaServiceOperation -Key 'stash' -VMName 'yuruna-stash-service' -Operation Stop -Script 's.ps1' -StateRoot $script:Env.StateRoot -Confirm:$false
         $op.Proceed | Should -BeTrue
         $pending = Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot
         $pending.Result | Should -Be 'pending'
-        $pending.DesiredState | Should -Be 'stopped'
+        $pending.RequestedState | Should -Be 'stopped'
         $pending.Script | Should -Be 's.ps1'
         $pending.Pid | Should -Be $PID
         (Test-YurunaServiceOperationCurrent -Context $op) | Should -BeTrue
@@ -422,19 +438,19 @@ Describe 'start and stop intents' {
     It 'keeps a failed stop as a request to stay stopped' {
         $op = Enter-YurunaServiceOperation -Key 'stash' -VMName 'yuruna-stash-service' -Operation Stop -StateRoot $script:Env.StateRoot -Confirm:$false
         $null = Exit-YurunaServiceOperation -Context $op -Result failed -FinalState 'running' -Confirm:$false
-        (Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot).DesiredState | Should -Be 'stopped'
+        (Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot).RequestedState | Should -Be 'stopped'
     }
 
     It 'leaves the baseline in force while a start is pending or failed, and runs once it is confirmed' {
         $stop = Enter-YurunaServiceOperation -Key 'stash' -VMName 'yuruna-stash-service' -Operation Stop -StateRoot $script:Env.StateRoot -Confirm:$false
         $null = Exit-YurunaServiceOperation -Context $stop -Result confirmed -Confirm:$false
         $start = Enter-YurunaServiceOperation -Key 'stash' -VMName 'yuruna-stash-service' -Operation Start -StateRoot $script:Env.StateRoot -Confirm:$false
-        (Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot).DesiredState | Should -Be 'stopped' -Because 'a pending start is not yet a running service'
+        (Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot).RequestedState | Should -Be 'stopped' -Because 'a pending start is not yet a running service'
         $null = Exit-YurunaServiceOperation -Context $start -Result failed -Confirm:$false
-        (Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot).DesiredState | Should -Be 'stopped'
+        (Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot).RequestedState | Should -Be 'stopped'
         $again = Enter-YurunaServiceOperation -Key 'stash' -VMName 'yuruna-stash-service' -Operation Start -StateRoot $script:Env.StateRoot -Confirm:$false
         $null = Exit-YurunaServiceOperation -Context $again -Result confirmed -Confirm:$false
-        (Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot).DesiredState | Should -Be 'running' -Because 'an explicit confirmed start supersedes the stop'
+        (Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot).RequestedState | Should -Be 'running' -Because 'an explicit confirmed start supersedes the stop'
     }
 
     It 'closes a start as superseded when a newer stop was recorded meanwhile, and the stop stands' {
@@ -448,7 +464,7 @@ Describe 'start and stop intents' {
         $intent = Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot
         $intent.Operation | Should -Be 'stop'
         $intent.Result | Should -Be 'pending'
-        $intent.DesiredState | Should -Be 'stopped'
+        $intent.RequestedState | Should -Be 'stopped'
     }
 
     It 'numbers intents from one counter across every key' {
@@ -557,7 +573,7 @@ Describe 'per-service operation locks' {
         $stop.Reason | Should -Be 'lock-unavailable'
         $intent = Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot
         $intent.Result | Should -Be 'failed'
-        $intent.DesiredState | Should -Be 'stopped' -Because 'the stop is on record even though it could not run'
+        $intent.RequestedState | Should -Be 'stopped' -Because 'the stop is on record even though it could not run'
     }
 
     It 'names a pending request in a busy message only while the process that made it still runs' {
@@ -614,10 +630,10 @@ Describe 'per-service operation locks' {
             $intent = Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot
             $intent.Operation | Should -Be 'stop'
             $intent.Result | Should -Be 'failed'
-            $intent.DesiredState | Should -Be 'stopped' -Because 'the stop is on record even though it could not run'
+            $intent.RequestedState | Should -Be 'stopped' -Because 'the stop is on record even though it could not run'
             $result = Complete-CensusChild -Child $child
             $result.ExitResult | Should -Be 'superseded' -Because 'the start finished after a newer stop was recorded'
-            (Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot).DesiredState | Should -Be 'stopped'
+            (Get-YurunaServiceIntent -Key 'stash' -StateRoot $script:Env.StateRoot).RequestedState | Should -Be 'stopped'
         } finally {
             if (-not $child.Process.HasExited) { Stop-Process -Id $child.Process.Id -Force -ErrorAction SilentlyContinue }
         }
@@ -667,7 +683,7 @@ Describe 'stop and beacon interleaving' {
         $merge.Reason | Should -Be 'ok'
         $svc = (Read-YurunaServiceCensus -StateRoot $script:Env.StateRoot).Services['stash']
         $svc.intent.operation | Should -Be 'stop'
-        $svc.desiredState | Should -Be 'stopped'
+        $svc.requestedState | Should -Be 'stopped'
         $svc.lastUncorroboratedAnswerUnixMs | Should -Be 1790000000000
     }
 
@@ -741,7 +757,7 @@ Describe 'identity capture' {
         $row = @((Get-YurunaServiceVmIdentitySet -RuntimeDir $script:Env.RuntimeDir -StateRoot $script:Env.StateRoot).Rows | Where-Object Key -eq 'stash')[0]
         $row.VMName | Should -Be 'custom-stash'
         $row.VMNameSource | Should -Be 'intent'
-        $row.DesiredState | Should -Be 'stopped'
+        $row.RequestedState | Should -Be 'stopped'
     }
 
     It 'flags a custom name that is another service''s default' {

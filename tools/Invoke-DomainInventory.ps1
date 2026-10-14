@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d0a94f-27b6-4c85-9e13-8a604fb2d7c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -158,9 +158,9 @@ function Test-IsProseCandidate {
 # A regex over quotes is not good enough to publish a number from. Scanning for
 # '...' and "..." independently desynchronizes on the first apostrophe inside a
 # comment or a double-quoted string, and from there every gap BETWEEN two
-# literals matches as though it were one. The first version of this counted
-# fragments like ", { text: what + " as operator-facing prose, which would have
-# put a few hundred phantom strings into a schedule.
+# literals matches as though it were one. Counting that way would take fragments
+# like ", { text: what + " for operator-facing prose and put a few hundred phantom
+# strings into a schedule.
 #
 # PowerShell has a parser, so its literals are taken exactly. The other two
 # languages get a single left-to-right scan that knows which quote opened the
@@ -325,10 +325,10 @@ function Test-IsSentenceFragment {
 
     # Only signals that actually distinguish a fragment from a short label.
     #
-    # An earlier rule also called anything ending in a lower-case word a
-    # fragment, which made "Pause after step" -- a button label, and a complete
-    # unit -- structural work. Whole categories of label end that way, so that
-    # rule inflated the count with the very strings that need no recomposition
+    # A string that merely ends in a lower-case word is not a fragment: "Pause after
+    # step" -- a button label, and a complete unit -- would count as structural work.
+    # Whole categories of label end that way, so that signal would inflate the count
+    # with the very strings that need no recomposition
     # at all.
     #
     # What a concatenated piece actually looks like: it carries the whitespace

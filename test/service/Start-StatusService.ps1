@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,13 +89,7 @@ $RepoRoot   = $paths.RepoRoot
 $StatusDir  = $paths.StatusDir
 $ModulesDir = $paths.ModulesDir
 
-# $env:YURUNA_RUNTIME_DIR (runtime state) + $env:YURUNA_LOG_DIR (transcripts/
-# debug artifacts). Default to status/ subdirs so the HTTP server serves
-# them at /runtime/* and /log/*. Other status/ subdirs (perf/, extension/,
-# captures/, ssh/) are served straight from $StatusDir as relative paths.
-# StatusService kind imports Test.YurunaDir, Test.VMUtility, Test.CachingProxyService,
-# Test.PortOwner, and Test.HostContract -- one call replaces five inline imports
-# spread across the bootstrap section of this script.
+# See https://yuruna.link/42e5cdfd-003d
 Initialize-YurunaEntryPointModuleSet -For StatusService -ModulesDir $ModulesDir
 # The startup lock, the refresh-safe outcome record and the ownership check.
 # -Global without -Force: this script is also &-invoked inside the inner
@@ -433,12 +427,7 @@ if (-not $RefreshSafe -and (Test-Path $PidFile)) {
             Exit-StatusServiceStartupLock
             exit 0
         }
-        # SHA differs (or either side is unknown). Tear down + fall
-        # through to the launch path so the new framework code is
-        # picked up. Conservative on unknown: an unwritten / unreadable
-        # server.sha (e.g. upgrade from an older Start-StatusService
-        # that didn't persist it) forces a restart rather than risking
-        # a stale-code server.
+        # See https://yuruna.link/42e5cdfd-003f
         $restartMessage = if (-not $currentSha) {
             Format-YurunaOperatorMessage -Key 'runner.status_restart_unknown_head' -Arguments @{ processId = $oldPid }
         } elseif (-not $persistedSha) {
@@ -521,12 +510,7 @@ if (-not $RefreshSafe -and (Test-Path $StatusFile)) {
             } else {
                 $statusDoc | Add-Member -NotePropertyName 'repoUrl' -NotePropertyValue $repoUrl
             }
-            # BOM-less UTF-8: status.json is served over HTTP to the browser
-            # dashboard and the Go aggregator, whose JSON parsers reject a
-            # leading BOM. WriteAllText with an explicit BOM-less UTF8Encoding
-            # keeps the byte encoding stable across PowerShell editions (5.1's
-            # -Encoding utf8 emits a BOM), matching the detached server's
-            # status.json writes and the canonical sidecar encoding.
+            # See https://yuruna.link/42e5cdfd-0040
             $statusJson = $statusDoc | ConvertTo-Json -Depth 10
             [System.IO.File]::WriteAllText($StatusFile, $statusJson, [System.Text.UTF8Encoding]::new($false))
             Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d930446c8044b6fe' -Arguments @{ repoUrl = "$repoUrl" })
@@ -652,12 +636,7 @@ if ($IsMacOS -and -not $RefreshSafe) {
 }
 
 # --- REGION: Probe proxy cache -> $env:YURUNA_RUNTIME_DIR/caching-proxy-service.txt
-# UI banner appends this string to the status text so viewers see at a
-# glance whether the harness is behind a local squid. File holds
-# ready-to-embed HTML (including <a href> to the Grafana dashboards URL) so the UI
-# injects it without knowing the URL format. Written once at
-# Start-StatusService -- restart to refresh after bringing squid up/down.
-# Needs $detectedHost, so runs AFTER the SSH block's host detection.
+# See https://yuruna.link/42e5cdfd-0044
 $CachingProxyServiceFile = Join-Path $RuntimeDir "caching-proxy-service.txt"
 try {
     if ($RefreshSafe) {
@@ -893,12 +872,7 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleInstance.psm1') -Fo
 # pool, permanent devices only -- is platform-specific enough to be worth
 # testing directly, which a handler body baked into this here-string is not.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostFacts.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
-# The worker-backed routes (host refresh, start-cycle, host diagnostic) and
-# the modules they call. Best-effort like the imports above: each of those
-# routes names what it needs to Import-RouteModule before using it, so one
-# module that fails to load refuses its own route with a documented reply
-# instead of keeping the server from starting. Test.CriticalRecord is here so
-# its I/O helper can be compiled once at startup, off the request path.
+# See https://yuruna.link/42e5cdfd-0045
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.StateFile.psm1')          -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleFlightLock.psm1')   -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.CriticalRecord.psm1')     -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
@@ -950,15 +924,7 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.StatusControlRoute.psm1')
 # What the private state root must never be inside of: everything this
 # server hands out.
 `$servedRootSet = @(`$repoRoot, `$statusDir, `$runtimeDir, `$logDir)
-# NOTE: deliberately NO self-exit on a stale server.heartbeat --
-# legitimate runner states outlast ANY threshold: a
-# prompt-for-confirmation pausing the runner for hours, or a single
-# waitForText with timeoutSeconds:3600. UI must stay up, so the ONLY
-# stop path is service/Stop-StatusService.ps1 (kills server.pid). A truly
-# orphaned server must be killed manually -- deliberate trade-off.
-# Log per-iteration exceptions so we can see why the server died. Process
-# stderr goes to server.stderr, separately from this rotating log;
-# otherwise its open handle would keep writing into a renamed archive.
+# See https://yuruna.link/42e5cdfd-0045
 function Write-ServerErr {
     param([string]`$msg)
     try {
@@ -974,22 +940,7 @@ function Write-ServerErr {
         Add-Content -LiteralPath `$serverLogFile -Value "[`$(Get-Date -Format o)] `$msg" -ErrorAction SilentlyContinue
     } catch { Write-Debug `$_ }
 }
-# JSON string-escaping shared by every error-response builder below. The
-# `$_.Exception.Message / operator-supplied text is spliced into a hand-built
-# {"ok":false,"error":"..."} literal, so quotes must be backslash-escaped and
-# CR/LF collapsed to a space to keep the payload a single valid JSON line.
-# The '\\'->'\\' pass is intentionally a no-op on the backslash (regex \\ ->
-# literal \) and is kept verbatim so the emitted bytes match every call site
-# that already relied on this exact transform chain.
-# The language a request is answered in, and the direction that language reads.
-#
-# Decided here so the document leaves already correct rather than being
-# corrected by script after first paint -- on the floor browser that correction
-# IS the load. The set is what the page can actually render: the default locale
-# is compiled into yuruna.common.js, and the pseudo locales exist only to make
-# a translation problem visible, so they are refused unless the run asked for
-# them. A reader who received expanded or mirrored text would read the page as
-# broken rather than as translated.
+# See https://yuruna.link/42e5cdfd-0045
 function Resolve-PageLocale {
     param([string]`$AcceptLanguage, [AllowEmptyString()][string]`$ConfigLanguage)
 
@@ -1182,15 +1133,7 @@ function ConvertTo-JsonEscapedString {
     param([string]`$s)
     `$s -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' '
 }
-# Render a perf-row timestamp as round-trip ISO-8601 UTC regardless of how it
-# arrived. ConvertFrom-Json silently materializes an ISO-8601 field as a
-# [DateTime], and interpolating one of those renders it in the SERVER's culture
-# ("07/28/2026 17:32:03" on an en-US host). Two things break on that form: the
-# status page parses these as ISO to label each cycle row, and the aggregate
-# sorts cycles by comparing the field as TEXT -- and a lexical sort of
-# MM/DD/YYYY orders December 2025 after January 2026, silently drawing a
-# sequence's cycles out of chronological order. Normalizing on read keeps both
-# the wire format and the ordering key locale-independent.
+# See https://yuruna.link/42e5cdfd-0045
 function ConvertTo-IsoUtcString {
     param(`$Value)
     if (`$null -eq `$Value) { return '' }
@@ -1198,12 +1141,7 @@ function ConvertTo-IsoUtcString {
     if (`$Value -is [DateTimeOffset]) { return ([DateTimeOffset]`$Value).UtcDateTime.ToString('o') }
     return "`$Value"
 }
-# Uniform tail for an error response whose Content-Type / Cache-Control / Allow
-# headers (when a branch needs them) are set by the caller BEFORE this call, so
-# the caller keeps full control of the exact header set. This only owns the
-# status code + body-byte emit + stream close that every branch repeats
-# identically. ``continue`` stays at the call site because it must target the
-# request loop, not this function.
+# See https://yuruna.link/42e5cdfd-0045
 function Get-StatusMessageBytes {
     param(`$Request, `$Response, [string]`$Key, [hashtable]`$Arguments = @{}, [switch]`$Json)
     `$locale = Resolve-PageLocale -AcceptLanguage `$Request.Headers['Accept-Language']
@@ -1289,16 +1227,7 @@ function Send-JsonReply {
     }
     `$Response.OutputStream.Close()
 }
-# Re-import a module a route depends on, on demand, when its commands are not in
-# this runspace. The startup imports above are best-effort by design
-# (-ErrorAction SilentlyContinue keeps one bad module from aborting the whole
-# server), and nothing else retries them: a runspace that came up without a
-# module answers its routes with a hard 500 for the ENTIRE life of the process --
-# and this server is long-lived, so only an operator restart cures it. That is
-# how a peer running Sync-HostConfiguration gets told 'not loaded in the server
-# runspace' and silently falls back to prompting the operator for values this
-# host could have served. Routes call this immediately before they need a
-# command, so the runspace heals on the next request instead.
+# See https://yuruna.link/42e5cdfd-0045
 function Import-RouteModule {
     param(
         [Parameter(Mandatory)][string]`$ModuleRelativePath,
@@ -1320,13 +1249,7 @@ function Import-RouteModule {
     }
     return `$true
 }
-# Whether a worker-backed route can run in this runspace: every command it
-# calls resolves (re-imported through Import-RouteModule when a startup
-# import lost it), with every parameter the route passes, and the worker
-# vector it would launch binds against the worker script's own parameters.
-# A route that is not ready refuses with listener_dependency_missing, and the
-# refresh summary stops advertising it. A ready answer is reused for a minute;
-# a refusal is re-checked after ten seconds, so a runspace heals on its own.
+# See https://yuruna.link/42e5cdfd-0045
 `$script:StatusRouteReady = @{}
 function Test-StatusRouteReady {
     param([Parameter(Mandatory)][ValidateSet('host-refresh', 'start-cycle', 'host-diagnostic')][string]`$Route)
@@ -1448,12 +1371,7 @@ function Get-HostRefreshSummaryCached {
     }
 }
 
-# Every detached worker this server launches goes through here. The vector is
-# checked against the worker script's own parameters first; stdin comes from
-# the empty sentinel, both streams go to the worker's private directory, and
-# only the launch is bounded (five seconds). The listener never waits for the
-# worker itself, and a worker's failure after launch is published by the
-# worker, never inferred here.
+# See https://yuruna.link/42e5cdfd-0045
 function Start-StatusWorker {
     param(
         [Parameter(Mandatory)][string]`$Directory,
@@ -1492,12 +1410,7 @@ function Start-StatusWorker {
     }
 }
 
-# Refresh and artifact uploads read bodies without parking the request loop: the read
-# is issued asynchronously and the loop keeps accepting and serving while it
-# is pending, waking for whichever comes first -- the next request, a read
-# completing, or the earliest body deadline. At most four bodies are read at
-# once. A finished body is validated and admitted serially, like any other
-# request, and every reply goes to the context the read carries.
+# See https://yuruna.link/42e5cdfd-0045
 function Add-PendingRequestBody {
     param([Parameter(Mandatory)]`$RequestContext, [bool]`$Loopback, [string]`$ProofWire, `$Upload)
     if (`$pendingBodies.Count -ge 4) {
@@ -1647,14 +1560,7 @@ function Invoke-HostRefreshRequest {
             -RuntimeDir `$runtimeDir -HostType `$serverHostType -AdmissionWaitMilliseconds 1000 -Confirm:`$false
         `$refreshLaunch = `$null
         if ([string]`$refreshAdmission.Decision -ceq 'spawn') {
-            # Admission has recorded a pending launch that names this listener
-            # as its requester, and only this listener can close it: left
-            # pending, a live listener reads as a launch in progress, so the
-            # same id answers already_claimed with no worker behind it and
-            # every other request answers busy until the queued expiry. Every
-            # way out of here -- a work directory that cannot be secured, a
-            # throw, a failed launch -- therefore records the outcome in the
-            # finally, and a record that does not commit is tried once more.
+            # See https://yuruna.link/42e5cdfd-0045
             `$refreshLaunch = [pscustomobject]@{ Launched = `$false; Reason = 'launcher_failed' }
             `$refreshPrivateUnavailable = `$false
             try {
@@ -1711,16 +1617,7 @@ function Invoke-HostRefreshRequest {
     }
 }
 
-# POST /control/start-cycle once the method and route checks passed: secure
-# the private worker directory, reserve the host under the short admission
-# lock, launch the detached worker and record the launch. Nothing else is
-# written here. A reservation carries a pending launch that names this
-# listener, and reservations are cleared by identity, never by age: a
-# pending one left behind by a live listener would make every later
-# start-cycle and every refresh busy until the listener restarts. So once the
-# host is reserved, every way out records started or launch-failed (which
-# removes the reservation) in the finally, and a record that does not commit
-# is tried once more. A throw still reaches the dispatcher's 500 reply.
+# See https://yuruna.link/42185271-0012
 function Invoke-StartCycleRequest {
     param([Parameter(Mandatory)]`$Request, [Parameter(Mandatory)]`$Response)
     `$startCycleDirectory = Get-StatusWorkerDirectory -Name 'start-cycle' -ServedRoot `$servedRootSet -Confirm:`$false
@@ -1839,25 +1736,9 @@ function Send-GitArchive {
         if (`$sidecarDir) { Remove-Item -LiteralPath `$sidecarDir.FullName -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
-# Runner-liveness detection for /control/runner-status (the start-cycle worker
-# re-reads runner state itself, after its cleanup). Delegates the runner.pid + runner.start
-# StartTime identity check (with the cmdline regex fallback) to
-# Get-RunnerInstanceState so that logic lives in one tested place; a prior
-# occupant classified as anything other than this-process/absent/stale counts
-# as running. -QuietErrors routes the check's own diagnostics to the debug
-# stream; the default path forwards them to server.err, matching each caller's
-# prior behavior.
+# See https://yuruna.link/42185271-000b
 # --- REGION: Archived cycle results (poolStorage move mode)
-# A move-mode host copies each finished cycle to the pool share, verifies it, and
-# DELETES the local folder. Every link in the product still names the local URL
-# ("log/<cycle>/..."), recorded in status.json history rows that were written while
-# the folder was local -- so rather than rewriting recorded URLs after the fact,
-# across processes and under the status lock, the server resolves those same URLs
-# against the mounted share when the local copy is gone.
-#
-# Only this host's OWN hostId is ever used, so a host can never serve another
-# host's archives; the caller applies the same containment and deny-list checks to
-# the returned path that it applies to a local one.
+# See https://yuruna.link/42e5cdfd-0045
 `$script:ArchiveHostId = `$null
 function Get-ArchiveHostId {
     # runtime/host.uuid cannot change while this server runs, so it is read once.
@@ -1891,17 +1772,7 @@ function Get-ArchiveCycleRoot {
 }
 
 function ConvertTo-ArchiveRelativePath {
-    # Maps a log-relative request path onto the flat share layout. Two shapes have
-    # to be normalized away, both of which appear in URLs recorded before a cycle
-    # was archived:
-    #   history.YYYY-MM-DD/<leaf>/...  the local rotation bucket; the share has no
-    #                                  buckets, the archiver flattens them in.
-    #   <base>.incomplete / <base>.aborted.<UTC>
-    #                                  lifecycle suffixes; the archiver keys the
-    #                                  destination on the STRIPPED identity, so the
-    #                                  share holds '<base>'.
-    # Without this a link to a rotated or crash-recovered cycle 404s against an
-    # archive that is holding exactly the folder it asked for, under its real name.
+    # See https://yuruna.link/42e5cdfd-0045
     param([string]`$Rel)
     `$norm = (`$Rel -replace '\\', '/').TrimStart('/')
     if ([string]::IsNullOrWhiteSpace(`$norm)) { return '' }
@@ -1936,17 +1807,7 @@ function Resolve-ArchivedLogPath {
 `$script:ArchiveCompleteMark = @{}
 
 function Get-ArchivedCycleEntry {
-    # The archived cycle folders, for the merged /log/ index and the
-    # cycle-number short link. Only sentinel-complete folders: a destination
-    # exists sentinel-less for the whole duration of its copy, and listing one
-    # would advertise a half-copied tree as a finished cycle.
-    #
-    # One enumeration returns the folder objects themselves, which carry every
-    # property the index renders. Never look a name up again with Get-Item: on
-    # Linux every Get-Item enumerates the whole parent directory, so a per-name
-    # lookup makes the index quadratic. Over the pool share, a few thousand
-    # archived cycles then hold this single-threaded listener for tens of
-    # minutes, and every guest livecheck queued behind it fails.
+    # See https://yuruna.link/42e5cdfd-0045
     `$root = Get-ArchiveCycleRoot
     if ([string]::IsNullOrWhiteSpace(`$root)) { return @() }
     try {
@@ -1977,13 +1838,7 @@ function Test-RunnerAlive {
     param([switch]`$QuietErrors)
     `$runnerPidFile   = Join-Path `$runtimeDir 'runner.pid'
     `$runnerStartFile = Join-Path `$runtimeDir 'runner.start'
-    # Get-RunnerInstanceState surfaces a runner.start cross-check failure on
-    # its verbose stream; run it with verbose enabled so that diagnostic
-    # materializes, capture the records, and keep only the returned
-    # classification hashtable. Only the module's own "cross-check failed"
-    # line is forwarded -- to server.err by default, or the debug stream when
-    # the caller is quiet -- so cmdline-probe chatter (e.g. the Windows CIM
-    # query trace that ambient verbose also emits) never reaches the log.
+    # See https://yuruna.link/42e5cdfd-0045
     `$verboseLines = [System.Collections.Generic.List[string]]::new()
     `$state = Get-RunnerInstanceState -RunnerPidFile `$runnerPidFile -RunnerStartFile `$runnerStartFile -Verbose 4>&1 |
         ForEach-Object {
@@ -2025,14 +1880,7 @@ try {
     # already-built cache skips ConvertTo-Json + GetBytes entirely.
     `$perfAggregatesCache = `$null
     `$perfAggregatesBytes = `$null
-    # /control/host-facts' repository columns, keyed 'framework' / 'project' ->
-    # @{ Access; Link; Url; At }. Only the NETWORK answer is cached: reading the clone this
-    # host holds is a local git call and stays live, but probing a configured
-    # URL costs a round trip through the credential chain, and the pool's
-    # fan-out gives every host in the lab one shared six-second budget. So the
-    # probe runs AFTER the response is sent and the next request serves its
-    # answer -- a machine that has not cloned yet reads blank for one refresh
-    # rather than making its own hardware columns time out with it.
+    # See https://yuruna.link/42e5cdfd-0045
     `$repoAccessCache = @{}
     `$repoAccessCacheTtl = [TimeSpan]::FromMinutes(10)
     while (`$listener.IsListening) {
@@ -2103,12 +1951,7 @@ try {
                 # A missing internal key leaves control loopback-only.
                 if (`$needsHeader) {
                     `$ctlLoopback = `$false
-                    # IPAddress.IsLoopback is a STATIC method: the instance-property
-                    # form (`$addr.IsLoopback) silently resolves to `$null (it never
-                    # throws, so the catch below cannot save it), which would treat the
-                    # on-host operator as remote and 403 every control action. The
-                    # static call also returns `$true for the IPv4-mapped ::ffff:127.0.0.1
-                    # form a dual-stack listener can surface.
+                    # See https://yuruna.link/42e5cdfd-0045
                     try { `$ctlLoopback = [System.Net.IPAddress]::IsLoopback(`$req.RemoteEndPoint.Address) } catch { `$ctlLoopback = `$false }
                     if (-not `$ctlLoopback) {
                         `$ctlToken = ''
@@ -2116,12 +1959,7 @@ try {
                             if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
                                 try { `$null = Import-Extension -Area 'authentication' -RequireSingle } catch { `$null = `$_ }
                             }
-                            # 'internal-auth-key' first, then the legacy
-                            # 'lab-auth-token' and 'pool-auth-token' names -- a
-                            # host whose vault was provisioned under an older
-                            # name keeps verifying proofs without re-enrollment
-                            # (same fallback order as Get-InternalAuthKeyValue,
-                            # inlined because the module may not be loaded here).
+                            # See https://yuruna.link/42e5cdfd-0045
                             foreach (`$ctlName in @('internal-auth-key', 'lab-auth-token', 'pool-auth-token')) {
                                 if (`$ctlToken) { break }
                                 `$ctlTm = if (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) { Get-EffectiveUser -LogicalUser `$ctlName } else { `$null }
@@ -2130,13 +1968,7 @@ try {
                                 }
                             }
                         } catch { `$ctlToken = '' }
-                        # Which precondition failed is invisible from the status line alone:
-                        # an unconfigured host, a caller that sent no proof, and a genuinely
-                        # bad proof all render as one 403, so the operator cannot tell
-                        # "finish the setup" from "your proof expired". Name the failing
-                        # precondition in a stable machine-readable reason so the pages can
-                        # say which one, while the human-facing message keeps pointing at
-                        # the same guidance section.
+                        # See https://yuruna.link/42e5cdfd-0045
                         `$ctlWire   = [string]`$req.Headers['X-Yuruna-Control']
                         `$ctlReason = ''
                         if (-not (Get-Command Test-YurunaControlProof -ErrorAction SilentlyContinue)) {
@@ -2170,16 +2002,7 @@ try {
             }
 
             # --- REGION: /control/test-config: read/write test.config.yml from UI
-            # GET parses the YAML on disk and sends it as JSON (200) so the
-            # in-browser tree editor (config.html) does not need a YAML
-            # parser. POST/PUT accepts a JSON body, validates that
-            # ConvertFrom-Json parses it, converts to YAML, and atomically
-            # replaces the file (write .tmp + [IO.File]::Move). Bypasses the
-            # /yuruna-repo/ deny-list because the operator has explicitly
-            # opted into editing this file from the UI; the response is
-            # no-store. All errors come back as {"ok":false,"error":...}.
-            # The deny-list still applies to the read-only repo route, so
-            # curl GET /yuruna-repo/test/test.config.yml continues to 403.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/test-config') {
                 `$testConfigFile = Join-Path `$repoRoot 'test/test.config.yml'
                 `$res.ContentType = 'application/json; charset=utf-8'
@@ -2235,13 +2058,7 @@ try {
                         Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_invalid_json_detail_c907dfc3' -Arguments @{ detail = `$_.Exception.Message }
                         continue
                     }
-                    # Validate vmStart.cachingProxyIp at save time: must be
-                    # a valid IPv4/IPv6 address AND TCP-reachable on the
-                    # squid HTTP port (3128). Empty/whitespace -> stored as
-                    # empty (cycle-start treats empty as absent). Either
-                    # failure returns 400 so the UI surfaces the problem
-                    # immediately instead of the operator discovering it at
-                    # cycle start.
+                    # See https://yuruna.link/42e5cdfd-0045
                     `$cacheIpErr = `$null
                     if (`$parsedDoc -is [System.Collections.IDictionary] -and `$parsedDoc.Contains('vmStart')) {
                         `$vsNode = `$parsedDoc['vmStart']
@@ -2277,15 +2094,10 @@ try {
                         Send-JsonError -Response `$res -StatusCode 400 -Json ('{"ok":false,"error":"' + `$errMsg + '"}')
                         continue
                     }
-                    # Re-merge the on-disk secrets node: the GET above serves
-                    # it redacted (present-but-empty) and the UI round-trips
-                    # the whole document, so without this splice a UI save
-                    # would overwrite the stored secrets with the empty node.
-                    # Per key: a posted non-empty value wins (the operator
-                    # typed a new secret in the editor); a missing/empty key
-                    # falls back to what is on disk. Clearing a stored secret
-                    # therefore requires editing the file directly -- the
-                    # trade accepted for making the redacted round-trip safe.
+                    # See https://yuruna.link/42e5cdfd-0045
+                    # Re-merge the on-disk secrets node: the GET above serves it redacted
+                    # and the UI round-trips the whole document, so a save would otherwise
+                    # overwrite the stored secrets with the empty node.
                     try {
                         if ((`$parsedDoc -is [System.Collections.IDictionary]) -and (Test-Path -LiteralPath `$testConfigFile)) {
                             `$diskDoc = Read-TestConfig -Path `$testConfigFile -NoCache -ThrowOnError
@@ -2310,12 +2122,7 @@ try {
                     `$tmp = "`$testConfigFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                     `$writeOk = `$false
                     try {
-                        # Written in the JSON body's key/element order (NOT canonical
-                        # alphabetical). That is intentional: Sync-TestConfigToTemplate /
-                        # Update-TestConfigFromTemplate reconcile this file to canonical
-                        # sorted order (and prune orphans) on the next Test-Config run /
-                        # cycle start, and every reader parses via ConvertFrom-Yaml, which
-                        # is order-insensitive -- so the UI save does not need to sort here.
+                        # See https://yuruna.link/42e5cdfd-0045
                         `$yamlOut = `$parsedDoc | ConvertTo-Yaml
                         Set-Content -LiteralPath `$tmp -Value `$yamlOut -Encoding utf8 -NoNewline
                         [System.IO.File]::Move(`$tmp, `$testConfigFile, `$true)
@@ -2346,15 +2153,7 @@ try {
             }
 
             # --- REGION: /control/runtime-env: surface specific env vars to the UI
-            # Read-only GET endpoint. Currently emits one key,
-            # YURUNA_CACHING_PROXY_SERVICE_IP, so the test-config editor can show
-            # the env value side-by-side with the persisted
-            # vmStart.cachingProxyIp. Value reflects the server process's
-            # env (snapshotted at server start when this pwsh inherited
-            # its parent's env block) -- separate from the value that an
-            # Start-TestRunner.ps1 inner runspace might see if it was
-            # launched from a different shell. Caveat documented in the
-            # UI tooltip on the read-only field.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/runtime-env') {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
                     `$res.Headers.Add('Allow', 'GET')
@@ -2364,14 +2163,7 @@ try {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 `$envValue = if (`$env:YURUNA_CACHING_PROXY_SERVICE_IP) { `$env:YURUNA_CACHING_PROXY_SERVICE_IP } else { '' }
-                # [Environment]::UserName returns the effective user the
-                # status-service process is running as. Cross-platform: on
-                # Windows it's the (possibly space-containing) display name
-                # like "Yuruna Test"; on macOS / Linux it's the short
-                # username like "alissonsol". Surfaced so the test.config
-                # banner can show which account the operator's session is
-                # actually under (useful when sudo / Run-As elevation is
-                # in play, or on a host with multiple operator accounts).
+                # See https://yuruna.link/42e5cdfd-0045
                 `$serverUser = try { [Environment]::UserName } catch { '' }
                 `$payload = @{
                     YURUNA_CACHING_PROXY_SERVICE_IP = `$envValue
@@ -2387,20 +2179,7 @@ try {
             }
 
             # --- REGION: /control/host-facts: machine facts for pool UIs
-            # Read-only GET, open like the other LAN reads: RAM, physical core
-            # count, and permanent-storage totals as raw bytes/counts -- the
-            # consumer picks display units. Physical cores (not logical
-            # processors) because capacity planning cares about the silicon;
-            # when the platform cannot enumerate them (some ARM guests, some
-            # VMs) the logical count is served rather than a zero. Storage is
-            # what the machine keeps: Get-HostStorageFact counts each space
-            # pool once and leaves out what is only attached to the host --
-            # see Test.HostFacts.psm1 for why both halves of that are needed.
-            #
-            # frameworkAccess / projectAccess ride along because they answer the
-            # same kind of question about the same machine -- what this host IS,
-            # asked of the host itself -- and a pool UI that already fans out
-            # here must not pay a second round trip per host to ask them.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/host-facts') {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
                     `$res.Headers.Add('Allow', 'GET')
@@ -2421,12 +2200,7 @@ try {
                     } else {
                         `$hfMemLine = Get-Content -LiteralPath '/proc/meminfo' -TotalCount 1 -ErrorAction Stop
                         if (`$hfMemLine -match 'MemTotal:\s*(\d+)\s*kB') { `$hfMemory = [long]`$Matches[1] * 1024 }
-                        # Unique (core, socket) pairs; -b keeps offline CPUs out.
-                        # The argument MUST stay quoted: unquoted, PowerShell reads
-                        # -p=Core as a command parameter and the comma after it as an
-                        # array operator with nothing to its left, which is a parse
-                        # error rather than a runtime one -- it takes down the whole
-                        # generated script, not just this line.
+                        # See https://yuruna.link/42e5cdfd-0045
                         `$hfPairs = & lscpu -b '-p=Core,Socket' 2>`$null | Where-Object { `$_ -and `$_ -notmatch '^#' } | Sort-Object -Unique
                         `$hfCores = [long](`$hfPairs | Measure-Object).Count
                     }
@@ -2439,19 +2213,7 @@ try {
                     `$hfStorTotal = [long]`$hfStorage.TotalBytes
                     `$hfStorFree  = [long]`$hfStorage.FreeBytes
                 } catch { `$null = `$_ }
-                # The two repositories a host runs on: the framework is the
-                # checkout this service runs FROM, and the project is the clone
-                # beside it. Named from each clone's own remote.origin.url,
-                # which is what the host actually tracks -- a pool assignment
-                # overrides the configured URL for a cycle, and the operator
-                # asking this question wants the repository that is there.
-                #
-                # Each name travels with the location it was read from, so a
-                # consumer can offer the repository itself rather than a name to
-                # retype. It is normalized for linking here, at the machine that
-                # holds it: a credential written into a remote is stripped
-                # BEFORE the value leaves the host, since this route is an open
-                # LAN read.
+                # See https://yuruna.link/42e5cdfd-0045
                 `$hfAccess = @{ framework = ''; project = '' }
                 `$hfState  = @{ framework = ''; project = '' }
                 `$hfLink   = @{ framework = ''; project = '' }
@@ -2611,18 +2373,7 @@ try {
                     `$out = [ordered]@{}
                     foreach (`$seq in (`$sequences.Keys | Sort-Object)) {
                         `$cyclesArr = @(`$sequences[`$seq])
-                        # Sort each cycle's steps by their absolute start instant
-                        # -- the only key that is genuinely execution order --
-                        # then splice any matching checkpoint sidecar onto the
-                        # fetchAndExecute steps. Ordinal is a position WITHIN a
-                        # steps: block, so a retry that re-runs its block emits
-                        # the same ordinals once per attempt; ordering by
-                        # (ordinal, occurrence) interleaves the attempts and
-                        # presents a later attempt's steps as if they had run
-                        # beside the first attempt's. -Stable keeps rows that
-                        # share a start instant in the order the runner appended
-                        # them, which is also what a row with no usable window
-                        # falls back to.
+                        # See https://yuruna.link/42e5cdfd-0045
                         foreach (`$cyc2 in `$cyclesArr) {
                             `$sortedSteps = @(`$cyc2.steps | Sort-Object -Stable @{Expression={ if (`$null -ne `$_.startedMs) { [long]`$_.startedMs } else { [long]0 } }})
                             foreach (`$st2 in `$sortedSteps) {
@@ -2642,12 +2393,7 @@ try {
                         recentLimit    = `$recentLimit
                         sequences      = `$out
                     }
-                    # Serialize once on (re)build; every subsequent GET writes
-                    # these bytes directly. Depth 8: payload -> sequences ->
-                    # cycles[] -> cycle -> steps[] -> step -> checkpoints[] ->
-                    # checkpoint{name,offsetMs}; the checkpoint objects sit one
-                    # level deeper than the rest, so a shallower depth would
-                    # stringify them and drop name/offsetMs.
+                    # See https://yuruna.link/42e5cdfd-0045
                     `$json = `$perfAggregatesCache | ConvertTo-Json -Depth 8 -Compress
                     `$perfAggregatesBytes = [System.Text.Encoding]::UTF8.GetBytes(`$json)
                 }
@@ -2662,12 +2408,7 @@ try {
             }
 
             # --- REGION: /control/perf-checkpoints: guest-pushed fetch-and-execute phase timings
-            # fetch-and-execute.sh POSTs the ==== checkpoint ==== markers it
-            # collected while running a fetched script. Execution IDs provide the
-            # exact join; host-stamped arrival time remains the fallback for old
-            # sidecars without IDs. Guest clock adjustments cannot alter that join.
-            # The sidecar filename is minted here, never taken
-            # from the body, so nothing in the payload can traverse the path.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/perf-checkpoints') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -2787,14 +2528,7 @@ try {
             }
 
             # --- REGION: /control/test-caching-proxy-service (POST ?ip=<ip>): probe a caching-proxy service from the host
-            # Wraps Invoke-CachingProxyServiceProbe (Test.CachingProxyService.psm1, same
-            # function the startup probe uses) so the test-config UI can
-            # show a live connectivity verdict next to cachingProxyIp and
-            # the `$env:YURUNA_CACHING_PROXY_SERVICE_IP mirror. UI debounces input;
-            # the probe itself is sync (~few seconds: 4 TCP probes with
-            # 1.5s timeouts + a 5s CA-cert HTTP fetch). Empty/invalid IP
-            # returns valid=false WITHOUT running the probe so the UI can
-            # render a "disabled" mark instead of a false negative.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/test-caching-proxy-service') {
                 # POST-only: this drives a live host-side outbound probe to an
                 # operator-supplied target, so it must not be reachable via a
@@ -2879,14 +2613,7 @@ try {
             }
 
             # --- REGION: /control/guest-folders: list guest.* dirs under current host
-            # Powers the test-config editor's guestSequence dropdown so the
-            # operator picks from real folders instead of free-typing a name
-            # no folder on this host matches. That list is only the fallback
-            # guest set: a cycle takes its guests from test/test.runner.yml in
-            # the project repository whenever a plan resolves. Host folder is
-            # derived from the host type captured at server startup
-            # (host.windows.hyper-v -> host/windows.hyper-v); empty array
-            # is returned when the host is unknown or has no guests.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/guest-folders') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -2899,12 +2626,7 @@ try {
                             Select-Object -ExpandProperty Name | Sort-Object)
                     }
                 }
-                # Build the JSON array literally: ConvertTo-Json 's
-                # array-vs-scalar handling is brittle on PowerShell 7
-                # (-AsArray + -InputObject double-wraps an existing
-                # array, plain pipe drops the empty case to nothing).
-                # Folder names are safe ASCII so a hand-built [...]
-                # avoids the dance entirely.
+                # See https://yuruna.link/42e5cdfd-0045
                 `$items = @(`$guests | ForEach-Object { '"' + (`$_ -replace '\\','\\\\' -replace '"','\"') + '"' })
                 `$payload = '[' + (`$items -join ',') + ']'
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
@@ -2926,16 +2648,7 @@ try {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 # --- REGION: Liveness
-                # "A runner process exists" is NOT "the runner is progressing".
-                # runner.heartbeat is written by a threadpool timer that keeps
-                # ticking through a wedged runspace, so a host blocked on an
-                # unanswerable prompt would look healthy here and the dashboard
-                # would keep showing the previous cycle's green. runner.stepHeartbeat is
-                # written from the runspace itself, so its AGE is the real
-                # progress signal -- and this detached server is the only Yuruna
-                # process still live mid-cycle, so it is the only place that can
-                # compute it. Everything below is best-effort: a liveness probe
-                # must never be able to take the status service down.
+                # See https://yuruna.link/42e5cdfd-0045
                 `$hbAge = `$null; `$phaseVal = `$null; `$liveness = 'unknown'; `$lapsed = `$null
                 # This handler body runs in a long-lived loop runspace, so every
                 # value the payload reports has to be cleared per request: a probe
@@ -2955,14 +2668,7 @@ try {
                     if (Test-Path -LiteralPath `$lapsePath) {
                         `$lapsed = "`$(Get-Content -LiteralPath `$lapsePath -Raw)".Trim()
                     }
-                    # The runner's own declared lifecycle state. runner.stepHeartbeat
-                    # is the INNER runner's per-step signal, so its age measures
-                    # progress only while an inner is actually executing. When the
-                    # outer is holding instead -- the pause after a non-zero inner
-                    # exit, or a pool desiredState=paused hold -- there is no inner,
-                    # nothing refreshes the file, and its age is just the previous
-                    # cycle's last step counting up. Reading the state is what keeps
-                    # a declared hold from being reported as a stall.
+                    # See https://yuruna.link/42e5cdfd-0045
                     `$statePath = Join-Path `$runtimeDir 'runner.state.json'
                     if (Test-Path -LiteralPath `$statePath) {
                         try {
@@ -2972,16 +2678,7 @@ try {
                             }
                         } catch { Write-Debug "runner-status: runner.state.json read failed: `$(`$_.Exception.Message)" }
                     }
-                    # Same bound the watchdog applies: the tight preamble one
-                    # while runner.phase exists, the step budget otherwise.
-                    #
-                    # A cached read is what reflects an operator's config edit,
-                    # not a bypassed one: Read-TestConfig keys its cache on the
-                    # path, the file's LastWriteTimeUtc AND a SHA-256 of its
-                    # first 64 KB, so an edit invalidates the entry by content
-                    # even when the timestamp and size are unchanged. -NoCache
-                    # here bought nothing and re-parsed the whole document on
-                    # every poll of this route.
+                    # See https://yuruna.link/42e5cdfd-0045
                     `$stepBound = 2700; `$preBound = 600
                     try {
                         `$cfgLive = Read-TestConfig -Path `$serverConfigPath
@@ -2993,17 +2690,7 @@ try {
                         if (`$null -ne `$pv -and [int]::TryParse("`$pv".Trim(), [ref]`$tmp) -and `$tmp -ge 0) { `$preBound = `$tmp }
                     } catch { Write-Debug "runner-status: config read failed: `$(`$_.Exception.Message)" }
                     `$bound = if (`$phaseVal -and `$preBound -gt 0 -and `$preBound -lt `$stepBound) { `$preBound } else { `$stepBound }
-                    # 'idle' is NOT 'ok': with no runner there is nothing to be
-                    # progressing, and reporting ok would reproduce the very
-                    # false-green this endpoint exists to remove. 'paused' is that
-                    # same argument one step in, which is why it is tested ahead of
-                    # every age comparison: a runner that has declared a hold is
-                    # not progressing and must not read 'ok', but it is not wedged
-                    # either, and an operator needs those two told apart. The hold
-                    # is bounded by the runner itself -- the pause after a failed
-                    # cycle returns to 'idle' at its cap, and a pool hold ends when
-                    # the pulled intent flips back to run -- so this branch cannot
-                    # latch on a state the runner has already left.
+                    # See https://yuruna.link/42e5cdfd-0045
                     `$liveness = if (-not `$running)          { 'idle' }
                                 elseif (`$runState -eq 'paused') { 'paused' }
                                 elseif (`$null -eq `$hbAge)   { 'unknown' }
@@ -3031,32 +2718,14 @@ try {
             }
 
             # --- REGION: /control/control-status: can this host be driven remotely?
-            # Read-only and always open -- deliberately NOT in the CSRF lists
-            # above: it changes nothing, and the pool-aggregator service must be
-            # able to ask before it holds anything to authenticate with. Answers
-            # { tokenConfigured, tokenTag, verifier, utcNow }: the tag is a
-            # non-secret HMAC naming WHICH internal authentication key this host holds
-            # (Get-YurunaControlTag), so the aggregator can compare it with the
-            # token it mints proofs from and tell "enrolled here" from "enrolled
-            # against a proxy that has since been rebuilt" -- the difference
-            # between reasons 3 and 4 in docs/control-routes.md, which is
-            # otherwise invisible until a button 403s. utcNow lets the same
-            # comparison catch the clock skew that expires a fresh proof.
-            # See docs/control-routes.md (GET /control/control-status).
+            # See https://yuruna.link/42185271-000c
             if (`$path -eq 'control/control-status') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 `$controlIdentity = Get-ControlIdentityCached
                 `$csToken = `$controlIdentity.Token
                 `$csTag = `$controlIdentity.Tag
-                # Test-YurunaControlProof is required above alongside the tag
-                # helper on purpose: a runspace that cannot load the verifier
-                # reports no tag at all, rather than a tag that promises control
-                # this host would then refuse ('verifier-unavailable').
-                # refresh: the compact host-refresh capability (protocol,
-                # availability, ceiling, reason, remote, state). A client that
-                # finds it missing treats refresh as unavailable, which is what
-                # an older server means.
+                # See https://yuruna.link/42e5cdfd-0045
                 `$payload = @{
                     ok              = `$true
                     tokenConfigured = (-not [string]::IsNullOrWhiteSpace(`$csToken))
@@ -3072,17 +2741,7 @@ try {
             }
 
             # --- REGION: /control/host-diagnostic: detached, single-flight host diagnostic
-            # See https://yuruna.link/42fa6f45-001e
-            # The diagnostic reaches tools that can take minutes or never
-            # answer, so it runs in a detached single-flight worker and this
-            # route only reads that worker's state. A report finished in the
-            # last 15 seconds is served as text/plain (200); a run in progress,
-            # or one just launched, answers 202 pending with Retry-After: 3; a
-            # run that failed in the last 15 seconds is served as its failure
-            # text. The worker never runs twice at once, and a caller polling
-            # faster than a worker starts is answered pending rather than given
-            # a second worker. The report and its state stay in the private
-            # worker directory, never under a served tree.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/host-diagnostic') {
                 `$diagnosticLocale = Resolve-PageLocale -AcceptLanguage `$req.Headers['Accept-Language']
                 try {
@@ -3158,14 +2817,7 @@ try {
             }
 
             # --- REGION: /control/host-aliases: networkStorage server names -> IPs as THIS host resolves them
-            # Read-only GET. Serves the name->IP resolutions for the server
-            # names referenced by this host's networkStorage config (and
-            # nothing else -- a full hosts-file dump stays in the diagnostic
-            # report). A peer host syncing its config from this one uses it
-            # to adopt the alias for a NAS name that does not resolve there
-            # (host/<type>/Sync-HostConfiguration.ps1). Names + LAN IPs are
-            # not secrets, so the route stays unauthenticated like the rest
-            # of the status surface.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/host-aliases') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -3216,18 +2868,7 @@ try {
             }
 
             # --- REGION: /control/vault-credential: token-gated networkStorage credential for a peer host
-            # GET ?user=<logicalUser>&nonce=<b64>&proof=<b64>. Serves ONE
-            # vault password -- and only for a user this host's own
-            # networkStorage config references -- to a peer that proves it
-            # holds the internal authentication key (HMAC proof; the
-            # token itself never crosses the wire). The response password is
-            # AES-GCM encrypted with a key derived from token + user + the
-            # client's nonce (Protect-ConfigSyncCredential), so the secret
-            # stays confidential over this plain-HTTP listener. Replaying a
-            # captured request only re-fetches ciphertext the replayer still
-            # cannot decrypt. 503 until the operator configures the shared
-            # token (mirrors the aggregator's default-off /ingest gate);
-            # never auto-generates a vault entry to serve.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/vault-credential') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -3365,14 +3006,7 @@ try {
             }
 
             # --- REGION: /control/lab-hold-release: stop waiting on a lab service
-            # The cycle's lab-health gate holds while a service it had been
-            # reaching is away, re-probing on backoff. This is the operator
-            # saying the outage is not going to end: the gate consumes the flag,
-            # drops the hold, and lets the step run so it fails on its own terms.
-            #
-            # Refused when no hold is up. A flag written now would sit on disk
-            # and silently release the NEXT hold -- one nobody has looked at --
-            # which is the opposite of an operator decision.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/lab-hold-release') {
                 if (`$req.HttpMethod -ne 'POST') {
                     Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_post_required_663cc07c'
@@ -3395,15 +3029,7 @@ try {
             }
 
             # --- REGION: /control/break-continue: Continue-from-break button
-            # POST-only. Writes control.break-continue under runtimeDir;
-            # the break action in Test.SequenceEngine.psm1 polls for this
-            # file inside its wait loop and on detection calls
-            # Restore-VMDiskSnapshot (if break.id was set) + Start-VM,
-            # removes the marker, and resumes the sequence.
-            # Refuses the call when no break is active (no break-active.json
-            # sidecar) so a stray click doesn't arm the flag for the
-            # NEXT break -- which would silently auto-resume it on the
-            # first poll tick.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/break-continue') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -3432,21 +3058,7 @@ try {
             }
 
             # --- REGION: /control/start-cycle: queue the save-and-restart worker
-            # POST or PUT, no body. The listener changes nothing itself.
-            # Invoke-StartCycleRequest records a start-cycle reservation under
-            # the short admission lock -- answered busy while a host refresh is
-            # active, so a runner a refresh is holding parked is never
-            # un-paused from here -- then launches the detached worker and
-            # answers 202 queued. The worker
-            # takes the host's lifetime repair lock, confirms the reservation,
-            # and only then clears the pause and lab-hold controls, rewrites
-            # status.json, signals the restart, runs the bounded VM cleanup,
-            # re-reads the runner's state and starts or wakes it
-            # (test/modules/Invoke-StartCycleWorker.ps1). Its progress is
-            # runtime/start-cycle.state.json. A launch that fails removes the
-            # reservation, since nothing was changed.
-            # Save the test.config.yml separately via /control/test-config
-            # before calling this (config.html does both back-to-back).
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/start-cycle') {
                 try {
                     if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
@@ -3474,14 +3086,7 @@ try {
             }
 
             # --- REGION: /control/host-refresh: bounded admission and detached repair worker
-            # POST only, a JSON body of at most 4096 bytes naming requestId,
-            # tier and maxRung (docs/control-routes.md). This half runs inside
-            # the request loop and only decides whether the body is worth
-            # reading. The read itself is asynchronous; Step-PendingRequestBody
-            # finishes it and Invoke-HostRefreshRequest validates, authorizes a
-            # non-loopback caller's refresh proof, takes the short admission
-            # lock and launches the detached worker. The listener never waits
-            # for a repair and never takes the repair lock.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'control/host-refresh') {
                 try {
                     if (`$req.HttpMethod -ne 'POST') {
@@ -3537,12 +3142,7 @@ try {
             }
 
             # --- REGION: /livecheck -- cheap reachability probe for guests
-            # Test-YurunaHost.ps1 (and fetch-and-execute's host probe) GET
-            # this; success means "host server is reachable from this
-            # guest, prefer it over GitHub." JSON body is {ok, service,
-            # time} -- `service` lets a misdirected probe (e.g. someone
-            # else's HTTP server on the same port) be distinguished by
-            # value, not just by 200/non-200.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'livecheck' -or `$path -eq 'livecheck/') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -3566,15 +3166,7 @@ try {
             }
 
             # --- REGION: /ca.crt -- caching-proxy-service CA for guest CA self-heal
-            # A guest whose seed was baked CA-less (the caching-proxy service was
-            # unreachable when the host built the seed) fetches this over the
-            # RFC1918 plain-HTTP path and update-ca-certificates it, so bumped
-            # HTTPS validates. Resolve-CachingProxyServiceCaCertPem live-reads the
-            # CURRENT cache first (never a stale cached CA) and only falls back
-            # to the persisted last-good CA; 404 when neither resolves so the
-            # guest degrades to a diagnosed rc=60 rather than a silent pass.
-            # Serves the PUBLIC CA only -- never the state file, whose password
-            # stays deny-listed. See project_sslbump_ca_gating_durable_fix.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'ca.crt' -or `$path -eq 'ca.crt/') {
                 `$caRes = `$null
                 try { `$caRes = Resolve-CachingProxyServiceCaCertPem } catch { `$caRes = `$null }
@@ -3600,21 +3192,7 @@ try {
             }
 
             # --- REGION: /diagnostics/<folder>/<filename> -- guest-pushed diagnostic dump
-            # Second-defense path for Test.Diagnostic. The host has just
-            # injected a one-liner into the guest console that:
-            #   1. wgets automation/Get-SystemDiagnostic.ps1 from us,
-            #   2. runs it locally on the guest,
-            #   3. POSTs the captured text to this endpoint.
-            # We accept POST only and only into a folder that already
-            # exists under logDir (the per-guest cycleGuestDataFolder
-            # is the trust anchor: only the runner creates these, so
-            # writing into one cannot be initiated by an attacker that
-            # hasn't already caused the cycle to enter that guest's
-            # loop). The filename has to match `*.system.diagnostic.*.txt`
-            # so it lines up with Test.Diagnostic's Get-DiagnosticsFileName
-            # output (yyyy-MM-dd.HH-mm.system.diagnostic.<Id>.txt). Body
-            # cap is 5 MB; a real dump is ~30-60 kB, so anything larger
-            # is an upload pathology, not a legit capture.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -like 'diagnostics/*') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -3623,17 +3201,7 @@ try {
                     Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_method_not_allowed_post_the_dump_body_fa73866b'
                     continue
                 }
-                # path: 'diagnostics/<folder>.../<filename>' -- at least
-                # 2 segments after the prefix; the last is the filename
-                # and everything before is the folder relative to logDir.
-                # The current layout writes to <logDir>/<cycleBase>/<VMName>/
-                # so the typical request has 3 segments. The older
-                # <logDir>/<failure-folder>/ flat layout (2 segments)
-                # is still accepted because the existence-on-disk check
-                # below is what gates writes -- the runner is the only
-                # producer of these folders, so anything that resolves
-                # to an existing dir is by construction a runner-created
-                # cycle artifact.
+                # See https://yuruna.link/42e5cdfd-0045
                 `$rel  = `$path.Substring(12)
                 `$segs = @(`$rel -split '/' | Where-Object { `$_ })
                 if (`$segs.Count -lt 2 -or (`$segs | Where-Object { -not `$_ })) {
@@ -3644,16 +3212,7 @@ try {
                 `$folderSegs = `$segs[0..(`$segs.Count - 2)]
                 # Relative folder path reported in the success payload and error log below.
                 `$diagFolder = (`$folderSegs -join '/')
-                # Path-traversal guard on every folder segment. Filename
-                # is checked separately below. We don't pattern-match the
-                # folder shape (cycleGuestDataFolders are just the VM
-                # name, with no stable grammar to match) because the
-                # existence-on-disk requirement at the end of this block
-                # is the actual security boundary.
-                # Note: ``continue`` inside the loop would only iterate
-                # over segments -- we set a flag and break, then short-
-                # circuit out of the dispatch with ``continue`` against
-                # the enclosing request loop.
+                # See https://yuruna.link/42e5cdfd-0045
                 `$segReject = `$false
                 foreach (`$seg in `$folderSegs) {
                     if (`$seg -match '[\\]' -or `$seg -match '\.\.') { `$segReject = `$true; break }
@@ -3702,28 +3261,13 @@ try {
             # uncommitted noise. Sidesteps the deny-list (which forbids
             # .git/) since it does not expose the repo internals.
             if (`$path -eq 'yuruna-archive.tar.gz') {
-                # Injects .yuruna-origin and .yuruna-revision sidecars at the
-                # tarball root so guests (which have no .git/ after
-                # ``git archive`` extract) can still report the framework repo's
-                # origin URL in Get-SystemDiagnostic and prove which exact commit
-                # the running services were built and launched from.
-                # Guests extract this tarball every cycle; neither folder is
-                # read on a guest, and the public tree has no dev-only/ at all.
+                # See https://yuruna.link/42e5cdfd-0045
                 Send-GitArchive -Response `$res -Request `$req -Context `$ctx -RepoDir `$repoRoot -ErrorLabel 'yuruna-archive' -ExcludePath @('dev-only', 'docs')
                 continue
             }
 
             # --- REGION: /yuruna-project-archive.tar.gz -- project repo tarball
-            # Symmetric counterpart to /yuruna-archive.tar.gz, but for the
-            # project repo at <repoRoot>/project/. Update-ProjectClone
-            # populates that folder each cycle by ``git clone``-ing the
-            # configured repositories.projectUrl, so HEAD here is the
-            # project's latest committed tree.
-            #
-            # Returns 404 when the project dir is missing or not a git
-            # repo - that's the in-tree-stop-gap path (repositories.projectUrl
-            # is empty in test.config.yml, no clone happened) and the guest
-            # bootstrap interprets a 404 here as "fall back to git clone".
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -eq 'yuruna-project-archive.tar.gz') {
                 `$projectRoot = Join-Path `$repoRoot 'project'
                 if (-not (Test-Path -LiteralPath (Join-Path `$projectRoot '.git'))) {
@@ -3735,17 +3279,9 @@ try {
                 continue
             }
 
-            # --- REGION: /log-upload/<rel>: write a diagnostic file under `$logDir
-            # Failed-install diagnostic sink. Method, path, extension and body-cap
-            # limits below keep the write surface tight; the path is normalized and
-            # range-checked against `$logDir so nothing escapes the log mount.
-            # .tar is allowed alongside the log extensions to carry curtin's
-            # error_tarfile, which holds the curtin logs that are routinely absent
-            # as standalone files at error time -- without it their only copy is
-            # the one embedded in a multi-megabyte crash report. The service
-            # writes and serves these bytes and never unpacks or runs them, so an
-            # archive is no more privileged here than a log.
-            # --- REGION: https://yuruna.link/42d69dfa-001a
+            # --- REGION: /log-upload/<rel> -- write a diagnostic file under `$logDir
+            # See https://yuruna.link/42e5cdfd-0045
+            # See https://yuruna.link/42d69dfa-001a
             if (`$path -like 'log-upload/*') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -3784,13 +3320,7 @@ try {
                 continue
             }
 
-            # Short, shareable per-cycle link: /cycle/<number> -> that cycle's
-            # HTML transcript. The transcript's real path carries the cycle's
-            # timestamp and host id, which makes it far too long to paste into
-            # a message; the number is the only part of it an operator reads off
-            # a console line or a dashboard row. Redirecting rather than serving
-            # in place keeps the relative links INSIDE the transcript (per-guest
-            # folders, failure-screen dirs) resolving against the cycle folder.
+            # See https://yuruna.link/42185271-000e
             if (`$path -match '^cycle/(\d{1,6})/?`$') {
                 # Digits only, re-formatted through an int: the captured segment
                 # cannot carry a traversal sequence into the filter below.
@@ -3840,7 +3370,8 @@ try {
                 continue
             }
 
-            # --- REGION: https://yuruna.link/42185271-000f
+            # --- REGION: /archive/<cycle>.zip -- one cycle folder as a single zip
+            # See https://yuruna.link/42185271-000f
             # Packs one cycle folder into a single .zip for share-cycle.html. The
             # leaf is matched against the cycle-folder grammar rather than
             # sanitized, so no path separator survives and the archive cannot be
@@ -3854,12 +3385,7 @@ try {
                     continue
                 }
                 `$cycleFolder = `$Matches[1]
-                # Download name, derived here so a direct hit on this URL saves
-                # something an operator can recognize months later. The share
-                # page builds the same name from the same folder for the mail
-                # attachment; both read it out of the folder, which already
-                # carries the UTC start (Format-CycleFolderBaseName) and the
-                # host id -- so neither has to be told.
+                # See https://yuruna.link/42e5cdfd-0045
                 `$archiveName = '{0}.{1}T{2}Z.zip' -f `$Matches[4].Substring(0,8), `$Matches[2], `$Matches[3]
                 `$srcDir = Join-Path `$logDir `$cycleFolder
                 if (-not (Test-Path -LiteralPath `$srcDir -PathType Container)) {
@@ -3875,46 +3401,24 @@ try {
                     Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_no_cycle_results_folder_folder_on_this_host_51798923' -Arguments @{ folder = `$cycleFolder }
                     continue
                 }
-                # A HEAD asks whether there is a cycle folder to pack, and the
-                # grammar match and the folder check above have already answered
-                # it -- so answer without packing one. The share page probes with
-                # HEAD before starting a download whose outcome it has no way to
-                # observe; packing a whole folder to answer it would make the
-                # probe cost as much as the download it precedes, on a route that
-                # is open to the LAN.
+                # See https://yuruna.link/42e5cdfd-0045
                 if (`$req.HttpMethod -eq 'HEAD') {
                     `$res.StatusCode = 200
                     `$res.ContentType = 'application/zip'
                     `$res.Headers.Add('Content-Disposition', ('attachment; filename="' + `$archiveName + '"'))
                     `$res.Headers.Add('Cache-Control', 'no-store')
-                    # ContentLength64 stays unset, so the reply frames itself and
-                    # carries no length. The length here is knowable only by
-                    # packing, which is the work this branch exists to skip, and
-                    # RFC 9110 section 9.3.2 permits a HEAD to omit a field
-                    # determined only while generating content -- while
-                    # forbidding outright a length a GET would not have sent.
-                    # Setting it to 0 to look tidy would be exactly that.
+                    # See https://yuruna.link/42e5cdfd-0045
                     `$res.OutputStream.Close()
                     continue
                 }
-                # The archive is written to a file and then served, rather than
-                # packed straight into the response: a pack that fails halfway
-                # can still answer 500 instead of a truncated download, and the
-                # finished size is what the browser and the share page report.
-                # Packed in-process (System.IO.Compression) rather than by
-                # shelling out, so the route needs no archiver on the host.
+                # See https://yuruna.link/42e5cdfd-0045
                 `$tmpArchive = Join-Path `$runtimeDir ("share-cycle." + [guid]::NewGuid().ToString('N') + '.zip')
                 try {
                     `$srcRoot = (Resolve-Path -LiteralPath `$srcDir).ProviderPath.TrimEnd('\', '/')
                     `$zip = [System.IO.Compression.ZipFile]::Open(`$tmpArchive, [System.IO.Compression.ZipArchiveMode]::Create)
                     try {
                         foreach (`$file in [System.IO.Directory]::EnumerateFiles(`$srcRoot, '*', [System.IO.SearchOption]::AllDirectories)) {
-                            # One response carrying a whole folder is a bulk read,
-                            # and the deny-list that guards the per-file reads runs
-                            # further down this dispatch -- so it never sees these
-                            # bytes. Pack under the same rule instead: a shape the
-                            # server refuses to serve on its own is not one it may
-                            # hand over inside an archive.
+                            # See https://yuruna.link/42e5cdfd-0045
                             `$blocked = `$false
                             foreach (`$shape in `$secretNameShapes) {
                                 if ([System.IO.Path]::GetFileName(`$file) -like `$shape) { `$blocked = `$true; break }
@@ -4034,13 +3538,7 @@ try {
             # Apply access rules to the same canonical relative path that
             # file opening uses, so repeated separators cannot bypass them.
             `$relNorm = [System.IO.Path]::GetRelativePath(`$rootFull, `$file) -replace '\\', '/'
-            # NTFS reads a named stream through the file name (name::`$DATA is
-            # the file's own bytes), and GetFullPath leaves that suffix in
-            # place, so the spelling reaches a refused file under a name no
-            # pattern below recognizes. (An 8.3 alias needs no rule of its
-            # own: GetFullPath already resolves it to the long name above.)
-            # Nothing this service serves has a colon in its name, so such a
-            # spelling is refused outright rather than resolved.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$relNorm.Contains(':')) {
                 `$res.StatusCode = 403
                 Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_forbidden_78342a09'
@@ -4081,12 +3579,7 @@ try {
                     continue
                 }
             }
-            # Unified deny-list across non-yuruna-repo dispatches. The
-            # /runtime/ route serves runtime/yuruna-caching-proxy-service.yml
-            # (plaintext caching-proxy-service-admin password); the catch-all serves
-            # status/extension/ (vault.yml, vault.lock, transports.yml,
-            # events.log) and status/ssh/ (private SSH key). Block all
-            # of those uniformly so URL probing never returns secrets.
+            # See https://yuruna.link/42e5cdfd-0045
             if (`$path -notlike 'yuruna-repo/*') {
                 `$denyLikeStatus = @(
                     '*/vault.yml',     'vault.yml',
@@ -4111,12 +3604,7 @@ try {
                 }
             }
             # --- REGION: Directory listing
-            # When the resolved path is a directory, serve an HTML index
-            # of its contents with relative links. Used by the failure-
-            # screens folder under /log/<id>.<ts>.failure-screens-<vm>/
-            # whose <a href=".../"> in the HTML transcript otherwise 404'd.
-            # Skipped for /yuruna-repo/* so a working-tree listing never
-            # exposes paths beyond the existing per-file deny-list.
+            # See https://yuruna.link/42e5cdfd-0045
             if (Test-Path -LiteralPath `$file -PathType Container) {
                 if (`$path -like 'yuruna-repo/*' -or `$path -eq 'yuruna-repo' -or `$path -eq 'yuruna-repo/' -or
                     `$root -ceq `$runtimeDir -or `$relNorm -eq 'runtime' -or `$relNorm -like 'runtime/*') {
@@ -4137,14 +3625,7 @@ try {
                 }
                 `$entries = @(Get-ChildItem -LiteralPath `$file -Force -ErrorAction SilentlyContinue |
                     Sort-Object @{Expression = { -not `$_.PSIsContainer }}, Name)
-                # The /log/ ROOT index also lists archived cycles. Without this a
-                # move-mode host shows an almost empty log directory -- and the pool
-                # aggregator, which resolves a clicked cycle partly by reading this
-                # listing, loses its view of everything the host has archived.
-                # Scoped to the root index only (that is the one level the
-                # aggregator fetches) and deduplicated by name with the LOCAL entry
-                # winning, so a copy-mode host -- where every archived cycle is also
-                # still local -- renders exactly as it did before.
+                # See https://yuruna.link/42e5cdfd-0045
                 if (`$path -eq 'log' -or `$path -eq 'log/') {
                     `$localNames = @{}
                     foreach (`$e in `$entries) { `$localNames[`$e.Name] = `$true }
@@ -4157,14 +3638,7 @@ try {
                             Sort-Object @{Expression = { -not `$_.PSIsContainer }}, Name)
                     }
                 }
-                # Resolved BEFORE the rendering block below, not inside it. That
-                # block is lifted out verbatim and run on its own by the page
-                # exporter, so anything in it that reaches for a request would
-                # certify markup no service emits -- and the export would fail
-                # on a null rather than on anything about the page.
-                # The exporter supplies this variable the same way it supplies
-                # the entries, which also lets it render the listing in a
-                # pseudo-locale for the mirrored-direction check.
+                # See https://yuruna.link/42e5cdfd-0045
                 `$listingLocale = Resolve-PageLocale -AcceptLanguage `$req.Headers['Accept-Language']
                 `$sb = [System.Text.StringBuilder]::new()
                 # Paths and entry names are attacker-controlled text inside a
@@ -4193,21 +3667,11 @@ try {
                 `$listingRequestedEnc = [System.Net.WebUtility]::HtmlEncode(`$listingLocale.RequestedTag)
                 `$listingDirectionEnc = [System.Net.WebUtility]::HtmlEncode(`$listingLocale.Direction)
                 `$listingSourceEnc = [System.Net.WebUtility]::HtmlEncode(`$listingLocale.Source)
-                # Single-quoted concat avoids double-quote escaping
-                # noise both at template time (`@"..."@` collapses
-                # backtick-quote to bare quote, which would corrupt
-                # the inner attribute quotes) and at deployed-parse
-                # time. `$titleEnc` is the only dynamic part, so a
-                # plain `+` keeps the rest literal.
+                # See https://yuruna.link/42e5cdfd-0045
                 [void]`$sb.AppendLine('<!doctype html><html lang="' + `$listingTagEnc + '" dir="' + `$listingDirectionEnc + '" data-yuruna-requested-language="' + `$listingRequestedEnc + '" data-yuruna-locale-source="' + `$listingSourceEnc + '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>' + `$titleEnc + '</title><link rel="stylesheet" href="/yuruna.common.css"><style>body{margin:1.5em}h1{font-size:1.1em}h1,caption{overflow-wrap:anywhere}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom:1px solid var(--border);font-family:var(--font-mono);text-align:left}th{background:var(--bg-hover)}caption{text-align:left;padding:0.2em 1em 0.6em;font-family:var(--font-mono)}.scroller{overflow-x:auto}</style></head><body>')
                 [void]`$sb.AppendLine('<main>')
                 [void]`$sb.AppendLine("<h1>`$titleEnc</h1>")
-                # The table IS the page here. Without a caption and column scopes
-                # a reader landing in the middle of a thousand-row listing cannot
-                # learn which directory it is in or which column a cell belongs to.
-                # Cycle folder names run past sixty characters, so at a narrow
-                # viewport the horizontal scroll has to belong to the table.
-                # Left on the body it is a two-dimensional scroll of the page.
+                # See https://yuruna.link/42e5cdfd-0045
                 [void]`$sb.AppendLine('<div class="scroller">')
                 [void]`$sb.AppendLine('<table><caption>' + `$captionEnc + '</caption><thead><tr><th scope="col">' + `$columnNameEnc + '</th><th scope="col">' + `$columnSizeEnc + '</th><th scope="col">' + `$columnModifiedEnc + '</th></tr></thead><tbody>')
                 if (`$origLocal -ne '/') {
@@ -4288,20 +3752,7 @@ try {
                     '.md'   { 'text/markdown; charset=utf-8' }
                     default { 'application/octet-stream' }
                 }
-                # Cache policy by file type. The two top-level dashboards
-                # (index.html, config.html) carry a 60-second freshness
-                # window with must-revalidate so a browser left open re-
-                # fetches on the next navigation/poll instead of serving a
-                # stale DOM that bare 'no-store' headers paradoxically
-                # leak through some clients. Last-Modified rides along so
-                # the revalidation can return 304 (cheap) when nothing
-                # changed. Everything else mutates per cycle (.json) or is
-                # repo content served for guests (.sh, .ps1, .psm1, .yml,
-                # .yaml, .md) where a host edit + Start-StatusService
-                # restart must be visible immediately -- those keep
-                # no-store. .txt / .css / .js straddle: they're rare on
-                # this server and we treat them like the dynamic bucket
-                # to be safe.
+                # See https://yuruna.link/42e5cdfd-0045
                 if (`$immutableLocaleCatalog) {
                     if (-not (Set-ImmutableAssetValidator -Request `$req -Response `$res ``
                             -Asset `$immutableLocaleCatalog)) {
@@ -4340,13 +3791,7 @@ try {
                     [System.IO.File]::ReadAllBytes(`$file)
                 }
                 if (`$ext -eq '.html') {
-                    # The language goes into the document before it is sent, so
-                    # the page is already in the right one at first paint and
-                    # the script that runs afterwards reads it rather than
-                    # deciding it. The representation is negotiated, so it says
-                    # which language it is and varies on the header that chose
-                    # it -- without that a shared cache hands whichever
-                    # language was asked for first to everyone after.
+                    # See https://yuruna.link/42e5cdfd-0045
                     `$locale = Resolve-PageLocale -AcceptLanguage `$req.Headers['Accept-Language']
                     `$html = [System.Text.Encoding]::UTF8.GetString(`$bytes)
                     `$html = ConvertTo-LocalizedPageHtml -Html `$html -Locale `$locale
@@ -4369,26 +3814,14 @@ try {
                 if (`$errorResponse.ShouldWrite -and `$req.HttpMethod -ne 'HEAD') {
                     `$res.OutputStream.Write(`$errorResponse.Bytes, 0, `$errorResponse.Bytes.Length)
                 }
-                # /yuruna-repo/* 404s are operationally distinct from
-                # generic dashboard 404s: they signal the working-tree
-                # rename race (memory note
-                # feedback_status_server_working_tree_rename_race.md) where a guest's mid-cycle
-                # fetch-and-execute resolves to a path the host has just
-                # renamed/deleted. Log the requested path + resolved file
-                # so the operator can correlate a wget exit 8 in the
-                # guest transcript with the file that vanished here.
+                # See https://yuruna.link/42e5cdfd-0045
                 if (`$path -like 'yuruna-repo/*') {
                     Write-ServerErr "yuruna-repo 404: path=`$path resolved=`$file"
                 }
             }
             `$res.OutputStream.Close()
         } catch {
-            # Aborting is the only honest answer once a handler has failed
-            # mid-response, but it reaches the client as a bare torn
-            # connection -- an RST under http.sys, an empty 200 under the
-            # managed listener -- and carries no reason with it. Record the
-            # throw here or a route that fails on every request is
-            # indistinguishable from a network fault to everyone looking at it.
+            # See https://yuruna.link/42e5cdfd-0045
             Write-ServerErr "handler error: path=`$path `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
             try { `$ctx.Response.Abort() } catch { Write-Debug `$_ }
         }
@@ -4436,12 +3869,7 @@ try {
         # See https://yuruna.link/42e5cdfd-0045
         $serverOut = Join-Path $RuntimeDir "server.out"
         $serverErrFile = Join-Path $RuntimeDir "server.stderr"
-        # Wrap $serverScriptFile in literal double quotes before handing it to
-        # -ArgumentList. Start-Process joins the array elements with spaces
-        # WITHOUT quoting, so a path like "C:\Users\Yuruna Test\..." gets
-        # re-split by CreateProcess and the child pwsh sees -File C:\Users\Yuruna
-        # and reports: The argument 'C:\Users\Yuruna' is not recognized as the
-        # name of a script file.
+        # See https://yuruna.link/42e5cdfd-0045
         $serverScriptQuoted = '"' + $serverScriptFile + '"'
         # See https://yuruna.link/42e5cdfd-0045
         $stdinSink = Join-Path $RuntimeDir 'stdin.empty'
@@ -4495,8 +3923,9 @@ if (-not $serverReady) {
     }
 }
 
-# --- REGION: https://yuruna.link/4220a755-002d
+# --- REGION: Host-address beacon
 # See https://yuruna.link/42e5cdfd-0046
+# See https://yuruna.link/4220a755-002d
 if ($serverReady) {
     try {
         $beaconScript = Join-Path $RepoRoot 'test/modules/Invoke-HostAddressBeacon.ps1'
@@ -4525,34 +3954,18 @@ if ($serverReady) {
                     -RedirectStandardOutput $beaconOut `
                     -RedirectStandardError  $beaconErr | Out-Null
             } else {
-                # stdout to a file, NOT /dev/null. The address-change history is
-                # written with Write-Information, which goes to stdout, so
-                # discarding it discards the only local record of when this host
-                # moved -- and that record is what an operator reconstructs a
-                # failed cycle from. Warnings already reach the .err file; the
-                # changes are the part worth keeping.
+                # See https://yuruna.link/42e5cdfd-0045
                 $beaconOut = Join-Path $RuntimeDir 'hostaddress.beacon.out'
                 & bash -c "set -m; nohup pwsh -NoProfile -NonInteractive -File '$beaconScript' -StatusPort '$Port' </dev/null >>'$beaconOut' 2>'$beaconErr' & echo `$!" | Out-Null
             }
         }
     } catch {
-        # Non-fatal, but not silent. With the already-running case handled
-        # above, reaching here means this host has NO push path to the pool
-        # directory: guests that need to re-resolve a moved host wait on the
-        # aggregator's own log-tail discovery, which lags exactly when it
-        # matters. A verbose-only line makes that state indistinguishable from
-        # a healthy one in the cycle log.
+        # See https://yuruna.link/42e5cdfd-0045
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_beacon_start_failed' -Arguments @{ detail = $_.Exception.Message; logPath = (Join-Path $RuntimeDir 'hostaddress.beacon.err') })
     }
 }
 
-# Persist the framework HEAD SHA the new server was launched against so a
-# subsequent Start-StatusService invocation (the per-cycle call from
-# Invoke-TestRunnerInnerLoop.ps1) can short-circuit the kill+relaunch when the
-# code the running server already loaded is still current. Written AFTER
-# the readiness probe so a server that never came up does not advertise
-# itself as "already running on SHA X" -- the missing SHA file forces the
-# next call to restart.
+# See https://yuruna.link/42e5cdfd-0045
 try {
     $launchSha = if ($RefreshSafe) { Get-RefreshSafeFrameworkSha } else { (& git -C $RepoRoot rev-parse HEAD 2>$null | Out-String).Trim() }
     if ($launchSha) {

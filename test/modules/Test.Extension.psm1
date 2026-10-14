@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42f9c779-1132-4dfb-9658-60cfc646620d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,7 @@ $script:ExtensionDir = Join-Path $script:RepoRoot 'test/extension'
 # content-hash check -- these files are small (<1 KB) and not subject to
 # the same-size + same-mtime race the test-config cache defends against.
 $script:ExtensionConfigCache = @{}
+$script:LastExtensionHostLookup = @{ Area = ''; Outcome = 'none'; Detail = ''; Uri = '' }
 
 <#
 .SYNOPSIS
@@ -432,6 +433,8 @@ function Get-ExtensionHostAddress {
         [int]$TimeoutSeconds = 5
     )
 
+    $script:LastExtensionHostLookup = @{ Area = $HostType; Outcome = 'reader-unavailable'
+        Detail = 'No pool-aggregator-service reader available'; Uri = '' }
     $candidates = [System.Collections.Generic.List[hashtable]]::new()
 
     # 1. Operator pin.
@@ -481,6 +484,12 @@ function Get-ExtensionHostAddress {
         if (-not [string]::IsNullOrWhiteSpace($AggregatorBaseUrl)) { $lookup['BaseUrl'] = $AggregatorBaseUrl }
         try {
             $fromPool = [string](Get-PoolExtensionHost @lookup)
+            $script:LastExtensionHostLookup = @{ Area = $HostType; Outcome = 'none'; Detail = ''; Uri = '' }
+            if (Get-Command Get-PoolExtensionHostLastOutcome -ErrorAction SilentlyContinue) {
+                $poolOutcome = Get-PoolExtensionHostLastOutcome
+                $script:LastExtensionHostLookup = @{ Area = $HostType; Outcome = [string]$poolOutcome.Outcome
+                    Detail = [string]$poolOutcome.Detail; Uri = [string]$poolOutcome.Uri }
+            }
             if (-not [string]::IsNullOrWhiteSpace($fromPool)) {
                 [void]$candidates.Add(@{ Address = $fromPool; Source = 'the pool' })
             } elseif (Get-Command Get-PoolExtensionHostLastOutcome -ErrorAction SilentlyContinue) {
@@ -497,6 +506,8 @@ function Get-ExtensionHostAddress {
                 }
             }
         } catch {
+            $script:LastExtensionHostLookup = @{ Area = $HostType; Outcome = 'lookup-error'
+                Detail = $_.Exception.Message; Uri = '' }
             Write-Verbose "Get-ExtensionHostAddress: the pool lookup for '$HostType' failed: $($_.Exception.Message)"
         }
     } else {
@@ -519,4 +530,22 @@ function Get-ExtensionHostAddress {
     return [string[]]$addresses.ToArray()
 }
 
-Export-ModuleMember -Function Resolve-ExtensionAreaDir, Read-ExtensionConfig, Get-ActiveExtensionName, Import-Extension, Resolve-ExtensionMethod, Assert-ExtensionContractCoverage, Get-ExtensionAreaName, Import-ConfiguredExtension, Get-ExtensionHostAddress, Find-LoadedExtensionModule
+# --- REGION: Get-ExtensionHostLastOutcome
+function Get-ExtensionHostLastOutcome {
+    <#
+    .SYNOPSIS
+        The pool discovery outcome of the most recent extension-host lookup.
+    .DESCRIPTION
+        Read immediately after Get-ExtensionHostAddress. The area and outcome
+        are reset for every lookup, including exceptions before an HTTP call,
+        so a caller never receives another area's response as its evidence.
+    .OUTPUTS
+        Hashtable with Area, Outcome, Detail, and Uri.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    return $script:LastExtensionHostLookup.Clone()
+}
+
+Export-ModuleMember -Function Resolve-ExtensionAreaDir, Read-ExtensionConfig, Get-ActiveExtensionName, Import-Extension, Resolve-ExtensionMethod, Assert-ExtensionContractCoverage, Get-ExtensionAreaName, Import-ConfiguredExtension, Get-ExtensionHostAddress, Get-ExtensionHostLastOutcome, Find-LoadedExtensionModule

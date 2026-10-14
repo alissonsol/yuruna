@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -108,14 +108,14 @@ function Stop-WithReason {
     exit $Code
 }
 
-# --- REGION: Pre-flight: elevation
+# --- REGION: Elevation check
 # See https://yuruna.link/42010605-0002
 if (-not (Assert-Elevation -HostType (Get-HostType))) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-flight (elevation)' `
         -Reason 'This host requires an elevated shell. Re-run from an elevated PowerShell -- stopping now, before <RepoRoot>/project is wiped and re-cloned.'
 }
 
-# --- REGION: Pre-flight: repo layout
+# --- REGION: Preflight: repo layout
 if (-not (Test-Path -LiteralPath $InnerScript)) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-flight' `
         -Reason "Inner test runner not found at $InnerScript. The yuruna repo layout appears wrong; verify your clone is intact."
@@ -130,7 +130,7 @@ and set repositories.projectUrl before re-running.
 "@
 }
 
-# --- REGION: Pre-flight: powershell-yaml + projectUrl
+# --- REGION: Preflight: powershell-yaml + projectUrl
 if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue)) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-flight' `
         -Reason "powershell-yaml is not installed. Install with: Install-Module powershell-yaml -Scope CurrentUser"
@@ -188,11 +188,11 @@ Write-Output "  Inner:      $InnerScript"
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9b5f387caf6f42bd')
 Write-Output '========'
 
-# --- REGION: Pre-cycle config gate (mirrors Start-TestRunner + Debug-TestSequence)
-# Invoke-TestProject re-clones the project then runs one cycle. Without this gate
-# a misconfigured framework config (vault, users, transports) would only
-# surface mid-cycle as a confusing step failure. Bypass with -NoConfigGate
-# for in-progress edits.
+# --- REGION: Pre-cycle config gate
+# Same gate as Start-TestRunner and Debug-TestSequence. Invoke-TestProject
+# re-clones the project then runs one cycle. Without this gate a misconfigured
+# framework config (vault, users, transports) would only surface mid-cycle as a
+# confusing step failure. Bypass with -NoConfigGate for in-progress edits.
 $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'Invoke-TestProject'
 if (-not $gate.passed) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-cycle config gate' `

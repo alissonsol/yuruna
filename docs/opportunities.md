@@ -193,9 +193,9 @@ only when the enabling condition arrives.
   failure-pause loop needs cross-host consensus, which the atomic
   single-instance runner model deliberately avoids. Hardest item here;
   tackle only with a clear consensus design.
-- **Write-side control beyond polled intent.** [PARKED] The git intent store,
-  pull-sync shim, and admin CLI already give decentralized `desiredState`
-  control. Keep any expansion intent-based (pull) -- a central
+- **Write-side control beyond polled configuration.** [PARKED] The git configuration store,
+  pull-sync shim, and admin CLI already give decentralized `configuredState`
+  control. Keep any expansion configuration-based (pull) -- a central
   command-dispatch master would add a single point of failure and fight the
   autonomous pull model.
 - **Snapshot integrity pre-check.** [PARKED] Verify a snapshot exists and is
@@ -255,7 +255,7 @@ docs / code):
 - **Multi-host pool harness, Phases 0-6** -- DHCP-resilient `hostId` +
   capability record; the self-discovering stdlib-Go pull-collector and
   Grafana pool dashboard; per-step NDJSON tail + incident correlation;
-  pool intent schemas, git intent store, pull-sync shim, and admin CLI
+  pool configuration schemas, git configuration store, pull-sync shim, and admin CLI
   ([pool-admin.md](pool-admin.md)); pooled-project execution; advisory
   pool gating, alerting, and first-engage remediation;
   push telemetry with TLS/bearer auth. All additive -- a no-pool host is
@@ -279,6 +279,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

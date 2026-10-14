@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,29 +66,17 @@ $script:KvmQemuRunDir = '/var/run/libvirt/qemu'
 # before signaling it; a variable for the same reason as the pidfile directory.
 $script:KvmProcRoot = '/proc'
 
-<#
-.SYNOPSIS
-    Returns this driver's host tag, repairing it if module state was lost.
-.DESCRIPTION
-    $script: state does not survive this module being -Force re-imported
-    (feedback_module_script_state_reset_by_force_reimport). A caller holding
-    an already-resolved reference to a contract function keeps running against
-    the evicted instance, whose session state has been torn down, and
-    $script:HostTag then reads as an empty string.
-
-    That empty string is load-bearing: binding it to the dispatcher's
-    -HostType fails with "Cannot bind argument to parameter 'HostType'
-    because it is an empty string", so the keystroke types nothing while the
-    caller sees only a non-terminating error and carries on. A console line
-    left half-typed that way stays in the tty and the next text sent to the
-    guest is appended to it, surfacing much later as a command nobody wrote.
-
-    The tag is a compile-time constant for this driver, so resolving it
-    through a literal fallback makes the empty binding impossible regardless
-    of module lifetime, and restores the variable for any other reader that
-    can still reach this scope.
-#>
+# --- REGION: Resolve-HostTag
 function Resolve-HostTag {
+    <#
+    .SYNOPSIS
+        Returns this driver's host tag, repairing it if module state was lost.
+    .DESCRIPTION
+        Uses the driver's literal tag when a retained function reference has
+        lost its module state after a forced re-import.
+    .LINK
+        https://yuruna.link/42e5cdfd-0002
+    #>
     [OutputType([string])]
     param()
     if ([string]::IsNullOrWhiteSpace($script:HostTag)) { $script:HostTag = 'host.ubuntu.kvm' }
@@ -224,6 +212,122 @@ function Format-VirtualizationProbeDiagnostic {
     return (Format-YurunaVirtualizationProbeDiagnostic @PSBoundParameters)
 }
 
+# --- REGION: Caching-proxy service IP discovery
+# --- REGION: Resolve-CacheHostIp
+function Resolve-CacheHostIp {
+    <#
+    .SYNOPSIS
+        Returns a reachable caching-proxy-service IP, or $null when unavailable.
+    .DESCRIPTION
+        Honors the explicit remote-cache override before local discovery.
+        An unreachable override returns $null rather than using a local cache.
+    .OUTPUTS
+        [string] Reachable cache IP address, or $null.
+    .LINK
+        https://yuruna.link/42ec97cd-0018
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $httpPort = Get-CachingProxyServicePort -Scheme http
+    if ($Env:YURUNA_CACHING_PROXY_SERVICE_IP) {
+        $externIp = $Env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
+        if ((Test-IpAddress $externIp) -and (Test-CachingProxyServicePort -IpAddress $externIp -Port $httpPort -TimeoutMs 500)) {
+            return $externIp
+        }
+        return $null
+    }
+    $ip = Get-CachingProxyServiceVmIp
+    if ($ip -and (Test-IpAddress $ip) -and (Test-CachingProxyServicePort -IpAddress $ip -Port $httpPort -TimeoutMs 500)) {
+        return $ip
+    }
+    return $null
+}
+
+# --- REGION: Save-CachedHttpUri
+function Save-CachedHttpUri {
+    <#
+    .SYNOPSIS
+        Downloads $Uri to $OutFile through the cache, with a direct fallback.
+    .DESCRIPTION
+        Binds this driver's cache discovery to the shared download pipeline.
+    .LINK
+        https://yuruna.link/42ec97cd-0018
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$OutFile
+    )
+    Yuruna.HostDownload\Save-CachedHttpUri -Uri $Uri -OutFile $OutFile -ResolveCacheHostIp { Resolve-CacheHostIp }
+}
+
+# --- REGION: Host proxy helpers
+function Read-LinuxProxyState {
+    <#
+    .SYNOPSIS
+        Read current Linux host proxy state into a backup hashtable.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    $state = @{ previousUrl = $null; aptConfigPresent = $false }
+    if (Test-Path -LiteralPath '/etc/environment') {
+        $env = Get-Content -LiteralPath /etc/environment -ErrorAction SilentlyContinue
+        foreach ($line in $env) {
+            if ($line -match '^(?:HTTPS?|https?)_proxy\s*=\s*"?([^"]+?)"?\s*$') {
+                $state['previousUrl'] = $Matches[1]; break
+            }
+        }
+    }
+    $state['aptConfigPresent'] = (Test-Path -LiteralPath '/etc/apt/apt.conf.d/99yuruna-host-proxy')
+    return $state
+}
+
+<#
+.SYNOPSIS
+    Apply the proxy via /etc/environment + /etc/apt/apt.conf.d (sudo).
+#>
+function Set-LinuxHostProxy {
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Private helper; the public Set-HostProxy/Clear-HostProxy callers already gate via SupportsShouldProcess.')]
+    param([Parameter(Mandatory)][string]$ProxyUrl)
+    # /etc/environment: clean any prior yuruna-managed lines first, then
+    # write the new ones. Match upper-case + lower-case forms.
+    if ($ProxyUrl -match '[\x00-\x1f\x7f]') { throw 'Proxy URL contains a control character.' }
+    $script = @'
+set -e
+proxy=$1
+proxy=${proxy//\\/\\\\}
+proxy=${proxy//\"/\\\"}
+sed -i.yuruna-bak '/^[Hh][Tt][Tt][Pp][Ss]\?_proxy\s*=/d' /etc/environment
+printf 'http_proxy="%s"\nhttps_proxy="%s"\nHTTP_PROXY="%s"\nHTTPS_PROXY="%s"\n' "$proxy" "$proxy" "$proxy" "$proxy" >> /etc/environment
+mkdir -p /etc/apt/apt.conf.d
+printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$proxy" "$proxy" > /etc/apt/apt.conf.d/99yuruna-host-proxy
+chmod 0644 /etc/apt/apt.conf.d/99yuruna-host-proxy
+'@
+    & sudo bash -c $script _ $ProxyUrl | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+<#
+.SYNOPSIS
+    Disable the Linux host proxy (rm apt config + strip /etc/environment).
+#>
+function Disable-LinuxHostProxy {
+    [CmdletBinding()]
+    param()
+    $script = @'
+set -e
+sed -i.yuruna-bak '/^[Hh][Tt][Tt][Pp][Ss]\?_proxy\s*=/d' /etc/environment
+rm -f /etc/apt/apt.conf.d/99yuruna-host-proxy
+'@
+    & sudo bash -c $script | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
 # --- REGION: VM lifecycle
 # --- REGION: New-VM
 function New-VM {
@@ -302,9 +406,14 @@ function Stop-VM {
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$VMName,
-        [switch]$Force
+        [switch]$Force,
+        # Bounds the poll after the ACPI request; 0 keeps the 30 s default.
+        [int]$ShutdownTimeoutSeconds = 0,
+        # Accepted for contract parity: this driver never escalates on its own.
+        [switch]$NoForce
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, ($Force ? (Format-YurunaOperatorMessage -Key 'host.operator_872a5355019f83c5') : (Format-YurunaOperatorMessage -Key 'host.operator_156e139837bd477d')))) { return $false }
+    if ($NoForce) { Write-Verbose 'Stop-VM: -NoForce is the default on KVM; the ACPI request is never escalated here.' }
     $state = Get-KvmDomainState -VMName $VMName
     if ($state.State -eq 'absent' -or $state.Raw -in @('shut off', 'crashed')) { return $true }
     if ($state.State -eq 'unknown') { return $false }
@@ -313,7 +422,7 @@ function Stop-VM {
     if ($LASTEXITCODE -ne 0) { return $false }
     # virsh shutdown is asynchronous (ACPI shutdown signal); poll up to ~30s
     # for the OS to follow through.
-    $deadline = (Get-Date).AddSeconds(30)
+    $deadline = (Get-Date).AddSeconds($(if ($ShutdownTimeoutSeconds -gt 0) { $ShutdownTimeoutSeconds } else { 30 }))
     while ((Get-Date) -lt $deadline) {
         $state = Get-KvmDomainState -VMName $VMName
         if ($state.State -eq 'absent' -or $state.Raw -in @('shut off', 'crashed')) { return $true }
@@ -545,13 +654,7 @@ function Remove-VM {
     Invoke-Virsh -VirshArgs @('destroy', $VMName) | Out-Null
 
     # --- REGION: https://yuruna.link/42d69dfa-001e
-    # libvirt refuses to undefine a domain that still owns per-domain
-    # metadata, and each kind needs its own opt-in flag: snapshot metadata
-    # ("cannot delete inactive domain with N snapshots"), checkpoint
-    # metadata, a managed-save image, and the NVRAM file. A workload that
-    # takes a disk snapshot would otherwise leave a domain that can never
-    # be undefined. Ask for all of them in one call so removal does not
-    # depend on which features the guest workload happened to use.
+    # See https://yuruna.link/42e5cdfd-0012
     $undefineArgs = @('undefine', '--nvram', '--managed-save',
                       '--snapshots-metadata', '--checkpoints-metadata', $VMName)
     $undefineOut = Invoke-Virsh -VirshArgs $undefineArgs
@@ -582,329 +685,116 @@ function Remove-VM {
     return ($undefined -and $filesRemoved)
 }
 
-# --- REGION: Get-VMName
-function Get-VMName {
+# --- REGION: Rename-VM
+function Rename-VM {
     <#
     .SYNOPSIS
-        Return the names of every defined libvirt domain, optionally filtered
-        to those starting with one of $Prefix.
+        Rename a stopped libvirt domain and relocate its on-disk artifacts.
     .DESCRIPTION
-        Host-neutral inventory call (see the contract's VM inventory block).
-        `list --all` covers running, paused and shut-off domains, so a caller
-        sweeping by prefix removes stopped leftovers as well as running ones.
+        libvirt 1.2.19+ ships `virsh domrename` which mutates the domain
+        name atomically in the registry; that's the fast path. We follow up
+        by renaming the per-VM artifact directory (~/yuruna/vms/<old> ->
+        ~/yuruna/vms/<new>) and rewriting the XML's <disk source file=...>
+        paths to point at the new dir, then re-defining the domain so the
+        new XML is canonical. Without the dir+XML rewrite the qcow2 still
+        lives under the old path and the next cycle's
+        Remove-OrphanedVMFiles.ps1 would reclaim it on the
+        "directory-named-after-an-absent-VM" heuristic.
 
-        THROWS when virsh cannot be reached rather than returning an empty
-        list: a missing binary, a stopped libvirtd, or a shell whose group set
-        lacks libvirt all fail the query, and a caller that read that as
-        "nothing defined" would report a clean host and let the orphan-file
-        pass delete storage still owned by a defined domain.
-    .PARAMETER Prefix
-        Zero or more name prefixes. A domain is returned when its name starts
-        with any of them. Omit to return every domain.
-    .OUTPUTS
-        [string[]] matching domain names; empty when none match.
+        The same rewrite moves the NIC address, but only for a domain still
+        sitting on the address the OLD name derives: that one belongs to the
+        name being vacated, and the next build under it is refused outright
+        while a domain still holds it. A domain on any other address was
+        pinned at build time to the identity its guest keeps for life and is
+        left alone -- see Set-GuestMacInDomainXml.
+
+        Requires the domain to be positively powered off (virsh domstate
+        'shut off') and the destination name positively absent; the caller
+        (Save-VMDiskSnapshot) handles the stop. Returns $false on any sub-step
+        failure.
     #>
-    [CmdletBinding()]
-    [OutputType([string[]])]
-    param([string[]]$Prefix)
-    if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_6ce33651bd210b55')
-    }
-    $output = Invoke-Virsh -VirshArgs @('list', '--all', '--name')
-    if ($LASTEXITCODE -ne 0) {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_a6a18006853361cb' -Arguments @{ join = "$($output -join '; ')" })
-    }
-    # `--name` prints one name per line and a trailing blank line; the
-    # blank entries are dropped by the shared prefix filter.
-    $all = @($output | ForEach-Object { "$_".Trim() })
-    return Select-NameByPrefix -Name $all -Prefix $Prefix
-}
-
-<#
-.SYNOPSIS
-    One bounded libvirt domain-state read, with the reason behind the answer.
-.DESCRIPTION
-    Precedence, first match wins:
-      1. No launchable virsh, a timeout, or output that was not fully drained
-         or was truncated -> 'unknown'. None of these is an answer.
-      2. A nonzero exit whose text is a connection, permission or policy
-         failure -> 'unknown': libvirt never got to look the domain up.
-      3. A nonzero exit whose text says the domain lookup failed -> 'absent'.
-         virsh reports a missing domain as "failed to get domain" (or "domain
-         not found" / "no domain with") once it is connected and authorized.
-      4. Any other nonzero exit -> 'unknown'.
-      5. Exit 0 -> the first non-empty line mapped to running/stopped, and an
-         empty or unrecognized line -> 'unknown'.
-    'absent' is what callers read as permission to build or reuse a name, so it
-    is produced only by a completed, recognized not-found answer.
-.OUTPUTS
-    [pscustomobject] @{ State = running|stopped|absent|unknown; Raw; Reason }
-    Raw is the first libvirt state line ('' when none). Reason is one of
-    observed, not-found, missing-client, timeout, invalid-response,
-    permission-denied, provider-error.
-#>
-function Get-KvmDomainState {
-    [CmdletBinding()]
-    [OutputType([pscustomobject])]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$VMName,
-        [ValidateRange(1, 3600)][int]$TimeoutSeconds = 20
+        [Parameter(Mandatory)][string]$NewName
     )
-    $emit = {
-        param([string]$State, [string]$Raw, [string]$Reason)
-        [pscustomobject]@{ State = $State; Raw = $Raw; Reason = $Reason }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_e9e1683d4b60f469' -Arguments @{ newName = "$NewName" }))) { return $false }
+    if ($VMName -eq $NewName) { return $true }
+    # See https://yuruna.link/42e220c4-0004
+    $source = Get-KvmDomainState -VMName $VMName -TimeoutSeconds $script:VirshQueryTimeoutSeconds
+    if ($source.State -eq 'absent') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0ef104304974ce38' -Arguments @{ vMName = "$VMName" })
+        return $false
     }
-    $result = Invoke-VirshBounded -VirshArgs @('domstate', $VMName) -TimeoutSeconds $TimeoutSeconds
-    if (-not $result.Started) { return (& $emit 'unknown' '' 'missing-client') }
-    if ($result.TimedOut) { return (& $emit 'unknown' '' 'timeout') }
-    if (-not (Test-DriverNativeResultComplete -Result $result)) { return (& $emit 'unknown' '' 'invalid-response') }
-    if ($result.ExitCode -ne 0) {
-        $text = "$($result.StdOut)`n$($result.StdErr)"
-        if ($text -match '(?i)permission denied|authentication (failed|unavailable)|access denied|not authorized|polkit') {
-            return (& $emit 'unknown' '' 'permission-denied')
-        }
-        if ($text -match '(?i)failed to connect') { return (& $emit 'unknown' '' 'provider-error') }
-        if ($text -match 'failed to get domain|domain not found|no domain with') { return (& $emit 'absent' '' 'not-found') }
-        return (& $emit 'unknown' '' 'provider-error')
+    if ($source.State -ne 'stopped' -or $source.Raw -ne 'shut off') {
+        $sourceWord = if ($source.Raw) { [string]$source.Raw } else { [string]$source.State }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.kvm_rename_source_not_stopped' -Arguments @{ vMName = "$VMName"; state = "$sourceWord" })
+        return $false
     }
-    $lines = @(Get-BoundedNativeOutputLine -Result $result)
-    $raw = "$($lines | Where-Object { "$_".Trim() -ne '' } | Select-Object -First 1)".Trim()
-    $state = switch -Regex ($raw) {
-        '^running$'              { 'running'; break }
-        '^(shut off|crashed)$'   { 'stopped'; break }
-        '^(paused|in shutdown)$' { 'stopped'; break }
-        '^(idle|pmsuspended)$'   { 'stopped'; break }
-        default                  { 'unknown' }
+    if ((Get-VMState -VMName $NewName) -ne 'absent') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f69adb6b2f614a13' -Arguments @{ newName = "$NewName" })
+        return $false
     }
-    $reason = if ($state -eq 'unknown') { 'invalid-response' } else { 'observed' }
-    return (& $emit $state $raw $reason)
-}
-
-# --- REGION: Get-VMState
-function Get-VMState {
-    <#
-    .SYNOPSIS
-        Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
-    .DESCRIPTION
-        A bounded read through Get-KvmDomainState, capped at
-        $script:VirshQueryTimeoutSeconds, so a wedged libvirtd answers 'unknown'
-        instead of holding the caller. Only a completed response naming the domain
-        as not found is 'absent': a missing client, a timeout, truncated output,
-        denied permission or any unrecognized failure is 'unknown'. That precedence
-        matters because callers (Restore-YurunaServiceVM among them) treat 'absent'
-        as permission to build or reuse a name, and a provider fault read that way
-        would rebuild over a VM that still exists.
-
-        Get-VirshDomState keeps its raw-passthrough-or-empty contract for the call
-        sites and mocks that depend on it.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([Parameter(Mandatory)][string]$VMName)
-    return [string](Get-KvmDomainState -VMName $VMName -TimeoutSeconds $script:VirshQueryTimeoutSeconds).State
-}
-
-<#
-.SYNOPSIS
-    Build one Yuruna.VirtualizationProbe record (schema version 1).
-.DESCRIPTION
-    Every return path of the probe goes through here so the record always has
-    every field and every evidence key, whichever branch produced it.
-#>
-function New-KvmVirtualizationProbeRecord {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
-    [CmdletBinding()]
-    [OutputType([pscustomobject])]
-    param(
-        [Parameter(Mandatory)][string]$State,
-        [Parameter(Mandatory)][string]$Reason,
-        [bool]$Started,
-        [bool]$TimedOut,
-        [bool]$DeadlineExhausted,
-        [Parameter(Mandatory)][string]$ObservedUtc,
-        [long]$ObservedTick,
-        [long]$ElapsedMs,
-        [Parameter(Mandatory)][System.Collections.IDictionary]$Evidence,
-        [AllowEmptyString()][string]$Diagnostic = ''
-    )
-    $arguments = @{} + $PSBoundParameters
-    $arguments['Diagnostic'] = Format-VirtualizationProbeDiagnostic -Text $Diagnostic
-    New-YurunaVirtualizationProbeRecord @arguments -HostType (Resolve-HostTag)
-}
-
-<#
-.SYNOPSIS
-    Classify this process's libvirt group standing for a permission-denied
-    probe: active, stale-session, not-member, unknown or not-probed.
-.DESCRIPTION
-    Reuses Get-LibvirtGroupState from Test.HostCondition.Linux, the diagnosis
-    the host preflight already depends on. The module is imported on demand
-    (-Global, never -Force, so a resident copy other callers hold is reused).
-    A copy without the bounded -TimeoutSeconds parameter is not called at all:
-    an unbounded group read would break the probe's own deadline.
-#>
-function Get-KvmLibvirtGroupEvidence {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([ValidateRange(1, 60)][int]$TimeoutSeconds = 5)
-    $command = Get-Command -Name 'Get-LibvirtGroupState' -CommandType Function -ErrorAction SilentlyContinue
-    if (-not $command) {
+    # virsh domrename is libvirt >= 1.2.19; ubuntu 18.04+ has it. We do
+    # not implement the older dumpxml/undefine/define fallback because
+    # the supported KVM baseline (ubuntu.server.24/26) ships >= 9.x.
+    Invoke-Virsh -VirshArgs @('domrename', $VMName, $NewName) 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c041d9cc53c27c36' -Arguments @{ vMName = "$VMName"; newName = "$NewName" })
+        return $false
+    }
+    # Move the per-VM artifact dir. The qcow2 and seed.iso inside still
+    # carry the old basename; rename them too so the on-disk layout is
+    # self-consistent (handy when an operator goes looking with `ls`).
+    $oldDir = Join-Path $script:VmRootDir $VMName
+    $newDir = Join-Path $script:VmRootDir $NewName
+    if (Test-Path -LiteralPath $oldDir) {
         try {
-            Import-Module (Join-Path $script:TestModulesDir 'Test.HostCondition.Linux.psm1') -Global -DisableNameChecking -ErrorAction Stop
+            Rename-Item -LiteralPath $oldDir -NewName $NewName -ErrorAction Stop
         } catch {
-            Write-Verbose "Get-KvmLibvirtGroupEvidence: Test.HostCondition.Linux did not load: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_69d94670b398f46b' -Arguments @{ newName = "$NewName"; oldDir = "$oldDir"; newDir = "$newDir"; message = "$($_.Exception.Message)" })
+            return $false
         }
-        $command = Get-Command -Name 'Get-LibvirtGroupState' -CommandType Function -ErrorAction SilentlyContinue
+        foreach ($f in (Get-ChildItem -LiteralPath $newDir -File -ErrorAction SilentlyContinue)) {
+            if ($f.Name -like "$VMName*") {
+                $renamed = $NewName + $f.Name.Substring($VMName.Length)
+                try { Rename-Item -LiteralPath $f.FullName -NewName $renamed -ErrorAction Stop }
+                catch { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_7f8fa391d73801ba' -Arguments @{ fullName = "$($f.FullName)"; renamed = "$renamed"; message = "$($_.Exception.Message)" }) }
+            }
+        }
     }
-    if (-not $command -or -not $command.Parameters.ContainsKey('TimeoutSeconds')) { return 'not-probed' }
-    $group = Get-LibvirtGroupState -TimeoutSeconds $TimeoutSeconds
-    if (-not $group -or -not $group.Resolved) { return 'unknown' }
-    if (@($group.ActiveGroups) -contains 'libvirt') { return 'active' }
-    if ($group.CurrentUser -and @($group.LibvirtMembers) -contains [string]$group.CurrentUser) { return 'stale-session' }
-    return 'not-member'
-}
-
-# --- REGION: Test-VirtualizationResponsive
-function Test-VirtualizationResponsive {
-    <#
-    .SYNOPSIS
-        Bounded, read-only probe of the libvirt control channel. Returns the
-        versioned Yuruna.VirtualizationProbe record (schema version 1).
-    .DESCRIPTION
-        One `virsh list --name` round trip over the connection and locale pin every
-        other virsh call in this driver uses (qemu:///system, LC_MESSAGES=C, LC_ALL
-        cleared): without the URI an unprivileged user reaches qemu:///session, a
-        different daemon, and without the pin the error text the classifier reads
-        arrives translated. The call runs through Invoke-BoundedNativeCommand, so a
-        wedged libvirtd is reported as a classified timeout instead of holding the
-        caller, and the whole probe fits inside min(TimeoutSeconds, -Deadline).
-
-        Classification, first match wins:
-          * virsh missing or not launchable        -> Undetermined/missing-client
-          * less than one second of budget left    -> Undetermined/deadline-exhausted
-                                                       (nothing is launched)
-          * no answer inside the cap               -> Unresponsive/timeout
-          * output not drained or truncated        -> Undetermined/invalid-response
-          * exit 0                                 -> Responsive/responsive
-          * permission, authentication or polkit   -> Undetermined/permission-denied,
-            refusal                                   with the libvirt group standing
-                                                      (a stale login session is not a
-                                                      daemon fault)
-          * the control socket is missing or       -> Unresponsive/app-stopped only when
-            refuses connections                       the daemon's service and socket
-                                                      units are both positively not
-                                                      running; otherwise
-                                                      Undetermined/provider-error
-          * any other failure                      -> Undetermined/provider-error
-        Unresponsive is never inferred from an exit code alone: app-stopped needs
-        the missing socket plus unit state that agrees, and only a timeout is
-        otherwise treated as an unanswered hypervisor.
-
-        Evidence keys, always present: connection, localePinned, client (present|
-        missing), socket (reachable|absent|refused|denied|unknown), libvirtGroup
-        (active|stale-session|not-member|unknown|not-probed), exitCode,
-        drainTimedOut, outputTruncated. The diagnostic field is private: it may go
-        to a private log and never to a public projection.
-
-        Never throws, never prompts, changes nothing.
-    .PARAMETER TimeoutSeconds
-        Upper bound for the probe.
-    .PARAMETER Deadline
-        Optional shared deadline (New-YurunaDeadline / New-YurunaDeadlineFromExpiry);
-        the probe never outlives it.
-    .OUTPUTS
-        [pscustomobject] Yuruna.VirtualizationProbe
-    #>
-    [CmdletBinding()]
-    [OutputType([pscustomobject])]
-    param(
-        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20,
-        [object]$Deadline
-    )
-    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
-    $observedUtc = [DateTime]::UtcNow.ToString('o')
-    $clock = if ($null -ne $Deadline -and $Deadline.ClockTicks) { $Deadline.ClockTicks } else { { [Environment]::TickCount64 } }
-    $evidence = [ordered]@{
-        connection      = [string]$script:VirshUri
-        localePinned    = $true
-        client          = 'present'
-        socket          = 'unknown'
-        libvirtGroup    = 'not-probed'
-        exitCode        = -1
-        drainTimedOut   = $false
-        outputTruncated = $false
-    }
-    $state = 'Undetermined'; $reason = 'invalid-response'
-    $started = $false; $timedOut = $false; $deadlineExhausted = $false; $diagnostic = ''
-    try {
-        do {
-            if (-not (Get-Command -Name 'virsh' -CommandType Application -ErrorAction SilentlyContinue)) {
-                $evidence.client = 'missing'; $reason = 'missing-client'
-                break
-            }
-            $capSeconds = $TimeoutSeconds
-            if ($null -ne $Deadline) {
-                $bounded = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 600
-                if ($null -eq $bounded) { $reason = 'deadline-exhausted'; $deadlineExhausted = $true; break }
-                $capSeconds = [Math]::Min($TimeoutSeconds, [int]$bounded)
-            }
-            $probeDeadline = New-YurunaDeadlineFromExpiry -ExpiryTick ([long](& $clock) + [long]$capSeconds * 1000) -ClockTicks $clock
-            $result = Invoke-VirshBounded -VirshArgs @('list', '--name') -TimeoutSeconds $capSeconds
-            $started = [bool]$result.Started
-            $evidence.exitCode        = [int]$result.ExitCode
-            $evidence.drainTimedOut   = [bool]$result['DrainTimedOut']
-            $evidence.outputTruncated = [bool]$result['OutputTruncated']
-            if (-not $started) { $evidence.client = 'missing'; $reason = 'missing-client'; break }
-            if ($result.TimedOut) { $state = 'Unresponsive'; $reason = 'timeout'; $timedOut = $true; break }
-            $text = "$($result.StdErr)`n$($result.StdOut)"
-            if (-not (Test-DriverNativeResultComplete -Result $result)) { $reason = 'invalid-response'; $diagnostic = $text; break }
-            if ($result.ExitCode -eq 0) { $state = 'Responsive'; $reason = 'responsive'; $evidence.socket = 'reachable'; break }
-            $diagnostic = $text
-            if ($text -match '(?i)permission denied|authentication (failed|unavailable)|access denied|not authorized|polkit') {
-                $reason = 'permission-denied'; $evidence.socket = 'denied'
-                $groupCap = Get-YurunaDeadlineBoundedSeconds -Deadline $probeDeadline -Ceiling 5
-                if ($null -ne $groupCap) { $evidence.libvirtGroup = Get-KvmLibvirtGroupEvidence -TimeoutSeconds $groupCap }
-                break
-            }
-            $socketFailure = [regex]::Match($text, "(?i)failed to connect socket to '[^']+':\s*(?<cause>no such file or directory|connection refused)")
-            if ($socketFailure.Success) {
-                $evidence.socket = if ($socketFailure.Groups['cause'].Value -match '(?i)refused') { 'refused' } else { 'absent' }
-                # A missing socket only proves the daemon is stopped when systemd
-                # agrees that neither the daemon nor its activation socket runs;
-                # a socket unit that is active but refusing is a daemon fault.
-                $unitCap = Get-YurunaDeadlineBoundedSeconds -Deadline $probeDeadline -Ceiling 10
-                if ($null -eq $unitCap) { $reason = 'deadline-exhausted'; $deadlineExhausted = $true; break }
-                $layout = Get-KvmDaemonLayout -TimeoutSeconds $unitCap
-                $recipe = if ($layout.Resolved -and $script:KvmDaemonRecipe.ContainsKey([string]$layout.Layout)) { $script:KvmDaemonRecipe[[string]$layout.Layout] } else { $null }
-                $stoppedUnits = 0
-                $unitWords = [System.Collections.Generic.List[string]]::new()
-                if ($recipe) {
-                    foreach ($unitName in @($recipe.ControlService, $recipe.ControlSocket)) {
-                        $unit = $layout.Units[$unitName]
-                        if ($unit) {
-                            [void]$unitWords.Add("$unitName=$($unit.ActiveState)/$($unit.SubState)")
-                            if ($unit.LoadState -eq 'loaded' -and $unit.ActiveState -in @('inactive', 'failed')) { $stoppedUnits++ }
-                        }
-                    }
+    # Rewrite XML disk paths. virsh domrename only touches <name>; disk
+    # sources still point at the old dir + old basename. dumpxml ->
+    # sed-replace -> define is the idiomatic libvirt way; we keep the
+    # destination scope narrow by only replacing $oldDir occurrences.
+    $xml = Invoke-Virsh -VirshArgs @('dumpxml', $NewName)
+    if ($LASTEXITCODE -eq 0 -and $xml) {
+        $xmlText = ($xml -join "`n")
+        # Replace path AND the leaf basename when it was derived from $VMName.
+        # The escape on $oldDir is so a name with regex metachars (unlikely
+        # but possible: '.' in 'ubuntu.server.24' is fine literal but a
+        # plain Replace is safer than a regex here).
+        $newXmlText = $xmlText.Replace($oldDir, $newDir).Replace("$VMName.", "$NewName.")
+        # See https://yuruna.link/42e220c4-0004
+        if (Test-YurunaGuestMacMatchesName -MacAddress (Get-GuestMacFromDomainXml -DomainXml $newXmlText) -VMName $VMName) {
+            $newXmlText = Set-GuestMacInDomainXml -DomainXml $newXmlText -VMName $NewName
+        }
+        if ($newXmlText -ne $xmlText) {
+            $tmpXml = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-rename-{0}.xml" -f [Guid]::NewGuid())
+            try {
+                Set-Content -LiteralPath $tmpXml -Value $newXmlText -Encoding utf8 -NoNewline -Force
+                Invoke-Virsh -VirshArgs @('define', $tmpXml) 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0da8dccbc6a8c66f')
+                    return $false
                 }
-                $diagnostic = "$text layout=$($layout.Layout) $($unitWords -join ' ')"
-                if ($recipe -and $stoppedUnits -eq 2) { $state = 'Unresponsive'; $reason = 'app-stopped' }
-                else { $reason = 'provider-error' }
-                break
+            } finally {
+                Remove-Item -LiteralPath $tmpXml -Force -ErrorAction SilentlyContinue
             }
-            $reason = 'provider-error'
-        } while ($false)
-    } catch {
-        # The record is the contract: an unexpected fault (under a caller's
-        # ErrorActionPreference of Stop any non-terminating error is one)
-        # becomes an Undetermined answer, which authorizes nothing.
-        $state = 'Undetermined'; $reason = 'provider-error'
-        $diagnostic = "$diagnostic $($_.Exception.Message)"
+        }
     }
-    return New-KvmVirtualizationProbeRecord -State $state -Reason $reason -Started $started -TimedOut $timedOut `
-        -DeadlineExhausted $deadlineExhausted -ObservedUtc $observedUtc -ObservedTick ([long](& $clock)) `
-        -ElapsedMs $stopwatch.ElapsedMilliseconds -Evidence $evidence -Diagnostic $diagnostic
+    return $true
 }
 
 <#
@@ -969,128 +859,130 @@ function Get-GuestMacFromDomainXml {
     return $m.Value
 }
 
-# --- REGION: Rename-VM
-function Rename-VM {
+# --- REGION: Get-VMState
+function Get-VMState {
     <#
     .SYNOPSIS
-        Rename a stopped libvirt domain and relocate its on-disk artifacts.
+        Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
     .DESCRIPTION
-        libvirt 1.2.19+ ships `virsh domrename` which mutates the domain
-        name atomically in the registry; that's the fast path. We follow up
-        by renaming the per-VM artifact directory (~/yuruna/vms/<old> ->
-        ~/yuruna/vms/<new>) and rewriting the XML's <disk source file=...>
-        paths to point at the new dir, then re-defining the domain so the
-        new XML is canonical. Without the dir+XML rewrite the qcow2 still
-        lives under the old path and the next cycle's
-        Remove-OrphanedVMFiles.ps1 would reclaim it on the
-        "directory-named-after-an-absent-VM" heuristic.
+        A bounded read through Get-KvmDomainState, capped at
+        $script:VirshQueryTimeoutSeconds, so a wedged libvirtd answers 'unknown'
+        instead of holding the caller. Only a completed response naming the domain
+        as not found is 'absent': a missing client, a timeout, truncated output,
+        denied permission or any unrecognized failure is 'unknown'. That precedence
+        matters because callers (Restore-YurunaServiceVM among them) treat 'absent'
+        as permission to build or reuse a name, and a provider fault read that way
+        would rebuild over a VM that still exists.
 
-        The same rewrite moves the NIC address, but only for a domain still
-        sitting on the address the OLD name derives: that one belongs to the
-        name being vacated, and the next build under it is refused outright
-        while a domain still holds it. A domain on any other address was
-        pinned at build time to the identity its guest keeps for life and is
-        left alone -- see Set-GuestMacInDomainXml.
-
-        Requires the domain to be positively powered off (virsh domstate
-        'shut off') and the destination name positively absent; the caller
-        (Save-VMDiskSnapshot) handles the stop. Returns $false on any sub-step
-        failure.
+        Get-VirshDomState keeps its raw-passthrough-or-empty contract for the call
+        sites and mocks that depend on it.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)][string]$VMName,
-        [Parameter(Mandatory)][string]$NewName
-    )
-    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_e9e1683d4b60f469' -Arguments @{ newName = "$NewName" }))) { return $false }
-    if ($VMName -eq $NewName) { return $true }
-    # Read once and require a domain that is positively powered off: an
-    # 'unknown' from a denied or timed-out read must refuse here rather than
-    # pass on to domrename. Get-VMState folds paused, in shutdown, pmsuspended
-    # and crashed into 'stopped', but each of those can still have a live QEMU
-    # process (crashed does under on_crash=preserve), which libvirt counts as
-    # an active domain and will not rename. Only the raw 'shut off' qualifies.
-    $source = Get-KvmDomainState -VMName $VMName -TimeoutSeconds $script:VirshQueryTimeoutSeconds
-    if ($source.State -eq 'absent') {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0ef104304974ce38' -Arguments @{ vMName = "$VMName" })
-        return $false
-    }
-    if ($source.State -ne 'stopped' -or $source.Raw -ne 'shut off') {
-        $sourceWord = if ($source.Raw) { [string]$source.Raw } else { [string]$source.State }
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.kvm_rename_source_not_stopped' -Arguments @{ vMName = "$VMName"; state = "$sourceWord" })
-        return $false
-    }
-    if ((Get-VMState -VMName $NewName) -ne 'absent') {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f69adb6b2f614a13' -Arguments @{ newName = "$NewName" })
-        return $false
-    }
-    # virsh domrename is libvirt >= 1.2.19; ubuntu 18.04+ has it. We do
-    # not implement the older dumpxml/undefine/define fallback because
-    # the supported KVM baseline (ubuntu.server.24/26) ships >= 9.x.
-    Invoke-Virsh -VirshArgs @('domrename', $VMName, $NewName) 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c041d9cc53c27c36' -Arguments @{ vMName = "$VMName"; newName = "$NewName" })
-        return $false
-    }
-    # Move the per-VM artifact dir. The qcow2 and seed.iso inside still
-    # carry the old basename; rename them too so the on-disk layout is
-    # self-consistent (handy when an operator goes looking with `ls`).
-    $oldDir = Join-Path $script:VmRootDir $VMName
-    $newDir = Join-Path $script:VmRootDir $NewName
-    if (Test-Path -LiteralPath $oldDir) {
-        try {
-            Rename-Item -LiteralPath $oldDir -NewName $NewName -ErrorAction Stop
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_69d94670b398f46b' -Arguments @{ newName = "$NewName"; oldDir = "$oldDir"; newDir = "$newDir"; message = "$($_.Exception.Message)" })
-            return $false
-        }
-        foreach ($f in (Get-ChildItem -LiteralPath $newDir -File -ErrorAction SilentlyContinue)) {
-            if ($f.Name -like "$VMName*") {
-                $renamed = $NewName + $f.Name.Substring($VMName.Length)
-                try { Rename-Item -LiteralPath $f.FullName -NewName $renamed -ErrorAction Stop }
-                catch { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_7f8fa391d73801ba' -Arguments @{ fullName = "$($f.FullName)"; renamed = "$renamed"; message = "$($_.Exception.Message)" }) }
-            }
-        }
-    }
-    # Rewrite XML disk paths. virsh domrename only touches <name>; disk
-    # sources still point at the old dir + old basename. dumpxml ->
-    # sed-replace -> define is the idiomatic libvirt way; we keep the
-    # destination scope narrow by only replacing $oldDir occurrences.
-    $xml = Invoke-Virsh -VirshArgs @('dumpxml', $NewName)
-    if ($LASTEXITCODE -eq 0 -and $xml) {
-        $xmlText = ($xml -join "`n")
-        # Replace path AND the leaf basename when it was derived from $VMName.
-        # The escape on $oldDir is so a name with regex metachars (unlikely
-        # but possible: '.' in 'ubuntu.server.24' is fine literal but a
-        # plain Replace is safer than a regex here).
-        $newXmlText = $xmlText.Replace($oldDir, $newDir).Replace("$VMName.", "$NewName.")
-        # A NIC still holding the address the OLD name derives is holding that
-        # NAME's address rather than the guest's, and the name is being vacated
-        # -- so the address has to move with it, or the next domain built under
-        # it is refused for a duplicate. Any other address was pinned at build
-        # time to the identity this guest keeps for life: re-deriving it here
-        # would re-DHCP a guest whose own state records the address it has.
-        if (Test-YurunaGuestMacMatchesName -MacAddress (Get-GuestMacFromDomainXml -DomainXml $newXmlText) -VMName $VMName) {
-            $newXmlText = Set-GuestMacInDomainXml -DomainXml $newXmlText -VMName $NewName
-        }
-        if ($newXmlText -ne $xmlText) {
-            $tmpXml = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-rename-{0}.xml" -f [Guid]::NewGuid())
-            try {
-                Set-Content -LiteralPath $tmpXml -Value $newXmlText -Encoding utf8 -NoNewline -Force
-                Invoke-Virsh -VirshArgs @('define', $tmpXml) 2>&1 | Out-Null
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0da8dccbc6a8c66f')
-                    return $false
-                }
-            } finally {
-                Remove-Item -LiteralPath $tmpXml -Force -ErrorAction SilentlyContinue
-            }
-        }
-    }
-    return $true
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    return [string](Get-KvmDomainState -VMName $VMName -TimeoutSeconds $script:VirshQueryTimeoutSeconds).State
 }
 
+<#
+.SYNOPSIS
+    One bounded libvirt domain-state read, with the reason behind the answer.
+.DESCRIPTION
+    Precedence, first match wins:
+      1. No launchable virsh, a timeout, or output that was not fully drained
+         or was truncated -> 'unknown'. None of these is an answer.
+      2. A nonzero exit whose text is a connection, permission or policy
+         failure -> 'unknown': libvirt never got to look the domain up.
+      3. A nonzero exit whose text says the domain lookup failed -> 'absent'.
+         virsh reports a missing domain as "failed to get domain" (or "domain
+         not found" / "no domain with") once it is connected and authorized.
+      4. Any other nonzero exit -> 'unknown'.
+      5. Exit 0 -> the first non-empty line mapped to running/stopped, and an
+         empty or unrecognized line -> 'unknown'.
+    'absent' is what callers read as permission to build or reuse a name, so it
+    is produced only by a completed, recognized not-found answer.
+.OUTPUTS
+    [pscustomobject] @{ State = running|stopped|absent|unknown; Raw; Reason }
+    Raw is the first libvirt state line ('' when none). Reason is one of
+    observed, not-found, missing-client, timeout, invalid-response,
+    permission-denied, provider-error.
+#>
+function Get-KvmDomainState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [ValidateRange(1, 3600)][int]$TimeoutSeconds = 20
+    )
+    $emit = {
+        param([string]$State, [string]$Raw, [string]$Reason)
+        [pscustomobject]@{ State = $State; Raw = $Raw; Reason = $Reason }
+    }
+    $result = Invoke-VirshBounded -VirshArgs @('domstate', $VMName) -TimeoutSeconds $TimeoutSeconds
+    if (-not $result.Started) { return (& $emit 'unknown' '' 'missing-client') }
+    if ($result.TimedOut) { return (& $emit 'unknown' '' 'timeout') }
+    if (-not (Test-DriverNativeResultComplete -Result $result)) { return (& $emit 'unknown' '' 'invalid-response') }
+    if ($result.ExitCode -ne 0) {
+        $text = "$($result.StdOut)`n$($result.StdErr)"
+        if ($text -match '(?i)permission denied|authentication (failed|unavailable)|access denied|not authorized|polkit') {
+            return (& $emit 'unknown' '' 'permission-denied')
+        }
+        if ($text -match '(?i)failed to connect') { return (& $emit 'unknown' '' 'provider-error') }
+        if ($text -match 'failed to get domain|domain not found|no domain with') { return (& $emit 'absent' '' 'not-found') }
+        return (& $emit 'unknown' '' 'provider-error')
+    }
+    $lines = @(Get-BoundedNativeOutputLine -Result $result)
+    $raw = "$($lines | Where-Object { "$_".Trim() -ne '' } | Select-Object -First 1)".Trim()
+    $state = switch -Regex ($raw) {
+        '^running$'              { 'running'; break }
+        '^(shut off|crashed)$'   { 'stopped'; break }
+        '^(paused|in shutdown)$' { 'stopped'; break }
+        '^(idle|pmsuspended)$'   { 'stopped'; break }
+        default                  { 'unknown' }
+    }
+    $reason = if ($state -eq 'unknown') { 'invalid-response' } else { 'observed' }
+    return (& $emit $state $raw $reason)
+}
+
+# --- REGION: VM inventory
+# --- REGION: Get-VMName
+function Get-VMName {
+    <#
+    .SYNOPSIS
+        Return the names of every defined libvirt domain, optionally filtered
+        to those starting with one of $Prefix.
+    .DESCRIPTION
+        Host-neutral inventory call (see the contract's VM inventory block).
+        `list --all` covers running, paused and shut-off domains, so a caller
+        sweeping by prefix removes stopped leftovers as well as running ones.
+
+        THROWS when virsh cannot be reached rather than returning an empty
+        list: a missing binary, a stopped libvirtd, or a shell whose group set
+        lacks libvirt all fail the query, and a caller that read that as
+        "nothing defined" would report a clean host and let the orphan-file
+        pass delete storage still owned by a defined domain.
+    .PARAMETER Prefix
+        Zero or more name prefixes. A domain is returned when its name starts
+        with any of them. Omit to return every domain.
+    .OUTPUTS
+        [string[]] matching domain names; empty when none match.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([string[]]$Prefix)
+    if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_6ce33651bd210b55')
+    }
+    $output = Invoke-Virsh -VirshArgs @('list', '--all', '--name')
+    if ($LASTEXITCODE -ne 0) {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_a6a18006853361cb' -Arguments @{ join = "$($output -join '; ')" })
+    }
+    # `--name` prints one name per line and a trailing blank line; the
+    # blank entries are dropped by the shared prefix filter.
+    $all = @($output | ForEach-Object { "$_".Trim() })
+    return Select-NameByPrefix -Name $all -Prefix $Prefix
+}
+
+# --- REGION: Disk snapshots
 # --- REGION: Save-VMDiskSnapshot
 function Save-VMDiskSnapshot {
     <#
@@ -1155,26 +1047,6 @@ function Save-VMDiskSnapshot {
     return $true
 }
 
-# --- REGION: Test-VMDiskSnapshot
-function Test-VMDiskSnapshot {
-    <#
-    .SYNOPSIS
-        Returns $true when snapshot $Id is present on $VMName, $false
-        otherwise (including when the domain does not exist). Used by
-        Debug-TestSequence.ps1's requiresSnapshot warm-path probe before
-        deciding whether to walk the baseline chain.
-    #>
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)][string]$VMName,
-        [Parameter(Mandatory)][string]$Id
-    )
-    if ((Get-VMState -VMName $VMName) -eq 'absent') { return $false }
-    Invoke-Virsh -VirshArgs @('snapshot-info', '--domain', $VMName, '--snapshotname', $Id) 2>&1 | Out-Null
-    return ($LASTEXITCODE -eq 0)
-}
-
 # --- REGION: Restore-VMDiskSnapshot
 function Restore-VMDiskSnapshot {
     <#
@@ -1222,6 +1094,27 @@ function Restore-VMDiskSnapshot {
     return $true
 }
 
+# --- REGION: Test-VMDiskSnapshot
+function Test-VMDiskSnapshot {
+    <#
+    .SYNOPSIS
+        Returns $true when snapshot $Id is present on $VMName, $false
+        otherwise (including when the domain does not exist). Used by
+        Debug-TestSequence.ps1's requiresSnapshot warm-path probe before
+        deciding whether to walk the baseline chain.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if ((Get-VMState -VMName $VMName) -eq 'absent') { return $false }
+    Invoke-Virsh -VirshArgs @('snapshot-info', '--domain', $VMName, '--snapshotname', $Id) 2>&1 | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+# --- REGION: VM console
 # --- REGION: Test-VMConsoleOpen
 function Test-VMConsoleOpen {
     <#
@@ -1299,12 +1192,7 @@ function Get-Image {
         [Parameter(Mandatory)][string]$RepoRoot,
         [switch]$Force
     )
-    # Thin wrapper over the shared runner. The host subdir and the image-path
-    # table (Get-ImagePath, injected as a CommandInfo resolved in THIS driver's
-    # scope) are the platform variables. Unlike win/mac, this driver logs via
-    # the bare Information stream rather than Write-GetImageLine, so the writer
-    # is injected too -- `& (Get-Command Write-Information) $line` binds $line to
-    # -MessageData positionally, identical to an inline `Write-Information $line`.
+    # See https://yuruna.link/42e220c4-0004
     Invoke-GetImage -HostSubdir 'host/ubuntu.kvm' -ResolveImagePath (Get-Command Get-ImagePath) -WriteLine (Get-Command Write-Information) @PSBoundParameters
 }
 
@@ -1359,12 +1247,7 @@ function Send-Text {
     # Send-Text calls should usually use -Mechanism ssh on Linux guests.
     $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
     if (Test-Path $sequenceEngine) {
-        # Import only when the dispatcher isn't already resolvable, so the
-        # steady-state path (module already loaded by the outer loop) is a
-        # no-op. -Global on the cold path: a bare -Force import evicts the
-        # global Invoke-Sequence (and its nested modules) the outer loop
-        # still calls (feedback_module_force_import_evicts_global); refresh
-        # it in place instead.
+        # See https://yuruna.link/42e220c4-0004
         if (-not (Get-Command 'Test.SequenceEngine\Send-Text' -ErrorAction SilentlyContinue)) {
             Import-Module $sequenceEngine -Force -DisableNameChecking -Global
         }
@@ -1391,12 +1274,7 @@ function Send-Key {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4ffbf7056dde8493')
         return $false
     }
-    # Defer to Invoke-Sequence's host-aware dispatcher rather than mapping key
-    # names here. A local map holds only single keycodes, so a modifier chord
-    # (which `virsh send-key` expresses as several positional keycodes pressed
-    # together) degrades silently to one keypress -- Ctrl-U arriving as a bare
-    # 'u' typed into the guest. The dispatcher's Send-KeyKvm backend owns both
-    # the chord table and the splat.
+    # See https://yuruna.link/42e220c4-0004
     $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
     if (Test-Path $sequenceEngine) {
         # Import only when the dispatcher isn't already resolvable: a -Force
@@ -1501,7 +1379,6 @@ function Get-VMConsoleHandle {
     return $null
 }
 
-# --- REGION: Discovery
 # --- REGION: Wait-KvmGuestIp
 function Wait-KvmGuestIp {
     <#
@@ -1543,6 +1420,7 @@ function Wait-KvmGuestIp {
     return $null
 }
 
+# --- REGION: Discovery
 # --- REGION: Wait-VMIp
 function Wait-VMIp {
     <#
@@ -1629,12 +1507,7 @@ function Select-VirshDomifaddrIp {
         [string]$Mac,
         [string]$HostPrefix
     )
-    # Rows look like:
-    #   vnet0      52:54:00:1a:b2:c3    ipv4         192.168.122.42/24
-    #   vnet0      52:54:00:1a:b2:c3    ipv6         2001:db8::1234/64
-    # The MAC column repeats only on the first row of a multi-address
-    # interface; a continuation row carries '-' there and inherits the MAC
-    # above it, so the last seen MAC is carried forward.
+    # See https://yuruna.link/42e220c4-0004
     $rows = @()
     $currentMac = ''
     foreach ($l in @($Line)) {
@@ -1729,12 +1602,7 @@ function Select-VirshNetLeaseIp {
         $candidates = @($rows | Where-Object {
             $_.Family -eq $family -and [bool](Select-YurunaRoutableAddress -Address @($_.Ip))
         })
-        # MAC affinity is a REQUIREMENT here, not the preference it is when
-        # reading domifaddr. That view is already scoped to one domain, so every
-        # row belongs to the guest being asked about and falling back to any row
-        # is harmless. This view is scoped to the NETWORK: every other guest's
-        # lease is in it, and the same fallback would hand back a peer's address
-        # -- reachable, wrong, and indistinguishable from success.
+        # See https://yuruna.link/42e220c4-0004
         if ($wantMac) {
             $candidates = @($candidates | Where-Object { $_.Mac -eq $wantMac })
         }
@@ -1808,81 +1676,6 @@ function Get-KvmNeighborIp {
     return [string]$ordered[0].Ip
 }
 
-# --- REGION: Update-GuestNeighborCache
-function Update-GuestNeighborCache {
-    <#
-    .SYNOPSIS
-        Refresh the host neighbor cache so a passive MAC lookup can succeed.
-    .DESCRIPTION
-        Contract verb. `--source arp` and the neighbor rung above are both passive
-        reads: they answer only for addresses the kernel already has an entry for,
-        and nothing in a normal cycle makes a guest talk to this host often enough
-        to keep one alive. This is the active half -- one bounded ICMP sweep of the
-        host's own subnet, which populates the cache for everything answering on it.
-
-        Three guards, in cost order, because the sweep is the expensive thing here:
-        a per-VM cooldown so a polling caller cannot turn its poll interval into a
-        sweep interval; a running-state check so a stopped or absent domain never
-        pays for one; and a /24 ceiling, since a wider prefix turns this from a
-        lookup into a scan of the operator's network.
-    .PARAMETER VMName
-        Guest whose cooldown slot this sweep consumes.
-    .PARAMETER CooldownSeconds
-        Minimum gap between sweeps for one VM.
-    #>
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)][string]$VMName,
-        [int]$CooldownSeconds = 60
-    )
-    $now  = Get-Date
-    $last = $script:NeighborSweepMemo[$VMName]
-    if ($last -and ($now - $last).TotalSeconds -lt $CooldownSeconds) {
-        Write-Verbose "Update-GuestNeighborCache: '$VMName' swept $([int]($now - $last).TotalSeconds)s ago; inside the ${CooldownSeconds}s cooldown, skipping."
-        return $false
-    }
-    $state = Get-VMState -VMName $VMName
-    if ($state -ne 'running') {
-        Write-Verbose "Update-GuestNeighborCache: '$VMName' is '$state', not running; no sweep."
-        return $false
-    }
-    # --- REGION: https://yuruna.link/4220a755-0044
-    # See https://yuruna.link/42e5cdfd-0014
-    $prefix = Get-HostIpv4Prefix
-    if ($prefix) {
-        $script:LastKnownHostPrefix = $prefix
-    } elseif ($script:LastKnownHostPrefix) {
-        $prefix = $script:LastKnownHostPrefix
-        Write-Verbose "Update-GuestNeighborCache: this host has no default-route IPv4 right now; sweeping the last prefix it held ($($prefix.Prefix).0/$($prefix.Length))."
-    }
-    if (-not $prefix) {
-        Write-Verbose 'Update-GuestNeighborCache: this host has no default-route IPv4 and none was seen earlier; no sweep.'
-        return $false
-    }
-    if ($prefix.Length -lt 24) {
-        Write-Verbose "Update-GuestNeighborCache: host subnet is /$($prefix.Length), wider than /24; refusing to sweep $([Math]::Pow(2, 32 - $prefix.Length)) addresses."
-        return $false
-    }
-    if (-not (Get-Command ping -ErrorAction SilentlyContinue)) {
-        Write-Verbose 'Update-GuestNeighborCache: ping is not installed; no sweep.'
-        return $false
-    }
-    if (-not $PSCmdlet.ShouldProcess("$($prefix.Prefix).0/$($prefix.Length)", (Format-YurunaOperatorMessage -Key 'host.operator_c75b8ce6370d1e89'))) {
-        return $false
-    }
-    $script:NeighborSweepMemo[$VMName] = $now
-    Write-Verbose "Update-GuestNeighborCache: sweeping $($prefix.Prefix).0/$($prefix.Length) for '$VMName'."
-    # One echo request per address, one second of patience, 64 in flight. The
-    # replies are irrelevant -- the point is the ARP exchange each probe forces,
-    # which is what lands in the neighbor table.
-    $sweepPrefix = $prefix.Prefix
-    1..254 | ForEach-Object -Parallel {
-        $null = & ping -c 1 -W 1 "$using:sweepPrefix.$_" 2>$null
-    } -ThrottleLimit 64
-    return $true
-}
-
 # --- REGION: Get-VMIp
 function Get-VMIp {
     <#
@@ -1919,13 +1712,7 @@ function Get-VMIp {
 
         # See https://yuruna.link/42e5cdfd-0015
         $state = @{ Mac = $mac; HostPrefix = $hostPrefix }
-        # The lease rung asks the network's own lease table first, because that
-        # is the only view carrying expiry -- and expiry is the only thing that
-        # separates this build's address from the ones earlier builds of the
-        # same guest left behind. domifaddr stays underneath it: a bridged
-        # domain has no libvirt network to ask, and there the ambiguity this
-        # avoids cannot arise anyway, since no libvirt-managed server issued
-        # the lease.
+        # See https://yuruna.link/42e5cdfd-0015
         $netLeaseProbe = {
             param($vm, $s)
             if (-not $s.Mac) { return $null }
@@ -2003,6 +1790,82 @@ function Get-VMMac {
     return $null
 }
 
+# --- REGION: Neighbor cache refresh
+# --- REGION: Update-GuestNeighborCache
+function Update-GuestNeighborCache {
+    <#
+    .SYNOPSIS
+        Refresh the host neighbor cache so a passive MAC lookup can succeed.
+    .DESCRIPTION
+        Contract verb. `--source arp` and the neighbor rung above are both passive
+        reads: they answer only for addresses the kernel already has an entry for,
+        and nothing in a normal cycle makes a guest talk to this host often enough
+        to keep one alive. This is the active half -- one bounded ICMP sweep of the
+        host's own subnet, which populates the cache for everything answering on it.
+
+        Three guards, in cost order, because the sweep is the expensive thing here:
+        a per-VM cooldown so a polling caller cannot turn its poll interval into a
+        sweep interval; a running-state check so a stopped or absent domain never
+        pays for one; and a /24 ceiling, since a wider prefix turns this from a
+        lookup into a scan of the operator's network.
+    .PARAMETER VMName
+        Guest whose cooldown slot this sweep consumes.
+    .PARAMETER CooldownSeconds
+        Minimum gap between sweeps for one VM.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$CooldownSeconds = 60
+    )
+    $now  = Get-Date
+    $last = $script:NeighborSweepMemo[$VMName]
+    if ($last -and ($now - $last).TotalSeconds -lt $CooldownSeconds) {
+        Write-Verbose "Update-GuestNeighborCache: '$VMName' swept $([int]($now - $last).TotalSeconds)s ago; inside the ${CooldownSeconds}s cooldown, skipping."
+        return $false
+    }
+    $state = Get-VMState -VMName $VMName
+    if ($state -ne 'running') {
+        Write-Verbose "Update-GuestNeighborCache: '$VMName' is '$state', not running; no sweep."
+        return $false
+    }
+    # --- REGION: https://yuruna.link/4220a755-0044
+    # See https://yuruna.link/42e5cdfd-0014
+    $prefix = Get-HostIpv4Prefix
+    if ($prefix) {
+        $script:LastKnownHostPrefix = $prefix
+    } elseif ($script:LastKnownHostPrefix) {
+        $prefix = $script:LastKnownHostPrefix
+        Write-Verbose "Update-GuestNeighborCache: this host has no default-route IPv4 right now; sweeping the last prefix it held ($($prefix.Prefix).0/$($prefix.Length))."
+    }
+    if (-not $prefix) {
+        Write-Verbose 'Update-GuestNeighborCache: this host has no default-route IPv4 and none was seen earlier; no sweep.'
+        return $false
+    }
+    if ($prefix.Length -lt 24) {
+        Write-Verbose "Update-GuestNeighborCache: host subnet is /$($prefix.Length), wider than /24; refusing to sweep $([Math]::Pow(2, 32 - $prefix.Length)) addresses."
+        return $false
+    }
+    if (-not (Get-Command ping -ErrorAction SilentlyContinue)) {
+        Write-Verbose 'Update-GuestNeighborCache: ping is not installed; no sweep.'
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess("$($prefix.Prefix).0/$($prefix.Length)", (Format-YurunaOperatorMessage -Key 'host.operator_c75b8ce6370d1e89'))) {
+        return $false
+    }
+    $script:NeighborSweepMemo[$VMName] = $now
+    Write-Verbose "Update-GuestNeighborCache: sweeping $($prefix.Prefix).0/$($prefix.Length) for '$VMName'."
+    # One echo request per address, one second of patience, 64 in flight. The
+    # replies are irrelevant -- the point is the ARP exchange each probe forces,
+    # which is what lands in the neighbor table.
+    $sweepPrefix = $prefix.Prefix
+    1..254 | ForEach-Object -Parallel {
+        $null = & ping -c 1 -W 1 "$using:sweepPrefix.$_" 2>$null
+    } -ThrottleLimit 64
+    return $true
+}
+
 # --- REGION: Networking
 # --- REGION: Get-ExternalNetwork
 function Get-ExternalNetwork {
@@ -2048,11 +1911,42 @@ function New-ExternalNetwork {
     return 'default'
 }
 
+# --- REGION: Test-CacheVMOnExternalNetwork
+function Test-CacheVMOnExternalNetwork {
+    <#
+    .SYNOPSIS
+        Returns true if the caching-proxy-service VM is on a bridged libvirt network
+        (LAN-routable IP, no host portproxy needed).
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$VMName = 'yuruna-caching-proxy-service')
+    # See https://yuruna.link/42e5cdfd-001d
+    $state = Get-VirshDomState -VMName $VMName
+    if (-not $state) { return $false }
+    $xml = Invoke-Virsh -VirshArgs @('dumpxml', $VMName)
+    if ($LASTEXITCODE -ne 0) { return $false }
+    # The configured first NIC determines exposure, not the network's name.
+    # See https://yuruna.link/42e220c4-0004
+    try {
+        $domain = [xml]([string]::Join("`n", @($xml)))
+        $interface = @($domain.domain.devices.interface)[0]
+        if (-not $interface) { return $false }
+        if ($interface.type -eq 'bridge') { return [bool]$interface.source.bridge }
+        if ($interface.type -ne 'network' -or -not $interface.source.network) { return $false }
+        return (Test-YurunaLibvirtNetworkIsBridgeMode -NetworkName $interface.source.network)
+    } catch {
+        Write-Debug "Test-CacheVMOnExternalNetwork: could not read '$VMName': $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # --- REGION: External network helpers
 # Internal. Returns the interface name carrying the default IPv4 route, or
 # $null if none. Filters out the NIC if it's already a bridge port whose
 # master is the one we're about to (re-)create; matches "what's the WAN-
 # facing physical NIC of this host" semantically.
+# --- REGION: Get-YurunaDefaultRouteIface
 function Get-YurunaDefaultRouteIface {
     [CmdletBinding()]
     [OutputType([string])]
@@ -2172,12 +2066,7 @@ function Test-YurunaLibvirtNetworkIsBridgeMode {
     return $false
 }
 
-# Internal. The name of the NM connection currently ACTIVE on $Nic, or
-# $Nic itself when none is found (best-effort fallback so operator
-# recipes always show something actionable). Stock profiles are rarely
-# named after the device ("Wired connection 1", "netplan-eno1"), and a
-# recipe pointing at a nonexistent profile fails at the exact moment
-# the operator is disconnected.
+# See https://yuruna.link/42e220c4-0004
 function Get-YurunaNicActiveProfileName {
     [CmdletBinding()]
     [OutputType([string])]
@@ -2335,10 +2224,11 @@ function Write-YurunaNmcliFailure {
     }
 }
 
-# --- REGION: https://yuruna.link/42d69dfa-0020
+# See https://yuruna.link/42d69dfa-0020
 # Callers invoke this ONLY when $Nic is not enslaved to $BridgeName, so
 # nothing removed here can be carrying the host's connectivity: an
 # uplink-less bridge forwards no traffic by construction.
+# --- REGION: Clear-YurunaExternalBridgeResidue
 function Clear-YurunaExternalBridgeResidue {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
@@ -2381,13 +2271,7 @@ function Clear-YurunaExternalBridgeResidue {
         }
     }
 
-    # 2. Stale netplan definition. Moving the file aside (netplan only
-    #    reads *.yaml, so a .bak is inert -- and it preserves any hand
-    #    edits an operator made) and regenerating drops systemd-networkd's
-    #    on-disk claim AND the udev NM_UNMANAGED rules netplan generated.
-    #    `netplan generate` only rewrites files under /run, though --
-    #    the RUNNING daemons keep their old view until udev re-evaluates
-    #    the devices and networkd reloads, so trigger both explicitly.
+    # See https://yuruna.link/42e5cdfd-0018
     $netplanPath = '/etc/netplan/99-yuruna-external.yaml'
     $sweptNetplan = $false
     if ((Test-Path -LiteralPath $netplanPath) -and (Get-Command netplan -ErrorAction SilentlyContinue)) {
@@ -2535,12 +2419,7 @@ function Repair-YurunaExternalBridgeSlave {
         if ($netplanText -match [regex]::Escape($bridgeName)) {
             $nic = $null
             if ($netplanText -match 'interfaces:\s*\[\s*([^\]\s,]+)') { $nic = $matches[1] }
-            # A MAC pin in the yaml only applies when the device is
-            # CREATED ([NetDev] MACAddress is not retro-fitted), so a
-            # bridge that already exists with a generated MAC would keep
-            # it after a re-apply and the host would renumber. Rebuild
-            # instead: the sweep deletes the device and the fresh build
-            # pins the NIC's MAC at creation.
+            # See https://yuruna.link/42e220c4-0004
             if ($nic) {
                 $nicMac = Get-YurunaNicMac -Iface $nic
                 $brMac  = Get-YurunaNicMac -Iface $bridgeName
@@ -2561,13 +2440,7 @@ function Repair-YurunaExternalBridgeSlave {
                 Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_99d1b419322487c4' -Arguments @{ bridgeName = "$bridgeName"; networkName = "$NetworkName" })
                 return 'healed'
             }
-            # The failed re-apply just put the NIC under the stale
-            # definition (dhcp off, bridge member) without delivering
-            # the uplink -- undo it BEFORE handing back 'rebuild', or
-            # the host sits addressless and the caller's rebuild path
-            # cannot even resolve the default-route NIC. Moving the
-            # yaml aside + re-applying restores whatever the surviving
-            # netplan files declare for the NIC.
+            # See https://yuruna.link/42e220c4-0004
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4496ea1417ee8739')
             & sudo mv -f $netplanPath "$netplanPath.bak" 2>&1 | ForEach-Object { Write-Verbose "$_" }
             & sudo netplan apply 2>&1 | ForEach-Object { Write-Verbose "$_" }
@@ -2701,12 +2574,7 @@ function Get-YurunaExternalNetworkPlan {
     $defined = Invoke-Virsh -VirshArgs @('net-list', '--all', '--name')
     if ($defined -contains $NetworkName) {
         $plan.Action = 'reuse-network'
-        # Probe the backing bridge so the plan is truthful about whether
-        # the run will flap host networking (heal/rebuild) or not. Only
-        # <forward mode='bridge'/> networks are host-bridge-backed --
-        # NAT/routed networks own their virbrN bridge (no physical
-        # uplink by design; dnsmasq serves DHCP on it) and are reused
-        # as-is.
+        # See https://yuruna.link/42e220c4-0004
         if (-not (Test-YurunaLibvirtNetworkIsBridgeMode -NetworkName $NetworkName)) {
             $plan.Explanation = "libvirt network '$NetworkName' already exists (not host-bridge-backed) -- it will be (re)started and set to autostart. No host networking change."
             return $plan
@@ -2808,12 +2676,7 @@ For LAN exposure despite the NM bug, either:
         return $plan
     }
 
-    # The bridge would have to be built -- this is the only branch that
-    # perturbs host networking. The rollback recipe names the NIC's REAL
-    # active profile ("Wired connection 1", "netplan-eno1", ...): stock
-    # profiles are rarely named after the device, and a recipe pointing
-    # at a nonexistent profile fails at the exact moment the operator is
-    # disconnected.
+    # See https://yuruna.link/42e220c4-0004
     $nicProfile = Get-YurunaNicActiveProfileName -Nic $nic
     $plan.Action                  = 'create-bridge'
     $plan.WillChangeHostNetworking = $true
@@ -2880,12 +2743,7 @@ function New-YurunaExternalNetwork {
         [string]$BridgeName = 'yuruna-br0'
     )
 
-    # IMPORTANT: this function's only pipeline output is a single string
-    # (network name) or $null. All diagnostics MUST go through
-    # Write-Information / Write-Warning / Write-Error so callers can
-    # safely assign with `$x = New-YurunaExternalNetwork`. A stray
-    # Write-Output would turn $x into a string[] and break downstream
-    # consumers (Get-ExternalNetwork compares against this exact name).
+    # See https://yuruna.link/42e5cdfd-0019
 
     # --- REGION: Step 1: Reuse an already-defined network
     # Verify and repair the bridge uplink before reusing a defined network.
@@ -2914,12 +2772,7 @@ function New-YurunaExternalNetwork {
     }
 
     # --- REGION: Step 2: Resolve the default-route NIC
-    # Every failure exit from here to the build must stop an
-    # already-defined network (Stop-YurunaUnusableExternalNetwork):
-    # the reuse branch above (re)started it BEFORE the bridge proved
-    # unusable, and leaving it active would hand guests a bridge that
-    # can never DHCP them -- the exact wedge the rebuild flow exists to
-    # clear.
+    # See https://yuruna.link/42e5cdfd-0019
     $nic = Get-YurunaDefaultRouteIface
     if (-not $nic) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a3517dfa1bc5ed4b' -Arguments @{ networkName = "$NetworkName" })
@@ -2959,13 +2812,7 @@ function New-YurunaExternalNetwork {
         $BridgeName = $existingBridge
     } else {
         # --- REGION: Step 4: Build the bridge
-        # Guard: if NetworkManager has core-dumped recently AND NM is the
-        # active backend, the nmcli bridge build is almost certainly what
-        # crashed it (upstream NM assertion bug in nm-settings-utils.c).
-        # Re-running it just crashes NM again and raises another apport
-        # "system problem" dialog -- skip straight to NAT fallback. The
-        # netplan backend (NM not active) is unaffected, so this guard is
-        # scoped to the NM-active case only.
+        # See https://yuruna.link/42e5cdfd-001a
         if ((Test-YurunaNetworkManagerActive) -and (Test-NetworkManagerCrashedRecently)) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f1fbdb4d5f2e3394')
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b24cd356cf4d01e9')
@@ -2976,12 +2823,7 @@ function New-YurunaExternalNetwork {
             return $null
         }
 
-        # The full brief-network-outage warning + rollback recipe is
-        # surfaced UP FRONT by the caller via Get-YurunaExternalNetworkPlan
-        # (Start-CachingProxyServiceVM.ps1's plan phase), so it isn't repeated here.
-        # ShouldProcess is kept so a standalone or -Confirm caller still
-        # gets a gate; Start-CachingProxyServiceVM passes -Confirm:$false because it
-        # already explained the impact and planned the run.
+        # See https://yuruna.link/42e5cdfd-0019
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_fca7faa4a4ccb506' -Arguments @{ bridgeName = "$BridgeName"; nic = "$nic" })
 
         # Only plain wired Ethernet can be enslaved; bond/vlan/tunnel
@@ -3009,12 +2851,7 @@ function New-YurunaExternalNetwork {
         # cache up-front; this covers standalone callers and long gaps.)
         & sudo -v 2>&1 | Out-Null
 
-        # Sweep the residue of any previous half-built attempt FIRST --
-        # stale NM profiles, a stale netplan definition, and the stale
-        # kernel bridge device each make a fresh build fail in its own
-        # way (see Clear-YurunaExternalBridgeResidue). Safe here by
-        # construction: $nic is not enslaved (checked above), so nothing
-        # the sweep removes carries the host's connectivity.
+        # See https://yuruna.link/42e5cdfd-0019
         Clear-YurunaExternalBridgeResidue -Nic $nic -BridgeName $BridgeName
 
         # See https://yuruna.link/42e5cdfd-001a
@@ -3041,12 +2878,7 @@ function New-YurunaExternalNetwork {
     }
 
     # --- REGION: Step 5: Define and start the libvirt network
-    # libvirt's <forward mode='bridge'/> with a <bridge name='...'/> tells
-    # qemu to attach guests directly to the named bridge via a tap; the
-    # guest's MAC is visible on the LAN and gets its own DHCP lease.
-    # In the rebuild flow the network is usually already defined and only
-    # needs its definition refreshed when the backing bridge name changed
-    # (the NIC turned up enslaved to a different bridge in Step 3).
+    # See https://yuruna.link/42e5cdfd-0019
     $needsDefine = -not $netDefined
     if ($netDefined) {
         $xmlBridgeNow = Get-YurunaLibvirtNetworkBridge -NetworkName $NetworkName
@@ -3216,13 +3048,7 @@ function New-YurunaBridgeViaNmcli {
         & sudo nmcli connection modify $oldConn connection.autoconnect no 2>&1 | Out-Null
     }
 
-    # Wait up to 30 s for the bridge to DHCP. nmcli connection up
-    # returns when the connection is "activated" -- which can be before
-    # DHCP completes. A bridge with no IP is still useless for the
-    # libvirt network we are about to define, so block here briefly.
-    # Wall-clock deadline (not an iteration count): the per-iteration `ip`
-    # probe adds its own latency, so a counted loop would stretch the 30 s
-    # budget past the advertised timeout.
+    # See https://yuruna.link/42e5cdfd-001b
     $deadline = (Get-Date).AddSeconds(30)
     while ((Get-Date) -lt $deadline) {
         $brIp = & ip -4 -o addr show dev $BridgeName 2>$null | Select-String -Pattern 'inet '
@@ -3270,12 +3096,7 @@ network:
 "@
 }
 
-# Internal. Build $BridgeName via netplan, with $Nic as the only port.
-# Returns $true on success. Side effect: writes a new file under
-# /etc/netplan/ and runs `netplan apply`, which renews the lease for the
-# bridge in place of $Nic. On failure the netplan change is rolled back,
-# keeping the "returns $false => host NIC config unchanged" contract the
-# caller advertises.
+# See https://yuruna.link/42e5cdfd-001c
 function New-YurunaBridgeViaNetplan {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
@@ -3390,36 +3211,7 @@ function New-YurunaBridgeViaNetplan {
     return $true
 }
 
-# --- REGION: Test-CacheVMOnExternalNetwork
-function Test-CacheVMOnExternalNetwork {
-    <#
-    .SYNOPSIS
-        Returns true if the caching-proxy-service VM is on a bridged libvirt network
-        (LAN-routable IP, no host portproxy needed).
-    #>
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param([string]$VMName = 'yuruna-caching-proxy-service')
-    # See https://yuruna.link/42e5cdfd-001d
-    $state = Get-VirshDomState -VMName $VMName
-    if (-not $state) { return $false }
-    $xml = Invoke-Virsh -VirshArgs @('dumpxml', $VMName)
-    if ($LASTEXITCODE -ne 0) { return $false }
-    # The configured first NIC determines exposure, not the network's name.
-    # See https://yuruna.link/42e220c4-0004
-    try {
-        $domain = [xml]([string]::Join("`n", @($xml)))
-        $interface = @($domain.domain.devices.interface)[0]
-        if (-not $interface) { return $false }
-        if ($interface.type -eq 'bridge') { return [bool]$interface.source.bridge }
-        if ($interface.type -ne 'network' -or -not $interface.source.network) { return $false }
-        return (Test-YurunaLibvirtNetworkIsBridgeMode -NetworkName $interface.source.network)
-    } catch {
-        Write-Debug "Test-CacheVMOnExternalNetwork: could not read '$VMName': $($_.Exception.Message)"
-        return $false
-    }
-}
-
+# --- REGION: Port mapping
 # --- REGION: Add-PortMap
 function Add-PortMap {
     <#
@@ -3480,13 +3272,7 @@ function Add-PortMap {
         return $false
     }
 
-    # Build the hostPort -> vmPort mapping list. Straight ports map 1:1;
-    # a PortRemap entry (e.g. 8022 -> 22) overrides that hostPort. This
-    # is a plain array of objects ON PURPOSE -- NOT [ordered]@{}: an
-    # OrderedDictionary keyed by integers indexes POSITIONALLY when the
-    # index is an [int], so `$map[3128]` is an out-of-range positional
-    # lookup ("argument out of range, Parameter 'index'"), not the key
-    # lookup it looks like. An object array sidesteps that trap.
+    # See https://yuruna.link/42e220c4-0004
     $remap = @{}
     foreach ($k in $PortRemap.Keys) { $remap[[int]$k] = [int]$PortRemap[$k] }
     $mappings = @()
@@ -3579,13 +3365,7 @@ function Remove-PortMap {
     param()
     if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_f297da4003f2a69b'), 'Stop + remove')) { return $false }
 
-    # Current mechanism: systemd socket-proxy units. Disable+stop the
-    # .socket (drops it from sockets.target and closes the listener),
-    # stop the .service, delete the unit files, reload systemd.
-    # Invoke-YurunaSudo, not a bare `& sudo`: on the runner's unattended path it
-    # adds -n so a cold timestamp fails immediately instead of parking the whole
-    # host on a password prompt read from /dev/tty that nobody will answer, and
-    # it throws with the exact sudoers rule to install when that happens.
+    # See https://yuruna.link/42e220c4-0004
     $units = @(Get-ChildItem -LiteralPath '/etc/systemd/system' -Filter 'yuruna-cacheproxy-*' -ErrorAction SilentlyContinue)
     if ($units.Count -gt 0) {
         foreach ($u in ($units | Where-Object { $_.Name -like '*.socket' })) {
@@ -3742,64 +3522,6 @@ function Get-CachingProxyServiceVmIp {
     return (Get-VMIp -VMName 'yuruna-caching-proxy-service')
 }
 
-<#
-.SYNOPSIS
-    Returns the IP of a reachable caching-proxy-service VM (probed on the squid HTTP
-    port), or $null when no cache is currently usable. Injected as the
-    -ResolveCacheHostIp closure into the shared Save-CachedHttpUri so KVM image
-    downloads route through the squid cache.
-.DESCRIPTION
-    Discovery order (same shape as the macOS / Hyper-V drivers):
-      1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote-cache override.
-      2. Get-CachingProxyServiceVmIp -- the cache VM's recorded IP (state file written
-         by Start-CachingProxyServiceVM.ps1), or a live libvirt domifaddr query for the
-         by-name VM.
-    The chosen IP is returned only if it answers the squid HTTP port, so a stale
-    state entry or a stopped cache VM falls through to $null and the caller
-    downloads direct. The host reaches the cache VM's libvirt-NAT (192.168.122.x)
-    or bridged-LAN address directly, so the same IP also serves :80 (CA fetch)
-    and the SSL-bump port for the HTTPS path -- no loopback forwarder is needed
-    here (unlike macOS, where Apple Virtualization NAT requires one).
-.OUTPUTS
-    [string] IPv4 like '192.168.122.42', or $null.
-#>
-function Resolve-CacheHostIp {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    $httpPort = Get-CachingProxyServicePort -Scheme http
-    if ($Env:YURUNA_CACHING_PROXY_SERVICE_IP) {
-        $externIp = $Env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
-        if ((Test-IpAddress $externIp) -and (Test-CachingProxyServicePort -IpAddress $externIp -Port $httpPort -TimeoutMs 500)) {
-            return $externIp
-        }
-        return $null
-    }
-    $ip = Get-CachingProxyServiceVmIp
-    if ($ip -and (Test-IpAddress $ip) -and (Test-CachingProxyServicePort -IpAddress $ip -Port $httpPort -TimeoutMs 500)) {
-        return $ip
-    }
-    return $null
-}
-
-<#
-.SYNOPSIS
-    Download $Uri to $OutFile through the KVM caching-proxy service, falling back to
-    a direct fetch when no cache is reachable.
-.DESCRIPTION
-    Thin driver-local wrapper over the shared download stack. The closure binds
-    this driver's Resolve-CacheHostIp (libvirt/state-file cache discovery) so the
-    shared module stays platform-agnostic while still reaching KVM-specific lookup.
-#>
-function Save-CachedHttpUri {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$Uri,
-        [Parameter(Mandatory)][string]$OutFile
-    )
-    Yuruna.HostDownload\Save-CachedHttpUri -Uri $Uri -OutFile $OutFile -ResolveCacheHostIp { Resolve-CacheHostIp }
-}
-
 # --- REGION: Host config
 # --- REGION: Set-HostProxy
 function Set-HostProxy {
@@ -3864,71 +3586,6 @@ function Remove-HostProxy {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Read current Linux host proxy state into a backup hashtable.
-#>
-function Read-LinuxProxyState {
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param()
-    $state = @{ previousUrl = $null; aptConfigPresent = $false }
-    if (Test-Path -LiteralPath '/etc/environment') {
-        $env = Get-Content -LiteralPath /etc/environment -ErrorAction SilentlyContinue
-        foreach ($line in $env) {
-            if ($line -match '^(?:HTTPS?|https?)_proxy\s*=\s*"?([^"]+?)"?\s*$') {
-                $state['previousUrl'] = $Matches[1]; break
-            }
-        }
-    }
-    $state['aptConfigPresent'] = (Test-Path -LiteralPath '/etc/apt/apt.conf.d/99yuruna-host-proxy')
-    return $state
-}
-
-<#
-.SYNOPSIS
-    Apply the proxy via /etc/environment + /etc/apt/apt.conf.d (sudo).
-#>
-function Set-LinuxHostProxy {
-    [CmdletBinding()]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
-        'PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Private helper; the public Set-HostProxy/Clear-HostProxy callers already gate via SupportsShouldProcess.')]
-    param([Parameter(Mandatory)][string]$ProxyUrl)
-    # /etc/environment: clean any prior yuruna-managed lines first, then
-    # write the new ones. Match upper-case + lower-case forms.
-    if ($ProxyUrl -match '[\x00-\x1f\x7f]') { throw 'Proxy URL contains a control character.' }
-    $script = @'
-set -e
-proxy=$1
-proxy=${proxy//\\/\\\\}
-proxy=${proxy//\"/\\\"}
-sed -i.yuruna-bak '/^[Hh][Tt][Tt][Pp][Ss]\?_proxy\s*=/d' /etc/environment
-printf 'http_proxy="%s"\nhttps_proxy="%s"\nHTTP_PROXY="%s"\nHTTPS_PROXY="%s"\n' "$proxy" "$proxy" "$proxy" "$proxy" >> /etc/environment
-mkdir -p /etc/apt/apt.conf.d
-printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$proxy" "$proxy" > /etc/apt/apt.conf.d/99yuruna-host-proxy
-chmod 0644 /etc/apt/apt.conf.d/99yuruna-host-proxy
-'@
-    & sudo bash -c $script _ $ProxyUrl | Out-Null
-    return ($LASTEXITCODE -eq 0)
-}
-
-<#
-.SYNOPSIS
-    Disable the Linux host proxy (rm apt config + strip /etc/environment).
-#>
-function Disable-LinuxHostProxy {
-    [CmdletBinding()]
-    param()
-    $script = @'
-set -e
-sed -i.yuruna-bak '/^[Hh][Tt][Tt][Pp][Ss]\?_proxy\s*=/d' /etc/environment
-rm -f /etc/apt/apt.conf.d/99yuruna-host-proxy
-'@
-    & sudo bash -c $script | Out-Null
-    return ($LASTEXITCODE -eq 0)
-}
-
 # --- REGION: Get-HostProxyBackupPath
 function Get-HostProxyBackupPath {
     <#
@@ -3977,6 +3634,210 @@ function Assert-Virtualization {
         return $false
     }
     return $true
+}
+
+# --- REGION: Virtualization repair
+# --- REGION: Test-VirtualizationResponsive
+function Test-VirtualizationResponsive {
+    <#
+    .SYNOPSIS
+        Bounded, read-only probe of the libvirt control channel. Returns the
+        versioned Yuruna.VirtualizationProbe record (schema version 1).
+    .DESCRIPTION
+        One `virsh list --name` round trip over the connection and locale pin every
+        other virsh call in this driver uses (qemu:///system, LC_MESSAGES=C, LC_ALL
+        cleared): without the URI an unprivileged user reaches qemu:///session, a
+        different daemon, and without the pin the error text the classifier reads
+        arrives translated. The call runs through Invoke-BoundedNativeCommand, so a
+        wedged libvirtd is reported as a classified timeout instead of holding the
+        caller, and the whole probe fits inside min(TimeoutSeconds, -Deadline).
+
+        Classification, first match wins:
+          * virsh missing or not launchable        -> Undetermined/missing-client
+          * less than one second of budget left    -> Undetermined/deadline-exhausted
+                                                       (nothing is launched)
+          * no answer inside the cap               -> Unresponsive/timeout
+          * output not drained or truncated        -> Undetermined/invalid-response
+          * exit 0                                 -> Responsive/responsive
+          * permission, authentication or polkit   -> Undetermined/permission-denied,
+            refusal                                   with the libvirt group standing
+                                                      (a stale login session is not a
+                                                      daemon fault)
+          * the control socket is missing or       -> Unresponsive/app-stopped only when
+            refuses connections                       the daemon's service and socket
+                                                      units are both positively not
+                                                      running; otherwise
+                                                      Undetermined/provider-error
+          * any other failure                      -> Undetermined/provider-error
+        Unresponsive is never inferred from an exit code alone: app-stopped needs
+        the missing socket plus unit state that agrees, and only a timeout is
+        otherwise treated as an unanswered hypervisor.
+
+        Evidence keys, always present: connection, localePinned, client (present|
+        missing), socket (reachable|absent|refused|denied|unknown), libvirtGroup
+        (active|stale-session|not-member|unknown|not-probed), exitCode,
+        drainTimedOut, outputTruncated. The diagnostic field is private: it may go
+        to a private log and never to a public projection.
+
+        Never throws, never prompts, changes nothing.
+    .PARAMETER TimeoutSeconds
+        Upper bound for the probe.
+    .PARAMETER Deadline
+        Optional shared deadline (New-YurunaDeadline / New-YurunaDeadlineFromExpiry);
+        the probe never outlives it.
+    .OUTPUTS
+        [pscustomobject] Yuruna.VirtualizationProbe
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20,
+        [object]$Deadline
+    )
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $observedUtc = [DateTime]::UtcNow.ToString('o')
+    $clock = if ($null -ne $Deadline -and $Deadline.ClockTicks) { $Deadline.ClockTicks } else { { [Environment]::TickCount64 } }
+    $evidence = [ordered]@{
+        connection      = [string]$script:VirshUri
+        localePinned    = $true
+        client          = 'present'
+        socket          = 'unknown'
+        libvirtGroup    = 'not-probed'
+        exitCode        = -1
+        drainTimedOut   = $false
+        outputTruncated = $false
+    }
+    $state = 'Undetermined'; $reason = 'invalid-response'
+    $started = $false; $timedOut = $false; $deadlineExhausted = $false; $diagnostic = ''
+    try {
+        do {
+            if (-not (Get-Command -Name 'virsh' -CommandType Application -ErrorAction SilentlyContinue)) {
+                $evidence.client = 'missing'; $reason = 'missing-client'
+                break
+            }
+            $capSeconds = $TimeoutSeconds
+            if ($null -ne $Deadline) {
+                $bounded = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 600
+                if ($null -eq $bounded) { $reason = 'deadline-exhausted'; $deadlineExhausted = $true; break }
+                $capSeconds = [Math]::Min($TimeoutSeconds, [int]$bounded)
+            }
+            $probeDeadline = New-YurunaDeadlineFromExpiry -ExpiryTick ([long](& $clock) + [long]$capSeconds * 1000) -ClockTicks $clock
+            $result = Invoke-VirshBounded -VirshArgs @('list', '--name') -TimeoutSeconds $capSeconds
+            $started = [bool]$result.Started
+            $evidence.exitCode        = [int]$result.ExitCode
+            $evidence.drainTimedOut   = [bool]$result['DrainTimedOut']
+            $evidence.outputTruncated = [bool]$result['OutputTruncated']
+            if (-not $started) { $evidence.client = 'missing'; $reason = 'missing-client'; break }
+            if ($result.TimedOut) { $state = 'Unresponsive'; $reason = 'timeout'; $timedOut = $true; break }
+            $text = "$($result.StdErr)`n$($result.StdOut)"
+            if (-not (Test-DriverNativeResultComplete -Result $result)) { $reason = 'invalid-response'; $diagnostic = $text; break }
+            if ($result.ExitCode -eq 0) { $state = 'Responsive'; $reason = 'responsive'; $evidence.socket = 'reachable'; break }
+            $diagnostic = $text
+            if ($text -match '(?i)permission denied|authentication (failed|unavailable)|access denied|not authorized|polkit') {
+                $reason = 'permission-denied'; $evidence.socket = 'denied'
+                $groupCap = Get-YurunaDeadlineBoundedSeconds -Deadline $probeDeadline -Ceiling 5
+                if ($null -ne $groupCap) { $evidence.libvirtGroup = Get-KvmLibvirtGroupEvidence -TimeoutSeconds $groupCap }
+                break
+            }
+            $socketFailure = [regex]::Match($text, "(?i)failed to connect socket to '[^']+':\s*(?<cause>no such file or directory|connection refused)")
+            if ($socketFailure.Success) {
+                $evidence.socket = if ($socketFailure.Groups['cause'].Value -match '(?i)refused') { 'refused' } else { 'absent' }
+                # A missing socket only proves the daemon is stopped when systemd
+                # agrees that neither the daemon nor its activation socket runs;
+                # a socket unit that is active but refusing is a daemon fault.
+                $unitCap = Get-YurunaDeadlineBoundedSeconds -Deadline $probeDeadline -Ceiling 10
+                if ($null -eq $unitCap) { $reason = 'deadline-exhausted'; $deadlineExhausted = $true; break }
+                $layout = Get-KvmDaemonLayout -TimeoutSeconds $unitCap
+                $recipe = if ($layout.Resolved -and $script:KvmDaemonRecipe.ContainsKey([string]$layout.Layout)) { $script:KvmDaemonRecipe[[string]$layout.Layout] } else { $null }
+                $stoppedUnits = 0
+                $unitWords = [System.Collections.Generic.List[string]]::new()
+                if ($recipe) {
+                    foreach ($unitName in @($recipe.ControlService, $recipe.ControlSocket)) {
+                        $unit = $layout.Units[$unitName]
+                        if ($unit) {
+                            [void]$unitWords.Add("$unitName=$($unit.ActiveState)/$($unit.SubState)")
+                            if ($unit.LoadState -eq 'loaded' -and $unit.ActiveState -in @('inactive', 'failed')) { $stoppedUnits++ }
+                        }
+                    }
+                }
+                $diagnostic = "$text layout=$($layout.Layout) $($unitWords -join ' ')"
+                if ($recipe -and $stoppedUnits -eq 2) { $state = 'Unresponsive'; $reason = 'app-stopped' }
+                else { $reason = 'provider-error' }
+                break
+            }
+            $reason = 'provider-error'
+        } while ($false)
+    } catch {
+        # The record is the contract: an unexpected fault (under a caller's
+        # ErrorActionPreference of Stop any non-terminating error is one)
+        # becomes an Undetermined answer, which authorizes nothing.
+        $state = 'Undetermined'; $reason = 'provider-error'
+        $diagnostic = "$diagnostic $($_.Exception.Message)"
+    }
+    return New-KvmVirtualizationProbeRecord -State $state -Reason $reason -Started $started -TimedOut $timedOut `
+        -DeadlineExhausted $deadlineExhausted -ObservedUtc $observedUtc -ObservedTick ([long](& $clock)) `
+        -ElapsedMs $stopwatch.ElapsedMilliseconds -Evidence $evidence -Diagnostic $diagnostic
+}
+
+<#
+.SYNOPSIS
+    Build one Yuruna.VirtualizationProbe record (schema version 1).
+.DESCRIPTION
+    Every return path of the probe goes through here so the record always has
+    every field and every evidence key, whichever branch produced it.
+#>
+function New-KvmVirtualizationProbeRecord {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$State,
+        [Parameter(Mandatory)][string]$Reason,
+        [bool]$Started,
+        [bool]$TimedOut,
+        [bool]$DeadlineExhausted,
+        [Parameter(Mandatory)][string]$ObservedUtc,
+        [long]$ObservedTick,
+        [long]$ElapsedMs,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Evidence,
+        [AllowEmptyString()][string]$Diagnostic = ''
+    )
+    $arguments = @{} + $PSBoundParameters
+    $arguments['Diagnostic'] = Format-VirtualizationProbeDiagnostic -Text $Diagnostic
+    New-YurunaVirtualizationProbeRecord @arguments -HostType (Resolve-HostTag)
+}
+
+<#
+.SYNOPSIS
+    Classify this process's libvirt group standing for a permission-denied
+    probe: active, stale-session, not-member, unknown or not-probed.
+.DESCRIPTION
+    Reuses Get-LibvirtGroupState from Test.HostCondition.Linux, the diagnosis
+    the host preflight already depends on. The module is imported on demand
+    (-Global, never -Force, so a resident copy other callers hold is reused).
+    A copy without the bounded -TimeoutSeconds parameter is not called at all:
+    an unbounded group read would break the probe's own deadline.
+#>
+function Get-KvmLibvirtGroupEvidence {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([ValidateRange(1, 60)][int]$TimeoutSeconds = 5)
+    $command = Get-Command -Name 'Get-LibvirtGroupState' -CommandType Function -ErrorAction SilentlyContinue
+    if (-not $command) {
+        try {
+            Import-Module (Join-Path $script:TestModulesDir 'Test.HostCondition.Linux.psm1') -Global -DisableNameChecking -ErrorAction Stop
+        } catch {
+            Write-Verbose "Get-KvmLibvirtGroupEvidence: Test.HostCondition.Linux did not load: $($_.Exception.Message)"
+        }
+        $command = Get-Command -Name 'Get-LibvirtGroupState' -CommandType Function -ErrorAction SilentlyContinue
+    }
+    if (-not $command -or -not $command.Parameters.ContainsKey('TimeoutSeconds')) { return 'not-probed' }
+    $group = Get-LibvirtGroupState -TimeoutSeconds $TimeoutSeconds
+    if (-not $group -or -not $group.Resolved) { return 'unknown' }
+    if (@($group.ActiveGroups) -contains 'libvirt') { return 'active' }
+    if ($group.CurrentUser -and @($group.LibvirtMembers) -contains [string]$group.CurrentUser) { return 'stale-session' }
+    return 'not-member'
 }
 
 # The libvirt units the rung-2 detection reads, in one systemctl call. Both
@@ -4545,14 +4406,7 @@ $ExecutionContext.SessionState.Module.OnRemove = {
     }
 }
 
-# What last happened to that one slot, in words, for the guest that ends up
-# without evidence. An empty slot has exactly one message today and three
-# possible histories behind it -- nothing ever armed, another guest's start
-# took the slot, or a teardown discarded it -- and they call for different
-# fixes in different files. The slot itself cannot carry that: it is null in
-# every one of them. Recorded on each transition so the gap can name which
-# one it was instead of leaving the reader to reconstruct it from a cycle
-# transcript that does not log the arm at all.
+# See https://yuruna.link/42e5cdfd-001f
 $script:YurunaDhcpTrail = ''
 
 # tcpdump needs CAP_NET_RAW to open a bridge. The grant is per-binary and
@@ -4807,12 +4661,7 @@ function Save-VMDhcpCapture {
     try {
         $capture = $script:YurunaDhcpCapture
         if (-not $capture -or $capture.VMName -ne $VMName) {
-            # One window at a time: a later Start-VM for another guest replaces
-            # it, and the already-running path never arms one at all. Either way
-            # the guest that failed has no evidence, and that is worth a line.
-            # The trail belongs to the empty-slot case only. A slot held by
-            # another guest already names what happened to this one; adding a
-            # history behind that reads as a second, competing explanation.
+            # See https://yuruna.link/42e5cdfd-001f
             $held = if ($capture) {
                 "the armed window belongs to '$($capture.VMName)'"
             } elseif ($script:YurunaDhcpTrail) {

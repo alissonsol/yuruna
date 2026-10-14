@@ -189,42 +189,42 @@
       "message": "העבירו את --repo-dir כך שיצביע על עותק העבודה של תשתית yuruna."
     },
     "pool.diagnostic_install_git": {
-      "sourceHash": "92f44e66471affac573efea06f46582532a5220511340138e8e719d484bdf0c1",
+      "sourceHash": "bcfa19bd4c2fb0737488eb6aecc167742930e4d54b13c4546bd6184ddd965cba",
       "origin": "machine",
-      "message": "כלי שורת הפקודה של pool-admin משכפלים ודוחפים את המצב הרצוי של המאגר; התקינו git באורח."
+      "message": "כלי שורת הפקודה של pool-admin משכפלים ודוחפים את תצורת המאגר; התקינו git באורח."
     },
-    "pool.diagnostic_intent_absent": {
-      "sourceHash": "95ca29390ca0ab7e9bd6fc1d8b87807ace1b4c9785c814be86629ee322ba512e",
+    "pool.diagnostic_configuration_absent": {
+      "sourceHash": "a54328b595c1b576d8e35e6522c2c2711b0ac69f71a94b42ce5391033385aed6",
       "origin": "machine",
-      "message": "אין כתובת URL של המצב הרצוי לבדיקה"
+      "message": "אין כתובת URL של התצורה לבדיקה"
     },
-    "pool.diagnostic_intent_empty": {
-      "sourceHash": "c2875eb8299eaaa63f844d6853307f5517953908011bc516d0517f4300d7ba53",
+    "pool.diagnostic_configuration_empty": {
+      "sourceHash": "b190436464cc31e41a271a2151a7e943ec3bc8fad88bf2e2ec1d3a533db8ef0b",
       "origin": "machine",
-      "message": "ריק: לא אותר אחסון למצב הרצוי דרך דגל ההפעלה או קובץ התצורה"
+      "message": "ריק: לא אותר מאגר תצורה דרך דגל ההפעלה או קובץ התצורה"
     },
-    "pool.diagnostic_intent_not_bare": {
-      "sourceHash": "3363d4a6c69bc67ea71ba747130b9c3b660cd81f290207d9bd967cce9ee23f0f",
+    "pool.diagnostic_configuration_not_bare": {
+      "sourceHash": "f2660442d7d1b8e3e9209b19cc320a997213143b688a17b9c38749b65d4754e4",
       "origin": "machine",
       "message": "{path}: אינו מאגר git ללא עץ עבודה ({detail})"
     },
-    "pool.diagnostic_intent_not_writable": {
-      "sourceHash": "843d7c49a0492d1f5e7fbf6d6f3025cee7754c29f9a637a59252fe62f173e73b",
+    "pool.diagnostic_configuration_not_writable": {
+      "sourceHash": "4ae3fe6298c476cbc541a60e4e98aa3586bf75d7263449b79bbaa5147d7021ad",
       "origin": "machine",
       "message": "{path}: קיים מאגר ללא עץ עבודה, אך לא ניתן לכתוב בו: {detail}"
     },
-    "pool.diagnostic_intent_override": {
-      "sourceHash": "e6974347fbb0f35150b75fed93ccd74eac7f1ff177cab85c358e71011d80921d",
+    "pool.diagnostic_configuration_override": {
+      "sourceHash": "3e45029073b4a17f1628a0dde1813c26a5cf844e5d9b71d611a509a5a8aac693",
       "origin": "machine",
       "message": "  (קובץ התצורה גובר על דגל ההפעלה {flag})"
     },
-    "pool.diagnostic_intent_remote": {
-      "sourceHash": "0cde9ea7c5be2c5e292893a99f076e72d5a30671bf1dcbb6f064a55a19376046",
+    "pool.diagnostic_configuration_remote": {
+      "sourceHash": "89e8f357b3ed292ff310168a4fa3c09ba25b3886869bf1f312a0ec44de980162",
       "origin": "machine",
-      "message": "כתובת URL מרוחקת; הנגישות נבדקת באמצעות intent-read"
+      "message": "כתובת URL מרוחקת; הנגישות נבדקת באמצעות configuration-read"
     },
-    "pool.diagnostic_intent_writable": {
-      "sourceHash": "9b2aaf2e31213268605c3626c6e9bd1e31fdea4eba3eb2dc835a0285becdd9dd",
+    "pool.diagnostic_configuration_writable": {
+      "sourceHash": "9527388290534cfc4e6f6e4fa9bd9002f0e9a0cdd23f05c98754fc8f36a73b13",
       "origin": "machine",
       "message": "{path}: מאגר ללא עץ עבודה, ניתן לכתיבה"
     },
@@ -1093,10 +1093,10 @@
       "origin": "machine",
       "message": "הבדיקות מתבצעות..."
     },
-    "pool.runtime_environment": {
-      "sourceHash": "4b22ea6a86273205a91cc9d080de5e3396ce2bb1453f89f7e73c72c12a58dbb7",
+    "pool.process_environment": {
+      "sourceHash": "572b6a87bceec410e6cacd9a3d7b607044f8026640fb39d8b01474e416082f01",
       "origin": "machine",
-      "message": "סביבת זמן ריצה"
+      "message": "סביבת התהליך"
     },
     "pool.save_failed_value1": {
       "sourceHash": "a49b4fe1befe2f8a1b6bea406a31c6443c65b5cd30df14b9a40c052dbadf9146",
@@ -1427,25 +1427,25 @@
       "origin": "machine",
       "message": "התקינו את PowerShell באורח. באתר ⁦packages.microsoft.com⁩ אין חבילת powershell לגרסת Ubuntu זו; השתמשו בארכיון tar של המהדורה באתר GitHub, ואז הפעילו מחדש את ⁦pool-control-service.service⁩."
     },
-    "pool.diagnostic_intent_configure": {
-      "sourceHash": "50bb78e1ba98f74e7e5aedd3daf98055045ea4666dbda6e106d9736f92d95944",
+    "pool.diagnostic_configuration_configure": {
+      "sourceHash": "55685dbe1826e4676945d171e837dfa8d9319237ea5fc2ae952c78a9c9ea85ef",
       "origin": "machine",
-      "message": "תהליך ההקמה של האורח יוצר אחסון שניתן לכתוב אליו בהתקן NAS של המאגר אם אין כזה; ערך ריק כאן מציין שהתקן NAS לא היה מעוגן בעת ההקמה. הגדירו את POOL_CONTROL_INTENT_GIT_URL בקובץ ⁦/etc/yuruna/pool-control-service.env⁩ (נקרא מחדש בכל בקשה, אין צורך בהפעלה מחדש), או את ⁦pool.intentGitUrl⁩ בקובץ test⁦/test.config.yml⁩ לפני בנייה מחדש."
+      "message": "תהליך ההקמה של האורח יוצר אחסון שניתן לכתוב אליו בהתקן NAS של המאגר אם אין כזה; ערך ריק כאן מציין שהתקן NAS לא היה מעוגן בעת ההקמה. הגדירו את POOL_CONTROL_CONFIGURATION_GIT_URL בקובץ ⁦/etc/yuruna/pool-control-service.env⁩ (נקרא מחדש בכל בקשה, אין צורך בהפעלה מחדש), או את ⁦pool.configurationGitUrl⁩ בקובץ test⁦/test.config.yml⁩ לפני בנייה מחדש."
     },
-    "pool.diagnostic_intent_initialize": {
-      "sourceHash": "03249b72e1b56216de120cc29033d573bf59bdb0edcfc89e4d67f7d26e055067",
+    "pool.diagnostic_configuration_initialize": {
+      "sourceHash": "82aabbb5add0c4a8a7bc3f4f5ad5e35574b2829221a06fbecbfe1b052e1b1e26",
       "origin": "machine",
       "message": "האחסון בהתקן NAS של המאגר נוצר בתהליך ההקמה של האורח; אם התקן NAS עוגן באיחור, הריצו שוב את סקריפט ההקמה או אתחלו את האחסון באמצעות git init --bare."
     },
-    "pool.diagnostic_intent_permission": {
-      "sourceHash": "d465794df7bf79106b54fee136497bd8f40e93ecf8ea403c0476b78db59e4fac",
+    "pool.diagnostic_configuration_permission": {
+      "sourceHash": "86c0773cfe7c2522063a1f52b0f02a3e64aa43157b83deae22e526b521a61a76",
       "origin": "machine",
       "message": "פעולות כתיבה ייכשלו בעת דחיפה. בדקו את ערכי uid⁦/gid⁩ של עיגון התקן NAS של המאגר מול המשתמש של השירות."
     },
-    "pool.diagnostic_intent_pull_only": {
-      "sourceHash": "b54f20c9051aa1a55bcc15b4781a812f689c4b57fdac6e5a5049f98c20f622cd",
+    "pool.diagnostic_configuration_pull_only": {
+      "sourceHash": "63d61b5a9a827801ef8cfd435bb4f99721d5cbb68028e398561e825115071fcc",
       "origin": "machine",
-      "message": "אחסון המצב הרצוי דרך http(s) מאפשר משיכה בלבד, אלא אם השרת מפעיל git-http-backend: קריאות יצליחו וכל כתיבה תיכשל בעת דחיפה. האחסון שניתן לכתוב אליו הוא מאגר הקוד ללא עותק עבודה בהתקן NAS של המאגר."
+      "message": "אחסון התצורה דרך http(s) מאפשר משיכה בלבד, אלא אם השרת מפעיל git-http-backend: קריאות יצליחו וכל כתיבה תיכשל בעת דחיפה. האחסון שניתן לכתוב אליו הוא מאגר הקוד ללא עותק עבודה בהתקן NAS של המאגר."
     },
     "pool.diagnostic_persistence_logs_missing": {
       "sourceHash": "f2241d8cc33797fd9fa670993aec3673be0ccec5fb68dafcb61ebb48dfcc20a0",
@@ -1467,15 +1467,15 @@
       "origin": "machine",
       "message": "מזהה מארח hostId (42+30hex)"
     },
-    "pool.intent_git_url": {
-      "sourceHash": "0fa52f9d903ac22af8fac4d99d76596223acb23a341b47d31e0a70aadfef80da",
+    "pool.configuration_git_url": {
+      "sourceHash": "665e2743922781cde016bfb4da478f9a673f00785684c2d0f34926c16cb34871",
       "origin": "machine",
-      "message": "כתובת git של המצב הרצוי"
+      "message": "כתובת git של התצורה"
     },
-    "pool.intent_read_raw_invocation": {
-      "sourceHash": "321e3cb182d713bf20453187d236f49202d56622956a0187a93a3ee8e94dd124",
+    "pool.configuration_read_raw_invocation": {
+      "sourceHash": "8086621f33a7636bfff9fa3962c1ee6515dfd4dcde1ca58bf308d2bbec8c11c2",
       "origin": "machine",
-      "message": "קריאת המצב הרצוי — הפקודה כפי שהופעלה"
+      "message": "קריאת תצורה — הפעלה גולמית"
     },
     "pool.label_1h": {
       "sourceHash": "0ad73be809f3f69ccfc344c50093ac7c0d9f26b31b8a086e7698faa6fd66b03a",

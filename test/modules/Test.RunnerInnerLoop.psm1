@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -688,6 +688,17 @@ function Copy-FailureArtifactsToStatusLog {
             }
         } catch {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c8408d1fb61db057' -Arguments @{ message = "$($_.Exception.Message)" })
+        }
+        # The guest's own account of a silence: what it wrote to its serial port
+        # while SSH and the console stopped answering. Hyper-V only today.
+        try {
+            if (Get-Command Save-VMSerialCapture -ErrorAction SilentlyContinue) {
+                if (Save-VMSerialCapture -VMName $VMName -OutputDirectory $destSeqDir) {
+                    Write-Output (Format-YurunaOperatorMessage -Key 'runner.m60d80be676' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
+                }
+            }
+        } catch {
+            Write-Verbose "serial console capture not saved: $($_.Exception.Message)"
         }
 
         # Cycle-log inline link. Label adapts to which artifact dominates so
@@ -1957,7 +1968,8 @@ function Write-CycleInfraFailure {
         # that made the failing call can measure the machine at the instant it
         # failed, so the stage forwards what it was handed rather than taking a
         # reading of its own here, seconds and one teardown later.
-        [AllowNull()][hashtable]$HostMemory
+        [AllowNull()][hashtable]$HostMemory,
+        [hashtable[]]$DependencyFailures = @()
     )
     try {
         $dir = if ($env:YURUNA_LOG_DIR) { $env:YURUNA_LOG_DIR }
@@ -1973,7 +1985,7 @@ function Write-CycleInfraFailure {
         $effectiveClass = Resolve-HostNetworkFailureClass -FailureClass $FailureClass -GuestKey $GuestKey
         $rec = New-InfraFailureRecord -Stage $Stage -FailureClass $effectiveClass -Severity $Severity `
             -GuestKey $GuestKey -VMName $VMName -HostType $HostType -ErrorMessage $ErrorMessage `
-            -HostMemory $HostMemory
+            -HostMemory $HostMemory -DependencyFailures $DependencyFailures
         $failFile = Join-Path $dir 'last_failure.json'
         if (-not (Test-Path -LiteralPath $failFile) -and (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) {
             $null = Write-YurunaStateFile -Path $failFile -Content ($rec.File | ConvertTo-Json -Depth 12) -Confirm:$false
@@ -2525,7 +2537,8 @@ do {
     # trap caused by host code referencing a path that isn't yet in HEAD.
     Write-UncommittedChangesWarning -RepoRoot $RepoRoot -ProjectUrl $projUrl
 
-    # --- REGION: Re-import modules so a mid-run `git pull` propagates code changes
+    # --- REGION: Re-import modules
+    # A mid-run `git pull` propagates code changes through this re-import.
     Update-CycleModuleImport -RepoRoot $RepoRoot -HostType $HostType -ModulesDir $ModulesDir
 
     # See https://yuruna.link/4213a0b3-00f4
@@ -2535,7 +2548,7 @@ do {
     $Config = Update-CycleConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath -PreviousConfig $Config
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
 
-    # --- REGION: Ensure the status service runs current framework code
+    # --- REGION: Start the host status service
     # The launcher relaunches the server when the framework commit it was
     # started from differs from HEAD, or when it does not answer; config,
     # pages, logs and archives are read per request, so an unchanged commit
@@ -2741,7 +2754,7 @@ do {
         Write-Output "Commit:   $CommitLine"
     }
 
-    # --- REGION: Pre-flight guest-folder check
+    # --- REGION: Preflight guest-folder check
     # Every guestSequence key needs a host/<short-host>/<guest>/ folder on this
     # host. No hardcoded allow-list -- this existence check IS the allow-list.
     # Missing folders fail the guest and skip it for the rest of the cycle;
@@ -2994,6 +3007,7 @@ do {
     }
     $script:CycleFinalized = $true
 
+    Write-InnerLog "[cycle $CycleCount] finalized status=$FinalStatus; entering cycle-end accounting"
     Write-Output ""
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9bc0ca0cc8ac34fe' -Arguments @{ cycleCount = "$CycleCount"; finalStatus = "$FinalStatus" })
 
@@ -3187,13 +3201,16 @@ do {
     }  # end if (-not $script:CycleRestartHandled)
   }
 
+    Write-InnerLog "[cycle $CycleCount] cycle-end accounting complete; entering teardown"
     if ($ShutdownState['Requested']) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_898775c7ac2d973a')
         break
     }
 
     if ($_sweepPrefixes -and -not $script:DiagnosticPreservedVMName -and -not (Get-DiagnosticVmPreservation)) {
+        Write-InnerLog "[cycle $CycleCount] orphan VM teardown begin"
         Remove-CycleTeardownOrphanVM -CycleCount $CycleCount -TestRoot $TestRoot -Prefix $_sweepPrefixes
+        Write-InnerLog "[cycle $CycleCount] orphan VM teardown complete"
     }
 
     # Cycle-pause back-channel: status service's /control/cycle-pause
@@ -3221,6 +3238,7 @@ do {
     $delayId       = 2
     $effectiveDelay = if ($null -ne $CycleDelaySeconds -and [int]$CycleDelaySeconds -gt 0) { [int]$CycleDelaySeconds } else { [int]$CycleDelaySeconds }
     if ($effectiveDelay -gt 0 -and -not $ShutdownState['Requested']) {
+        Write-InnerLog "[cycle $CycleCount] cycleDelaySeconds wait begin ($effectiveDelay seconds)"
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_916d918c356e6338' -Arguments @{ cycleCount = "$CycleCount"; effectiveDelay = "$effectiveDelay" })
         $exitReason = Wait-WithProgress -Activity (Format-YurunaOperatorMessage -Key 'runner.operator_2b005d6a24fc7a36' -Arguments @{ cycleCount = "$CycleCount" }) `
             -TotalSeconds $effectiveDelay -PollSeconds 1 -Id $delayId -Test {

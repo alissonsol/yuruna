@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d2a293-af6c-4dd9-a606-42daae4a745b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,12 +19,12 @@
 <#
 .SYNOPSIS
     Functional coverage for a pool's framework and project repositories:
-    Set-PoolRepository.ps1, ConvertTo-PoolIntentSchemaV3,
-    Update-PoolIntentSchema.ps1, and what Test-PoolIntent.ps1 and
-    Get-PoolIntent.ps1 report about them.
+    Set-PoolRepository.ps1, ConvertTo-PoolConfigurationSchemaV4,
+    Update-PoolConfigurationSchema.ps1, and what Test-PoolConfiguration.ps1 and
+    Get-PoolConfiguration.ps1 report about them.
 .DESCRIPTION
     Every CLI runs as a child pwsh against a real local bare store seeded by
-    New-YurunaPoolIntentStore, and every assertion reads what was pushed to that
+    New-YurunaPoolConfigurationStore, and every assertion reads what was pushed to that
     store. Nothing is stubbed: the clone, the schema validation, the commit and
     the push are the ones an operator runs. Output is matched only on check ids,
     parameter names and script names, which every locale keeps verbatim.
@@ -65,7 +65,7 @@ BeforeAll {
         param([System.Collections.IDictionary]$Pools, [string]$Library)
         $root  = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $store = Join-Path $root 'store.git'
-        $null = New-YurunaPoolIntentStore -Path $store -Confirm:$false
+        $null = New-YurunaPoolConfigurationStore -Path $store -Confirm:$false
         if ($Pools -or $Library) {
             $seed = Join-Path $root 'seed'
             & git clone --quiet -- $store $seed 2>&1 | Out-Null
@@ -91,13 +91,13 @@ BeforeAll {
         param($Doc, [string]$PoolId)
         return (@($Doc['pools']) | Where-Object { [string]$_['poolId'] -ceq $PoolId } | Select-Object -First 1)
     }
-    function Get-V3PoolDocument {
+    function Get-V4PoolDocument {
         param([switch]$LabRepositories, [switch]$TargetRepositories)
-        $lab = [ordered]@{ poolId = 'lab'; poolGuid = $script:Guid1; displayName = 'Lab'; members = @(); desiredState = 'run' }
+        $lab = [ordered]@{ poolId = 'lab'; poolGuid = $script:Guid1; displayName = 'Lab'; members = @(); configuredState = 'run' }
         if ($LabRepositories) { $lab['repositories'] = [ordered]@{ frameworkUrl = 'https://example.invalid/old-framework.git'; projectUrl = 'https://example.invalid/old-project.git' } }
-        $target = [ordered]@{ poolId = 'default'; poolGuid = $script:Guid2; displayName = ''; members = @(); desiredState = 'run' }
+        $target = [ordered]@{ poolId = 'default'; poolGuid = $script:Guid2; displayName = ''; members = @(); configuredState = 'run' }
         if ($TargetRepositories) { $target['repositories'] = [ordered]@{ frameworkUrl = $script:Fw; projectUrl = $script:Proj } }
-        return [ordered]@{ schemaVersion = 3; pools = @($lab, $target); autoEnrollment = [ordered]@{ enabled = $true; targetPoolId = 'default' } }
+        return [ordered]@{ schemaVersion = 4; pools = @($lab, $target); autoEnrollment = [ordered]@{ enabled = $true; targetPoolId = 'default' } }
     }
     function Get-V2PoolDocument {
         $lab = [ordered]@{
@@ -109,6 +109,15 @@ BeforeAll {
             testSet = [ordered]@{ name = 'target-set'; frameworkUrl = $script:Fw; projectUrl = $script:Proj } }
         return [ordered]@{ schemaVersion = 2; pools = @($lab, $target); autoEnrollment = [ordered]@{ enabled = $true; targetPoolId = 'default' } }
     }
+    function Get-V3PoolDocument {
+        $doc = Get-V4PoolDocument -LabRepositories
+        $doc['schemaVersion'] = 3
+        foreach ($pool in @($doc['pools'])) {
+            $pool['desiredState'] = $pool['configuredState']
+            $pool.Remove('configuredState')
+        }
+        return $doc
+    }
     $script:Library = "schemaVersion: 1`ntestSets:`n  - name: lab-set`n    frameworkUrl: $($script:Fw)`n    projectUrl: $($script:Proj)`n"
 }
 
@@ -119,8 +128,8 @@ AfterAll {
 
 Describe 'Set-PoolRepository.ps1 sets and clears a pool''s repositories' {
     It 'sets the trimmed pair on the pool and commits it' {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument)
-        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'lab', '-FrameworkUrl', " $($script:Fw) ", '-ProjectUrl', "$($script:Proj)`t", '-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument)
+        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'lab', '-FrameworkUrl', " $($script:Fw) ", '-ProjectUrl', "$($script:Proj)`t", '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Be 0 -Because 'a valid pair is accepted'
         $lab = Get-FixturePool (Get-StorePoolDocument $f) 'lab'
         $lab['repositories']['frameworkUrl'] | Should -BeExactly $script:Fw
@@ -128,31 +137,31 @@ Describe 'Set-PoolRepository.ps1 sets and clears a pool''s repositories' {
         Get-StoreSubject $f | Should -BeExactly 'pool: set repositories on lab'
     }
     It 'replaces a pair the pool already carries' {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument -LabRepositories)
-        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'lab', '-FrameworkUrl', $script:Fw, '-ProjectUrl', $script:Proj, '-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument -LabRepositories)
+        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'lab', '-FrameworkUrl', $script:Fw, '-ProjectUrl', $script:Proj, '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Be 0
         $lab = Get-FixturePool (Get-StorePoolDocument $f) 'lab'
         $lab['repositories']['frameworkUrl'] | Should -BeExactly $script:Fw
         $lab['repositories']['projectUrl'] | Should -BeExactly $script:Proj
     }
     It 'clears the pair with -Clear' {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument -LabRepositories)
-        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'lab', '-Clear', '-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument -LabRepositories)
+        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'lab', '-Clear', '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Be 0
         (Get-FixturePool (Get-StorePoolDocument $f) 'lab').Contains('repositories') | Should -BeFalse
         Get-StoreSubject $f | Should -BeExactly 'pool: clear repositories on lab'
     }
     It 'treats -Clear on a pool without repositories as done, with no commit' {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument)
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument)
         $before = Get-StoreHead $f
-        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'lab', '-Clear', '-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'lab', '-Clear', '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Be 0
         Get-StoreHead $f | Should -BeExactly $before
     }
     It 'refuses a single URL and leaves the store untouched' {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument)
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument)
         $before = Get-StoreHead $f
-        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'lab', '-FrameworkUrl', $script:Fw, '-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'lab', '-FrameworkUrl', $script:Fw, '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Not -Be 0
         Get-StoreHead $f | Should -BeExactly $before
     }
@@ -163,48 +172,90 @@ Describe 'Set-PoolRepository.ps1 sets and clears a pool''s repositories' {
         @{ Case = 'that starts with a dash after trimming'; Arguments = @('-FrameworkUrl', ' -x') }
         @{ Case = 'that starts with a dash'; Arguments = @('-FrameworkUrl:-x') }
     ) {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument)
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument)
         $before = Get-StoreHead $f
-        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' (@('-PoolId', 'lab') + $Arguments + @('-ProjectUrl', $script:Proj, '-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone))
+        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' (@('-PoolId', 'lab') + $Arguments + @('-ProjectUrl', $script:Proj, '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone))
         $run.Code | Should -Not -Be 0
         $run.Text | Should -Match 'FrameworkUrl'
         Get-StoreHead $f | Should -BeExactly $before
     }
     It 'refuses an unknown pool' {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument)
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument)
         $before = Get-StoreHead $f
-        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'nope', '-FrameworkUrl', $script:Fw, '-ProjectUrl', $script:Proj, '-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'nope', '-FrameworkUrl', $script:Fw, '-ProjectUrl', $script:Proj, '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Not -Be 0
         Get-StoreHead $f | Should -BeExactly $before
     }
     It 'refuses to set repositories on the auto-enrollment target pool, however its id is cased' {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument)
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument)
         $before = Get-StoreHead $f
         foreach ($typed in @('default', 'DEFAULT')) {
-            $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', $typed, '-FrameworkUrl', $script:Fw, '-ProjectUrl', $script:Proj, '-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+            $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', $typed, '-FrameworkUrl', $script:Fw, '-ProjectUrl', $script:Proj, '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
             $run.Code | Should -Not -Be 0 -Because "-PoolId $typed names the target pool"
             $run.Text | Should -Match 'Set-PoolRepository\.ps1'
         }
         Get-StoreHead $f | Should -BeExactly $before
     }
     It 'clears repositories the auto-enrollment target pool should not carry' {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument -TargetRepositories)
-        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'default', '-Clear', '-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument -TargetRepositories)
+        $run = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'default', '-Clear', '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Be 0
         (Get-FixturePool (Get-StorePoolDocument $f) 'default').Contains('repositories') | Should -BeFalse
     }
 }
 
-Describe 'ConvertTo-PoolIntentSchemaV3 upgrades a pools document in place' {
+Describe 'ConvertTo-PoolConfigurationSchemaV4 upgrades a pools document in place' {
+    It 'preserves every configured operation when reading schemaVersion <Version>' -ForEach @(
+        @{ Version = 2 }
+        @{ Version = 3 }
+    ) {
+        foreach ($operation in @('run', 'paused', 'drain')) {
+            $doc = if ($Version -eq 2) { Get-V2PoolDocument } else { Get-V3PoolDocument }
+            $doc['pools'][0]['desiredState'] = $operation
+            $null = ConvertTo-PoolConfigurationSchemaV4 -Doc $doc
+            $doc['schemaVersion'] | Should -Be 4
+            $lab = Get-FixturePool $doc 'lab'
+            $lab['configuredState'] | Should -BeExactly $operation
+            $lab.Contains('desiredState') | Should -BeFalse
+            $lab['repositories']['projectUrl'] | Should -Not -BeNullOrEmpty
+        }
+    }
+    It 'collapses matching legacy and canonical state fields in a v3 document' {
+        $doc = Get-V3PoolDocument
+        $doc['pools'][0]['desiredState'] = 'paused'
+        $doc['pools'][0]['configuredState'] = 'paused'
+        $null = ConvertTo-PoolConfigurationSchemaV4 -Doc $doc
+        $doc['schemaVersion'] | Should -Be 4
+        $doc['pools'][0]['configuredState'] | Should -BeExactly 'paused'
+        $doc['pools'][0].Contains('desiredState') | Should -BeFalse
+    }
+    It 'rejects conflicting state fields before modifying any pool or the version' {
+        $doc = Get-V2PoolDocument
+        $doc['pools'][1]['desiredState'] = 'drain'
+        $doc['pools'][1]['configuredState'] = 'run'
+        $before = ConvertTo-Yaml $doc
+        { ConvertTo-PoolConfigurationSchemaV4 -Doc $doc } | Should -Throw
+        ConvertTo-Yaml $doc | Should -BeExactly $before
+    }
+    It 'rejects legacy state fields in a v4 document even when both fields agree' {
+        foreach ($dual in @($false, $true)) {
+            $doc = Get-V4PoolDocument
+            $doc['pools'][0]['desiredState'] = 'run'
+            if (-not $dual) { $doc['pools'][0].Remove('configuredState') }
+            $before = ConvertTo-Yaml $doc
+            { ConvertTo-PoolConfigurationSchemaV4 -Doc $doc } | Should -Throw
+            ConvertTo-Yaml $doc | Should -BeExactly $before
+        }
+    }
     It 'moves a v2 testSet pair to repositories in the same position and drops the rest' {
         $doc = Get-V2PoolDocument
         $doc['pools'] += [ordered]@{ poolId = 'half'; poolGuid = '42c1b2c3-d4e5-4f60-8a1b-2c3d4e5f6073'
             testSet = [ordered]@{ name = 'half'; frameworkUrl = $script:Fw; projectUrl = ' ' }; testSets = @('legacy') }
-        $out = ConvertTo-PoolIntentSchemaV3 -Doc $doc
+        $out = ConvertTo-PoolConfigurationSchemaV4 -Doc $doc
         [object]::ReferenceEquals($out, $doc) | Should -BeTrue -Because 'the document is upgraded in place'
-        $doc['schemaVersion'] | Should -Be 3
+        $doc['schemaVersion'] | Should -Be 4
         $lab = Get-FixturePool $doc 'lab'
-        @($lab.Keys) -join ',' | Should -BeExactly 'poolId,poolGuid,displayName,members,repositories,desiredState'
+        @($lab.Keys) -join ',' | Should -BeExactly 'poolId,poolGuid,displayName,members,repositories,configuredState'
         $lab['repositories']['frameworkUrl'] | Should -BeExactly $script:Fw
         $lab['repositories']['projectUrl'] | Should -BeExactly $script:Proj
         $half = Get-FixturePool $doc 'half'
@@ -213,26 +264,26 @@ Describe 'ConvertTo-PoolIntentSchemaV3 upgrades a pools document in place' {
         $half.Contains('testSets') | Should -BeFalse
         (Test-YurunaPoolDocValid -Doc $doc -SchemaName 'pools.schema.yml').Ok | Should -BeTrue
     }
-    It 'adds schemaVersion 3 as the first key when the document has none' {
+    It 'adds schemaVersion 4 as the first key when the document has none' {
         $doc = [ordered]@{ pools = @() }
-        $null = ConvertTo-PoolIntentSchemaV3 -Doc $doc
+        $null = ConvertTo-PoolConfigurationSchemaV4 -Doc $doc
         @($doc.Keys)[0] | Should -BeExactly 'schemaVersion'
-        $doc['schemaVersion'] | Should -Be 3
+        $doc['schemaVersion'] | Should -Be 4
     }
-    It 'is idempotent and leaves a v3 document unchanged' {
+    It 'is idempotent and leaves a v4 document unchanged' {
         $doc = Get-V2PoolDocument
-        $once = ConvertTo-Yaml (ConvertTo-PoolIntentSchemaV3 -Doc $doc)
-        ConvertTo-Yaml (ConvertTo-PoolIntentSchemaV3 -Doc $doc) | Should -BeExactly $once
-        $v3 = Get-V3PoolDocument -LabRepositories
-        $before = ConvertTo-Yaml $v3
-        ConvertTo-Yaml (ConvertTo-PoolIntentSchemaV3 -Doc $v3) | Should -BeExactly $before
+        $once = ConvertTo-Yaml (ConvertTo-PoolConfigurationSchemaV4 -Doc $doc)
+        ConvertTo-Yaml (ConvertTo-PoolConfigurationSchemaV4 -Doc $doc) | Should -BeExactly $once
+        $v4 = Get-V4PoolDocument -LabRepositories
+        $before = ConvertTo-Yaml $v4
+        ConvertTo-Yaml (ConvertTo-PoolConfigurationSchemaV4 -Doc $v4) | Should -BeExactly $before
     }
     It 'leaves a newer or a non-integer schemaVersion untouched' {
-        foreach ($version in @(4, 'two')) {
+        foreach ($version in @(5, 'two')) {
             $doc = Get-V2PoolDocument
             $doc['schemaVersion'] = $version
             $before = ConvertTo-Yaml $doc
-            ConvertTo-Yaml (ConvertTo-PoolIntentSchemaV3 -Doc $doc) | Should -BeExactly $before
+            ConvertTo-Yaml (ConvertTo-PoolConfigurationSchemaV4 -Doc $doc) | Should -BeExactly $before
         }
     }
     It 'keeps a one-pool list a list through Read-YurunaPoolsDoc' {
@@ -241,89 +292,126 @@ Describe 'ConvertTo-PoolIntentSchemaV3 upgrades a pools document in place' {
         $one = [ordered]@{ schemaVersion = 2; pools = @([ordered]@{ poolId = 'lab'; poolGuid = $script:Guid1
             testSet = [ordered]@{ name = 'x'; frameworkUrl = $script:Fw; projectUrl = $script:Proj } }) }
         [IO.File]::WriteAllText((Join-Path $dir 'pools.yml'), (ConvertTo-Yaml $one), [Text.UTF8Encoding]::new($false))
-        $doc = Read-YurunaPoolsDoc -IntentDir $dir
-        $doc['schemaVersion'] | Should -Be 3
+        $doc = Read-YurunaPoolsDoc -ConfigurationDir $dir
+        $doc['schemaVersion'] | Should -Be 4
         ($doc | ConvertTo-Json -Depth 10 -Compress) | Should -Match '"pools":\[\{'
         (Get-FixturePool $doc 'lab')['repositories']['projectUrl'] | Should -BeExactly $script:Proj
     }
 }
 
-Describe 'Update-PoolIntentSchema.ps1 migrates a store once' {
+Describe 'Update-PoolConfigurationSchema.ps1 migrates a store once' {
     BeforeAll {
         $script:Migrated = New-PoolStoreFixture -Pools (Get-V2PoolDocument) -Library $script:Library
         $script:SeedHead = Get-StoreHead $script:Migrated
     }
     It 'migrates a v2 store, deletes test-sets.yml and commits once' {
-        $run = Invoke-PoolCli 'Update-PoolIntentSchema.ps1' @('-IntentGitUrl', $script:Migrated.Store, '-IntentDir', $script:Migrated.Clone)
+        $run = Invoke-PoolCli 'Update-PoolConfigurationSchema.ps1' @('-ConfigurationGitUrl', $script:Migrated.Store, '-ConfigurationDir', $script:Migrated.Clone)
         $run.Code | Should -Be 0
-        Get-StoreSubject $script:Migrated | Should -BeExactly 'Migrate pool intent to schemaVersion 3'
+        Get-StoreSubject $script:Migrated | Should -BeExactly 'Migrate pool configuration to schemaVersion 4'
         ((& git -C $script:Migrated.Store rev-parse 'main~1' 2>$null) -join '') | Should -BeExactly $script:SeedHead -Because 'exactly one commit'
         Test-StoreHasFile $script:Migrated 'test-sets.yml' | Should -BeFalse
         $doc = Get-StorePoolDocument $script:Migrated
-        $doc['schemaVersion'] | Should -Be 3
+        $doc['schemaVersion'] | Should -Be 4
         $lab = Get-FixturePool $doc 'lab'
         $lab['repositories']['projectUrl'] | Should -BeExactly $script:Proj
         $lab.Contains('testSet') | Should -BeFalse
         # A target pool that carried a pair keeps it: the migration never
-        # decides what a lab runs. Test-PoolIntent.ps1 reports it instead.
+        # decides what a lab runs. Test-PoolConfiguration.ps1 reports it instead.
         (Get-FixturePool $doc 'default').Contains('repositories') | Should -BeTrue
     }
     It 'reports a second run as already current and commits nothing' {
         $before = Get-StoreHead $script:Migrated
-        $run = Invoke-PoolCli 'Update-PoolIntentSchema.ps1' @('-IntentGitUrl', $script:Migrated.Store, '-IntentDir', $script:Migrated.Clone)
+        $run = Invoke-PoolCli 'Update-PoolConfigurationSchema.ps1' @('-ConfigurationGitUrl', $script:Migrated.Store, '-ConfigurationDir', $script:Migrated.Clone)
         $run.Code | Should -Be 0
         Get-StoreHead $script:Migrated | Should -BeExactly $before
     }
-    It 'removes a leftover test-sets.yml from a v3 store under its own commit subject' {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument -LabRepositories) -Library $script:Library
+    It 'migrates a v3 paused pool and writes only canonical state fields' {
+        $doc = Get-V3PoolDocument
+        $doc['pools'][0]['desiredState'] = 'paused'
+        $f = New-PoolStoreFixture -Pools $doc
+        $run = Invoke-PoolCli 'Update-PoolConfigurationSchema.ps1' @('-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
+        $run.Code | Should -Be 0
+        $saved = Get-StorePoolDocument $f
+        $saved['schemaVersion'] | Should -Be 4
+        $lab = Get-FixturePool $saved 'lab'
+        $lab['configuredState'] | Should -BeExactly 'paused'
+        $lab.Contains('desiredState') | Should -BeFalse
+    }
+    It 'refuses conflicting states without publishing or deleting the legacy library' {
+        $doc = Get-V3PoolDocument
+        $doc['pools'][0]['desiredState'] = 'paused'
+        $doc['pools'][0]['configuredState'] = 'run'
+        $f = New-PoolStoreFixture -Pools $doc -Library $script:Library
         $before = Get-StoreHead $f
-        $run = Invoke-PoolCli 'Update-PoolIntentSchema.ps1' @('-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $run = Invoke-PoolCli 'Update-PoolConfigurationSchema.ps1' @('-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
+        $run.Code | Should -Not -Be 0
+        Get-StoreHead $f | Should -BeExactly $before
+        Test-StoreHasFile $f 'test-sets.yml' | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $f.Clone 'test-sets.yml') | Should -BeTrue
+    }
+    It 'refuses obsolete state fields instead of reporting a v4 store already current' {
+        $doc = Get-V4PoolDocument
+        $doc['pools'][0]['desiredState'] = 'run'
+        $f = New-PoolStoreFixture -Pools $doc
+        $before = Get-StoreHead $f
+        $run = Invoke-PoolCli 'Update-PoolConfigurationSchema.ps1' @('-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
+        $run.Code | Should -Not -Be 0
+        Get-StoreHead $f | Should -BeExactly $before
+    }
+    It 'removes a leftover test-sets.yml from a v4 store under its own commit subject' {
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument -LabRepositories) -Library $script:Library
+        $before = Get-StoreHead $f
+        $run = Invoke-PoolCli 'Update-PoolConfigurationSchema.ps1' @('-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Be 0
         Get-StoreSubject $f | Should -BeExactly 'pool: remove test-sets.yml' -Because 'the version did not move'
         ((& git -C $f.Store rev-parse 'main~1' 2>$null) -join '') | Should -BeExactly $before -Because 'exactly one commit'
         Test-StoreHasFile $f 'test-sets.yml' | Should -BeFalse
         $doc = Get-StorePoolDocument $f
-        $doc['schemaVersion'] | Should -Be 3
+        $doc['schemaVersion'] | Should -Be 4
         (Get-FixturePool $doc 'lab')['repositories']['projectUrl'] | Should -BeExactly 'https://example.invalid/old-project.git'
     }
     It 'refuses a store at a newer schemaVersion' {
-        $doc = Get-V3PoolDocument
-        $doc['schemaVersion'] = 4
+        $doc = Get-V4PoolDocument
+        $doc['schemaVersion'] = 5
         $f = New-PoolStoreFixture -Pools $doc
         $before = Get-StoreHead $f
-        $run = Invoke-PoolCli 'Update-PoolIntentSchema.ps1' @('-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $run = Invoke-PoolCli 'Update-PoolConfigurationSchema.ps1' @('-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Not -Be 0
         Get-StoreHead $f | Should -BeExactly $before
     }
 }
 
-Describe 'Test-PoolIntent.ps1 judges pools.yml as stored' {
-    It 'reports a v2 store once, as a schema-version failure' {
-        $f = New-PoolStoreFixture -Pools (Get-V2PoolDocument)
-        $run = Invoke-PoolCli 'Test-PoolIntent.ps1' @('-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+Describe 'Test-PoolConfiguration.ps1 judges pools.yml as stored' {
+    It 'reports a v<Version> store once, as a schema-version failure' -ForEach @(
+        @{ Version = 2 }
+        @{ Version = 3 }
+    ) {
+        $doc = if ($Version -eq 2) { Get-V2PoolDocument } else { Get-V3PoolDocument }
+        $f = New-PoolStoreFixture -Pools $doc
+        $run = Invoke-PoolCli 'Test-PoolConfiguration.ps1' @('-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Not -Be 0
         $run.Text | Should -Match 'schema-version'
-        $run.Text | Should -Match 'Update-PoolIntentSchema\.ps1'
-        $run.Text | Should -Not -Match 'target-pool-no-repositories' -Because 'the v3 target-pool rule is not judged on a v2 store'
+        $run.Text | Should -Match 'Update-PoolConfigurationSchema\.ps1'
+        $run.Text | Should -Not -Match 'target-pool-no-repositories' -Because 'the v4 target-pool rule is not judged on an older store'
     }
     It 'fails repositories on the auto-enrollment target pool, and passes once they are cleared' {
-        $f = New-PoolStoreFixture -Pools (Get-V3PoolDocument -TargetRepositories)
-        $run = Invoke-PoolCli 'Test-PoolIntent.ps1' @('-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $f = New-PoolStoreFixture -Pools (Get-V4PoolDocument -TargetRepositories)
+        $run = Invoke-PoolCli 'Test-PoolConfiguration.ps1' @('-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Not -Be 0
         $run.Text | Should -Match 'target-pool-no-repositories'
-        $cleared = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'default', '-Clear', '-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $cleared = Invoke-PoolCli 'Set-PoolRepository.ps1' @('-PoolId', 'default', '-Clear', '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $cleared.Code | Should -Be 0
-        $again = Invoke-PoolCli 'Test-PoolIntent.ps1' @('-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $again = Invoke-PoolCli 'Test-PoolConfiguration.ps1' @('-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $again.Code | Should -Be 0
         $again.Text | Should -Match 'target-pool-no-repositories'
     }
 }
 
-Describe 'Get-PoolIntent.ps1 emits the v3 shape' {
+Describe 'Get-PoolConfiguration.ps1 emits the v4 shape' {
     It 'shows a v2 store''s pairs as repositories, with no library and the auto-enrollment policy' {
         $f = New-PoolStoreFixture -Pools (Get-V2PoolDocument) -Library $script:Library
         $before = Get-StoreHead $f
-        $run = Invoke-PoolCli 'Get-PoolIntent.ps1' @('-IntentGitUrl', $f.Store, '-IntentDir', $f.Clone)
+        $run = Invoke-PoolCli 'Get-PoolConfiguration.ps1' @('-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
         $run.Code | Should -Be 0
         $json = $run.Text | ConvertFrom-Json -AsHashtable
         $json['ok'] | Should -BeTrue
@@ -332,6 +420,27 @@ Describe 'Get-PoolIntent.ps1 emits the v3 shape' {
         $lab = @($json['pools'] | Where-Object { $_['poolId'] -ceq 'lab' })[0]
         $lab['repositories']['frameworkUrl'] | Should -BeExactly $script:Fw
         $lab.ContainsKey('testSet') | Should -BeFalse
+        $lab['configuredState'] | Should -BeExactly 'run'
+        $lab.ContainsKey('desiredState') | Should -BeFalse
         Get-StoreHead $f | Should -BeExactly $before -Because 'a read never writes the store'
+    }
+    It 'reads a v3 drain pool without changing the store and canonicalizes the next admin write' {
+        $doc = Get-V3PoolDocument
+        $doc['pools'][0]['desiredState'] = 'drain'
+        $f = New-PoolStoreFixture -Pools $doc
+        $before = Get-StoreHead $f
+        $run = Invoke-PoolCli 'Get-PoolConfiguration.ps1' @('-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
+        $run.Code | Should -Be 0
+        $json = $run.Text | ConvertFrom-Json -AsHashtable
+        $lab = @($json['pools'] | Where-Object { $_['poolId'] -ceq 'lab' })[0]
+        $lab['configuredState'] | Should -BeExactly 'drain'
+        $lab.ContainsKey('desiredState') | Should -BeFalse
+        Get-StoreHead $f | Should -BeExactly $before
+        $set = Invoke-PoolCli 'Set-PoolConfiguredState.ps1' @('-PoolId', 'lab', '-State', 'paused', '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
+        $set.Code | Should -Be 0
+        $saved = Get-StorePoolDocument $f
+        $saved['schemaVersion'] | Should -Be 4
+        (Get-FixturePool $saved 'lab')['configuredState'] | Should -BeExactly 'paused'
+        foreach ($pool in @($saved['pools'])) { $pool.Contains('desiredState') | Should -BeFalse }
     }
 }

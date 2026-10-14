@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42a3e685-78ad-4652-bb9e-5eca911727a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,8 +18,7 @@
 
 <#
 .SYNOPSIS
-    Stops the status HTTP server started by Start-StatusService.ps1.
-
+    Stop the status HTTP server started by Start-StatusService.ps1.
 .DESCRIPTION
     Reads the PID from $env:YURUNA_RUNTIME_DIR/server.pid and terminates
     the detached serve process.

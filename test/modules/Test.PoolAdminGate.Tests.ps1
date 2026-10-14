@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42074735-e5df-4b56-b216-96e6299e53f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,11 +18,11 @@
 
 <#
 .SYNOPSIS
-    Test-YurunaPoolIntentFile fails a REQUIRED but absent file (pools.yml) while
+    Test-YurunaPoolConfigurationFile fails a REQUIRED but absent file (pools.yml) while
     SKIPping optional ones, and the idempotent network git ops (fetch/clone/push)
     retry within one wall-clock budget.
 .DESCRIPTION
-    Behavioral tests exercise the exported Test-YurunaPoolIntentFile and the
+    Behavioral tests exercise the exported Test-YurunaPoolConfigurationFile and the
     module-private Invoke-PoolAdminGitWithRetry (in module scope), with the git
     primitive + schema validator mocked. AST guards pin that the CI gate marks
     pools.yml -Required and that fetch/clone/push route through the retry wrapper.
@@ -34,7 +34,7 @@ $here          = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $adminPath     = Join-Path $here 'Test.PoolAdmin.psm1'
 $syncPath      = Join-Path $here 'Test.PoolSync.psm1'
-$script:poolIntentPs1 = Join-Path (Split-Path -Parent $here) 'pool/Test-PoolIntent.ps1'
+$script:poolConfigurationPs1 = Join-Path (Split-Path -Parent $here) 'pool/Test-PoolConfiguration.ps1'
 Import-Module $syncPath  -Force   # exports Invoke-PoolSyncGit (mocked below)
 Import-Module $adminPath -Force
 
@@ -83,14 +83,14 @@ function Test-AnyExtentMatch {
 
 }
 
-Describe 'Test-YurunaPoolIntentFile enforces required vs optional intent files' {
+Describe 'Test-YurunaPoolConfigurationFile enforces required vs optional configuration files' {
     It 'FAILS a required file that is absent (pools.yml must not read as success)' {
         $missing = Join-Path ([System.IO.Path]::GetTempPath()) ('nope-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
-        Test-YurunaPoolIntentFile -Path $missing -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required -WarningAction SilentlyContinue | Should -Be $false
+        Test-YurunaPoolConfigurationFile -Path $missing -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required -WarningAction SilentlyContinue | Should -Be $false
     }
     It 'SKIPs (passes) an optional file that is absent' {
         $missing = Join-Path ([System.IO.Path]::GetTempPath()) ('nope-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
-        Test-YurunaPoolIntentFile -Path $missing -SchemaName 'guests.compatibility.schema.yml' -Label 'guests.compatibility.yml' | Should -Be $true
+        Test-YurunaPoolConfigurationFile -Path $missing -SchemaName 'guests.compatibility.schema.yml' -Label 'guests.compatibility.yml' | Should -Be $true
     }
     It 'PASSes a present, schema-valid file' {
         $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yes-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
@@ -98,7 +98,7 @@ Describe 'Test-YurunaPoolIntentFile enforces required vs optional intent files' 
         try {
             Mock -ModuleName Test.PoolAdmin ConvertFrom-Yaml { @{ schemaVersion = 1 } }
             Mock -ModuleName Test.PoolAdmin Test-YurunaPoolDocValid { @{ Ok = $true; Errors = @() } }
-            Test-YurunaPoolIntentFile -Path $tmp -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required | Should -Be $true
+            Test-YurunaPoolConfigurationFile -Path $tmp -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required | Should -Be $true
         } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     }
     It 'FAILs a present file that is schema-invalid' {
@@ -107,7 +107,7 @@ Describe 'Test-YurunaPoolIntentFile enforces required vs optional intent files' 
         try {
             Mock -ModuleName Test.PoolAdmin ConvertFrom-Yaml { @{ schemaVersion = 1 } }
             Mock -ModuleName Test.PoolAdmin Test-YurunaPoolDocValid { @{ Ok = $false; Errors = @('pools[0].poolId required') } }
-            Test-YurunaPoolIntentFile -Path $tmp -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required -WarningAction SilentlyContinue | Should -Be $false
+            Test-YurunaPoolConfigurationFile -Path $tmp -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required -WarningAction SilentlyContinue | Should -Be $false
         } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     }
     It 'FAILs a present file that will not parse as YAML' {
@@ -115,7 +115,7 @@ Describe 'Test-YurunaPoolIntentFile enforces required vs optional intent files' 
         Set-Content -LiteralPath $tmp -Value ': not yaml'
         try {
             Mock -ModuleName Test.PoolAdmin ConvertFrom-Yaml { throw 'bad yaml' }
-            Test-YurunaPoolIntentFile -Path $tmp -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required -WarningAction SilentlyContinue | Should -Be $false
+            Test-YurunaPoolConfigurationFile -Path $tmp -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required -WarningAction SilentlyContinue | Should -Be $false
         } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -164,11 +164,11 @@ Describe 'Invoke-PoolAdminGitWithRetry survives a transient failure within a bou
 }
 
 Describe 'CI gate marks pools.yml required and admin git ops route through retry (AST)' {
-    It 'Test-PoolIntent.ps1 defines no local intent-file validator (delegates to the module)' {
-        (Get-FunctionDefCount -Ast (Get-FileAst $script:poolIntentPs1) -Name 'Test-OneIntentFile') | Should -Be 0
+    It 'Test-PoolConfiguration.ps1 defines no local configuration-file validator (delegates to the module)' {
+        (Get-FunctionDefCount -Ast (Get-FileAst $script:poolConfigurationPs1) -Name 'Test-OneConfigurationFile') | Should -Be 0
     }
-    It 'Test-PoolIntent.ps1 marks exactly the pools.yml check -Required' {
-        $calls = Get-CommandInvocation -Ast (Get-FileAst $script:poolIntentPs1) -Name 'Test-YurunaPoolIntentFile'
+    It 'Test-PoolConfiguration.ps1 marks exactly the pools.yml check -Required' {
+        $calls = Get-CommandInvocation -Ast (Get-FileAst $script:poolConfigurationPs1) -Name 'Test-YurunaPoolConfigurationFile'
         $calls.Count | Should -BeGreaterOrEqual 2
         $required = @($calls | Where-Object { Test-CallHasSwitch -Call $_ -SwitchName 'Required' })
         $required.Count | Should -Be 1
@@ -196,14 +196,14 @@ Describe 'CI gate marks pools.yml required and admin git ops route through retry
     }
 }
 
-Describe 'Open-YurunaPoolIntent refuses to reset --hard over unpushed local commits' {
+Describe 'Open-YurunaPoolConfiguration refuses to reset --hard over unpushed local commits' {
     # Open takes a lock file beside the clone; Windows will not delete the drive while it is open.
-    AfterAll { Unlock-YurunaPoolIntentClone -All }
+    AfterAll { Unlock-YurunaPoolConfigurationClone -All }
     It 'returns Ok=$false and does NOT reset when the clone is local-ahead (merge-base --is-ancestor = 1)' {
         Mock -ModuleName Test.PoolAdmin Test-Path { param($LiteralPath) $LiteralPath -notlike '*rebase-*' }
         Mock -ModuleName Test.PoolAdmin Invoke-PoolAdminGitWithRetry { 0 }
         Mock -ModuleName Test.PoolAdmin Invoke-PoolSyncGit { if ($ArgumentList -contains 'merge-base') { 1 } else { 0 } }
-        $r = Open-YurunaPoolIntent -IntentGitUrl 'https://example/intent' -IntentDir 'TestDrive:\intent' -Confirm:$false
+        $r = Open-YurunaPoolConfiguration -ConfigurationGitUrl 'https://example/configuration' -ConfigurationDir 'TestDrive:\configuration' -Confirm:$false
         $r.Ok | Should -Be $false
         $r.Error | Should -Match 'refusing to reset'
         Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
@@ -212,7 +212,7 @@ Describe 'Open-YurunaPoolIntent refuses to reset --hard over unpushed local comm
         Mock -ModuleName Test.PoolAdmin Test-Path { param($LiteralPath) $LiteralPath -notlike '*rebase-*' }
         Mock -ModuleName Test.PoolAdmin Invoke-PoolAdminGitWithRetry { 0 }
         Mock -ModuleName Test.PoolAdmin Invoke-PoolSyncGit { 0 }
-        $r = Open-YurunaPoolIntent -IntentGitUrl 'https://example/intent' -IntentDir 'TestDrive:\intent' -Confirm:$false
+        $r = Open-YurunaPoolConfiguration -ConfigurationGitUrl 'https://example/configuration' -ConfigurationDir 'TestDrive:\configuration' -Confirm:$false
         $r.Ok | Should -Be $true
         Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 1 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
     }
@@ -220,37 +220,37 @@ Describe 'Open-YurunaPoolIntent refuses to reset --hard over unpushed local comm
         Mock -ModuleName Test.PoolAdmin Test-Path { $true }
         Mock -ModuleName Test.PoolAdmin Invoke-PoolAdminGitWithRetry { 0 }
         Mock -ModuleName Test.PoolAdmin Invoke-PoolSyncGit { 0 }
-        $r = Open-YurunaPoolIntent -IntentGitUrl 'https://example/intent' -IntentDir 'TestDrive:\intent' -Confirm:$false
+        $r = Open-YurunaPoolConfiguration -ConfigurationGitUrl 'https://example/configuration' -ConfigurationDir 'TestDrive:\configuration' -Confirm:$false
         $r.Ok | Should -Be $false
         $r.Error | Should -Match 'unfinished rebase'
         Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
     }
 }
 
-Describe 'An existing intent clone must match the requested intentGitUrl' {
+Describe 'An existing configuration clone must match the requested configurationGitUrl' {
     BeforeAll {
         $script:originRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('poolorigin-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
         $script:originClone = Join-Path $script:originRoot 'clone'
         New-Item -ItemType Directory -Path $script:originClone -Force | Out-Null
         & git -C $script:originClone init --quiet 2>&1 | Out-Null
-        & git -C $script:originClone remote add origin 'https://example.test/org/intent-one.git' 2>&1 | Out-Null
+        & git -C $script:originClone remote add origin 'https://example.test/org/configuration-one.git' 2>&1 | Out-Null
     }
     AfterAll {
-        Unlock-YurunaPoolIntentClone -All
+        Unlock-YurunaPoolConfigurationClone -All
         if (Test-Path -LiteralPath $script:originRoot) { [System.IO.Directory]::Delete($script:originRoot, $true) }
     }
     It 'accepts the same URL despite case, a .git suffix or a trailing slash' {
-        (Test-PoolIntentCloneOrigin -Path $script:originClone -Url 'HTTPS://example.test/org/intent-one/') | Should -BeTrue
+        (Test-PoolConfigurationCloneOrigin -Path $script:originClone -Url 'HTTPS://example.test/org/configuration-one/') | Should -BeTrue
     }
     It 'reports a different URL as a mismatch' {
-        (Test-PoolIntentCloneOrigin -Path $script:originClone -Url 'https://example.test/org/intent-two.git') | Should -BeFalse
+        (Test-PoolConfigurationCloneOrigin -Path $script:originClone -Url 'https://example.test/org/configuration-two.git') | Should -BeFalse
     }
     It 'does not judge a path that is not a repository' {
-        (Test-PoolIntentCloneOrigin -Path (Join-Path $script:originRoot 'absent') -Url 'https://example.test/x.git') | Should -BeTrue
+        (Test-PoolConfigurationCloneOrigin -Path (Join-Path $script:originRoot 'absent') -Url 'https://example.test/x.git') | Should -BeTrue
     }
-    It 'makes Open-YurunaPoolIntent refuse a clone whose origin is another URL, before any fetch' {
+    It 'makes Open-YurunaPoolConfiguration refuse a clone whose origin is another URL, before any fetch' {
         Mock -ModuleName Test.PoolAdmin Invoke-PoolAdminGitWithRetry { 0 }
-        $r = Open-YurunaPoolIntent -IntentGitUrl 'https://example.test/org/intent-two.git' -IntentDir $script:originClone -Confirm:$false
+        $r = Open-YurunaPoolConfiguration -ConfigurationGitUrl 'https://example.test/org/configuration-two.git' -ConfigurationDir $script:originClone -Confirm:$false
         $r.Ok | Should -BeFalse
         $r.Error | Should -Match 'different origin'
         Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolAdminGitWithRetry -Scope It -Times 0 -Exactly
@@ -262,13 +262,13 @@ Describe 'An existing intent clone must match the requested intentGitUrl' {
         $shimmed = $false
         if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) { function global:ConvertFrom-Yaml { }; $shimmed = $true }
         try {
-            $cfg = @{ pool = @{ enabled = $true; intentGitUrl = 'https://example.test/org/intent-two.git'; localClonePath = $script:originClone; pullTimeoutSeconds = 5 } }
-            $null = Sync-YurunaPoolIntent -Config $cfg -HostId '42none000000000000000000000000'
-            Assert-MockCalled -ModuleName Test.PoolSync Invoke-PoolSyncGit -Scope It -Times 1 -Exactly -ParameterFilter { ($ArgumentList -contains 'set-url') -and ($ArgumentList -contains 'https://example.test/org/intent-two.git') }
+            $cfg = @{ pool = @{ enabled = $true; configurationGitUrl = 'https://example.test/org/configuration-two.git'; localClonePath = $script:originClone; pullTimeoutSeconds = 5 } }
+            $null = Sync-YurunaPoolConfiguration -Config $cfg -HostId '42none000000000000000000000000'
+            Assert-MockCalled -ModuleName Test.PoolSync Invoke-PoolSyncGit -Scope It -Times 1 -Exactly -ParameterFilter { ($ArgumentList -contains 'set-url') -and ($ArgumentList -contains 'https://example.test/org/configuration-two.git') }
         } finally { if ($shimmed) { Remove-Item function:\ConvertFrom-Yaml -Force -ErrorAction SilentlyContinue } }
     }
 }
-Describe 'Open-YurunaPoolIntent keeps concurrent admin commands out of one admin clone' {
+Describe 'Open-YurunaPoolConfiguration keeps concurrent admin commands out of one admin clone' {
     BeforeAll {
         $modules = Split-Path -Parent $PSCommandPath
         $script:lockAdmin = Join-Path $modules 'Test.PoolAdmin.psm1'
@@ -280,7 +280,7 @@ Describe 'Open-YurunaPoolIntent keeps concurrent admin commands out of one admin
         $seed = Join-Path $script:lockRoot 'seed'
         & git init --quiet --bare --initial-branch=main $script:lockStore 2>&1 | Out-Null
         & git clone --quiet $script:lockStore $seed 2>&1 | Out-Null
-        Set-Content -LiteralPath (Join-Path $seed 'pools.yml') -Value 'schemaVersion: 3' -Encoding ascii
+        Set-Content -LiteralPath (Join-Path $seed 'pools.yml') -Value 'schemaVersion: 4' -Encoding ascii
         & git -C $seed add -A 2>&1 | Out-Null
         & git -C $seed -c user.email=t@example.invalid -c user.name=t commit --quiet -m seed 2>&1 | Out-Null
         & git -C $seed push --quiet origin HEAD:main 2>&1 | Out-Null
@@ -305,13 +305,13 @@ Describe 'Open-YurunaPoolIntent keeps concurrent admin commands out of one admin
         }
     }
     AfterAll {
-        Unlock-YurunaPoolIntentClone -All
+        Unlock-YurunaPoolConfigurationClone -All
         if (Test-Path -LiteralPath $script:lockRoot) { [System.IO.Directory]::Delete($script:lockRoot, $true) }
     }
 
     It 'lets six processes open one clone that does not exist yet, and every one succeeds' {
         $dir = Join-Path $script:lockRoot 'first-use'
-        $open = "`$r = Open-YurunaPoolIntent -IntentGitUrl '$($script:lockStore)' -IntentDir `$Dir -Confirm:`$false`n" +
+        $open = "`$r = Open-YurunaPoolConfiguration -ConfigurationGitUrl '$($script:lockStore)' -ConfigurationDir `$Dir -Confirm:`$false`n" +
             "'{0}|{1}' -f `$r.Ok, `$r.Error`nStart-Sleep -Milliseconds 300"
         $children = 1..6 | ForEach-Object { Start-LockChild -Body $open -ArgumentList @('-Dir', $dir) }
         $results = foreach ($c in $children) {
@@ -327,7 +327,7 @@ Describe 'Open-YurunaPoolIntent keeps concurrent admin commands out of one admin
         $held = Join-Path $script:lockRoot 'held.signal'
         $release = Join-Path $script:lockRoot 'held.release'
         $holder = Start-LockChild -ArgumentList @('-Dir', $dir, '-Signal', $held) -Body (
-            "`$null = Lock-YurunaPoolIntentClone -IntentDir `$Dir`nSet-Content -LiteralPath `$Signal -Value held`n" +
+            "`$null = Lock-YurunaPoolConfigurationClone -ConfigurationDir `$Dir`nSet-Content -LiteralPath `$Signal -Value held`n" +
             "`$end = [DateTime]::UtcNow.AddSeconds(60)`nwhile (-not (Test-Path -LiteralPath '$release') -and [DateTime]::UtcNow -lt `$end) { Start-Sleep -Milliseconds 100 }")
         try {
             $deadline = [DateTime]::UtcNow.AddSeconds(60)
@@ -335,7 +335,7 @@ Describe 'Open-YurunaPoolIntent keeps concurrent admin commands out of one admin
             Test-Path -LiteralPath $held | Should -BeTrue -Because 'the holder must take the lock first'
 
             $clock = [System.Diagnostics.Stopwatch]::StartNew()
-            $refused = Lock-YurunaPoolIntentClone -IntentDir $dir -WaitSeconds 1
+            $refused = Lock-YurunaPoolConfigurationClone -ConfigurationDir $dir -WaitSeconds 1
             $clock.Stop()
             $refused.Ok | Should -BeFalse
             $refused.Error | Should -Match 'another pool admin command'
@@ -343,20 +343,20 @@ Describe 'Open-YurunaPoolIntent keeps concurrent admin commands out of one admin
 
             Set-Content -LiteralPath $release -Value go
             $holder.Process.WaitForExit(60000) | Should -BeTrue
-            (Lock-YurunaPoolIntentClone -IntentDir $dir -WaitSeconds 30).Ok | Should -BeTrue
+            (Lock-YurunaPoolConfigurationClone -ConfigurationDir $dir -WaitSeconds 30).Ok | Should -BeTrue
         } finally {
             if (-not $holder.Process.HasExited) { $holder.Process.Kill($true) }
-            Unlock-YurunaPoolIntentClone -IntentDir $dir
+            Unlock-YurunaPoolConfigurationClone -ConfigurationDir $dir
         }
     }
 
     It 'is re-entrant within one process and frees the clone when it is unlocked' {
         $dir = Join-Path $script:lockRoot 'reentrant'
-        (Lock-YurunaPoolIntentClone -IntentDir $dir -WaitSeconds 1).Ok | Should -BeTrue
+        (Lock-YurunaPoolConfigurationClone -ConfigurationDir $dir -WaitSeconds 1).Ok | Should -BeTrue
         $clock = [System.Diagnostics.Stopwatch]::StartNew()
-        (Lock-YurunaPoolIntentClone -IntentDir $dir -WaitSeconds 30).Ok | Should -BeTrue
+        (Lock-YurunaPoolConfigurationClone -ConfigurationDir $dir -WaitSeconds 30).Ok | Should -BeTrue
         $clock.Elapsed.TotalSeconds | Should -BeLessThan 5 -Because 'a second lock by the holder itself must not wait'
-        Unlock-YurunaPoolIntentClone -IntentDir $dir
+        Unlock-YurunaPoolConfigurationClone -ConfigurationDir $dir
         # Released: an exclusive open of the lock file now succeeds.
         $probe = [System.IO.FileStream]::new("$dir.lock", [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
         $probe.Dispose()
@@ -364,10 +364,10 @@ Describe 'Open-YurunaPoolIntent keeps concurrent admin commands out of one admin
 
     It 'does not put the lock inside the clone, where git add -A would stage it' {
         $dir = Join-Path $script:lockRoot 'beside'
-        (Lock-YurunaPoolIntentClone -IntentDir $dir -WaitSeconds 1).Ok | Should -BeTrue
+        (Lock-YurunaPoolConfigurationClone -ConfigurationDir $dir -WaitSeconds 1).Ok | Should -BeTrue
         Test-Path -LiteralPath "$dir.lock" | Should -BeTrue
         Test-Path -LiteralPath $dir | Should -BeFalse -Because 'locking must not create the clone directory itself'
-        Unlock-YurunaPoolIntentClone -IntentDir $dir
+        Unlock-YurunaPoolConfigurationClone -ConfigurationDir $dir
     }
 
     It 'skips a lock it cannot create instead of failing the command' -Skip:($IsWindows) {
@@ -375,7 +375,7 @@ Describe 'Open-YurunaPoolIntent keeps concurrent admin commands out of one admin
         New-Item -ItemType Directory -Path $readOnly -Force | Out-Null
         & chmod 555 $readOnly
         try {
-            (Lock-YurunaPoolIntentClone -IntentDir (Join-Path $readOnly 'clone') -WaitSeconds 1).Ok | Should -BeTrue
+            (Lock-YurunaPoolConfigurationClone -ConfigurationDir (Join-Path $readOnly 'clone') -WaitSeconds 1).Ok | Should -BeTrue
         } finally { & chmod 755 $readOnly }
     }
 }

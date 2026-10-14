@@ -66,8 +66,19 @@ func TestBeatUpdatesHeartbeat(t *testing.T) {
 	s := New(dir, now)
 	s.Beat(now.Add(30*time.Second), true)
 	st := s.Health()
-	if st.HeartbeatUTC == "" || !st.IntentReadable {
-		t.Fatalf("beat did not update heartbeat/intent-readable: %+v", st)
+	if st.HeartbeatUTC == "" || !st.ConfigurationReadable {
+		t.Fatalf("beat did not update heartbeat/configuration-readable: %+v", st)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted["configurationReadable"] != true {
+		t.Fatalf("status.json did not report configuration readability: %s", data)
 	}
 }
 

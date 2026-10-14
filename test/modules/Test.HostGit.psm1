@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -117,7 +117,7 @@ function Get-YurunaGitCredentialArg {
 
         Two properties matter:
           * SCOPED to github.com, so the token is never offered to any other
-            remote (a private mirror, the LAN pool-intent store, a file:// URL).
+            remote (a private mirror, the LAN pool-configuration store, a file:// URL).
           * The helper reads $GH_TOKEN at RUN TIME from the environment git passes
             it, so the token value never appears on a command line (visible to
             `ps`), in git config, or in a log -- only the fixed helper string and

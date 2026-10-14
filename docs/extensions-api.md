@@ -35,7 +35,7 @@ status, and fetch/body processing remains bounded by the request timeout.
 | `caching-proxy-service` | `default`     | The **management plane** for the caching-proxy-service VM -- the area that made that VM self-describing instead of a hardcoded roster row. A stdlib+SDK Go daemon on `:9310` reports Squid's runtime summary (via the manager API), the offline / no-upstream switch state, and zot's catalog, canary and prewarm records; it owns the two operator switches, which used to be SSH-only. Nothing that serves traffic moved: Squid (`:3128`/`:3129`), zot (`:5000`), Grafana, Prometheus, Loki and the exporters are untouched. Runs either on the proxy VM (`--mode local`) or on another host that can reach those APIs (`--mode remote`, read-only -- see [below](#running-the-caching-proxy-service-from-another-host)). |
 | `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashServiceVM` + cloud-init, plus the PowerShell wrapper `default.psm1`. |
 | `pool-aggregator-service`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorServiceManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy-service machine (pool services host): it auto-discovers pool members from the Squid access log, probes each one's status service, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md). |
-| `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which framework and project repositories each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-intent git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` preflight). See [pool-admin.md](pool-admin.md#pool-control-service). |
+| `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which framework and project repositories each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-configuration git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` preflight). See [pool-admin.md](pool-admin.md#pool-control-service). |
 | `download-agent-service`       | `default`      | Pool-wide **guest-image downloader**: a stdlib-only Go daemon on its own `yuruna-download-agent-service` VM that keeps a Download pool on the pool share fresh and serves the artifacts to hosts over HTTP, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-DownloadAgentServiceInfo` (status stub) and `Test-DownloadAgentServiceHost` (the `/healthz` preflight). See [download-agent.md](download-agent.md). |
 | `digest`               | `default`      | SHA-256 values a sequence step carries to a guest in its launch command, so a guest script can verify what it downloads before it extracts, installs or runs it: `${ext:digest.GetFileSha256(<path>)}`, `${ext:digest.GetArchiveSha256(project)}`, `${ext:digest.GetPublishedSha256(<name>)}`, plus the `digest.PublishGuestFileSha256` step for an artifact one guest builds and another downloads. The digest travels the same typed channel as the script's own, never the HTTP the bytes arrive on. See [`digest/README.md`](../test/extension/digest/README.md). |
 
@@ -100,7 +100,7 @@ test/extension/
 +-- pool-control-service/
 |   +-- pool-control-service.config.yml         # active: ['default'] + the service manifest
 |   +-- pool-control-service.contract.yml
-|   +-- server/                         # Go daemon (main.go + internal/{...}, incl. intent)
+|   +-- server/                         # Go daemon (main.go + internal/{...}, incl. configuration)
 |   +-- default.psm1                    # host-side status stub + /healthz preflight
 +-- download-agent-service/
 |   +-- download-agent-service.config.yml       # active: ['default'] + the service manifest
@@ -638,7 +638,7 @@ Four of the five daemons that mount MCP offer mutating tools; the aggregator
 offers none. Each service also withholds particular mutations: the
 aggregator's are a telemetry firehose and a route that deletes evidence an
 operator may be mid-way through reading; pool-control withholds pool creation,
-pool deletion (which commits and pushes the pool intent store), and network
+pool deletion (which commits and pushes the pool configuration store), and network
 scans; stash's `DELETE` reaches every host's stash on the shared
 mount, not just its own; and the download agent's `ensure` route is
 **deliberately ungated** on the HTTP side, so a tool for it could not both
@@ -1167,6 +1167,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 Back to [Yuruna](../README.md)

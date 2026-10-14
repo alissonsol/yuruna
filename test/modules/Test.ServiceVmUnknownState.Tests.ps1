@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42117e6a-8e6c-4f6c-9d1a-2b8f9a0c7d3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -242,7 +242,7 @@ Describe 'Restore-YurunaServiceVM -- unknown state never authorizes a start' {
 
         $r = @(Restore-YurunaServiceVM -Key 'stash' -StateRoot $script:Env.StateRoot -RuntimeDir $script:Env.RuntimeDir -Confirm:$false)
         $r[0].Outcome | Should -Be 'intended-stopped'
-        $r[0].DesiredState | Should -Be 'stopped'
+        $r[0].RequestedState | Should -Be 'stopped'
         $r[0].IntentGeneration | Should -Be $op.Generation
         $script:Fake.StartCalls.Count | Should -Be 0 -Because 'a failed stop is still a request to stay down'
     }
@@ -313,7 +313,7 @@ Describe 'Restore-YurunaServiceVM -- unknown state never authorizes a start' {
         $stop = Enter-YurunaServiceOperation -Key 'stash' -VMName $svc.VMName -Operation Stop -Script 'fixture' -StateRoot $script:Env.StateRoot -Confirm:$false
         $null = Exit-YurunaServiceOperation -Context $stop -Result confirmed -FinalState 'absent' -Confirm:$false
         # A start that has not finished: its intent stays pending, and the
-        # stop's desired state stays in force until it is confirmed.
+        # stop's requested state stays in force until it is confirmed.
         $start = Enter-YurunaServiceOperation -Key 'stash' -VMName $svc.VMName -Operation Start -Script 'fixture' -StateRoot $script:Env.StateRoot -Confirm:$false
         Exit-YurunaServiceOperationLockSet -Context $start.LockSet
         $script:Fake.State[$svc.VMName] = 'stopped'
@@ -453,7 +453,7 @@ Describe 'Restore-YurunaServiceVM -- unknown state never authorizes a start' {
         foreach ($row in $many) {
             $row | Should -BeOfType [pscustomobject]
             foreach ($field in @('Key', 'VMName', 'DisplayName', 'StateBefore', 'Outcome', 'Healthy', 'Message', 'ProbeReason', 'HypervisorState',
-                    'DesiredState', 'IntentGeneration', 'HostingMode', 'Address', 'ConsumerEndpoint', 'ConsumerEndpointState', 'Obligation', 'ElapsedMs')) {
+                    'RequestedState', 'IntentGeneration', 'HostingMode', 'Address', 'ConsumerEndpoint', 'ConsumerEndpointState', 'Obligation', 'ElapsedMs')) {
                 $row.PSObject.Properties.Name | Should -Contain $field
             }
         }

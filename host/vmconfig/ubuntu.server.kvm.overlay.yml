@@ -7,9 +7,9 @@
     # Deliberately empty: a retrieval failure in `packages:` is FATAL and loses
     # the whole build over an optimization.
 # === YURUNA_OVERLAY_NETWORK ===
+  # --- REGION: network
   # See https://yuruna.link/4220a755-000b
   # Pin the installer lease before /target exists.
-  # --- REGION: network
   network:
     version: 2
     ethernets:
@@ -24,9 +24,9 @@
         dhcp4: true
         dhcp-identifier: mac
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
-  # See https://yuruna.link/429f3d06-0012
   # --- REGION: early-commands
   early-commands:
+    # --- REGION: https://yuruna.link/429f3d06-0012
     - setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true
     # --- REGION: https://yuruna.link/429f3d06-0025
     # Quiet the installer kernel; installed-system GRUB settings apply only after reboot.

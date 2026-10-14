@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,12 +122,7 @@ function Get-MissingHostPackage {
 }
 
 function Invoke-Step {
-    # SupportsShouldProcess on the script-level param() does NOT propagate to
-    # nested functions -- $PSCmdlet inside this function refers to the
-    # function's own context, so the attribute must be repeated here for
-    # ShouldProcess to be wired up and for PSScriptAnalyzer's PSShouldProcess
-    # rule to be satisfied. -WhatIf flows through automatically because
-    # $WhatIfPreference inherits from the calling scope.
+    # See https://yuruna.link/42e220c4-0004
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$Description, [scriptblock]$Action)
     if ($PSCmdlet.ShouldProcess($Description)) {
@@ -468,12 +463,7 @@ foreach ($grp in @('libvirt','kvm')) {
         }
     }
     elseif ($activeGroups -notcontains $grp) {
-        # Reported for every caller. install/ubuntu.kvm.sh says the same thing
-        # once more in its own closing summary, and that duplication is the
-        # cheaper mistake: suppressing the reminder for callers that publish a
-        # particular environment variable suppresses it for every caller that
-        # publishes it, including the ones that print no such reminder of their
-        # own -- and virsh then fails for a reason nothing on screen explains.
+        # See https://yuruna.link/42e220c4-0004
         Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_37d4fa1ce9d640c6' -Arguments @{ grp = "$grp" })
     }
 }

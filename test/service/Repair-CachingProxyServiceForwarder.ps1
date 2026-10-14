@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42a369ad-01e2-44e3-b547-f5faae54a6ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,14 +95,8 @@ if ($CacheIp -and -not (Test-IpAddress $CacheIp)) {
     exit 1
 }
 
-# --- REGION: Step 1: tear down legacy shared-NAT forwarders
-# The cache lives directly on the LAN now. Any pwsh forwarder.<port>.pid
-# subprocess left behind from the legacy shared-NAT layout is noise --
-# it binds 0.0.0.0:<port> on this Mac, tunnels to a stale 192.168.64.X
-# IP that may have been reassigned, and blocks anything else (this very
-# script's verification probes; a remote host that points
-# YURUNA_CACHING_PROXY_SERVICE_IP back at the Mac instead of the cache) from
-# reusing those ports. No-op on a fresh install.
+# --- REGION: Step 1: tear down legacy host-side forwarders
+# See https://yuruna.link/42e220c4-0008
 Write-Output ""
 Write-Output "== Step 1: tear down any legacy host-side forwarders =="
 [void](Remove-PortMap -Confirm:$false)

@@ -389,9 +389,10 @@
       "sourceHash": "185de57bfcb3330617a0bfeb1da8bebe5f8b4d2f5a764994e8b8639a3396ca0e",
       "message": "convidadoSequência"
     },
-    "status.config_field_intentgiturl": {
-      "sourceHash": "d9ad5ee571acfcb0cc0085597b0c4263b0ec4ecb9207e482f2dcad295b520b92",
-      "message": "intençãoGitUrl"
+    "status.config_field_configurationgiturl": {
+      "sourceHash": "ac9565b481637f7acf24127525da76871af6c5be17a012ad0ff6873689105ee2",
+      "message": "intençãoGitUrl",
+      "origin": "machine"
     },
     "status.config_field_labhealth": {
       "sourceHash": "a52c5da41f40b62bac7930d27a9e2f381f1455fd0e8d59c53cd5b32c8d2b1996",
@@ -1198,6 +1199,26 @@
     "status.run_start_testrunner_ps1_to_start_a_test_cycle": {
       "sourceHash": "154e1047c15a6c496d0eccb27e5658616a9d0397fe4bbb000be8cdf7fa8f7dac",
       "message": "Executar Start-TestRunner.ps1 para iniciar um ciclo de teste."
+    },
+    "status.runner_attempt_failed": {
+      "sourceHash": "7a69b47ccd1e2f997ec3eccecbde42dc8b9e58777428046dca0ded05d4003526",
+      "message": "A tentativa do executor falhou: {failureClass}"
+    },
+    "status.runner_attempt_started": {
+      "sourceHash": "946039c1eb8b30285025f3a07716b73513bdf660721299fe6fc7c96ea4f1ff2f",
+      "message": "Início da tentativa: {startedAt}"
+    },
+    "status.runner_failure_record": {
+      "sourceHash": "51f7244903464379b708b6d7a67d2500f559dc08a81dd0ffab5395614ef95239",
+      "message": "Registro da falha"
+    },
+    "status.runner_failure_transcript": {
+      "sourceHash": "5a33e9ba6cb717cef9964d17e8eb06fd3149800557539df8530b2150800685ed",
+      "message": "Transcrição da verificação de configuração"
+    },
+    "status.runner_framework_commit": {
+      "sourceHash": "b1bd6b3503ae1d57782436d56992bb25f636eb5481c4bf6b37d0e26e7194ab5a",
+      "message": "Commit do framework: {commit}"
     },
     "status.save": {
       "sourceHash": "e397dcaa7762faf99f6efc4289af6b24e6537928dcbdca416e18ea4a4b32c2cc",

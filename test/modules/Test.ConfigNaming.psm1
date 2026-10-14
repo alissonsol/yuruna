@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 424e6b7b-ee0a-4ebd-a491-d47db10eedbc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,13 +24,15 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
     The retired test.config.yml key table: old dotted path -> new dotted path,
     plus the factor that converts the old value's unit to the new one.
 .DESCRIPTION
-    One table, two consumers, so an operator can never meet a rejection that
+    One table for validation and migration, so an operator never meets a rejection that
     has no migration behind it (or a migration the validator still rejects):
 
       * Test-Config.ps1 rejects a config that still carries any old key and
         names the replacement in the failure line.
-      * tools/Update-TestConfigNaming.ps1 rewrites an old config into the new
-        form, multiplying values by Factor.
+      * Local template reconciliation and tools/Update-TestConfigNaming.ps1
+        translate active and parked keys before merging, multiplying by Factor.
+      * Reference-host configuration sync translates retired active keys before
+        judging freshness or adopting the reference values.
 
     Detection is deliberately TEXT-based (Test-RetiredConfigKeyLine). The YAML
     parser hands back case-INSENSITIVE dictionaries, so a parsed lookup cannot
@@ -49,6 +51,7 @@ function Get-RetiredConfigKeyMap {
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param()
     $map = [ordered]@{}
+    $map['pool.intentGitUrl']                            = @{ New = 'pool.configurationGitUrl';                     Factor = 1 }
     # Durations: two units only -- Ms below a second, Seconds for everything else.
     $map['testCycle.stepTimeoutMinutes']                 = @{ New = 'testCycle.stepTimeoutSeconds';                  Factor = 60 }
     $map['vmImage.refreshHours']                         = @{ New = 'vmImage.refreshSeconds';                        Factor = 3600 }
@@ -291,4 +294,135 @@ function Update-RetiredConfigKey {
     return [object[]]@($done)
 }
 
-Export-ModuleMember -Function Get-RetiredConfigKeyMap, Test-RetiredConfigKeyLine, Get-RetiredConfigKeyPresent, Update-RetiredConfigKey
+# --- REGION: Local configuration migration
+function Copy-ConfigNamingTree {
+    <# .SYNOPSIS
+        Clone a parsed config so a rejected migration cannot mutate its caller. #>
+    param([AllowNull()]$Value)
+    if ($Value -is [System.Collections.IDictionary]) {
+        $copy = [ordered]@{}
+        foreach ($key in $Value.Keys) { $copy[$key] = Copy-ConfigNamingTree -Value $Value[$key] }
+        return $copy
+    }
+    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
+        $copy = [System.Collections.Generic.List[object]]::new()
+        foreach ($item in $Value) { [void]$copy.Add((Copy-ConfigNamingTree -Value $item)) }
+        return ,$copy
+    }
+    return $Value
+}
+
+function Test-ConfigNamingValuePopulated {
+    <# .SYNOPSIS
+        Blank strings and null are unset; false and zero are operator values. #>
+    [OutputType([bool])]
+    param([AllowNull()]$Value)
+    return $null -ne $Value -and -not ($Value -is [string] -and [string]::IsNullOrWhiteSpace($Value))
+}
+
+function ConvertTo-ConfigNamingMigration {
+    <#
+    .SYNOPSIS
+        Prepare registered key migrations without changing the input config or file.
+    .DESCRIPTION
+        Local reconciliation must translate registered keys before its strict
+        template merge. Values parked in the generated obsolete block are eligible
+        for the same translation. A blank replacement is unset; conflicting
+        populated values stop the migration instead of silently choosing one.
+        Obsolete entries are removed only from the returned rendering, so the
+        caller can back up and atomically replace the original file together.
+    .OUTPUTS
+        Config, Obsolete, and Changes. No input object is mutated.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Config,
+        [Parameter()][AllowNull()]$ObsoleteEntry
+    )
+
+    $copy = Copy-ConfigNamingTree -Value $Config
+    $obsolete = [ordered]@{}
+    if ($ObsoleteEntry) {
+        foreach ($key in $ObsoleteEntry.Keys) { $obsolete[$key] = $ObsoleteEntry[$key] }
+    }
+    $changes = [System.Collections.Generic.List[object]]::new()
+    if ($copy -isnot [System.Collections.IDictionary]) {
+        return [pscustomobject]@{ Config = $copy; Obsolete = $obsolete; Changes = [object[]]@() }
+    }
+    $map = Get-RetiredConfigKeyMap
+    foreach ($old in $map.Keys) {
+        $entry = $map[$old]
+        $oldSegment = [string]$old -split '\.'
+        $newSegment = [string]$entry.New -split '\.'
+        $oldParent = Resolve-ConfigNamingContainer -Config $copy -Segment $oldSegment[0..($oldSegment.Count - 2)]
+        $oldKey = Get-ConfigNamingOrdinalKey -Container $oldParent -Name $oldSegment[-1]
+        $parkedKey = Get-ConfigNamingOrdinalKey -Container $obsolete -Name $old
+        if (-not $oldKey -and -not $parkedKey) { continue }
+
+        $candidates = [System.Collections.Generic.List[object]]::new()
+        if ($oldKey) { [void]$candidates.Add($oldParent[$oldKey]) }
+        if ($parkedKey) {
+            try {
+                $parsed = ConvertFrom-Yaml -Yaml ("value: " + $obsolete[$parkedKey]) -Ordered -ErrorAction Stop
+                if ($parsed -isnot [System.Collections.IDictionary] -or $parsed.Count -ne 1 -or
+                    $parsed['value'] -is [System.Collections.IDictionary] -or
+                    ($parsed['value'] -is [System.Collections.IEnumerable] -and $parsed['value'] -isnot [string])) {
+                    throw 'Expected one scalar value.'
+                }
+                [void]$candidates.Add($parsed['value'])
+            } catch {
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_invalid_parked_scalar' -Arguments @{ old = $old })
+            }
+        }
+        for ($i = 0; $i -lt $candidates.Count; $i++) {
+            if ([int]$entry.Factor -eq 1 -or -not (Test-ConfigNamingValuePopulated $candidates[$i])) { continue }
+            $number = 0.0
+            if (-not [double]::TryParse([string]$candidates[$i], [Globalization.NumberStyles]::Float,
+                    [Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_invalid_duration' -Arguments @{ old = $old })
+            }
+            $candidates[$i] = [int][math]::Round($number * [int]$entry.Factor)
+        }
+
+        $newParent = Resolve-ConfigNamingContainer -Config $copy -Segment $newSegment[0..($newSegment.Count - 2)]
+        $newKey = Get-ConfigNamingOrdinalKey -Container $newParent -Name $newSegment[-1]
+        $value = if ($newKey) { $newParent[$newKey] } else { $candidates[0] }
+        foreach ($candidate in $candidates) {
+            if (-not (Test-ConfigNamingValuePopulated $candidate)) { continue }
+            if ((Test-ConfigNamingValuePopulated $value) -and
+                (ConvertTo-Json -InputObject $value -Compress -Depth 100) -cne
+                (ConvertTo-Json -InputObject $candidate -Compress -Depth 100)) {
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_conflict' -Arguments @{ old = $old; replacement = $entry.New })
+            }
+            $value = $candidate
+        }
+        # Remove before setting for acronym-only renames: dictionaries otherwise
+        # retain the old key's spelling when an assignment changes only its case.
+        if ($oldKey) { [void]$oldParent.Remove($oldKey) }
+        if (-not (Set-ConfigNamingValueAtPath -Config $copy -Segment $newSegment -Value $value -Confirm:$false)) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_blocked_path' -Arguments @{ old = $old; replacement = $entry.New })
+        }
+        if ($parkedKey) { [void]$obsolete.Remove($parkedKey) }
+        [void]$changes.Add([pscustomobject]@{
+            Old = [string]$old; New = [string]$entry.New; Factor = [int]$entry.Factor
+            Value = $value; Action = $(if ($parkedKey) { 'recovered' } else { 'migrated' })
+        })
+    }
+    return [pscustomobject]@{ Config = $copy; Obsolete = $obsolete; Changes = [object[]]@($changes) }
+}
+
+function New-ConfigNamingBackup {
+    <# .SYNOPSIS
+        Preserve the exact migration input without overwriting an earlier backup. #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$ConfigPath)
+    $backupPath = "$ConfigPath.pre-renaming"
+    if (Test-Path -LiteralPath $backupPath) { $backupPath += '.' + [guid]::NewGuid().ToString('N') }
+    if (-not $PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.config_naming_backup' -Arguments @{ backupPath = $backupPath }))) { return $null }
+    Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -ErrorAction Stop
+    return $backupPath
+}
+
+Export-ModuleMember -Function Get-RetiredConfigKeyMap, Test-RetiredConfigKeyLine, Get-RetiredConfigKeyPresent, Update-RetiredConfigKey, ConvertTo-ConfigNamingMigration, New-ConfigNamingBackup

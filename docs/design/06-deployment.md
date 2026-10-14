@@ -24,10 +24,10 @@ flowchart LR
     end
     operator-host -->|HTTP pages 8080| start-status-service-ps1
     start-test-runner-ps1 -->|local provider calls| yuruna-host-psm1
-    yuruna-host-psm1 -->|hypervisor console| guest
+    yuruna-host-psm1 -->|console and VM state| guest
     %% optional: sequences select the SSH keystroke mechanism.
     start-test-runner-ps1 -.->|SSH commands 22| guest
-    guest -->|HTTP scripts 8080| start-status-service-ps1
+    guest -->|HTTP scripts, uploads 8080| start-status-service-ps1
 ```
 
 Sources: [Start-TestRunner](../../test/Start-TestRunner.ps1),
@@ -41,8 +41,10 @@ Sources: [Start-TestRunner](../../test/Start-TestRunner.ps1),
 
 The outer, cycle, and inner runners are host processes. The selected driver
 controls the guest through its native hypervisor interface, including console
-input and screenshots. The status service is another host process, serving
-operator pages, controls, runtime evidence, and repository script fetches.
+input, screenshots, and the VM state used to observe shutdown; Hyper-V also
+captures COM1 through a named pipe. The status service is another host process,
+serving operator pages, controls, runtime evidence, repository script fetches,
+and bounded guest diagnostic and log uploads.
 Sequences selecting SSH also connect directly from the runner to the guest.
 The status service can remain available while tests are idle. A browser can run on this same host;
 the operator frame shows the separate-machine case. Six boxes include all three
@@ -68,7 +70,9 @@ flowchart LR
     guest -->|HTTP proxy 3128/3129| caching-proxy-service
     guest -->|OCI pulls 5000| caching-proxy-service
     host -->|HTTP images 80| download-agent-service
-    host -->|SCP or SFTP 22| stash-service
+    download-agent-service -->|HTTP proxy 3128/3129| caching-proxy-service
+    host -->|HTTP health 80| stash-service
+    operator-host -->|SCP or SFTP 22| stash-service
     operator-host -->|HTTP browse 80| stash-service
 ```
 
@@ -80,27 +84,45 @@ Sources: [host download client](../../host/modules/Yuruna.HostDownload.psm1),
 [example workload helper](https://github.com/alissonsol/yuruna-project/blob/main/tools/example-workload.sh).
 
 Squid handles package/file requests, and Zot handles OCI pulls on the cache VM.
-The download-agent serves shared OS images from its own VM. Hosts can fall back
-to their ordinary image download path when the agent cannot supply an image.
-Stash runs its SCP/SFTP listener on port 22 and its browse/download service on
-port 80. The [stash guest installer](../../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh)
+Hosts and the download agent also fetch the cache CA from Apache on port 80. The
+download-agent serves shared OS images from its own VM and fetches origin bytes
+through the cache. Hosts can fall back to their ordinary image download path
+when the agent cannot supply an image. Stash runs its SCP/SFTP listener on port
+22 and its browse/download service on port 80. Uploads come from any `scp` or
+`sftp` client; host code only probes `/healthz`. The
+[stash guest installer](../../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh)
 frees port 22 from the ordinary SSH daemon before starting the stash daemon.
 
-[setup.ps1](../../install/setup.ps1) prepares storage before these guests. Its
-standalone mode brings up cache and stash, with download-agent optional. Lab mode
-enables download-agent and adds pool-control and a default pool. The launchers
-under [test/service/](../../test/service/) also support using existing lab services.
+[setup.ps1](../../install/setup.ps1) prepares storage before these guests. It
+always brings up the cache, and the stash when storage is configured. The
+download agent defaults off in standalone mode and on in lab mode, unless
+`downloadAgentService.enabled` says otherwise; lab mode also adds pool-control
+and a default pool. [Start-CachingProxyServiceVM.ps1](../../test/service/Start-CachingProxyServiceVM.ps1)
+is a no-op when `vmStart.cachingProxyIp` names an existing cache. Other hosts
+find the lab's stash and download agent through the aggregator's extension-host
+discovery. Each service seed fetches Yuruna source from its building host's
+status service on port 8080, falling back to GitHub.
+
+The KVM and Hyper-V cache builders wait for the Zot sync self-test verdict on
+`/cache-health` and exit 1 for an incompatible release; the UTM builder prints
+that check as a manual step. The runner's cycle-start registry gate reads Zot
+`/v2/` and `/zot-meta` and stops at once on an incompatible verdict.
+`vmStart.cachingProxyZotVersion` and `vmStart.cachingProxyZotSha256` replace the
+pinned release at build time.
 
 ### Provider networking
 
 | Host provider | Source-backed reachability |
 | --- | --- |
-| [Hyper-V](../../host/windows.hyper-v/modules/Yuruna.Host.psm1) | Uses an External vSwitch when available; the cache launcher can map host ports when the built VM is not attached to an External switch. |
-| [KVM](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1) | Prefers the external bridge and can fall back to libvirt NAT. It checks the VM's actual interface and named network forwarding mode; a host-only fallback does not by itself expose the guest to the LAN. |
-| [UTM](../../host/macos.utm/modules/Yuruna.Host.psm1) | Chooses Bridged networking on a bridgeable uplink, or Shared NAT on Wi-Fi. Shared NAT uses host TCP forwarders for service reachability. |
+| [Hyper-V](../../host/windows.hyper-v/modules/Yuruna.Host.psm1) | Uses an External vSwitch on a wired PCI uplink. A Wi-Fi or USB-Ethernet uplink, or no External switch, builds on the Default Switch (NAT and DHCP); the cache launcher then installs `netsh portproxy` forwarders, and other service VMs get none. |
+| [KVM](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1) | Prefers the external bridge and can fall back to libvirt NAT. It checks the VM's actual interface and named network forwarding mode; a host-only fallback does not by itself expose the guest to the LAN. On the NAT fallback the cache launcher installs `systemd-socket-proxyd` forwarders, which re-originate connections, so the aggregator sees one client and the pool view needs a bridged cache. |
+| [UTM](../../host/macos.utm/modules/Yuruna.Host.psm1) | Chooses Bridged networking on a bridgeable uplink, or Shared NAT on Wi-Fi. Shared NAT uses host TCP forwarders: the cache maps 80, 3000, and 8022 to 22, with 3128 and 3129 carried to 3138 and 3139 with PROXY headers; stash maps 2222, download-agent 8082, and pool-control 8081. |
 
 The [cache launcher](../../test/service/Start-CachingProxyServiceVM.ps1) checks
-the built VM's attachment before deciding whether port maps are needed.
+the built VM's attachment before deciding whether port maps are needed. Hyper-V
+and KVM cache forwarders carry 80, 3000, 9302, 9400, 3128, 3129, and 8022 to 22;
+Zot 5000 and management 9310 are not forwarded, so peers on other machines cannot
+reach a NAT-attached cache's Zot through the host address.
 The [UTM forwarder](../../host/macos.utm/Start-CachingProxyServiceForwarder.ps1)
 can preserve the original proxy client address using PROXY headers and the
 seed's dedicated 3138/3139 listeners. A forwarded host address and its guest
@@ -128,16 +150,19 @@ flowchart LR
     operator-host -->|HTTP image UI 80| download-agent-service
     host -->|HTTPS events 9400| caching-proxy-service
     caching-proxy-service -->|HTTP status 8080| host
-    host -->|HTTP intent Git 80| caching-proxy-service
-    pool-control-service -->|HTTP pool facts 9400| caching-proxy-service
-    download-agent-service -->|HTTP presence 9400| caching-proxy-service
-    stash-service -->|HTTP presence 9400| caching-proxy-service
+    host -->|HTTP configuration Git 80| caching-proxy-service
+    pool-control-service -->|HTTPS pool facts 9400| caching-proxy-service
+    download-agent-service -->|HTTPS presence 9400| caching-proxy-service
+    stash-service -->|HTTPS presence 9400| caching-proxy-service
+    pool-control-service -->|HTTP scan, control 8080| host
     %% optional: remote refresh requires configured authority and operator credentials.
     pool-control-service -.->|signed refresh 8080| host
+    %% optional: only Windows hosts publish windows_exporter metrics.
+    caching-proxy-service -.->|Windows metrics 9182| host
 ```
 
 Sources: [pool event push](../../test/modules/Test.PoolPush.psm1),
-[pool intent sync](../../test/modules/Test.PoolSync.psm1),
+[pool configuration sync](../../test/modules/Test.PoolSync.psm1),
 [aggregator](../../test/extension/pool-aggregator-service/main.go),
 [pool-control server](../../test/extension/pool-control-service/server/main.go),
 [download-agent server](../../test/extension/download-agent-service/server/main.go),
@@ -145,11 +170,19 @@ Sources: [pool event push](../../test/modules/Test.PoolPush.psm1),
 [cache seed](../../host/vmconfig/caching-proxy-service.base.user-data).
 
 The cache VM hosts the aggregator, Grafana, and Apache's HTTP endpoint for
-pool-intent.git. Runner event ingestion uses CA-pinned HTTPS. The aggregator
+pool-configuration.git. Runner event ingestion uses CA-pinned HTTPS. The aggregator
 polls host status over HTTP and receives the configured service presence
 announcements. It serves both HTTP and HTTPS on port 9400 when its readable TLS
 certificate/key pair is present; without them it serves HTTP. The protocol choice
-is specific to each client, rather than a separate aggregator process.
+is specific to each client, rather than a separate aggregator process. Service
+VMs bake `https://<cache>:9400` and try TLS without certificate verification
+first, then plain HTTP. Hosts also announce themselves to the aggregator over
+plain HTTP. Prometheus on the cache scrapes `windows_exporter` on Windows hosts,
+which the aggregator lists as scrape targets.
+
+Pool-control sweeps for hosts every 15 minutes by default, reads their status and
+host facts, and sends proof-gated pause and resume controls; see
+[hostctl.go](../../test/extension/pool-control-service/server/internal/hostctl/hostctl.go).
 
 Pool-control's remote refresh path is optional. Its separate authority and
 operator credential checks are implemented in
@@ -174,8 +207,8 @@ flowchart LR
     subgraph network-storage["SMB server"]
     end
     host -->|SMB cycle archives| network-storage
-    caching-proxy-service -->|SMB monitoring and intent| network-storage
-    pool-control-service -->|SMB intent and state| network-storage
+    caching-proxy-service -->|SMB replicas, configuration, archives| network-storage
+    pool-control-service -->|SMB configuration and state| network-storage
     download-agent-service -->|SMB images and state| network-storage
     stash-service -->|SMB uploaded files| network-storage
 ```
@@ -192,7 +225,9 @@ pool and stash shares. If their network paths select different servers, each
 server is its own node. With local storage, New-LocalLabStorage exports the
 shares from the hypervisor host, so the SMB server and that host share one
 machine. Pool paths hold host archives, monitoring replicas, images, control
-state, and the intent repository; the stash path holds uploaded files. Exact
+state, the configuration repository, and the pool-alert spool; the stash path
+holds uploaded files. The cache mounts the pool share when replication is
+enabled; its aggregator and history backfill also read host archives there. Exact
 path ownership is expanded in [Data flows](03-data-flows.md).
 
 Stash buffers uploads locally when its configured share is unavailable. A
@@ -205,7 +240,7 @@ operations, rather than a claim that every byte is synchronously on the share.
 ```mermaid
 flowchart TB
     subgraph caching-proxy-service["Caching proxy VM"]
-        squid-zot["Squid and Zot"]
+        squid-zot["Squid, Zot, self-test"]
         caching-proxy-parser-service["Cache parser"]
         pool-aggregator-service["Pool aggregator"]
         prometheus-loki["Metrics and logs"]
@@ -213,8 +248,10 @@ flowchart TB
         apache2["Apache and management"]
     end
     squid-zot -->|Squid access log| caching-proxy-parser-service
-    prometheus-loki -->|metrics scrape| squid-zot
+    squid-zot -->|client IP discovery| pool-aggregator-service
+    prometheus-loki -->|scrape and log tail| squid-zot
     prometheus-loki -->|metrics scrape| pool-aggregator-service
+    prometheus-loki -->|meta page scrape| apache2
     pool-aggregator-service -->|events to Loki| prometheus-loki
     grafana -->|metrics and logs| prometheus-loki
     apache2 -->|cache status| squid-zot
@@ -224,18 +261,27 @@ flowchart TB
 Sources: the [cache seed](../../host/vmconfig/caching-proxy-service.base.user-data),
 [cache management daemon](../../test/extension/caching-proxy-service/main.go),
 [parser unit](../../test/extension/caching-proxy-parser-service/caching-proxy-parser-service.service),
-and [aggregator unit](../../test/extension/pool-aggregator-service/pool-aggregator-service.service).
+[aggregator unit](../../test/extension/pool-aggregator-service/pool-aggregator-service.service),
+and the [qualified Zot release](../../host/vmconfig/caching-proxy-service.zot-qualified.json).
 
-One VM frame and six child families total seven boxes. Metrics and logs group
-Prometheus, Loki, Alloy, and exporters; Apache and management group the web
+One VM frame and six child families total seven boxes. The first family groups
+Squid, Zot, the Zot prewarm, and `zot-sync-selftest.py`. Zot is a pinned,
+SHA-256-checked release with `http.compat` enabling Docker manifests, and its
+upstream sync leaves through the local Squid 3129 listener. The self-test syncs
+one probe image per upstream through Zot when Zot is installed and after each
+warm run, blames Zot only when the upstream serves the image, and can add an
+`http.compat` mode and restart Zot. Metrics and logs group Prometheus, Loki,
+Alloy, and exporters; the Zot metadata exporter publishes the self-test verdict
+on Apache's `/zot-meta` and `/cache-health`. Apache and management group the web
 server with the Go caching-proxy-service daemon. These processes communicate
 locally inside this VM.
 
 | Endpoint | Default role |
 | --- | --- |
 | Squid 3128/3129 | HTTP proxy/CONNECT and the TLS inspection path. The latter needs the cache CA trusted by the client. |
-| Zot 5000 | OCI registry API and pull-through cache. |
-| Apache 80 | Landing page, certificates, monitoring metadata, and pool intent. |
+| Squid 3138/3139 | PROXY-header twins of 3128/3129; macOS Shared NAT forwarders target them to keep the client address. |
+| Zot 5000 | OCI registry API and on-demand pull-through sync; upstream fetches go through Squid 3129. |
+| Apache 80 | Landing page, CA certificates, `/squid-meta`, `/zot-meta`, `/cache-health` with the Zot self-test verdict, and pool configuration. |
 | Management 9310 | Go management API; Apache proxies its landing page. |
 | Parser 9302 | Recent Squid requests held in memory. |
 | Aggregator 9400 | Pool facts, discovery, event ingestion, and controls. |
@@ -280,7 +326,13 @@ The listener also implements /v1/nas/stash, and the cache helper can fetch that
 name, but the current cache seed does not activate a stash mount. Stash,
 download-agent, and pool-control instead have CIFS credentials baked into their
 own seeds. Their current provisioning does not include this mTLS refresh client,
-so the cache rotation path must not be assumed for those VMs.
+so the cache rotation path must not be assumed for those VMs. The cache seed also
+bakes the internal authentication key and an optional Docker Hub token for Zot
+sync. A host synchronizing configuration from a reference pool host can fetch a
+missing storage credential from that host's status service at
+`/control/vault-credential`; the route is gated by the internal authentication
+key and returns the password encrypted with a key derived from it. See
+[Test.ConfigServiceSync](../../test/modules/Test.ConfigServiceSync.psm1).
 
 ## Local deployment target
 
@@ -307,7 +359,10 @@ This four-box view is the Ubuntu website test's placement: its guest runs the
 deployment client, a kubeadm Kubernetes node, and registry:2 on port 5000. The
 Kubernetes installer removes the control-plane taint and renames its context to
 docker-desktop; that context name does not imply another Docker Desktop machine.
-The project helper starts the registry before Set-Resource. The localhost
+After Set-Resource, the website test renames that context to
+`localhost-<clusterDnsPrefix>`. The project helper starts the registry before
+Set-Resource and, when a cache is configured, pulls `registry:2` and base images
+through the cache's Zot on port 5000. The localhost
 resource templates verify this existing registry and copy the existing context;
 they do not create another cluster or registry VM. Other callers can select an
 existing local context from their own deployment host.
@@ -389,6 +444,7 @@ flowchart LR
 Sources: [AKS cluster](../../global/resources/azure/aks-cluster/cluster.tf),
 [public IP outputs](../../global/resources/azure/aks-cluster/endpoints.tf),
 [ACR registry](../../global/resources/azure/registry/registry.tf),
+[component publisher](../../automation/Yuruna.Component.psm1),
 [workload publisher](../../automation/Yuruna.Workload.psm1), and the companion
 [Azure resources](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/azure/resources.yml)
 and [Azure workloads](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/azure/workloads.yml).
@@ -399,7 +455,10 @@ requests three. Set-Resource provisions AKS, ACR, and the frontend public IP.
 Set-Workload installs ingress-nginx with that IP as the Kubernetes LoadBalancer
 service address, rather than using the AWS template's prebuilt NodePort/NLB
 attachment. The workload also installs cert-manager for its configured public
-certificate flow. API access is restricted by its own authorized CIDRs.
+certificate flow. API access is restricted by its own authorized CIDRs. The
+registry template enables ACR admin credentials, and the website workloads
+create a `docker-registry` pull secret from them; the AKS template grants no
+registry role.
 
 The current [global resources](../../global/resources/) and companion website
 configurations supply localhost, AWS, and Azure deployment paths. There is no

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42944d84-a340-428d-8b14-0273934cf4fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,12 +55,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module -Name (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.VMCleanup.psm1') -Force
 Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
 
-# utmctl is an Apple Events client with no timeout of its own: a UTM that
-# stopped answering holds every call indefinitely, and this sweep runs
-# unattended at cycle start. Every call is therefore bounded -- through the
-# macOS driver's wrappers when the driver is loaded, through the shared
-# bounded runner otherwise -- and a call that did not finish proves nothing:
-# a bundle whose registration could not be read is kept, never deleted.
+# See https://yuruna.link/42e220c4-0004
 function Invoke-OrphanSweepUtmctl {
     <#
     .SYNOPSIS
@@ -358,12 +353,7 @@ foreach ($item in $orphanedItems) {
             $deletion = Invoke-OrphanSweepUtmctl -Verb delete -Target $item.Name -UtmctlPath $utmctlPath
             if ($deletion.Complete -and $deletion.ExitCode -eq 0) { $deregistered = $true }
         }
-        # Verify no longer registered before removing files. Prefer the UUID
-        # (unambiguous); otherwise re-query by NAME, because a name-based
-        # `utmctl delete` can silently fail -- and without a probe a UUID-less
-        # bundle would be removed while its VM is still registered in UTM,
-        # deleting the on-disk state of a live registration. A probe that did
-        # not finish counts as still registered for the same reason.
+        # See https://yuruna.link/42e220c4-0004
         $probeTarget = if ($bundleUUID) { $bundleUUID } else { $item.Name }
         $stillRegistered = ((Get-OrphanSweepRegistration -Target $probeTarget -UtmctlPath $utmctlPath) -ne 'absent')
         if ($stillRegistered) {

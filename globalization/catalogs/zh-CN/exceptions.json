@@ -3,6 +3,30 @@
   "domain": "exceptions",
   "locale": "zh-CN",
   "messages": {
+    "exceptions.config_naming_blocked_path": {
+      "sourceHash": "5c2449d5da16df5ff18b6d4fff663854968d339d59c6f52e3edb0227d71291fd",
+      "message": "无法将“{old}”迁移到“{replacement}”：标量阻挡了目标路径。文件未更改。"
+    },
+    "exceptions.config_naming_conflict": {
+      "sourceHash": "373f80db871e1a1e1cdda17730bd2a2bdf1abef8a9c3c3feef3ce686a186a3b8",
+      "message": "配置命名冲突：“{old}”和“{replacement}”包含不同的非空值。请保留一个值后重试。文件未更改。"
+    },
+    "exceptions.config_naming_duplicate_parked": {
+      "sourceHash": "4c83129fbf1aff8b061c0a43cf13fb7794a2aeaae4f8e003243f012afecf9369",
+      "message": "“{path}”存在冲突的已弃用配置条目。请保留一个值后重试。文件未更改。"
+    },
+    "exceptions.config_naming_invalid_duration": {
+      "sourceHash": "2ea5c31fae97084d3e98c41e62de3c3d345d314a88a295f81d210713952db21f",
+      "message": "无法迁移配置键“{old}”：需要数值时长。文件未更改。"
+    },
+    "exceptions.config_naming_invalid_parked_scalar": {
+      "sourceHash": "03b90828b0e903c6b84df27253871dbae2ee9ba7356a1a56e7d9b87ae1f10022",
+      "message": "无法迁移已弃用的配置键“{old}”：需要有效的 YAML 标量。文件未更改。"
+    },
+    "exceptions.config_naming_save_failed": {
+      "sourceHash": "d892878091e7bc9fcce7c17b23851f687c285ef5a279b66aaab412365e05d3af",
+      "message": "无法将配置命名迁移保存到“{configPath}”；原始文件和备份仍然可用。"
+    },
     "exceptions.host_1568d9e12a12e190": {
       "sourceHash": "9cc77f3c54a394b1b7a763daa4814966a64bef4ceac1d12fe95e915728bba559",
       "origin": "machine",
@@ -162,6 +186,11 @@
       "sourceHash": "5248a43530cb75b174acad5341a03ef15702b5ef9905f8ff93f55c386c955ea8",
       "origin": "machine",
       "message": "Disable-TestAutomation.ps1（host/windows.hyper-v）只能在Windows上运行。"
+    },
+    "exceptions.host_ffd2efb19a40de43": {
+      "sourceHash": "0497a02293b580afcea68e537847e46fbcff857f781ea5ae043c9898a9bf38d9",
+      "origin": "machine",
+      "message": "Enable-TestAutomation.ps1（host/windows.hyper-v）只能在Windows上运行。"
     },
     "exceptions.host_8d770e16b147abe9": {
       "sourceHash": "9680a39856b3baa5c5e36a6631a5147cdc8516322b4f6f539d1599e129375485",
@@ -807,6 +836,16 @@
       "sourceHash": "016c7c322496c4a01ca482207d536d246ff0bccc42033582f4374ee5a0095da3",
       "origin": "machine",
       "message": "区域“{area}”必须恰好有一个处于活动状态的扩展；{area}.config.yml列出了{count}个：{join}。"
+    },
+    "exceptions.pool_configuration_state_conflict": {
+      "sourceHash": "4bb54de27552870277ea39b49326bfdf2c6bdd5b73d248cfd99a572aa0e50af9",
+      "message": "池 '{poolId}' 声明了相互冲突的 desiredState 和 configuredState 值；选择所需的 configuredState 后，请删除过时的字段。",
+      "origin": "machine"
+    },
+    "exceptions.pool_configuration_legacy_state": {
+      "sourceHash": "452def7ac03c859d673da4abd0a9b989702fb80f54d822a9b7797d333603600f",
+      "message": "池 '{poolId}' 在 schemaVersion 4 中使用 desiredState；请使用 configuredState。",
+      "origin": "machine"
     }
   }
 }

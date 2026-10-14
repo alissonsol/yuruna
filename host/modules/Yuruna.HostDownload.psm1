@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42d93b11-69e5-4250-b84e-294562b68efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -275,12 +275,7 @@ function Save-CachedHttpUri {
         [Parameter(Mandatory)][string]$OutFile,
         [scriptblock]$ResolveCacheHostIp
     )
-    # A platform that imports this module only for the sentinel/skip helpers has
-    # no driver wrapper to bind Resolve-CacheHostIp, so the closure arrives $null:
-    # no discovery means no cache to route through, so download direct. The
-    # closure stays optional on purpose -- the image helpers feature-detect this
-    # command by name and call it with just -Uri/-OutFile, and a mandatory
-    # parameter would stall that call on an interactive prompt.
+    # See https://yuruna.link/42e220c4-0003
     if (-not $ResolveCacheHostIp) {
         Invoke-WebRequest -Uri $Uri -OutFile $OutFile -ErrorAction Stop
         return

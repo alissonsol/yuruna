@@ -1,32 +1,11 @@
 # yaml-language-server: $schema=../../schemas/users.schema.yml
 
-# Yuruna authentication: logical-username -> corporate-identity mapping.
-#
-# With all corporate.* / vaultKey / localOsPasswordRef fields empty
-# (the default), each logical user is its own local OS account with a
-# vault-auto-generated password.
-#
-# To integrate with a corporate directory (AD / Entra / SSSD-against-
-# LDAP / ...):
-#   1. Populate `corporate.domain` + `corporate.sam` (or `corporate.upn`)
-#      so sequence-login steps render the right identity via the
-#      ${loginUser} substitution.
-#   2. Set `vaultKey` to the vault.yml entry holding the corporate
-#      password (e.g. "corp.alisson.sol") and pre-populate that entry
-#      manually. Test-Config.ps1 blocks the cycle if it is missing --
-#      the vault never auto-generates for a populated vaultKey.
-#   3. Leave `localOsPasswordRef` empty unless the local OS account on
-#      the test VM should share its password with the corporate
-#      identity. The default is decoupled: the local account receives
-#      a fresh auto-gen secret that nobody needs to know.
-#
-# Add an entry here whenever a sequence introduces a new logical
-# username. With `strict: true` (recommended), Test-Config.ps1 fails
-# the cycle on the first undeclared name -- intentional, so the
-# production AD path stays exercised on every dev cycle.
+# See https://yuruna.link/42e220c4-0013
 
+# --- REGION: strict
 strict: false
 
+# --- REGION: users
 users:
 
   # Default Yuruna test users -- one per bundled guest OS. Out of the
@@ -87,34 +66,9 @@ users:
     vaultKey:           ""
     localOsPasswordRef: ""
 
-  # Internal authentication key. NOT a login user: this entry holds the shared secret
-  # that gates the pool-aggregator-service's POST /ingest write route and keys the
-  # control proofs for the status-service /control/* routes. Leave vaultKey EMPTY
-  # (default) to keep the host un-enrolled -- push stays disabled and control stays
-  # loopback-only. To populate it, run `pwsh test/lab/Set-LabToken.ps1 -LabToken <code>`
-  # with the code from the dashboard's "Lab token" tile; that sets vaultKey and
-  # stores the token in one step. Building the caching-proxy service mints one
-  # automatically when none exists. The vault never auto-generates for a populated
-  # vaultKey, so the token stays lab-owned; every pool host and the proxy must hold
-  # the SAME value. Hosts holding a legacy 'lab-auth-token' or 'pool-auth-token' entry
-  # keep working: every reader falls back to those when this one is empty.
+  # See https://yuruna.link/42e220c4-0013
   internal-auth-key:
     localOsUser: ""
     corporate:   { domain: "", sam: "", upn: "" }
     vaultKey:           ""
     localOsPasswordRef: ""
-
-  # --- REGION: Example: a workload-defined logical user mapped to a corporate AD identity
-  # Uncomment and adapt when a `workload.*.yml` declares
-  # `variables.username: webuser`.
-  #
-  # webuser:
-  #   localOsUser: webuser
-  #   corporate:
-  #     domain: "CORP"
-  #     sam:    "alisson.sol"
-  #     # upn:  "alisson.sol@corp.example.com"      # alternative form
-  #   vaultKey:           "corp.alisson.sol"
-  #   localOsPasswordRef: ""                         # decoupled: local
-  #                                                  # OS account gets
-  #                                                  # auto-gen secret

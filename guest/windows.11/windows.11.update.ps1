@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,7 @@ switch ($arch) {
 }
 
 # --- REGION: Ensure PowerShell is installed
+# See https://yuruna.link/42d69dfa-0036
 Write-Output ""
 Write-Output ">>> Checking for PowerShell 7..."
 $pwshPath = Get-Command pwsh -ErrorAction SilentlyContinue
@@ -101,7 +102,7 @@ if (-not $pwshPath) {
 }
 
 # --- REGION: Install powershell-yaml module
-# See https://yuruna.link/42e220c4-0005
+# See https://yuruna.link/42d69dfa-0038
 Write-Output ""
 Write-Output ">>> Installing PowerShell module: powershell-yaml..."
 # 2.8.5.201 is Microsoft's documented TLS-1.2-capable NuGet provider

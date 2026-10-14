@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42101596-b827-a50b-034a-8ed11dd7f37b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -489,7 +489,7 @@
         }
         ').'
     )
-    'configsync.operator_9e1f86637c4a7e09' = 'הושאר ריק (ברירת המחדל היא ⁦<runtime>⁩⁦/pool-intent⁩)'
+    'configsync.operator_9e1f86637c4a7e09' = 'הושאר ריק (ברירת המחדל היא ⁦<runtime>/pool-configuration⁩)'
     'configsync.operator_9e44a801c5e38eb2' = ' (הוסר -- האיות הנוכחי כבר היה קיים)'
     'configsync.operator_a01d26f897759fcf' = @(
         @{
@@ -506,7 +506,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' במצב ⁦-NonInteractive⁩ נדחתה. הריצו שוב עם ⁦-AllowStaleReference⁩ כדי לקבל את הפער, או עדכנו תחילה את מארח הייחוס.'
+        ' במצב ⁦-NonInteractive⁩ נדחתה. הריצו שוב עם ⁦-AllowStaleReference⁩ כדי לקבל את התצורה המיושנת, או עדכנו תחילה את מארח הייחוס.'
     )
     'configsync.operator_a610cd0fd716e5f9' = '⁦Sync-HostConfiguration⁩: פלטפורמה לא נתמכת.'
     'configsync.operator_a693215e036db1c5' = @(

@@ -7,8 +7,9 @@
   # Install KVP best-effort in runcmd; a packages failure aborts provisioning.
 # === YURUNA_OVERLAY_NIC_OFFLOAD ===
 # === YURUNA_OVERLAY_RUNCMD_NET ===
-  # Gateway IP discovered dynamically (Hyper-V Default Switch IP drifts across reboots;
-  # aliased to `hyperv-host` so access.log ops are readable without hardcoding the IP).
+  # --- REGION: Alias the host gateway
+  # Aliased to `hyperv-host` so access.log ops read without hardcoding the gateway IP.
+  # The Hyper-V Default Switch address drifts across reboots, so the gateway is discovered dynamically.
   - |
     GW=$(ip -4 route show default 2>/dev/null | awk '/default/ {print $3; exit}')
     if [ -n "$GW" ] && ! grep -q "^${GW}[[:space:]]" /etc/hosts; then

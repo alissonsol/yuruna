@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 429e84c5-0bc5-487b-b851-b34fccf102c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,8 +46,7 @@ $repoRoot   = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSComm
 $diagPath   = Join-Path $repoRoot 'automation/Get-SystemDiagnostic.ps1'
 $seedPath   = Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.base.user-data'
 $script:guestPaths = @(
-    (Join-Path $repoRoot 'guest/ubuntu.server.24/ubuntu.server.24.k8s.sh')
-    (Join-Path $repoRoot 'guest/ubuntu.server.26/ubuntu.server.26.k8s.sh')
+    (Join-Path $repoRoot 'guest/shared/ubuntu.k8s.sh')
 )
 
 $script:seedText = Get-Content -LiteralPath $seedPath -Raw

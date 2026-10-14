@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 423c6a1c-f359-436b-9533-31e9a82bfb68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -498,7 +498,7 @@ function ConvertTo-ClashProblem {
             "Byte-identical copies kept in step by a tool are declared under synchronizedCopies in $ExemptionsName.")
 }
 
-# --- REGION: reporting
+# --- REGION: Report
 # The same fix is printed once; later findings that need it get one line, so a
 # commit that adds fifty files in one format stays readable.
 function Write-Problem {
@@ -527,7 +527,7 @@ function Get-FindingGroup {
     return $Finding.Repo + '/' + (($part | Select-Object -First $depth) -join '/')
 }
 
-# --- REGION: main
+# --- REGION: Main
 try {
     if ($Staged -eq $All) {
         Write-Error 'Test-SourceMetadata: pass exactly one of -Staged or -All.' -ErrorAction Continue
@@ -668,8 +668,8 @@ try {
         }
     }
 
-    # A gap the previous version of the file already had is not this commit's
-    # doing. A moved or edited file is compared with the version it replaces;
+    # A gap the file already had before the change is not the change's doing. A moved
+    # or edited file is compared with the version it replaces;
     # a GUID problem is never excused, because the tree holds none to excuse.
     if ($Staged) {
         $touched = @($checked | Where-Object { $_.Problem.Count -gt 0 -and -not $_.Added })

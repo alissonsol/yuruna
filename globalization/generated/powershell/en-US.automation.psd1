@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42c500e1-53a2-2a0c-075b-981a925571bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -510,7 +510,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_159f23f7bbf09a33' = '  1. add autoEnrollment: { enabled: true, targetPoolId: default } to pools.yml in the intent store'
+    'automation.operator_159f23f7bbf09a33' = '  1. add autoEnrollment: { enabled: true, targetPoolId: default } to pools.yml in the configuration store'
     'automation.operator_163577cbcc97e68e' = @(
         ''''
         @{
@@ -1340,7 +1340,7 @@
         ' would be left for the operating system, the hypervisor and this run'
     )
     'automation.operator_45ac4b861def17e9' = 'Heuristic 4: local registry image not referenced by any pod'
-    'automation.operator_47229a44b80ae93b' = '(no Ready nodes -- cluster is not up; not a deploy gap, see KUBE section)'
+    'automation.operator_47229a44b80ae93b' = '(no Ready nodes -- cluster is not up; deployment checks are unavailable, see KUBE section)'
     'automation.operator_4788a5c9b68d9b0a' = @(
         @{
             'arg' = 'problemTag'
@@ -1485,7 +1485,7 @@
         }
     }
     'automation.operator_4b5000e2da8b0a45' = @(
-        'GAP: '
+        'Diagnostic observation: '
         @{
             'arg' = 'count'
             'type' = 'detail'
@@ -1497,7 +1497,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. The workloads phase either didn''t deploy a chart that uses these images, or the chart rendered them with a different registry prefix (check componentsRegistry.registryLocation in resources.output.yml). An image that only ever serves as a build stage is expected here and is not itself a deploy gap.'
+        '. The workloads phase either didn''t deploy a chart that uses these images, or the chart rendered them with a different registry prefix (check componentsRegistry.registryLocation in resources.output.yml). An image used only as a build stage is expected here and does not by itself establish a configuration mismatch.'
     )
     'automation.operator_4ba3081aa0af2a76' = '(the whole window is this harness''s own polling -- nothing else was logged)'
     'automation.operator_4bcda64ddc713b3c' = @(
@@ -1888,19 +1888,19 @@
         ' -- guest DHCP failures capture no wire evidence.'
     )
     'automation.operator_6026e7f1ae4f2ef0' = @(
-        'GAP: namespace '''
+        'Configuration mismatch: namespace '''
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' declared in '
+        ''' is declared in '
         @{
             'arg' = 'file'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' but does not exist in the cluster -- workloads phase never created it (helm install / kubectl create namespace did not run, or errored).'
+        ' but does not exist in the cluster. Check whether the workloads phase created it and whether helm install / kubectl create namespace succeeded.'
     )
     'automation.operator_6036ef007d775983' = @(
         'Available%: '
@@ -2230,13 +2230,13 @@
     )
     'automation.operator_726f2fd533779220' = '(helm not in PATH -- chart-based workloads will not have been deployed)'
     'automation.operator_72c1075973a89231' = @(
-        'GAP: '
+        'Diagnostic observation: '
         @{
             'arg' = 'tfStateCount'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' tofu.tfstate file(s) present but helm has 0 releases across all namespaces -- the workloads phase appears to have been skipped or exited 0 without calling Set-Workload. Check the helm.stderr.log files above and the wrapper script''s last lines.'
+        ' tofu.tfstate file(s) present but helm has 0 releases across all namespaces. The workloads phase may have been skipped or exited 0 without calling Set-Workload. Check the helm.stderr.log files above and the wrapper script''s last lines.'
     )
     'automation.operator_72e28a58e0301f9b' = '  -> Chart deployments cannot run without it.'
     'automation.operator_72e2cb646e4c4115' = 'NETWORK: tcpdump lacks CAP_NET_RAW, so a guest that fails to get a DHCP lease leaves no wire evidence. Grant it: sudo setcap cap_net_raw,cap_net_admin=eip $(command -v tcpdump)'
@@ -2452,7 +2452,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' -- skipping gap heuristics)'
+        ' -- skipping deployment checks)'
     )
     'automation.operator_7f64bfad9ab853d4' = 'docker-generic Authenticator: ''docker'' CLI not on PATH.'
     'automation.operator_7fcfb4c365b13187' = 'Kernel ring buffer (dmesg -- needs root; otherwise sudo log show)'
@@ -3450,13 +3450,13 @@
         }
     )
     'automation.operator_b2e83136c96ad810' = @(
-        'GAP: cluster has '
+        'Diagnostic observation: cluster has '
         @{
             'arg' = 'count'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' Ready node(s) but zero pods outside the system namespaces -- nothing has been deployed (workloads/components phase did not land).'
+        ' Ready node(s) but zero pods outside the system namespaces. Check whether the workloads/components phase deployed the expected application.'
     )
     'automation.operator_b31e13c9f6666800' = @(
         'could not clear: '
@@ -5123,6 +5123,96 @@
             'trust' = 'external'
         }
         ' set a guest pulls. A refusal is an answer, not a copy in progress: every guest that asks for those images gets it again until the cause is fixed. zot''s sync log names the cause in the "Sync / upstream lines" panel of the cache-health dashboard.'
+    )
+    'automation.system_diagnostic_registry_zot_compat_repaired' = @(
+        'REGISTRY: the cache''s zot '
+        @{
+            'arg' = 'version'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' syncs the lab''s images only because its sync self-test added http.compat '
+        @{
+            'arg' = 'modes'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' to /etc/zot/config.json, which the configuration this Yuruna release ships lacks; every rebuild repeats the repair. Report it so a release ships the mode. Details: '
+        @{
+            'arg' = 'healthUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'automation.system_diagnostic_registry_zot_incompatible' = @(
+        'REGISTRY: the cache''s zot '
+        @{
+            'arg' = 'version'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' refuses images the lab pulls: its sync self-test got HTTP '
+        @{
+            'arg' = 'status'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' for '
+        @{
+            'arg' = 'image'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', which the upstream serves, and zot''s log asks for http.compat '
+        @{
+            'arg' = 'modes'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'refused'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' probe image(s) refused). A re-run does not help. Fixes that need no code change: on the cache, run sudo /usr/local/bin/zot-sync-selftest.py --heal; or set vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 in test/test.config.yml to a zot release that works and rebuild the cache; or update Yuruna and rebuild the cache. Details: '
+        @{
+            'arg' = 'healthUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'automation.system_diagnostic_registry_zot_incompatible_unexplained' = @(
+        'REGISTRY: the cache''s zot '
+        @{
+            'arg' = 'version'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' refuses images the lab pulls: its sync self-test got HTTP '
+        @{
+            'arg' = 'status'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' for '
+        @{
+            'arg' = 'image'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', which the upstream serves ('
+        @{
+            'arg' = 'refused'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' probe image(s) refused). A re-run does not help. Fixes that need no code change: change /etc/zot/config.json on the cache as zot''s log line on the health page says, restart zot and run sudo /usr/local/bin/zot-sync-selftest.py; or set vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 in test/test.config.yml to a zot release that works and rebuild the cache; or update Yuruna and rebuild the cache. Details: '
+        @{
+            'arg' = 'healthUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'automation.system_diagnostic_utmctl_list_incomplete' = @(
         '  utmctl list did not return a complete answer within '

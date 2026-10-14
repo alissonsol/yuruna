@@ -3,7 +3,7 @@
 #
 # Example guest-to-hypervisor compatibility rules. Validates against
 # test/schemas/guests.compatibility.schema.yml. This is validated with pool
-# intent; current runner guest selection does not consume these rules.
+# configuration; current runner guest selection does not consume these rules.
 schemaVersion: 1
 rules:
   - guestKey: guest.amazon.linux.2023

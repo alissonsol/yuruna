@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42a07001-0b1b-e8af-74b4-0c25e481f7c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,23 @@
             'trust' = 'internal'
         }
         ' רשומות של מנגנון ההרצה שלא ניתן היה להוכיח שאינן עדכניות.'
+    )
+    'runner.config_gate_attempt_failed' = @(
+        'ניסיון ההרצה הסתיים עם הקוד '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' משום שאימות התצורה נכשל. לא התחיל מחזור בדיקה חדש. יש לתקן את התצורה לפני ניסיון נוסף.'
+    )
+    'runner.config_naming_backup' = @(
+        'גיבוי התצורה אל '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.critical_record_replace' = 'החליפו רשומה קריטית פרטית'
     'runner.cycle_outcome_rejected_kept' = @(
@@ -264,6 +281,14 @@
             'trust' = 'external'
         }
         ' תווים לאחר העטיפה; Windows אינו יכול להפעיל אותה. ההרצה באורח לא התחילה.'
+    )
+    'runner.gate_evidence_save_failed' = @(
+        'לא ניתן לשמור את ראיות בדיקת התצורה: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.git_recovery_command' = @(
         '  שחזרו באמצעות: git -C '''
@@ -1559,6 +1584,15 @@
         }
     )
     'runner.host_refresh_verified_noop' = '⁦Invoke-HostRefresh⁩: מנהל המכונות הווירטואליות הגיב והמריץ תקין; דבר לא השתנה.'
+    'runner.inner_attempt_exited' = @(
+        'ניסיון ההרצה הסתיים עם הקוד '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' לפני שדווחה תוצאת מחזור. יש לבדוק את יומני ההרצה לפני ניסיון נוסף.'
+    )
     'runner.inner_guest_folder_missing' = @(
         'לא נמצאה תיקיית אורח עבור '''
         @{
@@ -1580,17 +1614,88 @@
         }
         ''').'
     )
-    'runner.inner_sequence_baseline_missing' = @(
+    'runner.inner_sequence_resource_missing' = @(
         'לרצף הפנימי '''
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' אין מפתח מערכת הפעלה ''baseline:''; זהו רצף אורח שאינו ניתן להרצה.'
+        ''' אין מפתח מערכת הפעלה תחת ''resource:''; אי אפשר להריץ אותו כרצף אורח.'
     )
     'runner.launch_record_complete_action' = 'סמנו ברשומת הפעלת המריץ שההרצה הסתיימה'
     'runner.launch_record_write_action' = 'כתבו את רשומת הפעלת המריץ'
+    'runner.m1ff7f8f2d1' = @(
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' עדיין היה '''
+        @{
+            'arg' = 'observedState'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ''' אחרי '
+        @{
+            'arg' = 'waitedSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות. מסך הקונסולה, טקסט ה-OCR ומוני ההיפרווייזר של אותו רגע נרשמו; ראו causeDetail.vmState בקובץ last_failure.json.'
+    )
+    'runner.m38857d4ae5' = @(
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': הקונסולה של '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' לא השתנתה בתוך '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות לאחר ההקלדה; ההקשות לא אושרו.'
+    )
+    'runner.m60d80be676' = @(
+        'יומן הקונסולה הטורית נשמר: '
+        @{
+            'arg' = 'cycleBase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/'
+        @{
+            'arg' = 'destSeqName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/serial-console.log'
+    )
+    'runner.ma32a33811f' = 'לבקש כיבוי של האורח דרך מנהל ההתקן של המארח ולהמתין עד שה-VM ידווח שנעצר'
+    'runner.maa7a51f878' = @(
+        'stopVm: לא ניתן היה לכבות בכוח את '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' לאחר שהתעלם מבקשת הכיבוי; השלב נכשל.'
+    )
     'runner.mac_automation_utm_title' = 'אוטומציה -> UTM'
     'runner.mac_dock_reload_deferred' = 'Dock לא הופעל מחדש כי אסור להרצה זו להפריע להפעלה של שולחן העבודה; השינויים בפינות הפעילות וב־Spaces ייכנסו לתוקף בפעם הבאה ש־Dock יופעל.'
     'runner.mac_grant_prompt_suppressed' = @(
@@ -1662,6 +1767,36 @@
             'trust' = 'internal'
         }
     )
+    'runner.mb985d466db' = @(
+        'stopVm: מכבה בכוח את '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' לאחר שהאורח התעלם מבקשת הכיבוי במשך '
+        @{
+            'arg' = 'waitedSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות; המחזור ממשיך במצב מופחת.'
+    )
+    'runner.mc7190c5d2b' = @(
+        'stopVm: נשלחה בקשת כיבוי לאורח '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''; ממתין עד '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות עד שהמארח ידווח שהוא נעצר.'
+    )
     'runner.mcp_dependency_drift' = 'exit 1 מסקריפט זה מציין שתלות שגרסתה קובעה השתנתה, ולא שהדוח נכשל'
     'runner.mcp_dependency_invalid_json' = 'היה צפוי JSON מ־⁦-AsJson⁩ אך לא ניתן היה לפענח את הפלט'
     'runner.mcp_diagnostic_verdict' = '⁦Get-SystemDiagnostic⁩ תמיד מסתיים בקוד יציאה 0; הבעיות מופיעות בדוח, ולא בקוד היציאה.'
@@ -1717,6 +1852,27 @@
     'runner.mcp_yuruna_test_configuration' = 'אמתו את תצורת הבדיקה. מסתיים בקוד יציאה שאינו אפס עם תמליל כשבדיקה נכשלת, ומחזיר False בלבד עם קוד יציאה 0 כאשר לא ניתן כלל לפתור את קבוצת השורש.'
     'runner.mcp_yuruna_test_requirement' = 'בדקו שמארח זה עומד בדרישות המחזור. מסתיים בקוד יציאה שאינו אפס כשדרישה אינה מתקיימת.'
     'runner.mcp_yuruna_test_runtime' = 'בדקו את סביבת הריצה. התוצאה היא ערך בוליאני שנפלט כאובייקט האחרון בצינור העיבוד; בסקריפט זה אין הוראת exit, ולכן קוד היציאה אינו מעיד על התוצאה.'
+    'runner.mf99bdf2253' = @(
+        'האורח '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' השתתק לראשונה ב-'
+        @{
+            'arg' = 'sinceUtc'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'source'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); כשלים מאוחרים יותר ברצף זה עשויים לנבוע מכך.'
+    )
     'runner.no_other_runner_refresh_active' = @(
         @{
             'arg' = 'callerName'
@@ -2055,7 +2211,7 @@
         ''' אין פרטי כניסה שמורים בכספת -- המכונה הווירטואלית של stash-service תטמיע סיסמת SMB לא תקינה שה־NAS ידחה. הגדירו אותה באמצעות ⁦Set-Password⁩ לפני ⁦Start-StashServiceVM⁩. ראו docs⁦/test-config.md.⁩'
     )
     'runner.operator_04e4f7a2a65ad054' = 'המעטפת המשותפת של sudo אינה זמינה בהפעלה זו.'
-    'runner.operator_051583e964e5ccb5' = 'מאגר הקוד pool-intent תחת שורש האחסון נשאר בדיוק כפי שהוא;'
+    'runner.operator_051583e964e5ccb5' = 'מאגר הקוד pool-configuration תחת שורש האחסון נשאר בדיוק כפי שהוא;'
     'runner.operator_051a02c281a0d2b2' = @(
         'מפעיל את המכונה הווירטואלית '''
         @{
@@ -2997,7 +3153,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_11155c290bdca317' = 'המקטע pool חסר -- סנכרון המצב הרצוי של המאגר כבוי (אופציונלי).'
+    'runner.operator_11155c290bdca317' = 'המקטע pool חסר -- סנכרון תצורת המאגר כבוי (אופציונלי).'
     'runner.operator_112839be6c0da628' = 'אפסו את מסמך המצב לקראת מחזור חדש'
     'runner.operator_115a0cebc1971e79' = @(
         'לא ניתן להוציא משימוש את הרשומה שהוחלפה '''
@@ -3937,7 +4093,7 @@
         }
     )
     'runner.operator_1d0efcf0a84c0f0f' = @(
-        'מאגר: מאגר הכוונות נגיש ('
+        'מאגר: מאגר התצורה נגיש ('
         @{
             'arg' = 'plUrl'
             'type' = 'detail'
@@ -4152,7 +4308,7 @@
         }
     )
     'runner.operator_205f4d4b991b0dd3' = @(
-        'מאגר: מאגר הכוונות '''
+        'מאגר: מאגר התצורה '''
         @{
             'arg' = 'plUrl'
             'type' = 'detail'
@@ -4188,7 +4344,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] מאגר desiredState=paused -- ממתין (לא נוצר מחזור).'
+        '] מאגר configuredState=paused -- ממתין (לא נוצר מחזור).'
     )
     'runner.operator_218ebb2c80a76597' = @(
         '[מחזור חיצוני '
@@ -5264,7 +5420,7 @@
         }
     )
     'runner.operator_2d47f583d26c79d3' = @(
-        'סנכרון מאגר: אחזור הכוונה נכשל ('
+        'סנכרון מאגר: אחזור התצורה נכשל ('
         @{
             'arg' = 'why'
             'type' = 'detail'
@@ -6075,7 +6231,7 @@
         }
         '). לא ניתן להשתמש במפתח להוכחות שליטה במארח זה.'
     )
-    'runner.operator_37c6d3d1e44ac68b' = 'אתחלו את מאגר הנתונים של pool-intent'
+    'runner.operator_37c6d3d1e44ac68b' = 'אתחלו את מאגר הנתונים של pool-configuration'
     'runner.operator_37ec87c9e9d924bd' = @(
         'מאגר networkStorage: לא ניתן למפות את vaultKey בקובץ ⁦users.yml⁩ ('
         @{
@@ -6552,7 +6708,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_3ee74fe8c9b60225' = '⁦pool.enabled⁩ הוא true אך ⁦pool.intentGitUrl⁩ ריק; סנכרון המצב הרצוי של המאגר הושבת.'
+    'runner.operator_3ee74fe8c9b60225' = '⁦pool.enabled⁩ הוא true אך ⁦pool.configurationGitUrl⁩ ריק; סנכרון תצורת המאגר הושבת.'
     'runner.operator_3ef003e468ca0535' = @(
         '[3⁦/3⁩] כספת המעבדה כבר קיימת ב-'
         @{
@@ -6645,7 +6801,7 @@
         }
         ') ...'
     )
-    'runner.operator_3f91d27857293eb6' = '  3. הקימו שירות pool-control; הוא מספק את מאגר הכוונות, וכתובת URL זו הופכת לערך של ⁦pool.intentGitUrl⁩.'
+    'runner.operator_3f91d27857293eb6' = '  3. הקימו שירות pool-control; הוא מספק את מאגר התצורה, וכתובת URL זו הופכת לערך של ⁦pool.configurationGitUrl⁩.'
     'runner.operator_3f965b8f770b8f1a' = '     כבר מכילה עדיין בתוקף -- הריצה הזו לא שינתה דבר מהם.'
     'runner.operator_3fa87fe4f05bcb17' = @(
         '[מחזור חיצוני '
@@ -6757,16 +6913,16 @@
     'runner.operator_40eeaa317b25e65f' = 'כתיבה אטומית של קובץ מצב JSON'
     'runner.operator_411c032a04bd8374' = 'אחסון המאגר מלא'
     'runner.operator_413f257dbbf2120b' = @(
-        'לא ניתן להגדיר ערך התחלתי עבור ⁦pool.intentGitUrl⁩ ('
+        'לא ניתן להגדיר ערך התחלתי עבור ⁦pool.configurationGitUrl⁩ ('
         @{
             'arg' = 'message'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); האסימון נשמר. הגדירו ידנית את ⁦pool.enabled⁩⁦/pool.intentGitUrl⁩ כדי להצטרף למאגר.'
+        '); האסימון נשמר. הגדירו ידנית את ⁦pool.enabled⁩⁦/pool.configurationGitUrl⁩ כדי להצטרף למאגר.'
     )
     'runner.operator_4154b8f8b4c44fe5' = @(
-        '[2⁦/3⁩] אומץ מאגר הנתונים הקיים של pool-intent: '
+        '[2⁦/3⁩] אומץ מאגר הנתונים הקיים של pool-configuration: '
         @{
             'arg' = 'legacyIntentPath'
             'type' = 'detail'
@@ -6774,13 +6930,13 @@
         }
         ' -> '
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
     )
     'runner.operator_416973ff9c4b82f2' = @(
-        '⁦pool.intentGitUrl⁩ כבר מוגדר ('
+        '⁦pool.configurationGitUrl⁩ כבר מוגדר ('
         @{
             'arg' = 'existingUrl'
             'type' = 'detail'
@@ -7076,7 +7232,7 @@
         '.'
     )
     'runner.operator_45a07fd31e96a1d6' = @(
-        'לרצף ברמה העליונה אין מצב בסיס (לא הוגדרה מערכת הפעלה נתמכת לאורח): '
+        'לרצף ברמה העליונה אין דרישות מקדימות תחת resource (לא הוצהרה מערכת הפעלה נתמכת לאורח): '
         @{
             'arg' = 'topName'
             'type' = 'detail'
@@ -7246,7 +7402,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' אינו מופיע ברשימת members[] של אף מאגר, אף שהקובץ ⁦pools.yml⁩ מציין חברים; בדקו את האיות ורישיות האותיות (spelling⁦/case⁩) של hostId במאגר הכוונות. המחזור מתבצע כמארח יחיד.'
+        ' אינו מופיע ברשימת members[] של אף מאגר, אף שהקובץ ⁦pools.yml⁩ מציין חברים; בדקו את האיות ורישיות האותיות (spelling⁦/case⁩) של hostId במאגר התצורה. המחזור מתבצע כמארח יחיד.'
     )
     'runner.operator_479872781526f6ad' = '  הזינו שוב את הסיסמה'
     'runner.operator_47b0ccd4d36eff29' = @(
@@ -7319,7 +7475,7 @@
         }
         '''.'
     )
-    'runner.operator_488c8abbe599cfff' = '  ומאגר הקוד של המצב הרצוי למאגר נמצאים כולם תחתיו. כשהכול לשביעות רצונכם:'
+    'runner.operator_488c8abbe599cfff' = '  ומאגר הקוד של תצורת המאגר נמצאים כולם תחתיו. כשהכול לשביעות רצונכם:'
     'runner.operator_489224a7c60c2a6e' = @(
         '  לא ניתן להעתיק את תוצרי הכשל אל status⁦/log⁩: '
         @{
@@ -7919,8 +8075,8 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_4f719f0639145301' = 'כתבו קובץ כוונות למאגר'
-    'runner.operator_4f741864aba4d1fd' = 'צרו מאגר קוד ללא עותק עבודה עבור pool-intent'
+    'runner.operator_4f719f0639145301' = 'כתבו קובץ תצורה למאגר'
+    'runner.operator_4f741864aba4d1fd' = 'צרו מאגר קוד ללא עותק עבודה עבור pool-configuration'
     'runner.operator_4f7e838f26c3bf54' = @(
         '[5/'
         @{
@@ -8010,9 +8166,9 @@
     )
     'runner.operator_507f379237cefeeb' = '  מריץ:        לא ניתן לקבוע'
     'runner.operator_5080fa98b3c9b51c' = @(
-        'לא ניתן לפתוח את מאגר הכוונות ('
+        'לא ניתן לפתוח את מאגר התצורה ('
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -8602,7 +8758,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' (לא הוצהרו דרישות קדם למצב הבסיס)'
+        ' (לא הוצהרו דרישות מקדימות תחת resource)'
     )
     'runner.operator_57f365ecb6da1349' = @(
         'זהות DHCP של הגשר קובעה אוטומטית: '
@@ -8753,7 +8909,7 @@
         '''.'
     )
     'runner.operator_59650e3f07b2342b' = @(
-        'desiredState של המאגר '''
+        'configuredState של המאגר '''
         @{
             'arg' = 'poolId'
             'type' = 'detail'
@@ -8823,7 +8979,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. תקנו את הגדרת המצב הרצוי (⁦Remove-HostFromPool⁩ / ⁦Test-PoolIntent⁩).'
+        '''. תקנו את התצורה (⁦Remove-HostFromPool⁩ / ⁦Test-PoolConfiguration⁩).'
     )
     'runner.operator_5a198f884eed15db' = 'סנכרנו מחדש מול מקור הזמן המוגדר'
     'runner.operator_5a1fbbd3e27b9097' = 'בנתיבים אלו, שלב מנצל את כל timeoutSeconds שלו ומדווח ''התבנית לא נמצאה'', אף שהתמונה השמורה עדיין נראית קריאה.'
@@ -8858,7 +9014,7 @@
         }
     )
     'runner.operator_5a576784a1b51113' = 'לא ניתן היה לקרוא את נתיב הדיסק הקשיח הווירטואלי של Hyper-V, ולכן לא ניתן לקבוע מה מסנן אותו.'
-    'runner.operator_5a5cc38a18508944' = 'ומאגר הגדרות המצב הרצוי של המאגר תחת שורש האחסון נשארים בדיוק כפי שהם;'
+    'runner.operator_5a5cc38a18508944' = 'ומאגר תצורת המאגר תחת שורש האחסון נשארים בדיוק כפי שהם;'
     'runner.operator_5acc85b3d32caa00' = @(
         '    [break] הפעולה חודשה אוטומטית לאחר '
         @{
@@ -9246,7 +9402,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] במאגר desiredState=drain -- מתבצע כיבוי בגבול המחזור.'
+        '] במאגר configuredState=drain -- מתבצע כיבוי בגבול המחזור.'
     )
     'runner.operator_5e254220c82bfee1' = @(
         'צג וירטואלי '
@@ -9294,9 +9450,9 @@
         ').'
     )
     'runner.operator_5e931217fd513630' = @(
-        'אחסון הגדרות המצב הרצוי של המאגר ('
+        'אחסון תצורת המאגר ('
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -10109,7 +10265,7 @@
         ': לא מוגדר ענף מעקב במעלה הזרם -- דילוג על בדיקת הקדמה ופיגור: ahead⁦/behind.⁩'
     )
     'runner.operator_68683a605e32c8b4' = @(
-        'הפנו את ⁦/pool-intent.git⁩ אל '
+        'הפנו את ⁦/pool-configuration.git⁩ אל '
         @{
             'arg' = 'storePath'
             'type' = 'detail'
@@ -10197,7 +10353,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' הוא מאגר היעד לרישום אוטומטי ואסור שיכלול מאגרי קוד; מתעלמים מהם ושומרים על מאגרי הקוד של מארח זה. תקנו את מאגר הכוונות (⁦Test-PoolIntent.ps1⁩ מדווח על כך).'
+        ''' הוא מאגר היעד לרישום אוטומטי ואסור שיכלול מאגרי קוד; מתעלמים מהם ושומרים על מאגרי הקוד של מארח זה. תקנו את מאגר התצורה (⁦Test-PoolConfiguration.ps1⁩ מדווח על כך).'
     )
     'runner.operator_69026426aeb39009' = ' זוהו פרופילי תצורה במחשב Mac זה. אם פרופיל כלשהו'
     'runner.operator_69313d3714ef798c' = 'כתבו את רשומת תקינות המעבדה'
@@ -10269,9 +10425,9 @@
         ''' שאינה באוצר המונחים לשחזור; הערך מומר ל-operator_intervention_required.'
     )
     'runner.operator_6a59b18694397dbf' = @(
-        'סנכרון מאגר: לא ניתן להגיע למאגר הכוונות ('
+        'סנכרון מאגר: לא ניתן להגיע למאגר התצורה ('
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -11532,7 +11688,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] המאגר במצב desiredState=paused -- המתנה; המצב הרצוי ייבדק שוב בקרוב.'
+        '] המאגר במצב configuredState=paused -- המתנה; התצורה ייבדק שוב בקרוב.'
     )
     'runner.operator_7b5b47de81fd0974' = @(
         'לוח הבקרה הקנוני ב-'
@@ -11699,9 +11855,9 @@
     )
     'runner.operator_7d1e9cbc4ff500f6' = 'הבדיקה המהירה של דרישות המארח עברה בהצלחה.'
     'runner.operator_7d60c40c2ee69f28' = @(
-        'חברות: לא ניתן לפתוח את מאגר המצב הרצוי ('
+        'חברות: לא ניתן לפתוח את מאגר התצורה ('
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -11789,7 +11945,7 @@
         }
         '] עומדים להפעיל pwsh פנימי'
     )
-    'runner.operator_7dd0aa845d3a93ea' = 'אין כתובת URL למאגר הכוונות. העבירו ⁦-IntentGitUrl⁩ או הגדירו ⁦pool.intentGitUrl⁩ בקובץ ⁦test.config.yml⁩.'
+    'runner.operator_7dd0aa845d3a93ea' = 'אין כתובת URL למאגר התצורה. העבירו ⁦-ConfigurationGitUrl⁩ או הגדירו ⁦pool.configurationGitUrl⁩ בקובץ ⁦test.config.yml⁩.'
     'runner.operator_7dd6240c15d45471' = 'נדרשת תאימות למנגנון אתחול חתום ועצמאי (signed⁦/self-contained⁩) ותנאי סף לשחזור חבילות מסעיף 9; טרם מומש'
     'runner.operator_7def89dc77aaa4db' = @(
         'לא ניתן לכתוב את תמונת המצב שלפני האוטומציה אל '
@@ -12055,9 +12211,9 @@
         ' הפקדות. מתבצעת משיכה...'
     )
     'runner.operator_811a9975fa1a2df7' = @(
-        'פתחו עותק משוכפל של המצב הרצוי למאגר מ-'
+        'פתחו עותק משוכפל של תצורת המאגר מ-'
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -12718,7 +12874,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] המאגר במצב desiredState=drain -- נשלחת בקשת כיבוי בגבול המחזור.'
+        '] המאגר במצב configuredState=drain -- נשלחת בקשת כיבוי בגבול המחזור.'
     )
     'runner.operator_8a8eb73bf7a84874' = @(
         'רשמו משימה מתוזמנת בשם '''
@@ -12781,9 +12937,9 @@
         ' דקות.'
     )
     'runner.operator_8b14250671a04bd9' = @(
-        '  מאגר הכוונות : '
+        '  מאגר התצורה : '
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -13083,7 +13239,7 @@
         }
         '...'
     )
-    'runner.operator_8e8fecb6ffc7d3d6' = '⁦test.config.yml⁩ לא נמצא; לא הוגדר ערך התחלתי עבור ⁦pool.intentGitUrl⁩. הריצו שוב לאחר ⁦Sync-HostConfiguration.ps1⁩ כדי להצטרף למאגר המעבדה.'
+    'runner.operator_8e8fecb6ffc7d3d6' = '⁦test.config.yml⁩ לא נמצא; לא הוגדר ערך התחלתי עבור ⁦pool.configurationGitUrl⁩. הריצו שוב לאחר ⁦Sync-HostConfiguration.ps1⁩ כדי להצטרף למאגר המעבדה.'
     'runner.operator_8e99318e4c9efaea' = @(
         @{
             'arg' = 'label'
@@ -13246,9 +13402,9 @@
         ''' -- נחשבת לכישלון.'
     )
     'runner.operator_8fcfdcefeec6d978' = @(
-        '[2⁦/3⁩] מאגר הנתונים pool-intent אותחל בנתיב '
+        '[2⁦/3⁩] מאגר הנתונים pool-configuration אותחל בנתיב '
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -13612,7 +13768,7 @@
     )
     'runner.operator_93d8c93707d2b133' = 'אתרו תבנית באמצעות OCR ואז לחצו על המלבן שלה במסך.'
     'runner.operator_93d9eec8ac1ddbb1' = 'הפקודה שמפנה את הדיסק הזה מוצגת בסוף כדי שתוכלו להפעיל אותה.'
-    'runner.operator_93ef9f12e66f06e9' = '⁦pool.enabled⁩ = false והערך ⁦pool.intentGitUrl⁩ ריק -- סנכרון המצב הרצוי של המאגר כבוי (אופציונלי). מלאו את intentGitUrl כדי לאמת מראש את מאגר הנתונים לפני ההפעלה.'
+    'runner.operator_93ef9f12e66f06e9' = '⁦pool.enabled⁩ = false והערך ⁦pool.configurationGitUrl⁩ ריק -- סנכרון תצורת המאגר כבוי (אופציונלי). מלאו את configurationGitUrl כדי לאמת מראש את מאגר הנתונים לפני ההפעלה.'
     'runner.operator_94158729db31acff' = 'לא ניתן היה למנות את התוכן של שני העצים'
     'runner.operator_941d097378241f81' = @(
         'לא ניתן היה לכתוב את '
@@ -14169,13 +14325,13 @@
         }
     )
     'runner.operator_9b3ed84eefe28021' = @(
-        'דרישת קדם בשרשרת לא נמצאה: '
+        'לא נמצאה דרישה מקדימה בשרשרת: '
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' (מופנית דרך בסיס הייחוס של '
+        ' (מופיעה תחת resource ברצף '
         @{
             'arg' = 'sequenceName'
             'type' = 'detail'
@@ -14970,9 +15126,9 @@
         ' -- נדרש מספר שלם חיובי.'
     )
     'runner.operator_a57aeed80b0cf28a' = @(
-        '[2⁦/3⁩] מאגר נתוני pool-intent כבר קיים בנתיב '
+        '[2⁦/3⁩] מאגר נתוני pool-configuration כבר קיים בנתיב '
         @{
-            'arg' = 'intentPath'
+            'arg' = 'configurationPath'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -15153,9 +15309,9 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' כבר קיים (desiredState='
+        ''' כבר קיים (configuredState='
         @{
-            'arg' = 'desiredState'
+            'arg' = 'configuredState'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -15676,7 +15832,7 @@
     )
     'runner.operator_af02ae2f4290672d' = 'הרשומות בקובץ hosts לא נכתבו, ולכן שמות networkStorage עדיין מפוענחים לכתובות הקודמות ושיתופי המעבדה לא יעוגנו. הריצו את הסנכרון שוב לאחר שהעלאת ההרשאות תצליח, או הוסיפו את הרשומות ידנית.'
     'runner.operator_af08cdf0a2ea5eb0' = 'מרשם המאגר: גרסת שירות הצבירה הזו קודמת לרישום לפי שירות; מדווחים רק התחומים שהיא מצליחה לאתר. בנו מחדש את המכונה הווירטואלית של שירות caching-proxy כדי לראות כאן רישומים שסורבו.'
-    'runner.operator_af0aca34836ac8bb' = '⁦pool.enabled⁩ הוא true אך ⁦pool.intentGitUrl⁩ ריק -- מנגנון ההרצה אינו יכול למשוך את המצב הרצוי. הגדירו את כתובת מאגר הגרסאות החשוף ברשת המקומית. עיינו ב-docs⁦/pool-storage.md.⁩'
+    'runner.operator_af0aca34836ac8bb' = '⁦pool.enabled⁩ הוא true אך ⁦pool.configurationGitUrl⁩ ריק -- מנגנון ההרצה אינו יכול למשוך את התצורה. הגדירו את כתובת מאגר הגרסאות החשוף ברשת המקומית. עיינו ב-docs⁦/pool-storage.md.⁩'
     'runner.operator_af33f0960f92ab46' = @(
         'רצף '
         @{
@@ -15811,7 +15967,7 @@
     )
     'runner.operator_b102c44bb6764306' = 'המארח הופעל מאז הניסיון האחרון'
     'runner.operator_b1165d978837552e' = 'מידת ההתיישנות של התשתית / הפרויקט'
-    'runner.operator_b11e32378aff0234' = 'המצב הרצוי של המאגר: כל הקבצים תקינים לפי הסכמה.'
+    'runner.operator_b11e32378aff0234' = 'תצורת המאגר: כל הקבצים תקינים לפי הסכמה.'
     'runner.operator_b12fd41a06f7b780' = @(
         'תעדו שינוי כתובת ל-'
         @{
@@ -16195,7 +16351,7 @@
         ' ⁦Start-GuestOS⁩: עבר'
     )
     'runner.operator_b5e4a53c200e2211' = @(
-        '⁦pool.intentGitUrl⁩ הפנה לכתובת קודמת של caching-proxy ('
+        '⁦pool.configurationGitUrl⁩ הפנה לכתובת קודמת של caching-proxy ('
         @{
             'arg' = 'existingUrl'
             'type' = 'detail'
@@ -16203,7 +16359,7 @@
         }
         '); מתבצע עדכון ההפניה אל '
         @{
-            'arg' = 'intentUrl'
+            'arg' = 'configurationUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -16286,7 +16442,7 @@
         }
         '''; הסירו אותו דרך הגדרות המערכת > משתמשים וקבוצות.'
     )
-    'runner.operator_b752ee38cb8d2c81' = 'חברות: אין ⁦pool.intentGitUrl⁩ (וגם אין ⁦-IntentGitUrl⁩) -- הוסרו רק רשומות NAS; החברויות במאגרים לא שונו.'
+    'runner.operator_b752ee38cb8d2c81' = 'חברות: אין ⁦pool.configurationGitUrl⁩ (וגם אין ⁦-ConfigurationGitUrl⁩) -- הוסרו רק רשומות NAS; החברויות במאגרים לא שונו.'
     'runner.operator_b767a43bc1c25bbd' = @(
         '[מחזור חיצוני '
         @{
@@ -16367,7 +16523,7 @@
     )
     'runner.operator_b8044f428430e5d8' = 'הסירו מיפוי SMB מיושן'
     'runner.operator_b85e68a82dd79259' = @(
-        'המצב הרצוי של המאגר: מספר הקבצים שנכשלו באימות: '
+        'תצורת המאגר: מספר הקבצים שנכשלו באימות: '
         @{
             'arg' = 'failures'
             'type' = 'detail'
@@ -16405,9 +16561,9 @@
         ''' את קובץ התצורה המשלים של מנגנון ההרצה להפעלת sudo ללא סיסמה'
     )
     'runner.operator_b8e126357db609a2' = @(
-        'אותחל מאגר נתונים חדש למצב הרצוי של המאגר בכתובת '
+        'אותחל מאגר נתונים חדש לתצורת המאגר בכתובת '
         @{
-            'arg' = 'intentGitUrl'
+            'arg' = 'configurationGitUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -17858,7 +18014,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ']: מאגר הכוונות '''
+        ']: מאגר התצורה '''
         @{
             'arg' = 'plUrl'
             'type' = 'detail'
@@ -17867,7 +18023,7 @@
         '''.'
     )
     'runner.operator_cd0c45e03e65ccc2' = '  זהות מארח קודמת תואמת לחומרה זו:'
-    'runner.operator_cd4a2a8be6258515' = 'מאגר (סנכרון כוונות)'
+    'runner.operator_cd4a2a8be6258515' = 'מאגר (סנכרון תצורה)'
     'runner.operator_cd4f83e57e569958' = @(
         '⁦Register-SequenceAction⁩ '''
         @{
@@ -19653,13 +19809,13 @@
         ''' נשלח למסוף ומתבצע מעקב כדי לראות אם ייקלט.'
     )
     'runner.operator_e178d69f96491585' = @(
-        'בוצעה הצטרפות למאגר המעבדה: ⁦pool.enabled⁩ = true, ⁦pool.intentGitUrl⁩ = '
+        'בוצעה הצטרפות למאגר המעבדה: ⁦pool.enabled⁩ = true, ⁦pool.configurationGitUrl⁩ = '
         @{
-            'arg' = 'intentUrl'
+            'arg' = 'configurationUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. המארח הזה מושך כעת את המצב הרצוי של המאגר לקריאה בלבד בכל מחזור.'
+        '. המארח הזה מושך כעת את תצורת המאגר לקריאה בלבד בכל מחזור.'
     )
     'runner.operator_e1a14bbdcff651de' = @(
         '[מחזור חיצוני '
@@ -19866,13 +20022,13 @@
         '). הלוח מתנקה מעצמו לאחר תום זמן החיים של המארח ברכיב האיגום (-host-ttl, ברירת מחדל 24h).'
     )
     'runner.operator_e2e4c1d2a97c7116' = @(
-        'הרצף הפנימי '''
+        'הפריט הפנימי '''
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' אינו רצף אורח (baseline + steps) ואינו פעולת מארח (host:).'
+        ''' אינו רצף אורח (דרישות מקדימות תחת resource ושלבים) וגם אינו פעולת מארח (host:).'
     )
     'runner.operator_e2e9e0a96208388d' = 'idleTime של שומר המסך אינו מוגדר (currentHost) -- חלה ברירת המחדל של macOS (~20 min).'
     'runner.operator_e2f867223580bc4d' = 'מחסנית מסנני אחסון (תפוקת האורח)'
@@ -20405,7 +20561,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '] המאגר במצב desiredState=drain -- מתבצעת עצירה (ללא מחזורים נוספים).'
+        '] המאגר במצב configuredState=drain -- מתבצעת עצירה (ללא מחזורים נוספים).'
     )
     'runner.operator_eb8238e1e37a921c' = @(
         '[מחזור חיצוני '
@@ -20851,7 +21007,7 @@
         ''' בקובץ ⁦/etc/hosts.⁩'
     )
     'runner.operator_efd4f169b13d993c' = @(
-        'הפקידו ודחפו את הגדרת המצב הרצוי של המאגר: '
+        'הפקידו ודחפו את תצורת המאגר: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -21760,7 +21916,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' אינו במפת השכנויות הקנונית; נרשם בכל זאת כדי שהסטייה תהיה גלויה.'
+        ''' אינו במפת השכנויות הקנונית; נרשם בכל זאת כדי שהמעבר הבלתי צפוי יהיה גלוי.'
     )
     'runner.operator_fad7deaf725b8e6e' = 'עצרו את המריץ הישן + הסירו מכונות וירטואליות יתומות'
     'runner.operator_fad91a94e9edb38a' = @(
@@ -22029,7 +22185,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ')  desiredState='
+        ')  configuredState='
         @{
             'arg' = 'run'
             'type' = 'detail'
@@ -22174,6 +22330,7 @@
         }
         ' -- עליו להיות 0 (מושבת) או מספר שלם חיובי.'
     )
+    'runner.outer_attempt_failed' = 'ניסיון ההרצה נכשל'
     'runner.outer_log_runtime_dir_unset' = @(
         '⁦Write-OuterLog⁩: המשתנה YURUNA_RUNTIME_DIR אינו מוגדר, ולכן לא ניתן לאתר את ⁦outer.log⁩; שורה זו והשורות הבאות אינן נכתבות אליו: '
         @{
@@ -22182,9 +22339,9 @@
             'trust' = 'external'
         }
     )
-    'runner.pool_intent_library_removed' = '⁦test-sets.yml⁩ הוסר ממאגר הכוונות; אין מי שקורא אותו.'
-    'runner.pool_intent_schema_already_current' = @(
-        'כוונת המאגר כבר בגרסת schemaVersion '
+    'runner.pool_configuration_library_removed' = '⁦test-sets.yml⁩ הוסר ממאגר התצורה; אין מי שקורא אותו.'
+    'runner.pool_configuration_schema_already_current' = @(
+        'תצורת המאגר כבר בגרסת schemaVersion '
         @{
             'arg' = 'version'
             'type' = 'integer'
@@ -22192,8 +22349,8 @@
         }
         '; אין מה להעביר.'
     )
-    'runner.pool_intent_schema_migrated' = @(
-        'כוונת המאגר הועברה מ-schemaVersion '
+    'runner.pool_configuration_schema_migrated' = @(
+        'תצורת המאגר הועברה מ-schemaVersion '
         @{
             'arg' = 'from'
             'type' = 'integer'
@@ -22207,7 +22364,7 @@
         }
         ', נשמרה ב-commit ונדחפה.'
     )
-    'runner.pool_intent_schema_outdated' = @(
+    'runner.pool_configuration_schema_outdated' = @(
         'FAIL  schema-version: הקובץ ⁦pools.yml⁩ הוא בגרסת schemaVersion '
         @{
             'arg' = 'found'
@@ -22220,9 +22377,9 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '. הריצו פעם אחת את test⁦/pool/Update-PoolIntentSchema.ps1⁩ כדי להעביר את מאגר הכוונות.'
+        '. הריצו פעם אחת את test⁦/pool/Update-PoolConfigurationSchema.ps1⁩ כדי להעביר את מאגר התצורה.'
     )
-    'runner.pool_intent_schema_unsupported' = @(
+    'runner.pool_configuration_schema_unsupported' = @(
         'הקובץ ⁦pools.yml⁩ הוא בגרסת schemaVersion '
         @{
             'arg' = 'version'
@@ -22235,7 +22392,7 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '). עדכנו את ה-checkout לפני שינוי כוונת המאגר.'
+        '). עדכנו את ה-checkout לפני שינוי תצורת המאגר.'
     )
     'runner.pool_repositories_cleared' = @(
         'מאגרי הקוד נוקו במאגר '''

@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-package intent
+package configuration
 
 import (
 	"context"
@@ -18,9 +18,9 @@ func TestCLIErrorFromStdout(t *testing.T) {
 		want   string
 	}{
 		{
-			name:   "the unconfigured-intent-store message the CLIs actually emit",
-			stdout: `{"ok":false,"error":"No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml."}`,
-			want:   "No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.",
+			name:   "the unconfigured-configuration-store message the CLIs actually emit",
+			stdout: `{"ok":false,"error":"No configuration store URL. Pass -ConfigurationGitUrl or set pool.configurationGitUrl in test.config.yml."}`,
+			want:   "No configuration store URL. Pass -ConfigurationGitUrl or set pool.configurationGitUrl in test.config.yml.",
 		},
 		{
 			name:   "trailing newline from Console.Out.WriteLine",
@@ -34,7 +34,7 @@ func TestCLIErrorFromStdout(t *testing.T) {
 		},
 		{
 			name:   "non-JSON output is left to the stderr/process-error fallbacks",
-			stdout: "Get-PoolIntent.ps1 : some unstructured text",
+			stdout: "Get-PoolConfiguration.ps1 : some unstructured text",
 			want:   "",
 		},
 		{name: "empty stdout", stdout: "", want: ""},

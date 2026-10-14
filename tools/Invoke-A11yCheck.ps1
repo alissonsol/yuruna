@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -305,7 +305,7 @@ if ($LASTEXITCODE -ne 0 -or $browserVersion -notmatch '\d+(?:\.\d+){1,3}') {
 }
 Write-Line "browser: $browserVersion"
 
-# --- REGION: the measurement, as it runs inside the page
+# --- REGION: Page measurement
 # One expression, evaluated in the page after load. It returns findings, never
 # throws: a probe that dies takes the whole gate's verdict with it.
 $probe = @'

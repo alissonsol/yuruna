@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 429e4813-bf0c-4e56-8d42-899a9859af6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
 
 .DESCRIPTION
     Builds an Ubuntu 26.04 LTS cloud-image VM that hosts the pool-control-service
-    daemon (operator UI + API that drives the pool-intent git store).
+    daemon (operator UI + API that drives the pool-configuration git store).
     Cloud-init fetches the framework and runs the bring-up script which
     builds the daemon, installs pwsh + the pool-admin CLIs, CIFS-mounts the
     pool NAS for its state dir, and launches it under systemd.
@@ -131,8 +131,6 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'pool-control-service.meta-data') -Destination "$SeedDir/meta-data"
-# --- REGION: https://yuruna.link/4220a755-000b
-Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
 $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
@@ -171,6 +169,8 @@ Import-Module (Join-Path $_repoRoot 'test/modules/Test.Locale.psm1')       -Glob
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
@@ -181,12 +181,13 @@ $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHos
 # Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
 $null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
-# Writable pool-intent git url the daemon commits to; empty degrades the daemon
-# (read-only). An explicit test.config.yml pool.intentGitUrl wins; otherwise this
+# Writable pool-configuration git url the daemon commits to; empty degrades the daemon
+# (read-only). An explicit test.config.yml pool.configurationGitUrl wins; otherwise this
 # resolves the bare repo on the pool NAS, which the guest creates and seeds on
 # first bring-up so a fresh VM reaches a working UI with nothing pre-staged.
-$intentGitUrl = Get-PoolIntentSeedUrl -Config $tc
+$configurationGitUrl = Get-PoolConfigurationSeedUrl -Config $tc
 
+# --- REGION: Render user-data / meta-data
 # Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
 # pool-control-service.*). New-CloudInitUserData resolves placeholders with literal
 # .Replace(), so values carrying regex-special chars are safe.
@@ -202,7 +203,7 @@ $UserData = New-CloudInitUserData `
         YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
         YURUNA_HOST_ID_PLACEHOLDER     = $poolNas.HostId
         YURUNA_AGGREGATOR_URL_PLACEHOLDER      = $aggregatorSeedUrl
-        YURUNA_POOL_INTENT_GIT_URL_PLACEHOLDER = $intentGitUrl
+        YURUNA_POOL_CONFIGURATION_GIT_URL_PLACEHOLDER = $configurationGitUrl
         YURUNA_LANGUAGE_PLACEHOLDER       = $poolControlLanguage
         YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
         POOL_NAS_NETWORK_PATH_PLACEHOLDER  = $poolNas.NetworkPath
@@ -212,6 +213,8 @@ $UserData = New-CloudInitUserData `
         POOL_NAS_HOST_ID_PLACEHOLDER       = $poolNas.HostId
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+# --- REGION: https://yuruna.link/4220a755-000b
+Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Generate cloud-init seed ISO
 $SeedIso = Join-Path $vmDir "seed.iso"

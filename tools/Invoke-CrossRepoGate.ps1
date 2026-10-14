@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -195,7 +195,7 @@ function Get-GateRemediation {
                 'and same repair as the framework row: rebuild from a clean work path and leave it ' +
                 'alone while the gate runs.' }
         @{ Gate = 'framework-gate-set'; Match = ''; Code = 'staged-tree-moved'
-            Action = 'Not a failure of its own: the seventeen framework gates and the five focused slices ' +
+            Action = 'Not a failure of its own: the seventeen framework gates and the six focused slices ' +
                 'were never executed because the supplied staged pair did not match the candidate ' +
                 'indexes. Fix the two staged-*-hash rows first; until then this run carries no ' +
                 'framework result at all, so do not read the absence of framework failures as a ' +
@@ -313,6 +313,13 @@ function Get-GateRemediation {
             Action = 'Run test/modules/Test.ReferenceSliceMatrix.Tests.ps1 directly under Pester 5; the ' +
                 'detail names the failing test. It is a member of the shared prerequisite list, so ' +
                 'its failure closes both seeds and W2-OPEN.' }
+        @{ Gate = 'zot-qualification'; Match = ''; Code = 'focused-suite'
+            Action = 'The caching-proxy seed pins a zot release, configuration or probe list that no live sync ' +
+                'has qualified. Run python3 tools/Test-ZotRelease.py on a machine with internet access: it ' +
+                'syncs the probe images through the pinned release and writes ' +
+                'host/vmconfig/caching-proxy-service.zot-qualified.json; commit that record. When it reports ' +
+                'that the release does not qualify, follow its instructions (usually an http.compat mode to add, ' +
+                'or keeping the previously qualified release) instead of editing the record.' }
     )
 
     foreach ($candidate in $table) {
@@ -711,7 +718,8 @@ $focusedGates = @(
             'test/modules/Test.StatusServiceLocale.Tests.ps1'
             'test/modules/Test.StatusPauseSlice.Tests.ps1') }
     @{ Gate = 'pool-slice-matrix'; RelativePath = @('test/modules/Test.PoolGlobalizationSlice.Tests.ps1') }
-    @{ Gate = 'reference-slice-matrix'; RelativePath = @('test/modules/Test.ReferenceSliceMatrix.Tests.ps1') })
+    @{ Gate = 'reference-slice-matrix'; RelativePath = @('test/modules/Test.ReferenceSliceMatrix.Tests.ps1') }
+    @{ Gate = 'zot-qualification'; RelativePath = @('test/modules/Test.ZotQualification.Tests.ps1') })
 
 $plannedStages = [Collections.Generic.List[string]]::new()
 $plannedStages.AddRange([string[]]@('doc-translation', 'region-anchors', 'project-lint',

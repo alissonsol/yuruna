@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,12 +59,7 @@ switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
 $baseImageName      = "host.windows.hyper-v.guest.windows.11"
 $defaultDownloadDir = "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks"
 
-# Fido settings (change these to download a different edition/language).
-# Fido is pinned to a tagged release (not the moving `master` ref) and its
-# script hash is verified before execution: Fido.ps1 runs with this script's
-# privileges, so an unpinned moving ref is an unchecked remote-code hop.
-# Refresh on a new Fido release: bump the tag in the URL and replace the hash
-# with the new file's (Get-FileHash -Algorithm SHA256).Hash.
+# See https://yuruna.link/429f3d06-008c
 $fidoUrl        = "https://raw.githubusercontent.com/pbatard/Fido/v1.71/Fido.ps1"
 $fidoSha256     = "6481e40d3cf100c79b281942d0d1c7f6d111397be296fec867a56cbe368ebdf9"
 $languageFilter = "English"
@@ -126,7 +121,7 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
-# --- REGION: Short-circuit #2: adopt the default image or find the configured file
+# --- REGION: Seek the base image
 if (-not (Test-Path -LiteralPath $baseImageFile) -and $downloadDir -ne $defaultDownloadDir -and
     (Test-Path -LiteralPath $defaultBaseFile)) {
     Copy-Item -LiteralPath $defaultBaseFile -Destination $baseImageFile -ErrorAction Stop

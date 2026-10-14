@@ -391,9 +391,9 @@
       "message": "המשאבים הם null או ריקים בקובץ: {resourcesFile}"
     },
     "automation.operator_159f23f7bbf09a33": {
-      "sourceHash": "6978330e2386b70d620fe40e6786a1c9c71ba0d9d8e14a7a1faf6140b5af6744",
+      "sourceHash": "f7b3036deddd5e10d3932e1638dec92dc4a71476f2ab7fc729a485ed172a3e4f",
       "origin": "machine",
-      "message": "  1. הוסיפו autoEnrollment: { enabled: true, targetPoolId: default } לקובץ ⁦pools.yml⁩ במאגר הכוונות"
+      "message": "  1. הוסיפו ⁦autoEnrollment: { enabled: true, targetPoolId: default }⁩ לקובץ ⁦pools.yml⁩ במאגר התצורה"
     },
     "automation.operator_163577cbcc97e68e": {
       "sourceHash": "e2fc1464b8614fa7635a9d2f162faf3512204456f3e81808d71589487d2bc0f6",
@@ -1026,9 +1026,9 @@
       "message": "כלל אצבע 4: דמות במאגר הדמויות המקומי ששום pod אינו מפנה אליה"
     },
     "automation.operator_47229a44b80ae93b": {
-      "sourceHash": "899281af85e1b4e269bc1c14b6cc0d122253f9bc48463ded41ce4896c13e9040",
+      "sourceHash": "a17299665406582c52cdb6f9995ced4c1fa6b9a080efe42fcb8c142b3c9e3758",
       "origin": "machine",
-      "message": "(אין צמתים במצב Ready -- האשכול אינו פעיל; אין זה פער בפריסה, ראו סעיף KUBE)"
+      "message": "(אין צמתים במצב Ready -- האשכול אינו פעיל; בדיקות הפריסה אינן זמינות, ראו סעיף KUBE)"
     },
     "automation.operator_4788a5c9b68d9b0a": {
       "sourceHash": "a7f708f5006ef4376b96d4b63193f3d0f06f90bc375560dfdcc664f44ec1cfbe",
@@ -1072,9 +1072,9 @@
       }
     },
     "automation.operator_4b5000e2da8b0a45": {
-      "sourceHash": "d538450632ca768b43867e83026737594cfc0c32570f40b3b01de117a1dbed54",
+      "sourceHash": "6304174b1e0618354c38847113bb23cbdb61b5d701fa26ed2e0dc325f0012040",
       "origin": "machine",
-      "message": "GAP: מספר הדמויות שנדחפו למאגר הדמויות המקומי אך שום pod אינו מפנה אליהן: {count} -- {join}. שלב עומסי העבודה לא פרס תרשים המשתמש בדמויות אלה, או שהתרשים רונדר עם קידומת שונה של מאגר דמויות (בדקו את ⁦componentsRegistry.registryLocation⁩ בקובץ ⁦resources.output.yml⁩). דמות המשמשת רק כשלב בנייה צפויה להופיע כאן ואינה כשלעצמה פער בפריסה."
+      "message": "תצפית אבחונית: {count} דמויות נדחפו למאגר הדמויות המקומי אך שום pod אינו מפנה אליהן -- {join}. ייתכן ששלב עומסי העבודה לא פרס תרשים המשתמש בדמויות האלה, או שהתרשים רונדר עם קידומת שונה של מאגר דמויות (בדקו את ⁦componentsRegistry.registryLocation⁩ בקובץ ⁦resources.output.yml⁩). דמות המשמשת רק בשלב בנייה צפויה להופיע כאן ואינה מוכיחה כשלעצמה אי־התאמה בתצורה."
     },
     "automation.operator_4ba3081aa0af2a76": {
       "sourceHash": "17ffe8102da968f5306dc6ac2bb5b225fab53e4de4edc4945e08b5ffee03e51c",
@@ -1347,9 +1347,9 @@
       "message": "  לא ניתנה הרשאה במקור {source} -- לא נלכדות ראיות מתעבורת הרשת לכשלי DHCP של האורח."
     },
     "automation.operator_6026e7f1ae4f2ef0": {
-      "sourceHash": "4b8e530d54c9b66f0b50d24fb127788be5b0e3683480c4b73c483fc934a0a9ab",
+      "sourceHash": "9f7d146564ebc324fe7800444bcd949d5abb232c0fa8e7a4010095424fc8299c",
       "origin": "machine",
-      "message": "GAP: מרחב השמות '{name}' מוצהר בקובץ {file} אך אינו קיים באשכול -- שלב עומסי העבודה מעולם לא יצר אותו (helm install / kubectl create namespace לא הורצו, או נכשלו)."
+      "message": "אי־התאמה בתצורה: מרחב השמות '{name}' מוצהר בקובץ {file} אך אינו קיים באשכול. בדקו אם שלב עומסי העבודה יצר אותו ואם ⁦helm install⁩ / ⁦kubectl create namespace⁩ הצליחו."
     },
     "automation.operator_6036ef007d775983": {
       "sourceHash": "e543863bc05b6dcdc1e804dab34d2e2e7ab56cbaa66cb31c4d88322da108ce46",
@@ -1567,9 +1567,9 @@
       "message": "(helm אינו בנתיב PATH -- עומסי עבודה המבוססים על תרשימי Helm לא נפרסו)"
     },
     "automation.operator_72c1075973a89231": {
-      "sourceHash": "937fd251a76400fae1f9fae9f831ce0cd7a469ba15265c88b2614128273baba8",
+      "sourceHash": "0f6afba8ebce257bc8c0e129d1d2259dade4e46c3a0761e81fe6a8694f923fe7",
       "origin": "machine",
-      "message": "פער: קיימים {tfStateCount} קובצי ⁦tofu.tfstate⁩ אך ל־helm יש 0 מהדורות בכל מרחבי השמות -- נראה ששלב עומסי העבודה דולג או הסתיים בקוד 0 ללא קריאה ל־⁦Set-Workload⁩. בדקו את קובצי ⁦helm.stderr.log⁩ לעיל ואת השורות האחרונות של סקריפט המעטפת."
+      "message": "תצפית אבחונית: קיימים {tfStateCount} קובצי ⁦tofu.tfstate⁩ אך ל־helm אין מהדורות באף מרחב שמות. ייתכן ששלב עומסי העבודה דולג או הסתיים בקוד 0 בלי לקרוא ל־⁦Set-Workload⁩. בדקו את קובצי ⁦helm.stderr.log⁩ לעיל ואת השורות האחרונות של סקריפט המעטפת."
     },
     "automation.operator_72e28a58e0301f9b": {
       "sourceHash": "44f111f969d608de098aee839233d1d7c6e7139e922be02b16472d8c52145574",
@@ -1707,9 +1707,9 @@
       "message": "מתגים וירטואליים של Hyper-V"
     },
     "automation.operator_7d384e5a632109dd": {
-      "sourceHash": "35f9d9eece5e6e8fb60fcea1933e932852976ac0a5a11d040c13756064ea8a46",
+      "sourceHash": "02171fd077893066661853200ecc71aa9fb748eff2765de2b075f43d52d09b00",
       "origin": "machine",
-      "message": "(אין תיקיית פרויקט ב־{candidate} -- מדלגים על בדיקות משוערות לזיהוי פערים)"
+      "message": "(אין תיקיית פרויקט ב־{candidate} -- מדלגים על בדיקות הפריסה)"
     },
     "automation.operator_7f64bfad9ab853d4": {
       "sourceHash": "e0c3e75600f2bd58072c51cf3c5392fb2a042a50f79074af89955edd290f9fd6",
@@ -2725,7 +2725,7 @@
     "automation.operator_ad9c42ff8e5e7995": {
       "sourceHash": "bc245daabe76d5406669cdcd9bcb521bd9e758707e055d51c111d75fa4b6089a",
       "origin": "machine",
-      "message": "⁦Resolve-CloudInitPlaceholder⁩: התבנית עדיין מכילה מצייני מיקום שלא הוחלפו לאחר ההצבה: {join}. הוסיפו אותם ל-⁦-Replacement⁩ (עם ערך ריק אם זו הכוונה) או העבירו ⁦-AllowedUnresolved⁩."
+      "message": "⁦Resolve-CloudInitPlaceholder⁩: התבנית עדיין מכילה מצייני מיקום שלא הוחלפו לאחר ההצבה: {join}. הוסיפו אותם ל-⁦-Replacement⁩ (עם ערך ריק אם זו התצורה) או העבירו ⁦-AllowedUnresolved⁩."
     },
     "automation.operator_add466496962fbf6": {
       "sourceHash": "a8a0b7908862921241d295278461e53f524395f13cddd9388f6d1ebd7ba4ec8d",
@@ -3117,6 +3117,21 @@
       "origin": "machine",
       "message": "רשת: חיבור TCP⁦/443⁩ ישיר נדחה על ידי מסנן התעבורה היוצאת המקומי ולא מוגדר http(s)_proxy."
     },
+    "automation.system_diagnostic_registry_zot_compat_repaired": {
+      "sourceHash": "136d64e07420391672b287be8b9036b4317ad5f9e3619a0b15b934552e1c7205",
+      "origin": "machine",
+      "message": "REGISTRY: zot {version} של המטמון מסנכרן את תמונות המעבדה רק משום שבדיקת הסנכרון העצמית הוסיפה את http.compat {modes} לקובץ /etc/zot/config.json, שחסר בתצורה שגרסה זו של Yuruna מספקת; כל בנייה מחדש חוזרת על התיקון. דווחו על כך כדי שגרסה תכלול את המצב. פרטים: {healthUrl}"
+    },
+    "automation.system_diagnostic_registry_zot_incompatible": {
+      "sourceHash": "664c9679228330e3dca6574de9bec26a6491acbd2a448c0a575eba2415c5a846",
+      "origin": "machine",
+      "message": "REGISTRY: zot {version} של המטמון מסרב לתמונות שהמעבדה מושכת: בדיקת הסנכרון העצמית קיבלה HTTP {status} עבור {image}, שהמקור מגיש, ויומן zot מבקש את http.compat {modes} (נדחו {refused} תמונות בדיקה). הרצה חוזרת לא תעזור. תיקונים שאינם דורשים שינוי קוד: במטמון, הריצו sudo /usr/local/bin/zot-sync-selftest.py --heal; או הגדירו את vmStart.cachingProxyZotVersion ואת vmStart.cachingProxyZotSha256 בקובץ test/test.config.yml לגרסת zot שעובדת ובנו מחדש את המטמון; או עדכנו את Yuruna ובנו מחדש את המטמון. פרטים: {healthUrl}"
+    },
+    "automation.system_diagnostic_registry_zot_incompatible_unexplained": {
+      "sourceHash": "4a680527e88e38d4be82343f6ec3684d1c3c34b3405456d2d5efcc1db7c254b7",
+      "origin": "machine",
+      "message": "REGISTRY: zot {version} של המטמון מסרב לתמונות שהמעבדה מושכת: בדיקת הסנכרון העצמית קיבלה HTTP {status} עבור {image}, שהמקור מגיש (נדחו {refused} תמונות בדיקה). הרצה חוזרת לא תעזור. תיקונים שאינם דורשים שינוי קוד: שנו את /etc/zot/config.json במטמון כפי ששורת היומן של zot בדף התקינות מציינת, הפעילו מחדש את zot והריצו sudo /usr/local/bin/zot-sync-selftest.py; או הגדירו את vmStart.cachingProxyZotVersion ואת vmStart.cachingProxyZotSha256 בקובץ test/test.config.yml לגרסת zot שעובדת ובנו מחדש את המטמון; או עדכנו את Yuruna ובנו מחדש את המטמון. פרטים: {healthUrl}"
+    },
     "automation.system_diagnostic_utmctl_list_incomplete": {
       "sourceHash": "410f6bf1667685d826d78c56f61a3ed885843fa3f3d7e6bc91e8393085f22c0d",
       "origin": "machine",
@@ -3218,9 +3233,9 @@
       "message": "(virsh אינו נמצא בתוך PATH -- libvirt אינו מפעיל כאן את רשת האורח)"
     },
     "automation.operator_b2e83136c96ad810": {
-      "sourceHash": "af6fa665efdac7ebf5e0061cb1e431db8ef7f16541f2a14c828e5ec8d844f6b0",
+      "sourceHash": "67d3b44ccda474c209f346e432d232828457bb4f3744fe49cb6f14e18a31e3ce",
       "origin": "machine",
-      "message": "GAP: באשכול יש {count} צמתים במצב Ready אך אין תאי הפעלה מחוץ למרחבי השמות של המערכת -- לא נפרס דבר (שלב עומסי העבודה והרכיבים workloads⁦/components⁩ לא הושלם)."
+      "message": "תצפית אבחונית: באשכול יש {count} צמתים במצב Ready אך אין תאי הפעלה מחוץ למרחבי השמות של המערכת. בדקו אם שלב עומסי העבודה והרכיבים פרס את היישום הצפוי."
     },
     "automation.operator_b5ed33d7f546a531": {
       "sourceHash": "d7c8ee3740b620bfb79964607a271a19b472b7a9c6168e3008e63b226222dbf5",

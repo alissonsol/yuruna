@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 4215a4b8-4fbf-82d7-effd-933fdbd2dd43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -488,7 +488,7 @@
             'trust' = 'external'
         }
     )
-    'automation.operator_159f23f7bbf09a33' = '  1. 将autoEnrollment: { enabled: true, targetPoolId: default }添加到意图存储中的pools.yml'
+    'automation.operator_159f23f7bbf09a33' = '  1. 在配置存储中的 pools.yml 添加 autoEnrollment: { enabled: true, targetPoolId: default }'
     'automation.operator_163577cbcc97e68e' = @(
         "`“"
         @{
@@ -1319,7 +1319,7 @@
         '供操作系统、虚拟机监控程序和本次运行使用'
     )
     'automation.operator_45ac4b861def17e9' = '启发式检查4：本地镜像仓库中的镜像未被任何容器组引用'
-    'automation.operator_47229a44b80ae93b' = '（没有处于Ready状态的节点——集群尚未启动；不属于部署缺漏，请参见KUBE部分）'
+    'automation.operator_47229a44b80ae93b' = '（没有 Ready 节点 -- 集群尚未运行，无法进行部署检查；请参阅 KUBE 部分）'
     'automation.operator_4788a5c9b68d9b0a' = @(
         @{
             'arg' = 'problemTag'
@@ -1420,19 +1420,19 @@
         }
     }
     'automation.operator_4b5000e2da8b0a45' = @(
-        'GAP：'
+        '诊断观察：已向本地镜像仓库推送 '
         @{
             'arg' = 'count'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '个镜像已推送到本地镜像仓库，但未被任何容器组引用——'
+        ' 个镜像，但没有任何 pod 引用它们 -- '
         @{
             'arg' = 'join'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '。工作负载阶段可能未部署使用这些镜像的Chart，或Chart渲染这些镜像时使用了不同的镜像仓库前缀（请检查resources.output.yml中的componentsRegistry.registryLocation）。仅用作构建阶段的镜像出现在此处属于预期情况，本身不属于部署缺漏。'
+        '。工作负载阶段可能未部署使用这些镜像的 chart，或者 chart 使用了不同的镜像仓库前缀（请检查 resources.output.yml 中的 componentsRegistry.registryLocation）。仅用于构建阶段的镜像出现在这里属于正常情况，本身不能证明存在配置不一致。'
     )
     'automation.operator_4ba3081aa0af2a76' = '（整个时间窗口内只有此测试框架自身的轮询——未记录其他内容）'
     'automation.operator_4bcda64ddc713b3c' = @(
@@ -1825,19 +1825,19 @@
         '上授予权限——客户机DHCP失败时无法捕获网络数据包证据。'
     )
     'automation.operator_6026e7f1ae4f2ef0' = @(
-        "GAP：命名空间`“"
+        '配置不一致：命名空间 '''
         @{
             'arg' = 'name'
             'type' = 'detail'
             'trust' = 'external'
         }
-        "`”已在"
+        ''' 已在 '
         @{
             'arg' = 'file'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '中声明，但在集群中不存在——工作负载阶段从未创建它（helm install / kubectl create namespace未运行或出错）。'
+        ' 中声明，但集群中不存在。请检查工作负载阶段是否创建了它，以及 helm install / kubectl create namespace 是否成功。'
     )
     'automation.operator_6036ef007d775983' = @(
         '可用百分比：已用'
@@ -2166,13 +2166,13 @@
     )
     'automation.operator_726f2fd533779220' = '（helm不在PATH中——基于Chart的工作负载应尚未部署）'
     'automation.operator_72c1075973a89231' = @(
-        'GAP：存在'
+        '诊断观察：存在 '
         @{
             'arg' = 'tfStateCount'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '个tofu.tfstate文件，但helm在所有命名空间中共有0个发布——工作负载阶段似乎已被跳过，或未调用Set-Workload便以退出代码0结束。请检查上述helm.stderr.log文件和封装脚本的最后几行。'
+        ' 个 tofu.tfstate 文件，但 helm 在所有命名空间中均无 release。工作负载阶段可能被跳过，或者在未调用 Set-Workload 的情况下以代码 0 退出。请检查上面的 helm.stderr.log 文件和封装脚本的最后几行。'
     )
     'automation.operator_72e28a58e0301f9b' = '  -> 缺少它将无法执行Chart部署。'
     'automation.operator_72e2cb646e4c4115' = 'NETWORK：tcpdump缺少CAP_NET_RAW，因此客户机无法获取DHCP租约时不会留下网络数据包证据。请授予权限：sudo setcap cap_net_raw,cap_net_admin=eip $(command -v tcpdump)'
@@ -2388,7 +2388,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '处没有项目目录——跳过缺失项启发式检查）'
+        ' 处没有项目目录 -- 跳过部署检查）'
     )
     'automation.operator_7f64bfad9ab853d4' = 'docker-generic身份验证器：PATH中没有''docker''命令行工具。'
     'automation.operator_7fcfb4c365b13187' = '内核环形缓冲区（dmesg需要root权限；否则使用sudo log show）'
@@ -3372,13 +3372,13 @@
         }
     )
     'automation.operator_b2e83136c96ad810' = @(
-        'GAP：集群有'
+        '诊断观察：集群有 '
         @{
             'arg' = 'count'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '个Ready节点，但系统命名空间之外没有任何Pod，尚未部署任何内容（工作负载/组件（workloads/components）阶段未完成）。'
+        ' 个 Ready 节点，但系统命名空间之外没有 pod。请检查工作负载/组件阶段是否部署了预期的应用程序。'
     )
     'automation.operator_b31e13c9f6666800' = @(
         '无法清除：'
@@ -4991,6 +4991,96 @@
             'trust' = 'external'
         }
         "个。拒绝是缓存给出的答复，而不是正在进行的复制：在原因修复之前，每个请求这些镜像的客户机都会再次得到同样的答复。zot的同步日志会说明原因，见缓存健康仪表板中的`“Sync / upstream lines`”面板。"
+    )
+    'automation.system_diagnostic_registry_zot_compat_repaired' = @(
+        'REGISTRY：缓存的 zot '
+        @{
+            'arg' = 'version'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 之所以能同步实验室的镜像，只是因为其同步自检向 /etc/zot/config.json 添加了 http.compat '
+        @{
+            'arg' = 'modes'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，而此 Yuruna 版本附带的配置缺少该模式；每次重建都会重复这次修复。请报告此问题，以便后续版本附带该模式。详情：'
+        @{
+            'arg' = 'healthUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'automation.system_diagnostic_registry_zot_incompatible' = @(
+        'REGISTRY：缓存的 zot '
+        @{
+            'arg' = 'version'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 拒绝实验室拉取的镜像：其同步自检对 '
+        @{
+            'arg' = 'image'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 得到 HTTP '
+        @{
+            'arg' = 'status'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，而上游提供该镜像；zot 日志要求 http.compat '
+        @{
+            'arg' = 'modes'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '（'
+        @{
+            'arg' = 'refused'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 个探测镜像被拒绝）。重新运行无济于事。无需修改代码的修复方法：在缓存上运行 sudo /usr/local/bin/zot-sync-selftest.py --heal；或者在 test/test.config.yml 中将 vmStart.cachingProxyZotVersion 和 vmStart.cachingProxyZotSha256 设为可用的 zot 版本并重建缓存；或者更新 Yuruna 并重建缓存。详情：'
+        @{
+            'arg' = 'healthUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'automation.system_diagnostic_registry_zot_incompatible_unexplained' = @(
+        'REGISTRY：缓存的 zot '
+        @{
+            'arg' = 'version'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 拒绝实验室拉取的镜像：其同步自检对 '
+        @{
+            'arg' = 'image'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 得到 HTTP '
+        @{
+            'arg' = 'status'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，而上游提供该镜像（'
+        @{
+            'arg' = 'refused'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 个探测镜像被拒绝）。重新运行无济于事。无需修改代码的修复方法：按照健康页面上 zot 日志行的提示修改缓存上的 /etc/zot/config.json，重启 zot 并运行 sudo /usr/local/bin/zot-sync-selftest.py；或者在 test/test.config.yml 中将 vmStart.cachingProxyZotVersion 和 vmStart.cachingProxyZotSha256 设为可用的 zot 版本并重建缓存；或者更新 Yuruna 并重建缓存。详情：'
+        @{
+            'arg' = 'healthUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'automation.system_diagnostic_utmctl_list_incomplete' = @(
         '  utmctl list未在'

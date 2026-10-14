@@ -18,7 +18,7 @@ systemd units say `<name>-service`.
 | Squid front on the cache VM | the caching-proxy service | `caching-proxy-service` |
 | Squid access-log parser | the caching-proxy-parser service | `caching-proxy-parser-service` |
 | Squid Prometheus exporter | the squid-exporter service | `squid-exporter` (upstream binary name) |
-| Pool intent UI + API | the pool-control service | `pool-control-service` |
+| Pool configuration UI + API | the pool-control service | `pool-control-service` |
 | Fleet telemetry aggregator | the pool-aggregator service | `pool-aggregator-service` |
 | Artifact store daemon | the stash service | `stash-service` |
 | Pool-wide guest-image downloader | the download-agent service | `download-agent-service` (`downloadAgentService` config key) |
@@ -160,6 +160,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.11.1
+Last review: 2026.10.14
 
 [Architecture](../architecture.md) | [Design overview](README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.11.1
+.VERSION 2026.10.14
 .GUID 42df925f-3353-4a16-aae2-7e8a097c522c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,7 +76,7 @@ if (-not $OutputDirectory) {
 $null = New-Item -ItemType Directory -Path $OutputDirectory -Force
 $OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 
-# --- REGION: the two Go raw-string pages
+# --- REGION: Go raw-string pages
 function Get-GoRawStringConstant {
     <#
     .SYNOPSIS
@@ -215,7 +215,7 @@ foreach ($p in $goPages) {
     Write-Line "  wrote $failFile  <- $($p.Source)"
 }
 
-# --- REGION: the two globalization reference slices
+# --- REGION: Globalization reference slices
 # The ordinary accessibility sweep renders English source pages. These four
 # pages keep the same shipped builders and assets but apply the server decision
 # and fixture data for each pseudo locale, so reflow, contrast, direction and
@@ -336,7 +336,7 @@ foreach ($locale in @(
     Write-Line "  wrote $poolName  <- pool hosts builder + served $tag catalog"
 }
 
-# --- REGION: the per-cycle transcript
+# --- REGION: Per-cycle transcript
 # Written by the real tee so the severity spans and the step-rule promotion are
 # the shipped ones. A transcript transcribed by hand would assert nothing about
 # the module that actually writes them.
@@ -385,7 +385,7 @@ try {
 [IO.File]::AppendAllText($transcript, "</pre></main></body></html>$([Environment]::NewLine)")
 Write-Line '  wrote cycle-transcript.html  <- Test.Log.psm1 + Yuruna.Log.psm1'
 
-# --- REGION: the log directory listing
+# --- REGION: Log directory listing
 # The builder lives inside the status-service here-string template, where every
 # runtime variable is backtick-escaped. Extracting the block and undoing that
 # escaping runs the CHARACTERS THAT DEPLOY -- a re-implementation here would
@@ -436,7 +436,7 @@ Write-Line '  wrote log-directory-index.html  <- Start-StatusService.ps1 templat
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'test/status/yuruna.common.css') `
     -Destination (Join-Path $OutputDirectory 'yuruna.common.css') -Force
 
-# --- REGION: the notification email
+# --- REGION: Notification email
 # The transport is private to the extension module, so the capture runs inside
 # that module's scope, where a local function shadows the cmdlet the sender
 # calls. The alternative -- rebuilding the payload here -- would test this file.
@@ -478,7 +478,7 @@ Full transcript: http://192.168.7.44/log/000200.2026-08-19.08-20-48.422dd0cac87e
 }
 Write-Line '  wrote notification-email.html  <- notification/default.psm1'
 
-# --- REGION: the pages a host provisions into a guest
+# --- REGION: Guest-provisioned pages
 # Read out of the seed rather than re-typed here. A copy in this file would be
 # the thing the gates measure, and the bytes the guest actually serves would
 # stop being checked the first time the two drifted.
@@ -546,11 +546,10 @@ foreach ($producer in $provisioned) {
 }
 Write-Line "  $($provisioned.Count) provisioned page(s) extracted from their seeds"
 
-# --- REGION: the fixtures have to actually contain what they are checked for --
-# A page that renders nothing passes every check it should have failed, and this
-# script has already produced one: silencing a preference silenced the log tee
-# with it, leaving a transcript with no step headings and no information lines
-# that the browser gate then reported clean. A fixture builder that cannot
+# --- REGION: Fixture content
+# A page that renders nothing passes every check it should have failed. Silencing a
+# preference also silences the log tee, leaving a transcript with no step headings and no
+# information lines that the browser gate then reports clean. A fixture builder that cannot
 # detect its own empty output is worth less than no fixture at all.
 $expected = [ordered]@{
     'caching-proxy-parser-ui.html' = @('<html lang="en"', 'id="pause"', 'class="scroller"', "yurunaRequest('/recent-requests'")

@@ -73,7 +73,7 @@ const ROUTES = [
   ['/api/login', { ok: true }],
   ['/api/state', {
     ok: true,
-    pools: [{ poolId: 'default', poolGuid: HOST, displayName: 'Default', members: [HOST], desiredState: 'run', repositories: { frameworkUrl: 'https://f.test', projectUrl: 'https://p.test' } }]
+    pools: [{ poolId: 'default', poolGuid: HOST, displayName: 'Default', members: [HOST], configuredState: 'run', repositories: { frameworkUrl: 'https://f.test', projectUrl: 'https://p.test' } }]
   }],
   ['/api/board', {
     ok: true,
@@ -92,8 +92,8 @@ const ROUTES = [
   }],
   ['/api/diagnostics', {
     ok: true, version: '1.2.3', go: 'go1.25', collectedAt: '2026-08-22T00:00:00Z',
-    checks: [{ name: 'intent', ok: true, detail: 'fine', hint: '' }],
-    intentProbe: { argv: ['pwsh'], exitCode: 0, duration: '1s', stdout: '', stderr: '' },
+    checks: [{ name: 'configuration-read', ok: true, detail: 'fine', hint: '' }],
+    configurationProbe: { argv: ['pwsh'], exitCode: 0, duration: '1s', stdout: '', stderr: '' },
     environment: {}, runtime: { os: 'linux', arch: 'amd64', pid: 1 }
   }],
   ['/api/v1/status', { ok: true, autoSeed: true, bestEffort: [{ imageKey: 'guest.windows.11', available: true }], totals: { bytes: 1024, images: 1, currentBytes: 1024 } }],

@@ -559,7 +559,7 @@
       }
     },
     "configsync.operator_9e1f86637c4a7e09": {
-      "message": "left it empty (defaults to <runtime>/pool-intent)",
+      "message": "left it empty (defaults to <runtime>/pool-configuration)",
       "description": "Host configuration and credential setup guidance. Preserve command syntax, configuration keys, and external values.",
       "lifecycle": "active"
     },
@@ -581,7 +581,7 @@
       }
     },
     "configsync.operator_a07da31688eb8071": {
-      "message": "Sync-HostConfiguration: refusing to copy a stale config from {referenceHost} in -NonInteractive mode. Re-run with -AllowStaleReference to accept the drift, or bring the reference host up to date first.",
+      "message": "Sync-HostConfiguration: refusing to copy a stale config from {referenceHost} in -NonInteractive mode. Re-run with -AllowStaleReference to accept the outdated configuration, or bring the reference host up to date first.",
       "description": "Host configuration and credential setup guidance. Preserve command syntax, configuration keys, and external values.",
       "lifecycle": "active",
       "placeholders": {
